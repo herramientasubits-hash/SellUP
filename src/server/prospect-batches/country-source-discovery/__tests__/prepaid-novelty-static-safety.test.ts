@@ -294,8 +294,16 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // la 138 y la 140). La capa gratuita sigue sin necesitar esquema, que es lo único que esta
       // guarda afirma. AUTORADA y NO APLICADA.
       '142_agent1_company_bank.sql',
+      // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 añade la 143: el progreso en vivo de una corrida del
+      // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+      // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de
+      // BR, ni de CUT3B4, ni de la capa GRATUITA de descubrimiento que esta guarda protege: no
+      // nombra `provider_seen_entities`, no altera `prospect_batches` ni `prospect_candidates`
+      // ni los referencia como FK. La capa gratuita sigue sin necesitar esquema, que es lo único
+      // que esta guarda afirma. AUTORADA y NO APLICADA.
+      '143_agent1_run_progress.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF y el banco de empresas',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas y el progreso en vivo de la corrida',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

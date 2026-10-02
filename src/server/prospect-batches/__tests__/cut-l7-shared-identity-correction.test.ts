@@ -971,9 +971,28 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 142 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 143 o superior, se llame como se llame.
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 reclamó después la 143: el progreso en vivo de una corrida
+    // del Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario lee sólo su fila; no es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4).
+    // Misma exigencia por AUTORÍA que con la 137–142: se EXIGE que la 143 sea exactamente esa
+    // migración y que su cuerpo no mencione CUT-L7 ni la identidad compartida que este corte
+    // toca. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^143_/.test(f)),
+      ['143_agent1_run_progress.sql'],
+      'la 143 tiene que ser el progreso en vivo de la corrida, y sólo ella',
+    );
+    const runProgress = read('supabase/migrations/143_agent1_run_progress.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        runProgress.includes(foreign),
+        false,
+        `la 143 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 144 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[3-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[4-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

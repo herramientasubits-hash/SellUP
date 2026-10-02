@@ -30,7 +30,7 @@ import { ChatComposer } from '@/components/chat';
 import { Stepper, type StepperStep } from '@/components/navigation/stepper';
 import { getWizardProgressSteps } from '@/modules/prospect-batches/chat-wizard/wizard-selectors';
 import { WizardMessageList } from './wizard-message-list';
-import { WizardActiveStep } from './wizard-active-step';
+import { WizardActiveStep, WIZARD_QUESTION_STEPS } from './wizard-active-step';
 import { SubmittingPanel } from './wizard-execution-panels';
 import {
   WizardConversationSummary,
@@ -216,8 +216,6 @@ export function ProspectChatWizard({
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
 
-  // Tracks whether the user confirmed they want to add criteria (YES/NO gate)
-  const [criteriaIntention, setCriteriaIntention] = React.useState<'pending' | 'yes'>('pending');
 
   // ── Progressive message reveal ─────────────────────────────────────────────
   const [visibleCount, setVisibleCount] = React.useState(0);
@@ -527,7 +525,6 @@ export function ProspectChatWizard({
       action.type === 'GO_BACK' ||
       (action.type === 'EDIT_STEP' && action.step === 'additional_criteria')
     ) {
-      setCriteriaIntention('pending');
       setCriteriaText('');
     }
     dispatch(action);
@@ -538,7 +535,6 @@ export function ProspectChatWizard({
   // so auto-validation on summary is not immediately re-triggered in a loop.
 
   function handleEditSearch() {
-    setCriteriaIntention('pending');
     setCriteriaText('');
     dispatch({ type: 'EDIT_STEP', step: 'additional_criteria' });
   }
@@ -546,8 +542,13 @@ export function ProspectChatWizard({
   // ── Composer submission (additional criteria) ─────────────────────────────
 
   function handleComposerSubmit() {
+    submitCriteria(criteriaText);
+  }
+
+  /** El criterio adicional, venga de la caja de escribir o de «Otro» en la pregunta. */
+  function submitCriteria(text: string) {
     if (state.currentStep !== 'additional_criteria') return;
-    const trimmed = criteriaText.trim();
+    const trimmed = text.trim();
     if (!trimmed) return;
 
     const maxChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
@@ -844,15 +845,15 @@ export function ProspectChatWizard({
 
   const isSummaryPhase = SUMMARY_STEPS.has(state.currentStep);
 
-  // Lock the composer until the user explicitly says YES to adding criteria
-  const composerMode =
-    state.currentStep === 'additional_criteria' && criteriaIntention === 'pending'
-      ? ('locked_selection' as const)
-      : getComposerMode(state.currentStep);
-  const composerPlaceholder =
-    state.currentStep === 'additional_criteria' && criteriaIntention === 'pending'
-      ? '¿Quieres agregar algún criterio adicional?'
-      : getComposerPlaceholder(state.currentStep);
+  const composerMode = getComposerMode(state.currentStep);
+  const composerPlaceholder = getComposerPlaceholder(state.currentStep);
+  // Lo que el agente pregunta se contesta en la tarjeta de la pregunta, acoplada
+  // en el sitio de la caja de escribir (`ChatQuestionPanel`).
+  const questionDocked =
+    WIZARD_QUESTION_STEPS.has(state.currentStep) &&
+    !state.restartConfirmationRequired &&
+    !isTyping &&
+    !isSummaryPhase;
   const maxCriteriaChars = EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars;
 
   // Q3F-5BB.3F — At the final review step the actions live in the panel footer
@@ -872,6 +873,18 @@ export function ProspectChatWizard({
     const id = setTimeout(() => composerInputRef.current?.focus(), 60);
     return () => clearTimeout(id);
   }, [composerUnlocked]);
+
+  const activeStepView = (
+    <WizardActiveStep
+      state={state}
+      dispatch={dispatch}
+      industryOptions={industryOptions}
+      subindustryOptions={subindustryOptions}
+      onCountryChange={handleCountryChange}
+      stepTitleRef={stepTitleRef}
+      onSubmitCriteria={submitCriteria}
+    />
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────
   // Es el cuerpo del panel del agente: el hilo desplaza arriba y la caja de
@@ -956,17 +969,8 @@ export function ProspectChatWizard({
                   noNewCandidatesBreakdown={noNewCandidatesBreakdown}
                   persistenceOutcome={persistenceOutcome}
                 />
-              ) : (
-                <WizardActiveStep
-                  state={state}
-                  dispatch={dispatch}
-                  industryOptions={industryOptions}
-                  subindustryOptions={subindustryOptions}
-                  onCountryChange={handleCountryChange}
-                  stepTitleRef={stepTitleRef}
-                  criteriaIntention={criteriaIntention}
-                  onCriteriaIntentionYes={() => setCriteriaIntention('yes')}
-                />
+              ) : WIZARD_QUESTION_STEPS.has(state.currentStep) ? null : (
+                activeStepView
               )}
             </div>
           )}
@@ -985,7 +989,10 @@ export function ProspectChatWizard({
         </div>
       )}
 
-      {!hideComposer && (
+      {/* La pregunta del agente, acoplada en el sitio de la caja de escribir. */}
+      {questionDocked && <div className="shrink-0 px-4 pb-4 pt-2">{activeStepView}</div>}
+
+      {!hideComposer && !questionDocked && (
         <div className="shrink-0 px-4 pb-4 pt-2">
           <ChatComposer
             compact

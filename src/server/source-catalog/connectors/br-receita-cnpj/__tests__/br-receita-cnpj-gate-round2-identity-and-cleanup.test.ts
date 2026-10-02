@@ -655,7 +655,11 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // table `agent1_company_bank`, service_role only; not phone, not catalog, not BR, not
     // CUT3B4). Not a BR migration; the authorship sweep further down is WIDENED to include it.
     // AUTHORED and NOT APPLIED.
-    assert.equal(highest, 142, 'the repository ceiling is 142 — AGENT1-COMPANY-BANK, not CUT A');
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 then moved the ceiling to 143 with the live progress of an
+    // Agent 1 run (a separate table `agent1_run_progress`; service_role writes, each user reads
+    // only their own row; not phone, not catalog, not BR, not CUT3B4). Not a BR migration; the
+    // authorship sweep further down is WIDENED to include it. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 143, 'the repository ceiling is 143 — AGENT1-RUN-LIVE-PROGRESS-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -697,7 +701,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('142')),
       ['142_agent1_company_bank.sql'],
-      'AGENT1-COMPANY-BANK owns exactly one migration, and it is the ceiling',
+      'AGENT1-COMPANY-BANK owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('143')),
+      ['143_agent1_run_progress.sql'],
+      'AGENT1-RUN-LIVE-PROGRESS-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -739,7 +748,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       // previous one.
       // The 142 (AGENT1-COMPANY-BANK) joins too: it names no CNPJ at all, so unlike the 141 it
       // needs no carve-out.
-      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140', '142'].some(
+      // The 143 (AGENT1-RUN-LIVE-PROGRESS-1) joins as well: it names no CNPJ either.
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140', '142', '143'].some(
         (n) => f.startsWith(n),
       ),
     )) {

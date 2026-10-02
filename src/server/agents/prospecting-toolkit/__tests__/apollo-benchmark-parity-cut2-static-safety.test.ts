@@ -716,7 +716,12 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // `agent1_company_bank`, sólo service_role; no es de teléfono, ni del catálogo, ni de BR, ni
     // de CUT3B4). AUTORADA y NO APLICADA. El proxy «el siguiente número está libre» se mueve por
     // tanto de la 142 a la 143, y el barrido de AUTORÍA se ENSANCHA para incluir la 142.
-    assert.equal(migrations.filter((f) => f.startsWith('143')).length, 0);
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 reclamó después la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila); no es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4. AUTORADA y NO APLICADA. El proxy «el siguiente número está libre» se mueve por
+    // tanto de la 143 a la 144, y el barrido de AUTORÍA se ENSANCHA para incluir la 143.
+    assert.equal(migrations.filter((f) => f.startsWith('144')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -737,7 +742,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('139') ||
         f.startsWith('140') ||
         f.startsWith('141') ||
-        f.startsWith('142'),
+        f.startsWith('142') ||
+        f.startsWith('143'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

@@ -439,7 +439,12 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // `agent1_company_bank`, sólo service_role; no es de teléfono, ni del catálogo, ni de BR, ni
     // de CUT3B4). AUTORADA y NO APLICADA. El proxy se mueve de la 142 a la 143, y el barrido de
     // AUTORÍA se ENSANCHA para incluir la 142.
-      migrations.filter((f) => f.startsWith('143')).length,
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 reclamó después la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila); no es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4. AUTORADA y NO APLICADA. El proxy se mueve de la 143 a la 144, y el barrido de
+    // AUTORÍA se ENSANCHA para incluir la 143.
+      migrations.filter((f) => f.startsWith('144')).length,
       0,
       'este corte no añade migración',
     );
@@ -463,7 +468,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('139') ||
         f.startsWith('140') ||
         f.startsWith('141') ||
-        f.startsWith('142'),
+        f.startsWith('142') ||
+        f.startsWith('143'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

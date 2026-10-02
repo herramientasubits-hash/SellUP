@@ -504,6 +504,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // nombra `mobile_phone` y no toca la erasure que esta suite protege. AUTORADA y NO
       // APLICADA.
       '142_agent1_company_bank.sql',
+      // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 reclamó después la 143: el progreso en vivo de una corrida del
+      // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+      // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+      // ni de CUT3B4. Su único `DELETE` es el GRANT a service_role sobre su PROPIA tabla: no borra
+      // filas de contactos, no nombra `mobile_phone` y no toca la erasure que esta suite protege.
+      // AUTORADA y NO APLICADA.
+      '143_agent1_run_progress.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -580,7 +587,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte, sólo
     // service_role). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO
     // APLICADA.
-    assert.equal(numbered[numbered.length - 1], 142);
+    // AGENT1-RUN-LIVE-PROGRESS-1 mueve el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 143);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

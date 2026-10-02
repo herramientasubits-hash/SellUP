@@ -161,20 +161,23 @@ function SubindustriesHost({
           subindustryOptions={OPTIONS}
           onCountryChange={() => {}}
           stepTitleRef={titleRef}
-          criteriaIntention="pending"
-          onCriteriaIntentionYes={() => {}}
+          onSubmitCriteria={() => {}}
         />
       )}
     </div>
   );
 }
 
-function openSelector(): void {
-  fireEvent.click(screen.getByRole('combobox'));
-}
+// Las subindustrias son opciones de la tarjeta de la pregunta: se marcan directo,
+// sin desplegable.
+function openSelector(): void {}
 
 function pick(label: string): void {
-  fireEvent.click(screen.getByText(label));
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(label) }));
+}
+
+function isPicked(label: string): boolean {
+  return screen.getByRole('button', { name: new RegExp(label) }).getAttribute('aria-pressed') === 'true';
 }
 
 before(async () => {
@@ -230,7 +233,7 @@ describe('§ A.2 — la multiselección se compromete al estado en cada clic', (
 
     // El hilo de mensajes vuelve a "escribir": el paso activo se desmonta…
     rerender(<SubindustriesHost initialState={stateAtSubindustriesStep()} mounted={false} />);
-    assert.equal(screen.queryByRole('combobox'), null);
+    assert.equal(screen.queryByTestId('chat-question-panel'), null);
 
     // …y vuelve. Con el borrador local esto reiniciaba la selección a cero.
     rerender(<SubindustriesHost initialState={stateAtSubindustriesStep()} mounted />);
@@ -246,16 +249,16 @@ describe('§ A.2 — la multiselección se compromete al estado en cada clic', (
     );
   });
 
-  it('el paso lista explícitamente cada subindustria elegida', () => {
+  it('el paso marca a la vista cada subindustria elegida', () => {
     render(<SubindustriesHost initialState={stateAtSubindustriesStep()} mounted />);
 
     openSelector();
     pick(TIENDAS.name);
     pick(SUPERMERCADOS.name);
 
-    // Cada nombre aparece en la lista explícita además del control.
-    assert.ok(screen.getAllByText(TIENDAS.name).length >= 2);
-    assert.ok(screen.getAllByText(SUPERMERCADOS.name).length >= 2);
+    // Cada opción elegida queda marcada en la tarjeta antes de gastar créditos.
+    assert.ok(isPicked(TIENDAS.name));
+    assert.ok(isPicked(SUPERMERCADOS.name));
   });
 });
 

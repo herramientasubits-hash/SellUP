@@ -1418,7 +1418,11 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
     // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4: tampoco es autoría de BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '142_agent1_company_bank.sql');
+    // AGENT1-RUN-LIVE-PROGRESS-1 mueve el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 (tabla aparte `agent1_run_progress`; escribe service_role, cada usuario lee sólo su
+    // fila). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4: tampoco es autoría de
+    // BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '143_agent1_run_progress.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);
