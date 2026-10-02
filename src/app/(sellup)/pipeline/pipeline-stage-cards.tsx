@@ -326,13 +326,17 @@ function EnriquecimientoBody({
                   key={contact.id}
                   size="sm"
                   title={contact.fullName}
-                  description={contact.jobTitle ?? "Sin cargo"}
-                  meta={
-                    <span className="flex items-center gap-1.5">
-                      <Badge variant={contact.hasRevealedPhone ? "positive" : "neutral"}>
-                        {contact.hasRevealedPhone ? "Con teléfono" : "Sin teléfono"}
-                      </Badge>
-                      <Badge variant={contact.hubspotLinked ? "info" : "neutral"}>{contact.hubspotLabel}</Badge>
+                  // Las insignias van bajo el cargo y no al lado: en media columna,
+                  // dos insignias en la misma fila dejaban el nombre sin sitio.
+                  description={
+                    <span className="flex flex-col gap-1.5 whitespace-normal">
+                      <span>{contact.jobTitle ?? "Sin cargo"}</span>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={contact.hasRevealedPhone ? "positive" : "neutral"}>
+                          {contact.hasRevealedPhone ? "Con teléfono" : "Sin teléfono"}
+                        </Badge>
+                        <Badge variant={contact.hubspotLinked ? "info" : "neutral"}>{contact.hubspotLabel}</Badge>
+                      </span>
                     </span>
                   }
                 />
