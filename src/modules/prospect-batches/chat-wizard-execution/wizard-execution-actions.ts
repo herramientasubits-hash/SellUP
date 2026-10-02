@@ -74,6 +74,7 @@ import {
   isTavilyFirstSatisfied,
   resolveInlineRescueWindowMs,
   resolveTavilyFirstPrecheck,
+  withRecountedAcceptance,
   type TavilyFirstOutcome,
   type WriterTruthLike,
 } from './wizard-tavily-first';
@@ -300,6 +301,11 @@ export type WizardExecutionDeps = {
    * revisó. Sin dep ⇒ no se revisa dentro (la decisión usa lo de Tavily).
    */
   rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
+  /**
+   * AGENT1-TAVILY-FIRST-3 — ids de las filas de Tavily (`web_ai`) del lote que
+   * cuentan para la meta, leídos DESPUÉS de la revisión de Claude. `null` = no se pudo.
+   */
+  listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
   /** AGENT1-TAVILY-FIRST-2 — inicio de la acción, para medir los 300 s de Vercel. */
   actionStartedAtMs?: number;
   /** Reloj inyectable (pruebas). Por defecto `Date.now`. */
@@ -597,6 +603,16 @@ export async function executeProspectWizardGenerationAction(
         buildLiveRescueBatchDeps(triggeredBy),
       );
       return summary.ok;
+    },
+    listAcceptedCandidateIds: async (batchId) => {
+      const { data, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('id')
+        .eq('batch_id', batchId)
+        .eq('source_primary', 'web_ai')
+        .not('status', 'in', '(duplicate,discarded)')
+        .eq('metadata->target_completeness->>counts_toward_target', 'true');
+      return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
     },
     countReviewableCandidates: async (batchId) => {
       const { count, error } = await budgetClient
@@ -2100,6 +2116,8 @@ export async function executeProspectWizardGeneration(
   // y Lusha no se pagan. Cualquier tropiezo ⇒ Apollo como siempre.
   let tavilyFirstOutcome: TavilyFirstOutcome | null = null;
   let tavilyFirstResult: IncrementalSearchOutput | null = null;
+  /** AGENT1-TAVILY-FIRST-3 — aceptadas de Tavily recontadas tras Claude (`null` = sin recuento). */
+  let tavilyFirstAcceptedIds: string[] | null = null;
   /** Tiempo desde el inicio de la acción (0 si no se sabe: nunca bloquea por error). */
   const elapsedSinceActionStartMs = (): number =>
     deps.actionStartedAtMs === undefined
@@ -2149,6 +2167,9 @@ export async function executeProspectWizardGeneration(
             if (reviewed) {
               claudeReviewed = true;
               after = await countReviewable();
+              tavilyFirstAcceptedIds = deps.listAcceptedCandidateIds
+                ? await deps.listAcceptedCandidateIds(reservedBatchId).catch(() => null)
+                : null;
             }
           }
         }
@@ -2193,7 +2214,7 @@ export async function executeProspectWizardGeneration(
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
     tavilyFirstOutcome?.outcome === 'apollo_completed' && tavilyFirstResult
-      ? {
+      ? withRecountedAcceptance({
           completeValidCandidates: tavilyFirstResult.persistenceOutcome?.completeValidCandidates ?? null,
           persistedCandidates: tavilyFirstResult.candidatesCreated ?? 0,
           ...(tavilyFirstResult.persistenceOutcome?.acceptedCandidateIds
@@ -2203,7 +2224,7 @@ export async function executeProspectWizardGeneration(
                 ),
               }
             : {}),
-        }
+        }, tavilyFirstAcceptedIds)
       : null;
 
   let pipelineResult: IncrementalSearchOutput;
@@ -2441,12 +2462,19 @@ export async function executeProspectWizardGeneration(
   // qué hueco queda ANTES de correr. El veredicto que se reporta se resuelve
   // abajo, con las piernas ya liquidadas; el nombre lo dice para que nadie
   // vuelva a usar esta cifra como final.
+  /**
+   * AGENT1-TAVILY-FIRST-3 — cuando la corrida terminó con Tavily (sin Apollo), su
+   * verdad de pago son las aceptadas recontadas tras la revisión de Claude.
+   */
+  const recountIfTavilyClosed = (truth: WriterTruthLike): WriterTruthLike =>
+    tavilyFirstSatisfied ? withRecountedAcceptance(truth, tavilyFirstAcceptedIds) : truth;
+
   const acceptedAfterApollo = resolveRunAcceptance(
     combineWriterTruths(
-      {
+      recountIfTavilyClosed({
         completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
         persistedCandidates: pipelineResult.candidatesCreated ?? 0,
-      },
+      }),
       tavilyFirstTruth,
     ),
   );
@@ -2587,7 +2615,7 @@ export async function executeProspectWizardGeneration(
 
   const acceptedForTarget = resolveRunAcceptance(
     // AGENT1-TAVILY-FIRST-1 — con Tavily + Apollo, la verdad de pago es la suma medida.
-    combineWriterTruths({
+    combineWriterTruths(recountIfTavilyClosed({
       completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
       persistedCandidates: pipelineResult.candidatesCreated ?? 0,
       // 🔴 X6.13 — los ids DURABLES de las filas que el writer aceptó, ya
@@ -2600,7 +2628,7 @@ export async function executeProspectWizardGeneration(
             ),
           }
         : {}),
-    }, tavilyFirstTruth),
+    }), tavilyFirstTruth),
     waterfallWriterTruth,
     // 🔴 X6.13 — el techo real: las filas ÚNICAS que existen en el lote.
     finalDurableTotals.totalDurableCandidates,
@@ -2765,7 +2793,9 @@ export async function executeProspectWizardGeneration(
           ...(tavilyFirstOutcome ? { tavily_first_leg: tavilyFirstOutcome } : {}),
           // AGENT1-TAVILY-FIRST-1 — con Tavily + Apollo, el escritor de Apollo
           // publicó sólo su mitad: se republica el bloque combinado.
-          ...(lushaWaterfall.executed || tavilyFirstTruth !== null
+          // AGENT1-TAVILY-FIRST-3 — y también cuando Claude revisó dentro: el
+          // writer publicó lo medido ANTES de la revisión.
+          ...(lushaWaterfall.executed || tavilyFirstTruth !== null || tavilyFirstAcceptedIds !== null
             ? {
                 [ACCEPTED_FOR_TARGET_METADATA_KEY]:
                   toAcceptedForTargetMetadata(acceptedForTarget),

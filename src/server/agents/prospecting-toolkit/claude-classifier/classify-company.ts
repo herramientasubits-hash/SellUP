@@ -27,7 +27,7 @@ import {
 } from './evidence-verifier';
 import { normalizeDomain } from '../normalization';
 import { extractLinkedInCompanyUrlsFromHtml } from '../linkedin-website-social-extractor';
-import { verifyLinkedInCompany } from './linkedin-verifier';
+import { linkedInCompanyUrlsFromEvidence, verifyLinkedInCompany } from './linkedin-verifier';
 import { extractVisibleText } from './page-text';
 import {
   buildSubmitToolDefinition,
@@ -202,14 +202,30 @@ export async function classifyCompany(
       : firstPass;
 
   // LinkedIn: sólo con fuente (enlace en el sitio oficial o resultado de búsqueda con slug coincidente).
-  const linkedinCheck = verifyLinkedInCompany({
-    claimedUrl: submission.linkedin_company_url,
+  const linkedinInput = {
     officialSiteLinks: page.html ? extractLinkedInCompanyUrlsFromHtml(page.html) : [],
     searchResultUrls: extractSearchResultUrls(conversation.content),
     companyName: params.company.name,
     companyDomain: normalizeDomain(website),
     countryCode: params.company.countryCode,
-  });
+  };
+  let linkedinCheck = verifyLinkedInCompany({ ...linkedinInput, claimedUrl: submission.linkedin_company_url });
+  // AGENT1-CLAUDE-LINKEDIN-FROM-EVIDENCE-1 — sin propuesta de Claude, la página de
+  // LinkedIn que usó como FUENTE del tamaño o del sector es candidata. Cada una pasa
+  // por las mismas comprobaciones; gana la primera que coincide con la empresa (no
+  // la primera de la lista). Prod 02-10: Volcan quedaba sin LinkedIn por esto.
+  if (!linkedinCheck.linkedin && !submission.linkedin_company_url) {
+    for (const candidate of linkedInCompanyUrlsFromEvidence([
+      verified.employeeRange?.sourceUrl,
+      verified.sector?.sourceUrl,
+    ])) {
+      const check = verifyLinkedInCompany({ ...linkedinInput, claimedUrl: candidate });
+      if (check.linkedin) {
+        linkedinCheck = check;
+        break;
+      }
+    }
+  }
   const verifiedWithLinkedIn = {
     ...verified,
     linkedin: linkedinCheck.linkedin,

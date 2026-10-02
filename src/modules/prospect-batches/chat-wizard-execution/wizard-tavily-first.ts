@@ -113,3 +113,20 @@ export function combineWriterTruths(a: WriterTruthLike, b: WriterTruthLike | nul
     ...(identities.length > 0 ? { acceptedIdentities: identities } : {}),
   };
 }
+
+/**
+ * AGENT1-TAVILY-FIRST-3 — la verdad del tramo de Tavily tras la revisión de Claude.
+ *
+ * El writer mide las aceptadas al escribir; Claude completa tamaños DESPUÉS
+ * (dentro de la corrida). Prod 02-10 (97c86cf7): el lote decía 0 aunque Veolia ya
+ * contaba. `ids` = filas de Tavily que cuentan en la base tras la revisión; `null`
+ * (no revisó o no se pudo leer) ⇒ se queda lo medido por el writer.
+ */
+export function withRecountedAcceptance(truth: WriterTruthLike, ids: readonly string[] | null): WriterTruthLike {
+  if (ids === null) return truth;
+  return {
+    ...truth,
+    completeValidCandidates: ids.length,
+    acceptedIdentities: ids.map((id) => `candidate:${id}`),
+  };
+}
