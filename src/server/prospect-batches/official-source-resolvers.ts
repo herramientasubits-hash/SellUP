@@ -63,6 +63,7 @@ import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
+import { CL_SII_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
 import {
   BO_SEPREC_LIVE_SOURCE_KEY,
@@ -196,15 +197,29 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       normalizeCore: normalizeSpainCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'es_placsp_registry', 'ES'),
     }),
-    // SOURCES-CL-RUT-BY-NAME-1 — sociedades del Registro de Empresas y Sociedades.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'CL',
-      sourceKey: 'cl_res_registry',
-      taxIdentifierType: 'RUT',
-      validTaxId: /^\d{7,8}-[\dK]$/,
-      normalizeCore: normalizeChileCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cl_res_registry', 'CL'),
-    }),
+    // SOURCES-CL-SII-REGISTRY-1 — personas jurídicas activas del SII (desde 1993,
+    // con trabajadores informados); si no da RUT fuerte, el Registro de Empresas
+    // y Sociedades (SOURCES-CL-RUT-BY-NAME-1, sólo constituidas desde 2013).
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'CL',
+        sourceKey: CL_SII_REGISTRY_SOURCE_KEY,
+        taxIdentifierType: 'RUT',
+        validTaxId: /^\d{7,8}-[\dK]$/,
+        normalizeCore: normalizeChileCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, CL_SII_REGISTRY_SOURCE_KEY, 'CL', {
+          withWorkforce: true,
+        }),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'CL',
+        sourceKey: 'cl_res_registry',
+        taxIdentifierType: 'RUT',
+        validTaxId: /^\d{7,8}-[\dK]$/,
+        normalizeCore: normalizeChileCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cl_res_registry', 'CL'),
+      }),
+    ),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
     createSnapshotNameOfficialSourceResolver({
       countryCode: 'CR',

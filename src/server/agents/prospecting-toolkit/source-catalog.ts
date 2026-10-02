@@ -918,6 +918,34 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'cl_sii_registry',
+    name: 'SII — Nómina de personas jurídicas (RUT por nombre + trabajadores)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como primera fuente de RUT de Chile (si no da RUT seguro, sigue cl_res_registry). La carga de 1.699.728 personas jurídicas activas espera la autorización de la dueña: hasta entonces Chile sigue usando sólo cl_res_registry.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
+    automationLevel: 'high',
+    recommendedUse:
+      'Nómina pública y gratuita del Servicio de Impuestos Internos: todas las personas jurídicas desde 1993 (RUT, razón social, subtipo, término de giro) y, por año comercial, tramo según ventas, trabajadores dependientes informados y actividad económica. Se cargan las 1.699.728 SIN término de giro (sin EIRL, sociedades de hecho, comunidades, sucesiones, juntas de vecinos, clubes ni sindicatos); 809.116 con trabajadores informados en 2024 y 5.695 con 200 o más. El 82,1 % de los nombres es único. Cubre las empresas anteriores a 2013 que el Registro de Empresas y Sociedades no tiene (149 de 150 RUT de una muestra de cl_res_registry están aquí).',
+    limitations: [
+      '«Trabajadores dependientes informados» no es el tamaño total de la empresa: es un estimado oficial con su año (2024), nunca un dato confirmado.',
+      'El número de trabajadores sólo viaja con un RUT seguro (mismo RUT), nunca con homónimos.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Actividad: texto del SII y código de 6 dígitos (el que coincide con la actividad del año; si no, el primero publicado).',
+    ],
+    riskNotes: [
+      'Cerca de 1 de cada 5 nombres se repite: esos casos quedan como señal, no como RUT seguro.',
+      'Universidades, organismos públicos, municipalidades y fundaciones SÍ se cargan: también son clientes de UBITS.',
+    ],
+  },
+  {
     key: 'cl_res_registry',
     name: 'Registro de Empresas y Sociedades — RUT por nombre',
     sellupUse: 'legal_validation',
