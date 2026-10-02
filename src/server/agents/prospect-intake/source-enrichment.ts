@@ -81,6 +81,18 @@ export const OFFICIAL_SOURCE_ISSUE = {
  * canonicalized by the orchestrator (status downgrades + standard warning/issue
  * tokens applied). `safeMetadata` is BOUNDED — never a raw registry payload.
  */
+/**
+ * SOURCES-CL-SII-REGISTRY-1 — trabajadores informados por el registro oficial
+ * (hoy: SII de Chile). Es un ESTIMADO con su año, nunca el tamaño confirmado, y
+ * sólo viaja con una identidad fuerte (mismo RUT).
+ */
+export interface OfficialWorkforce {
+  workers: number;
+  year: number;
+  source: string;
+  salesBracket?: string | null;
+}
+
 export interface OfficialSourceEnrichmentResult {
   status: OfficialSourceEnrichmentStatus;
   countryCode: string | null;
@@ -102,6 +114,9 @@ export interface OfficialSourceEnrichmentResult {
 
   /** Small, curated signal fields only. NEVER a raw payload dump. */
   safeMetadata?: Record<string, unknown>;
+
+  /** Trabajadores del registro oficial; sólo con match fuerte. */
+  workforce?: OfficialWorkforce | null;
 }
 
 /**
@@ -340,6 +355,8 @@ function canonicalizeResult(
     warnings,
     issues,
     safeMetadata,
+    // SOURCES-CL-SII-REGISTRY-1 — sólo con match, y sólo si existe (forma intacta para el resto).
+    ...(status === 'matched' && raw.workforce ? { workforce: { ...raw.workforce } } : {}),
   };
 }
 
@@ -456,8 +473,11 @@ export function buildOfficialSourceEnrichmentMetadata(
   strongIdentityAvailable: boolean;
   warnings: string[];
   issues: string[];
+  workforce?: OfficialWorkforce;
 } {
   const source = enriched.officialSource;
+  // Sólo con identidad fuerte, y sólo si existe: el resto de resultados no cambia de forma.
+  const workforce = enriched.strongIdentityAvailable && source.workforce ? { ...source.workforce } : null;
   return {
     status: source.status,
     sourceKey: source.sourceKey ?? null,
@@ -473,6 +493,7 @@ export function buildOfficialSourceEnrichmentMetadata(
     strongIdentityAvailable: enriched.strongIdentityAvailable,
     warnings: [...enriched.identityWarnings],
     issues: [...enriched.identityIssues],
+    ...(workforce === null ? {} : { workforce }),
   };
 }
 

@@ -142,6 +142,21 @@ describe('Catálogo — identificadores y nombres de país', () => {
   });
 });
 
+describe('Chile SII (SOURCES-CL-SII-REGISTRY-1): conectada en código, carga pendiente', () => {
+  it('existe, CL, identidad en la corrida, sin carga verificada todavía y fuera de las recomendaciones', () => {
+    const s = CATALOG_SOURCES.find((source) => source.key === 'cl_sii_registry');
+    assert.ok(s);
+    assert.deepEqual(s.countryCodes, ['CL']);
+    assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
+    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.match(s.nextAction ?? '', /espera la autorización/);
+    for (const depth of ['basic', 'standard', 'deep'] as const) {
+      const ctx = getCatalogContext({ country: 'Chile', countryCode: 'CL', industry: 'technology', searchDepth: depth });
+      assert.equal(ctx.recommendedSources.some((r) => r.key === 'cl_sii_registry'), false, depth);
+    }
+  });
+});
+
 describe('proveedores globales con su estado real (SOURCES-CATALOG-COUNTRY-AUDIT-1)', () => {
   const byKey = (key: string) => CATALOG_SOURCES.find((s) => s.key === key);
 
