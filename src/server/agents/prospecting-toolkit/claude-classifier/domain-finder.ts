@@ -133,13 +133,13 @@ export function buildDomainFinderRequestBody(input: DomainFinderInput, model: st
 }
 
 /** Mismo sitio: igual, o uno es subdominio del otro (`portal.unam.mx` ↔ `unam.mx`). */
-function sameSite(a: string, b: string): boolean {
+export function sameSite(a: string, b: string): boolean {
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
-type SearchResultEntry = { domain: string; title: string | null };
+export type SearchResultEntry = { domain: string; title: string | null };
 
-function extractSearchResultEntries(content: AnthropicConversationResult['content']): SearchResultEntry[] {
+export function extractSearchResultEntries(content: AnthropicConversationResult['content']): SearchResultEntry[] {
   return content
     .filter((b) => b.type === 'web_search_tool_result' && Array.isArray(b.content))
     .flatMap((b) => b.content as Array<Record<string, unknown>>)
