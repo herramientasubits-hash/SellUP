@@ -110,6 +110,37 @@ export function parseSeprecSearch(body: unknown): SearchHit[] {
   return hits;
 }
 
+/**
+ * Una búsqueda con más resultados que éste no se considera «marca distintiva»:
+ * «ORIENTAL» devuelve 193 empresas; «MERSUR», «LOGIBOL» o «DAPIBOL», 1-2.
+ */
+export const BO_SEPREC_BRAND_MAX_SEARCH_TOTAL = 5;
+
+function searchTotal(body: unknown): number | null {
+  const total = (body as { datos?: { total?: unknown } } | null)?.datos?.total;
+  return typeof total === 'number' && Number.isFinite(total) ? total : null;
+}
+
+/**
+ * La marca (todas las palabras del núcleo buscado, como palabras completas) dentro
+ * de la razón social de EXACTAMENTE una sociedad activa no unipersonal, y la
+ * búsqueda con pocos resultados. Si no, `null`.
+ */
+export function findBrandInLegalName(
+  wanted: string,
+  hits: readonly { id: string; establishmentId: string; legalName: string; core: string }[],
+  total: number | null,
+): { id: string; establishmentId: string; legalName: string; core: string } | null {
+  if (total === null || total > BO_SEPREC_BRAND_MAX_SEARCH_TOTAL) return null;
+  const words = wanted.split(' ').filter((word) => word.length > 0);
+  if (words.length === 0 || words.join('').length < 4) return null;
+  const containing = hits.filter((hit) => {
+    const coreWords = new Set(hit.core.split(' '));
+    return words.every((word) => coreWords.has(word));
+  });
+  return containing.length === 1 ? containing[0] : null;
+}
+
 /** Ficha de detalle → NIT (sólo dígitos), o `null`. Nada más se lee. */
 export function parseSeprecDetailNit(body: unknown): string | null {
   const nit = text((body as { datos?: { nit?: unknown } } | null)?.datos?.nit);
@@ -146,8 +177,12 @@ export function buildSeprecNameLiveQuery(
     spentMs += waitMs;
   };
 
-  /** Una petición: `null` si falla; `'rate_limited'` si el SEPREC respondió 429. */
-  const request = async (url: string): Promise<unknown | null | 'rate_limited'> => {
+  /**
+   * Una petición: `null` si falla; `'rate_limited'` si el SEPREC respondió 429;
+   * `'timed_out'` si superó el tope por petición (el SEPREC a veces tarda > 6 s en
+   * una búsqueda que otras veces responde en < 2 s).
+   */
+  const request = async (url: string): Promise<unknown | null | 'rate_limited' | 'timed_out'> => {
     const startedAt = now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), BO_SEPREC_REQUEST_TIMEOUT_MS);
@@ -157,7 +192,7 @@ export function buildSeprecNameLiveQuery(
       if (!response.ok) return null;
       return await response.json();
     } catch {
-      return null;
+      return controller.signal.aborted ? 'timed_out' : null;
     } finally {
       clearTimeout(timer);
       lastRequestAt = now();
@@ -170,11 +205,12 @@ export function buildSeprecNameLiveQuery(
     await pace(BO_SEPREC_MIN_INTERVAL_MS);
     if (!budgetLeft()) return null;
     let body = await request(url);
-    if (body === 'rate_limited' && budgetLeft()) {
-      await pace(BO_SEPREC_RATE_LIMIT_WAIT_MS);
+    // Un 429 o un corte por tiempo se reintentan UNA vez, si queda presupuesto.
+    if ((body === 'rate_limited' || body === 'timed_out') && budgetLeft()) {
+      await pace(body === 'rate_limited' ? BO_SEPREC_RATE_LIMIT_WAIT_MS : BO_SEPREC_MIN_INTERVAL_MS);
       body = budgetLeft() ? await request(url) : null;
     }
-    if (body === null || body === 'rate_limited') {
+    if (body === null || body === 'rate_limited' || body === 'timed_out') {
       consecutiveFailures += 1;
       return null;
     }
@@ -188,12 +224,24 @@ export function buildSeprecNameLiveQuery(
     if (lookups >= BO_SEPREC_MAX_LOOKUPS_PER_RUN) return [];
     lookups += 1;
 
-    const search = await getJson(buildSeprecSearchUrl(core.trim()));
-    const matches = parseSeprecSearch(search).filter((hit) => hit.core === core.trim());
+    const wanted = core.trim();
+    const search = await getJson(buildSeprecSearchUrl(wanted));
+    const hits = parseSeprecSearch(search);
+    const matches = hits.filter((hit) => hit.core === wanted);
     const rows: SnapshotNameRow[] = [];
     for (const hit of matches.slice(0, BO_SEPREC_MAX_DETAILS_PER_LOOKUP)) {
       const nit = parseSeprecDetailNit(await getJson(buildSeprecDetailUrl(hit.id, hit.establishmentId)));
       if (nit !== null) rows.push({ taxId: nit, legalName: hit.legalName, normalizedLegalName: hit.core });
+    }
+    if (rows.length > 0 || matches.length > 0) return rows;
+
+    // SOURCES-BO-BRAND-SIGNAL-1 — sin coincidencia exacta: ¿la marca está dentro de
+    // la razón social de UNA sola sociedad activa, en una búsqueda con pocos
+    // resultados? Entonces se devuelve como PISTA (nunca NIT fuerte).
+    const brand = findBrandInLegalName(wanted, hits, searchTotal(search));
+    if (brand !== null) {
+      const nit = parseSeprecDetailNit(await getJson(buildSeprecDetailUrl(brand.id, brand.establishmentId)));
+      if (nit !== null) rows.push({ taxId: nit, legalName: brand.legalName, normalizedLegalName: brand.core, brandSignal: true });
     }
     return rows;
   };
