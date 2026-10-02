@@ -146,6 +146,22 @@ import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-t
 import { writeProspectingCandidates } from '../candidate-writer';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { buildDeliveryCappedDispositionRows } from '@/modules/prospect-discards/delivery-capped-dispositions';
+import {
+  APOLLO_BANK_DRAW_PER_RUN,
+  APOLLO_BANK_RESERVE_SECONDS,
+  apolloEvidenceKeyForCapped,
+  mergeBankOrganizations,
+  planApolloBankDeposit,
+  planBankSettlement,
+  readApolloBankEvidence,
+  type DrawnBankCompany,
+} from '@/server/prospect-batches/company-bank/apollo-company-bank-bridge';
+import {
+  resolveApolloCompanyBankPort,
+  type ApolloCompanyBankPort,
+} from '@/server/prospect-batches/company-bank/apollo-company-bank-port.server';
+import type { CompanyBankSettleItem } from '@/server/prospect-batches/company-bank/company-bank-types';
+import { resolveRunMacroIndustryKey } from '@/server/prospect-batches/provider-seen/apollo-exclusion-scope';
 import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
 // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — adoption of the existing,
 // provider-neutral official-source intake seam (see the module docstring for
@@ -649,6 +665,11 @@ export type ApolloTwoRoundProductionDeps = {
     identity: ApolloPageFenceIdentity,
     entry: ApolloPageFenceEntry,
   ) => Promise<ApolloPageFenceWriteOutcome>;
+  /**
+   * AGENT1-COMPANY-BANK — el banco de empresas. `null` ⇒ sin banco (interruptor
+   * puesto o sin cliente): la corrida es la de siempre.
+   */
+  companyBank: ApolloCompanyBankPort | null;
 };
 
 /** § 2 — contexto vacío y DEGRADADO: nada resuelto, todo pendiente. */
@@ -1094,6 +1115,8 @@ export async function runApolloTwoRoundWizardDiscovery(
     readPageFenceEntries: (batchId, identity) => readApolloPageFenceEntries(batchId, identity),
     writePageFenceEntry: (batchId, identity, entry) =>
       upsertApolloPageFenceEntry(batchId, identity, entry),
+    // Las suites pasan `depsOverride` y nunca tocan el banco real salvo que lo inyecten.
+    companyBank: depsOverride ? null : resolveApolloCompanyBankPort(),
     ...depsOverride,
   };
 
@@ -1236,6 +1259,62 @@ export async function runApolloTwoRoundWizardDiscovery(
     });
     if (!evidenceByKey.has(key)) evidenceByKey.set(key, pending.evidence);
   }
+
+  /**
+   * AGENT1-COMPANY-BANK — antes de pagar la primera página, se sacan del banco
+   * hasta 10 empresas del mismo país × macro industria. Entran como si fueran
+   * resultados de esa página (con su evidencia guardada, igual que una
+   * reanudación): vuelven a pasar TODOS los filtros gratis, compiten por el
+   * enriquecimiento y las escribe el escritor de siempre, que es quien las
+   * reclama para el vendedor. Al terminar se cierra la extracción
+   * (`assigned` / `released` / `invalidated`).
+   *
+   * Una sola extracción por proceso; el id de la extracción es el del lote.
+   */
+  const bankMacroIndustryKey = resolveRunMacroIndustryKey({
+    industrySlug: null,
+    industryName: input.industry ?? null,
+  });
+  const bankDraw: {
+    attempted: boolean;
+    drawn: DrawnBankCompany[];
+    unreadable: CompanyBankSettleItem[];
+    status: 'not_attempted' | 'ok' | 'unavailable';
+  } = { attempted: false, drawn: [], unreadable: [], status: 'not_attempted' };
+  const drawCompanyBankOrganizations = async (
+    roundNumber: number,
+  ): Promise<RawDiscoveredOrganization[]> => {
+    if (roundNumber !== 1 || bankDraw.attempted) return [];
+    bankDraw.attempted = true;
+    if (!deps.companyBank || !bankMacroIndustryKey || !input.countryCode) return [];
+    const result = await deps.companyBank.store.draw({
+      countryCode: input.countryCode,
+      macroIndustryKey: bankMacroIndustryKey,
+      limit: APOLLO_BANK_DRAW_PER_RUN,
+      tiers: ['ready', 'to_complete'],
+      reserveSeconds: APOLLO_BANK_RESERVE_SECONDS,
+      drawId: input.reservedBatchId,
+    });
+    bankDraw.status = result.status;
+    if (result.status !== 'ok') return [];
+    const organizations: RawDiscoveredOrganization[] = [];
+    for (const company of result.companies) {
+      const evidence = readApolloBankEvidence(company);
+      const domain = evidence?.domain ? normalizeDomain(evidence.domain) : null;
+      if (!evidence || !domain) {
+        bankDraw.unreadable.push({ id: company.id, outcome: 'invalidated', reason: 'unreadable_payload' });
+        continue;
+      }
+      const organization = toRawDiscoveredOrganization(
+        fromCandidateEvidenceSnapshot(evidence),
+        organizations.length + 1,
+      );
+      evidenceByKey.set(candidateKeyFor(organization), evidence);
+      bankDraw.drawn.push({ bankId: company.id, domain });
+      organizations.push(organization);
+    }
+    return organizations;
+  };
 
   /**
    * § 8 — resultado de las comprobaciones externas por candidato, cacheado.
@@ -2034,8 +2113,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     },
 
     searchRound: async ({ hypothesis, requestedResultLimit, operationContext }) => {
+      // AGENT1-COMPANY-BANK — lo del banco llega aunque Apollo no pueda pagar.
+      const bankOrganizations = await drawCompanyBankOrganizations(operationContext.roundNumber);
       if (budgetExceeded()) {
-        return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
+        return { organizations: bankOrganizations, providerRequestCount: 0, internalRecordedCredits: 0 };
       }
 
       const { searchInput, searchOptions } = buildRoundSearchRequest(
@@ -2064,7 +2145,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       // se confunda con "la ronda no hacía falta".
       if (fenceReadOutcome.kind === 'failed') {
         warnings.push(`apollo_page_fence_read_failed:${fenceReadOutcome.reason}`);
-        return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
+        return { organizations: bankOrganizations, providerRequestCount: 0, internalRecordedCredits: 0 };
       }
 
       const fenceEntriesForRound = fenceReadOutcome.entries.filter(
@@ -2237,7 +2318,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       });
 
       return {
-        organizations,
+        organizations: mergeBankOrganizations(bankOrganizations, organizations, candidateKeyFor),
         providerRequestCount: output.skipped ? 0 : 1,
         internalRecordedCredits: credits,
         indeterminate: readSearchIndeterminacy(output),
@@ -3414,6 +3495,16 @@ export async function runApolloTwoRoundWizardDiscovery(
       extraBatchMetadata: {
         ...(input.extraBatchMetadata ?? {}),
         apollo_discovery_modality: 'two_round_adaptive',
+        // AGENT1-COMPANY-BANK — cuántas empresas salieron del banco en esta corrida.
+        ...(bankDraw.drawn.length > 0 || bankDraw.unreadable.length > 0
+          ? {
+              company_bank: {
+                drawn: bankDraw.drawn.length + bankDraw.unreadable.length,
+                reinjected: bankDraw.drawn.length,
+                unreadable: bankDraw.unreadable.length,
+              },
+            }
+          : {}),
         // CUT-2 §§ 4, 6 — qué objetivo gobernó de verdad esta corrida y de dónde
         // salió. Sin esto, un lote con tres candidatos donde el usuario pidió diez
         // se lee como un fallo de recall en vez de como un hueco ya cerrado gratis.
@@ -3520,25 +3611,82 @@ export async function runApolloTwoRoundWizardDiscovery(
       );
     });
 
-    // AGENT1-DELIVERY-CAP-STAYS-FREE-1 — lo que el tope de entrega dejó fuera
-    // queda en «Descartadas» (y la exclusión de Apollo lo libera): sin esto,
-    // Apollo ya lo tenía por visto y lo ocultaba ~30 días a todos los vendedores.
+    // AGENT1-COMPANY-BANK — lo que el tope de entrega dejó fuera va al BANCO del
+    // país × macro industria: queda sin dueño y la próxima corrida lo saca antes
+    // de pagar. Lo que no puede ir al banco (sin dominio, sin evidencia, banco
+    // caído o apagado) queda en «Descartadas» como en AGENT1-DELIVERY-CAP-STAYS-
+    // FREE-1, para que la exclusión de Apollo no lo oculte ~30 días.
     // Best-effort: nunca altera el resultado de la corrida.
     const deliveryCapped = writerResult.deliveryCappedCompanies ?? [];
-    if (deliveryCapped.length > 0) {
-      const cappedBatchId = writerResult.batchId ?? input.reservedBatchId;
-      if (cappedBatchId) {
+    const cappedBatchId = writerResult.batchId ?? input.reservedBatchId;
+    if (deliveryCapped.length > 0 && cappedBatchId) {
+      const bankPlan = planApolloBankDeposit({
+        countryCode: input.countryCode ?? '',
+        macroIndustryKey: deps.companyBank ? bankMacroIndustryKey : null,
+        sourceBatchId: cappedBatchId,
+        capped: deliveryCapped,
+        evidenceFor: (company) => evidenceByKey.get(apolloEvidenceKeyForCapped(company)) ?? null,
+      });
+      const deposit =
+        deps.companyBank && bankPlan.items.length > 0
+          ? await deps.companyBank.store.deposit(bankPlan.items)
+          : null;
+      const toDiscards = deposit?.status === 'ok' ? bankPlan.notBankable : deliveryCapped;
+      if (deposit) {
+        console.info('[apollo-two-round] company bank deposit', {
+          batchId: cappedBatchId,
+          status: deposit.status,
+          ...(deposit.status === 'ok'
+            ? {
+                deposited: deposit.deposited,
+                skippedInBank: deposit.skippedInBank,
+                skippedClaimed: deposit.skippedClaimed,
+                skippedInvalid: deposit.skippedInvalid,
+              }
+            : { reason: deposit.reason }),
+        });
+      }
+      if (toDiscards.length > 0) {
         await persistDiscardedDispositionRows(
           buildDeliveryCappedDispositionRows({
             batchId: cappedBatchId,
             sourcePrimary: 'apollo',
             requestedCountryCode: input.countryCode ?? null,
             requestedIndustry: input.industry ?? null,
-            companies: deliveryCapped,
+            companies: toDiscards,
           }),
         ).catch((err) => {
           console.error('[apollo-two-round] delivery-capped dispositions failed (non-critical):', err);
         });
+      }
+    }
+
+    // AGENT1-COMPANY-BANK — se cierra lo que se sacó del banco. Si la lectura del
+    // lote falla no se cierra nada: las reservas vencen solas y el reclamo del
+    // escritor sigue impidiendo que dos vendedores reciban la misma empresa.
+    if (deps.companyBank && cappedBatchId && (bankDraw.drawn.length > 0 || bankDraw.unreadable.length > 0)) {
+      const persistedByDomain = await deps.companyBank.readPersistedCandidateIdsByDomain(
+        cappedBatchId,
+        bankDraw.drawn.map((company) => company.domain),
+      );
+      const settleItems: CompanyBankSettleItem[] = [
+        ...bankDraw.unreadable,
+        ...(persistedByDomain === null
+          ? []
+          : planBankSettlement({
+              batchId: cappedBatchId,
+              drawn: bankDraw.drawn,
+              persistedCandidateIdByDomain: persistedByDomain,
+              cappedDomains: new Set(
+                deliveryCapped
+                  .map((company) => (company.domain ? normalizeDomain(company.domain) : null))
+                  .filter((domain): domain is string => domain !== null),
+              ),
+            })),
+      ];
+      if (settleItems.length > 0) {
+        const settled = await deps.companyBank.store.settle(input.reservedBatchId, settleItems);
+        console.info('[apollo-two-round] company bank settle', { batchId: cappedBatchId, ...settled });
       }
     }
 

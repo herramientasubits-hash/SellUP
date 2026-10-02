@@ -11,6 +11,7 @@ import type { CandidatePersistenceOutcome } from './prospect-candidate-persisten
 import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
 import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
 import type { PersistedCandidateAcceptance } from './candidate-accepted-for-target-trace';
+import type { GlobalIdentityClaim } from './global-identity-claims';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -779,6 +780,15 @@ export type DeliveryCappedCompany = {
   domain: string | null;
   linkedinUrl: string | null;
   countryCode: string | null;
+  /**
+   * AGENT1-COMPANY-BANK — lo que el banco necesita. Opcionales: los dobles de
+   * prueba anteriores no los traen y la ruta de «Descartadas» no los lee.
+   */
+  providerOrganizationId?: string | null;
+  /** `true` ⇒ completa (entra al banco como `ready`). */
+  countsTowardTarget?: boolean;
+  /** Las MISMAS claves de reclamo global que la fila habría tomado al persistirse. */
+  claims?: readonly GlobalIdentityClaim[];
 };
 
 // Combined output for runAndWriteProspectingPipeline

@@ -388,6 +388,33 @@ describe('AGENT1-DELIVERY-CAP-1 — writer Apollo/Tavily: tope de entrega por ve
     assert.deepEqual(none.deliveryCappedCompanies, []);
   });
 
+  it('🔴 BANCO: lo recortado trae si contaba para la meta y las MISMAS claves de reclamo', async () => {
+    // 12 completas, tope 10 ⇒ se recortan dos COMPLETAS (entran al banco como `ready`).
+    const all = new Set(NAMES.map((_name, index) => index));
+    const complete = await runWriter(buildCandidates(all), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    assert.equal(complete.deliveryCappedCompanies.length, 2);
+    for (const company of complete.deliveryCappedCompanies) {
+      assert.equal(company.countsTowardTarget, true, `${company.name} contaba para la meta`);
+      assert.ok(company.domain, `${company.name} trae dominio`);
+      assert.deepEqual(
+        company.claims?.find((claim) => claim.type === 'domain'),
+        { type: 'domain', key: company.domain },
+        `${company.name}: el reclamo de dominio es el que la fila habría tomado`,
+      );
+    }
+
+    const incomplete = await runWriter(buildCandidates(), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    for (const company of incomplete.deliveryCappedCompanies) {
+      assert.equal(company.countsTowardTarget, false, `${company.name} no contaba`);
+    }
+  });
+
   it('(b) 🔴 COMPLETAS PRIMERO: con las completas AL FINAL de la entrada, todas se persisten', async () => {
     // Las 4 últimas (8..11) son completas; con tope 10 un recorte por orden de
     // entrada se llevaría dos de ellas (10 y 11).
