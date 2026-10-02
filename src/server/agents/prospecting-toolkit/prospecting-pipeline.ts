@@ -800,7 +800,10 @@ export async function buildProspectingPipelineCandidate(
   // Google CSE la URL sigue siendo el sitio real y nada cambia.
   const isApolloResult = isApolloOrganizationsResult(result);
   const declaredWebsite = isApolloResult ? readApolloCandidateWebsite(result) : result.url;
-  const website = declaredWebsite;
+  // AGENT1-TAVILY-HOMEPAGE-2 — en Tavily la URL es la PÁGINA encontrada; el sitio
+  // es su portada (Prod 02-10, BO 8c3b2db5: este constructor seguía guardando la
+  // página interior). La página queda como `sourceUrl`. Apollo: lo declarado.
+  const website = isApolloResult ? declaredWebsite : toHomepageUrl(declaredWebsite);
   const domain = declaredWebsite === null ? null : normalizeDomain(declaredWebsite);
   // Sin sitio declarado no hay URL de la que inferir un nombre: inferirlo del
   // perfil de Apollo produciría «Apollo» para cualquier organización sin dominio.

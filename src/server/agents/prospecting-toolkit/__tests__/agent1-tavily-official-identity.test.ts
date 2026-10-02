@@ -9,6 +9,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   enrichTavilyCandidatesWithOfficialIdentity,
@@ -181,5 +183,23 @@ describe('el sitio de una empresa de Tavily es su portada (AGENT1-TAVILY-FIRST-5
   it('null y lo que no es URL quedan iguales', () => {
     assert.equal(toHomepageUrl(null), null);
     assert.equal(toHomepageUrl('no es una url'), 'no es una url');
+  });
+});
+
+describe('el segundo constructor de candidatas también guarda la portada (AGENT1-TAVILY-HOMEPAGE-2)', () => {
+  // Prod 02-10 (BO 8c3b2db5): `buildProspectingPipelineCandidate` —que Tavily
+  // también usa— seguía guardando la página interior. Hace I/O real y no se
+  // puede ejecutar offline: se ancla sobre el fuente, sin comentarios.
+  const src = fs
+    .readFileSync(path.join(process.cwd(), 'src/server/agents/prospecting-toolkit/prospecting-pipeline.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const body = src.slice(src.indexOf('export async function buildProspectingPipelineCandidate'));
+
+  it('fuera de Apollo el sitio es la portada; Apollo conserva lo declarado', () => {
+    assert.match(body, /const website = isApolloResult \? declaredWebsite : toHomepageUrl\(declaredWebsite\);/);
+  });
+  it('la página encontrada sigue como fuente', () => {
+    assert.match(body, /sourceUrl: result\.url,/);
   });
 });
