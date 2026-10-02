@@ -1033,3 +1033,23 @@ export const AGENT1_CLAUDE_DOMAIN_FINDER_FLAG = 'ENABLE_AGENT1_CLAUDE_DOMAIN_FIN
 export function isAgent1ClaudeDomainFinderEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_DOMAIN_FINDER_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · piloto «Claude busca empresas» (AGENT1-CLAUDE-COMPANY-SEARCH-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CLAUDE_COMPANY_SEARCH_FLAG = 'ENABLE_AGENT1_CLAUDE_COMPANY_SEARCH';
+
+/**
+ * ¿Puede un admin pedir, desde un lote, que Claude busque MÁS empresas del mismo
+ * país e industria? Claude busca en la web; SellUp filtra lo que no salió de la
+ * búsqueda y pasa el resto por la cadena de siempre (sitio, duplicados SellUp y
+ * HubSpot en sólo lectura, país, sector, tamaño, «una empresa, un vendedor»). Escribe
+ * en un lote NUEVO para medirlo aparte. NUNCA aprueba nada. Usa el modelo y la
+ * credencial de Configuración → IA.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1ClaudeCompanySearchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_COMPANY_SEARCH_FLAG]);
+}

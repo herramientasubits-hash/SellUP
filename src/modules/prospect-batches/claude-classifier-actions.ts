@@ -10,9 +10,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { isAgent1ClaudeClassifierEnabled, isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
+import {
+  isAgent1ClaudeClassifierEnabled,
+  isAgent1ClaudeCompanySearchEnabled,
+  isAgent1ClaudeRescueEnabled,
+} from '@/lib/feature-flags.server';
 import type { ClassifyBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates';
 import type { RescueBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch';
+import type { ClaudeCompanySearchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run';
 
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 
@@ -89,5 +94,41 @@ export async function rescueBatchWithClaudeAction(batchId: string): Promise<Clau
     buildLiveRescueBatchDeps(internalUserId),
   );
   if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
+  return summary;
+}
+
+export type ClaudeCompanySearchActionResult =
+  | ClaudeCompanySearchSummary
+  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch' };
+
+/**
+ * AGENT1-CLAUDE-COMPANY-SEARCH-1 — piloto: Claude busca MÁS empresas del mismo país e
+ * industria que este lote y las deja en un lote NUEVO (para medirlo aparte). Al
+ * terminar, el rescate de siempre completa sector y tamaño en segundo plano.
+ */
+export async function searchCompaniesWithClaudeAction(batchId: string): Promise<ClaudeCompanySearchActionResult> {
+  const startedAtMs = Date.now();
+  if (!isAgent1ClaudeCompanySearchEnabled()) return { ok: false, error: 'disabled' };
+  if (!batchId || !UUID_PATTERN.test(batchId)) return { ok: false, error: 'invalid_batch' };
+
+  const internalUserId = await resolveAdminInternalUserId();
+  if (!internalUserId) return { ok: false, error: 'unauthorized' };
+
+  const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }, { scheduleClaudeRescueAfterWizardRun }] =
+    await Promise.all([
+      import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
+      import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
+      import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server'),
+    ]);
+  const summary = await runClaudeCompanySearch(
+    { sourceBatchId: batchId, triggeredBy: internalUserId },
+    buildLiveClaudeCompanySearchDeps(internalUserId),
+  );
+  // Lote creado pero sin empresas (todas cayeron en las compuertas): nada que completar.
+  if (summary.ok && summary.batchId && summary.candidatesCreated > 0) {
+    // Las de Claude llegan sin tamaño confirmado: el rescate lo completa (o descarta) con fuente.
+    scheduleClaudeRescueAfterWizardRun({ ok: true, batchId: summary.batchId }, async () => internalUserId, startedAtMs);
+    revalidatePath('/prospect-batches');
+  }
   return summary;
 }
