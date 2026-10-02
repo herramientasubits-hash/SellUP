@@ -100,6 +100,7 @@ import {
   buildUnverifiedFreeDispositionRows,
   partitionFreeCompaniesByDomain,
 } from './free-source-unverified';
+import type { BankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
 
 export type PrePaidNoveltyDiscoveryInput = {
   /**
@@ -148,6 +149,13 @@ export type PrePaidNoveltyDiscoveryInput = {
    * su propia superficie y NO forma parte de este corte (§ 9).
    */
   resolveBatchId?: () => Promise<string>;
+  /**
+   * AGENT1-COMPANY-BANK-FIRST-1 — el banco de empresas como PRIMERA fuente (antes
+   * de la capa gratuita). Sólo corre con `resolveBatchId`: la ruta Lusha de
+   * pending-review no tiene lote canónico y no saca del banco. Ausente ⇒ todo
+   * exactamente como antes.
+   */
+  drawCompanyBank?: BankFirstDrawer;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -218,11 +226,117 @@ const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
   recordUnverified: persistDiscardedDispositionRows,
 };
 
+/**
+ * AGENT1-COMPANY-BANK-FIRST-1 — primero el banco, después la capa gratuita.
+ *
+ *   · banco sin aporte (apagado, vacío, caído) ⇒ la capa gratuita de siempre,
+ *     byte por byte;
+ *   · el banco cierra la meta ⇒ la capa gratuita no corre y `providerRequired`
+ *     es `false`: no corre ninguna pierna de pago;
+ *   · el banco aporta en parte ⇒ la capa gratuita busca sólo el hueco que queda,
+ *     en el MISMO lote, y su tope de entrega descuenta lo que el banco ya entregó.
+ *
+ * Sólo lo que el ESCRITOR midió como completo cuenta para la meta; las filas
+ * «por completar» del banco se entregan pero no cierran el hueco.
+ */
 export async function runPrePaidNoveltyDiscovery(
   client: SupabaseClient,
   input: PrePaidNoveltyDiscoveryInput,
   /** Inyectable SÓLO para pruebas. Producción usa siempre las reales. */
   deps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
+): Promise<PrePaidNoveltyDiscoveryOutcome> {
+  const resolveCanonical = input.resolveBatchId;
+  const bank =
+    resolveCanonical && input.drawCompanyBank
+      ? await input
+          .drawCompanyBank({
+            countryCode: input.countryCode,
+            countryName: input.countryName,
+            macroIndustryKey: input.macroIndustryKey,
+            requestedTarget: input.requestedTarget,
+            requestedByUserId: input.requestedByUserId,
+            resolveBatchId: resolveCanonical,
+          })
+          .catch(() => null)
+      : null;
+  if (!bank || bank.persistedCount <= 0) {
+    const outcome = await runFreeCatalogLayer(client, input, deps);
+    return bank ? { ...outcome, telemetry: { ...outcome.telemetry, company_bank_first: bank.telemetry } } : outcome;
+  }
+
+  const bankAccepted = Math.min(Math.max(0, bank.acceptedCount), input.requestedTarget);
+  const remaining = Math.max(0, input.requestedTarget - bankAccepted);
+  const bankBatchId = bank.batchId;
+  const bankTelemetry = { company_bank_first: bank.telemetry };
+
+  if (remaining === 0) {
+    return {
+      requestedTarget: input.requestedTarget,
+      residualGap: 0,
+      acceptedBeforeProvider: bankAccepted,
+      providerRequired: false,
+      batchId: bankBatchId,
+      persistedCount: bank.persistedCount,
+      knownSuppressionDomains: [],
+      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+      providerExclusionPlan: planProviderExclusions(input.provider, {}),
+      freeSource: notAttemptedFreeSourceOutcome(),
+      telemetry: bankTelemetry,
+    };
+  }
+
+  const freeCap = resolveMaxDeliveredCandidates(undefined, input.requestedTarget);
+  const free = await runFreeCatalogLayer(
+    client,
+    {
+      ...input,
+      requestedTarget: remaining,
+      resolveBatchId: async () => bankBatchId ?? (await resolveCanonical!()),
+    },
+    {
+      ...deps,
+      maxDeliveredCandidates:
+        deps.maxDeliveredCandidates !== undefined
+          ? deps.maxDeliveredCandidates
+          : freeCap === null
+            ? null
+            : Math.max(freeCap - bank.persistedCount, remaining),
+    },
+  ).catch((): PrePaidNoveltyDiscoveryOutcome | null => null);
+
+  if (!free) {
+    // La capa gratuita falló: lo que el banco escribió sigue siendo verdad.
+    return {
+      requestedTarget: input.requestedTarget,
+      residualGap: remaining,
+      acceptedBeforeProvider: bankAccepted,
+      providerRequired: true,
+      batchId: bankBatchId,
+      persistedCount: bank.persistedCount,
+      knownSuppressionDomains: [],
+      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+      providerExclusionPlan: planProviderExclusions(input.provider, {}),
+      freeSource: notAttemptedFreeSourceOutcome(),
+      telemetry: bankTelemetry,
+    };
+  }
+
+  return {
+    ...free,
+    requestedTarget: input.requestedTarget,
+    acceptedBeforeProvider: Math.min(input.requestedTarget, bankAccepted + free.acceptedBeforeProvider),
+    batchId: free.batchId ?? bankBatchId,
+    persistedCount: bank.persistedCount + free.persistedCount,
+    telemetry: { ...free.telemetry, ...bankTelemetry },
+  };
+}
+
+async function runFreeCatalogLayer(
+  client: SupabaseClient,
+  input: PrePaidNoveltyDiscoveryInput,
+  deps: PrePaidNoveltyDiscoveryDeps,
 ): Promise<PrePaidNoveltyDiscoveryOutcome> {
   /**
    * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 8 — lo que se DESCARTA aquí
