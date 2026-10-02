@@ -4,21 +4,21 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { SurfaceCard } from "@/components/shared/surface-card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Breadcrumbs, type BreadcrumbItem } from "@/components/navigation/breadcrumbs";
+import { SettingsBreadcrumbs, type SettingsTrail } from "@/components/settings/settings-breadcrumbs";
 
-export type SettingsTrail = readonly (string | BreadcrumbItem)[];
+export type { SettingsTrail };
 
 interface SettingsPageProps {
   title: string;
   description?: string;
   /**
-   * El camino DENTRO de la sección, solo para pantallas anidadas:
-   * `[{ label: "Integraciones comerciales", href: "/settings/integrations" }]`.
-   * La página actual se añade sola al final. Una sección de primer nivel no
-   * lleva migas: la barra superior ya dice «SellUp › Configuración» y la
-   * navegación lateral marca en cuál se está.
+   * Tramos intermedios entre la sección y la página, si los hay. La sección
+   * sale sola de la URL y la página actual se añade al final: la barra superior
+   * dice «SellUp › Configuración › Integraciones comerciales › HubSpot».
    */
   trail?: SettingsTrail;
+  /** El resumen (`/settings`): la barra ya lo nombra, no lleva migas. */
+  overview?: boolean;
   /** Acciones de la pantalla. Una sola primaria. */
   actions?: ReactNode;
   meta?: ReactNode;
@@ -26,10 +26,13 @@ interface SettingsPageProps {
   className?: string;
 }
 
-/** Las migas de una pantalla anidada de Configuración, o nada si es de primer nivel. */
+/**
+ * Las migas de una pantalla de Configuración: la sección (por la URL), los
+ * tramos de `trail` y la página. Configuración no tiene menú lateral, así que
+ * toda pantalla las lleva —también las de primer nivel—.
+ */
 export function settingsBreadcrumbs(trail: SettingsTrail | undefined, title: string): ReactNode {
-  if (!trail || trail.length === 0) return undefined;
-  return <Breadcrumbs items={[...trail, title]} />;
+  return <SettingsBreadcrumbs trail={trail} title={title} />;
 }
 
 /**
@@ -38,8 +41,8 @@ export function settingsBreadcrumbs(trail: SettingsTrail | undefined, title: str
  * Existe para que las subpáginas dejen de decidir cada una su ancho, sus
  * márgenes y cuántas formas de «volver» pintan: el ancho es el de la columna de
  * contenido (el mismo en todas), el ritmo vertical es uno, y la ubicación se
- * dice una sola vez. No hay flecha de volver: para eso están las migas (en las
- * anidadas) y la navegación lateral.
+ * dice una sola vez. No hay flecha de volver ni menú lateral: para eso están
+ * las migas de la barra superior.
  *
  * Las pantallas con una tabla que llena el alto usan `DataTablePage` con las
  * mismas reglas (sin `backHref`, migas con `settingsBreadcrumbs`).
@@ -57,6 +60,7 @@ export function SettingsPage({
   title,
   description,
   trail,
+  overview = false,
   actions,
   meta,
   children,
@@ -67,7 +71,7 @@ export function SettingsPage({
       <PageHeader
         title={title}
         description={description}
-        breadcrumbs={settingsBreadcrumbs(trail, title)}
+        breadcrumbs={overview ? undefined : settingsBreadcrumbs(trail, title)}
         actions={actions}
         meta={meta}
       />

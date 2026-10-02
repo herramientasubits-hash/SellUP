@@ -1,10 +1,8 @@
 import {
   Activity,
-  Bot,
   HardDrive,
   Layers,
   Link2,
-  Search,
   Users,
   type LucideIcon,
 } from "@/icons";
@@ -42,8 +40,8 @@ export const SETTINGS_ROOT_HREF = "/settings";
 
 /**
  * Las secciones de Configuración, en el orden en que se leen. Es la única
- * lista: de aquí salen el resumen (`/settings`), la navegación interna
- * (`SettingsNav`) y los grupos del menú de la marca.
+ * lista: de aquí salen el resumen (`/settings`), las migas de cada pantalla
+ * (`SettingsBreadcrumbs`) y los grupos del menú de la marca.
  *
  * «Catálogo de fuentes» ya no está aquí: es un módulo propio del menú lateral
  * (`/source-catalog`).
@@ -64,15 +62,9 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     href: "/settings/providers",
     icon: Layers,
     access: "admin",
-    aliases: ["/settings/budget-credits", "/settings/usage", "/settings/ai"],
-  },
-  {
-    id: "automations",
-    title: "Automatizaciones",
-    description: "Decide qué hace SellUp por su cuenta, qué sugiere y qué espera a que lo hagas tú.",
-    href: "/settings/automations",
-    icon: Bot,
-    access: "admin",
+    // Apollo, Lusha y Tavily se conectan aquí, en el detalle de cada proveedor:
+    // la antigua «Prospección y enriquecimiento» solo redirige.
+    aliases: ["/settings/budget-credits", "/settings/usage", "/settings/ai", "/settings/prospecting"],
   },
   {
     id: "integrations",
@@ -80,14 +72,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description: "Conecta HubSpot, Slack y las demás herramientas con las que trabaja el equipo comercial.",
     href: "/settings/integrations",
     icon: Link2,
-    access: "admin",
-  },
-  {
-    id: "prospecting",
-    title: "Prospección y enriquecimiento",
-    description: "Prepara los proveedores con los que se encuentran empresas y se completan sus datos.",
-    href: "/settings/prospecting",
-    icon: Search,
     access: "admin",
   },
   {

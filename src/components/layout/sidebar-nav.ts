@@ -152,7 +152,7 @@ const SETTINGS_GROUPS: readonly { id: string; label: string; icon: LucideIcon; s
     id: "data",
     label: "Datos e IA",
     icon: Layers,
-    sections: ["providers", "prospecting", "automations"],
+    sections: ["providers"],
   },
   { id: "connections", label: "Conexiones", icon: HardDrive, sections: ["integrations", "my-drive"] },
 ];

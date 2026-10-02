@@ -58,10 +58,6 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import {
-  ScopeFilterDrawerSection,
-  type ScopeFilterState,
-} from '@/components/shared/scope-filters-client';
 import { updateAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
@@ -108,8 +104,6 @@ const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] =
     predicate: (account) => account.pipeline_status === 'ready_for_outreach',
   },
 ];
-
-const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
 
 /** Los estados a los que se puede pasar una empresa desde su menú. */
 const ACTIVE_PIPELINE_STATUSES: PipelineStatus[] = [
@@ -181,41 +175,9 @@ export function AccountsDataTableClient({
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
 
-  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
   const dataTableRef = React.useRef<DataTableHandle>(null);
 
-  const filteredAccounts = React.useMemo(() => {
-    if (!scopeFilterOptions?.showScopeFilters) return accounts;
-    const { userId, groupId, roleKey } = scopeFilter;
-    if (!userId && !groupId && !roleKey) return accounts;
-    const allowedUserIds = new Set(
-      scopeFilterOptions.users
-        .filter((u) => {
-          if (roleKey && u.role_key !== roleKey) return false;
-          if (groupId) {
-            // simple descendant check: include if user group equals or starts with groupId hierarchy
-            if (!u.group_id) return false;
-            const group = scopeFilterOptions.groups.find((g) => g.id === groupId);
-            if (!group) return false;
-            // allow user if their group_id is in subtree — using the path/parent pattern
-            const inSubtree = (gid: string): boolean => {
-              if (gid === groupId) return true;
-              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
-              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
-            };
-            if (!inSubtree(u.group_id)) return false;
-          }
-          return true;
-        })
-        .map((u) => u.id),
-    );
-    return accounts.filter((a) => {
-      if (userId) return a.owner_id === userId;
-      return a.owner_id != null && allowedUserIds.has(a.owner_id);
-    });
-  }, [accounts, scopeFilter, scopeFilterOptions]);
-
-  const quick = useQuickFilter(filteredAccounts, ACCOUNT_QUICK_FILTERS);
+  const quick = useQuickFilter(accounts, ACCOUNT_QUICK_FILTERS);
   // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
   const toggleQuickFilter = React.useCallback(
     (id: string) => {
@@ -251,7 +213,9 @@ export function AccountsDataTableClient({
   }, [router]);
 
   // Los responsables que aparecen en la lista, para el embudo de la columna
-  // cuando no hay filtros de alcance (si no, saldrían identificadores).
+  // cuando no hay opciones de equipo (si no, saldrían identificadores). La
+  // columna «Responsable» es el filtro por persona de Empresas: por eso esta
+  // tabla no lleva además el botón «Equipo».
   const ownerFilterOptions = React.useMemo(() => {
     const names = new Map<string, string>();
     for (const account of accounts) {
@@ -627,20 +591,6 @@ export function AccountsDataTableClient({
         action={emptyActions}
       />
     );
-  } else if (filteredAccounts.length === 0) {
-    emptyState = (
-      <EmptyState
-        variant="plain"
-        icon={Building2}
-        title="Ninguna empresa en este alcance"
-        description="El usuario, grupo o rol elegido no tiene empresas asignadas."
-        action={
-          <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
-            Quitar filtros de alcance
-          </Button>
-        }
-      />
-    );
   } else if (quick.rows.length === 0 && quick.activeLabel) {
     emptyState = (
       <QuickFilterEmptyState
@@ -686,15 +636,6 @@ export function AccountsDataTableClient({
           onRowClick={(row) => openDetail(row.id)}
           rowClickable
           renderListItem={renderListItem}
-          settingsExtraSections={
-            scopeFilterOptions?.showScopeFilters ? (
-              <ScopeFilterDrawerSection
-                scopeFilterOptions={scopeFilterOptions}
-                value={scopeFilter}
-                onChange={setScopeFilter}
-              />
-            ) : undefined
-          }
           emptyState={emptyState}
         />
       </div>
