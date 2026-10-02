@@ -216,6 +216,20 @@ export const CHILE_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Costa Rica, más largas primero. SOURCES-CR-CEDULA-BY-NAME-1.
+ */
+export const COSTA_RICA_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD ANONIMA',
+  'LIMITADA',
+  'S R L',
+  'S A',
+  'LTDA',
+  'SRL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,
