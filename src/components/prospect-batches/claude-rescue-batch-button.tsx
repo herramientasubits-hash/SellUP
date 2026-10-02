@@ -26,7 +26,7 @@ function describeResult(result: ClaudeRescueActionResult): string {
   const pending = result.remaining > 0 ? ` · faltan ${result.remaining}: pulsa otra vez` : '';
   return (
     `${result.candidatesCompleted} completados · ${result.candidatesDiscarded} descartados · ` +
-    `${result.dispositionsAdmitted} rescatados de Descartadas · costo estimado US$${result.estimatedCostUsd.toFixed(2)}${pending}`
+    `${result.dispositionsAdmitted} rescatados de Descartadas · ${result.reassigned ?? 0} con industria corregida · costo estimado US$${result.estimatedCostUsd.toFixed(2)}${pending}`
   );
 }
 
