@@ -42,6 +42,10 @@ export function isManualSignalOnly(source: SourceConnectionFields): boolean {
  *     br_receita_dados_abertos, br_receita_cnpj)
  *   - requires_validation        → requiere validación de uso/legalidad previa
  *     (ec_ekos, br_cnpj_ws)
+ *   - connected_identity_in_run  → cargas ya hechas que el Agente 1 usa para
+ *     el número fiscal por nombre (pe_sunat_registry, cl_res_registry, etc.)
+ *   - connected_free_discovery   → capa gratuita por industria sobre una carga
+ *     ya hecha (ar_rns)
  * Estas fuentes no ofrecen "Conectar" y tampoco deben mostrar paneles de prueba
  * de conexión: la exclusión solo OCULTA paneles, nunca expone una conexión.
  */
@@ -54,6 +58,8 @@ export function shouldSkipGenericConnectionPanels(source: SourceConnectionFields
     cm === 'read_only_snapshot' ||
     (flow === 'dry_run_validated' && cm === 'not_persisted') ||
     flow === 'pending_integration_design' ||
-    flow === 'requires_validation'
+    flow === 'requires_validation' ||
+    flow === 'connected_identity_in_run' ||
+    flow === 'connected_free_discovery'
   );
 }
