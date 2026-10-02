@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  *
  * - `narrow` · 720px: formularios y asistentes, donde una línea larga cansa.
  * - `normal` · 1140px: la mayoría de las pantallas de lectura y detalle.
- * - `wide` · 1600px: tablas y tableros. Es el ancho que ya da `AppShell`.
+ * - `wide` · 1440px: tablas y tableros. Es el ancho que ya da `AppShell`.
  * - `full`: sin tope (un lienzo, un tablero kanban ancho).
  */
 export type PageWidth = "narrow" | "normal" | "wide" | "full";
@@ -15,7 +15,7 @@ export type PageWidth = "narrow" | "normal" | "wide" | "full";
 export const PAGE_WIDTH_CLASSES: Readonly<Record<PageWidth, string>> = {
   narrow: "max-w-180",
   normal: "max-w-285",
-  wide: "max-w-400",
+  wide: "max-w-360",
   full: "max-w-none",
 };
 
@@ -29,7 +29,7 @@ export interface PageShellProps extends React.HTMLAttributes<HTMLDivElement> {
  *
  * El contenedor de una página: centra el contenido y le pone uno de los cuatro
  * anchos del sistema. Va dentro de `AppShell` (que ya da márgenes y el tope de
- * 1600px), así que solo ESTRECHA: una pantalla de formulario pide `narrow` en
+ * 1440px), así que solo ESTRECHA: una pantalla de formulario pide `narrow` en
  * vez de inventarse su `max-w-…`.
  *
  * Es una columna flex que llena el alto, así que `DataTablePage` sigue

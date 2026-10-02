@@ -16,21 +16,8 @@ import {
   formatShortDate,
 } from '@/modules/source-catalog/socrata-batches-labels';
 
-type BatchKind = 'test' | 'preview' | 'regular';
-
-const KIND_LABELS: Record<BatchKind, string> = {
-  test: 'De prueba',
-  preview: 'Vista previa',
-  regular: 'Normal',
-};
 
 /** Un lote de prueba manda sobre «vista previa»: es lo que más importa saber. */
-function batchKind(batch: SocrataPreviewBatchListItem): BatchKind {
-  if (batch.smokeTest) return 'test';
-  if (batch.previewMode) return 'preview';
-  return 'regular';
-}
-
 const detailHref = (batch: SocrataPreviewBatchListItem) =>
   `/source-catalog/socrata-batches/${batch.id}`;
 
@@ -118,30 +105,6 @@ export function SocrataBatchesTable({ batches }: SocrataBatchesTableProps) {
         sortDescFirst: true,
         size: 130,
         meta: { label: 'Candidatos', disableFilter: true },
-      },
-      {
-        id: 'kind',
-        accessorFn: batchKind,
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Tipo" />,
-        cell: ({ row }) => {
-          const kind = batchKind(row.original);
-          return (
-            <div className="flex flex-wrap items-center gap-1">
-              <Badge variant={kind === 'test' ? 'info' : kind === 'preview' ? 'brand' : 'neutral'}>
-                {KIND_LABELS[kind]}
-              </Badge>
-              {row.original.rollbackLogical && <Badge variant="neutral">Revertido</Badge>}
-            </div>
-          );
-        },
-        size: 170,
-        meta: {
-          label: 'Tipo',
-          filterOptions: unique(batches.map(batchKind)).map((kind) => ({
-            label: KIND_LABELS[kind],
-            value: kind,
-          })),
-        },
       },
       {
         id: 'createdAt',

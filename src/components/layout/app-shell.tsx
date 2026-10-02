@@ -43,11 +43,15 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
         <div className="page-atmosphere flex min-h-0 min-w-0 flex-1 flex-col">
           <AppHeader user={user} initialUnreadCount={initialUnreadCount} navAccess={navAccess} />
           <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className)}>
-            {/* overflow-y-auto habilita scroll en páginas estándar. DataTablePage
+            {/* overflow-y-auto habilita scroll en páginas estándar, en la caja de
+                todo el ancho (la barra de scroll queda en el borde, no en medio).
+                Dentro, el contenido mide como mucho 1440px y se centra. DataTablePage
                 sigue funcionando porque flex-1 min-h-0 en sus hijos satura el
                 contenedor y la tabla desplaza por dentro. */}
-            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8 animate-su-fade-in">
-              {children}
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
+              <div className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8 animate-su-fade-in">
+                {children}
+              </div>
             </div>
           </main>
         </div>
