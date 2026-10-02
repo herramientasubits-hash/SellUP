@@ -15,7 +15,8 @@
  *      De esa ficha se lee SÓLO el NIT y la razón social; los contactos nunca.
  *
  * Quedan fuera las EMPRESAS UNIPERSONALES (código 01: una persona) y las que no
- * están ACTIVAS.
+ * están ACTIVAS. Las de matrícula NO renovada salen en la búsqueda, pero el SEPREC
+ * no muestra su ficha (responde 412): quedan sin NIT.
  *
  * Tiempo acotado, porque la corrida es secuencial:
  *   - tope de 6 s por petición, y al menos 2,5 s entre peticiones (el SEPREC
@@ -141,6 +142,27 @@ export function findBrandInLegalName(
   return containing.length === 1 ? containing[0] : null;
 }
 
+/**
+ * SOURCES-BO-SECTOR-NAME-VARIANT-1 — aseguradoras y administradoras de fondos usan
+ * en su web un nombre corto que el SEPREC escribe largo (medido el 02-10):
+ *   «Credifondo SAFI»  → CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.
+ *   «Alianza Seguros»  → ALIANZA COMPAÑIA DE SEGUROS Y REASEGUROS S.A.
+ * La búsqueda del SEPREC busca el texto seguido, así que el nombre corto da 0.
+ */
+export const BO_SEPREC_SECTOR_NAME_VARIANTS: readonly { trailingWord: string; legalPhrase: string }[] = [
+  { trailingWord: 'SAFI', legalPhrase: 'SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION' },
+  { trailingWord: 'SEGUROS', legalPhrase: 'COMPANIA DE SEGUROS' },
+];
+
+/** Nombre corto de sector → cómo lo escribe el SEPREC, o `null` si no aplica. */
+export function sectorNameVariant(wanted: string): string | null {
+  const words = wanted.split(' ').filter((word) => word.length > 0);
+  if (words.length < 2) return null;
+  const variant = BO_SEPREC_SECTOR_NAME_VARIANTS.find((entry) => entry.trailingWord === words[words.length - 1]);
+  if (!variant) return null;
+  return [...words.slice(0, -1), variant.legalPhrase].join(' ');
+}
+
 /** Ficha de detalle → NIT (sólo dígitos), o `null`. Nada más se lee. */
 export function parseSeprecDetailNit(body: unknown): string | null {
   const nit = text((body as { datos?: { nit?: unknown } } | null)?.datos?.nit);
@@ -238,7 +260,16 @@ export function buildSeprecNameLiveQuery(
     // SOURCES-BO-BRAND-SIGNAL-1 — sin coincidencia exacta: ¿la marca está dentro de
     // la razón social de UNA sola sociedad activa, en una búsqueda con pocos
     // resultados? Entonces se devuelve como PISTA (nunca NIT fuerte).
-    const brand = findBrandInLegalName(wanted, hits, searchTotal(search));
+    let brand = findBrandInLegalName(wanted, hits, searchTotal(search));
+
+    // SOURCES-BO-SECTOR-NAME-VARIANT-1 — sin marca: si el nombre es «X SAFI» o
+    // «X Seguros», UNA búsqueda más con la forma larga. También es sólo pista.
+    const variant = brand === null && hits.length === 0 ? sectorNameVariant(wanted) : null;
+    if (variant !== null) {
+      const variantSearch = await getJson(buildSeprecSearchUrl(variant));
+      brand = findBrandInLegalName(variant, parseSeprecSearch(variantSearch), searchTotal(variantSearch));
+    }
+
     if (brand !== null) {
       const nit = parseSeprecDetailNit(await getJson(buildSeprecDetailUrl(brand.id, brand.establishmentId)));
       if (nit !== null) rows.push({ taxId: nit, legalName: brand.legalName, normalizedLegalName: brand.core, brandSignal: true });
