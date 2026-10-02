@@ -33,6 +33,8 @@ export type SourceBatch = {
   industry: string;
   /** `metadata.industry_id`: lo usa el rescate para saber la macroindustria pedida. */
   industryId: string | null;
+  /** Clave canónica de la macro (p. ej. 'technology'): para leer el banco de empresas. */
+  macroIndustryKey: string | null;
   subindustries: string[];
   additionalCriteria: string | null;
 };
@@ -41,8 +43,15 @@ export type CompanySearchCall = CompanySearchOutcome & { query: string; duration
 
 export type ClaudeCompanySearchDeps = {
   loadSourceBatch: (batchId: string) => Promise<SourceBatch | null>;
-  /** Dominios ya vistos en SellUp para este país × industria (candidatos y descartadas). */
-  loadExcludedDomains: (countryCode: string, industry: string) => Promise<string[]>;
+  /**
+   * Dominios ya vistos en SellUp para este país × industria (candidatos, descartadas y,
+   * si está disponible, el banco de empresas).
+   */
+  loadExcludedDomains: (source: SourceBatch) => Promise<string[]>;
+  /** Corridas anteriores del piloto para este país × industria (para rotar regiones). */
+  countPreviousRuns: (countryCode: string, industry: string) => Promise<number>;
+  /** Regiones del país (las mismas que usa Tavily); vacío ⇒ sólo consultas nacionales. */
+  resolveRegions: (countryCode: string) => readonly string[];
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
   checkQuota: () => Promise<{ allowed: boolean }>;
   /** Corre la cadena de siempre con el proveedor `claude`; devuelve las llamadas hechas. */
@@ -88,8 +97,27 @@ export type ClaudeCompanySearchSummary =
       detail?: string;
     };
 
-/** Una consulta general y, si hay, una por la primera subindustria. */
-export function buildCompanySearchQueries(source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>): string[] {
+/**
+ * Consultas de la corrida.
+ *  - 1.ª corrida de este país × industria: una general y, si hay, una por la primera
+ *    subindustria (si no, «grandes empresas…»).
+ *  - Siguientes: dos regiones del país por corrida, rotando (Antioquia, Valle del Cauca…).
+ *    Una búsqueda nacional devuelve siempre las mismas empresas conocidas (Prod 01-10:
+ *    CO×Tec, 8 de 10 ya vistas o sin sitio propio en la búsqueda).
+ */
+export function buildCompanySearchQueries(
+  source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>,
+  previousRuns = 0,
+  regions: readonly string[] = [],
+): string[] {
+  const subject = source.subindustries[0] ?? source.industry;
+  if (previousRuns > 0 && regions.length > 0) {
+    const start = ((previousRuns - 1) * CLAUDE_COMPANY_SEARCH_MAX_QUERIES) % regions.length;
+    return Array.from({ length: Math.min(CLAUDE_COMPANY_SEARCH_MAX_QUERIES, regions.length) }, (_, i) => {
+      const region = regions[(start + i) % regions.length];
+      return `empresas de ${subject} en ${region}, ${source.country}`;
+    });
+  }
   const queries = [`empresas de ${source.industry} en ${source.country}`];
   for (const sub of source.subindustries) {
     if (queries.length >= CLAUDE_COMPANY_SEARCH_MAX_QUERIES) break;
@@ -158,11 +186,12 @@ export async function runClaudeCompanySearch(
   // Sin la lista de ya conocidas, Claude traería repetidas (y se pagarían): no se busca.
   let excludeDomains: string[];
   try {
-    excludeDomains = await deps.loadExcludedDomains(source.countryCode, source.industry);
+    excludeDomains = await deps.loadExcludedDomains(source);
   } catch (err) {
     return { ok: false, error: 'exclusions_unavailable', detail: err instanceof Error ? err.message : String(err) };
   }
-  const queries = buildCompanySearchQueries(source);
+  const previousRuns = await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
+  const queries = buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
   const runId = deps.newRunId();
   let callIndex = 0;
   const onCall = async (call: CompanySearchCall) => {
@@ -208,8 +237,10 @@ export async function runClaudeCompanySearch(
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
               pilot: true,
               run_id: runId,
+              ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               source_batch_id: source.id,
               queries,
+              previous_runs: previousRuns,
               excluded_domains_count: excludeDomains.length,
               proposed,
               passed_pre_filter: passedPreFilter,

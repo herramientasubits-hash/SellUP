@@ -5,7 +5,10 @@
  * búsqueda web ⇒ hasta N empresas con su sitio oficial. Lo que Claude diga se
  * filtra ANTES de entrar a la cadena de siempre (verificación del sitio,
  * duplicados SellUp/HubSpot, país, sector, tamaño, «una empresa, un vendedor»):
- *  1. el dominio TIENE que haber salido de su búsqueda web (o ser subdominio): nada inventado;
+ *  1. el dominio TIENE que haber salido de su búsqueda web (o ser subdominio): nada inventado.
+ *     Excepción (01-10, Prod CO×Tec: 8 de 10 caían aquí): si la FUENTE que la nombra
+ *     (ranking, artículo) sí salió de la búsqueda, SellUp baja el sitio y lo acepta sólo si
+ *     enlaza al mismo LinkedIn o lleva el nombre de la empresa (`verifyProposedWebsite`);
  *  2. no puede ser plataforma, red social, directorio ni marketplace;
  *  3. no puede estar en la lista de exclusión (ya vistas en SellUp para ese país e industria);
  *  4. un dominio una sola vez.
@@ -24,7 +27,7 @@ import {
   type AnthropicRequestBody,
 } from './anthropic-messages-client';
 import { forceSubmission, toUsage } from './classify-company';
-import { extractSearchResultEntries, sameSite } from './domain-finder';
+import { extractSearchResultEntries, sameSite, verifyProposedWebsite, type DomainFinderDeps } from './domain-finder';
 import { anySearchConfirms } from './site-match';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import type { ClassifierUsage } from './types';
@@ -49,6 +52,8 @@ export type CompanySearchInput = {
 
 export type CompanySearchRejection =
   | 'not_in_search_results'
+  /** Fuera de la búsqueda, con fuente que sí salió, pero el sitio no se pudo confirmar. */
+  | 'outside_search_unverified'
   | 'platform_domain'
   | 'excluded_domain'
   | 'duplicate_in_response'
@@ -64,6 +69,8 @@ export type CompanySearchOutcome = {
 
 export type CompanySearchDeps = {
   runConversation: (body: AnthropicRequestBody) => Promise<AnthropicConversationResult>;
+  /** Descarga segura de la página. Sin ella, lo que no salió de la búsqueda se rechaza. */
+  fetchPage?: DomainFinderDeps['fetchPage'];
 };
 
 type RawCompany = {
@@ -111,7 +118,8 @@ export function buildCompanySearchRequestBody(input: CompanySearchInput, model: 
     max_tokens: COMPANY_SEARCH_MAX_OUTPUT_TOKENS,
     system: [
       'Buscas EMPRESAS reales para prospección B2B (venta de formación corporativa a empresas medianas y grandes).',
-      `- Usa la búsqueda web. Cada sitio que entregues TIENE que aparecer en tus resultados.`,
+      '- Usa la búsqueda web. Entrega el sitio OFICIAL de cada empresa (su dominio propio).',
+      '- En `source_url` va la página de tus resultados donde la encontraste (puede ser un ranking o artículo).',
       `- Sólo empresas que operan en ${input.countryName} y encajan en la industria pedida.`,
       '- Prioriza empresas medianas y grandes (más de 200 empleados) cuando haya señales.',
       '- Nunca entregues LinkedIn, directorios, rankings, noticias, marketplaces ni redes sociales como sitio.',
@@ -169,20 +177,35 @@ function verifiedLinkedIn(raw: unknown, searchDomains: readonly string[]): strin
   return anySearchConfirms('linkedin.com', searchDomains) ? normalized.normalized : null;
 }
 
-export function filterProposedCompanies(
+type Proposal = {
+  name: string;
+  website: string;
+  domain: string;
+  inSearch: boolean;
+  linkedinUrl: string | null;
+  evidence: string | null;
+  sourceUrl: string | null;
+};
+
+type VerifiedProposal = Proposal & { finalDomain: string; outsideVerification: string | null };
+
+export async function filterProposedCompanies(
   companies: readonly RawCompany[],
   conversation: AnthropicConversationResult,
-  input: Pick<CompanySearchInput, 'excludeDomains' | 'maxCompanies'>,
-): { results: WebSearchResult[]; rejected: Partial<Record<CompanySearchRejection, number>> } {
-  const searchDomains = extractSearchResultEntries(conversation.content).map((r) => r.domain);
+  input: Pick<CompanySearchInput, 'excludeDomains' | 'maxCompanies' | 'countryName' | 'countryCode'>,
+  fetchPage?: DomainFinderDeps['fetchPage'],
+): Promise<{ results: WebSearchResult[]; rejected: Partial<Record<CompanySearchRejection, number>> }> {
+  const searchResults = extractSearchResultEntries(conversation.content);
+  const searchDomains = searchResults.map((r) => r.domain);
   const excluded = new Set(input.excludeDomains.map((d) => normalizeDomain(d)).filter((d): d is string => !!d));
-  const seen = new Set<string>();
   const rejected: Partial<Record<CompanySearchRejection, number>> = {};
   const reject = (why: CompanySearchRejection) => {
     rejected[why] = (rejected[why] ?? 0) + 1;
   };
-  const results: WebSearchResult[] = [];
 
+  // ── Fase 1: filtros gratis (sin red) ──────────────────────────────────────
+  const seen = new Set<string>();
+  const proposals: Proposal[] = [];
   for (const company of companies) {
     const name = str(company.name);
     const website = str(company.website_url);
@@ -191,7 +214,11 @@ export function filterProposedCompanies(
       reject('invalid_url');
       continue;
     }
-    if (!anySearchConfirms(domain, searchDomains)) {
+    const inSearch = anySearchConfirms(domain, searchDomains);
+    const sourceUrl = str(company.source_url);
+    const sourceDomain = sourceUrl ? normalizeDomain(sourceUrl) : null;
+    const sourceInSearch = !!sourceDomain && anySearchConfirms(sourceDomain, searchDomains);
+    if (!inSearch && !(sourceInSearch && fetchPage)) {
       reject('not_in_search_results');
       continue;
     }
@@ -208,22 +235,70 @@ export function filterProposedCompanies(
       continue;
     }
     seen.add(domain);
-    if (results.length >= input.maxCompanies) break;
+    proposals.push({
+      name,
+      website,
+      domain,
+      inSearch,
+      linkedinUrl: verifiedLinkedIn(company.linkedin_url, searchDomains),
+      evidence: str(company.evidence),
+      sourceUrl,
+    });
+    if (proposals.length >= input.maxCompanies) break;
+  }
 
-    const linkedinUrl = verifiedLinkedIn(company.linkedin_url, searchDomains);
+  // ── Fase 2: lo que no salió de la búsqueda se comprueba bajando el sitio (en paralelo) ──
+  const verified = await Promise.all(
+    proposals.map(async (p): Promise<VerifiedProposal | null> => {
+      if (p.inSearch || !fetchPage) return { ...p, finalDomain: p.domain, outsideVerification: null };
+      const check = await verifyProposedWebsite(
+        {
+          name: p.name,
+          countryName: input.countryName,
+          countryCode: input.countryCode,
+          linkedinUrl: p.linkedinUrl,
+          claimedUrl: p.website,
+          searchResults,
+          allowNameMatchOutsideSearch: true,
+        },
+        fetchPage,
+      ).catch(() => null);
+      if (!check?.found) {
+        reject('outside_search_unverified');
+        return null;
+      }
+      if (check.domain !== p.domain && isExcluded(check.domain, excluded)) {
+        reject('excluded_domain');
+        return null;
+      }
+      return { ...p, finalDomain: check.domain, outsideVerification: check.verification };
+    }),
+  );
+
+  const finalSeen = new Set<string>();
+  const results: WebSearchResult[] = [];
+  for (const p of verified) {
+    if (!p) continue;
+    if (finalSeen.has(p.finalDomain)) {
+      reject('duplicate_in_response');
+      continue;
+    }
+    finalSeen.add(p.finalDomain);
     results.push({
       // Título = nombre: la cadena infiere el nombre del título (como con Tavily).
-      title: name,
-      url: `https://${domain}`,
-      snippet: str(company.evidence),
+      title: p.name,
+      url: `https://${p.finalDomain}`,
+      snippet: p.evidence,
       source: 'claude_web_search',
       rank: results.length + 1,
       provider: 'claude',
       confidence: null,
       metadata: {
         claude_company_search: true,
-        evidence_source_url: str(company.source_url),
-        ...(linkedinUrl ? { linkedin_url: linkedinUrl } : {}),
+        evidence_source_url: p.sourceUrl,
+        site_in_search_results: p.inSearch,
+        ...(p.outsideVerification ? { outside_search_verification: p.outsideVerification } : {}),
+        ...(p.linkedinUrl ? { linkedin_url: p.linkedinUrl } : {}),
       },
     });
   }
@@ -259,6 +334,6 @@ export async function searchCompaniesWithClaude(
     };
   }
   const companies = readCompanies(conversation.content);
-  const { results, rejected } = filterProposedCompanies(companies, conversation, input);
+  const { results, rejected } = await filterProposedCompanies(companies, conversation, input, deps.fetchPage);
   return { results, proposed: companies.length, rejected, usage: toUsage(conversation.usage, model), errorCode: null };
 }

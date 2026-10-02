@@ -13,10 +13,12 @@ import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delive
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
 import { runProspectingPipeline } from '../prospecting-pipeline';
+import { resolveTavilyCountryRegions } from '../tavily-country-regions';
 import type { ProspectingPipelineOutput } from '../types';
 import { withClaudeSearchContext, type ClaudeSearchRunContext } from '../web-search-providers/claude-web-search-provider';
 import { resolveActiveAnthropicModel } from './classify-batch-candidates.server';
 import {
+  CLAUDE_COMPANY_SEARCH_METADATA_KEY,
   CLAUDE_COMPANY_SEARCH_RESULTS_PER_QUERY,
   CLAUDE_COMPANY_SEARCH_TARGET,
   type ClaudeCompanySearchDeps,
@@ -48,7 +50,17 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
   };
   if (row.source !== 'agent_1' || !row.country || !row.country_code || !row.industry) return null;
   const metadata = row.metadata ?? {};
-  const taxonomy = (metadata.apollo_discovery_taxonomy ?? {}) as { requested_subindustries?: unknown };
+  const taxonomy = (metadata.apollo_discovery_taxonomy ?? {}) as {
+    requested_subindustries?: unknown;
+    macro_industry_key?: unknown;
+  };
+  const pilot = (metadata[CLAUDE_COMPANY_SEARCH_METADATA_KEY] ?? {}) as { macro_industry_key?: unknown };
+  const macroIndustryKey =
+    typeof taxonomy.macro_industry_key === 'string'
+      ? taxonomy.macro_industry_key
+      : typeof pilot.macro_industry_key === 'string'
+        ? pilot.macro_industry_key
+        : null;
   const subindustries = stringList(metadata.subindustries);
   return {
     id: row.id,
@@ -56,14 +68,38 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
     countryCode: row.country_code,
     industry: row.industry,
     industryId: typeof metadata.industry_id === 'string' ? metadata.industry_id : null,
+    macroIndustryKey,
     subindustries: subindustries.length > 0 ? subindustries : stringList(taxonomy.requested_subindustries),
     additionalCriteria: typeof metadata.additional_criteria === 'string' ? metadata.additional_criteria : null,
   };
 }
 
-async function loadExcludedDomains(countryCode: string, industry: string): Promise<string[]> {
+/**
+ * Dominios del banco de empresas (migración 142) para el mismo país × macro.
+ * Fail-OPEN: si la tabla no existe todavía (142 sin aplicar) o la lectura falla, la
+ * corrida sigue con candidatos + descartadas, que son la lista principal.
+ */
+async function loadBankDomains(countryCode: string, macroIndustryKey: string | null): Promise<string[]> {
+  if (!macroIndustryKey) return [];
+  const { data, error } = await createSupabaseAdminClient()
+    .from('agent1_company_bank')
+    .select('claim_domain')
+    .eq('country_code', countryCode)
+    .eq('macro_industry_key', macroIndustryKey)
+    .in('status', ['banked', 'reserved'])
+    .not('claim_domain', 'is', null)
+    .limit(EXCLUSION_LOOKUP_LIMIT);
+  if (error) {
+    console.warn('[claude-company-search] company bank unavailable:', error.message);
+    return [];
+  }
+  return (data ?? []).map((r) => (r as { claim_domain: string | null }).claim_domain).filter((d): d is string => !!d);
+}
+
+async function loadExcludedDomains(source: SourceBatch): Promise<string[]> {
+  const { countryCode, industry } = source;
   const admin = createSupabaseAdminClient();
-  const [candidates, dispositions] = await Promise.all([
+  const [candidates, dispositions, bankDomains] = await Promise.all([
     admin
       .from('prospect_candidates')
       .select('domain')
@@ -80,6 +116,7 @@ async function loadExcludedDomains(countryCode: string, industry: string): Promi
       .not('domain', 'is', null)
       .order('created_at', { ascending: false })
       .limit(EXCLUSION_LOOKUP_LIMIT),
+    loadBankDomains(countryCode, source.macroIndustryKey).catch(() => []),
   ]);
   // Fallo de lectura ⇒ se lanza: la corrida NO busca sin la lista de ya conocidas.
   if (candidates.error) throw new Error(`exclusion_candidates_read_failed:${candidates.error.message}`);
@@ -87,13 +124,26 @@ async function loadExcludedDomains(countryCode: string, industry: string): Promi
   const domains = [...(candidates.data ?? []), ...(dispositions.data ?? [])]
     .map((r) => (r as { domain: string | null }).domain)
     .filter((d): d is string => !!d);
-  return [...new Set(domains)];
+  return [...new Set([...domains, ...bankDomains])];
+}
+
+async function countPreviousRuns(countryCode: string, industry: string): Promise<number> {
+  const { count, error } = await createSupabaseAdminClient()
+    .from('prospect_batches')
+    .select('id', { count: 'exact', head: true })
+    .eq('country_code', countryCode)
+    .eq('industry', industry)
+    .not(`metadata->${CLAUDE_COMPANY_SEARCH_METADATA_KEY}`, 'is', null);
+  if (error) throw new Error(`previous_runs_read_failed:${error.message}`);
+  return count ?? 0;
 }
 
 export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanySearchDeps {
   return {
     loadSourceBatch,
     loadExcludedDomains,
+    countPreviousRuns,
+    resolveRegions: resolveTavilyCountryRegions,
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
     runSearch: async ({ source, queries, excludeDomains, active, deadlineAtMs, onCall }) => {

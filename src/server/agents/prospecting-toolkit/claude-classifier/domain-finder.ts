@@ -205,6 +205,102 @@ function linkedinSlug(url: string | null): string | null {
   return r.rejected ? null : r.slug;
 }
 
+
+export type ProposedWebsiteInput = DomainFinderInput & {
+  claimedUrl: string;
+  searchResults: readonly SearchResultEntry[];
+  /**
+   * `false` (buscador de sitio): fuera de la búsqueda sólo vale con el MISMO LinkedIn.
+   * `true` (buscador de empresas, cuando la FUENTE que la nombra sí salió de la búsqueda):
+   * también vale si la página que bajamos lleva el nombre de la empresa (puntaje ≥ 60).
+   */
+  allowNameMatchOutsideSearch?: boolean;
+};
+
+export type ProposedWebsiteVerification =
+  | { found: true; website: string; domain: string; verification: DomainVerification; inSearchResults: boolean }
+  | {
+      found: false;
+      reason: Exclude<Extract<DomainFinderOutcome, { found: false }>['reason'], 'no_candidate' | 'model_error'>;
+      errorCode?: string | null;
+    };
+
+/** Comprueba un sitio propuesto por Claude contra la búsqueda y contra la página que bajamos. */
+export async function verifyProposedWebsite(
+  input: ProposedWebsiteInput,
+  fetchPage: DomainFinderDeps['fetchPage'],
+): Promise<ProposedWebsiteVerification> {
+  const claimedDomain = normalizeDomain(input.claimedUrl);
+  if (!claimedDomain) return { found: false, reason: 'platform_domain' };
+  const inSearchResults = input.searchResults.some((r) => searchConfirmsDomain(claimedDomain, r.domain));
+
+  if (!evaluateExternalPlatformGate(input.claimedUrl, input.name).allowed) {
+    return { found: false, reason: 'platform_domain' };
+  }
+
+  let page: SafePageFetchResult | null = null;
+  let fetchError: string | null = null;
+  try {
+    page = await fetchPage(input.claimedUrl);
+  } catch (err) {
+    fetchError = err instanceof Error ? err.message : 'fetch_failed';
+  }
+  const html = page?.html ?? '';
+  const pageUsable =
+    !!page?.html && (page.httpStatus ?? 0) < 400 && extractVisibleText(html).length >= MIN_PAGE_TEXT_CHARS;
+
+  if (!pageUsable) {
+    // Muchos sitios oficiales (gobierno, universidades, grandes marcas) bloquean nuestra
+    // descarga. Respaldo: el dominio salió de la búsqueda y el TÍTULO del resultado
+    // coincide con la empresa. Nada inventado: título y URL los devolvió la búsqueda.
+    const matched = bestSearchResultMatch(input, claimedDomain, input.searchResults);
+    if (matched) {
+      return {
+        found: true,
+        website: `https://${claimedDomain}`,
+        domain: claimedDomain,
+        verification: 'search_result_match',
+        inSearchResults: true,
+      };
+    }
+    const errorCode = fetchError ?? page?.error ?? (page?.httpStatus ? `http_${page.httpStatus}` : 'thin_page');
+    return { found: false, reason: 'page_unreachable', errorCode };
+  }
+
+  const fetched = page as SafePageFetchResult;
+  const finalDomain = normalizeDomain(fetched.finalUrl ?? input.claimedUrl) ?? claimedDomain;
+  // Redirige a OTRO dominio: sólo vale si ese dominio también salió de la búsqueda y no es
+  // plataforma (p. ej. conacyt.gob.mx → conahcyt.mx). Un parqueado o marketplace no pasa.
+  if (isOffsiteRedirect(input.claimedUrl, fetched.finalUrl)) {
+    const finalOk =
+      input.searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain)) &&
+      evaluateExternalPlatformGate(fetched.finalUrl, input.name).allowed;
+    if (!finalOk) return { found: false, reason: 'redirected_offsite' };
+  }
+  const website = `https://${finalDomain}`;
+  const finalInSearch = inSearchResults || input.searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain));
+
+  const expectedSlug = linkedinSlug(input.linkedinUrl);
+  const siteSlugs = extractLinkedInCompanyUrlsFromHtml(html).map((u) => linkedinSlug(u));
+  if (expectedSlug && siteSlugs.includes(expectedSlug)) {
+    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', inSearchResults: finalInSearch };
+  }
+  // Sin enlace al mismo LinkedIn, la URL TIENE que haber salido de la búsqueda (no inventada),
+  // salvo que la política permita confirmarla por el nombre de la página que bajamos.
+  if (!finalInSearch && !input.allowNameMatchOutsideSearch) return { found: false, reason: 'not_in_search_results' };
+
+  const signals = extractPageSignals(html);
+  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription);
+  if (score >= FINDER_MIN_NAME_SCORE) {
+    return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults: finalInSearch };
+  }
+  // La página no lo dice en el título, pero el resultado de búsqueda de ese dominio sí.
+  if (finalInSearch && bestSearchResultMatch(input, finalDomain, input.searchResults)) {
+    return { found: true, website, domain: finalDomain, verification: 'search_result_match', inSearchResults: true };
+  }
+  return { found: false, reason: finalInSearch ? 'identity_not_confirmed' : 'not_in_search_results' };
+}
+
 export async function findOfficialWebsite(
   input: DomainFinderInput,
   model: string,
@@ -238,72 +334,9 @@ export async function findOfficialWebsite(
   const claimedDomain = claimed ? normalizeDomain(claimed) : null;
   if (!claimed || !claimedDomain) return { found: false, reason: 'no_candidate', usage };
 
-  const searchResults = extractSearchResultEntries(conversation.content);
-  const inSearchResults = searchResults.some((r) => searchConfirmsDomain(claimedDomain, r.domain));
-
-  if (!evaluateExternalPlatformGate(claimed, input.name).allowed) {
-    return { found: false, reason: 'platform_domain', claimedUrl: claimed, usage };
-  }
-
-  let page: SafePageFetchResult | null = null;
-  let fetchError: string | null = null;
-  try {
-    page = await deps.fetchPage(claimed);
-  } catch (err) {
-    fetchError = err instanceof Error ? err.message : 'fetch_failed';
-  }
-  const html = page?.html ?? '';
-  const pageUsable =
-    !!page?.html && (page.httpStatus ?? 0) < 400 && extractVisibleText(html).length >= MIN_PAGE_TEXT_CHARS;
-
-  if (!pageUsable) {
-    // Muchos sitios oficiales (gobierno, universidades, grandes marcas) bloquean nuestra
-    // descarga. Respaldo: el dominio salió de la búsqueda y el TÍTULO del resultado
-    // coincide con la empresa. Nada inventado: título y URL los devolvió la búsqueda.
-    const matched = bestSearchResultMatch(input, claimedDomain, searchResults);
-    if (matched) {
-      return {
-        found: true,
-        website: `https://${claimedDomain}`,
-        domain: claimedDomain,
-        verification: 'search_result_match',
-        inSearchResults: true,
-        usage,
-      };
-    }
-    const errorCode = fetchError ?? page?.error ?? (page?.httpStatus ? `http_${page.httpStatus}` : 'thin_page');
-    return { found: false, reason: 'page_unreachable', errorCode, claimedUrl: claimed, usage };
-  }
-
-  const fetched = page as SafePageFetchResult;
-  const finalDomain = normalizeDomain(fetched.finalUrl ?? claimed) ?? claimedDomain;
-  // Redirige a OTRO dominio: sólo vale si ese dominio también salió de la búsqueda y no es
-  // plataforma (p. ej. conacyt.gob.mx → conahcyt.mx). Un parqueado o marketplace no pasa.
-  if (isOffsiteRedirect(claimed, fetched.finalUrl)) {
-    const finalOk =
-      searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain)) &&
-      evaluateExternalPlatformGate(fetched.finalUrl, input.name).allowed;
-    if (!finalOk) return { found: false, reason: 'redirected_offsite', claimedUrl: claimed, usage };
-  }
-  const website = `https://${finalDomain}`;
-  const finalInSearch = inSearchResults || searchResults.some((r) => searchConfirmsDomain(finalDomain, r.domain));
-
-  const expectedSlug = linkedinSlug(input.linkedinUrl);
-  const siteSlugs = extractLinkedInCompanyUrlsFromHtml(html).map((u) => linkedinSlug(u));
-  if (expectedSlug && siteSlugs.includes(expectedSlug)) {
-    return { found: true, website, domain: finalDomain, verification: 'linkedin_cross_link', inSearchResults: finalInSearch, usage };
-  }
-  // Sin enlace al mismo LinkedIn, la URL TIENE que haber salido de la búsqueda (no inventada).
-  if (!finalInSearch) return { found: false, reason: 'not_in_search_results', claimedUrl: claimed, usage };
-
-  const signals = extractPageSignals(html);
-  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription);
-  if (score >= FINDER_MIN_NAME_SCORE) {
-    return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults: true, usage };
-  }
-  // La página no lo dice en el título, pero el resultado de búsqueda de ese dominio sí.
-  if (bestSearchResultMatch(input, finalDomain, searchResults)) {
-    return { found: true, website, domain: finalDomain, verification: 'search_result_match', inSearchResults: true, usage };
-  }
-  return { found: false, reason: 'identity_not_confirmed', claimedUrl: claimed, usage };
+  const verified = await verifyProposedWebsite(
+    { ...input, claimedUrl: claimed, searchResults: extractSearchResultEntries(conversation.content) },
+    deps.fetchPage,
+  );
+  return verified.found ? { ...verified, usage } : { ...verified, claimedUrl: claimed, usage };
 }
