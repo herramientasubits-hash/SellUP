@@ -30,6 +30,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'us_irs_eo_registry',
   'es_placsp_registry',
   'cl_res_registry',
+  'cl_sii_registry',
   'cr_company_registry',
 ] as const;
 

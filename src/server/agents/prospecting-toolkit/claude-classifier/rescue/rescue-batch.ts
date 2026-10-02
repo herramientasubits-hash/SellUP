@@ -31,10 +31,11 @@ import {
   type DomainDuplicateCheck,
   type FoundWebsite,
 } from './domain-search';
-import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES } from './rescue-decision';
+import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
 import {
   buildCandidateRescuePatch,
   buildRescueInProgress,
+  buildStoredSmallSizeDiscardPatch,
   CLAUDE_RESCUE_METADATA_KEY,
   rescueStillPending,
   type CandidateRescuePatch,
@@ -518,6 +519,28 @@ async function reassignStoredSectorMismatches(
   return reassigned;
 }
 
+/**
+ * Candidatos en revisión cuya clasificación GUARDADA ya demuestra que están bajo el
+ * umbral ICP → Descartadas con la cita. Sólo lee lo guardado: costo cero.
+ */
+async function discardStoredSmallSizes(
+  candidates: readonly ClassifiableCandidateRow[],
+  deps: RescueBatchDeps,
+): Promise<Set<string>> {
+  const discardedIds = new Set<string>();
+  const decidedAt = deps.nowIso();
+  for (const row of candidates) {
+    if (!storedSmallSizeDiscard(row.metadata, readIcpThreshold(row.metadata))) continue;
+    const saved = await deps.patchCandidate(row.id, (metadata) => {
+      const threshold = readIcpThreshold(metadata);
+      const decision = storedSmallSizeDiscard(metadata, threshold);
+      return decision ? buildStoredSmallSizeDiscardPatch(metadata, decision, threshold, decidedAt) : null;
+    });
+    if (saved) discardedIds.add(row.id);
+  }
+  return discardedIds;
+}
+
 /** Procesa en paralelo; deja de EMPEZAR ítems nuevos cuando `shouldStop()` es true. */
 async function mapUntil<T, R>(items: readonly T[], limit: number, shouldStop: () => boolean, fn: (item: T) => Promise<R>) {
   const results: R[] = [];
@@ -573,8 +596,10 @@ export async function rescueBatchWithClaude(
       ? await deps.loadBatchHasClaudeCompanySearch(params.batchId).catch(() => false)
       : false);
   const startedMs = deps.nowMs();
+  const storedSizeDiscards = await discardStoredSmallSizes(candidates, deps);
   const work: WorkItem[] = [
     ...candidates
+      .filter((row) => !storedSizeDiscards.has(row.id))
       .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed }))
       .map((row) => ({ kind: 'candidate' as const, row })),
     ...dispositions.filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch)).map((row) => ({ kind: 'disposition' as const, row })),
@@ -614,7 +639,7 @@ export async function rescueBatchWithClaude(
   return {
     ok: true,
     candidatesCompleted: count('completed'),
-    candidatesDiscarded: count('discarded'),
+    candidatesDiscarded: count('discarded') + storedSizeDiscards.size,
     candidatesUnchanged: count('unchanged'),
     dispositionsAdmitted: count('admitted'),
     dispositionsKept: count('kept'),

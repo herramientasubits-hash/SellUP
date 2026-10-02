@@ -18,6 +18,8 @@ import {
   canAccessNavItem,
   getVisibleNavItems,
   PROSPECTOS_TAB_ROUTE,
+  ROI_CALCULATOR_ROUTE,
+  SOURCE_CATALOG_ROUTE,
   type NavAccessContext,
   type NavItem,
 } from '@/config/navigation';
@@ -66,6 +68,13 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.ok(visible.includes('/accounts'), 'Empresas must stay visible');
     assert.ok(visible.includes('/contacts'), 'Contactos must stay visible');
     assert.ok(visible.includes('/pipeline'), 'Pipeline must stay visible');
+  });
+
+  it('the ROI calculator is public and sits right after the source catalog', () => {
+    const visible = hrefs(getVisibleNavItems(mainNavItems, sellerCtx));
+    assert.ok(visible.includes(ROI_CALCULATOR_ROUTE), 'Calculadora de ROI must be visible for seller_bd');
+    const routes = hrefs(mainNavItems);
+    assert.equal(routes.indexOf(ROI_CALCULATOR_ROUTE), routes.indexOf(SOURCE_CATALOG_ROUTE) + 1);
   });
 
   it('commercial_manager and commercial_lead match seller_bd today (admin-only Uso de IA while ENABLE_COMMERCIAL_SCOPE is off)', () => {

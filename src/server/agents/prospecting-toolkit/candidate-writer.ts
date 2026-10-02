@@ -166,6 +166,7 @@ import {
   resolveEmployeeSizeForIcpGate,
   extractHubSpotMatchedEmployees,
   extractCandidateCompanySize,
+  extractOfficialRegistryWorkforce,
 } from './employee-size-resolver';
 import {
   toCompanyLinkedInMetadataBlock,
@@ -2835,6 +2836,7 @@ export async function writeProspectingCandidates(
       richProfileSize: mergedRichProfile.size,
       candidateCompanySize: extractCandidateCompanySize(candidate),
       matchedHubspotEmployees: extractHubSpotMatchedEmployees(hubspotMatch?.raw),
+      officialRegistryWorkforce: extractOfficialRegistryWorkforce(candidate),
       threshold: 200,
     });
     const icpSizeGateResult = evaluateIcpSizeGate(resolvedEmployeeSize.icpInput);

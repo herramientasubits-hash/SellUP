@@ -204,6 +204,54 @@ export function resolveCompletenessConditions(
   };
 }
 
+/** `icp_size_gate` cuando Claude demuestra que la empresa está bajo el umbral. */
+export function buildIcpSizeGateBelow(
+  previous: Metadata | null,
+  range: { min: number; max: number | null; quote: string },
+  minEmployees: number,
+): Metadata {
+  return {
+    ...(previous ?? {}),
+    decision: 'block',
+    size_status: 'estimated_below_threshold',
+    threshold: minEmployees,
+    normalized_min_employees: range.min,
+    normalized_max_employees: range.max ?? range.min,
+    requires_human_review: false,
+    reason: `Claude: «${range.quote.slice(0, 120)}»`,
+    source: CLAUDE_EMPLOYEE_COUNT_SOURCE,
+  };
+}
+
+/** Patch de una fila ya clasificada que lo guardado demuestra bajo el umbral (sin llamar a Claude). */
+export function buildStoredSmallSizeDiscardPatch(
+  metadata: Metadata | null,
+  decision: Extract<RescueDecision, { kind: 'discard' }>,
+  minEmployees: number,
+  decidedAt: string,
+): CandidateRescuePatch {
+  const range = (asObject(metadata?.claude_classification)?.employee_range ?? null) as
+    | { min?: number; max?: number | null; quote?: string }
+    | null;
+  return {
+    status: 'discarded',
+    review_notes: `Descartada automáticamente (Claude): ${decision.detail}`,
+    metadata: {
+      ...(metadata ?? {}),
+      ...(range && typeof range.quote === 'string'
+        ? {
+            icp_size_gate: buildIcpSizeGateBelow(
+              asObject(metadata?.icp_size_gate),
+              { min: range.min ?? 0, max: range.max ?? null, quote: range.quote },
+              minEmployees,
+            ),
+          }
+        : {}),
+      [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueMetadata(decision, [], decidedAt), from_stored_classification: true },
+    },
+  };
+}
+
 export function buildIcpSizeGatePass(
   previous: Metadata | null,
   result: CompanyClassificationResult,
@@ -279,10 +327,17 @@ export function buildCandidateRescuePatch(params: {
   };
 
   if (decision.kind === 'discard') {
+    const range = decision.reason === 'claude_size_below_min' ? result.employeeRange : null;
     return {
       status: 'discarded',
       review_notes: `Descartada automáticamente (Claude): ${decision.detail}`,
-      metadata: { ...base, [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt) },
+      metadata: {
+        ...base,
+        ...(range
+          ? { icp_size_gate: buildIcpSizeGateBelow(asObject(base.icp_size_gate), range, minEmployees) }
+          : {}),
+        [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt),
+      },
     };
   }
   if (decision.kind === 'reassign') return buildReassignPatch(base, result, decision, minEmployees, decidedAt);

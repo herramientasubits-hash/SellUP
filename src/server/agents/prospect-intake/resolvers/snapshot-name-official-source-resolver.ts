@@ -22,6 +22,7 @@ import type {
   OfficialSourceEnrichmentResult,
   OfficialSourceResolver,
   OfficialSourceResolverInput,
+  OfficialWorkforce,
 } from '../source-enrichment';
 
 /** Confidence of a unique exact-core match — equals the strong threshold. */
@@ -41,6 +42,8 @@ export interface SnapshotNameRow {
    * sólo una pista (`low_confidence_match`), y sólo si no hubo coincidencia exacta.
    */
   brandSignal?: boolean;
+  /** SOURCES-CL-SII-REGISTRY-1 — trabajadores del registro; sólo viajan si el match es fuerte. */
+  workforce?: OfficialWorkforce | null;
 }
 
 /** Injected read-only query: rows whose stored core equals `core`. Fail-soft. */
@@ -158,6 +161,7 @@ export function createSnapshotNameOfficialSourceResolver(
           status: 'matched',
           confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
           safeMetadata: { normalizedSearchName: core },
+          ...(best.workforce ? { workforce: { ...best.workforce } } : {}),
         };
       }
       return {
