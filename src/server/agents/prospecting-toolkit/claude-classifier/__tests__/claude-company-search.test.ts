@@ -111,6 +111,40 @@ describe('A. searchCompaniesWithClaude — sólo pasa lo que salió de la búsqu
     assert.ok((out.usage?.estimatedCostUsd ?? 0) > 0);
   });
 
+  it('fuera de la búsqueda, con fuente que sí salió: se baja el sitio y vale sólo si es de esa empresa', async () => {
+    const FILLER = ' Desarrollamos software a la medida para bancos y retail en Colombia.'.repeat(6);
+    const pages: Record<string, string> = {
+      'https://www.sophossolutions.com': `<html><head><title>Sophos Solutions | Tecnología</title></head><body><p>${FILLER}</p></body></html>`,
+      'https://parked.co': `<html><head><title>Este dominio está en venta</title></head><body><p>${FILLER}</p></body></html>`,
+    };
+    const fetchPage = async (url: string) => ({
+      requestedUrl: url,
+      finalUrl: url,
+      httpStatus: 200,
+      redirected: false,
+      html: pages[url] ?? null,
+      error: null,
+    });
+    const ranking = 'https://www.ranking.co/top-tecnologicas';
+    const conv = conversation(
+      [
+        COMPANY('Sophos Solutions', 'https://www.sophossolutions.com', { source_url: ranking }),
+        COMPANY('Parqueada SAS', 'https://parked.co', { source_url: ranking }),
+        COMPANY('Sin fuente', 'https://sinfuente.co', { source_url: 'https://otra-fuente.co/x' }),
+      ],
+      [ranking],
+    );
+    const out = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv, fetchPage });
+    assert.deepEqual(out.results.map((r) => r.url), ['https://sophossolutions.com']);
+    assert.equal(out.results[0].metadata?.site_in_search_results, false);
+    assert.equal(out.results[0].metadata?.outside_search_verification, 'name_match');
+    assert.deepEqual(out.rejected, { outside_search_unverified: 1, not_in_search_results: 1 });
+
+    // Sin descarga disponible, lo de fuera de la búsqueda se rechaza como antes.
+    const noFetch = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv });
+    assert.equal(noFetch.results.length, 0);
+  });
+
   it('respeta el máximo de empresas por consulta', async () => {
     const urls = ['a.co', 'b.co', 'c.co'].map((d) => `https://${d}`);
     const conv = conversation(urls.map((u, i) => COMPANY(`E${i}`, u)), urls);
@@ -253,6 +287,8 @@ function fakeDeps(overrides: Partial<ClaudeCompanySearchDeps> = {}) {
   const deps: ClaudeCompanySearchDeps = {
     loadSourceBatch: async () => SOURCE,
     loadExcludedDomains: async () => ['siigo.com'],
+    countPreviousRuns: async () => 0,
+    resolveRegions: () => ['Bogotá', 'Antioquia', 'Valle del Cauca'],
     resolveActiveModel: async () => ({ model: MODEL, apiKey: 'k' }),
     checkQuota: async () => ({ allowed: true }),
     runSearch: async ({ onCall }) => {
@@ -351,6 +387,20 @@ describe('C. runClaudeCompanySearch', () => {
     const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.deepEqual(s.ok ? null : s.error, 'write_failed');
     assert.equal(f.logs.length, 2); // lo pagado se registra igual
+  });
+
+  it('corridas siguientes rotan regiones del país, dos por corrida', () => {
+    const regions = ['Bogotá', 'Antioquia', 'Valle del Cauca'];
+    assert.deepEqual(buildCompanySearchQueries(SOURCE, 1, regions), [
+      'empresas de Tecnología en Bogotá, Colombia',
+      'empresas de Tecnología en Antioquia, Colombia',
+    ]);
+    assert.deepEqual(buildCompanySearchQueries(SOURCE, 2, regions), [
+      'empresas de Tecnología en Valle del Cauca, Colombia',
+      'empresas de Tecnología en Bogotá, Colombia',
+    ]);
+    // Sin regiones conocidas para el país ⇒ consultas nacionales.
+    assert.equal(buildCompanySearchQueries(SOURCE, 3, []).length, 2);
   });
 
   it('consultas: una general y una por subindustria (máx. 2)', () => {

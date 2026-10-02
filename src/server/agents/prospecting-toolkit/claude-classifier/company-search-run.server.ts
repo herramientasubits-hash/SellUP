@@ -13,10 +13,12 @@ import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delive
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
 import { runProspectingPipeline } from '../prospecting-pipeline';
+import { resolveTavilyCountryRegions } from '../tavily-country-regions';
 import type { ProspectingPipelineOutput } from '../types';
 import { withClaudeSearchContext, type ClaudeSearchRunContext } from '../web-search-providers/claude-web-search-provider';
 import { resolveActiveAnthropicModel } from './classify-batch-candidates.server';
 import {
+  CLAUDE_COMPANY_SEARCH_METADATA_KEY,
   CLAUDE_COMPANY_SEARCH_RESULTS_PER_QUERY,
   CLAUDE_COMPANY_SEARCH_TARGET,
   type ClaudeCompanySearchDeps,
@@ -90,10 +92,23 @@ async function loadExcludedDomains(countryCode: string, industry: string): Promi
   return [...new Set(domains)];
 }
 
+async function countPreviousRuns(countryCode: string, industry: string): Promise<number> {
+  const { count, error } = await createSupabaseAdminClient()
+    .from('prospect_batches')
+    .select('id', { count: 'exact', head: true })
+    .eq('country_code', countryCode)
+    .eq('industry', industry)
+    .not(`metadata->${CLAUDE_COMPANY_SEARCH_METADATA_KEY}`, 'is', null);
+  if (error) throw new Error(`previous_runs_read_failed:${error.message}`);
+  return count ?? 0;
+}
+
 export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanySearchDeps {
   return {
     loadSourceBatch,
     loadExcludedDomains,
+    countPreviousRuns,
+    resolveRegions: resolveTavilyCountryRegions,
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
     runSearch: async ({ source, queries, excludeDomains, active, deadlineAtMs, onCall }) => {
