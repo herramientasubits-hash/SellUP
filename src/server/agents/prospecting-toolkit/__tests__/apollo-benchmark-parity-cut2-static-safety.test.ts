@@ -712,7 +712,11 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. AUTORADA y
     // NO APLICADA. El proxy «el siguiente número está libre» se mueve por tanto de la 141 a la
     // 142, y el barrido de AUTORÍA se ENSANCHA para incluir la 141.
-    assert.equal(migrations.filter((f) => f.startsWith('142')).length, 0);
+    // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank`, sólo service_role; no es de teléfono, ni del catálogo, ni de BR, ni
+    // de CUT3B4). AUTORADA y NO APLICADA. El proxy «el siguiente número está libre» se mueve por
+    // tanto de la 142 a la 143, y el barrido de AUTORÍA se ENSANCHA para incluir la 142.
+    assert.equal(migrations.filter((f) => f.startsWith('143')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -732,7 +736,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('138') ||
         f.startsWith('139') ||
         f.startsWith('140') ||
-        f.startsWith('141'),
+        f.startsWith('141') ||
+        f.startsWith('142'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

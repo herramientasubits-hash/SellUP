@@ -307,7 +307,10 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
       // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
       // teléfono ni del catálogo. AUTORADA y NO APLICADA.
-      '141_tax_identifier_type_ein_nif.sql',
+      // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+      // ni de CUT3B4. AUTORADA y NO APLICADA.
+      '142_agent1_company_bank.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

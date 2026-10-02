@@ -2195,7 +2195,9 @@ export async function writeProspectingCandidates(
   // Ni el cupo total ni el orden de encaje DENTRO de cada grupo cambian.
   const targetCap = input.targetPersistibleCandidates ?? null;
   const eligibleBeforeCap = eligibleAfterIntraDedupe.length;
-  const capOrdered = orderByCompleteFirst(eligibleAfterIntraDedupe, (entry) =>
+  // AGENT1-COMPANY-BANK — con nombre porque el sobrante del tope lo vuelve a
+  // consultar: una completa recortada entra al banco como `ready`.
+  const countsTowardTargetForCap = (entry: (typeof eligibleAfterIntraDedupe)[number]): boolean =>
     evaluateCandidateSubindustryTargetEligibility({
       persistenceSuccess: true,
       sectorEvidenceState: entry.candidate.sectorEvidenceState,
@@ -2221,8 +2223,8 @@ export async function writeProspectingCandidates(
       }).targetAcceptanceAuthorized
         ? 'pass'
         : 'fail',
-    }).countsTowardTarget,
-  );
+    }).countsTowardTarget;
+  const capOrdered = orderByCompleteFirst(eligibleAfterIntraDedupe, countsTowardTargetForCap);
   /**
    * 🔴 X6.13 — EL CUPO DE ESCRITURA DESAPARECE.
    *
@@ -2260,6 +2262,29 @@ export async function writeProspectingCandidates(
       ? capOrdered.slice(0, deliveryCap)
       : capOrdered;
   precisionGate.targetCapCount = capOrdered.length - toPersist.length;
+  // AGENT1-DELIVERY-CAP-STAYS-FREE-1 — lo recortado viaja al llamador para que
+  // quede registrado (y libre) en vez de desaparecer.
+  // AGENT1-COMPANY-BANK — y con lo necesario para guardarlo en el banco: el id de
+  // Apollo (para volver a hallar su evidencia), si ya contaba para la meta y las
+  // MISMAS claves de reclamo que la fila habría tomado.
+  const deliveryCappedCompanies = capOrdered.slice(toPersist.length).map((entry) => ({
+    name: entry.candidate.name,
+    domain: entry.domain,
+    linkedinUrl: entry.candidate.companyLinkedInUrl ?? null,
+    countryCode: entry.candidate.countryCode ?? null,
+    providerOrganizationId: entry.candidate.apolloOrganizationId ?? null,
+    countsTowardTarget: countsTowardTargetForCap(entry),
+    claims: deriveGlobalIdentityClaims(
+      buildCompanyIdentityEvidence({
+        countryCode: entry.candidate.countryCode ?? null,
+        taxIdentifier: null,
+        domain: entry.domain ?? null,
+        website: entry.candidate.website ?? null,
+        linkedinUrl: entry.candidate.companyLinkedInUrl ?? null,
+        name: entry.candidate.name,
+      }),
+    ),
+  }));
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
   // Fetches existing active candidates once before the write loop to avoid
@@ -4722,6 +4747,7 @@ export async function writeProspectingCandidates(
     // consumidor existente lo lee. `persistence.completeValidCandidates` sigue
     // siendo la autoridad que gobierna el objetivo.
     acceptedForTargetByCandidate: persistedCandidateAcceptances,
+    deliveryCappedCompanies,
   };
 }
 

@@ -643,7 +643,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // SOURCES-US-EIN-BY-NAME-1 mueve el techo a la 141: sólo amplía el CHECK de
       // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No crea
       // contacto ni escribe `phone_source`. AUTORADA y NO APLICADA.
-      '141_tax_identifier_type_ein_nif.sql',
+      // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+      // ni de CUT3B4; no crea contacto ni escribe `phone_source`. AUTORADA y NO APLICADA.
+      '142_agent1_company_bank.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

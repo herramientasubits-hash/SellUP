@@ -165,10 +165,10 @@ describe('Tavily primero (AGENT1-TAVILY-FIRST-1)', () => {
     assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied');
   });
 
-  it('el tramo de Tavily corre con 2 rondas para dejar tiempo a Apollo', async () => {
+  it('el tramo de Tavily corre con 3 rondas (cabe: Tavily tarda < 1 min)', async () => {
     const calls = newCalls();
     await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({ reviewable: 1, calls }));
-    assert.deepEqual(calls.tavilyMaxRounds, [2]);
+    assert.deepEqual(calls.tavilyMaxRounds, [3]);
   });
 
   it('Tavily deja pocas para revisar ⇒ Apollo completa en la misma corrida', async () => {
@@ -258,5 +258,134 @@ describe('Tavily + Apollo en la misma corrida: las cifras se suman, medidas', ()
     assert.ok(result.ok, JSON.stringify(result));
     assert.equal(result.ok && result.candidateCount, 8);
     assert.equal(calls.apollo, 0);
+  });
+});
+
+// ── AGENT1-TAVILY-FIRST-2 — Claude revisa DENTRO de la corrida antes de decidir ─
+//
+// Prod 01-10 (CL×Salud, 34eeac5a): Tavily dejó 9 para revisar, la corrida
+// terminó sin Apollo, y después Claude descartó 5 ⇒ el vendedor recibió 4.
+
+function sequence(values: Array<number | null>): () => Promise<number | null> {
+  let i = 0;
+  return async () => values[Math.min(i++, values.length - 1)];
+}
+
+function clock(startMs: number, stepsMs: number[]): { nowMs: () => number } {
+  let i = 0;
+  return { nowMs: () => startMs + (stepsMs[Math.min(i++, stepsMs.length - 1)] ?? 0) };
+}
+
+describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
+  const START = 1_000_000;
+
+  it('Tavily deja 9, Claude limpia y quedan 6 ⇒ basta; Apollo no corre', async () => {
+    const calls = newCalls();
+    let rescued = 0;
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 6]),
+        rescueBatchInline: async () => { rescued++; return true; },
+        actionStartedAtMs: START, ...clock(START, [50_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(rescued, 1);
+    assert.equal(calls.apollo, 0);
+    assert.deepEqual(result.ok && result.tavilyFirst, {
+      outcome: 'satisfied', reviewable: 6, reviewableBeforeClaude: 9, claudeReviewed: true, target: 5,
+    });
+  });
+
+  it('Tavily deja 9, Claude deja 4 ⇒ Apollo completa (hay tiempo)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 4]),
+        rescueBatchInline: async () => true,
+        actionStartedAtMs: START, ...clock(START, [50_000, 110_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 1);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed');
+  });
+
+  it('Claude deja 4 pero ya no hay tiempo para Apollo ⇒ termina con lo que hay (no arriesga el corte de 300 s)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 4]),
+        rescueBatchInline: async () => true,
+        actionStartedAtMs: START, ...clock(START, [60_000, 170_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0);
+    assert.equal(calls.lusha, 0);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'short_no_time');
+  });
+
+  it('Tavily deja menos que el objetivo ⇒ Apollo enseguida, sin esperar a Claude', async () => {
+    const calls = newCalls();
+    let rescued = 0;
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([3]),
+        rescueBatchInline: async () => { rescued++; return true; },
+        actionStartedAtMs: START, ...clock(START, [50_000]),
+      },
+    }));
+    assert.equal(rescued, 0);
+    assert.equal(calls.apollo, 1);
+  });
+
+  it('si Claude falla dentro de la corrida, decide con lo de Tavily (y el rescate posterior sigue)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 9]),
+        rescueBatchInline: async () => { throw new Error('anthropic down'); },
+        actionStartedAtMs: START, ...clock(START, [50_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied' && result.tavilyFirst.claudeReviewed === false);
+  });
+
+  it('sin tiempo para que Claude empiece, decide con lo de Tavily', async () => {
+    const calls = newCalls();
+    let rescued = 0;
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9]),
+        rescueBatchInline: async () => { rescued++; return true; },
+        actionStartedAtMs: START, ...clock(START, [135_000]),
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(rescued, 0);
+    assert.equal(calls.apollo, 0);
+  });
+
+  it('Claude recibe una ventana acotada para empezar empresas nuevas', async () => {
+    const calls = newCalls();
+    let windowMs: number | null = null;
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 9]),
+        rescueBatchInline: async (input) => { windowMs = input.windowMs; return true; },
+        actionStartedAtMs: START, ...clock(START, [50_000]),
+      },
+    }));
+    assert.ok(windowMs !== null && windowMs > 0 && windowMs <= 60_000, String(windowMs));
   });
 });
