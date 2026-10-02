@@ -64,18 +64,18 @@ export type TavilyFirstSkipReason =
 
 export type TavilyFirstOutcome =
   /** Tavily dejó suficientes para revisar (tras Claude, si alcanzó a revisar): Apollo y Lusha no corrieron. */
-  | { outcome: 'satisfied'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: boolean; target: number }
+  | { outcome: 'satisfied'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
   /** Tavily dejó pocas: Apollo completó en la misma corrida. */
-  | { outcome: 'apollo_completed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number }
+  | { outcome: 'apollo_completed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
   /** Tras Claude quedaron pocas y ya no había tiempo para Apollo: se entrega lo que hay. */
-  | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number }
+  | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number; acceptedAfterClaude?: number | null }
   /** Tavily no corrió; la corrida fue Apollo como siempre. */
   | { outcome: 'skipped'; skipReason: TavilyFirstSkipReason }
   /**
    * AGENT1-TAVILY-FIRST-4 — Tavily dejó pocas pero el lote no se pudo reabrir
    * para Apollo: se entrega lo de Tavily (Apollo no corre ni gasta).
    */
-  | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number }
+  | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
   /** Tavily falló a mitad; la corrida siguió con Apollo. */
   | { outcome: 'failed' };
 
@@ -103,6 +103,27 @@ export function tavilyOwnReviewable(lotReviewable: number | null, preExisting: n
 
 export function isTavilyFirstSatisfied(reviewable: number | null, target: number): boolean {
   return reviewable !== null && reviewable >= target;
+}
+
+/**
+ * AGENT1-TAVILY-FIRST-5 — ¿Tavily cierra la corrida?
+ *
+ * Prod 02-10 (PE×Energía 2fc07f4a; BO 26c12524): con Claude ya revisando dentro
+ * de la corrida, «para revisar» dejó pasar portales y gremios: 5 para revisar y
+ * 1 que cuenta (Perú), 8 y 0 (Bolivia), y Apollo no corrió. Cuando Claude revisó
+ * y se pudo medir, decide lo que CUENTA para la meta; si no, lo revisable, como
+ * antes (sin revisión casi nada cuenta todavía).
+ */
+export function isTavilyFirstClosing(input: {
+  reviewable: number | null;
+  acceptedAfterClaude: number | null;
+  claudeReviewed: boolean;
+  target: number;
+}): boolean {
+  if (input.claudeReviewed && input.acceptedAfterClaude !== null) {
+    return input.acceptedAfterClaude >= input.target;
+  }
+  return isTavilyFirstSatisfied(input.reviewable, input.target);
 }
 
 export type WriterTruthLike = {

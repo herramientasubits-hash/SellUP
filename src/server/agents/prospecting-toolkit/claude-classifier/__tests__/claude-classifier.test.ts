@@ -26,6 +26,7 @@ import {
 } from '../classify-batch-candidates';
 import { runAnthropicConversation, AnthropicApiError } from '../anthropic-messages-client';
 import { buildSubmitToolDefinition, SUBMIT_TOOL_NAME } from '../prompt';
+import { slugIsDomainBrandWithCountry } from '../linkedin-verifier';
 import type { ClassifierCatalogIndustry, CompanyClassificationResult, RawClassifierSubmission } from '../types';
 import type { SafePageFetchResult } from '../../website-verifier';
 
@@ -939,5 +940,45 @@ describe('M. LinkedIn desde la fuente del tamaño o del sector', () => {
     );
     assert.ok(r.linkedin);
     assert.match(r.linkedin.url, /clinica-san-felipe-sa/);
+  });
+});
+
+describe('N. LinkedIn de marca + país y propuesta fallida (Engie, Prod 02-10)', () => {
+  const ENGIE = { ...COMPANY, name: 'Engie Energia.pe', websiteOrDomain: 'engie-energia.pe' };
+  const LI = 'https://pe.linkedin.com/company/engieperu';
+
+  it('slugIsDomainBrandWithCountry: marca del dominio + país, nada más', () => {
+    assert.equal(slugIsDomainBrandWithCountry('engieperu', 'engie-energia.pe'), true);
+    assert.equal(slugIsDomainBrandWithCountry('peru-engie', 'engie-energia.pe'), true);
+    assert.equal(slugIsDomainBrandWithCountry('engie', 'engie-energia.pe'), false, 'sin país lo decide el evaluador de siempre');
+    assert.equal(slugIsDomainBrandWithCountry('enelperu', 'engie-energia.pe'), false);
+    assert.equal(slugIsDomainBrandWithCountry('abcperu', 'abc.pe'), false, 'marcas de menos de 4 letras no');
+    assert.equal(slugIsDomainBrandWithCountry('engieperu', null), false);
+  });
+
+  it('la página de LinkedIn de la evidencia cuenta aunque el nombre inferido no coincida', async () => {
+    const sub = submission({
+      employee_range: { min: 501, max: 1000, quote: '1001-5000 empleados', source_url: LI, confidence: 0.85 },
+    });
+    const r = await classifyCompany(
+      { company: ENGIE, catalog: CATALOG, model: MODEL },
+      deps({
+        fetchPage: async () => page({ requestedUrl: 'engie-energia.pe', finalUrl: 'https://engie-energia.pe/' }),
+        runConversation: async () => modelResponse(sub, [LI]),
+      }),
+    );
+    assert.ok(r.linkedin, 'engieperu es la marca del dominio + país');
+    assert.match(r.linkedin.url, /company\/engieperu/);
+  });
+
+  it('si la propuesta de Claude falla, se mira igual la página de la evidencia', async () => {
+    const wrong = 'https://pe.linkedin.com/company/minera-totalmente-distinta';
+    const sub = submission({ linkedin_company_url: wrong });
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({ runConversation: async () => modelResponse(sub, [wrong, 'https://pe.linkedin.com/company/clinica-san-felipe']) }),
+    );
+    assert.ok(r.linkedin, 'antes: la propuesta fallida bloqueaba la evidencia');
+    assert.match(r.linkedin.url, /clinica-san-felipe/);
   });
 });

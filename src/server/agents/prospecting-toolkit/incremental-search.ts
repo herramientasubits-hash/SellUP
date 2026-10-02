@@ -1482,6 +1482,12 @@ export async function runIncrementalProspectingSearch(
         unchecked: 0,
       };
 
+      // AGENT1-TAVILY-OFFICIAL-IDENTITY-1 — identificador fiscal oficial antes
+      // del writer. Fail-open: un fallo deja las candidatas como estaban.
+      const candidatesForWriter = input.enrichCandidatesBeforeWrite
+        ? await input.enrichCandidatesBeforeWrite(allCandidates).catch(() => allCandidates)
+        : allCandidates;
+
       const syntheticPipelineOutput: ProspectingPipelineOutput = {
         input: {
           country: input.country,
@@ -1501,7 +1507,7 @@ export async function runIncrementalProspectingSearch(
           estimatedCostUsd: null,
           metadata: {},
         },
-        candidates: allCandidates,
+        candidates: candidatesForWriter,
         summary,
         warnings,
         metadata: {

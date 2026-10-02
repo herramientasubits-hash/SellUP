@@ -13,6 +13,10 @@
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
+import {
+  buildTavilyOfficialIdentityEnricher,
+  type TavilyCandidatesEnricher,
+} from '@/server/agents/prospecting-toolkit/tavily-official-identity.server';
 import type { ResolvedWizardExecution } from './wizard-execution-types';
 // AGENT1-APOLLO-LUSHA-WATERFALL § CORTE 1 — autoridad única del objetivo.
 import { WIZARD_TARGET_USEFUL_COMPANIES } from '@/modules/prospect-batches/wizard-target-authority';
@@ -61,6 +65,12 @@ export type WizardTavilyInput = {
    * Apollo (deja tiempo a Apollo). Ausente ⇒ `WIZARD_ADAPTIVE_MAX_ROUNDS`.
    */
   maxRounds?: number;
+  /**
+   * AGENT1-TAVILY-OFFICIAL-IDENTITY-1 — identificador fiscal oficial antes del
+   * writer. Ausente ⇒ el de producción (fuentes oficiales del país, una vez por
+   * corrida). `null` ⇒ sin paso (pruebas).
+   */
+  enrichCandidatesBeforeWrite?: TavilyCandidatesEnricher | null;
 };
 
 export type WizardTavilyRunner = (input: WizardTavilyInput) => Promise<IncrementalSearchOutput>;
@@ -78,6 +88,14 @@ export async function runWizardTavilySearch(
   runnerOverride?: typeof runIncrementalProspectingSearch,
 ): Promise<IncrementalSearchOutput> {
   const runner = runnerOverride ?? runIncrementalProspectingSearch;
+  const enrichCandidatesBeforeWrite =
+    input.enrichCandidatesBeforeWrite === undefined
+      ? buildTavilyOfficialIdentityEnricher({
+          country: input.resolved.country.name,
+          countryCode: input.resolved.country.code,
+          sector: input.resolved.industry.name,
+        })
+      : input.enrichCandidatesBeforeWrite;
   return runner({
     country: input.resolved.country.name,
     countryCode: input.resolved.country.code,
@@ -101,5 +119,6 @@ export async function runWizardTavilySearch(
     ...(input.resolveExtraBatchMetadata
       ? { resolveExtraBatchMetadata: input.resolveExtraBatchMetadata }
       : {}),
+    ...(enrichCandidatesBeforeWrite ? { enrichCandidatesBeforeWrite } : {}),
   });
 }
