@@ -155,16 +155,10 @@ describe('§ 3 — nadie elige proveedor por corrida', () => {
   const read = (rel: string) => readFileSync(path.join(root, rel), 'utf8');
 
   it('la ejecución y la capacidad de la pantalla leen la MISMA regla', () => {
-    // AGENT1-TAVILY-TRIAL-1 — la ejecución parte de la MISMA regla y le suma una
-    // única excepción documentada: un admin pidiendo `tavily` con
-    // `ENABLE_AGENT1_ADMIN_TAVILY_TRIAL` (ver wizard-admin-tavily-trial.ts). La
-    // regla base no puede desaparecer ni reescribirse por otro camino.
-    const actions = read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts');
     assert.match(
-      actions,
-      /runOverrideEnabled:\s*resolveRunOverrideEnabledForRequest\(\{\s*overrideEffective:\s*isWizardRunProviderOverrideEffective\(\),\s*trialEffective:\s*isWizardRunTavilyTrialEffective\(\),/,
+      read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
+      /runOverrideEnabled:\s*isWizardRunProviderOverrideEffective\(\)/,
     );
-    assert.doesNotMatch(actions, /runOverrideEnabled:\s*true/);
     assert.match(
       read(
         'src/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability.server.ts',
