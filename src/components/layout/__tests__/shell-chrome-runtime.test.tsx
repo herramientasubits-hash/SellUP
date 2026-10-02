@@ -402,7 +402,14 @@ describe('Menú lateral — secciones plegables', () => {
     // Los módulos, en su orden.
     assert.deepEqual(
       Array.from(nav.children, (child) => child.textContent),
-      ['Pipeline SellUp', 'Empresas', 'Contactos', 'Uso de IA y costos', 'Catálogo de fuentes'],
+      [
+        'Pipeline SellUp',
+        'Empresas',
+        'Contactos',
+        'Uso de IA y costos',
+        'Catálogo de fuentes',
+        'Calculadora de ROI',
+      ],
     );
   });
 
