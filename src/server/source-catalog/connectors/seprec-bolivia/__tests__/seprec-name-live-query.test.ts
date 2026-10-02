@@ -333,8 +333,8 @@ describe('marca dentro de la razón social (sólo pista)', () => {
     assert.equal(findBrandInLegalName('ORIENTAL', two, 2), null);
     assert.equal(findBrandInLegalName('ABC', parseSeprecSearch(search([hit('3', 'GRUPO ABC S.A.')])), 1), null);
     assert.equal(findBrandInLegalName('MERSUR', parseSeprecSearch(mersurSearch), null), null);
-    // palabra completa: «SUR» no está en «AGENCIA … MERSUR»
-    assert.equal(findBrandInLegalName('SURX', parseSeprecSearch(mersurSearch), 2), null);
+    // palabra completa: «MERSU» está dentro de «MERSUR» como texto, pero no como palabra
+    assert.equal(findBrandInLegalName('MERSU', parseSeprecSearch(mersurSearch), 2), null);
   });
 
   it('la consulta devuelve la fila marcada como pista; el resolvedor da low_confidence_match y NO llena el NIT', async () => {
@@ -369,6 +369,13 @@ describe('marca dentro de la razón social (sólo pista)', () => {
     });
     const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CERVECERIA BOLIVIANA NACIONAL');
     assert.deepEqual(rows.map((r) => [r.taxId, r.brandSignal ?? false]), [['1020229024', false]]);
+  });
+
+  it('con coincidencia exacta sin NIT en su ficha, no se busca por marca (ni una petición más)', async () => {
+    const f = fakeSeprec(search([hit('1', 'LOGIBOL S.R.L.')]), { '1': {} });
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('LOGIBOL');
+    assert.deepEqual(rows, []);
+    assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, 1);
   });
 
   it('dos pistas de marca distintas no dan nada (el resolvedor exige una sola)', async () => {
