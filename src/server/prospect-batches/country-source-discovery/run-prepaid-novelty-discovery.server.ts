@@ -239,6 +239,16 @@ const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
  * Sólo lo que el ESCRITOR midió como completo cuenta para la meta; las filas
  * «por completar» del banco se entregan pero no cierran el hueco.
  */
+/**
+ * El plan de exclusión VACÍO: sólo para quien no tiene ninguna puerta resuelta de
+ * la que arrastrarlo (el defecto de `noContribution` y las salidas del banco, que
+ * no consultan la puerta). Una sola construcción, para que no aparezca una
+ * reconstrucción en un descarte (REVIEW-1 § 3).
+ */
+function noGateExclusionPlan(input: { provider: ProviderSeenProvider }): ProviderExclusionPlan {
+  return planProviderExclusions(input.provider, {});
+}
+
 export async function runPrePaidNoveltyDiscovery(
   client: SupabaseClient,
   input: PrePaidNoveltyDiscoveryInput,
@@ -280,7 +290,7 @@ export async function runPrePaidNoveltyDiscovery(
       knownSuppressionDomains: [],
       providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
       providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
-      providerExclusionPlan: planProviderExclusions(input.provider, {}),
+      providerExclusionPlan: noGateExclusionPlan(input),
       freeSource: notAttemptedFreeSourceOutcome(),
       telemetry: bankTelemetry,
     };
@@ -317,7 +327,7 @@ export async function runPrePaidNoveltyDiscovery(
       knownSuppressionDomains: [],
       providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
       providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
-      providerExclusionPlan: planProviderExclusions(input.provider, {}),
+      providerExclusionPlan: noGateExclusionPlan(input),
       freeSource: notAttemptedFreeSourceOutcome(),
       telemetry: bankTelemetry,
     };
@@ -392,7 +402,7 @@ async function runFreeCatalogLayer(
     } = {
       providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
       providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
-      providerExclusionPlan: planProviderExclusions(input.provider, {}),
+      providerExclusionPlan: noGateExclusionPlan(input),
     },
   ): PrePaidNoveltyDiscoveryOutcome => ({
     requestedTarget: input.requestedTarget,
