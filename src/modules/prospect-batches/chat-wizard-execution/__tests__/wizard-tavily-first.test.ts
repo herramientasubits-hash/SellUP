@@ -389,3 +389,63 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
     assert.ok(windowMs !== null && windowMs > 0 && windowMs <= 60_000, String(windowMs));
   });
 });
+
+// ── AGENT1-TAVILY-FIRST-3 — las aceptadas se recuentan DESPUÉS de Claude ──────
+//
+// Prod 02-10 (PE×Energía, 97c86cf7): el lote decía «0 aceptadas» porque el bloque
+// se publicaba con lo que midió el writer, ANTES de que Claude completara tamaños.
+
+describe('aceptadas recontadas tras la revisión de Claude (AGENT1-TAVILY-FIRST-3)', () => {
+  const START = 2_000_000;
+
+  it('Tavily basta y Claude revisó ⇒ las aceptadas son las que cuentan en la base, y se republican', async () => {
+    const calls = newCalls();
+    const published: Array<Record<string, unknown>> = [];
+    let asked: string | null = null;
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 7]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async (batchId) => { asked = batchId; return ['c1', 'c2']; },
+        publishWaterfallLegTrace: async ({ published: p }) => { published.push(p); return { status: 'published' } as never; },
+        actionStartedAtMs: START, nowMs: () => START + 50_000,
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.ok(asked, 'se recuentan las aceptadas del lote');
+    assert.equal(result.ok && result.acceptedForTarget?.acceptedPaidForTarget, 2);
+    assert.equal(published.length, 1);
+    assert.equal(
+      (published[0].accepted_for_target as { accepted_paid_for_target?: number }).accepted_paid_for_target,
+      2,
+    );
+  });
+
+  it('sin revisión de Claude no se recuenta (queda lo que midió el writer)', async () => {
+    const calls = newCalls();
+    let asked = false;
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9]),
+        listAcceptedCandidateIds: async () => { asked = true; return ['x']; },
+      },
+    }));
+    assert.equal(asked, false);
+  });
+
+  it('si el recuento falla, se queda lo del writer (nunca inventa)', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([9, 7]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => { throw new Error('db'); },
+        actionStartedAtMs: START, nowMs: () => START + 50_000,
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+  });
+});

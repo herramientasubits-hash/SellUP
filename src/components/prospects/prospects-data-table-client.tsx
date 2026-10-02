@@ -81,7 +81,7 @@ import {
 } from '@/modules/prospect-batches/types';
 import { createClient } from '@/lib/supabase/client';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
-import { ScopeFiltersInDrawer } from '@/components/shared/scope-filters-client';
+import { TeamFilterUrlButton } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 // ── Derived types ──────────────────────────────────────────────
@@ -190,7 +190,6 @@ interface ProspectsDataTableClientProps {
   scopeFilterOptions?: ScopeFilterOptions;
   currentUserId?: string;
   currentGroupId?: string;
-  currentRoleKey?: string;
   /**
    * Lo que se ofrece cuando no hay nada por revisar (generar con IA, importar,
    * crear a mano). Lo arma el panel de servidor, que es el que tiene los drawers.
@@ -211,7 +210,6 @@ export function ProspectsDataTableClient({
   scopeFilterOptions,
   currentUserId = '',
   currentGroupId = '',
-  currentRoleKey = '',
   emptyActions,
   hasUrlFilters = false,
 }: ProspectsDataTableClientProps) {
@@ -970,7 +968,18 @@ export function ProspectsDataTableClient({
           getRowId={(row) => row.id}
           title={quick.activeLabel ? `Por revisar · ${quick.activeLabel}` : 'Prospectos por revisar'}
           count={quick.rows.length}
-          actions={showQuickFilters && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          actions={
+            <>
+              {showQuickFilters && isWide && <QuickFilterChips {...quickFilterGroup} />}
+              {scopeFilterOptions && !sourceId && (
+                <TeamFilterUrlButton
+                  scopeFilterOptions={scopeFilterOptions}
+                  currentUserId={currentUserId}
+                  currentGroupId={currentGroupId}
+                />
+              )}
+            </>
+          }
           enableRowSelection
           contextMenu={contextMenu}
           bulkActions={bulkActions}
@@ -980,16 +989,6 @@ export function ProspectsDataTableClient({
           onRowClick={(row) => openCandidateDetail(row)}
           rowClickable
           renderListItem={renderListItem}
-          settingsExtraSections={
-            scopeFilterOptions && !sourceId ? (
-              <ScopeFiltersInDrawer
-                scopeFilterOptions={scopeFilterOptions}
-                currentUserId={currentUserId}
-                currentGroupId={currentGroupId}
-                currentRoleKey={currentRoleKey}
-              />
-            ) : undefined
-          }
           emptyState={emptyState}
         />
       </div>

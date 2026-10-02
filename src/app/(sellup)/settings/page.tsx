@@ -14,8 +14,8 @@ import { Heading } from '@/components/typography';
 
 /**
  * Resumen de Configuración: una tarjeta por sección con lo que se hace en ella
- * y su estado. La navegación entre secciones vive en el marco (`layout.tsx`);
- * esta pantalla es la vista de conjunto, no un paso obligado.
+ * y su estado. Es la puerta de entrada: Configuración no tiene menú lateral y,
+ * dentro de cada sección, las migas de la barra superior llevan de vuelta aquí.
  */
 export default async function SettingsOverviewPage() {
   const [isAdmin, isActive] = await Promise.all([isCurrentUserAdmin(), hasActiveAccess()]);
@@ -40,6 +40,7 @@ export default async function SettingsOverviewPage() {
 
   return (
     <SettingsPage
+      overview
       title="Configuración"
       description="Quién entra a SellUp, con qué herramientas trabaja y cuánto se gasta en ellas."
     >

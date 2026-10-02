@@ -55,3 +55,23 @@ export function verifyLinkedInCompany(params: {
   }
   return { linkedin: { url: claimed.normalized, slug: claimed.slug, source: 'provided_search_result' }, rejected: null };
 }
+
+/**
+ * AGENT1-CLAUDE-LINKEDIN-FROM-EVIDENCE-1 — páginas de LinkedIn de empresa que
+ * Claude usó como FUENTE de un dato (tamaño, sector), sin repetir.
+ *
+ * Prod 02-10 (lote 97c86cf7): el tamaño de Volcan salió de
+ * linkedin.com/company/volcan-compañia-minera pero `linkedin_company_url` vino
+ * vacío ⇒ la empresa no contaba para la meta sólo por el LinkedIn. Estas URLs son
+ * CANDIDATAS: cada una pasa por `verifyLinkedInCompany` con las reglas de siempre.
+ */
+export function linkedInCompanyUrlsFromEvidence(urls: readonly (string | null | undefined)[]): string[] {
+  const out: string[] = [];
+  for (const raw of urls) {
+    if (!raw) continue;
+    const normalized = normalizeLinkedInCompanyUrl(raw);
+    if (normalized.rejected || !normalized.normalized || !normalized.slug) continue;
+    if (!out.includes(raw)) out.push(raw);
+  }
+  return out;
+}

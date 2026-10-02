@@ -1,12 +1,13 @@
 /**
  * SettingsPage y TechnicalDetails — contrato RUNTIME: una sola forma de decir
- * dónde se está (sin flecha de volver) y lo técnico plegado.
+ * dónde se está (las migas, sin flecha de volver ni menú lateral) y lo técnico
+ * plegado.
  */
 
 import './jsdom-bootstrap';
 
 import * as React from 'react';
-import { describe, it, before, afterEach } from 'node:test';
+import { describe, it, before, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 let render: (typeof import('@testing-library/react'))['render'];
@@ -19,6 +20,15 @@ let TechnicalDetails: (typeof import('../settings-page'))['TechnicalDetails'];
 
 const h = React.createElement;
 
+let currentPath = '/settings';
+
+mock.module('next/navigation', {
+  namedExports: {
+    usePathname: () => currentPath,
+    useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {}, prefetch: () => {} }),
+  },
+});
+
 before(async () => {
   ({ render, screen, within, cleanup, fireEvent } = await import('@testing-library/react'));
   ({ SettingsPage, TechnicalDetails } = await import('../settings-page'));
@@ -26,10 +36,24 @@ before(async () => {
 
 afterEach(() => {
   cleanup();
+  currentPath = '/settings';
 });
 
 describe('SettingsPage — ubicación', () => {
-  it('una sección de primer nivel no pinta migas ni flecha de volver', () => {
+  it('el resumen no pinta migas: la barra ya dice «SellUp › Configuración»', () => {
+    render(
+      h(SettingsPage, {
+        overview: true,
+        title: 'Configuración',
+        children: h('p', null, 'contenido'),
+      }),
+    );
+
+    assert.equal(screen.queryByRole('navigation', { name: 'Breadcrumb' }), null);
+  });
+
+  it('una sección de primer nivel se nombra en las migas, sin flecha de volver', () => {
+    currentPath = '/settings/users';
     render(
       h(SettingsPage, {
         title: 'Usuarios y acceso',
@@ -40,11 +64,16 @@ describe('SettingsPage — ubicación', () => {
 
     assert.ok(screen.getByRole('heading', { level: 1, name: 'Usuarios y acceso' }));
     assert.ok(screen.getByText('Gestiona el equipo.'));
-    assert.equal(screen.queryByRole('navigation', { name: 'Breadcrumb' }), null);
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    assert.equal(
+      within(crumbs).getByText('Usuarios y acceso').getAttribute('aria-current'),
+      'page',
+    );
     assert.equal(screen.queryByRole('link', { name: 'Volver' }), null);
   });
 
   it('una pantalla anidada pinta el camino dentro de la sección y termina en ella misma', () => {
+    currentPath = '/settings/integrations/hubspot';
     render(
       h(SettingsPage, {
         title: 'HubSpot',
@@ -58,9 +87,26 @@ describe('SettingsPage — ubicación', () => {
 
     assert.equal(parent.getAttribute('href'), '/settings/integrations');
     assert.equal(within(crumbs).getByText('HubSpot').getAttribute('aria-current'), 'page');
+    // La sección sale de la URL y el `trail` que ya la nombra no la repite.
+    assert.equal(within(crumbs).getAllByText('Integraciones comerciales').length, 1);
     // La raíz «Configuración» ya está en la barra superior: no se repite.
     assert.equal(within(crumbs).queryByText('Configuración'), null);
     assert.equal(screen.queryByRole('link', { name: 'Volver' }), null);
+  });
+
+  it('la sección sale de la URL aunque la pantalla no la nombre', () => {
+    currentPath = '/settings/usage';
+    render(h(SettingsPage, { title: 'Uso, costos y efectividad', children: h('p', null, 'x') }));
+
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    assert.equal(
+      within(crumbs).getByRole('link', { name: 'Proveedores y consumo' }).getAttribute('href'),
+      '/settings/providers',
+    );
+    assert.equal(
+      within(crumbs).getByText('Uso, costos y efectividad').getAttribute('aria-current'),
+      'page',
+    );
   });
 
   it('pinta las acciones y el contenido', () => {
