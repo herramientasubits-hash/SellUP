@@ -39,6 +39,25 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'cr_company_registry', country: 'CR', status: 'connected_identity_in_run' },
 ];
 
+/** Fuentes consultadas EN VIVO (no son una carga): mismo estado, modo backend_connected. */
+const LIVE_IDENTITY_SOURCES = [{ key: 'bo_seprec_live', country: 'BO' }] as const;
+
+describe('fuentes en vivo de número fiscal por nombre', () => {
+  for (const { key, country } of LIVE_IDENTITY_SOURCES) {
+    it(`${key}: existe, país ${country}, connected_identity_in_run, backend_connected, fuera de las recomendaciones`, () => {
+      const s = CATALOG_SOURCES.find((source) => source.key === key);
+      assert.ok(s, key);
+      assert.deepEqual(s.countryCodes, [country]);
+      assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
+      assert.equal(s.connectionMode, 'backend_connected');
+      for (const depth of ['basic', 'standard', 'deep'] as const) {
+        const ctx = getCatalogContext({ country, countryCode: country, industry: 'technology', searchDepth: depth });
+        assert.equal(ctx.recommendedSources.some((r) => r.key === key), false, `${key} ${depth}`);
+      }
+    });
+  }
+});
+
 const INDUSTRIES = ['technology', 'health_pharma', 'government', 'retail', 'Tecnología'];
 const DEPTHS = ['basic', 'standard', 'deep'] as const;
 

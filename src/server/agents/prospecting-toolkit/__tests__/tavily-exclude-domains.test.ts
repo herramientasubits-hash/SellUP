@@ -128,3 +128,18 @@ describe('AGENT1-TAVILY-QUERY-SPACE-1 — dominios de la celda antes que la memo
     assert.ok(result.domains.indexOf('celda.gov.co') < result.domains.indexOf('e0.gov.co'));
   });
 });
+
+describe('AGENT1-TAVILY-FIRST-4 — portales de empleo del país de la corrida', () => {
+  it('Perú: excluye opcionempleo.com.pe (c530fef3) y sus pares, después del ruido fijo', () => {
+    const out = buildTavilyExcludeDomains({ seenThisRun: ['claro.com.pe'], negativeMemory: [], countryCode: 'PE' });
+    const extra = out.domains.slice(TAVILY_STATIC_EXCLUDE_DOMAINS.length, TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6);
+    assert.ok(extra.includes('opcionempleo.com.pe'));
+    assert.ok(extra.includes('bumeran.com.pe'));
+    assert.equal(out.domains[TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6], 'claro.com.pe');
+    assert.equal(out.staticCount, TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6);
+  });
+  it('sin país: nada extra', () => {
+    const out = buildTavilyExcludeDomains({ seenThisRun: [], negativeMemory: [], countryCode: null });
+    assert.deepEqual(out.domains, [...TAVILY_STATIC_EXCLUDE_DOMAINS]);
+  });
+});

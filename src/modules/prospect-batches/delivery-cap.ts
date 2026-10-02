@@ -96,3 +96,22 @@ export function applyDeliveryCap<T>(
   items.forEach((item, index) => (keep.has(index) ? delivered : capped).push(item));
   return { delivered, capped, applied: true };
 }
+
+/**
+ * AGENT1-COMPANY-BANK-FIRST-1 — el tope es por VENDEDOR y por búsqueda, no por
+ * escritor: lo que el lote ya contiene (el banco, la capa gratuita, otra pierna)
+ * se descuenta. Nunca baja del objetivo de quien escribe (`floor`), así que una
+ * pierna que todavía tiene que cerrar la meta siempre puede aportar sus completas.
+ *
+ * `cap === null` ⇒ sin tope (igual que antes).
+ */
+export function resolveEffectiveDeliveryCap(input: {
+  cap: number | null;
+  alreadyDelivered: number;
+  floor: number | null;
+}): number | null {
+  if (input.cap === null || !Number.isFinite(input.cap)) return null;
+  const already = Number.isFinite(input.alreadyDelivered) ? Math.max(0, Math.trunc(input.alreadyDelivered)) : 0;
+  const floor = input.floor !== null && Number.isFinite(input.floor) ? Math.max(0, Math.trunc(input.floor)) : 0;
+  return Math.max(Math.trunc(input.cap) - already, floor, 0);
+}

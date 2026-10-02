@@ -148,7 +148,9 @@ describe('§ 10 — la ficha no etiqueta como Web/IA lo que produjo Apollo', () 
   it('el writer persiste `apollo` para una corrida de company discovery de Apollo', () => {
     assert.match(
       src.writer,
-      /const candidateSourcePrimary = isApolloCompanyDiscoveryRun \? 'apollo' : 'web_ai'/,
+      // AGENT1-COMPANY-BANK-FIRST-1 — y también cuando las filas vienen del banco
+      // (procedencia Apollo declarada por quien escribe).
+      /const candidateSourcePrimary =\s*isApolloCompanyDiscoveryRun \|\| input\.candidateProvenance === 'apollo' \? 'apollo' : 'web_ai'/,
     );
   });
 });

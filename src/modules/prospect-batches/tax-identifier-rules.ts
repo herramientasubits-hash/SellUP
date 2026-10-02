@@ -493,6 +493,24 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '3101052623',
     ruleVersion: 'CR-CEDJUR-v1',
   },
+  BO: {
+    countryCode: 'BO',
+    label: 'NIT',
+    placeholder: 'Ej. 1020229024',
+    helpText: 'Ingrese el NIT (sólo dígitos).',
+    minLength: 7,
+    maxLength: 13,
+    inputMode: 'numeric',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{7,13}$/,
+    // SOURCES-BO-NIT-BY-NAME-LIVE-1: no hay dígito verificador público del NIT
+    // boliviano; sólo se valida la forma.
+    validationLevel: 'format_only',
+    normalize: (val) => val.replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{7,13}$/.test(val.replace(/[\s.-]/g, '')),
+    canonicalExample: '1020229024',
+    ruleVersion: 'BO-NIT-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {

@@ -56,6 +56,19 @@ Funciones: `agent1_bank_deposit(items)`, `agent1_bank_draw(país, macro, límite
 
 **Fuera de esta versión:** Lusha, Tavily y la capa gratuita no depositan ni sacan todavía (la capa gratuita se regenera gratis en cada corrida; Lusha es respaldo).
 
+
+## Banco primero (02-10, decisión de la dueña: «el banco debe funcionar antes que todo»)
+
+Orden de la búsqueda: **1. banco → 2. capa gratuita → 3. Tavily-primero → 4. Apollo → 5. Lusha.**
+
+* **Qué se guarda.** El sobrante del tope guarda el candidato completo (`pipeline_candidate_v1`: el `ProspectingPipelineCandidate` acotado a 12 KiB, sin trazas) **más** la evidencia de Apollo. Si no cabe, sólo evidencia (`apollo_evidence_v1`, como antes).
+* **Dónde sale.** Dentro de `runPrePaidNoveltyDiscovery`, antes de la capa gratuita, como aportante inyectado (`drawCompanyBank`). Sólo con lote canónico (`resolveBatchId`): la ruta Lusha de pending-review no saca del banco. Implementación en `company-bank/prepaid-bank-draw.server.ts` (fuera del directorio de la capa gratuita, que no puede alcanzar proveedores).
+* **Cómo.** Saca hasta el tope (listas primero). Vuelve a mirar SellUp/HubSpot (lectura). Escribe con el escritor de siempre (`writeProspectingCandidates`) en el lote de la búsqueda, con `holdBatchStatus` (no sella el lote: las piernas siguientes lo siguen adoptando) y `candidateProvenance: 'apollo'`. Novedad, propiedad, país, valla del lote y reclamo global corren en el escritor. Lo que sólo trae evidencia vuelve al banco para la ronda 1 de Apollo.
+* **Meta.** Sólo lo que el ESCRITOR mide como completo (`persistence.completeValidCandidates`) baja el hueco. Si lo cierra, la capa gratuita no corre y no corre ninguna pierna de pago. Si no, la capa gratuita busca sólo el hueco, en el mismo lote.
+* **Tope por búsqueda.** El escritor lee el lote antes de recortar y descuenta lo que ya tiene (`resolveEffectiveDeliveryCap`), sin bajar del objetivo de quien escribe. La capa gratuita descuenta lo que el banco entregó.
+* **Tavily-primero** cuenta sólo lo suyo contra el hueco (PR #550 de la sesión Tavily).
+* **Futuro.** Lo que hoy está «por revisar» podrá pasar al banco con su propio lector (`candidate_row_v1`); es una decisión aparte de la dueña. Las filas de Claude necesitarán ampliar el CHECK de `source_provider` (migración nueva).
+
 ## Fases (un PR a la vez, merge sólo con «MERGE APROBADO»)
 
 1. **Fundación (este PR):** migración 142 + almacén TypeScript (`src/server/prospect-batches/company-bank/`) + pruebas. Oscuro: nada lo llama.

@@ -149,6 +149,32 @@ function sizeVerdict(result: CompanyClassificationResult, ctx: RescueContext): '
   return 'unknown';
 }
 
+/**
+ * Decisión de la dueña (02-10): los MEDIOS de comunicación (diarios, TV, radio) se
+ * descartan siempre, aunque Claude los ponga en otra macro del catálogo («Compañía de
+ * Servicios», «Gobierno»). Sólo frases inequívocas: «canal», «tv», «radio», «prensa» o «diario»
+ * sueltas daban falsos positivos (canales de venta, prensas hidráulicas, consumo diario).
+ */
+const MEDIA_PATTERN =
+  /\b(medios? de comunicacion|diarios? (de|del) (noticias|circulacion|mayor circulacion)|periodicos?|canal(es)? de (television|tv)|television|televisora|emisoras?( de radio)?|estacion(es)? de radio|radiodifus\w*|cadena de radio|noticias|newspapers?|broadcast\w*|tv channel|news media)\b/;
+
+function normalizeForMatch(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * Telecom NO es medio (decisión de la dueña 30-09: telecom/ISP = Tecnología). Prod
+ * 02-10: HV Multiplay «servicios de internet, televisión y telefonía».
+ */
+const TELECOM_PATTERN = /\b(telecomunicacion\w*|telefonia|(servicios?|proveedor(es)?|proveedora) de internet|fibra optica|operador(a)? de cable)\b/;
+
+/** ¿La evidencia describe a un medio de comunicación (y no a una telecom)? */
+export function looksLikeMediaCompany(quotes: ReadonlyArray<string | null | undefined>): boolean {
+  const texts = quotes.filter((q): q is string => typeof q === 'string').map(normalizeForMatch);
+  if (texts.some((t) => TELECOM_PATTERN.test(t))) return false;
+  return texts.some((t) => MEDIA_PATTERN.test(t));
+}
+
 export function decideRescue(result: CompanyClassificationResult, ctx: RescueContext): RescueDecision {
   if (result.outcome !== 'classified' && result.outcome !== 'partially_classified') {
     return { kind: 'unchanged', why: result.outcome === 'nothing_verifiable' ? 'nothing_verifiable' : 'not_classified' };
@@ -161,7 +187,8 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
     // Otra macro del catálogo + tamaño UBITS ⇒ se corrige la industria en vez de descartar.
     // Sin macro (p. ej. medios, Prod 30-09) no hay industria a la que pasarla: se descarta.
     const sizeFitsUbits = size === 'pass' || ctx.sizeAlreadyConfirmed === true || ctx.sizePassedIcpGate === true;
-    if (bySector && bySector.industryId && sizeFitsUbits) {
+    const isMedia = looksLikeMediaCompany([bySector?.quote, result.requestedIndustryFit?.quote]);
+    if (bySector && bySector.industryId && sizeFitsUbits && !isMedia) {
       const from = ctx.requestedIndustryName ? `Buscada en ${ctx.requestedIndustryName}, ` : '';
       return {
         kind: 'reassign',

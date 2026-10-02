@@ -45,6 +45,7 @@ import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryOutcome,
 } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { resolveProductionBankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
 import { loadApolloExclusionSellupDomains } from '@/server/prospect-batches/provider-seen/apollo-exclusion-sellup-domains.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
@@ -75,8 +76,11 @@ import {
   combineWriterTruths,
   isTavilyFirstSatisfied,
   resolveInlineRescueWindowMs,
+  reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
+  tavilyOwnReviewable,
   withRecountedAcceptance,
+  type ReopenBatchClient,
   type TavilyFirstOutcome,
   type WriterTruthLike,
 } from './wizard-tavily-first';
@@ -308,6 +312,12 @@ export type WizardExecutionDeps = {
    * cuentan para la meta, leídos DESPUÉS de la revisión de Claude. `null` = no se pudo.
    */
   listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
+  /**
+   * AGENT1-TAVILY-FIRST-4 — devuelve el lote a `generating` antes de que Apollo
+   * complete (el escritor de Tavily lo dejó en `ready_for_review`). `false` = no
+   * se pudo y Apollo no corre. Sin dep ⇒ no se reabre (comportamiento previo).
+   */
+  reopenBatchForApollo?: (batchId: string) => Promise<boolean>;
   /** AGENT1-TAVILY-FIRST-2 — inicio de la acción, para medir los 300 s de Vercel. */
   actionStartedAtMs?: number;
   /** Reloj inyectable (pruebas). Por defecto `Date.now`. */
@@ -366,6 +376,8 @@ export type WizardExecutionDeps = {
     degraded: boolean;
     outOfScopeSeenDomains?: string[];
     liveOutOfScopeCount?: number;
+    /** KNOWN-REJECTED-1 — ya entregados que Apollo rechazaría gratis: van al final. */
+    knownRejectedDomains?: string[];
   }>;
   runPrePaidNoveltyDiscovery?: (input: {
     countryCode: string;
@@ -378,6 +390,8 @@ export type WizardExecutionDeps = {
      * ejecución, resuelto perezosamente. Lo gratuito y lo de pago comparten lote.
      */
     resolveBatchId: () => Promise<string>;
+    /** AGENT1-COMPANY-BANK-FIRST-1 — nombre visible de la industria (entrada del escritor del banco). */
+    industryName?: string;
   }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
   /**
    * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 11 — sella el lote canónico cuando
@@ -620,6 +634,9 @@ export async function executeProspectWizardGenerationAction(
         .eq('metadata->target_completeness->>counts_toward_target', 'true');
       return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
     },
+    // Mismo cliente de sesión que `markBatchFailed`: la RLS acota la fila.
+    reopenBatchForApollo: (batchId) =>
+      reopenBatchForApolloAfterTavilyFirst(supabase as unknown as ReopenBatchClient, batchId),
     countReviewableCandidates: async (batchId) => {
       const { count, error } = await budgetClient
         .from('prospect_candidates')
@@ -711,6 +728,9 @@ export async function executeProspectWizardGenerationAction(
         // CUT-5 §§ 4, 5 — el lote canónico de la ejecución llega hasta el writer
         // gratuito. Sin esto la capa creaba lote propio.
         resolveBatchId: input.resolveBatchId,
+        // AGENT1-COMPANY-BANK-FIRST-1 — el banco es la PRIMERA fuente: corre antes
+        // de la capa gratuita, en el mismo lote. Banco apagado ⇒ ausente.
+        drawCompanyBank: resolveProductionBankFirstDrawer(input.industryName ?? '') ?? undefined,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
@@ -1426,6 +1446,7 @@ export async function executeProspectWizardGeneration(
           requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
           requestedByUserId: userId,
           countryName,
+          industryName: catalogResolution.industry.name,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
@@ -1804,6 +1825,7 @@ export async function executeProspectWizardGeneration(
     releasedDomains: apolloExclusionSellup?.releasedDomains ?? [],
     outOfScopeSeenDomains: apolloExclusionSellup?.outOfScopeSeenDomains ?? [],
     liveOutOfScopeCount: apolloExclusionSellup?.liveOutOfScopeCount ?? 0,
+    knownRejectedDomains: apolloExclusionSellup?.knownRejectedDomains ?? [],
     now: new Date(),
   });
 
@@ -2156,11 +2178,17 @@ export async function executeProspectWizardGeneration(
       }
 
       if (tavilyFirstResult) {
-        const target = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+        // AGENT1-TAVILY-FIRST-4 — Tavily responde por el HUECO que dejaron la capa
+        // gratuita y el banco (mismo lote), y sólo cuentan las filas que él aportó.
+        const target = apolloResultDemand.remainingTarget;
+        const preExistingReviewable = prePaidContributed ? prePaidNovelty.persistedCount : 0;
         const countReviewable = async (): Promise<number | null> =>
-          deps.countReviewableCandidates
-            ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
-            : null;
+          tavilyOwnReviewable(
+            deps.countReviewableCandidates
+              ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+              : null,
+            preExistingReviewable,
+          );
         const before = await countReviewable();
         let after = before;
         let claudeReviewed = false;
@@ -2215,9 +2243,23 @@ export async function executeProspectWizardGeneration(
       }
     }
   }
-  /** Tavily cierra la corrida (bastó, o no queda tiempo para Apollo). */
+  // AGENT1-TAVILY-FIRST-4 — el escritor de Apollo sólo escribe en lotes
+  // `draft`/`generating`; Tavily dejó éste en `ready_for_review` (c530fef3).
+  if (
+    (tavilyFirstOutcome?.outcome === 'apollo_completed' || tavilyFirstOutcome?.outcome === 'failed') &&
+    deps.reopenBatchForApollo
+  ) {
+    const reopened = await deps.reopenBatchForApollo(reservedBatchId).catch(() => false);
+    if (!reopened && tavilyFirstOutcome.outcome === 'apollo_completed' && tavilyFirstResult) {
+      // Sin reabrir, Apollo pagaría y su escritor rechazaría el lote: se entrega lo de Tavily.
+      tavilyFirstOutcome = { ...tavilyFirstOutcome, outcome: 'batch_reopen_failed' };
+    }
+  }
+  /** Tavily cierra la corrida (bastó, no queda tiempo para Apollo o no se pudo reabrir). */
   const tavilyFirstSatisfied =
-    (tavilyFirstOutcome?.outcome === 'satisfied' || tavilyFirstOutcome?.outcome === 'short_no_time') &&
+    (tavilyFirstOutcome?.outcome === 'satisfied' ||
+      tavilyFirstOutcome?.outcome === 'short_no_time' ||
+      tavilyFirstOutcome?.outcome === 'batch_reopen_failed') &&
     tavilyFirstResult !== null;
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
@@ -2514,6 +2556,8 @@ export async function executeProspectWizardGeneration(
    */
   const lushaWaterfall: LushaWaterfallLegOutcome = tavilyFirstOutcome?.outcome === 'short_no_time'
     ? { executed: false, reason: 'tavily_first_time_budget' }
+    : tavilyFirstOutcome?.outcome === 'batch_reopen_failed'
+    ? { executed: false, reason: 'tavily_first_batch_reopen_failed' }
     : tavilyFirstSatisfied
     ? { executed: false, reason: 'tavily_first_reviewable_met' }
     : tavilyFirstOutcome?.outcome === 'apollo_completed' &&

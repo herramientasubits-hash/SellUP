@@ -31,7 +31,7 @@ import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-s
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
 import { SECTOR_MISMATCH_DISCARD_REASON } from './reassign-stored';
-import { attachIndustryCatalogVersion, type CandidateRescuePatch } from './rescue-patch';
+import { attachIndustryCatalogVersion, CLAUDE_RESCUE_METADATA_KEY, type CandidateRescuePatch } from './rescue-patch';
 
 /** Versión de catálogo de una macroindustria (la tabla exige industria + versión). */
 async function loadIndustryCatalogVersion(industryId: string): Promise<string | null> {
@@ -228,6 +228,22 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       if (outcome.outcome === 'sent' || outcome.outcome === 'idempotent') return outcome.candidateId;
       console.error('[claude-rescue] admit failed:', outcome.outcome);
       return null;
+    },
+    markDispositionSent: async (dispositionId, rescue) => {
+      const admin = createSupabaseAdminClient();
+      const current = await admin
+        .from('prospect_discarded_dispositions')
+        .select('evidence, status')
+        .eq('id', dispositionId)
+        .maybeSingle();
+      const row = current.data as { evidence: Record<string, unknown> | null; status: string } | null;
+      if (current.error || !row || row.status !== 'sent_to_review') return;
+      const { error } = await admin
+        .from('prospect_discarded_dispositions')
+        .update({ evidence: { ...(row.evidence ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: rescue } })
+        .eq('id', dispositionId)
+        .eq('status', 'sent_to_review');
+      if (error) console.error('[claude-rescue] disposition mark failed:', error.message);
     },
     claimIdentities: async (batchId, candidateIds) => {
       const outcome = await claimGlobalIdentitiesForPersistedCandidates(

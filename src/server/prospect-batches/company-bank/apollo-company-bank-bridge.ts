@@ -28,6 +28,8 @@
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { DeliveryCappedCompany } from '@/server/agents/prospecting-toolkit/types';
 import type { ApolloTwoRoundCandidateEvidenceSnapshot } from '@/server/agents/prospecting-toolkit/apollo-two-round/checkpoint';
+import { COMPANY_BANK_MAX_PAYLOAD_BYTES } from './company-bank-types';
+import { PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND } from './pipeline-candidate-bank-payload';
 import type {
   CompanyBankDepositItem,
   CompanyBankDrawnCompany,
@@ -76,6 +78,8 @@ export function planApolloBankDeposit(input: {
   countryCode: string;
   macroIndustryKey: string | null;
   sourceBatchId: string | null;
+  /** AGENT1-COMPANY-BANK-FIRST-1 — subindustrias de la búsqueda que deposita (ver el lector). */
+  requestedSubindustries?: readonly string[];
   capped: readonly DeliveryCappedCompany[];
   evidenceFor: (company: DeliveryCappedCompany) => ApolloTwoRoundCandidateEvidenceSnapshot | null;
 }): ApolloBankDepositPlan {
@@ -91,13 +95,28 @@ export function planApolloBankDeposit(input: {
       continue;
     }
     const ready = company.countsTowardTarget === true;
+    // AGENT1-COMPANY-BANK-FIRST-1 — con el candidato completo la fila sirve
+    // también para sacarla ANTES de todo (sin Apollo). La evidencia se conserva:
+    // la ronda 1 de Apollo sigue sabiendo leerla. Si no cabe, sólo evidencia.
+    const withCandidate = company.bankCandidate
+      ? {
+          kind: PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND,
+          evidence,
+          candidate: company.bankCandidate,
+          requestedSubindustries: [...(input.requestedSubindustries ?? [])],
+        }
+      : null;
+    const payload =
+      withCandidate && Buffer.byteLength(JSON.stringify(withCandidate), 'utf8') <= COMPANY_BANK_MAX_PAYLOAD_BYTES
+        ? withCandidate
+        : { kind: APOLLO_BANK_PAYLOAD_KIND, evidence };
     items.push({
       countryCode: input.countryCode,
       macroIndustryKey: input.macroIndustryKey,
       tier: ready ? 'ready' : 'to_complete',
       sourceProvider: 'apollo',
       claims,
-      payload: { kind: APOLLO_BANK_PAYLOAD_KIND, evidence },
+      payload,
       missingFields: ready ? [] : [APOLLO_BANK_MISSING_TARGET_CONDITIONS],
       sourceBatchId: input.sourceBatchId,
     });
@@ -122,7 +141,12 @@ export function readApolloBankEvidence(
 ): ApolloTwoRoundCandidateEvidenceSnapshot | null {
   if (company.sourceProvider !== 'apollo') return null;
   const payload = company.payload as Record<string, unknown> | null;
-  if (!payload || payload.kind !== APOLLO_BANK_PAYLOAD_KIND) return null;
+  if (
+    !payload ||
+    (payload.kind !== APOLLO_BANK_PAYLOAD_KIND && payload.kind !== PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND)
+  ) {
+    return null;
+  }
   const e = payload.evidence as Record<string, unknown> | null;
   if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
   const title = str(e.title);
