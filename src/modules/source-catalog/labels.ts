@@ -203,6 +203,7 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   requires_validation: 'Requiere validación',
   connected_identity_in_run: 'Conectada · número fiscal por nombre en cada corrida',
   connected_free_discovery: 'Conectada · capa gratuita por industria antes de pagar',
+  connected_paid_provider: 'Conectada · proveedor pagado (usa créditos)',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -247,6 +248,8 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
     case 'connected_identity_in_run':
       return 'border-success/30 bg-success/10 text-success';
     case 'connected_free_discovery':
+      return 'border-success/30 bg-success/10 text-success';
+    case 'connected_paid_provider':
       return 'border-success/30 bg-success/10 text-success';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';

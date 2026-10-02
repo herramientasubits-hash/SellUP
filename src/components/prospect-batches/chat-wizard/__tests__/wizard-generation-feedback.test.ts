@@ -441,15 +441,16 @@ describe('21.A.2 — SubmittingPanel uses the system AI waiting state, not a bar
   });
 
 
-  it('WizardGenerationOverlay does not fabricate a progress value', () => {
-    // La ejecución es un único viaje al servidor: el cliente no sabe cuánto falta.
-    // `AiAnalyzingState` sin `progress` se lee como indeterminado; pasarle un número
-    // afirmaría un avance que nadie midió.
+  it('WizardGenerationOverlay no inventa el avance: la barra sale de la etapa real', () => {
+    // Desde AGENT1-RUN-LIVE-PROGRESS-1 el servidor anota en qué etapa va la
+    // corrida: la barra sube por etapas (`nextRunProgressPercent`), nunca por tiempo.
     const src = readComponentSrc();
     const overlayStart = src.indexOf('function WizardGenerationOverlay');
     const overlayEnd = src.indexOf('\nfunction ', overlayStart + 1);
     const overlaySrc = src.slice(overlayStart, overlayEnd > overlayStart ? overlayEnd : undefined);
-    assert.ok(!/progress=\{/.test(overlaySrc), 'WizardGenerationOverlay passes a progress value to AiAnalyzingState');
+    assert.ok(/progress=\{percent\}/.test(overlaySrc), 'la barra no usa el avance por etapas');
+    assert.ok(src.includes('nextRunProgressPercent'), 'el avance no sale de la etapa real');
+    assert.ok(!/Date\.now\(\)[^\n]*percent|percent[^\n]*Date\.now\(\)/.test(src), 'el avance depende del tiempo');
   });
 
   it('the wizard panel layer does not hand-roll the mirror shine (it comes with AiAnalyzingState)', () => {

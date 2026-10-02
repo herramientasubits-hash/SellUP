@@ -42,6 +42,29 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   reviewing: 'Revisando lo encontrado',
 };
 
+/**
+ * Cuánto de la corrida se ha recorrido al EMPEZAR cada etapa, en el orden en
+ * que el orquestador las llama. La barra del chat avanza por etapas REALES (las
+ * que anota el servidor), nunca por tiempo: si una etapa tarda, la barra espera
+ * con ella. `reviewing` no tiene valor propio: es el respiro entre etapas y la
+ * barra no retrocede.
+ */
+export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 'reviewing'>, number>> = {
+  starting: 5,
+  free_sources: 15,
+  tavily: 30,
+  claude_review: 45,
+  apollo: 55,
+  lusha: 75,
+  claude_search: 88,
+};
+
+/** El avance tras ver `stage`: nunca retrocede (una etapa saltada no resta). */
+export function nextRunProgressPercent(previous: number, stage: RunProgressStage | null): number {
+  if (!stage || stage === 'reviewing') return previous;
+  return Math.max(previous, RUN_PROGRESS_PERCENT[stage]);
+}
+
 /** Texto cuando todavía no hay etapa anotada (o no se pudo leer). */
 export const RUN_PROGRESS_FALLBACK_LABEL = RUN_PROGRESS_LABELS.starting;
 
