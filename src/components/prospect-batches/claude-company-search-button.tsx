@@ -18,6 +18,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   source_batch_not_found: 'No se pudo leer el país y la industria de este lote.',
   model_not_configured: 'Configura Claude (Anthropic) como proveedor activo en Configuración → IA.',
   quota_exhausted: 'La cuota mensual configurada para Anthropic está agotada.',
+  exclusions_unavailable: 'No se pudo leer qué empresas ya conoce SellUp; no se buscó para no pagar repetidas.',
   search_failed: 'La búsqueda con Claude falló. No se escribió nada.',
   write_failed: 'Claude encontró empresas pero no se pudieron guardar.',
 };
@@ -25,6 +26,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 function describeResult(result: Extract<ClaudeCompanySearchActionResult, { ok: true }>): string {
   const cost = `costo estimado US$${result.estimatedCostUsd.toFixed(2)}`;
   if (!result.batchId) return `Claude no encontró empresas nuevas que pasaran el primer filtro · ${cost}`;
+  if (result.candidatesCreated === 0) {
+    return `Claude propuso ${result.passedPreFilter}, pero ninguna pasó los filtros de SellUp · ${cost}`;
+  }
   return `${result.candidatesCreated} empresas nuevas de ${result.passedPreFilter} propuestas verificadas · ${cost}`;
 }
 
@@ -49,7 +53,7 @@ export function ClaudeCompanySearchButton({ batchId }: { batchId: string }) {
       }
       toast.success(describeResult(result), { duration: 10000 });
       setOpen(false);
-      if (result.batchId) router.push(`/prospect-batches/${result.batchId}`);
+      if (result.batchId && result.candidatesCreated > 0) router.push(`/prospect-batches/${result.batchId}`);
       else router.refresh();
     } catch {
       toast.error('Error inesperado al buscar con Claude');

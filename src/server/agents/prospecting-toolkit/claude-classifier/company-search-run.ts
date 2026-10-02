@@ -20,6 +20,11 @@ export const CLAUDE_COMPANY_SEARCH_MAX_QUERIES = 2;
 export const CLAUDE_COMPANY_SEARCH_RESULTS_PER_QUERY = 5;
 export const CLAUDE_COMPANY_SEARCH_TARGET = 10;
 export const CLAUDE_COMPANY_SEARCH_METADATA_KEY = 'claude_company_search';
+/**
+ * Tiempo para EMPEZAR consultas a Claude desde que arranca la corrida. El resto de los
+ * 300 s de Vercel queda para verificar sitios, revisar duplicados y escribir.
+ */
+export const CLAUDE_COMPANY_SEARCH_PHASE_MS = 170_000;
 
 export type SourceBatch = {
   id: string;
@@ -46,6 +51,9 @@ export type ClaudeCompanySearchDeps = {
     queries: string[];
     excludeDomains: string[];
     active: ActiveAnthropicModel;
+    deadlineAtMs: number;
+    /** Se llama al terminar CADA llamada a Claude: registra lo pagado al instante. */
+    onCall: (call: CompanySearchCall) => Promise<void>;
   }) => Promise<{ pipelineOutput: unknown; calls: CompanySearchCall[] }>;
   /** Escribe en un lote NUEVO; null si el escritor falló. */
   writeCandidates: (params: {
@@ -53,7 +61,9 @@ export type ClaudeCompanySearchDeps = {
     metadata: Record<string, unknown>;
   }) => Promise<{ batchId: string | null; candidatesCreated: number; errors: string[] }>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
+  newRunId: () => string;
   nowIso: () => string;
+  nowMs: () => number;
 };
 
 export type ClaudeCompanySearchSummary =
@@ -68,7 +78,13 @@ export type ClaudeCompanySearchSummary =
     }
   | {
       ok: false;
-      error: 'source_batch_not_found' | 'model_not_configured' | 'quota_exhausted' | 'search_failed' | 'write_failed';
+      error:
+        | 'source_batch_not_found'
+        | 'model_not_configured'
+        | 'quota_exhausted'
+        | 'exclusions_unavailable'
+        | 'search_failed'
+        | 'write_failed';
       detail?: string;
     };
 
@@ -91,15 +107,19 @@ function addCounts(target: Record<string, number>, extra: Partial<Record<string,
   return next;
 }
 
+/**
+ * El uso se registra al terminar cada llamada, antes de que exista el lote nuevo: va
+ * sin `batch_id` y con `run_id` + `source_batch_id`; el lote nuevo guarda el mismo
+ * `run_id` en `metadata.claude_company_search`.
+ */
 export function buildCompanySearchUsageLog(
   call: CompanySearchCall,
-  context: { batchId: string | null; triggeredBy: string; at: string; index: number },
+  context: { runId: string; sourceBatchId: string; triggeredBy: string; index: number },
 ): LogProviderUsageInput | null {
   if (!call.usage) return null;
   const isError = call.errorCode !== null;
   return {
-    batch_id: context.batchId ?? undefined,
-    usage_key: `${CLAUDE_COMPANY_SEARCH_OPERATION_KEY}:${context.batchId ?? 'none'}:${context.at}:${context.index}`,
+    usage_key: `${CLAUDE_COMPANY_SEARCH_OPERATION_KEY}:${context.runId}:${context.index}`,
     provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
     operation_key: CLAUDE_COMPANY_SEARCH_OPERATION_KEY,
     model: call.usage.model,
@@ -114,6 +134,8 @@ export function buildCompanySearchUsageLog(
     metadata: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
       flow: 'claude_company_search',
+      run_id: context.runId,
+      source_batch_id: context.sourceBatchId,
       query: call.query,
       proposed: call.proposed,
       rejected: call.rejected,
@@ -133,13 +155,38 @@ export async function runClaudeCompanySearch(
   if ('error' in active) return { ok: false, error: 'model_not_configured', detail: active.error };
   if (!(await deps.checkQuota()).allowed) return { ok: false, error: 'quota_exhausted' };
 
-  const excludeDomains = await deps.loadExcludedDomains(source.countryCode, source.industry).catch(() => []);
+  // Sin la lista de ya conocidas, Claude traería repetidas (y se pagarían): no se busca.
+  let excludeDomains: string[];
+  try {
+    excludeDomains = await deps.loadExcludedDomains(source.countryCode, source.industry);
+  } catch (err) {
+    return { ok: false, error: 'exclusions_unavailable', detail: err instanceof Error ? err.message : String(err) };
+  }
   const queries = buildCompanySearchQueries(source);
+  const runId = deps.newRunId();
+  let callIndex = 0;
+  const onCall = async (call: CompanySearchCall) => {
+    const log = buildCompanySearchUsageLog(call, {
+      runId,
+      sourceBatchId: source.id,
+      triggeredBy: params.triggeredBy,
+      index: callIndex++,
+    });
+    if (log) await deps.logUsage(log);
+  };
 
   let search: Awaited<ReturnType<ClaudeCompanySearchDeps['runSearch']>>;
   try {
-    search = await deps.runSearch({ source, queries, excludeDomains, active });
+    search = await deps.runSearch({
+      source,
+      queries,
+      excludeDomains,
+      active,
+      deadlineAtMs: deps.nowMs() + CLAUDE_COMPANY_SEARCH_PHASE_MS,
+      onCall,
+    });
   } catch (err) {
+    // Lo pagado ya quedó registrado por `onCall`, llamada a llamada.
     return { ok: false, error: 'search_failed', detail: err instanceof Error ? err.message : String(err) };
   }
 
@@ -160,6 +207,7 @@ export async function runClaudeCompanySearch(
             [CLAUDE_COMPANY_SEARCH_METADATA_KEY]: {
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
               pilot: true,
+              run_id: runId,
               source_batch_id: source.id,
               queries,
               excluded_domains_count: excludeDomains.length,
@@ -172,14 +220,6 @@ export async function runClaudeCompanySearch(
           },
         })
       : { batchId: null, candidatesCreated: 0, errors: [] };
-
-  // El uso se registra SIEMPRE (también si no hubo nada que escribir): se pagó.
-  await Promise.all(
-    search.calls.map((call, index) => {
-      const log = buildCompanySearchUsageLog(call, { batchId: written.batchId, triggeredBy: params.triggeredBy, at, index });
-      return log ? deps.logUsage(log) : Promise.resolve(true);
-    }),
-  );
 
   if (passedPreFilter > 0 && !written.batchId) {
     return { ok: false, error: 'write_failed', detail: written.errors.join('; ') };

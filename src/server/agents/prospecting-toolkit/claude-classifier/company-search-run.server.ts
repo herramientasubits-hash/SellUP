@@ -6,6 +6,7 @@
  * Tavily) y el registro de uso. 0 escrituras en HubSpot (los duplicados se LEEN).
  */
 
+import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
@@ -80,6 +81,7 @@ async function loadExcludedDomains(countryCode: string, industry: string): Promi
       .order('created_at', { ascending: false })
       .limit(EXCLUSION_LOOKUP_LIMIT),
   ]);
+  // Fallo de lectura ⇒ se lanza: la corrida NO busca sin la lista de ya conocidas.
   if (candidates.error) throw new Error(`exclusion_candidates_read_failed:${candidates.error.message}`);
   if (dispositions.error) throw new Error(`exclusion_dispositions_read_failed:${dispositions.error.message}`);
   const domains = [...(candidates.data ?? []), ...(dispositions.data ?? [])]
@@ -94,7 +96,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
     loadExcludedDomains,
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
-    runSearch: async ({ source, queries, excludeDomains, active }) => {
+    runSearch: async ({ source, queries, excludeDomains, active, deadlineAtMs, onCall }) => {
       const context: ClaudeSearchRunContext = {
         model: active.model,
         apiKey: active.apiKey,
@@ -104,6 +106,8 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         additionalCriteria: source.additionalCriteria,
         excludeDomains: [...excludeDomains],
         calls: [],
+        deadlineAtMs,
+        onCall,
       };
       const pipelineOutput = await withClaudeSearchContext(context, () =>
         runProspectingPipeline({
@@ -139,6 +143,8 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       };
     },
     logUsage: logProviderUsage,
+    newRunId: () => randomUUID(),
     nowIso: () => new Date().toISOString(),
+    nowMs: () => Date.now(),
   };
 }

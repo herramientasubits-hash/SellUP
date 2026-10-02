@@ -21,6 +21,7 @@ import {
   type CompanySearchCall,
   type SourceBatch,
 } from '../company-search-run';
+import { isRegistrableDomain, searchConfirmsDomain } from '../site-match';
 import {
   runClaudeWebSearch,
   withClaudeSearchContext,
@@ -164,6 +165,7 @@ describe('B. proveedor «claude» de la búsqueda web', () => {
       additionalCriteria: null,
       excludeDomains: ['siigo.com'],
       calls: [],
+      deadlineAtMs: Date.now() + 1_000_000,
       runConversation: async (body) => {
         seenExclusions.push([String(JSON.stringify(body.messages))]);
         return conversation([COMPANY('Sophos', 'https://sophossolutions.com')], ['https://sophossolutions.com']);
@@ -175,6 +177,46 @@ describe('B. proveedor «claude» de la búsqueda web', () => {
     assert.equal(second.resultsCount, 0); // la segunda ya la excluye
     assert.equal(ctx.calls.length, 2);
     assert.match(seenExclusions[1][0], /sophossolutions\.com/);
+  });
+
+  it('registra cada llamada al terminar y no empieza otra sin tiempo', async () => {
+    const logged: string[] = [];
+    let clock = 0;
+    const ctx: ClaudeSearchRunContext = {
+      model: MODEL,
+      apiKey: 'test-key',
+      countryName: 'Colombia',
+      industryName: 'Tecnología',
+      subindustries: [],
+      additionalCriteria: null,
+      excludeDomains: [],
+      calls: [],
+      deadlineAtMs: 100_000,
+      nowMs: () => clock,
+      onCall: async (call) => void logged.push(call.query),
+      runConversation: async () => {
+        clock += 60_000; // la llamada tarda 60 s
+        return conversation([], []);
+      },
+    };
+    await withClaudeSearchContext(ctx, () => runClaudeWebSearch({ query: 'q1', countryCode: 'CO' } as never, 5));
+    const second = await withClaudeSearchContext(ctx, () => runClaudeWebSearch({ query: 'q2', countryCode: 'CO' } as never, 5));
+    assert.deepEqual(logged, ['q1']);
+    assert.equal(second.skipReason, 'claude_time_budget');
+  });
+});
+
+describe('B2. ¿la búsqueda respalda el dominio?', () => {
+  it('igual o subdominio vale; un sufijo compartido o un alojamiento no', () => {
+    assert.equal(searchConfirmsDomain('unam.mx', 'unam.mx'), true);
+    assert.equal(searchConfirmsDomain('unam.mx', 'portal.unam.mx'), true);
+    assert.equal(searchConfirmsDomain('portal.unam.mx', 'unam.mx'), true);
+    assert.equal(searchConfirmsDomain('com.co', 'empresa.com.co'), false);
+    assert.equal(searchConfirmsDomain('gov.co', 'alcaldia.gov.co'), false);
+    assert.equal(searchConfirmsDomain('blogspot.com', 'empresa.blogspot.com'), false);
+    assert.equal(searchConfirmsDomain('otra.com', 'empresa.com'), false);
+    assert.equal(isRegistrableDomain('sii-group.com'), true);
+    assert.equal(isRegistrableDomain('com.mx'), false);
   });
 });
 
@@ -206,24 +248,30 @@ function call(results: number, cost = 0.07): CompanySearchCall {
 }
 
 function fakeDeps(overrides: Partial<ClaudeCompanySearchDeps> = {}) {
-  const logs: Array<{ operation_key: string; batch_id?: string }> = [];
+  const logs: Array<{ operation_key: string; batch_id?: string; metadata?: Record<string, unknown> }> = [];
   const writes: Array<Record<string, unknown>> = [];
   const deps: ClaudeCompanySearchDeps = {
     loadSourceBatch: async () => SOURCE,
     loadExcludedDomains: async () => ['siigo.com'],
     resolveActiveModel: async () => ({ model: MODEL, apiKey: 'k' }),
     checkQuota: async () => ({ allowed: true }),
-    runSearch: async () => ({ pipelineOutput: { candidates: [] }, calls: [call(3), call(2)] }),
+    runSearch: async ({ onCall }) => {
+      const calls = [call(3), call(2)];
+      for (const c of calls) await onCall(c);
+      return { pipelineOutput: { candidates: [] }, calls };
+    },
     writeCandidates: async ({ metadata }) => (writes.push(metadata), { batchId: 'new-b', candidatesCreated: 4, errors: [] }),
-    logUsage: async (input) => (logs.push(input as { operation_key: string; batch_id?: string }), true),
+    logUsage: async (input) => (logs.push(input as (typeof logs)[number]), true),
+    newRunId: () => 'run-1',
     nowIso: () => '2026-10-01T12:00:00.000Z',
+    nowMs: () => 0,
     ...overrides,
   };
   return { deps, logs, writes };
 }
 
 describe('C. runClaudeCompanySearch', () => {
-  it('escribe en un lote NUEVO, marca el piloto y registra cada llamada con ese lote', async () => {
+  it('escribe en un lote NUEVO, marca el piloto y registra cada llamada con la corrida', async () => {
     const f = fakeDeps();
     const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok, true);
@@ -233,18 +281,30 @@ describe('C. runClaudeCompanySearch', () => {
     assert.equal(s.proposed, 7);
     assert.deepEqual(s.rejected, { not_in_search_results: 2 });
     assert.ok(Math.abs(s.estimatedCostUsd - 0.14) < 1e-9);
-    const meta = f.writes[0] as { industry_id: string; claude_company_search: { source_batch_id: string; pilot: boolean } };
+    const meta = f.writes[0] as {
+      industry_id: string;
+      claude_company_search: { source_batch_id: string; pilot: boolean; run_id: string };
+    };
     assert.equal(meta.industry_id, 'tec-id');
     assert.equal(meta.claude_company_search.source_batch_id, 'b1');
     assert.equal(meta.claude_company_search.pilot, true);
-    assert.deepEqual(f.logs.map((l) => [l.operation_key, l.batch_id]), [
-      ['company_search', 'new-b'],
-      ['company_search', 'new-b'],
-    ]);
+    assert.equal(meta.claude_company_search.run_id, 'run-1');
+    assert.deepEqual(
+      f.logs.map((l) => [l.operation_key, l.batch_id, l.metadata?.run_id, l.metadata?.source_batch_id]),
+      [
+        ['company_search', undefined, 'run-1', 'b1'],
+        ['company_search', undefined, 'run-1', 'b1'],
+      ],
+    );
   });
 
   it('sin empresas que pasen el filtro no crea lote, pero registra lo pagado', async () => {
-    const f = fakeDeps({ runSearch: async () => ({ pipelineOutput: {}, calls: [call(0)] }) });
+    const f = fakeDeps({
+      runSearch: async ({ onCall }) => {
+        await onCall(call(0));
+        return { pipelineOutput: {}, calls: [call(0)] };
+      },
+    });
     const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.batchId, null);
     assert.equal(f.writes.length, 0);
@@ -258,12 +318,32 @@ describe('C. runClaudeCompanySearch', () => {
       [{ loadSourceBatch: async () => null }, 'source_batch_not_found'],
       [{ resolveActiveModel: async () => ({ error: 'x' }) }, 'model_not_configured'],
       [{ checkQuota: async () => ({ allowed: false }) }, 'quota_exhausted'],
+      [
+        {
+          loadExcludedDomains: async () => {
+            throw new Error('read');
+          },
+        },
+        'exclusions_unavailable',
+      ],
     ];
     for (const [override, error] of cases) {
       const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1' }, fakeDeps({ ...override, runSearch }).deps);
       assert.deepEqual(s.ok ? null : s.error, error);
     }
     assert.equal(searched, 0);
+  });
+
+  it('si la búsqueda se cae a mitad, lo ya pagado quedó registrado', async () => {
+    const f = fakeDeps({
+      runSearch: async ({ onCall }) => {
+        await onCall(call(2));
+        throw new Error('pipeline crash');
+      },
+    });
+    const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.deepEqual(s.ok ? null : s.error, 'search_failed');
+    assert.equal(f.logs.length, 1);
   });
 
   it('si el escritor falla con empresas encontradas, se informa', async () => {

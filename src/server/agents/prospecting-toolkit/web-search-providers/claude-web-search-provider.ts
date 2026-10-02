@@ -12,8 +12,10 @@ import { runAnthropicConversation } from '../claude-classifier/anthropic-message
 import { searchCompaniesWithClaude, type CompanySearchOutcome } from '../claude-classifier/company-search';
 import type { WebSearchInput, WebSearchOutput } from '../types';
 
-/** Tiempo por llamada: con 5 búsquedas web, Claude tarda 20–60 s. */
-const CLAUDE_COMPANY_SEARCH_TIMEOUT_MS = 90_000;
+/** Tope por petición HTTP: con 5 búsquedas web, Claude tarda 20–45 s. */
+const CLAUDE_COMPANY_SEARCH_REQUEST_TIMEOUT_MS = 45_000;
+/** No se empieza una consulta nueva si queda menos que esto antes del límite de la corrida. */
+export const CLAUDE_COMPANY_SEARCH_MIN_TIME_FOR_CALL_MS = 50_000;
 
 export type ClaudeSearchRunContext = {
   model: string;
@@ -24,8 +26,17 @@ export type ClaudeSearchRunContext = {
   additionalCriteria: string | null;
   /** Ya vistas para este país × industria; la corrida suma las que Claude va trayendo. */
   excludeDomains: string[];
-  /** Una entrada por llamada, para registrar el uso al final con el lote ya creado. */
+  /** Una entrada por llamada (para el resumen de la corrida). */
   calls: Array<CompanySearchOutcome & { query: string; durationMs: number }>;
+  /**
+   * Límite para EMPEZAR llamadas (epoch ms): deja tiempo a la verificación y al
+   * escritor dentro de los 300 s de Vercel (revisión 01-10).
+   */
+  deadlineAtMs: number;
+  /** Registra el uso de cada llamada APENAS termina: si Vercel corta después, lo pagado queda. */
+  onCall?: (call: CompanySearchOutcome & { query: string; durationMs: number }) => Promise<void>;
+  /** Para pruebas: reloj. */
+  nowMs?: () => number;
   /** Para pruebas: reemplaza la conversación real. */
   runConversation?: Parameters<typeof searchCompaniesWithClaude>[2]['runConversation'];
 };
@@ -50,7 +61,22 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       metadata: {},
     };
   }
-  const startedMs = Date.now();
+  const now = ctx.nowMs ?? Date.now;
+  const startedMs = now();
+  const remainingMs = ctx.deadlineAtMs - startedMs;
+  if (remainingMs < CLAUDE_COMPANY_SEARCH_MIN_TIME_FOR_CALL_MS) {
+    return {
+      provider: 'claude',
+      query: input.query,
+      results: [],
+      resultsCount: 0,
+      skipped: true,
+      skipReason: 'claude_time_budget',
+      estimatedCostUsd: null,
+      metadata: {},
+    };
+  }
+  const timeoutMs = Math.min(CLAUDE_COMPANY_SEARCH_REQUEST_TIMEOUT_MS, remainingMs);
   const outcome = await searchCompaniesWithClaude(
     {
       query: input.query,
@@ -66,10 +92,14 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
     {
       runConversation:
         ctx.runConversation ??
-        ((body) => runAnthropicConversation({ apiKey: ctx.apiKey, body, timeoutMs: CLAUDE_COMPANY_SEARCH_TIMEOUT_MS })),
+        ((body) => runAnthropicConversation({ apiKey: ctx.apiKey, body, timeoutMs })),
     },
   );
-  ctx.calls.push({ ...outcome, query: input.query, durationMs: Date.now() - startedMs });
+  const call = { ...outcome, query: input.query, durationMs: now() - startedMs };
+  ctx.calls.push(call);
+  await ctx.onCall?.(call).catch((err) => {
+    console.error('[claude-company-search] usage log failed:', err instanceof Error ? err.message : err);
+  });
   // La siguiente consulta de la corrida no repite lo que ésta ya trajo.
   for (const r of outcome.results) ctx.excludeDomains.push(new URL(r.url).hostname);
 

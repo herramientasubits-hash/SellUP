@@ -25,6 +25,7 @@ import {
 } from './anthropic-messages-client';
 import { forceSubmission, toUsage } from './classify-company';
 import { extractSearchResultEntries, sameSite } from './domain-finder';
+import { anySearchConfirms } from './site-match';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import type { ClassifierUsage } from './types';
 
@@ -165,7 +166,7 @@ function verifiedLinkedIn(raw: unknown, searchDomains: readonly string[]): strin
   const normalized = normalizeLinkedInCompanyUrl(url);
   if (normalized.rejected) return null;
   // Sólo si LinkedIn salió en la búsqueda; el slug exacto lo verifica la cadena después.
-  return searchDomains.some((d) => sameSite(d, 'linkedin.com')) ? normalized.normalized : null;
+  return anySearchConfirms('linkedin.com', searchDomains) ? normalized.normalized : null;
 }
 
 export function filterProposedCompanies(
@@ -190,7 +191,7 @@ export function filterProposedCompanies(
       reject('invalid_url');
       continue;
     }
-    if (!searchDomains.some((d) => sameSite(d, domain))) {
+    if (!anySearchConfirms(domain, searchDomains)) {
       reject('not_in_search_results');
       continue;
     }
