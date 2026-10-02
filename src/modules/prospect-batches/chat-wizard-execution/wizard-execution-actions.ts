@@ -2868,8 +2868,10 @@ export async function executeProspectWizardGeneration(
       // 🔴 CUT-2 — lo que la pierna APORTÓ, no sólo que corrió. Sin estas dos
       // cifras, «la pierna corrió» y «la pierna sumó» eran indistinguibles desde
       // fuera, y la autoridad final no se podía auditar sin abrir la base.
+      // AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — SÓLO lo de Lusha: lo de Claude va en
+      // `claude_search_leg` (antes la traza de Lusha mostraba las filas de Claude).
       persistedCandidates: lushaWaterfall.executed
-        ? waterfallWriterTruth.persistedCandidates
+        ? lushaWriterTruth.persistedCandidates
         : null,
       // 🔴 X6.4-C — este campo queda en `null` en las corridas reales, y es
       // CORRECTO: no es un hueco de instrumentación.
@@ -2888,7 +2890,7 @@ export async function executeProspectWizardGeneration(
       // Mientras la capacidad del proveedor no cambie, este campo debe seguir
       // saliendo `null`, y `paid_acceptance_measured: false` lo acompaña.
       acceptedForTarget: lushaWaterfall.executed
-        ? (waterfallWriterTruth.completeValidCandidates ?? null)
+        ? (lushaWriterTruth.completeValidCandidates ?? null)
         : null,
       // 🔴 AGENT1-WATERFALL-LEG-FAILURE-REASON-1 — POR QUÉ falló la pierna que
       // corrió. La acción de Lusha no lanza: un presupuesto agotado, un lote
