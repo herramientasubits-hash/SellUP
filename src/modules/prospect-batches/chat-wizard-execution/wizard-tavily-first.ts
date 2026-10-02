@@ -71,6 +71,11 @@ export type TavilyFirstOutcome =
   | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number }
   /** Tavily no corrió; la corrida fue Apollo como siempre. */
   | { outcome: 'skipped'; skipReason: TavilyFirstSkipReason }
+  /**
+   * AGENT1-TAVILY-FIRST-4 — Tavily dejó pocas pero el lote no se pudo reabrir
+   * para Apollo: se entrega lo de Tavily (Apollo no corre ni gasta).
+   */
+  | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number }
   /** Tavily falló a mitad; la corrida siguió con Apollo. */
   | { outcome: 'failed' };
 
@@ -129,4 +134,44 @@ export function withRecountedAcceptance(truth: WriterTruthLike, ids: readonly st
     completeValidCandidates: ids.length,
     acceptedIdentities: ids.map((id) => `candidate:${id}`),
   };
+}
+
+// ── AGENT1-TAVILY-FIRST-4 — reabrir el lote antes de Apollo ───────────────────
+//
+// Prod 02-10 (PE×Energía, c530fef3): el escritor de Tavily deja el lote en
+// `ready_for_review` y el de Apollo sólo escribe en lotes `draft`/`generating`
+// (`BATCH_INCOMPATIBLE_STATUS`) ⇒ la corrida terminaba en GENERATION_FAILED
+// después de pagar Apollo. Antes de que Apollo complete, el lote vuelve a
+// `generating`; el escritor de Apollo lo deja otra vez en `ready_for_review`.
+
+/** Lo mínimo del cliente Supabase que usa la reapertura (inyectable en pruebas). */
+export type ReopenBatchClient = {
+  from(table: 'prospect_batches'): {
+    update(values: { status: 'generating' }): {
+      eq(column: 'id', value: string): {
+        eq(column: 'status', value: 'ready_for_review'): PromiseLike<{ error: unknown }>;
+      };
+    };
+  };
+};
+
+/**
+ * Devuelve el lote a `generating` SÓLO si Tavily lo dejó en `ready_for_review`
+ * (cualquier otro estado queda intacto: 0 filas no es error). `false` = la
+ * escritura falló y Apollo no debe correr.
+ */
+export async function reopenBatchForApolloAfterTavilyFirst(
+  client: ReopenBatchClient,
+  batchId: string,
+): Promise<boolean> {
+  try {
+    const { error } = await client
+      .from('prospect_batches')
+      .update({ status: 'generating' })
+      .eq('id', batchId)
+      .eq('status', 'ready_for_review');
+    return !error;
+  } catch {
+    return false;
+  }
 }

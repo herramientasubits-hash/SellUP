@@ -17,6 +17,17 @@ import { executeProspectWizardGeneration } from '../wizard-execution-actions';
 import type { WizardExecutionDeps } from '../wizard-execution-actions';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { ResolvedWizardExecution } from '../wizard-execution-types';
+import {
+  reopenBatchForApolloAfterTavilyFirst,
+  type ReopenBatchClient,
+} from '../wizard-tavily-first';
+import {
+  writeProspectingCandidates,
+  CandidateWriterBatchValidationError,
+} from '@/server/agents/prospecting-toolkit/candidate-writer';
+import type { CandidateWriterInput } from '@/server/agents/prospecting-toolkit/types';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 
 // ── Feature flag setup ────────────────────────────────────────────────────────
 // executeProspectWizardGeneration checks ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION first.
@@ -447,5 +458,227 @@ describe('aceptadas recontadas tras la revisión de Claude (AGENT1-TAVILY-FIRST-
       },
     }));
     assert.ok(result.ok, JSON.stringify(result));
+  });
+});
+
+// ── AGENT1-TAVILY-FIRST-4 — el lote se reabre antes de que Apollo complete ────
+//
+// Prod 02-10 (PE×Energía, c530fef3): el escritor de Tavily dejó el lote en
+// `ready_for_review`, Apollo pagó 1 búsqueda + 4 enriquecimientos y su escritor
+// rechazó el lote (`BATCH_INCOMPATIBLE_STATUS`) ⇒ GENERATION_FAILED. Las pruebas
+// de arriba simulan los pipelines y no lo veían: aquí corre el escritor REAL.
+
+describe('Tavily + Apollo: el lote vuelve a «generándose» antes de Apollo (AGENT1-TAVILY-FIRST-4)', () => {
+  it('Tavily deja pocas ⇒ se reabre el lote ANTES de llamar a Apollo', async () => {
+    const order: string[] = [];
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 2, calls,
+      overrides: {
+        reopenBatchForApollo: async (batchId) => { order.push(`reopen:${batchId}`); return true; },
+        runApolloPipeline: async ({ reservedBatchId }) => { order.push('apollo'); calls.apollo++; return makePipelineOutput(reservedBatchId); },
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.deepEqual(order, [`reopen:${BATCH_ID}`, 'apollo']);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed');
+  });
+
+  it('no se pudo reabrir ⇒ Apollo NO corre (no paga) y se entrega lo de Tavily', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 2, calls,
+      overrides: { reopenBatchForApollo: async () => false },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0, 'sin reabrir, el escritor de Apollo rechazaría el lote después de pagar');
+    assert.equal(calls.lusha, 0);
+    assert.equal(result.ok && result.candidateCount, 5, 'lo que dejó Tavily');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'batch_reopen_failed');
+  });
+
+  it('la reapertura lanza ⇒ igual que «no se pudo»: sin Apollo, sin error', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 2, calls,
+      overrides: { reopenBatchForApollo: async () => { throw new Error('rls'); } },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 0);
+  });
+
+  it('Tavily basta ⇒ no se reabre nada', async () => {
+    let reopened = 0;
+    const calls = newCalls();
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 9, calls, overrides: { reopenBatchForApollo: async () => { reopened++; return true; } },
+    }));
+    assert.equal(reopened, 0);
+  });
+
+  it('Tavily falló a mitad ⇒ se intenta reabrir y Apollo corre aunque no se pueda', async () => {
+    let reopened = 0;
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 2, calls,
+      overrides: {
+        runTavilyPipeline: async () => { calls.tavily++; throw new Error('tavily down'); },
+        reopenBatchForApollo: async () => { reopened++; return false; },
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(reopened, 1);
+    assert.equal(calls.apollo, 1, 'sin tramo de Tavily que entregar, Apollo sigue como siempre');
+  });
+});
+
+// ── El escritor REAL acepta el lote reabierto ─────────────────────────────────
+
+type FakeBatch = { id: string; status: string; source: string; created_by: string; owner_id: string; metadata: Record<string, unknown>; client_request_id: string };
+
+class Chain {
+  constructor(private readonly val: unknown) {}
+  eq(): Chain { return this; }
+  neq(): Chain { return this; }
+  in(): Chain { return this; }
+  not(): Chain { return this; }
+  gte(): Chain { return this; }
+  limit(): Chain { return this; }
+  select(): Chain { return this; }
+  single(): Promise<unknown> { return Promise.resolve(this.val); }
+  then<T>(ok: (v: unknown) => T | PromiseLike<T>, ko?: (r: unknown) => T | PromiseLike<T>): Promise<T> {
+    return Promise.resolve(this.val).then(ok, ko);
+  }
+}
+
+/** Doble de Supabase con ESTADO: el UPDATE de la reapertura cambia la fila que el escritor lee. */
+function statefulAdmin(batch: FakeBatch): { admin: SupabaseClient; candidateInserts: number } {
+  const tracker = { admin: null as unknown as SupabaseClient, candidateInserts: 0 };
+  let seq = 0;
+  tracker.admin = {
+    rpc: preM126Rpc,
+    from(table: string) {
+      if (table === 'prospect_batches') {
+        return {
+          select() {
+            return {
+              eq(col: string) {
+                if (col === 'source') return new Chain({ data: [], error: null });
+                return { single: () => Promise.resolve({ data: { ...batch }, error: null }) };
+              },
+            };
+          },
+          update(values: Record<string, unknown>) {
+            const filters: Array<[string, unknown]> = [];
+            const apply = () => {
+              if (filters.every(([c, v]) => (batch as Record<string, unknown>)[c] === v)) Object.assign(batch, values);
+              return { error: null };
+            };
+            const chain = {
+              eq(col: string, val: unknown) { filters.push([col, val]); return chain; },
+              then<T>(ok: (v: unknown) => T | PromiseLike<T>) { return Promise.resolve(apply()).then(ok); },
+            };
+            return chain;
+          },
+        };
+      }
+      if (table === 'prospect_candidates') {
+        return {
+          select: () => new Chain({ data: [], error: null }),
+          insert() {
+            tracker.candidateInserts++;
+            const id = `cand-${++seq}`;
+            return { select: () => ({ single: () => Promise.resolve({ data: { id }, error: null }) }) };
+          },
+        };
+      }
+      if (table === 'prospect_candidate_audit') {
+        return { insert: () => Promise.resolve({ data: null, error: null }) };
+      }
+      throw new Error(`tabla inesperada: ${table}`);
+    },
+  } as unknown as SupabaseClient;
+  return tracker;
+}
+
+function apolloWriterInput(): CandidateWriterInput {
+  const name = 'Petrolera Andina SAC';
+  return {
+    pipelineOutput: {
+      input: { country: 'Perú', countryCode: 'PE', industry: 'Energía', webSearchProvider: 'mock', mode: 'multi_query' },
+      catalogContext: {
+        country: 'Perú', countryCode: 'PE', industry: 'Energía', searchDepth: 'standard', fiscalIdentifierLabel: null,
+        recommendedSources: [], sectorSources: [], risks: [], operatingRules: [], coverageNotes: [], promptContext: '',
+      },
+      searchQuery: 'energía Perú',
+      webSearch: { provider: 'mock', query: 'q', results: [], resultsCount: 1, skipped: false, estimatedCostUsd: null, metadata: {} },
+      candidates: [{
+        name, website: 'https://petrolera-andina.com.pe', domain: 'petrolera-andina.com.pe', country: 'Perú', countryCode: 'PE',
+        industry: 'Energía', sourceUrl: 'https://petrolera-andina.com.pe', sourceTitle: name,
+        sourceSnippet: 'Empresa peruana de energía.', inferredNameSource: null, searchTrace: null, llmEvaluation: null,
+        websiteVerification: null,
+        duplicateCheck: {
+          status: 'new_candidate', confidence: 1, input: { name, website: 'https://petrolera-andina.com.pe', domain: 'petrolera-andina.com.pe' },
+          checkedSources: ['sellup'], summary: 'No match', matches: [],
+        },
+        scoring: {
+          qualityLabel: 'high_quality_new', confidenceScore: 0.9, fitScore: 0.85, dataCompletenessScore: 0.8,
+          recommendedAction: 'approve_for_review',
+          breakdown: { existenceSignals: 1, websiteSignals: 1, duplicateSignals: 1, sourceSignals: 1, fitSignals: 1, completenessSignals: 1, penalties: 0 },
+          reasons: [], warnings: [], blockers: [],
+        },
+      }],
+      summary: { requested: 1, searched: 1, returned: 1, highQualityNew: 1, needsReview: 0, duplicates: 0, insufficientData: 0, discarded: 0, unchecked: 0 },
+      warnings: [],
+      metadata: { provider: 'mock', pipelineVersion: 'test-v1', executedAt: '2026-10-02T00:00:00.000Z' },
+    } as unknown as CandidateWriterInput['pipelineOutput'],
+    triggeredByUserId: USER_ID,
+    ownerId: USER_ID,
+    source: 'agent_1',
+    dryRun: false,
+    existingBatchId: BATCH_ID,
+  };
+}
+
+function batchLeftByTavily(): FakeBatch {
+  return {
+    id: BATCH_ID, status: 'ready_for_review', source: 'agent_1', created_by: USER_ID, owner_id: USER_ID,
+    metadata: { request_source: 'chat_wizard' }, client_request_id: CLIENT_REQUEST_ID,
+  };
+}
+
+describe('escritor real de candidatos sobre el lote que dejó Tavily (AGENT1-TAVILY-FIRST-4)', () => {
+  it('SIN reabrir: el escritor rechaza el lote en ready_for_review (el bug de c530fef3)', async () => {
+    const { admin } = statefulAdmin(batchLeftByTavily());
+    await assert.rejects(
+      () => writeProspectingCandidates(apolloWriterInput(), admin),
+      (err: unknown) => err instanceof CandidateWriterBatchValidationError && err.code === 'BATCH_INCOMPATIBLE_STATUS',
+    );
+  });
+
+  it('reabierto: el escritor acepta el lote, escribe la fila y lo deja otra vez para revisar', async () => {
+    const batch = batchLeftByTavily();
+    const tracker = statefulAdmin(batch);
+    const reopened = await reopenBatchForApolloAfterTavilyFirst(tracker.admin as unknown as ReopenBatchClient, BATCH_ID);
+    assert.equal(reopened, true);
+    assert.equal(batch.status, 'generating');
+    const out = await writeProspectingCandidates(apolloWriterInput(), tracker.admin);
+    assert.equal(out.batchId, BATCH_ID);
+    assert.equal(tracker.candidateInserts, 1);
+    assert.equal(batch.status, 'ready_for_review');
+  });
+
+  it('la reapertura no toca un lote que no está en ready_for_review', async () => {
+    const batch = { ...batchLeftByTavily(), status: 'failed' };
+    const { admin } = statefulAdmin(batch);
+    assert.equal(await reopenBatchForApolloAfterTavilyFirst(admin as unknown as ReopenBatchClient, BATCH_ID), true);
+    assert.equal(batch.status, 'failed');
+  });
+
+  it('error de la base ⇒ false', async () => {
+    const client = {
+      from: () => ({ update: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: { message: 'rls' } }) }) }) }),
+    } as unknown as ReopenBatchClient;
+    assert.equal(await reopenBatchForApolloAfterTavilyFirst(client, BATCH_ID), false);
   });
 });

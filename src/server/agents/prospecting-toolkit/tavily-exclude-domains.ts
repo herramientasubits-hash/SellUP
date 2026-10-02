@@ -97,6 +97,20 @@ export function prioritizeCountryDomains(
   return [...local, ...rest];
 }
 
+/**
+ * AGENT1-TAVILY-FIRST-4 — los portales de empleo con dominio por país, en las
+ * terminaciones del país de la corrida (`opcionempleo.com.pe`, `bumeran.pe`…).
+ * El filtro de ruido ya los descarta; excluirlos en la búsqueda deja esos
+ * resultados para empresas.
+ */
+const COUNTRY_JOB_BOARD_BRANDS: readonly string[] = Object.freeze(['opcionempleo', 'bumeran', 'laborum']);
+
+export function countryJobBoardDomains(countryCode: string | null | undefined): string[] {
+  const code = countryCode?.trim().toLowerCase() ?? '';
+  if (!/^[a-z]{2}$/.test(code)) return [];
+  return COUNTRY_JOB_BOARD_BRANDS.flatMap((brand) => [`${brand}.com.${code}`, `${brand}.${code}`]);
+}
+
 export type TavilyExcludeDomainsResult = {
   domains: string[];
   staticCount: number;
@@ -129,7 +143,8 @@ export function buildTavilyExcludeDomains(input: TavilyExcludeDomainsInput): Tav
     return added;
   };
 
-  const staticCount = addAll(TAVILY_STATIC_EXCLUDE_DOMAINS);
+  const staticCount =
+    addAll(TAVILY_STATIC_EXCLUDE_DOMAINS) + addAll(countryJobBoardDomains(input.countryCode));
   const seenThisRunCount = addAll(input.seenThisRun);
   const cellDomainsCount = addAll(input.cellDomains ?? []);
   const negativeMemoryCount = addAll(prioritizeCountryDomains(input.negativeMemory, input.countryCode));
