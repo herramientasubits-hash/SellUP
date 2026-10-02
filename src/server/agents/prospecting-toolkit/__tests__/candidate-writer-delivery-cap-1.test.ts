@@ -35,7 +35,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { writeProspectingCandidates } from '../candidate-writer';
 import { assessApolloSubindustryPrecisionForRequest } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
-import type { CandidateWriterInput, CatalogContextResult, WebSearchResult } from '../types';
+import type { CandidateWriterInput, CatalogContextResult, DeliveryCappedCompany, WebSearchResult } from '../types';
 import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 
 const REQUESTED_SUBINDUSTRY = 'Tiendas por Departamento, Moda y Calzado';
@@ -256,7 +256,7 @@ function buildCandidates(completeIndexes: ReadonlySet<number> = new Set()): Cand
 async function runWriter(
   candidates: Candidate[],
   options: { maxDeliveredCandidates?: number | null; targetPersistibleCandidates?: number | null },
-): Promise<{ stats: Stats; candidatesCreated: number }> {
+): Promise<{ stats: Stats; candidatesCreated: number; deliveryCappedCompanies: readonly DeliveryCappedCompany[] }> {
   const stats: Stats = { candidateInserts: [], batchUpdates: [] };
   const pipelineOutput = {
     input: {
@@ -316,7 +316,11 @@ async function runWriter(
   } as unknown as CandidateWriterInput;
 
   const result = await writeProspectingCandidates(input, makeFakeAdmin(stats));
-  return { stats, candidatesCreated: result.candidatesCreated };
+  return {
+    stats,
+    candidatesCreated: result.candidatesCreated,
+    deliveryCappedCompanies: result.deliveryCappedCompanies ?? [],
+  };
 }
 
 /** La última metadata que el writer escribió en el lote. */
@@ -371,6 +375,43 @@ describe('AGENT1-DELIVERY-CAP-1 — writer Apollo/Tavily: tope de entrega por ve
     assert.deepEqual(insertedNames(stats), NAMES.slice(0, 10));
     for (const name of NAMES.slice(10)) {
       assert.equal(insertedNames(stats).includes(name), false, `${name} no debe reclamarse`);
+    }
+  });
+
+  it('🔴 STAYS-FREE-1: el writer DEVUELVE lo recortado para que quede registrado (y libre)', async () => {
+    const { deliveryCappedCompanies } = await runWriter(buildCandidates(), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    assert.deepEqual(deliveryCappedCompanies.map((c) => c.name), NAMES.slice(10));
+    const none = await runWriter(buildCandidates(), { maxDeliveredCandidates: null });
+    assert.deepEqual(none.deliveryCappedCompanies, []);
+  });
+
+  it('🔴 BANCO: lo recortado trae si contaba para la meta y las MISMAS claves de reclamo', async () => {
+    // 12 completas, tope 10 ⇒ se recortan dos COMPLETAS (entran al banco como `ready`).
+    const all = new Set(NAMES.map((_name, index) => index));
+    const complete = await runWriter(buildCandidates(all), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    assert.equal(complete.deliveryCappedCompanies.length, 2);
+    for (const company of complete.deliveryCappedCompanies) {
+      assert.equal(company.countsTowardTarget, true, `${company.name} contaba para la meta`);
+      assert.ok(company.domain, `${company.name} trae dominio`);
+      assert.deepEqual(
+        company.claims?.find((claim) => claim.type === 'domain'),
+        { type: 'domain', key: company.domain },
+        `${company.name}: el reclamo de dominio es el que la fila habría tomado`,
+      );
+    }
+
+    const incomplete = await runWriter(buildCandidates(), {
+      maxDeliveredCandidates: 10,
+      targetPersistibleCandidates: TARGET,
+    });
+    for (const company of incomplete.deliveryCappedCompanies) {
+      assert.equal(company.countsTowardTarget, false, `${company.name} no contaba`);
     }
   });
 

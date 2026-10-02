@@ -6266,6 +6266,23 @@ jobs:
       - name: Run Agent 1 Apollo exclusion same industry tests
         run: npm run test:a1-apollo-exclusion-same-industry
 
+      # AGENT1-COMPANY-BANK - el almacen del banco de empresas (transporte):
+      # valida antes de enviar, divide en trozos y nunca lanza.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 company bank store tests
+        run: npm run test:a1-company-bank
+
+      # AGENT1-COMPANY-BANK - la migracion 142 contra PostgreSQL REAL:
+      # unicidad por senal, reservas con SKIP LOCKED, caducidad, grafo de estados
+      # y solo service_role. Sin el arnes, FALLA: no se salta.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 company bank tests against real PostgreSQL
+        run: npm run test:a1-company-bank:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # AGENT1-LUSHA-SOCIAL-DOMAIN-1 - un dominio que es una red social (p. ej.
       # `cl.linkedin.com`) no es el sitio de la empresa: se trata como dominio
       # ausente, con constancia, sin descartar la empresa.

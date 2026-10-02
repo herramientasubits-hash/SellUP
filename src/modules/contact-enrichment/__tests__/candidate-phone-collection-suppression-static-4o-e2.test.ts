@@ -258,6 +258,11 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // teléfono, no es del catálogo y no toca ninguna columna ni función de teléfono de las
       // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '141_tax_identifier_type_ein_nif.sql',
+      // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank` y sus funciones, sólo service_role). No es de teléfono, no es del
+      // catálogo, ni de BR, ni de CUT3B4, y no nombra ninguna tabla, columna ni función de las
+      // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '142_agent1_company_bank.sql',
     ]);
   });
 
