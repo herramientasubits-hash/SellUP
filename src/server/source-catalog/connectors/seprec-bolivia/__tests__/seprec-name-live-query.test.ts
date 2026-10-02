@@ -12,6 +12,8 @@ import {
   BO_SEPREC_MAX_CONSECUTIVE_FAILURES,
   BO_SEPREC_MAX_DETAILS_PER_LOOKUP,
   BO_SEPREC_MAX_LOOKUPS_PER_RUN,
+  BO_SEPREC_MIN_INTERVAL_MS,
+  BO_SEPREC_RATE_LIMIT_WAIT_MS,
   BO_SEPREC_REQUEST_TIMEOUT_MS,
   BO_SEPREC_TOTAL_BUDGET_MS,
   buildSeprecDetailUrl,
@@ -28,6 +30,9 @@ import {
 } from '@/server/agents/prospect-intake/source-enrichment';
 import { getTaxIdentifierRule, validateTaxIdentifier } from '@/modules/prospect-batches/tax-identifier-rules';
 import type { NormalizedProspectCandidate } from '@/server/agents/prospect-intake/types';
+
+/** Las pruebas no esperan de verdad entre peticiones. */
+const noSleep = async () => {};
 
 const hit = (id: string, razonSocial: string, overrides: Record<string, unknown> = {}) => ({
   estado: 'ACTIVO',
@@ -106,7 +111,7 @@ describe('consulta en vivo', () => {
       search([hit('12778', 'CERVECERIA BOLIVIANA NACIONAL S.A.'), hit('99', 'CERVECERIA BOLIVIANA NACIONAL DEL SUR S.A.')]),
       { '12778': detail('1020229024'), '99': detail('9999999') },
     );
-    const rows = await buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl })('CERVECERIA BOLIVIANA NACIONAL');
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CERVECERIA BOLIVIANA NACIONAL');
     assert.deepEqual(rows, [
       { taxId: '1020229024', legalName: 'CERVECERIA BOLIVIANA NACIONAL S.A.', normalizedLegalName: 'CERVECERIA BOLIVIANA NACIONAL' },
     ]);
@@ -120,14 +125,14 @@ describe('consulta en vivo', () => {
       '2': detail('1000002'),
       '3': detail('1000003'),
     });
-    const rows = await buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl })('ALFA');
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('ALFA');
     assert.equal(rows.length, BO_SEPREC_MAX_DETAILS_PER_LOOKUP);
     assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, BO_SEPREC_MAX_DETAILS_PER_LOOKUP);
   });
 
   it('un acierto reinicia la cuenta de fallos', async () => {
     let n = 0;
-    const query = buildSeprecNameLiveQuery({
+    const query = buildSeprecNameLiveQuery({ sleep: noSleep,
       fetchImpl: async () => {
         n += 1;
         if (n % BO_SEPREC_MAX_CONSECUTIVE_FAILURES === 0) return { ok: true, json: async () => search([]) };
@@ -145,7 +150,9 @@ describe('consulta en vivo', () => {
         new Promise<{ ok: boolean; json: () => Promise<unknown> }>((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(new Error('abortada')));
         });
-      const pending = buildSeprecNameLiveQuery({ fetchImpl })('A B');
+      const pending = buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl })('A B');
+      // La petición sale después de su turno (una espera asíncrona): dejar que arranque.
+      await new Promise((resolve) => setImmediate(resolve));
       mock.timers.tick(BO_SEPREC_REQUEST_TIMEOUT_MS);
       assert.deepEqual(await pending, []);
     } finally {
@@ -155,11 +162,11 @@ describe('consulta en vivo', () => {
 
   it('sin núcleo no consulta; error o excepción → vacío', async () => {
     const f = fakeSeprec(search([]), {});
-    assert.deepEqual(await buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl })('  '), []);
+    assert.deepEqual(await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('  '), []);
     assert.equal(f.urls.length, 0);
-    assert.deepEqual(await buildSeprecNameLiveQuery({ fetchImpl: async () => ({ ok: false, json: async () => ({}) }) })('A B'), []);
+    assert.deepEqual(await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: async () => ({ ok: false, json: async () => ({}) }) })('A B'), []);
     assert.deepEqual(
-      await buildSeprecNameLiveQuery({
+      await buildSeprecNameLiveQuery({ sleep: noSleep,
         fetchImpl: async () => {
           throw new Error('caída');
         },
@@ -170,7 +177,7 @@ describe('consulta en vivo', () => {
 
   it(`tras ${BO_SEPREC_MAX_CONSECUTIVE_FAILURES} fallos seguidos se apaga en la corrida`, async () => {
     let calls = 0;
-    const query = buildSeprecNameLiveQuery({
+    const query = buildSeprecNameLiveQuery({ sleep: noSleep,
       fetchImpl: async () => {
         calls += 1;
         throw new Error('caída');
@@ -182,7 +189,7 @@ describe('consulta en vivo', () => {
 
   it(`como mucho ${BO_SEPREC_MAX_LOOKUPS_PER_RUN} empresas por corrida`, async () => {
     const f = fakeSeprec(search([]), {});
-    const query = buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl });
+    const query = buildSeprecNameLiveQuery({ sleep: noSleep, totalBudgetMs: Number.POSITIVE_INFINITY, fetchImpl: f.fetchImpl });
     for (let i = 0; i < BO_SEPREC_MAX_LOOKUPS_PER_RUN + 5; i++) await query('A B');
     assert.equal(f.urls.length, BO_SEPREC_MAX_LOOKUPS_PER_RUN);
   });
@@ -194,10 +201,11 @@ describe('consulta en vivo', () => {
       clock += 20_000; // cada petición «tarda» 20 s
       return f.fetchImpl(url);
     };
-    const query = buildSeprecNameLiveQuery({ fetchImpl: slow, now: () => clock });
+    const query = buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: slow, now: () => clock });
     for (let i = 0; i < 10; i++) await query('A B');
-    // 20 s + 20 s = 40 s < 45 s ⇒ una tercera; después 60 s ≥ 45 s ⇒ se detiene.
-    assert.equal(f.urls.length, 3);
+    // 20 s + 2,5 s de espera + 20 s + 2,5 s = 45 s ⇒ la tercera ya no sale: las
+    // esperas entre peticiones también cuentan en el presupuesto.
+    assert.equal(f.urls.length, 2);
   });
 
   it('dentro de la corrida: NIT fuerte en las columnas tipadas; una palabra sin forma = sólo señal', async () => {
@@ -211,7 +219,7 @@ describe('consulta en vivo', () => {
       taxIdentifierType: 'NIT',
       validTaxId: /^\d{7,13}$/,
       normalizeCore: normalizeBoliviaCompanyCore,
-      querySnapshots: buildSeprecNameLiveQuery({ fetchImpl: f.fetchImpl }),
+      querySnapshots: buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl }),
       singleWordIsSignalOnly: true,
     });
     const candidate = (canonicalName: string) =>
@@ -242,6 +250,64 @@ describe('consulta en vivo', () => {
       policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
     });
     assert.equal(single.status, 'low_confidence_match');
+  });
+});
+
+describe('ritmo de peticiones (el SEPREC responde 429 a las ráfagas)', () => {
+  it(`espera al menos ${BO_SEPREC_MIN_INTERVAL_MS} ms entre peticiones y lo cuenta en el presupuesto`, async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    const f = fakeSeprec(search([hit('12778', 'CERVECERIA BOLIVIANA NACIONAL S.A.')]), { '12778': detail('1020229024') });
+    const query = buildSeprecNameLiveQuery({
+      fetchImpl: async (url: string) => {
+        clock += 500; // cada petición tarda 0,5 s
+        return f.fetchImpl(url);
+      },
+      now: () => clock,
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        clock += ms;
+      },
+    });
+    await query('CERVECERIA BOLIVIANA NACIONAL');
+    // búsqueda (sin espera previa) → ficha: espera 2,5 s − 0 s ya pasados desde que terminó la búsqueda
+    assert.deepEqual(waits, [BO_SEPREC_MIN_INTERVAL_MS]);
+    await query('CERVECERIA BOLIVIANA NACIONAL');
+    assert.equal(waits.length, 3);
+    assert.ok(waits.every((ms) => ms > 0 && ms <= BO_SEPREC_MIN_INTERVAL_MS));
+  });
+
+  it(`ante un 429 espera ${BO_SEPREC_RATE_LIMIT_WAIT_MS} ms y reintenta UNA vez`, async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    let clock = 0;
+    const query = buildSeprecNameLiveQuery({
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? { ok: false, status: 429, json: async () => ({}) } : { ok: true, status: 200, json: async () => search([]) };
+      },
+      now: () => clock,
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        clock += ms;
+      },
+    });
+    assert.deepEqual(await query('A B'), []);
+    assert.equal(calls, 2);
+    assert.deepEqual(waits, [BO_SEPREC_RATE_LIMIT_WAIT_MS]);
+  });
+
+  it('un 429 repetido cuenta como fallo (y 3 seguidos apagan la fuente)', async () => {
+    let calls = 0;
+    const query = buildSeprecNameLiveQuery({
+      sleep: noSleep,
+      fetchImpl: async () => {
+        calls += 1;
+        return { ok: false, status: 429, json: async () => ({}) };
+      },
+    });
+    for (let i = 0; i < 6; i++) await query('A B');
+    assert.equal(calls, BO_SEPREC_MAX_CONSECUTIVE_FAILURES * 2);
   });
 });
 
