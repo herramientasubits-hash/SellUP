@@ -81,7 +81,7 @@ mock.module('@/components/prospects/discarded-prospect-detail-sheet', {
   namedExports: { DiscardedProspectDetailSheet: () => null },
 });
 mock.module('@/components/shared/scope-filters-client', {
-  namedExports: { ScopeFiltersInDrawer: () => null },
+  namedExports: { TeamFilterUrlButton: () => null },
 });
 
 let DiscardedProspectsDataTableClient: (typeof import('../discarded-prospects-data-table-client'))['DiscardedProspectsDataTableClient'];
@@ -212,22 +212,24 @@ describe('Descartadas — celdas', () => {
     assert.ok(screen.getByText('Sin dominio'));
   });
 
-  it('solo el estado va en chip: el motivo es texto', () => {
+  it('sin columna «Estado»: en la lista todas son descartadas y el motivo va en texto', () => {
     render(<DiscardedProspectsDataTableClient items={ITEMS} />);
 
+    assert.equal(screen.queryByRole('columnheader', { name: /Estado/ }), null);
     const row = screen.getByRole('button', { name: 'Acme' }).closest('tr');
     assert.ok(row);
-    assert.equal(within(row).getByText('Descartada').getAttribute('data-slot'), 'badge');
-    assert.equal(row.querySelectorAll('[data-slot="badge"]').length, 1);
+    assert.equal(within(row).queryByText('Descartada'), null);
+    assert.equal(row.querySelectorAll('[data-slot="badge"]').length, 0);
   });
 
-  it('una fila bloqueada se ve como «Duplicada» y no se puede enviar a revisión', () => {
+  it('una fila bloqueada no se puede enviar a revisión y el botón dice por qué', () => {
     render(<DiscardedProspectsDataTableClient items={ITEMS} />);
 
     const row = screen.getByRole('button', { name: 'Gamma' }).closest('tr');
     assert.ok(row);
-    assert.ok(within(row).getByText('Duplicada'));
-    assert.equal((within(row).getByRole('button', { name: /Enviar a revisión/ }) as HTMLButtonElement).disabled, true);
+    const send = within(row).getByRole('button', { name: /Enviar a revisión/ }) as HTMLButtonElement;
+    assert.equal(send.disabled, true);
+    assert.equal(send.getAttribute('title'), 'Otro vendedor ya tiene esta empresa.');
   });
 });
 

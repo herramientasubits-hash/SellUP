@@ -39,7 +39,9 @@ import {
 import type { ContactListItem } from '@/modules/contacts/actions';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import {
-  ScopeFilterDrawerSection,
+  EMPTY_SCOPE_FILTER,
+  TeamFilterButton,
+  resolveScopeOwnerIds,
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
 import { ContactDetailSheet } from './contact-detail-sheet';
@@ -84,8 +86,6 @@ const CONTACT_QUICK_FILTERS: readonly QuickFilterDefinition<ContactListItem>[] =
     predicate: (contact) => contact.is_primary,
   },
 ];
-
-const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
 
 /** Los estados a los que se puede pasar un contacto desde su menú. */
 const SELECTABLE_STATUSES: ContactStatus[] = ['active', 'inactive', 'left_company', 'do_not_contact'];
@@ -146,32 +146,13 @@ export function ContactsDataTableClient({
 
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
 
+  // «Equipo»: los registros cuyas empresas lleva alguien del grupo o la persona elegida.
   const filteredContacts = React.useMemo(() => {
-    if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return contacts;
-    const { userId, groupId, roleKey } = scopeFilter;
-    if (!userId && !groupId && !roleKey) return contacts;
-    const allowedUserIds = new Set(
-      scopeFilterOptions.users
-        .filter((u) => {
-          if (roleKey && u.role_key !== roleKey) return false;
-          if (groupId) {
-            if (!u.group_id) return false;
-            const inSubtree = (gid: string): boolean => {
-              if (gid === groupId) return true;
-              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
-              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
-            };
-            if (!inSubtree(u.group_id)) return false;
-          }
-          return true;
-        })
-        .map((u) => u.id),
-    );
+    const ownerIds = resolveScopeOwnerIds(scopeFilterOptions, scopeFilter);
+    if (!ownerIds || !accountOwners) return contacts;
     return contacts.filter((c) => {
       const ownerId = c.account_id ? accountOwners.get(c.account_id) : undefined;
-      if (!ownerId) return false;
-      if (userId) return ownerId === userId;
-      return allowedUserIds.has(ownerId);
+      return ownerId != null && ownerIds.has(ownerId);
     });
   }, [contacts, scopeFilter, scopeFilterOptions, accountOwners]);
 
@@ -618,11 +599,11 @@ export function ContactsDataTableClient({
       <EmptyState
         variant="plain"
         icon={Users}
-        title="Ningún contacto en este alcance"
-        description="El usuario, grupo o rol elegido no tiene contactos en sus empresas."
+        title="Ningún contacto en este equipo"
+        description="El grupo o la persona elegidos no tienen contactos en sus empresas."
         action={
           <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
-            Quitar filtros de alcance
+            Quitar filtro de equipo
           </Button>
         }
       />
@@ -661,7 +642,18 @@ export function ContactsDataTableClient({
           getRowId={(row) => row.id}
           title={quick.activeLabel ? `Contactos · ${quick.activeLabel}` : 'Listado de contactos'}
           count={quick.rows.length}
-          actions={contacts.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          actions={
+            <>
+              {contacts.length > 0 && isWide && <QuickFilterChips {...quickFilterGroup} />}
+              {scopeFilterOptions && (
+                <TeamFilterButton
+                  scopeFilterOptions={scopeFilterOptions}
+                  value={scopeFilter}
+                  onChange={setScopeFilter}
+                />
+              )}
+            </>
+          }
           enableRowSelection
           contextMenu={contextMenu}
           bulkActions={bulkActions}
@@ -671,15 +663,6 @@ export function ContactsDataTableClient({
           onRowClick={(row) => openDetail(row.id)}
           rowClickable
           renderListItem={renderListItem}
-          settingsExtraSections={
-            scopeFilterOptions?.showScopeFilters ? (
-              <ScopeFilterDrawerSection
-                scopeFilterOptions={scopeFilterOptions}
-                value={scopeFilter}
-                onChange={setScopeFilter}
-              />
-            ) : undefined
-          }
           emptyState={emptyState}
         />
       </div>

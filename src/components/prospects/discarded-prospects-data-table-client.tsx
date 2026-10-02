@@ -12,8 +12,10 @@
 // AGENT1-DISCARDED-TAB-PARITY-1 — paridad con "Candidatos por revisar":
 // selección con checkbox, barra flotante de acciones masivas, encabezado con
 // título/descripción/conteo, reordenamiento de columnas, filtros por columna,
-// filtros de alcance en el cajón de ajustes y badge "Nuevo" en la fecha. Las
-// acciones son las de descartadas, no las de la cola de revisión.
+// filtro de equipo en la barra y badge "Nuevo" en la fecha. Las acciones son
+// las de descartadas, no las de la cola de revisión. Sin columna «Estado»: lo
+// enviado a revisión sale de esta lista, así que casi todo diría «Descartada».
+// El estado se sigue leyendo en la vista de lista y en el detalle.
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
@@ -65,7 +67,7 @@ import type {
 } from '@/modules/prospect-discards/types';
 import { sendDiscardedProspectToReviewAction } from '@/modules/prospect-discards/send-to-review-actions';
 import { DiscardedProspectDetailSheet } from '@/components/prospects/discarded-prospect-detail-sheet';
-import { ScopeFiltersInDrawer } from '@/components/shared/scope-filters-client';
+import { TeamFilterUrlButton } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 const COUNTRY_FILTER_OPTIONS = LATAM_COUNTRIES.map((c) => ({
@@ -124,8 +126,7 @@ interface DiscardedProspectsDataTableClientProps {
   scopeFilterOptions?: ScopeFilterOptions;
   currentUserId?: string;
   currentGroupId?: string;
-  currentRoleKey?: string;
-  /** Deep link desde una operación concreta: oculta los filtros de alcance. */
+  /** Deep link desde una operación concreta: oculta el filtro de equipo. */
   sourceId?: string;
   /**
    * Cierto si la lista llega ya filtrada por la URL (búsqueda, país, sector o
@@ -139,7 +140,6 @@ export function DiscardedProspectsDataTableClient({
   scopeFilterOptions,
   currentUserId = '',
   currentGroupId = '',
-  currentRoleKey = '',
   sourceId,
   hasUrlFilters = false,
 }: DiscardedProspectsDataTableClientProps) {
@@ -436,26 +436,6 @@ export function DiscardedProspectsDataTableClient({
         },
       },
       {
-        id: 'status',
-        accessorKey: 'status',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
-        cell: ({ row }) => {
-          const status = getStatusBadge(row.original);
-          return <Badge variant={status.variant}>{status.label}</Badge>;
-        },
-        size: 140,
-        minSize: 110,
-        filterFn: 'arrIncludesSome',
-        meta: {
-          label: 'Estado',
-          popoverTitle: 'Estado',
-          filterOptions: [
-            { label: 'Descartada', value: 'discarded' },
-            { label: 'Enviada a revisión', value: 'sent_to_review' },
-          ],
-        },
-      },
-      {
         id: 'actions',
         header: () => <span className="sr-only">Acciones</span>,
         cell: ({ row }) => {
@@ -710,7 +690,18 @@ export function DiscardedProspectsDataTableClient({
           getRowId={(row) => row.itemId}
           title={quick.activeLabel ? `Descartadas · ${quick.activeLabel}` : 'Empresas descartadas'}
           count={quick.rows.length}
-          actions={rows.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          actions={
+            <>
+              {rows.length > 0 && isWide && <QuickFilterChips {...quickFilterGroup} />}
+              {scopeFilterOptions && !sourceId && (
+                <TeamFilterUrlButton
+                  scopeFilterOptions={scopeFilterOptions}
+                  currentUserId={currentUserId}
+                  currentGroupId={currentGroupId}
+                />
+              )}
+            </>
+          }
           enableRowSelection
           bulkActions={bulkActions}
           contextMenu={contextMenu}
@@ -720,16 +711,6 @@ export function DiscardedProspectsDataTableClient({
           onRowClick={(row) => setSelected(row)}
           rowClickable
           renderListItem={renderListItem}
-          settingsExtraSections={
-            scopeFilterOptions && !sourceId ? (
-              <ScopeFiltersInDrawer
-                scopeFilterOptions={scopeFilterOptions}
-                currentUserId={currentUserId}
-                currentGroupId={currentGroupId}
-                currentRoleKey={currentRoleKey}
-              />
-            ) : undefined
-          }
           emptyState={emptyState}
         />
       </div>
