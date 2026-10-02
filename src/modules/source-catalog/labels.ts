@@ -54,6 +54,7 @@ export const COUNTRY_LABELS: Record<string, string> = {
   CR: 'Costa Rica',
   DO: 'Rep. Dominicana',
   EC: 'Ecuador',
+  ES: 'España',
   GT: 'Guatemala',
   HN: 'Honduras',
   MX: 'México',
@@ -62,6 +63,7 @@ export const COUNTRY_LABELS: Record<string, string> = {
   PE: 'Perú',
   PY: 'Paraguay',
   SV: 'El Salvador',
+  US: 'Estados Unidos',
   UY: 'Uruguay',
 };
 
@@ -199,6 +201,8 @@ export const AI_FLOW_STATUS_LABELS: Record<AiFlowStatus, string> = {
   limited_manual_expansion: 'Expansión limitada manual',
   pending_integration_design: 'Pendiente diseño de integración',
   requires_validation: 'Requiere validación',
+  connected_identity_in_run: 'Conectada · número fiscal por nombre en cada corrida',
+  connected_free_discovery: 'Conectada · capa gratuita por industria antes de pagar',
   paused: 'Pausada',
   not_applicable: 'No aplica',
   pending_classification: 'Pendiente clasificación',
@@ -238,6 +242,12 @@ export function aiFlowStatusBadgeClass(status: AiFlowStatus): string {
     // matiz de precaución, sin implicar operatividad.
     case 'requires_validation':
       return 'border-border/60 bg-surface-subtle text-muted-foreground';
+    // Conectadas en la corrida del Agente 1 (identidad fiscal por nombre o capa
+    // gratuita por industria): mismo acento de éxito que las demás conectadas.
+    case 'connected_identity_in_run':
+      return 'border-success/30 bg-success/10 text-success';
+    case 'connected_free_discovery':
+      return 'border-success/30 bg-success/10 text-success';
     case 'paused':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'not_applicable':

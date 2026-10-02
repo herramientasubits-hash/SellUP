@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { Bot, Plug, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
-import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { settingsBreadcrumbs } from '@/components/settings/settings-page';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
@@ -285,14 +285,7 @@ export default async function UsagePage() {
         ctaHref="/settings/providers?tab=consumo"
       />
       <PageHeader
-        breadcrumbs={
-          <Breadcrumbs
-            items={[
-              { label: 'Proveedores y consumo', href: '/settings/providers' },
-              'Uso, costos y efectividad',
-            ]}
-          />
-        }
+        breadcrumbs={settingsBreadcrumbs(undefined, 'Uso, costos y efectividad')}
         title="Uso, costos y efectividad"
         description="Qué hicieron los agentes, qué se consultó a los proveedores y qué pasó con cada resultado."
         actions={isEmpty ? (

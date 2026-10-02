@@ -11,11 +11,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { runAnthropicConversation } from '../claude-classifier/anthropic-messages-client';
 import { searchCompaniesWithClaude, type CompanySearchOutcome } from '../claude-classifier/company-search';
 import type { WebSearchInput, WebSearchOutput } from '../types';
+import { fetchSafePageHtml } from '../website-verifier';
 
 /** Tope por petición HTTP: con 5 búsquedas web, Claude tarda 20–45 s. */
 const CLAUDE_COMPANY_SEARCH_REQUEST_TIMEOUT_MS = 45_000;
 /** No se empieza una consulta nueva si queda menos que esto antes del límite de la corrida. */
 export const CLAUDE_COMPANY_SEARCH_MIN_TIME_FOR_CALL_MS = 50_000;
+/** Para comprobar un sitio que no salió de la búsqueda (se bajan en paralelo). */
+const OUTSIDE_SEARCH_PAGE_TIMEOUT_MS = 8_000;
 
 export type ClaudeSearchRunContext = {
   model: string;
@@ -39,6 +42,8 @@ export type ClaudeSearchRunContext = {
   nowMs?: () => number;
   /** Para pruebas: reemplaza la conversación real. */
   runConversation?: Parameters<typeof searchCompaniesWithClaude>[2]['runConversation'];
+  /** Para pruebas: reemplaza la descarga de páginas. */
+  fetchPage?: Parameters<typeof searchCompaniesWithClaude>[2]['fetchPage'];
 };
 
 const runContext = new AsyncLocalStorage<ClaudeSearchRunContext>();
@@ -93,6 +98,7 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       runConversation:
         ctx.runConversation ??
         ((body) => runAnthropicConversation({ apiKey: ctx.apiKey, body, timeoutMs })),
+      fetchPage: ctx.fetchPage ?? ((url) => fetchSafePageHtml(url, OUTSIDE_SEARCH_PAGE_TIMEOUT_MS)),
     },
   );
   const call = { ...outcome, query: input.query, durationMs: now() - startedMs };

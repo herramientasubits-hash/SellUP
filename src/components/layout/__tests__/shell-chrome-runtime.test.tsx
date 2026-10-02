@@ -249,9 +249,7 @@ describe('Cabecera — el buscador sigue llegando a Configuración', () => {
       'Configuración',
       'Configuración, Usuarios y acceso',
       'Configuración, Proveedores y consumo',
-      'Configuración, Automatizaciones',
       'Configuración, Integraciones comerciales',
-      'Configuración, Prospección y enriquecimiento',
       'Configuración, Actividad de la plataforma',
       'Configuración, Mi Google Drive',
     ]) {
@@ -602,8 +600,9 @@ describe('Menú de la marca (WorkspaceMenu)', () => {
       screen.getByRole('menuitem', { name: 'Proveedores y consumo' }).getAttribute('href'),
       '/settings/providers',
     );
-    assert.ok(screen.getByRole('menuitem', { name: 'Prospección y enriquecimiento' }));
-    assert.ok(screen.getByRole('menuitem', { name: 'Automatizaciones' }));
+    // Ya no son secciones: Apollo, Lusha y Tavily viven en Proveedores y consumo.
+    assert.equal(screen.queryByRole('menuitem', { name: 'Prospección y enriquecimiento' }), null);
+    assert.equal(screen.queryByRole('menuitem', { name: 'Automatizaciones' }), null);
     assert.equal(screen.queryByRole('menuitem', { name: 'Catálogo de fuentes' }), null);
   });
 

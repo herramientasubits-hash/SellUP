@@ -28,7 +28,9 @@ export function filterTab<T extends FilterableSource>(sources: T[], tab: TabId):
             s.aiFlowStatus === 'dry_run_validated' ||
             s.aiFlowStatus === 'snapshot_persisted' ||
             s.aiFlowStatus === 'controlled_pilot' ||
-            s.aiFlowStatus === 'limited_manual_expansion'
+            s.aiFlowStatus === 'limited_manual_expansion' ||
+            s.aiFlowStatus === 'connected_identity_in_run' ||
+            s.aiFlowStatus === 'connected_free_discovery'
           )
         );
       }

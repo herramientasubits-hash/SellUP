@@ -75,15 +75,21 @@ describe('filterTab — hn_contrataciones_abiertas visibilidad real (8C.4C.1)', 
 
 // ── 3. snapshot_persisted filtrado por país Honduras ─────────────────────────
 
-describe('filterTab — snapshot_persisted con filtro país Honduras (8C.4C.1)', () => {
+// SOURCES-GT-HN-BY-NAME-1 (30-09): el snapshot hondureño pasó de
+// snapshot_persisted a connected_identity_in_run (RTN por nombre en cada
+// corrida). La garantía es la misma: la fuente HN basada en snapshot no
+// desaparece del tab Operativas al filtrar por Honduras.
+describe('filterTab — snapshot hondureño con filtro país Honduras (8C.4C.1)', () => {
   const { sources } = getSourceCatalogViewModel();
 
-  it('fuentes HN con snapshot_persisted no desaparecen al filtrar operativas', () => {
+  it('la fuente HN basada en snapshot no desaparece al filtrar operativas', () => {
     const hnSources = sources.filter((s) => s.countryCodes?.includes('HN'));
     const hnOperativas = filterTab(hnSources, 'operativas');
     assert.ok(
-      hnOperativas.some((s) => s.aiFlowStatus === 'snapshot_persisted'),
-      'Al menos una fuente HN con snapshot_persisted debe aparecer en operativas',
+      hnOperativas.some(
+        (s) => s.key === 'hn_contrataciones_abiertas' && s.aiFlowStatus === 'connected_identity_in_run',
+      ),
+      'hn_contrataciones_abiertas (connected_identity_in_run) debe aparecer en operativas',
     );
   });
 });

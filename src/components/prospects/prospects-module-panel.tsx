@@ -75,8 +75,6 @@ export interface ProspectsPanelSearchParams {
   userId?: string;
   /** Scope refinement: filter by a specific group (and its descendants) within scope. */
   groupId?: string;
-  /** Scope refinement: filter by role key. Applied client-side via ScopeFiltersClient. */
-  roleKey?: string;
   /**
    * AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — sub-tab selector inside Prospectos
    * (issue #389). `'descartadas'` renders the discarded-dispositions panel
@@ -205,7 +203,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         scopeFilterOptions={scopeFilterOptions}
         currentUserId={params.userId ?? ''}
         currentGroupId={params.groupId ?? ''}
-        currentRoleKey={params.roleKey ?? ''}
         hasUrlFilters={hasUrlFilters}
         emptyActions={
           <div className="flex flex-wrap items-center justify-center gap-2">

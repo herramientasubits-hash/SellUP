@@ -1,8 +1,16 @@
 /**
- * Prospecting Toolkit — Catálogo estructurado de fuentes MVP.
+ * Prospecting Toolkit — Catálogo estructurado de fuentes.
  *
- * Contiene únicamente los países prioritarios del MVP: CO, MX, CL, PE, EC, BR.
- * Fuentes globales incluidas como fallback (OpenCorporates, Apollo).
+ * Cubre las fuentes oficiales por país que SellUp conoce (Colombia, México,
+ * Chile, Perú, Ecuador, Brasil, República Dominicana, Argentina, Guatemala,
+ * Honduras, Costa Rica, Panamá, El Salvador, Paraguay, Uruguay, Estados Unidos
+ * y España) más fuentes globales como fallback (OpenCorporates, Apollo).
+ *
+ * Las fuentes con aiFlowStatus `connected_identity_in_run` (número fiscal por
+ * nombre en cada corrida) y `connected_free_discovery` (capa gratuita por
+ * industria) describen cómo trabaja hoy el Agente 1, pero NO entran en
+ * `getCatalogContext().recommendedSources` (ver isSourceEnabledForAutomatedFlow):
+ * no cambian la puntuación de candidatos ni los planes de consulta.
  * Lusha: presente pero marcada como "no discovery" — filtrada en getCatalogContext.
  *
  * Principios:
@@ -33,6 +41,8 @@ export const FISCAL_IDENTIFIERS: Record<string, string> = {
   PY: 'RUC',
   SV: 'NRC/NIT',
   UY: 'RUT',
+  US: 'EIN',
+  ES: 'NIF',
 };
 
 // ─── Riesgos conocidos por país ───────────────────────────────────────────────
@@ -48,13 +58,13 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   MX: [
     'DENUE API tiene límite de registros por consulta; paginar correctamente.',
     'SIEM puede tener datos con 1-2 años de antigüedad para PYMES.',
-    'No todas las empresas tienen RFC público disponible via DENUE.',
+    'DENUE nunca publica el RFC: el RFC no se obtiene de DENUE.',
     'Empresas del sector informal no aparecen en registros oficiales.',
     'CANAIVE/AMIA solo cubren sus sectores específicos.',
   ],
   CL: [
-    'RES solo cubre empresas registradas activamente; algunas PYMES operan sin registro formal.',
-    'ChileCompra (descartado MVP) solo cubre proveedores del Estado chileno.',
+    'El Registro de Empresas y Sociedades solo cubre sociedades constituidas desde 2013 por la Ley 20.659; no incluye grandes empresas antiguas ni dice si siguen activas.',
+    'ChileCompra (Mercado Público) solo cubre proveedores y compras del Estado chileno.',
     'Datos de contacto en fuentes públicas chilenas son escasos.',
     'No confundir RUT de persona natural con RUT de empresa.',
     'SII proporciona validación fiscal pero no perfil de empresa completo.',
@@ -77,6 +87,46 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'cnpj.ws es un tercero no oficial; validar disponibilidad y TOS antes de usar.',
     'Volumen masivo requiere filtrado cuidadoso por situação: Ativa.',
     'Datos de contacto en Receita Federal son mínimos.',
+  ],
+  AR: [
+    'El número fiscal (CUIT) sale del Registro Nacional de Sociedades: sólo sociedades activas; no cubre personas humanas con actividad comercial.',
+    'La capa gratuita por industria sólo propone sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado.',
+    'Un nombre repetido entre varias sociedades no da un CUIT seguro; queda como señal.',
+  ],
+  DO: [
+    'El padrón de la DGII cubre RNC de empresas (9 dígitos); las personas físicas con cédula quedan fuera.',
+    'La actividad económica de la DGII es texto libre: la capa gratuita sólo usa las actividades de la tabla aprobada por la dueña.',
+    'La capa gratuita sólo propone empresas activas que además son proveedoras del Estado (DGCP).',
+  ],
+  GT: [
+    'El NIT por nombre sólo cubre sociedades inscritas como proveedoras del Estado en el RGAE (snapshot 2025).',
+    'El snapshot es de un solo año: altas y bajas posteriores no se reflejan.',
+    'Nombres repetidos o genéricos no dan un NIT seguro.',
+  ],
+  HN: [
+    'El RTN por nombre sólo cubre 72 proveedores del piloto 2024 de Contrataciones Abiertas: cobertura muy baja.',
+    'Pueden aparecer personas naturales mezcladas con empresas.',
+    'Nombres repetidos o genéricos no dan un RTN seguro.',
+  ],
+  PY: [
+    'El padrón público de RUC (SET/DNIT) sólo trae sociedades activas con RUC 80…; no indica sector ni tamaño.',
+    'El RUC se guarda con dígito verificador (por ejemplo 80002201-7).',
+    'Un nombre repetido no da un RUC seguro; queda como señal.',
+  ],
+  UY: [
+    'El RUT por nombre sólo cubre empresas que alguna vez fueron proveedoras del Estado (RUPE).',
+    'Empresas que nunca vendieron al Estado no aparecen.',
+    'Nombres repetidos o genéricos no dan un RUT seguro.',
+  ],
+  US: [
+    'No existe un registro público de EIN para todas las empresas: sólo cubre empresas que presentan ante la SEC y organizaciones sin ánimo de lucro grandes del IRS.',
+    'Empresas privadas que no cotizan ni presentan ante la SEC no tienen EIN público.',
+    'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
+  ],
+  ES: [
+    'España no publica el NIF de las empresas en ningún registro abierto.',
+    'El NIF por nombre sólo cubre sociedades que ganaron contratos públicos (Plataforma de Contratación del Sector Público).',
+    'Empresas que nunca contrataron con el sector público no aparecen.',
   ],
 };
 
@@ -102,7 +152,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected',
     connectionMode: 'automatic_enrichment',
-    nextAction: 'Snapshot SIIS 2024 cargado con 10.000 registros. Monitorear actualización anual y recargar snapshot cuando SIIS publique nuevo año.',
+    nextAction:
+      'Snapshot SIIS 2024 cargado con 10.000 empresas. Es la primera fuente de NIT por nombre en cada corrida del Agente 1 (Apollo, Lusha e importación) y alimenta la capa gratuita colombiana por industria (CIIU) antes de pagar a proveedores. Recargar cuando SIIS publique un nuevo año.',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P0',
@@ -111,20 +162,19 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://siis.ia.supersociedades.gov.co/',
     automationLevel: 'high',
     recommendedUse:
-      'Enriquecimiento financiero post-discovery y priorización de candidatos colombianos medianos/grandes. Señales financieras (ingresos, utilidades, activos, patrimonio) y validación parcial por NIT para empresas reportadas en SIIS. Fuente ya disponible vía snapshot SIIS 2024 cargado en Supabase con 10.000 registros. NO usar como fuente de discovery principal ni como fuente universal — no cubre microempresas ni empresas no vigiladas por Supersociedades.',
+      'Snapshot de Supersociedades (SIIS 2024, 10.000 empresas) cargado en SellUp. En cada corrida del Agente 1 (Apollo, Lusha e importación) es la primera fuente para completar el NIT por nombre de empresa; si no da un NIT seguro, el Agente 1 consulta en vivo el registro de las Cámaras de Comercio (Personas Jurídicas Cámaras de Comercio). También alimenta la capa gratuita colombiana por industria (co_siis_discovery, por CIIU), que propone empresas antes de pagar a Apollo o Lusha. Aporta además señales financieras (ingresos, utilidades, activos, patrimonio) para priorizar empresas medianas y grandes.',
     limitations: [
       'Cobertura limitada a empresas reportadas o supervisadas por Supersociedades — no representa todo el universo empresarial colombiano',
       'No cubre microempresas ni empresas no vigiladas',
       'Datos con rezago de 1-2 años respecto al ejercicio fiscal',
       'No incluye datos de contacto (emails, teléfonos)',
-      'No reemplaza RUES para discovery amplio',
-      'No debe consultarse live en el wizard — usa snapshot controlado en Supabase',
+      'La capa gratuita por CIIU sólo propone empresas que están en SIIS: no reemplaza la búsqueda con proveedores',
+      'Se lee de la carga controlada en SellUp, nunca del Excel de SIIS en cada búsqueda',
       'Requiere recarga anual o manual cuando SIIS publique nuevo Excel',
     ],
     riskNotes: [
-      'Usar como complemento post-discovery, no como única fuente de validación',
-      'Evitar usar como única fuente — combinar con RUES para cobertura amplia',
-      'No consultar Excel de SIIS en cada búsqueda — usar snapshot controlado en Supabase',
+      'Que una empresa no esté en SIIS no significa que no exista — por eso, sin NIT seguro, el Agente 1 recurre a las Cámaras de Comercio',
+      'Un nombre repetido o genérico no da un NIT seguro',
       'Snapshot 2024 cargado exitosamente (10.000 registros) — monitorear actualización anual',
     ],
   },
@@ -164,7 +214,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'legal_validation',
     aiFlowStatus: 'connected',
     connectionMode: 'automatic_enrichment',
-    nextAction: 'Conectada a enrichment por NIT',
+    nextAction:
+      'Conectada a enrichment por NIT y a la búsqueda en vivo del NIT por nombre dentro de cada corrida, cuando Supersociedades (SIIS) no da un NIT seguro.',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P1',
@@ -173,16 +224,18 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.datos.gov.co/resource/c82u-588k.json',
     automationLevel: 'high',
     recommendedUse:
-      'Discovery secundario y validación parcial de personas jurídicas publicadas por cámaras de comercio en datos.gov.co. Útil para verificar NIT, razón social, estado de matrícula, CIIU y renovación.',
+      'Registro de personas jurídicas de las Cámaras de Comercio (datos del RUES) publicado en datos.gov.co (dataset c82u-588k). Dos usos en el Agente 1: (1) validación y enriquecimiento por NIT — razón social, estado de matrícula, CIIU y renovación; (2) búsqueda en vivo del NIT por nombre dentro de cada corrida cuando Supersociedades (SIIS) no da un NIT seguro: busca por el comienzo del nombre, sólo empresas con NIT y matrícula no cancelada, y exige que el núcleo del nombre coincida exactamente. Medido sobre 206 empresas colombianas reales sin NIT: 14 NIT seguros y 7 señales.',
     limitations: [
       'Cobertura parcial: solo cámaras que publican en datos.gov.co.',
       'No reemplaza RUES como fuente principal nacional.',
-      'Puede mezclar registros activos y cancelados; requiere filtrar estado_matricula = ACTIVA.',
+      'Mezcla registros activos y cancelados; la búsqueda por nombre descarta las matrículas canceladas.',
       'No debe usarse como discovery universal de Colombia.',
+      'Búsqueda por nombre con límites: 4 segundos por consulta y máximo 60 consultas por corrida.',
+      'Un nombre de una sola palabra sin forma societaria (por ejemplo, sólo la marca) cuenta solo como señal, nunca como NIT seguro.',
     ],
     riskNotes: [
-      'Validar cobertura por cámara antes de usar como fuente nacional.',
-      'Usar como complemento de RUES y otras fuentes oficiales.',
+      'Si datos.gov.co falla 3 veces seguidas, la búsqueda por nombre se apaga para el resto de la corrida; la corrida sigue sin ese NIT.',
+      'Varias empresas con el mismo núcleo de nombre dan solo una señal, no un NIT seguro.',
       'Requiere normalización de NIT, razón social y estado de matrícula.',
       'Endpoint Socrata validado: https://www.datos.gov.co/resource/c82u-588k.json',
     ],
@@ -221,7 +274,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'legal_validation',
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
-    nextAction: 'Mantener como fuente estructurada legal parcial',
+    nextAction:
+      'Son los mismos datos de las Cámaras de Comercio: la conexión técnica es la fuente «Personas Jurídicas Cámaras de Comercio» (co_personas_juridicas_cc).',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P0',
@@ -230,21 +284,19 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.rues.org.co/',
     automationLevel: 'high',
     recommendedUse:
-      'Fuente oficial de referencia para validación legal y discovery empresarial en Colombia. En SellUp el canal automático actual usa el dataset Socrata c82u-588k publicado en datos.gov.co, útil para discovery inicial, validación parcial de NIT, matrícula mercantil, estado de matrícula, cámara de comercio, CIIU y fechas de renovación.',
+      'Fuente oficial de referencia para validación legal en Colombia. En SellUp los datos del RUES llegan por el dataset c82u-588k de las Cámaras de Comercio en datos.gov.co, que es la fuente técnica conectada «Personas Jurídicas Cámaras de Comercio»: el Agente 1 la usa para validar por NIT (matrícula, estado, cámara, CIIU, renovación) y para buscar el NIT por nombre en cada corrida cuando Supersociedades no lo da.',
     limitations: [
       'El canal automático actual no representa el RUES nacional completo.',
       'El dataset Socrata c82u-588k tiene cobertura parcial según las cámaras que publican datos.',
       'No reemplaza una consulta nacional completa o convenio oficial con RUES/Confecámaras.',
       'No incluye datos comerciales completos como teléfono, email, sitio web o decisores.',
       'La consulta directa a rues.org.co puede requerir interacción de navegador/captcha y no debe automatizarse mediante scraping.',
-      'Puede requerir deduplicación por NIT si en el futuro se incorporan datasets de múltiples cámaras.',
     ],
     riskNotes: [
       'Riesgo principal: asumir cobertura nacional completa cuando el canal automático actual es parcial.',
-      'Usar el canal Socrata para discovery controlado y validación parcial, no como única prueba legal definitiva.',
+      'Usar como validación parcial, no como única prueba legal definitiva.',
       'Mantener rues.org.co como referencia manual/oficial, no como canal de scraping.',
-      'Endpoint automático actual: https://www.datos.gov.co/resource/c82u-588k.json',
-      'Dataset relacionado también usado por co_personas_juridicas_cc para enriquecimiento post-discovery por NIT.',
+      'Endpoint automático actual: https://www.datos.gov.co/resource/c82u-588k.json (el mismo de co_personas_juridicas_cc).',
     ],
   },
   {
@@ -603,7 +655,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
-    nextAction: 'Conectada en wizard discovery y enriquecimiento post-approval contextual (México.2B). No valida RFC. source_type=official_business_directory. legal_validation_status=not_applicable. tax_validation_status=not_applicable. human_review_required siempre.',
+    nextAction:
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC requiere revisión humana.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -612,18 +665,20 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.inegi.org.mx/servicios/api_denue.html',
     automationLevel: 'high',
     recommendedUse:
-      'Fuente oficial INEGI con 5M+ establecimientos. Sirve para discovery estructurado por municipio/SCIAN/tamaño y enrichment contextual de candidatos mexicanos. Ayuda a validar la existencia de establecimientos físicos. No entrega RFC ni resuelve identidad fiscal — la resolución de RFC requiere revisión humana.',
+      'Directorio oficial de INEGI con más de 5 millones de establecimientos. En el Agente 1 es la capa gratuita mexicana por industria: antes de pagar a Apollo o Lusha consulta en vivo la API de DENUE con la tabla SCIAN v2 aprobada por la dueña (por ejemplo, bibliotecas públicas → Gobierno), sólo establecimientos de 51 o más personas, alternando actividades, y deja una fila por empresa (razón social y nombre comercial). Guarda el sitio web o dominio cuando DENUE lo publica. DENUE nunca publica RFC: no resuelve identidad fiscal.',
     limitations: [
-      'No incluye RFC en la respuesta de API — no resuelve identidad fiscal.',
+      'DENUE nunca publica RFC — no resuelve identidad fiscal.',
       'Es registro de establecimiento físico, no necesariamente la razón social fiscal.',
-      'Puede devolver múltiples establecimientos para una misma marca o grupo empresarial.',
+      'Puede devolver múltiples establecimientos para una misma marca o grupo empresarial; SellUp deja una fila por empresa.',
+      'Sólo propone establecimientos de 51 o más personas: empresas más pequeñas no entran por esta vía.',
+      'El sitio web sólo aparece cuando DENUE lo publica.',
       'Datos con actualización cada 1-2 años — puede incluir establecimientos ya cerrados.',
       'Requiere token de acceso INEGI con rate limit por consulta.',
     ],
     riskNotes: [
       'No usar como fuente fiscal — no escribe tax_identifier.',
       'No enviar a HubSpot como RFC validado bajo ninguna circunstancia.',
-      'Usar solo como contexto estructurado para revisión humana posterior.',
+      'Las empresas que propone pasan a revisión humana.',
       'Mantener tax_identifier_resolution.status = not_resolvable_automatically para México.',
     ],
   },
@@ -826,6 +881,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
+    nextAction:
+      'El RUT por nombre en cada corrida usa otra carga del mismo registro: «Registro de Empresas y Sociedades — RUT por nombre» (cl_res_registry, 1.265.085 sociedades).',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P0',
@@ -840,14 +897,42 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Puede incluir empresas recién constituidas, microempresas o sociedades con capital muy bajo.',
       'Puede incluir EIRL u otros tipos donde el RUT asociado requiera revisión para no confundir persona natural con empresa.',
       'No debe usarse como fuente única para priorización comercial sin señales adicionales.',
-      'No existe aún enrichment adapter Chile ni resolvedor automático de RUT en SellUp.',
+      'El RUT por nombre no sale de esta entrada: lo completa cl_res_registry, una carga aparte del Registro de Empresas y Sociedades.',
     ],
     riskNotes: [
       'Usar como discovery estructurado inicial de empresas chilenas, no como validación completa de ICP.',
       'No inferir sector ni tamaño comercial únicamente desde RES.',
       'Requiere revisión humana o señales complementarias para industria, fit y prioridad comercial.',
       'No usar como sustituto del SII para validación tributaria.',
-      'No escribir RUT como tax_identifier fuera de un flujo controlado y auditado.',
+      'El RUT sólo se escribe por la búsqueda por nombre de cl_res_registry, con reglas conservadoras (los homónimos quedan como señal).',
+    ],
+  },
+  {
+    key: 'cl_res_registry',
+    name: 'Registro de Empresas y Sociedades — RUT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '1.265.085 sociedades cargadas (Ley 20.659, datos.gob.cl). El Agente 1 completa el RUT por nombre en cada corrida.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://datos.gob.cl/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Carga del Registro de Empresas y Sociedades de Chile (Ley 20.659, datos.gob.cl): 1.265.085 sociedades constituidas desde 2013, sin EIRL. En cada corrida del Agente 1 completa el RUT por nombre de empresa. El 83,4 % de los nombres es único. RUT seguro sólo cuando exactamente un RUT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo sociedades constituidas desde 2013 por la Ley 20.659: no incluye grandes empresas antiguas.',
+      'No indica si la sociedad sigue activa.',
+      'No incluye EIRL.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Cerca de 1 de cada 6 nombres se repite: esos casos quedan como señal, no como RUT seguro.',
+      'Que una empresa no aparezca no significa que no exista (puede ser anterior a 2013).',
     ],
   },
   {
@@ -894,7 +979,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Conectada como señal tributaria offline. Snapshot RNC jurídicos cargado. No requiere credenciales. Útil para validación RNC y enriquecimiento post-approval en flujos RD.',
+      'Padrón DGII cargado (493.548 RNC de empresas). En cada corrida del Agente 1 completa el RNC por nombre y es la base de la capa gratuita dominicana por industria, antes de pagar a proveedores. No requiere credenciales.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P1',
@@ -903,18 +988,17 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://dgii.gov.do/',
     automationLevel: 'high',
     recommendedUse:
-      'Padrón de contribuyentes jurídicos (RNC) de la DGII. 493.548 empresas con razón social, estado tributario y actividad económica (texto libre). Fuente legal/tributaria para validar RNC y enriquecer cuentas RD post-approval. No usar para personas físicas (Cédula) ni como discovery abierto.',
+      'Padrón de contribuyentes jurídicos (RNC) de la DGII: 493.548 empresas con razón social, estado tributario y actividad económica (texto libre). Dos usos en el Agente 1: (1) número fiscal por nombre en cada corrida (RNC); (2) base de la capa gratuita dominicana por industria (do_dgii_discovery), que propone empresas activas en la DGII, con actividad incluida en la tabla actividad → industria aprobada por la dueña y que además son proveedoras del Estado (DGCP), ordenadas por monto adjudicado. También valida y enriquece cuentas RD tras la aprobación. No cubre personas físicas (cédula).',
     limitations: [
       'Solo RNC jurídicos (9 dígitos) — cédulas/personas físicas (11 dígitos) fuera de scope',
-      'Actividad económica en texto libre DGII — no hay CIIU oficial en esta versión del snapshot',
-      'No sector oficial ni CIIU normalizado para MVP',
+      'Actividad económica en texto libre DGII — no hay CIIU oficial; la capa gratuita sólo usa las actividades de la tabla aprobada por la dueña',
+      'La capa gratuita sólo propone empresas activas que además son proveedoras del Estado (DGCP): no cubre todo el mercado',
       'Snapshot estático — requiere re-carga manual para actualizar',
-      'No apto para discovery masivo sin filtro de estado tributario',
     ],
     riskNotes: [
-      'No crear cuentas ni candidatos automáticamente desde esta fuente',
+      'Las empresas que propone la capa gratuita pasan a revisión humana; no se crean cuentas automáticamente',
       'No usar cédulas/identificadores de 11 dígitos — fuera de scope',
-      'Validar estado tributario antes de prospectar (ACTIVO vs DADO DE BAJA)',
+      'Un nombre repetido o genérico no da un RNC seguro; queda como señal',
       'No hay CIIU oficial — no inferir sector únicamente desde actividad económica texto libre',
     ],
   },
@@ -960,7 +1044,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Conectada como señal procurement B2G local. Snapshot parcial 2020–2026 con 53.974 proveedores cargados. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
+      'Snapshot parcial 2020–2026 con 53.974 proveedores cargados. Filtra y ordena por monto adjudicado la capa gratuita dominicana que parte del padrón DGII. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P2',
@@ -968,7 +1052,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'procurement',
     url: 'https://datosabiertos.dgcp.gob.do/datos-abiertos/tablas',
     automationLevel: 'medium',
-    recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS.',
+    recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS. En la capa gratuita dominicana por industria, sólo se proponen empresas del padrón DGII que además son proveedoras en DGCP, ordenadas por monto adjudicado.',
     limitations: [
       'Solo empresas proveedoras del Estado dominicano — no representa el universo empresarial completo de RD',
       'Cobertura parcial: snapshot 2020–2026 con 53.974 proveedores (partial_snapshot, no complete_snapshot)',
@@ -985,7 +1069,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
-    nextAction: 'Snapshot SUNAT cargado (2.317.298 registros, cobertura completa). Enrichment legal post-approval activo. Sin credenciales requeridas.',
+    nextAction: 'Snapshot SUNAT cargado (2.317.298 registros, cobertura completa). Enrichment legal post-approval activo. Sin credenciales requeridas. El RUC por nombre en cada corrida usa una carga separada: pe_sunat_registry.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P0',
@@ -993,7 +1077,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'official_registry',
     url: 'http://www2.sunat.gob.pe/padron_reducido_ruc.zip',
     automationLevel: 'high',
-    recommendedUse: 'Descarga masiva del Padrón Reducido RUC. 11–14M registros: RUC, razón social, estado contribuyente, condición domicilio, UBIGEO. Sin auth. Complementar con pe_sunat para enriquecimiento CIIU individual.',
+    recommendedUse: 'Descarga masiva del Padrón Reducido RUC. 11–14M registros: RUC, razón social, estado contribuyente, condición domicilio, UBIGEO. Sin auth. Complementar con pe_sunat para enriquecimiento CIIU individual. El RUC por nombre dentro de cada corrida no usa esta carga sino pe_sunat_registry (sociedades activas y habidas).',
     limitations: [
       'Padrón reducido no incluye actividad CIIU — usar consulta SOL individual para obtener sector',
       'Incluye personas naturales con RUC; filtrar por tipo de contribuyente para empresas jurídicas',
@@ -1002,6 +1086,33 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     riskNotes: [
       'Filtrar estado: ACTIVO antes de prospectar',
       'Amparado por Resolución de Superintendencia N° 304-2024/SUNAT — uso público permitido',
+    ],
+  },
+  {
+    key: 'pe_sunat_registry',
+    name: 'SUNAT — RUC por nombre (sociedades activas y habidas)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'http://www2.sunat.gob.pe/padron_reducido_ruc.zip',
+    automationLevel: 'high',
+    recommendedUse:
+      'Carga separada del padrón reducido de SUNAT con 867.359 sociedades (RUC 20) activas y habidas. En cada corrida del Agente 1 completa el RUC por nombre de empresa. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo sociedades (RUC 20) activas y habidas: no incluye personas naturales con negocio (RUC 10).',
+      'El padrón reducido no trae actividad CIIU ni tamaño.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
     ],
   },
   {
@@ -1103,7 +1214,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'limited_manual_expansion',
     connectionMode: 'backend_connected',
     nextAction:
-      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md)',
+      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md). El RUC por nombre en cada corrida ya usa el snapshot cargado de 339.960 compañías, sin consultar SCVS en cada búsqueda.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P0',
@@ -1111,8 +1222,13 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'official_registry',
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'medium',
-    recommendedUse: 'Registro de compañías ecuatorianas. Razón social, objeto social, representante legal.',
-    limitations: ['Solo empresas obligadas a reportar a Supercias', 'Excluye microempresas'],
+    recommendedUse:
+      'Registro de compañías ecuatorianas de la Superintendencia de Compañías: 339.960 compañías cargadas en SellUp (razón social, objeto social, representante legal). En cada corrida del Agente 1 completa el RUC por nombre de empresa sobre ese snapshot ya cargado; no consulta SCVS en cada búsqueda. Los homónimos quedan como señal y los nombres genéricos nunca se buscan. Ampliar la carga sigue la política de lotes limitados.',
+    limitations: [
+      'Solo empresas obligadas a reportar a Supercias',
+      'Excluye microempresas',
+      'El RUC por nombre sólo encuentra compañías que ya están en el snapshot cargado',
+    ],
   },
   {
     key: 'ec_sercop',
@@ -1196,10 +1312,14 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'gt_rgae_proveedores',
     name: 'RGAE Guatemala — Registro de Proveedores del Estado (MINFIN)',
     sellupUse: 'commercial_signal',
-    aiFlowStatus: 'snapshot_persisted',
+    // Desde SOURCES-GT-HN-BY-NAME-1 (autorizado por la dueña el 30-09) el
+    // Agente 1 usa este snapshot para el NIT por nombre en cada corrida.
+    // sellupUse se mantiene en commercial_signal: el rol que deriva el
+    // search-strategy-builder no cambia (cero cambio de comportamiento).
+    aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.245 Sociedades con NIT cargadas en snapshot 2025 (source_company_snapshots), 0 duplicados. Revisión humana requerida antes de cualquier uso en flujos automáticos. Post-approval no habilitado.',
+      '6.245 Sociedades con NIT cargadas en el snapshot 2025, 0 duplicados. El Agente 1 completa el NIT por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana.',
     countryCodes: ['GT'],
     sectors: [],
     priority: 'P2',
@@ -1208,25 +1328,23 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.minfin.gob.gt/',
     automationLevel: 'low',
     recommendedUse:
-      'Señal oficial de proveedor estatal para Guatemala. Snapshot 2025 del RGAE (Registro General de Adquisiciones del Estado, MINFIN) con 6.245 Sociedades y NIT normalizado cargadas en source_company_snapshots — coverage_status = complete_snapshot para el universo filtrado (TIPO_PROVEEDOR = Sociedades, año 2025). Post-approval no habilitado — requiere revisión humana antes de activar flujos automáticos. No es fuente fiscal ni de validación societaria.',
+      'Registro de proveedores del Estado de Guatemala (RGAE, Registro General de Adquisiciones del Estado, MINFIN): snapshot 2025 con 6.245 Sociedades y NIT normalizado. En cada corrida del Agente 1 completa el NIT por nombre de empresa. Reglas conservadoras: NIT seguro sólo cuando exactamente un NIT tiene ese mismo núcleo de nombre; si varios NIT comparten el nombre queda como señal; los nombres genéricos nunca se buscan. Sólo cubre sociedades proveedoras del Estado.',
     limitations: [
-      'No valida identidad fiscal — no reemplaza SAT (Superintendencia de Administración Tributaria).',
-      'No reemplaza el Registro Mercantil de Guatemala — legal_validation_status = not_applicable.',
-      'tax_validation_status = not_applicable — el NIT es el identificador de la fuente, no una validación fiscal.',
+      'Sólo cubre sociedades inscritas como proveedoras del Estado (B2G): una empresa que nunca vendió al Estado no aparece.',
+      'No valida identidad fiscal ante la SAT (Superintendencia de Administración Tributaria) — el NIT es el que publica el RGAE.',
+      'No reemplaza el Registro Mercantil de Guatemala.',
       'Filtro deliberado a TIPO_PROVEEDOR = Sociedades — no incluye personas individuales ni otros tipos de proveedor.',
       'Snapshot de un solo año (2025) — no refleja altas/bajas posteriores del registro.',
-      'Sin post-approval automático — post_approval_enabled = false.',
-      'Sin matching automático — no crea accounts ni prospect_candidates (matching_automatic_enabled = false).',
-      'No sobrescribe nombre canónico — canonical_name_overwrite_enabled = false.',
-      'Ingesta manual desde XLSX local — sin API ni fetch automático conectado.',
-      'Snapshot persistence existe; no hay lookup ni consumer de runtime enrichment todavía.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'No crea cuentas ni candidatos por sí sola: sólo completa el NIT de empresas que el Agente 1 ya encontró.',
+      'Ingesta manual desde XLSX local — sin API ni recarga automática.',
     ],
     riskNotes: [
-      'No usar como fuente legal, fiscal ni de validación de identidad.',
-      'No usar para post-approval automático — post_approval_enabled = false.',
-      'human_review_required = true en todos los registros del snapshot.',
-      'Snapshot persistido de fuente oficial pública (MINFIN) — riesgo legal bajo.',
-      'Ingesta requiere descarga manual de XLSX y --confirm-gt-rgae-snapshot-write; sin automatización de recarga.',
+      'Nombres repetidos (homónimos) quedan como señal, nunca como NIT seguro.',
+      'Los nombres genéricos nunca se buscan.',
+      'Revisión humana requerida en todos los registros del snapshot.',
+      'Snapshot de fuente oficial pública (MINFIN) — riesgo legal bajo.',
+      'Recarga requiere descarga manual del XLSX y --confirm-gt-rgae-snapshot-write.',
     ],
   },
 
@@ -1269,10 +1387,14 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'hn_contrataciones_abiertas',
     name: 'Portal de Contrataciones Abiertas Honduras',
     sellupUse: 'commercial_signal',
-    aiFlowStatus: 'snapshot_persisted',
+    // Desde SOURCES-GT-HN-BY-NAME-1 (autorizado por la dueña el 30-09) el
+    // Agente 1 usa este snapshot para el RTN por nombre en cada corrida.
+    // sellupUse se mantiene en commercial_signal: el rol que deriva el
+    // search-strategy-builder no cambia (cero cambio de comportamiento).
+    aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '72 proveedores con RTN cargados en snapshot piloto 2024. Revisión humana requerida antes de cualquier uso en flujos automáticos. Post-approval no habilitado.',
+      '72 proveedores con RTN cargados en el snapshot piloto 2024. El Agente 1 completa el RTN por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana.',
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P2',
@@ -1281,23 +1403,76 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://oncae.gob.hn/',
     automationLevel: 'low',
     recommendedUse:
-      'Señal procurement B2G de Honduras. Snapshot piloto 2024 con 72 proveedores con RTN cargados en source_company_snapshots. Fuente OCDS publicada por ONCAE vía OCP Data Registry. Permite detectar proveedores adjudicados con RTN válido. Post-approval no habilitado — requiere revisión humana antes de activar flujos automáticos. No es fuente fiscal ni de identidad legal.',
+      'Proveedores adjudicados del Estado de Honduras publicados por ONCAE (OCDS) vía OCP Data Registry: snapshot piloto 2024 con 72 proveedores con RTN válido. En cada corrida del Agente 1 completa el RTN por nombre de empresa. Reglas conservadoras: RTN seguro sólo cuando exactamente un RTN tiene ese mismo núcleo de nombre; si varios RTN comparten el nombre queda como señal; los nombres genéricos nunca se buscan. Cobertura muy baja: sólo proveedores del piloto.',
     limitations: [
-      'No valida identidad fiscal completa — no reemplaza SAR Honduras.',
-      'No reemplaza Registro Mercantil de Honduras.',
-      'Puede mezclar personas naturales y jurídicas — revisión humana obligatoria.',
-      'RTN legacy scheme ignorado (señal del dry-run técnico previo).',
-      'Sin post-approval automático — post_approval_enabled = false.',
-      'Sin matching automático — no crea accounts ni prospect_candidates.',
-      'Snapshot parcial: 72 proveedores del piloto 2024, no cubre todo el universo anual.',
-      'Fuente B2G procurement signal — no es fuente de identidad empresarial completa.',
+      'Cobertura muy baja: sólo 72 proveedores del piloto 2024, no todo el universo anual.',
+      'Sólo proveedores adjudicados del Estado (B2G): una empresa que nunca vendió al Estado no aparece.',
+      'No valida identidad fiscal ante el SAR Honduras — el RTN es el que publica la fuente.',
+      'No reemplaza el Registro Mercantil de Honduras.',
+      'Puede mezclar personas naturales y jurídicas.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'No crea cuentas ni candidatos por sí sola: sólo completa el RTN de empresas que el Agente 1 ya encontró.',
     ],
     riskNotes: [
-      'No usar como fuente legal, fiscal ni de validación de identidad.',
-      'No usar para post-approval automático — post_approval_enabled = false.',
       'RTN de personas naturales pueden aparecer mezclados con personas jurídicas.',
-      'Snapshot piloto controlado — no activar post-approval sin validación completa de scope.',
-      'Fuente pública vía OCP Data Registry — verificar disponibilidad antes de producción.',
+      'Nombres repetidos (homónimos) quedan como señal, nunca como RTN seguro.',
+      'Los nombres genéricos nunca se buscan.',
+      'Fuente pública vía OCP Data Registry — verificar disponibilidad antes de recargar.',
+    ],
+  },
+
+  // ── Argentina ───────────────────────────────────────────────────────────────
+  {
+    key: 'ar_rns',
+    name: 'RNS × COMPR.AR — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '6.350 sociedades del Registro Nacional de Sociedades que además son proveedoras del Estado (COMPR.AR) cargadas. El Agente 1 las propone por industria, con la tabla aprobada por la dueña, antes de pagar a proveedores.',
+    countryCodes: ['AR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://datos.jus.gob.ar/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita argentina por industria: 6.350 sociedades del Registro Nacional de Sociedades cruzadas con los proveedores del Estado de COMPR.AR. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla actividad → industria aprobada por la dueña.',
+    limitations: [
+      'Sólo sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado argentino.',
+      'La industria sale de la tabla aprobada por la dueña: actividades fuera de la tabla no se proponen.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
+  {
+    key: 'ar_rns_registry',
+    name: 'Registro Nacional de Sociedades — CUIT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '1.194.956 sociedades activas del Registro Nacional de Sociedades (datos.jus.gob.ar) cargadas. El Agente 1 completa el CUIT por nombre en cada corrida.',
+    countryCodes: ['AR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://datos.jus.gob.ar/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Carga del Registro Nacional de Sociedades (datos.jus.gob.ar) con 1.194.956 sociedades activas. En cada corrida del Agente 1 completa el CUIT por nombre de empresa. CUIT seguro sólo cuando exactamente un CUIT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo sociedades activas del registro: no incluye personas humanas con actividad comercial.',
+      'No trae sector ni tamaño de la empresa.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un CUIT seguro; queda como señal.',
     ],
   },
 
@@ -1534,6 +1709,149 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No usar como fuente legal, fiscal ni de validación de identidad',
       'No usar para post-approval automático — sin NIT/NRC públicos',
       'No llamar /api/v1/procesos ni endpoints autenticados de personas',
+    ],
+  },
+
+  // ── Paraguay ────────────────────────────────────────────────────────────────
+  {
+    key: 'py_set_registry',
+    name: 'Padrón de RUC SET/DNIT — RUC por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '97.727 sociedades activas (RUC 80…) del padrón público de RUC de la SET/DNIT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+    countryCodes: ['PY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://www.dnit.gov.py/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Padrón público de RUC de la SET/DNIT de Paraguay: 97.727 sociedades activas (RUC 80…). En cada corrida del Agente 1 completa el RUC por nombre de empresa. El RUC se guarda con su dígito verificador (por ejemplo 80002201-7). El 97,8 % de los nombres es único. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo sociedades activas con RUC 80…: no incluye personas físicas.',
+      'El padrón no trae sector, actividad ni tamaño.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
+    ],
+  },
+
+  // ── Uruguay ─────────────────────────────────────────────────────────────────
+  {
+    key: 'uy_rupe_registry',
+    name: 'RUPE (Registro Único de Proveedores del Estado) — RUT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '17.785 empresas activas con forma societaria del RUPE (ARCE, catalogodatos.gub.uy) cargadas. El Agente 1 completa el RUT por nombre en cada corrida.',
+    countryCodes: ['UY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://catalogodatos.gub.uy/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Registro Único de Proveedores del Estado de Uruguay (RUPE, de ARCE, publicado en catalogodatos.gub.uy): 17.785 empresas activas con forma societaria. En cada corrida del Agente 1 completa el RUT por nombre de empresa. RUT seguro sólo cuando exactamente un RUT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo empresas que alguna vez fueron proveedoras del Estado: las demás no aparecen.',
+      'Sólo empresas con forma societaria; no se guardan personas ni domicilios.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un RUT seguro; queda como señal.',
+    ],
+  },
+
+  // ── Estados Unidos ──────────────────────────────────────────────────────────
+  {
+    key: 'us_sec_edgar_registry',
+    name: 'SEC EDGAR — EIN por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Unas 6.124 empresas operativas con EIN, código SIC y presentación ante la SEC en los dos últimos años cargadas. Es la primera fuente de EIN por nombre en cada corrida del Agente 1.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://www.sec.gov/edgar',
+    automationLevel: 'high',
+    recommendedUse:
+      'Empresas operativas registradas en SEC EDGAR con EIN, código SIC y alguna presentación en los dos últimos años (unas 6.124). Es la primera fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1; si no da un EIN seguro, sigue la carga del IRS (organizaciones sin ánimo de lucro). EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo empresas que presentan ante la SEC: la mayoría de las empresas privadas no aparece.',
+      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar nuevas presentaciones.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
+    ],
+  },
+  {
+    key: 'us_irs_eo_registry',
+    name: 'IRS Exempt Organizations (BMF) — EIN por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '65.044 organizaciones sin ánimo de lucro con ingresos o recaudación de US$5 millones o más cargadas. Segunda fuente de EIN por nombre en cada corrida, después de la SEC.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
+    automationLevel: 'high',
+    recommendedUse:
+      'Archivo maestro de organizaciones exentas del IRS (Exempt Organizations BMF): 65.044 organizaciones sin ánimo de lucro —universidades, hospitales, fundaciones— con ingresos o recaudación de US$5 millones o más. Es la segunda fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1, después de la SEC. EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo organizaciones sin ánimo de lucro grandes (US$5 millones o más): no cubre empresas con fines de lucro.',
+      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
+    ],
+  },
+
+  // ── España ──────────────────────────────────────────────────────────────────
+  {
+    key: 'es_placsp_registry',
+    name: 'Plataforma de Contratación del Sector Público — NIF por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '22.705 sociedades adjudicatarias con NIF de sociedad válido cargadas (contratos de junio a septiembre de 2026). El Agente 1 completa el NIF por nombre en cada corrida.',
+    countryCodes: ['ES'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://contrataciondelestado.es/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Sociedades adjudicatarias de la Plataforma de Contratación del Sector Público con NIF de sociedad válido: 22.705 cargadas (contratos de junio a septiembre de 2026). España no publica el NIF de las empresas en ningún registro abierto, así que esta es la vía disponible. En cada corrida del Agente 1 completa el NIF por nombre de empresa. NIF seguro sólo cuando exactamente un NIF tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo cubre empresas que ganaron contratos públicos: las demás no aparecen.',
+      'Carga de un periodo corto (junio–septiembre de 2026).',
+      'España no publica el NIF de las empresas en ningún registro abierto.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Un nombre repetido o genérico no da un NIF seguro; queda como señal.',
     ],
   },
 
