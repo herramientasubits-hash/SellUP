@@ -71,6 +71,11 @@ export type ApolloSeenDomainExclusionInput = {
   outOfScopeSeenDomains?: readonly string[];
   /** SAME-INDUSTRY-1 — vivos del país que el lector dejó fuera por ser de otra industria (sólo telemetría). */
   liveOutOfScopeCount?: number;
+  /**
+   * KNOWN-REJECTED-1 — ya entregados por SellUp que los filtros gratuitos de
+   * Apollo rechazarían siempre. Van al FINAL, después de lo visto.
+   */
+  knownRejectedDomains?: readonly string[];
   now: Date;
   cooldownDays?: number;
   cap?: number;
@@ -89,6 +94,8 @@ export type ApolloSeenDomainExclusionTelemetry = {
   seen_out_of_scope: number;
   /** SAME-INDUSTRY-1 — vivos del país que NO se excluyen por ser de otra industria. */
   live_out_of_scope: number;
+  /** KNOWN-REJECTED-1 — enviados por ser ya entregados que Apollo rechazaría gratis. */
+  from_known_rejected: number;
   /** Vistas pero fuera del enfriamiento: pueden volver a aparecer. */
   seen_outside_cooldown: number;
   /** Vistas sin fecha fiable: no se excluyen. */
@@ -126,6 +133,7 @@ export function resolveApolloSeenDomainExclusion(
         seen_released_by_discard: 0,
         seen_out_of_scope: 0,
         live_out_of_scope: 0,
+        from_known_rejected: 0,
         seen_outside_cooldown: 0,
         seen_without_date: 0,
         omitted_due_to_cap: 0,
@@ -183,9 +191,19 @@ export function resolveApolloSeenDomainExclusion(
   // Lo visto más reciente primero; empate ⇒ orden alfabético.
   recentSeen.sort((a, b) => b.seenAt - a.seenAt || a.domain.localeCompare(b.domain));
 
-  const ordered = [...authority, ...recentSeen.map((entry) => entry.domain)];
+  const head = [...authority, ...recentSeen.map((entry) => entry.domain)];
+  const headSet = new Set(head);
+  const knownRejected = [
+    ...new Set(
+      (input.knownRejectedDomains ?? [])
+        .map(normalizeDomain)
+        .filter((d): d is string => d !== null && !headSet.has(d) && !released.has(d)),
+    ),
+  ].sort();
+  const ordered = [...head, ...knownRejected];
   const domains = ordered.slice(0, cap);
   const fromAuthority = Math.min(authority.length, domains.length);
+  const fromKnownRejected = Math.max(0, domains.length - head.length);
   const fromSellupLive = domains.slice(0, fromAuthority).filter((d) => liveOnlySet.has(d)).length;
 
   return {
@@ -195,10 +213,11 @@ export function resolveApolloSeenDomainExclusion(
       sent: domains.length,
       from_authority: fromAuthority,
       from_sellup_live: fromSellupLive,
-      from_recent_seen: domains.length - fromAuthority,
+      from_recent_seen: domains.length - fromAuthority - fromKnownRejected,
       seen_released_by_discard: seenReleasedByDiscard,
       seen_out_of_scope: seenOutOfScope,
       live_out_of_scope: Math.max(0, Math.trunc(input.liveOutOfScopeCount ?? 0)),
+      from_known_rejected: fromKnownRejected,
       seen_outside_cooldown: seenOutsideCooldown,
       seen_without_date: seenWithoutDate,
       omitted_due_to_cap: ordered.length - domains.length,

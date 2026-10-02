@@ -193,7 +193,11 @@ describe('§ 4 — el lector de SellUp', () => {
     assert.ok(calls[0]!.not.some(([c, op, v]) => c === 'status' && op === 'in' && v === '(discarded,duplicate)'));
   });
 
-  it('🔴 liberados: sólo descartados, y la columna con `www.` también cuenta', async () => {
+  // 🔴 AGENT1-APOLLO-EXCLUSION-KNOWN-REJECTED-1 — un candidato DESCARTADO ya fue una
+  // entrega: los filtros gratuitos de Apollo lo rechazan siempre (enfriamiento +
+  // memoria de entrega permanente). Ya no se «libera»: va al final de la lista como
+  // ya entregado. Sólo lo que el tope de entrega dejó fuera se libera.
+  it('🔴 descartados ⇒ ya entregados (no liberados), y la columna con `www.` también cuenta', async () => {
     const { client } = sellupClient({
       byDomain: [
         { domain: 'www.solo-descartada.com', status: 'discarded' },
@@ -206,7 +210,8 @@ describe('§ 4 — el lector de SellUp', () => {
       countryCode: 'PE',
       seenDomains: ['solo-descartada.com', 'descartada-y-viva.com', 'viva.com', 'nunca-guardada.com'],
     });
-    assert.deepEqual(r.releasedDomains, ['solo-descartada.com']);
+    assert.deepEqual(r.releasedDomains, []);
+    assert.deepEqual(r.knownRejectedDomains, ['descartada-y-viva.com', 'solo-descartada.com']);
     assert.equal(r.degraded, false);
   });
 

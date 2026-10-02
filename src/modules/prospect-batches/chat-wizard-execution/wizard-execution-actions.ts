@@ -364,6 +364,8 @@ export type WizardExecutionDeps = {
     degraded: boolean;
     outOfScopeSeenDomains?: string[];
     liveOutOfScopeCount?: number;
+    /** KNOWN-REJECTED-1 — ya entregados que Apollo rechazaría gratis: van al final. */
+    knownRejectedDomains?: string[];
   }>;
   runPrePaidNoveltyDiscovery?: (input: {
     countryCode: string;
@@ -1796,6 +1798,7 @@ export async function executeProspectWizardGeneration(
     releasedDomains: apolloExclusionSellup?.releasedDomains ?? [],
     outOfScopeSeenDomains: apolloExclusionSellup?.outOfScopeSeenDomains ?? [],
     liveOutOfScopeCount: apolloExclusionSellup?.liveOutOfScopeCount ?? 0,
+    knownRejectedDomains: apolloExclusionSellup?.knownRejectedDomains ?? [],
     now: new Date(),
   });
 

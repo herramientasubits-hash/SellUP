@@ -11,9 +11,15 @@
  *     pueden volver a ser un candidato nuevo: pagar por verlos es tirar el crédito.
  *     Antes la exclusión sólo conocía `accounts`.
  *   · `releasedDomains` — de los dominios que la memoria provider-seen tiene por
- *     «vistos», los que en SellUp sólo existen DESCARTADOS. El descarte libera la
- *     empresa para los demás vendedores; excluirla de Apollo 30 días contradecía
- *     esa regla.
+ *     «vistos», los que el tope de entrega dejó fuera (`target_cap_reached`):
+ *     nunca fueron candidatos y tienen que poder llegarle a otro vendedor.
+ *   · `knownRejectedDomains` — AGENT1-APOLLO-EXCLUSION-KNOWN-REJECTED-1: lo que
+ *     SellUp YA ENTREGÓ como candidato y los filtros gratuitos de Apollo van a
+ *     rechazar siempre (enfriamiento de 30 días + memoria de entrega permanente):
+ *     los DESCARTADOS de lo visto y los VIVOS del país de otra industria. Antes
+ *     se liberaban/omitían y Apollo los devolvía ocupando sitio en la página
+ *     (medido 02-10, Colombia × Industria: 18 de 59 rechazados por enfriamiento).
+ *     Van al FINAL de la lista: nunca desplazan a lo nuestro ni a lo visto.
  *
  * Cliente ADMINISTRATIVO a propósito: la sesión del vendedor sólo ve sus lotes
  * (RLS) y la regla es global. Sólo se leen dominios y status: ni nombres ni
@@ -67,6 +73,8 @@ export type ApolloExclusionSellupDomains = {
   outOfScopeSeenDomains?: string[];
   /** SAME-INDUSTRY-1 — vivos del país que se dejaron fuera por ser de otra industria. */
   liveOutOfScopeCount?: number;
+  /** KNOWN-REJECTED-1 — ya entregados que Apollo rechazaría gratis: al final de la lista. */
+  knownRejectedDomains?: string[];
 };
 
 /** La industria de la corrida; el lector la resuelve a su macro. Sin macro conocida ⇒ sin alcance. */
@@ -102,6 +110,7 @@ export async function loadApolloExclusionSellupDomains(
   );
   let degraded = false;
   let liveOutOfScopeCount = 0;
+  const liveOutOfScopeDomains = new Set<string>();
 
   // 1. Vivos del país — orden estable: dos corridas iguales piden lo mismo.
   const liveDomains = new Set<string>();
@@ -145,6 +154,7 @@ export async function loadApolloExclusionSellupDomains(
             scopeByBatchId.get(row.batch_id) === 'out_of_scope'
           ) {
             liveOutOfScopeCount++;
+            liveOutOfScopeDomains.add(domain);
             continue;
           }
           liveDomains.add(domain);
@@ -158,6 +168,7 @@ export async function loadApolloExclusionSellupDomains(
   // 2. De lo visto, lo que en SellUp sólo está descartado.
   const seen = [...new Set(input.seenDomains.map(normalize).filter((d): d is string => d !== null))];
   const releasedCandidates = new Set<string>();
+  const deliveredDiscarded = new Set<string>();
   const stillLive = new Set<string>();
   for (let i = 0; i < seen.length; i += SEEN_DOMAINS_CHUNK) {
     const chunk = seen.slice(i, i + SEEN_DOMAINS_CHUNK);
@@ -177,7 +188,8 @@ export async function loadApolloExclusionSellupDomains(
       for (const row of data as Array<{ domain?: unknown; status?: unknown }>) {
         const domain = normalize(row.domain);
         if (domain === null) continue;
-        if (row.status === 'discarded') releasedCandidates.add(domain);
+        // KNOWN-REJECTED-1 — un descarte ya fue una ENTREGA: Apollo lo rechazaría.
+        if (row.status === 'discarded') deliveredDiscarded.add(domain);
         else if (typeof row.status === 'string' && !RELEASING.has(row.status)) stillLive.add(domain);
       }
     } catch {
@@ -207,7 +219,10 @@ export async function loadApolloExclusionSellupDomains(
   }
 
   const releasedDomains = [...releasedCandidates]
-    .filter((d) => !stillLive.has(d) && !liveDomains.has(d))
+    .filter((d) => !stillLive.has(d) && !liveDomains.has(d) && !deliveredDiscarded.has(d))
+    .sort();
+  const knownRejectedDomains = [...new Set([...deliveredDiscarded, ...liveOutOfScopeDomains])]
+    .filter((d) => !liveDomains.has(d))
     .sort();
 
   // 3. SAME-INDUSTRY-1 — de lo visto, lo que sobra por ser de otro país u otra
@@ -226,6 +241,7 @@ export async function loadApolloExclusionSellupDomains(
     scope === null &&
     liveDomains.size === 0 &&
     releasedDomains.length === 0 &&
+    knownRejectedDomains.length === 0 &&
     !degraded
   ) {
     return EMPTY;
@@ -234,6 +250,7 @@ export async function loadApolloExclusionSellupDomains(
     liveDomains: [...liveDomains],
     releasedDomains,
     degraded,
+    ...(knownRejectedDomains.length > 0 ? { knownRejectedDomains } : {}),
     ...(scope ? { outOfScopeSeenDomains: outOfScopeSeenDomains ?? [], liveOutOfScopeCount } : {}),
   };
 }
