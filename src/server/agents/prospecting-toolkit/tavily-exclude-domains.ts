@@ -48,6 +48,8 @@ export const TAVILY_STATIC_EXCLUDE_DOMAINS: readonly string[] = Object.freeze([
   // búsqueda hace que Tavily llene esos huecos con resultados útiles.
   'opcionempleo.cl', 'opcionempleo.com', 'jobsora.com', 'laborum.cl', 'trabajando.com',
   'dateas.com', 'licitador.co', 'elhospital.com',
+  // AGENT1-TAVILY-FIRST-5 — fichas de empresas de terceros (Prod 02-10, 2fc07f4a).
+  'perulicitaciones.com', 'universidadperu.com', 'datosperu.org',
 ]);
 
 export type TavilyExcludeDomainsInput = {

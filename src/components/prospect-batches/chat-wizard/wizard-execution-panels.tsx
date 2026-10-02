@@ -85,9 +85,9 @@ function useRunProgressLabel(clientRequestId: string | null): string {
 }
 
 /**
- * La espera de la generación, acoplada al pie del panel (donde está la caja de
- * escribir): la chispa de «la IA está trabajando» (`AiAnalyzingState`) con lo
- * que el agente hace AHORA — «Revisando el banco de empresas…», «Buscando
+ * La espera de la generación: el bloque grande de «la IA está trabajando»
+ * (`AiAnalyzingState`), ocupando el cuerpo del panel, con lo que el agente hace
+ * AHORA como titular — «Revisando el banco de empresas…», «Buscando
  * empresas con Apollo…», «Completando la búsqueda con Lusha»—, tal como el
  * servidor lo anota al empezar cada etapa.
  *
@@ -104,21 +104,16 @@ function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayPro
   }, [startedAt]);
 
   return (
-    <div
-      className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card px-4 py-3 shadow-card"
-      data-testid="wizard-generation-overlay"
-    >
-      <div className="min-w-0 flex-1">
-        <AiAnalyzingState variant="inline" title={label} />
-        <p className="mt-0.5 pl-6.5 text-xs text-muted-foreground">
-          Generando empresas candidatas
-        </p>
-      </div>
-      {seconds > 0 && (
-        <span className="shrink-0 text-xs tabular-nums text-text-muted" aria-hidden>
-          {seconds} s
-        </span>
-      )}
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="wizard-generation-overlay">
+      <AiAnalyzingState
+        className="flex-1"
+        title={label}
+        caption={
+          seconds > 0
+            ? `Generando empresas candidatas · ${seconds} s`
+            : 'Generando empresas candidatas'
+        }
+      />
     </div>
   );
 }

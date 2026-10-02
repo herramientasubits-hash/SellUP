@@ -219,6 +219,17 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'softwareempresarial.com.co',       // directorio software empresarial CO
   'directoriosoftware.com',           // directorio genérico de software
   'misoftware.co',                    // portal catálogo software Colombia
+  // AGENT1-TAVILY-FIRST-5 — fichas de empresas de terceros vistas en Prod 02-10
+  // (PE×Energía, 2fc07f4a): «Egasa» entró con el dominio del portal.
+  'perulicitaciones.com',
+  'universidadperu.com',
+  'datosperu.org',
+  'peruempresas.com',
+  'empresasdelperu.com',
+  'infoisinfo.com',
+  'genealog.cl',
+  'mercantil.com',
+  'boletinoficial.com',
 ]);
 
 /**
@@ -449,7 +460,21 @@ const DOCUMENT_REPOSITORY_LABELS = new Set([
   'repositorio', 'repository', 'dspace', 'bdigital', 'bibliotecadigital',
 ]);
 const PUBLIC_DATA_PORTAL_LABELS = new Set(['datos', 'datosabiertos', 'opendata']);
-const PUBLIC_PROCUREMENT_DOMAINS = new Set(['secop.gov.co', 'colombiacompra.gov.co']);
+const PUBLIC_PROCUREMENT_DOMAINS = new Set([
+  'secop.gov.co', 'colombiacompra.gov.co',
+  // AGENT1-TAVILY-FIRST-5 — los demás portales de compras públicas de la región:
+  // listan proveedores y entidades, no son ninguna de ellas.
+  'seace.gob.pe', 'mercadopublico.cl', 'chilecompra.cl', 'comprasmx.buengobierno.gob.mx',
+  'compranet.hacienda.gob.mx', 'comprar.gob.ar', 'compraspublicas.gob.ec', 'contrataciones.gov.py',
+  'comprasestatales.gub.uy', 'sicoes.gob.bo', 'guatecompras.gt', 'honducompras.gob.hn',
+  'panamacompra.gob.pa', 'comprasdominicana.gob.do', 'sicop.go.cr',
+]);
+/**
+ * AGENT1-TAVILY-FIRST-5 — portales de transparencia del Estado (Prod 02-10:
+ * «Transparencia.gob.pe» se guardó como empresa). Primera etiqueta de un dominio
+ * institucional: publican fichas de MUCHAS entidades.
+ */
+const TRANSPARENCY_PORTAL_LABELS = new Set(['transparencia', 'portaltransparencia']);
 /**
  * AGENT1-TAVILY-QUERY-SPACE-1 — portales nacionales que agrupan a TODO el Estado
  * (Prod 30-09: «GOV.CO» se guardó como candidato). Coincidencia EXACTA: sus
@@ -480,6 +505,9 @@ function classifyInstitutionalContent(domain: string): InstitutionalContentVerdi
   if (!INSTITUTIONAL_TLD.test(domain)) return null;
   if (INSTITUTIONAL_DOCUMENT_LABELS.has(firstLabel)) {
     return { kind: 'academic_document', reason: `Repositorio o publicación institucional (${domain}) — documento, no la institución` };
+  }
+  if (TRANSPARENCY_PORTAL_LABELS.has(firstLabel)) {
+    return { kind: 'public_portal', reason: `Portal de transparencia (${domain}) — fichas de entidades, no la entidad` };
   }
   if (PUBLIC_DATA_PORTAL_LABELS.has(firstLabel)) {
     return { kind: 'public_portal', reason: `Portal de datos abiertos (${domain}) — datos, no la entidad` };

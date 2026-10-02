@@ -142,6 +142,15 @@ export type IncrementalSearchInput = {
    * la llama, no la inspecciona y no la compone: sólo la transporta.
    */
   resolveExtraBatchMetadata?: ResolveExtraBatchMetadata | null;
+
+  /**
+   * AGENT1-TAVILY-OFFICIAL-IDENTITY-1 — paso opcional sobre las candidatas
+   * justo antes del writer (Tavily: identificador fiscal oficial). Un fallo
+   * deja las candidatas como estaban. Omitido = comportamiento previo.
+   */
+  enrichCandidatesBeforeWrite?:
+    | ((candidates: readonly ProspectingPipelineCandidate[]) => Promise<ProspectingPipelineCandidate[]>)
+    | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────
