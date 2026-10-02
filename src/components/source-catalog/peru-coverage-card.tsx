@@ -13,7 +13,16 @@ import type {
   CoverageSourceReason,
   PeruSourceCoverageSummary,
 } from '@/server/services/peru-source-coverage-summary';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Building2 } from "@/icons";
+import {
+  CoverageBullet,
+  CoverageBulletList,
+  CoverageCard,
+  CoverageCardError,
+  CoverageFieldGroup,
+  CoverageFieldRow,
+  CoverageSection,
+} from '@/components/source-catalog/coverage-card';
 
 // ---------------------------------------------------------------------------
 // Pure display helpers — exported for unit tests
@@ -60,50 +69,6 @@ export function formatActiveHabidoDetail(activeHabidoRows: number, auditedActive
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FieldRow({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function CoverageMetric({
-  label,
-  percent,
-  detail,
-}: {
-  label: string;
-  percent: number;
-  detail: string;
-}) {
-  return (
-    <div className="py-2 border-b border-border/30">
-      <div className="flex items-baseline justify-between gap-4">
-        <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-        <dd className="text-xs font-medium text-foreground text-right tabular-nums">
-          {formatCoveragePercent(percent)}
-        </dd>
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">{detail}</p>
-    </div>
-  );
-}
-
-function GuardrailItem({ text }: { text: string }) {
-  return (
-    <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50" />
-      {text}
-    </li>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -111,96 +76,72 @@ type Props =
   | { summary: PeruSourceCoverageSummary; error?: undefined }
   | { summary?: undefined; error: true };
 
+const CARD_TITLE = 'Cobertura Perú — SUNAT + Migo';
+
 export function PeruCoverageCard({ summary, error }: Props) {
   if (error || !summary) {
     return (
-      <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura Perú — SUNAT + Migo" />
-        <p className="text-sm text-muted-foreground">
-          No fue posible cargar la cobertura Perú en este momento.
-        </p>
-      </SurfaceCard>
+      <CoverageCardError
+        icon={Building2}
+        title={CARD_TITLE}
+        message="No fue posible cargar la cobertura Perú en este momento."
+      />
     );
   }
 
   const { sunat, migo } = summary;
-  const migoLabel = formatMigoConfigured(migo.configured);
+  const sunatSourceReason = formatCoverageSourceReason(sunat.coverageSourceReason);
 
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader
-        title="Cobertura Perú — SUNAT + Migo"
-        description="Indicador de solo lectura. Los datos se actualizan al cargar el próximo lote SUNAT."
-      />
-
-      <div className="space-y-6">
-        {/* SUNAT block */}
-        <section aria-labelledby="peru-sunat-heading">
-          <h3
-            id="peru-sunat-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
-          >
-            SUNAT Padrón Reducido
-          </h3>
-          <dl className="divide-y divide-border/20">
-            <FieldRow label="Filas cargadas" value={formatLoadedRows(sunat.loadedRows)} />
-            <CoverageMetric
-              label="Cobertura snapshot RUC-20"
-              percent={sunat.loadedRowsCoveragePercent}
-              detail={formatLoadedSnapshotDetail(sunat.loadedRows, sunat.auditedTotalRuc20Rows)}
-            />
-            <CoverageMetric
-              label="ACTIVO + HABIDO cargados"
-              percent={sunat.activeHabidoCoveragePercent}
-              detail={formatActiveHabidoDetail(sunat.activeHabidoRows, sunat.auditedActiveHabidoRuc20Rows)}
-            />
-            <FieldRow label="Próximo offset recomendado" value={formatLoadedRows(sunat.nextRecommendedOffset)} />
-            <FieldRow label="ACTIVO + HABIDO" value={formatLoadedRows(sunat.activeHabidoRows)} />
-            <FieldRow label="ACTIVO + NO HABIDO" value={formatLoadedRows(sunat.activeNotHabidoRows)} />
-            <FieldRow label="INACTIVO + HABIDO" value={formatLoadedRows(sunat.inactiveHabidoRows)} />
-            <FieldRow label="INACTIVO + NO HABIDO" value={formatLoadedRows(sunat.inactiveNotHabidoRows)} />
-          </dl>
-          <p className="mt-2 text-[11px] text-muted-foreground/80">
-            Fuente del indicador: {formatCoverageSource(sunat.coverageSource)}
-          </p>
-          {formatCoverageSourceReason(sunat.coverageSourceReason) && (
-            <p className="mt-0.5 text-[11px] text-muted-foreground/60">
-              Motivo: {formatCoverageSourceReason(sunat.coverageSourceReason)}
-            </p>
-          )}
-        </section>
-
-        {/* Migo block */}
-        <section aria-labelledby="peru-migo-heading">
-          <h3
-            id="peru-migo-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
-          >
-            Migo API Perú
-          </h3>
-          <dl className="divide-y divide-border/20">
-            <FieldRow label="Rol" value="Validación legal complementaria" />
-            <FieldRow label="Configuración" value={migoLabel} />
-          </dl>
-        </section>
-
-        {/* Guardrails block */}
-        <section aria-labelledby="peru-guardrails-heading">
-          <h3
-            id="peru-guardrails-heading"
-            className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3"
-          >
-            Guardrails
-          </h3>
-          <ul className="space-y-1.5">
-            <GuardrailItem text="SUNAT no se procesa en Vercel." />
-            <GuardrailItem text="Migo no hace discovery." />
-            <GuardrailItem text="Migo no entrega CIIU oficial." />
-            <GuardrailItem text="Migo no entrega sector oficial." />
-            <GuardrailItem text="Sector Perú se mantiene inferido por web/IA." />
-          </ul>
-        </section>
+    <CoverageCard
+      icon={Building2}
+      title={CARD_TITLE}
+      description="Indicador de solo lectura. Los datos se actualizan al cargar el próximo lote SUNAT."
+    >
+      <div>
+        <CoverageFieldGroup title="SUNAT Padrón Reducido">
+          <CoverageFieldRow label="Filas cargadas" value={formatLoadedRows(sunat.loadedRows)} />
+          <CoverageFieldRow
+            label="Cobertura snapshot RUC-20"
+            value={formatCoveragePercent(sunat.loadedRowsCoveragePercent)}
+            detail={formatLoadedSnapshotDetail(sunat.loadedRows, sunat.auditedTotalRuc20Rows)}
+          />
+          <CoverageFieldRow
+            label="ACTIVO + HABIDO cargados"
+            value={formatCoveragePercent(sunat.activeHabidoCoveragePercent)}
+            detail={formatActiveHabidoDetail(sunat.activeHabidoRows, sunat.auditedActiveHabidoRuc20Rows)}
+          />
+          <CoverageFieldRow
+            label="Próximo offset recomendado"
+            value={formatLoadedRows(sunat.nextRecommendedOffset)}
+          />
+          <CoverageFieldRow label="ACTIVO + HABIDO" value={formatLoadedRows(sunat.activeHabidoRows)} />
+          <CoverageFieldRow label="ACTIVO + NO HABIDO" value={formatLoadedRows(sunat.activeNotHabidoRows)} />
+          <CoverageFieldRow label="INACTIVO + HABIDO" value={formatLoadedRows(sunat.inactiveHabidoRows)} />
+          <CoverageFieldRow label="INACTIVO + NO HABIDO" value={formatLoadedRows(sunat.inactiveNotHabidoRows)} />
+        </CoverageFieldGroup>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Fuente del indicador: {formatCoverageSource(sunat.coverageSource)}
+        </p>
+        {sunatSourceReason && (
+          <p className="mt-0.5 text-xs text-muted-foreground">Motivo: {sunatSourceReason}</p>
+        )}
       </div>
-    </SurfaceCard>
+
+      <CoverageFieldGroup title="Migo API Perú">
+        <CoverageFieldRow label="Rol" value="Validación legal complementaria" />
+        <CoverageFieldRow label="Configuración" value={formatMigoConfigured(migo.configured)} />
+      </CoverageFieldGroup>
+
+      <CoverageSection title="Guardrails">
+        <CoverageBulletList>
+          <CoverageBullet tone="caution">SUNAT no se procesa en Vercel.</CoverageBullet>
+          <CoverageBullet tone="caution">Migo no hace discovery.</CoverageBullet>
+          <CoverageBullet tone="caution">Migo no entrega CIIU oficial.</CoverageBullet>
+          <CoverageBullet tone="caution">Migo no entrega sector oficial.</CoverageBullet>
+          <CoverageBullet tone="caution">Sector Perú se mantiene inferido por web/IA.</CoverageBullet>
+        </CoverageBulletList>
+      </CoverageSection>
+    </CoverageCard>
   );
 }

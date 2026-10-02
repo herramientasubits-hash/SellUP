@@ -35,21 +35,21 @@ export function WizardApolloTwoRoundPlannedSteps({ maxRounds }: PlannedStepsProp
 
   return (
     <div
-      className="relative z-10 w-full max-w-[300px] space-y-1.5"
+      className="space-y-1.5 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3"
       data-testid="wizard-two-round-planned-steps"
     >
-      <p className="text-xs font-medium text-white/80">
+      <p className="text-xs font-medium text-foreground">
         {APOLLO_TWO_ROUND_PLANNED_STEPS_TITLE}
       </p>
       <ol className="space-y-0.5">
         {steps.map((step) => (
-          <li key={step.phase} className="text-xs text-white/60">
+          <li key={step.phase} className="text-xs text-muted-foreground">
             {step.label}
-            {step.conditional && <span className="text-white/40"> (si hace falta)</span>}
+            {step.conditional && <span className="text-text-muted"> (si hace falta)</span>}
           </li>
         ))}
       </ol>
-      <p className="text-xs text-white/50">{APOLLO_TWO_ROUND_CONDITIONAL_NOTICE}</p>
+      <p className="text-xs text-text-muted">{APOLLO_TWO_ROUND_CONDITIONAL_NOTICE}</p>
     </div>
   );
 }
@@ -73,7 +73,7 @@ export function WizardApolloTwoRoundOutcome(props: OutcomeProps) {
 
   return (
     <div
-      className="space-y-1 rounded-xl border border-border bg-muted/30 px-4 py-3"
+      className="space-y-1 rounded-xl border border-border/60 bg-surface-subtle px-4 py-3 leading-relaxed"
       data-testid="wizard-two-round-outcome"
     >
       {outcome.roundsLine && (
@@ -83,7 +83,7 @@ export function WizardApolloTwoRoundOutcome(props: OutcomeProps) {
         <p className="text-xs text-muted-foreground">{outcome.targetLine}</p>
       )}
       {outcome.partialLine && (
-        <p className="text-xs text-foreground">{outcome.partialLine}</p>
+        <p className="text-xs font-medium text-foreground">{outcome.partialLine}</p>
       )}
       {outcome.filtersLine && (
         <p className="text-xs text-muted-foreground">{outcome.filtersLine}</p>

@@ -23,7 +23,7 @@ export function WizardProviderIndicatorRow({ indicator }: WizardProviderIndicato
 
   return (
     <p
-      className="text-xs leading-5 text-muted-foreground"
+      className="min-w-0 break-words text-xs leading-5 text-muted-foreground"
       data-testid="wizard-provider-indicator"
     >
       {presentation.prefix}:{' '}

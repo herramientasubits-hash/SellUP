@@ -1,5 +1,6 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -11,25 +12,41 @@ import {
   Archive,
   Building2,
   ExternalLink,
-  Loader2,
   UserSearch,
-} from 'lucide-react';
+  Globe,
+  Search,
+  Sparkles,
+  SendHorizonal,
+} from "@/icons";
 import { Button } from '@/components/ui/button';
+import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ArchiveAccountDialog } from './archive-account-dialog';
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
+  type DataTableHandle,
+  type DataTableListRowState,
 } from '@/components/data-table';
+import { ListItem } from '@/components/data-display/list-item';
+import {
+  QuickFilterChips,
+  QuickFilterEmptyState,
+  QuickFilterStrip,
+  useQuickFilter,
+  useWideViewport,
+  type QuickFilterDefinition,
+} from '@/components/filters/quick-filter-strip';
+import {
+  CountryCell,
+  EmptyCell,
+  ExternalLinkCell,
+  RowTitleButton,
+  countryName,
+} from '@/components/shared/table-cells';
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
@@ -45,32 +62,62 @@ import {
   ScopeFilterDrawerSection,
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
-import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
+import { updateAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
-import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Styles ─────────────────────────────────────────────────────
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground',
-  ready_for_research: 'bg-su-brand-soft text-su-brand',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  archived: 'bg-muted/60 text-muted-foreground/60',
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
+
+const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
-const SOURCE_STYLES: Record<AccountSource, string> = {
-  manual: 'border-border text-muted-foreground',
-  agent_1: 'bg-su-brand-soft text-su-brand border-transparent',
-  hubspot: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-transparent',
-  apollo: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-transparent',
-  imported: 'border-border text-muted-foreground',
-  other: 'border-border text-muted-foreground',
-};
+// ── Indicadores que filtran ────────────────────────────────────
+// Los mismos tres estados que antes eran tarjetas de métricas: ahora son
+// botones de la franja y pulsarlos deja en la tabla solo esas empresas.
+
+const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] = [
+  {
+    id: 'new',
+    label: 'Nuevas',
+    icon: Sparkles,
+    tone: 'neutral',
+    predicate: (account) => account.pipeline_status === 'new',
+  },
+  {
+    id: 'ready_for_research',
+    label: 'Listas para investigar',
+    icon: Search,
+    tone: 'brand',
+    predicate: (account) => account.pipeline_status === 'ready_for_research',
+  },
+  {
+    id: 'ready_for_outreach',
+    label: 'Listas para contacto',
+    icon: SendHorizonal,
+    tone: 'positive',
+    predicate: (account) => account.pipeline_status === 'ready_for_outreach',
+  },
+];
+
+const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
+
+/** Los estados a los que se puede pasar una empresa desde su menú. */
+const ACTIVE_PIPELINE_STATUSES: PipelineStatus[] = [
+  'new',
+  'ready_for_research',
+  'research_in_progress',
+  'ready_for_outreach',
+];
 
 // ── Filter options ─────────────────────────────────────────────
 
@@ -93,19 +140,12 @@ const COUNTRY_FILTER_OPTIONS = LATAM_COUNTRIES.map((c) => ({
 
 // ── Helpers ────────────────────────────────────────────────────
 
-function getFlagEmoji(countryCode: string): string {
-  const offset = 0x1f1e6 - 'A'.charCodeAt(0);
-  return [...countryCode.toUpperCase()]
-    .map((c) => String.fromCodePoint(c.charCodeAt(0) + offset))
-    .join('');
-}
-
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 // ── Types ──────────────────────────────────────────────────────
@@ -118,25 +158,31 @@ interface AccountsDataTableClientProps {
   accounts: AccountListItem[];
   users: InternalUserOption[];
   scopeFilterOptions?: ScopeFilterOptions;
+  /**
+   * Lo que se ofrece cuando todavía no hay ninguna empresa (crear una, ir a
+   * revisar prospectos). Lo arma la página, que es la que tiene los drawers.
+   */
+  emptyActions?: React.ReactNode;
 }
 
-export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }: AccountsDataTableClientProps) {
+export function AccountsDataTableClient({
+  accounts,
+  users,
+  scopeFilterOptions,
+  emptyActions,
+}: AccountsDataTableClientProps) {
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
-  const [archiving, setArchiving] = React.useState(false);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
 
-  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
-    userId: '',
-    groupId: '',
-    roleKey: '',
-  });
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
+  const dataTableRef = React.useRef<DataTableHandle>(null);
 
   const filteredAccounts = React.useMemo(() => {
     if (!scopeFilterOptions?.showScopeFilters) return accounts;
@@ -169,6 +215,26 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     });
   }, [accounts, scopeFilter, scopeFilterOptions]);
 
+  const quick = useQuickFilter(filteredAccounts, ACCOUNT_QUICK_FILTERS);
+  // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
+  const toggleQuickFilter = React.useCallback(
+    (id: string) => {
+      dataTableRef.current?.clearSelection();
+      quick.toggle(id);
+    },
+    [quick],
+  );
+
+  // En pantalla ancha los indicadores van dentro de la barra de la tabla (no
+  // gastan un renglón); en estrecha, en su franja encima.
+  const isWide = useWideViewport();
+  const quickFilterGroup = {
+    label: 'Indicadores de empresas',
+    options: quick.options,
+    value: quick.activeId,
+    onToggle: toggleQuickFilter,
+  };
+
   const openDetail = React.useCallback((id: string) => {
     setDetailAccountId(id);
     setDetailOpen(true);
@@ -178,28 +244,25 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     const result = await updateAccount(accountId, { pipeline_status: status });
     if (result.success) {
       router.refresh();
-      toast.success(`Estado cambiado a "${PIPELINE_STATUS_LABELS[status]}"`);
+      toast.success(`Estado cambiado a «${PIPELINE_STATUS_LABELS[status]}»`);
     } else {
       toast.error(result.error);
     }
   }, [router]);
 
-  async function handleArchive() {
-    if (!archivingId) return;
-    setArchiving(true);
-    try {
-      const result = await archiveAccount(archivingId);
-      if (result.success) {
-        setArchivingId(null);
-        router.refresh();
-        toast.success('Cuenta archivada');
-      } else {
-        toast.error(result.error);
+  // Los responsables que aparecen en la lista, para el embudo de la columna
+  // cuando no hay filtros de alcance (si no, saldrían identificadores).
+  const ownerFilterOptions = React.useMemo(() => {
+    const names = new Map<string, string>();
+    for (const account of accounts) {
+      if (account.owner_id && !names.has(account.owner_id)) {
+        names.set(account.owner_id, account.owner_name ?? 'Sin nombre');
       }
-    } finally {
-      setArchiving(false);
     }
-  }
+    return Array.from(names, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, 'es'),
+    );
+  }, [accounts]);
 
   // ── Column definitions ────────────────────────────────────────
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
@@ -211,18 +274,15 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           <DataTableColumnHeader column={column} title="Empresa" />
         ),
         cell: ({ row }) => (
-          <button
-            type="button"
-            onClick={() => openDetail(row.original.id)}
-            className="font-medium text-foreground hover:text-su-brand transition-colors text-left text-sm"
-          >
+          <RowTitleButton onClick={() => openDetail(row.original.id)}>
             {row.original.name}
-          </button>
+          </RowTitleButton>
         ),
         size: 220,
         minSize: 180,
         enableHiding: false,
-        meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
       },
       {
         id: 'country_code',
@@ -230,19 +290,9 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="País" />
         ),
-        cell: ({ row }) => {
-          const code = row.original.country_code;
-          return code ? (
-            <span className="flex items-center gap-1.5">
-              <span className="text-base leading-none">{getFlagEmoji(code)}</span>
-              <span className="text-xs text-muted-foreground">{code}</span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
-          );
-        },
-        size: 100,
-        minSize: 80,
+        cell: ({ row }) => <CountryCell code={row.original.country_code} />,
+        size: 130,
+        minSize: 110,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
@@ -256,11 +306,17 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Industria" />
         ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-            {row.original.industry ?? <span className="text-muted-foreground/40">—</span>}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.industry ? (
+            <span
+              className="block truncate text-xs text-muted-foreground"
+              title={row.original.industry}
+            >
+              {row.original.industry}
+            </span>
+          ) : (
+            <EmptyCell label="Sin industria" />
+          ),
         size: 160,
         minSize: 120,
         filterFn: 'arrIncludesSome',
@@ -279,16 +335,20 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         cell: ({ row }) => {
           const domain = row.original.domain;
           return domain ? (
-            <span className="text-xs text-muted-foreground font-mono truncate block max-w-[160px]">
+            <ExternalLinkCell
+              href={domain}
+              icon={Globe}
+              label={`Abrir el sitio web de ${row.original.name}`}
+            >
               {domain}
-            </span>
+            </ExternalLinkCell>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <EmptyCell label="Sin dominio" />
           );
         },
         size: 160,
         minSize: 120,
-        meta: { label: 'Dominio', popoverTitle: 'Dominio' },
+        meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
       },
       {
         id: 'pipeline_status',
@@ -299,11 +359,9 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         cell: ({ row }) => {
           const status = row.original.pipeline_status;
           return (
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[status]}`}
-            >
+            <Badge variant={STATUS_VARIANT[status]}>
               {PIPELINE_STATUS_LABELS[status]}
-            </span>
+            </Badge>
           );
         },
         size: 140,
@@ -321,11 +379,14 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Responsable" />
         ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {row.original.owner_name ?? <span className="text-muted-foreground/40">—</span>}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.owner_name ? (
+            <span className="block truncate text-xs text-muted-foreground" title={row.original.owner_name}>
+              {row.original.owner_name}
+            </span>
+          ) : (
+            <EmptyCell label="Sin responsable" />
+          ),
         size: 140,
         minSize: 100,
         filterFn: (row, _columnId, filterValue: string[]) => {
@@ -337,17 +398,16 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         meta: {
           label: 'Responsable',
           popoverTitle: 'Responsable',
-          ...(scopeFilterOptions?.showScopeFilters && scopeFilterOptions.users.length > 0
-            ? {
-                filterOptions: scopeFilterOptions.users.map((u) => ({
+          filterOptions:
+            scopeFilterOptions?.showScopeFilters && scopeFilterOptions.users.length > 0
+              ? scopeFilterOptions.users.map((u) => ({
                   value: u.id,
                   label:
                     u.full_name && u.email
                       ? `${u.full_name} (${u.email})`
                       : (u.full_name ?? u.email ?? u.id.slice(0, 8)),
-                })),
-              }
-            : {}),
+                }))
+              : ownerFilterOptions,
         },
       },
       {
@@ -357,14 +417,12 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           <DataTableColumnHeader column={column} title="Fuente" />
         ),
         cell: ({ row }) => {
+          // Un solo chip de color por fila (el estado): la fuente va en texto.
           const source = row.original.source as AccountSource;
           return (
-            <Badge
-              variant="outline"
-              className={`text-[10px] ${SOURCE_STYLES[source]}`}
-            >
-              {SOURCE_LABELS[source]}
-            </Badge>
+            <span className="block truncate text-xs text-muted-foreground">
+              {SOURCE_LABELS[source] ?? source}
+            </span>
           );
         },
         size: 110,
@@ -393,7 +451,7 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         meta: { label: 'Creación', popoverTitle: 'Creación', disableFilter: true },
       },
     ],
-    [openDetail, scopeFilterOptions],
+    [openDetail, scopeFilterOptions, ownerFilterOptions],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -409,13 +467,13 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           },
           {
             id: 'edit',
-            label: 'Editar cuenta',
+            label: 'Editar empresa',
             icon: Pencil,
             onClick: () => setEditingId(row.id),
           },
           {
             id: 'enrich-contacts',
-            label: 'Buscar contactos para esta cuenta',
+            label: 'Buscar contactos de esta empresa',
             icon: UserSearch,
             onClick: () => setEnrichCompany({
               name: row.name,
@@ -427,31 +485,26 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
           },
         ];
 
-        // Status change submenu items
-        const activeStatuses: { value: PipelineStatus; label: string }[] = [
-          { value: 'new', label: PIPELINE_STATUS_LABELS.new },
-          { value: 'ready_for_research', label: PIPELINE_STATUS_LABELS.ready_for_research },
-          { value: 'research_in_progress', label: PIPELINE_STATUS_LABELS.research_in_progress },
-          { value: 'ready_for_outreach', label: PIPELINE_STATUS_LABELS.ready_for_outreach },
-        ];
-
-        items.push({
-          id: 'status',
-          label: 'Cambiar estado',
-          icon: Tag,
-          separator: true,
-          onClick: () => {
-            const currentIdx = activeStatuses.findIndex((s) => s.value === row.pipeline_status);
-            const nextIdx = (currentIdx + 1) % activeStatuses.length;
-            handleStatusChange(row.id, activeStatuses[nextIdx].value);
+        // Antes había un único «Cambiar estado» que saltaba al siguiente sin
+        // decir a cuál. Ahora cada estado posible es su propia entrada.
+        ACTIVE_PIPELINE_STATUSES.filter((status) => status !== row.pipeline_status).forEach(
+          (status, index) => {
+            items.push({
+              id: `status-${status}`,
+              label: `Marcar como «${PIPELINE_STATUS_LABELS[status]}»`,
+              icon: Tag,
+              separator: index === 0,
+              onClick: () => handleStatusChange(row.id, status),
+            });
           },
-        });
+        );
 
         items.push({
           id: 'archive',
-          label: 'Archivar',
+          label: 'Archivar empresa',
           icon: Archive,
           variant: 'destructive' as const,
+          separator: true,
           onClick: () => setArchivingId(row.id),
         });
 
@@ -482,6 +535,8 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Eye,
         disabled: (rows) => rows.length !== 1,
@@ -489,7 +544,9 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
       },
       {
         id: 'edit-account',
-        label: 'Editar cuenta',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
+        label: 'Editar empresa',
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
@@ -534,44 +591,113 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
     [openDetail],
   );
 
-  return (
-    <>
-      <DataTable
-        columns={columns}
-        data={filteredAccounts}
-        getRowId={(row) => row.id}
-        title="Listado de empresas"
-        description="Empresas, pipeline, fuente y estado."
-        count={filteredAccounts.length}
-        enableRowSelection
-        contextMenu={contextMenu}
-        bulkActions={bulkActions}
-        enableColumnReorder
-        initialPageSize={20}
-        fillHeight
-        onRowClick={(row) => openDetail(row.id)}
-        rowClickable
-        settingsExtraSections={
-          scopeFilterOptions?.showScopeFilters ? (
-            <ScopeFilterDrawerSection
-              scopeFilterOptions={scopeFilterOptions}
-              value={scopeFilter}
-              onChange={setScopeFilter}
-            />
-          ) : undefined
+  // ── Vista de lista ────────────────────────────────────────────
+  const renderListItem = React.useCallback(
+    (row: Row, state: DataTableListRowState) => (
+      <ListItem
+        selected={state.selected}
+        leading={state.checkbox}
+        title={<RowTitleButton onClick={() => openDetail(row.id)}>{row.name}</RowTitleButton>}
+        description={
+          [countryName(row.country_code), row.industry, row.domain].filter(Boolean).join(' · ') ||
+          'Sin país, industria ni dominio'
         }
-        emptyState={
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm font-medium text-foreground">Sin cuentas todavía</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-              Crea una cuenta manualmente o, más adelante, genera prospectos con IA.
-            </p>
-          </div>
+        meta={
+          <Badge variant={STATUS_VARIANT[row.pipeline_status]}>
+            {PIPELINE_STATUS_LABELS[row.pipeline_status]}
+          </Badge>
+        }
+        actions={state.menu}
+      />
+    ),
+    [openDetail],
+  );
+
+  // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
+  // Sin `emptyState`, la tabla pone su propio aviso de «nada coincide con
+  // estos filtros» junto a los chips, que ya traen «Limpiar todo».
+  let emptyState: React.ReactNode;
+  if (accounts.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Todavía no hay empresas"
+        description="Las empresas llegan aquí cuando apruebas un prospecto. También puedes crear una a mano."
+        action={emptyActions}
+      />
+    );
+  } else if (filteredAccounts.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Ninguna empresa en este alcance"
+        description="El usuario, grupo o rol elegido no tiene empresas asignadas."
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
+            Quitar filtros de alcance
+          </Button>
         }
       />
+    );
+  } else if (quick.rows.length === 0 && quick.activeLabel) {
+    emptyState = (
+      <QuickFilterEmptyState
+        icon={Building2}
+        filterLabel={quick.activeLabel}
+        noun="empresas"
+        onClear={quick.clear}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {accounts.length > 0 && !isWide && (
+          <QuickFilterStrip
+            {...quickFilterGroup}
+            icon={Building2}
+            total={quick.total}
+            noun={['empresa', 'empresas']}
+            className="shrink-0"
+          />
+        )}
+
+        <DataTable
+          ref={dataTableRef}
+          tableId="accounts"
+          noun="empresas"
+          nounGender="f"
+          getRowLabel={(row) => row.name}
+          columns={columns}
+          data={quick.rows}
+          getRowId={(row) => row.id}
+          title={quick.activeLabel ? `Empresas · ${quick.activeLabel}` : 'Listado de empresas'}
+          count={quick.rows.length}
+          actions={accounts.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          enableRowSelection
+          contextMenu={contextMenu}
+          bulkActions={bulkActions}
+          enableColumnReorder
+          initialPageSize={20}
+          fillHeight
+          onRowClick={(row) => openDetail(row.id)}
+          rowClickable
+          renderListItem={renderListItem}
+          settingsExtraSections={
+            scopeFilterOptions?.showScopeFilters ? (
+              <ScopeFilterDrawerSection
+                scopeFilterOptions={scopeFilterOptions}
+                value={scopeFilter}
+                onChange={setScopeFilter}
+              />
+            ) : undefined
+          }
+          emptyState={emptyState}
+        />
+      </div>
 
       {/* Edit drawer */}
       {editingId && (
@@ -583,33 +709,11 @@ export function AccountsDataTableClient({ accounts, users, scopeFilterOptions }:
         />
       )}
 
-      {/* Archive confirmation dialog */}
-      <Dialog open={!!archivingId} onOpenChange={(v) => !v && setArchivingId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archivar cuenta</DialogTitle>
-            <DialogDescription>
-              Esta acción retira la cuenta del pipeline activo. Solo un administrador puede
-              realizarla y queda registrada en auditoría. ¿Confirmas?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setArchivingId(null)} disabled={archiving}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleArchive} disabled={archiving}>
-              {archiving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Archivando…
-                </>
-              ) : (
-                'Archivar cuenta'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveAccountDialog
+        accountId={archivingId}
+        onClose={() => setArchivingId(null)}
+        onArchived={() => router.refresh()}
+      />
 
       {/* Account detail sheet */}
       <AccountDetailSheet

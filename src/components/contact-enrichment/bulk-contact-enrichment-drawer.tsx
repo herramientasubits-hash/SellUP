@@ -6,13 +6,18 @@ import {
   Loader2,
   Users,
   CheckCircle2,
-  AlertCircle,
   XCircle,
   Building2,
-} from 'lucide-react';
+} from "@/icons";
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
+import { Spinner } from '@/components/feedback/spinner';
+import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
 import {
   checkBulkEnrichmentEligibilityAction,
   createBulkContactEnrichmentRunAction,
@@ -229,7 +234,7 @@ export function BulkContactEnrichmentDrawer({
     !isDone;
 
   const footer = (
-    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+    <div className="flex w-full flex-wrap items-center justify-between gap-2">
       {isDone ? (
         <>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
@@ -285,9 +290,10 @@ export function BulkContactEnrichmentDrawer({
       size="lg"
       title="Enriquecer contactos en lote"
       description={`Prepara runs de enriquecimiento para ${selectedAccounts.length} cuenta${selectedAccounts.length !== 1 ? 's' : ''} seleccionada${selectedAccounts.length !== 1 ? 's' : ''}.`}
-      footer={footer}
+      icon={<Users className="h-4 w-4" />}
+      actions={footer}
     >
-      <div className="space-y-5 px-1">
+      <div className="space-y-4">
         {/* Conversational intro */}
         <p className="text-sm text-muted-foreground">
           Voy a revisar cuáles de estas cuentas pueden enriquecerse antes de consumir
@@ -296,19 +302,20 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Too many accounts guard */}
         {tooManyAccounts && (
-          <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            Selecciona máximo {CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas para
-            enriquecer contactos en lote.
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription className="text-destructive">
+              Selecciona máximo {CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas para
+              enriquecer contactos en lote.
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Account cards */}
         {!tooManyAccounts && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">
-              Cuentas seleccionadas ({selectedAccounts.length})
-            </p>
+          <DrawerSection
+            icon={Building2}
+            title={`Cuentas seleccionadas (${selectedAccounts.length})`}
+          >
             <ul className="space-y-2">
               {selectedAccounts.map((account) => {
                 const eligible = eligibility?.eligible.find(
@@ -321,9 +328,9 @@ export function BulkContactEnrichmentDrawer({
                 return (
                   <li
                     key={account.id}
-                    className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2.5"
+                    className="flex items-start gap-3 rounded-lg border border-border/60 bg-surface-subtle px-3 py-2.5"
                   >
-                    <div className="mt-0.5 rounded-md bg-muted p-1">
+                    <div className="mt-0.5 rounded-md bg-card p-1 ring-1 ring-inset ring-border/40">
                       <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -331,7 +338,7 @@ export function BulkContactEnrichmentDrawer({
                         {account.name ?? account.id}
                       </p>
                       {account.domain && (
-                        <p className="text-xs text-muted-foreground font-mono truncate">
+                        <p className="truncate font-mono text-xs text-muted-foreground" title={account.domain}>
                           {account.domain}
                         </p>
                       )}
@@ -343,21 +350,21 @@ export function BulkContactEnrichmentDrawer({
                     </div>
                     <div className="shrink-0 mt-0.5">
                       {state === 'checking_eligibility' && (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+                        <Spinner size="xs" label="Comprobando elegibilidad" />
                       )}
                       {eligible && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <Badge variant="positive">
                           <CheckCircle2 className="h-3 w-3" />
                           Elegible
-                        </span>
+                        </Badge>
                       )}
                       {skipped && (
                         <div className="text-right">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          <Badge variant="warning">
                             <XCircle className="h-3 w-3" />
                             Omitida
-                          </span>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground max-w-[140px] text-right">
+                          </Badge>
+                          <p className="mt-0.5 text-xs text-muted-foreground max-w-[140px] text-right">
                             {SKIP_REASON_LABELS[skipped.reason] ?? skipped.reason}
                           </p>
                         </div>
@@ -367,13 +374,13 @@ export function BulkContactEnrichmentDrawer({
                 );
               })}
             </ul>
-          </div>
+          </DrawerSection>
         )}
 
         {/* Summary stats */}
         {!tooManyAccounts && eligibility && (
           <>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid gap-3 sm:grid-cols-3">
               <StatCard label="Seleccionadas" value={eligibility.selectedCount} />
               <StatCard
                 label="Elegibles"
@@ -391,7 +398,7 @@ export function BulkContactEnrichmentDrawer({
               <div className="space-y-1 text-center">
                 <p className="text-xs text-muted-foreground">
                   Cuentas elegibles para búsqueda Apollo:{' '}
-                  <span className="font-medium text-foreground">
+                  <span className="font-medium tabular-nums text-foreground">
                     {eligibility.estimatedApolloCredits}
                   </span>
                 </p>
@@ -403,9 +410,11 @@ export function BulkContactEnrichmentDrawer({
             )}
 
             {noEligible && (
-              <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-                No hay cuentas elegibles para enriquecer en este lote.
-              </div>
+              <Alert variant="warning">
+                <AlertDescription className="text-warning">
+                  No hay cuentas elegibles para enriquecer en este lote.
+                </AlertDescription>
+              </Alert>
             )}
           </>
         )}
@@ -415,8 +424,9 @@ export function BulkContactEnrichmentDrawer({
           (state === 'creating_bulk_run' ||
             state === 'executing' ||
             state === 'checking_status') && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              {/* Decorativo: el texto de al lado es el que anuncia la espera. */}
+              <Spinner decorative size="sm" />
               {state === 'creating_bulk_run'
                 ? 'Preparando enriquecimiento en lote…'
                 : state === 'checking_status'
@@ -427,17 +437,18 @@ export function BulkContactEnrichmentDrawer({
 
         {/* Unknown / in-progress state after recovery */}
         {!tooManyAccounts && state === 'execution_unknown' && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            El lote fue iniciado, pero todavía no tenemos confirmación final. Puedes actualizar el
-            estado en unos segundos.
-          </div>
+          <Alert variant="warning">
+            <AlertDescription className="text-warning">
+              El lote fue iniciado, pero todavía no tenemos confirmación final. Puedes actualizar el
+              estado en unos segundos.
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Disclaimer */}
         {!tooManyAccounts && state !== 'error' && !isDone && !isUnknown && (
-          <div className="rounded-md bg-muted/60 px-3 py-2.5">
-            <p className="text-xs text-muted-foreground">
+          <Alert role="note">
+            <AlertDescription className="text-xs leading-relaxed">
               Este proceso{' '}
               <strong className="text-foreground">no crea contactos oficiales</strong> ni
               escribe en HubSpot. Los resultados quedarán como{' '}
@@ -445,8 +456,8 @@ export function BulkContactEnrichmentDrawer({
                 candidatos pendientes de revisión
               </strong>
               .
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Completed summary */}
@@ -454,24 +465,30 @@ export function BulkContactEnrichmentDrawer({
           <>
             <Separator />
             <div className="space-y-2">
+              {/* El desenlace del lote, como aviso en su tono: ámbar si hubo
+                  errores, verde si dejó candidatos, neutro si no dejó nada. */}
               {state === 'completed_with_errors' ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
-                  <AlertCircle className="h-4 w-4" />
-                  El lote terminó con algunos errores. Revisa el resumen.
-                </div>
+                <Alert variant="warning" role="status">
+                  <AlertTitle className="text-sm">
+                    El lote terminó con algunos errores. Revisa el resumen.
+                  </AlertTitle>
+                </Alert>
               ) : summary.candidates_created > 0 ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Listo. Se crearon {summary.candidates_created} candidato
-                  {summary.candidates_created !== 1 ? 's' : ''} para revisión.
-                </div>
+                <Alert variant="success" role="status">
+                  <AlertTitle className="text-sm">
+                    Listo. Se crearon {summary.candidates_created} candidato
+                    {summary.candidates_created !== 1 ? 's' : ''} para revisión.
+                  </AlertTitle>
+                </Alert>
               ) : (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4" />
-                  El lote terminó sin candidatos nuevos para revisar.
-                </div>
+                <Alert role="status">
+                  <AlertTitle className="text-sm">
+                    El lote terminó sin candidatos nuevos para revisar.
+                  </AlertTitle>
+                </Alert>
               )}
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-2">
+              <SurfaceCard className="p-4">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                 <SummaryRow label="Cuentas procesadas" value={summary.processed} />
                 <SummaryRow label="Con candidatos" value={summary.with_candidates} />
                 <SummaryRow
@@ -484,16 +501,18 @@ export function BulkContactEnrichmentDrawer({
                   value={summary.candidates_created}
                 />
               </dl>
+              </SurfaceCard>
             </div>
           </>
         )}
 
         {/* Error state */}
         {state === 'error' && (eligibilityError ?? executionError) && (
-          <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            {eligibilityError ?? executionError}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription className="text-destructive">
+              {eligibilityError ?? executionError}
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </DrawerShell>
@@ -548,26 +567,17 @@ function StatCard({
   value: number;
   variant?: 'default' | 'success' | 'warn';
 }) {
-  const valueClass =
-    variant === 'success'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : variant === 'warn' && value > 0
-        ? 'text-amber-600 dark:text-amber-400'
-        : 'text-foreground';
+  const tone =
+    variant === 'success' ? 'positive' : variant === 'warn' && value > 0 ? 'warning' : 'neutral';
 
-  return (
-    <div className="rounded-lg bg-muted/40 px-2 py-2.5 text-center">
-      <p className={`text-lg font-semibold ${valueClass}`}>{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
+  return <MetricCard compact title={label} value={value} tone={tone} />;
 }
 
 function SummaryRow({ label, value }: { label: string; value: number }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium text-foreground">{value}</dd>
+      <dd className="font-medium tabular-nums text-foreground">{value}</dd>
     </>
   );
 }

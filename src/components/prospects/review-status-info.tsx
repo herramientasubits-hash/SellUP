@@ -9,9 +9,12 @@
 // available regardless of which tab is open. This block is pure information:
 // no buttons, no writes.
 
+import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Info, ShieldCheck, ArrowRightCircle } from 'lucide-react';
+import { Info, ShieldCheck, ArrowRightCircle } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
   resolveReviewDecisionView,
@@ -30,11 +33,10 @@ const SECTION_DESCRIPTION =
 
 function StatePill({ label, className }: { label: string; className: string }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${className}`}
-    >
+    // El mapa de estado aporta solo color y borde; forma y tipografía son del Badge.
+    <Badge variant="outline" className={className}>
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -49,8 +51,8 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
           <StatePill label={view.terminal.label} className={view.terminal.className} />
           <p className="text-xs text-muted-foreground leading-relaxed">{view.terminal.description}</p>
           {candidate.status === 'approved' && candidate.reviewedAt && (
-            <p className="text-[11px] text-muted-foreground/70">
-              Aprobado el {new Date(candidate.reviewedAt).toLocaleString('es-CO')}
+            <p className="text-xs text-muted-foreground">
+              Aprobado el {new Date(candidate.reviewedAt).toLocaleString('es-CO', withAppTimeZone())}
             </p>
           )}
           {/* Q3F-5AZ.2E-1 — converted prospects link straight to their empresa. */}
@@ -58,13 +60,13 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
             (candidate.convertedAccountId ? (
               <Link
                 href={`/accounts/${candidate.convertedAccountId}`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-su-brand hover:underline"
+                className="inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
-                <ArrowRightCircle className="h-3.5 w-3.5" />
+                <ArrowRightCircle className="h-3.5 w-3.5" aria-hidden="true" />
                 Ver empresa
               </Link>
             ) : (
-              <p className="text-[11px] text-muted-foreground/70">
+              <p className="text-xs text-muted-foreground">
                 La empresa ya fue creada en SellUp.
               </p>
             ))}
@@ -78,23 +80,22 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
       <SurfaceCardHeader title={SECTION_TITLE} description={SECTION_DESCRIPTION} />
 
       {view.needsWarning && (
-        <div className="mt-1 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div className="space-y-0.5 text-xs leading-relaxed">
-            <p className="font-medium">Este prospecto tiene posible coincidencia. Revisa antes de aprobar.</p>
-            {view.hasHubspotMatch && (
-              <p className="flex items-center gap-1 text-[11px]">
-                <ShieldCheck className="h-3 w-3" />
-                Coincidencia con una empresa en HubSpot.
-              </p>
-            )}
-          </div>
-        </div>
+        <Alert variant="warning" className="mt-1">
+          <AlertTitle className="text-xs">
+            Este prospecto tiene posible coincidencia. Revisa antes de aprobar.
+          </AlertTitle>
+          {view.hasHubspotMatch && (
+            <AlertDescription className="flex items-center gap-1 text-xs text-current">
+              <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Coincidencia con una empresa en HubSpot.
+            </AlertDescription>
+          )}
+        </Alert>
       )}
 
       <div className="mt-2 flex items-start gap-2">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
           {view.blockReason ?? 'Usa la acción "Aprobar" en la barra de acciones del panel para avanzar este prospecto.'}
         </p>
       </div>

@@ -1,13 +1,17 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Users, Folder, FolderOpen, ChevronRight, UserPlus } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Users, Folder, FolderOpen, UserPlus } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ListItem, ListItemGroup } from '@/components/data-display';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { Heading } from '@/components/typography';
 import type { InternalUser, OrganizationGroup, Role } from '@/modules/access/types';
 import { buildOrgGroupForest, type OrgGroupNode } from '@/modules/access/group-tree';
 import { AssignUsersToGroupDialog } from './assign-users-to-group-dialog';
+import { UserAvatar } from './user-avatar';
 
 interface GroupsViewProps {
   users: InternalUser[];
@@ -43,89 +47,74 @@ function buildGroupTree(groups: OrganizationGroup[], users: InternalUser[]): Gro
   return buildOrgGroupForest(groups).map(attach);
 }
 
-function getInitials(name: string | null, email: string): string {
-  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
-
 function getRoleName(roleKey: string | null, roles: Role[]): string {
   if (!roleKey) return 'Sin rol';
   return roles.find(r => r.key === roleKey)?.name ?? roleKey;
 }
 
-interface MemberChipProps {
-  user: InternalUser;
+interface MemberListProps {
+  members: InternalUser[];
   roles: Role[];
+  label: string;
 }
 
-function MemberChip({ user, roles }: MemberChipProps) {
+/** Las personas de un grupo, cada una en su fila: nombre y rol. */
+function MemberList({ members, roles, label }: MemberListProps) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card px-3 py-2">
-      <Avatar className="h-7 w-7 shrink-0">
-        <AvatarFallback className="bg-su-brand-soft text-su-brand text-[10px]">
-          {getInitials(user.full_name, user.email)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-foreground leading-tight">
-          {user.full_name ?? user.email.split('@')[0]}
-        </p>
-        <p className="truncate text-[10px] text-muted-foreground">
-          {getRoleName(user.role_key, roles)}
-        </p>
-      </div>
-    </div>
+    <ListItemGroup aria-label={label} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+      {members.map(user => (
+        <ListItem
+          key={user.id}
+          size="sm"
+          leading={<UserAvatar name={user.full_name} email={user.email} size="sm" />}
+          title={user.full_name ?? user.email.split('@')[0]}
+          description={getRoleName(user.role_key, roles)}
+        />
+      ))}
+    </ListItemGroup>
   );
 }
 
-interface GroupNodeCardProps {
+interface GroupNodeProps {
   node: GroupNode;
   roles: Role[];
   allGroups: OrganizationGroup[];
   allActiveUsers: InternalUser[];
   isAdmin: boolean;
-  depth?: number;
+  /** Un subgrupo se pinta como sección dentro de la tarjeta de su grupo raíz. */
+  isNested?: boolean;
 }
 
-function GroupNodeCard({ node, roles, allGroups, allActiveUsers, isAdmin, depth = 0 }: GroupNodeCardProps) {
+function GroupNodeSection({ node, roles, allGroups, allActiveUsers, isAdmin, isNested = false }: GroupNodeProps) {
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const hasMembers = node.members.length > 0;
   const hasChildren = node.children.length > 0;
-  const totalDescendants = countMembers(node);
-
-  const depthStyles = [
-    'border-border/60',
-    'border-border/40 ml-4',
-    'border-border/30 ml-8',
-  ];
+  const totalMembers = countMembers(node);
+  const groupName = node.group.name || 'Grupo sin nombre';
 
   return (
-    <div className={`rounded-xl border bg-card ${depthStyles[depth] ?? depthStyles[2]}`}>
-      {/* Group header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border/40">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
         {hasChildren ? (
-          <FolderOpen className="h-4 w-4 shrink-0 text-su-brand" />
+          <FolderOpen className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
         ) : (
-          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         )}
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-semibold text-foreground">{node.group.name || 'Grupo sin nombre'}</span>
+        <div className="min-w-0 flex-1">
+          <Heading level={6} as={isNested ? 'h4' : 'h3'} className="text-sm">
+            {groupName}
+          </Heading>
           {node.group.description && (
-            <span className="ml-2 text-xs text-muted-foreground">{node.group.description}</span>
+            <p className="text-xs text-muted-foreground">{node.group.description}</p>
           )}
         </div>
-        <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground border-border/60">
-          <Users className="mr-1 h-3 w-3" />
-          {totalDescendants}
+        <Badge variant="neutral" className="shrink-0 tabular-nums">
+          <Users className="mr-1 h-3 w-3" aria-hidden="true" />
+          {totalMembers} {totalMembers === 1 ? 'persona' : 'personas'}
         </Badge>
         {isAdmin && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => setShowAssignDialog(true)}
-          >
-            <UserPlus className="h-3.5 w-3.5" />
+          <Button size="xs" variant="outline" onClick={() => setShowAssignDialog(true)}>
+            <UserPlus />
             Agregar usuarios
           </Button>
         )}
@@ -141,42 +130,31 @@ function GroupNodeCard({ node, roles, allGroups, allActiveUsers, isAdmin, depth 
         />
       )}
 
-      {/* Members grid */}
       {hasMembers && (
-        <div className="px-4 py-3">
-          <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {node.members.map(u => (
-              <MemberChip key={u.id} user={u} roles={roles} />
-            ))}
-          </div>
-        </div>
+        <MemberList members={node.members} roles={roles} label={`Personas de ${groupName}`} />
       )}
 
       {!hasMembers && !hasChildren && (
-        <div className="px-4 py-4 text-center text-xs text-muted-foreground">
-          Sin usuarios asignados
-        </div>
+        <p className="text-xs text-muted-foreground">
+          {isAdmin
+            ? 'Todavía no tiene personas. Usa «Agregar usuarios» para asignarlas.'
+            : 'Todavía no tiene personas asignadas.'}
+        </p>
       )}
 
-      {/* Subgroups */}
+      {/* Subgrupos: secciones sangradas, sin caja dentro de la caja. */}
       {hasChildren && (
-        <div className="px-4 pb-4 space-y-3 pt-2">
+        <div className="space-y-4 border-l border-border/60 pl-4">
           {node.children.map(child => (
-            <div key={child.group.id} className="flex gap-2">
-              <div className="flex flex-col items-center mt-2">
-                <ChevronRight className="h-3.5 w-3.5 text-border shrink-0" />
-              </div>
-              <div className="flex-1">
-                <GroupNodeCard
-                  node={child}
-                  roles={roles}
-                  allGroups={allGroups}
-                  allActiveUsers={allActiveUsers}
-                  isAdmin={isAdmin}
-                  depth={Math.min(depth + 1, 2)}
-                />
-              </div>
-            </div>
+            <GroupNodeSection
+              key={child.group.id}
+              node={child}
+              roles={roles}
+              allGroups={allGroups}
+              allActiveUsers={allActiveUsers}
+              isAdmin={isAdmin}
+              isNested
+            />
           ))}
         </div>
       )}
@@ -195,44 +173,47 @@ export function GroupsView({ users, groups, roles, isAdmin = false }: GroupsView
 
   if (groups.length === 0) {
     return (
-      <div className="py-16 text-center text-muted-foreground">
-        <Folder className="mx-auto mb-3 h-8 w-8 opacity-30" />
-        <p className="text-sm">No hay grupos organizacionales creados.</p>
-        <p className="text-xs mt-1 opacity-70">Usa &quot;Gestionar grupos&quot; para crear la estructura.</p>
-      </div>
+      <EmptyState
+        icon={Folder}
+        title="Todavía no hay grupos"
+        description="Crea el primero con «Agregar grupo» y después asígnale personas."
+      />
     );
   }
 
   return (
     <div className="space-y-4">
       {tree.map(root => (
-        <GroupNodeCard
-          key={root.group.id}
-          node={root}
-          roles={roles}
-          allGroups={groups}
-          allActiveUsers={activeUsers}
-          isAdmin={isAdmin}
-          depth={0}
-        />
+        <SurfaceCard key={root.group.id}>
+          <GroupNodeSection
+            node={root}
+            roles={roles}
+            allGroups={groups}
+            allActiveUsers={activeUsers}
+            isAdmin={isAdmin}
+          />
+        </SurfaceCard>
       ))}
 
-      {/* Ungrouped users */}
+      {/* Personas activas que todavía no están en ningún grupo */}
       {ungrouped.length > 0 && (
-        <div className="rounded-xl border border-dashed border-border/60 bg-muted/20">
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-border/30">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold text-muted-foreground">Sin grupo asignado</span>
-            <Badge variant="outline" className="ml-auto text-[10px] text-muted-foreground border-border/50">
-              {ungrouped.length}
+        <SurfaceCard className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Users className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <Heading level={6} as="h3" className="text-sm">
+                Sin grupo asignado
+              </Heading>
+              <p className="text-xs text-muted-foreground">
+                Personas activas que todavía no pertenecen a ningún grupo.
+              </p>
+            </div>
+            <Badge variant="neutral" className="shrink-0 tabular-nums">
+              {ungrouped.length} {ungrouped.length === 1 ? 'persona' : 'personas'}
             </Badge>
           </div>
-          <div className="px-4 py-3 grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {ungrouped.map(u => (
-              <MemberChip key={u.id} user={u} roles={roles} />
-            ))}
-          </div>
-        </div>
+          <MemberList members={ungrouped} roles={roles} label="Personas sin grupo asignado" />
+        </SurfaceCard>
       )}
     </div>
   );

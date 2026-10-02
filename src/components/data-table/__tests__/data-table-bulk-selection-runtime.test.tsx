@@ -1,16 +1,21 @@
 /**
  * Q3F-5AZ.2E-1-UX1 — generic DataTable capabilities RUNTIME contract.
  *
- * Renders the ACTUAL `DataTable` + `DataTableBulkActionBar` (not the Prospectos
- * surface) with a minimal fixture table to pin two new, reusable primitives:
+ * Renders the ACTUAL `DataTable` (not the Prospectos surface) with a minimal
+ * fixture table to pin two reusable primitives. Since the Thema action rail,
+ * the selection lives in the single floating rail (`DataListActionRail`): the
+ * count is a chip («2 seleccionados») and each bulk action is an icon button
+ * named by its label.
  *
  *   1. `DataTableHandle.clearSelection()` (exposed via ref) resets the row
- *      selection, which hides the floating bulk action bar — the mechanism
- *      `ProspectsDataTableClient` uses to avoid showing the selection bar and
- *      the side panel footer at the same time.
- *   2. A `DataTableBulkAction` with `items` renders as a dropdown trigger
+ *      selection, which takes the selection out of the rail — the mechanism
+ *      `ProspectsDataTableClient` uses to avoid showing the selection actions
+ *      and the side panel footer at the same time.
+ *   2. A `DataTableBulkAction` with `items` renders as a menu trigger
  *      ("Más acciones" style) instead of a flat button, with each item
  *      carrying its own independent disabled/disabledLabel state.
+ *   3. `disabled` / `disabledLabel` / `confirm` / `scope` keep their meaning
+ *      when the bulk actions are translated to rail actions.
  *
  * No Prospectos-specific code is exercised here — see
  * prospects-selection-drawer-conflict-runtime.test.tsx for the product wiring.
@@ -100,8 +105,11 @@ function selectAllRows(): void {
   fireEvent.click(checkboxes[0]);
 }
 
-describe('DataTable — clearSelection ref hides the bulk action bar', () => {
-  it('selecting a row shows the bar, and ref.clearSelection() hides it again', () => {
+/** El recuento de la barra («2 seleccionados»), o null si no hay selección en la barra. */
+const SELECTION_CHIP = /^\d+ seleccionad[oa]s?$/;
+
+describe('DataTable — clearSelection ref takes the selection out of the rail', () => {
+  it('selecting rows shows the count chip, and ref.clearSelection() removes it again', () => {
     const ref = React.createRef<DataTableHandle>();
     const bulkActions: DataTableBulkAction<FixtureRow>[] = [
       { id: 'noop', label: 'Ver detalle', onClick: () => {} },
@@ -118,10 +126,11 @@ describe('DataTable — clearSelection ref hides the bulk action bar', () => {
       />,
     );
 
-    assert.equal(screen.queryByText('Seleccionados'), null, 'bar hidden with no selection');
+    assert.equal(screen.queryByText(SELECTION_CHIP), null, 'no rail with no selection');
 
     selectAllRows();
-    assert.ok(screen.getByText('Seleccionados'), 'bar appears once rows are selected');
+    assert.equal(screen.getByText(SELECTION_CHIP).textContent, '2 seleccionados');
+    assert.ok(screen.getByRole('button', { name: 'Ver detalle' }), 'the bulk action is a rail button');
 
     assert.ok(ref.current, 'DataTableHandle must be attached to the ref');
     React.act(() => {
@@ -129,16 +138,143 @@ describe('DataTable — clearSelection ref hides the bulk action bar', () => {
     });
 
     assert.equal(
-      screen.queryByText('Seleccionados'),
+      screen.queryByText(SELECTION_CHIP),
       null,
-      'bar must hide once selection is cleared via the ref — this is the mechanism ' +
+      'the selection must leave the rail once it is cleared via the ref — this is the mechanism ' +
         'ProspectsDataTableClient uses so opening the side panel never leaves the ' +
-        'selection bar visible underneath it',
+        'selection actions visible underneath it',
+    );
+    assert.equal(screen.queryByRole('button', { name: 'Ver detalle' }), null);
+  });
+
+  it('the chip\'s ✕ clears the selection too', () => {
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={ROWS}
+        getRowId={(row) => row.id}
+        enableRowSelection
+        bulkActions={[{ id: 'noop', label: 'Ver detalle', onClick: () => {} }]}
+      />,
+    );
+    selectAllRows();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar selección' }));
+
+    assert.equal(screen.queryByText(SELECTION_CHIP), null);
+    assert.equal(
+      screen.getAllByRole('checkbox').some((checkbox) => checkbox.getAttribute('aria-checked') === 'true'),
+      false,
+      'no row stays ticked',
     );
   });
 });
 
-describe('DataTable — bulk action "items" render as a dropdown group', () => {
+describe('DataTable — bulk actions keep their rules in the rail', () => {
+  it('runs the action with exactly the selected rows', () => {
+    const received: string[][] = [];
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={ROWS}
+        getRowId={(row) => row.id}
+        enableRowSelection
+        bulkActions={[{ id: 'export', label: 'Exportar', onClick: (rows) => void received.push(rows.map((row) => row.id)) }]}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('checkbox')[2]);
+    fireEvent.click(screen.getByRole('button', { name: 'Exportar' }));
+
+    assert.deepEqual(received, [['2']]);
+  });
+
+  it('a disabled action stays visible, blocked, and never runs', () => {
+    let calls = 0;
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={ROWS}
+        getRowId={(row) => row.id}
+        enableRowSelection
+        bulkActions={[
+          {
+            id: 'approve',
+            label: 'Aprobar',
+            disabled: (rows) => rows.length !== 1,
+            disabledLabel: (rows) => (rows.length > 1 ? 'Aprobación masiva pendiente' : undefined),
+            onClick: () => void calls++,
+          },
+        ]}
+      />,
+    );
+    selectAllRows();
+
+    const button = screen.getByRole('button', { name: 'Aprobar' });
+    fireEvent.click(button);
+
+    assert.equal(button.getAttribute('aria-disabled'), 'true');
+    assert.equal(calls, 0);
+  });
+
+  it('`scope: ["single"]` drops the action from the rail with several rows selected', () => {
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={ROWS}
+        getRowId={(row) => row.id}
+        enableRowSelection
+        bulkActions={[
+          { id: 'edit', label: 'Editar', scope: ['single'], onClick: () => {} },
+          { id: 'archive', label: 'Archivar', countInLabel: true, onClick: () => {} },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
+    assert.ok(screen.getByRole('button', { name: 'Editar' }));
+    assert.ok(screen.getByRole('button', { name: 'Archivar' }));
+
+    fireEvent.click(screen.getAllByRole('checkbox')[2]);
+    assert.equal(screen.queryByRole('button', { name: 'Editar' }), null);
+    assert.ok(screen.getByRole('button', { name: 'Archivar (2)' }));
+  });
+
+  it('an action with `confirm` asks first and only runs after confirming', async () => {
+    const received: number[] = [];
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={ROWS}
+        getRowId={(row) => row.id}
+        enableRowSelection
+        bulkActions={[
+          {
+            id: 'archive',
+            label: 'Archivar',
+            variant: 'destructive',
+            confirm: {
+              title: '¿Archivar las empresas?',
+              description: (rows) => `Se archivarán ${rows.length}.`,
+              confirmLabel: 'Sí, archivar',
+            },
+            onClick: (rows) => void received.push(rows.length),
+          },
+        ]}
+      />,
+    );
+    selectAllRows();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archivar' }));
+    assert.deepEqual(received, [], 'nothing runs before confirming');
+    assert.ok(await screen.findByText('Se archivarán 2.'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, archivar' }));
+    assert.deepEqual(received, [2]);
+  });
+});
+
+describe('DataTable — bulk action "items" render as a menu group', () => {
   it('renders a trigger for the group and disabled sub-items with hints inside the menu', async () => {
     const bulkActions: DataTableBulkAction<FixtureRow>[] = [
       {
@@ -163,19 +299,16 @@ describe('DataTable — bulk action "items" render as a dropdown group', () => {
 
     selectAllRows();
 
-    // The group items are not rendered flat in the bar — only the trigger is.
+    // The group items are not rendered flat in the rail — only the trigger is.
     assert.equal(screen.queryByText('Marcar duplicado'), null);
-    const trigger = screen.getByText('Más acciones');
-    assert.ok(trigger, '"Más acciones" trigger must render in the bar');
+    const trigger = screen.getByRole('button', { name: 'Más acciones' });
+    assert.ok(trigger, '"Más acciones" trigger must render in the rail');
 
     fireEvent.click(trigger);
 
-    const item = await screen.findByRole('menuitem', { name: /Marcar duplicado/ });
-    assert.ok(item, 'sub-item must render inside the dropdown once opened');
-    assert.equal(
-      item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('data-disabled'),
-      true,
-      'sub-item must stay disabled',
-    );
+    const item = (await screen.findByRole('button', { name: 'Marcar duplicado' })) as HTMLButtonElement;
+    assert.ok(item, 'sub-item must render inside the menu once opened');
+    assert.equal(item.disabled, true, 'sub-item must stay disabled');
+    assert.equal(screen.getAllByText('Disponible en siguiente fase').length, 2, 'each blocked item explains why');
   });
 });

@@ -1,4 +1,4 @@
-# SellUp Design System Foundation v0.1
+# SellUp Design System Foundation v0.2 — tema Azul de Thema
 
 > Fuente visual vigente para SellUp. Este documento define los principios, tokens, tipografía, componentes base y reglas que gobiernan toda la interfaz de la plataforma.
 
@@ -32,94 +32,99 @@ El sistema no es un documento de aspiraciones: cada token está implementado en 
 
 Todos los tokens están definidos en `src/app/globals.css` como CSS custom properties bajo `:root` (light) y `.dark` (dark).
 
+> **Tema vigente: «Azul» de Thema** (v0.2, 2026-09-30). Los valores salen del preset `thema` del sistema de
+> diseño Thema (`~/Documents/Thema Shadcn`), generados con `themeToCss(findPreset("thema"), "md")`: azul clásico
+> `#0C5BEF` sobre neutros fríos teñidos con el matiz 222. La guía de traducción pantalla por pantalla está en
+> [`THEMA_AZUL_MIGRATION.md`](./THEMA_AZUL_MIGRATION.md) y las reglas se verifican con
+> `node scripts/check-design-system.mjs` (debe dar 0 hallazgos).
+
 ### 3.1 Backgrounds y superficies
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--background` | `bg-background` | Fondo base de toda la app |
-| `--card` | `bg-card` | Superficie de cards y paneles de contenido |
-| `--sidebar` | `bg-sidebar` | Superficie del sidebar y header |
-| `--muted` | `bg-muted` | Zonas atenuadas, fondos de inputs |
-| `--su-surface` | `bg-su-surface` | Alias semántico para `--card` |
-| `--su-surface-elevated` | `bg-su-surface-elevated` | Superficie elevada sobre card |
+| `--background` | `bg-background` | Fondo base de la app: blanco con un punto de azul (`#f7faff`) |
+| `--card` | `bg-card`, `bg-surface` | Superficie de cards y paneles de contenido |
+| `--surface-muted` | `bg-surface-muted` | Sección apagada / hover de fila (`#f0f4ff`) |
+| `--surface-subtle` | `bg-surface-subtle` | Superficie hundida bajo una card: cabecera de tabla, pie de métrica |
+| `--tab-track` | `bg-tab-track` | Pista de pestañas |
+| `--popover` | `bg-popover` | Menús, popovers, drawers y diálogos |
+| `--sidebar` | `bg-sidebar` | Riel lateral: superficie **clara** con borde (no un bloque navy) |
+| `--nav` | `bg-nav`, `text-nav-foreground` | Navy de navegación; hoy lo usa la barra de acciones flotante |
+| `--muted` | `bg-muted` | Compatibilidad shadcn; preferir `surface-muted` / `surface-subtle` |
+| `--su-surface` / `--su-surface-elevated` | `bg-su-surface…` | Alias heredados |
 
-**Regla de capas (dark mode, de más oscuro a más claro):**
+El contenedor de página lleva además `page-atmosphere`: un halo radial del primario detrás del contenido.
+
+**Regla de capas (dark, de más oscuro a más claro):**
 ```
-background (#070d1a) → sidebar/header → card → su-surface-elevated → popover
+background (#0d1321) → surface-subtle → card (#171f31) → popover → surface-muted (#212a3f)
 ```
 
 ### 3.2 Texto
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--foreground` | `text-foreground` | Texto principal — alta prioridad |
-| `--muted-foreground` | `text-muted-foreground` | Texto secundario, labels, descripciones |
-| `--card-foreground` | `text-card-foreground` | Texto dentro de cards |
+| `--foreground` | `text-foreground`, `text-text-primary` | Títulos y texto principal |
+| `--muted-foreground` | `text-muted-foreground`, `text-text-secondary` | Cuerpo, subtítulos, labels |
+| `--text-muted` | `text-text-muted` | Hints, placeholders, iconos inactivos |
+| `--primary-foreground` | `text-primary-foreground` | Texto sobre primario. **Nunca `text-white`.** |
 
-**Jerarquía de opacidad recomendada para texto:**
-- Primario: `text-foreground` (100%)
-- Secundario: `text-muted-foreground` (~55%)
-- Terciario/metadata: `text-muted-foreground/60` (~35%)
+No se atenúa el texto con opacidad (`text-muted-foreground/60`): se elige el nivel.
 
 ### 3.3 Borders
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--border` | `border-border` | Borde estándar entre superficies |
-| `--su-border-subtle` | `border-su-border-subtle` | Borde muy suave, separadores internos |
-| `--su-border-strong` | `border-su-border-strong` | Borde con mayor contraste |
+| `--border` | `border-border/60` | Borde de card y de panel (siempre al 60 %) |
+| `--border` | `border-border/50` | Divisoria interna |
+| `--su-border-strong` | `border-border-strong` | Borde con mayor contraste |
 | `--input` | `border-input` | Borde de campos de formulario |
 
 ### 3.4 Brand / Primary
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--primary` | `bg-primary`, `text-primary` | Color primario (azul vibrante en light, azul brillante en dark) |
-| `--primary-foreground` | `text-primary-foreground` | Texto sobre primary |
-| `--su-brand` | `text-su-brand`, `bg-su-brand` | Acento azul UBITS light `oklch(0.530 0.233 262)` ≈ `#0c5bef` |
-| `--su-brand` (dark) | `text-su-brand`, `bg-su-brand` | Acento azul UBITS dark `oklch(0.564 0.221 266)` ≈ `#3865f5` |
-| `--su-brand-soft` | `bg-su-brand-soft` | Fondo tintado del acento (8–12% opacidad) |
-| `--su-brand-foreground` | `text-su-brand-foreground` | Texto sobre brand sólido |
+| `--primary` (= `--su-brand`) | `bg-primary`, `text-primary` | Azul del tema: `#0C5BEF` en claro, `#3865F5` en oscuro |
+| `--brand-hover` / `--brand-pressed` | `bg-brand-hover`, `bg-brand-pressed` | Estados del botón primario |
+| `--su-brand-soft` | `bg-primary/10` | Tinte del primario (chips de icono, ítem activo) |
+| `--brand-gradient` | `bg-brand-gradient` | Solo la marca del producto |
 
-**Paleta de referencia (alineada con `plantilla-proyectos-shadcn` / UBITS):**
+**Paleta del tema Azul:**
 
-| Rol | Light (HEX) | Dark (HEX) |
+| Rol | Light | Dark |
 |---|---|---|
-| Brand | `#0c5bef` | `#3865f5` |
-| Brand hover | `#1e4abf` | — |
-| Brand pressed | `#223a91` | — |
-| Background | `#f8faff` | `#020617` |
-| Surface (card) | `#ffffff` | `#0f172a` |
-| Surface muted | `#ebf1ff` | `#1e293b` |
-| Surface subtle | `#f5f8ff` | — |
-| Surface nav (sidebar) | `#111827` | `#0f172a` |
-| Text primary | `#303a47` | `#edeeef` |
-| Text secondary | `#5c646f` | `#8d9299` |
-| Text muted | `#979ba3` | — |
-| Border | `#d0d2d5` | `#3d4555` |
-| Border strong | `#979ba3` | `#4f5561` |
-| Positive | `#328e2c` | — |
-| Negative | `#e9343c` | — |
-| Warning | `#EC9907` | `#f59e0b` |
-| Info | `#4a74ee` | — |
-| AI gradient | `#2d5cf7` → `#e11d48` | `#2d5cf7` → `#e11d48` |
-
-El token `--su-brand` es el acento visual central de SellUp. Se usa en:
-- Logo "Up"
-- Indicadores de nav activo
-- Iconos de módulo en placeholders
-- Bordes superiores de feature cards
+| Brand | `#0C5BEF` | `#3865F5` |
+| Brand hover / pressed | `#0a4cc8` / `#083da1` | `#5f83f7` / `#86a1f9` |
+| Background | `#f7faff` | `#0d1321` |
+| Surface (card) | `#ffffff` | `#171f31` |
+| Surface muted | `#f0f4ff` | `#212a3f` |
+| Surface subtle | `#fafbff` | `#0f1729` |
+| Tab track | `#ebeffa` | `#10141e` |
+| Nav | `#0f1729` | `#0f1729` |
+| Text primary | `#303646` | `#ecedee` |
+| Text secondary | `#5c6270` | `#9ea1a9` |
+| Text muted | `#989ca4` | `#6e727c` |
+| Border | `#cfd0d3` | `#3e4556` |
+| Positive | `#059669` | más luminoso |
+| Negative | `#E9343C` | más luminoso |
+| Warning | `#FF7B0D` | más luminoso |
+| Info | `#4A74EE` | más luminoso |
+| AI gradient | `#2d5cf7` → `#9b14f5` → `#f2024e` → `#ff600a` | versión luminosa |
 
 ### 3.5 Estados semánticos
 
-| Propósito | Token / clase recomendada |
-|---|---|
-| Éxito | `text-emerald-500`, `bg-emerald-500/10` |
-| Advertencia | `text-amber-500`, `bg-amber-500/10` |
-| Error / Destructivo | `text-destructive`, `bg-destructive/10` |
-| Info | `text-su-brand`, `bg-su-brand-soft` |
+Positivo, negativo, warning e info **no cambian con el tema**: son significado, no decoración.
 
-Los estados de éxito, advertencia e info no tienen token CSS propio en v0.1. Se definen aquí como convención de clase para mantener coherencia antes de formalizar tokens adicionales.
+| Propósito | Texto | Tinte | Borde | `Badge` |
+|---|---|---|---|---|
+| Éxito | `text-success` | `bg-success/10` | `border-success/20` | `variant="positive"` |
+| Advertencia | `text-warning` | `bg-warning/15` | `border-warning/25` | `variant="warning"` |
+| Error / destructivo | `text-destructive` | `bg-destructive/10` | `border-destructive/20` | `variant="negative"` |
+| Info | `text-info` | `bg-info/10` | `border-info/20` | `variant="info"` |
+| Neutro | `text-muted-foreground` | `bg-muted/60` | `border-border/50` | `variant="neutral"` |
+| Marca | `text-primary` | `bg-primary/10` | `border-primary/20` | `variant="brand"` |
+
+**Prohibida la paleta cruda de Tailwind** (`text-emerald-500`, `bg-amber-500/10`, `text-red-600`…) y cualquier color literal.
 
 ---
 
@@ -127,46 +132,46 @@ Los estados de éxito, advertencia e info no tienen token CSS propio en v0.1. Se
 
 ### Estrategia
 
-SellUp usa **Inter** como única familia tipográfica (`--font-sans`), tanto para body como para headings. Esta decisión está alineada con la plantilla de referencia UBITS / shadcn:
-
-- Inter es altamente legible en interfaces de datos.
-- Una sola familia evita la mezcla de fuentes que añade complejidad sin beneficio real.
-- El carácter expresivo en login se logra mediante **escala, peso y opacidad**, no cambiando de fuente.
-
-**Anteriormente:** se usaba `Plus Jakarta Sans` para headings e `Inter` para body. Esta mezcla se eliminó en favor de Inter como fuente única (alineado con `plantilla-proyectos-shadcn`).
+SellUp usa **Inter** como única familia tipográfica (`--font-sans`), tanto para body como para headings, con
+`letter-spacing: -0.011em` y los rasgos `cv05 cv08 cv11 ss01` (igual que Thema).
 
 ### Escala de headings (h1–h6)
 
-Definida en `globals.css` (`@layer base`) y aplicada automáticamente a los elementos HTML:
+Definida en `globals.css` (`@layer base`):
 
-| Elemento | Token | Uso típico |
+| Elemento | Clases | Uso típico |
 |---|---|---|
-| `h1` | `text-2xl font-extrabold tracking-tight` | Título principal de página (vía `PageHeader`) |
+| `h1` | `text-2xl font-bold tracking-tight` | Título de página (vía `PageHeader`) |
 | `h2` | `text-xl font-bold tracking-tight` | Título de sección principal |
-| `h3` | `text-lg font-bold` | Subtítulo de bloque |
-| `h4` | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
-| `h5` | `text-sm font-semibold` | Sub-encabezados |
-| `h6` | `text-xs font-semibold uppercase tracking-wide text-muted-foreground` | Eyebrow / overline |
+| `h3` | `text-lg font-semibold tracking-tight` | Subtítulo de bloque |
+| `h4` | `text-base font-semibold tracking-tight` | Título de card (vía `SurfaceCardHeader`) |
+| `h5` | `text-sm font-semibold tracking-tight` | Sub-encabezado |
+| `h6` | `text-xs font-semibold text-muted-foreground` | Rótulo de grupo |
 
 ### Jerarquía de uso
 
-| Nivel | Clase recomendada | Uso |
+| Nivel | Clase | Uso |
 |---|---|---|
-| Page title | `text-2xl font-extrabold tracking-tight` | Título principal de cada página (vía `PageHeader`) |
-| Section title | `text-base font-semibold` | Títulos dentro de cards (vía `SurfaceCardHeader`) |
-| Card title | `text-sm font-semibold leading-none` | Encabezados de sub-secciones |
-| Body | `text-sm` | Texto de contenido general |
+| Page title | `text-2xl font-bold tracking-tight` | Uno por vista, vía `PageHeader` |
+| Section / card title | `text-base font-semibold tracking-tight` | Títulos dentro de cards |
+| Sub-sección | `text-sm font-semibold` | Encabezados dentro de un drawer |
+| Body | `text-sm` | Contenido general |
 | Caption / metadata | `text-xs text-muted-foreground` | Fechas, IDs, labels secundarios |
-| Overline | `text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60` | Labels de sección en sidebar, categorías |
+| Rótulo de grupo | `text-xs font-semibold text-muted-foreground` | En caja normal |
+
+Reglas:
+- **Sin tamaños fijados** (`text-[11px]`, `text-[13px]`): solo la escala. El mínimo es `text-xs`.
+- **Sin overlines en MAYÚSCULAS con tracking**: Thema rotula en caja normal.
+- Peso máximo `font-bold`; nada de `font-black` / `font-extrabold`.
+- Números en `tabular-nums`.
 
 ### Iconos
 
-SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de botones / links. Esto alinea el grosor visual con la identidad UBITS (más fino que el default `2` de lucide) sin necesidad de setearlo manualmente en cada componente.
+`stroke-width: 1.75` en los iconos `lucide-react` (más fino que el `2` por defecto). El spinner conserva su grosor.
 
 ### Regla login vs. app interna
 
-- **Login:** usa la misma fuente Inter. El brand panel del login puede usar `font-extrabold` con escalas grandes (`text-[2.4rem]` a `text-[1.85rem]`) y `tracking-tight` agresivo para crear impacto editorial.
-- **App interna:** mantiene la escala de headings más funcional. h1 = `font-extrabold` (peso fuerte, alineado con referencia), h2/h3 = `font-bold`, h4 en adelante = `font-semibold`. El foco está en la legibilidad operativa.
+El panel de marca del login es la única excepción editorial (escalas grandes, glows). La app interna sigue la escala.
 
 ---
 
@@ -174,39 +179,39 @@ SellUp aplica `stroke-width: 1.75` a los íconos `lucide-react` y SVGs dentro de
 
 ### Radios
 
-Escala operativa **Design Refresh v1** (Julio 2026): `sm 6 · md 8 (base) · lg 12 · xl 16 · 2xl 20 · 3xl 24 · 4xl 32`.
+Escala **Thema**, monótona y anclada en el shell: `xs 6 · sm 8 · md 10 (base) · lg 12 · xl 14 · 2xl 16 · 3xl 24`.
+Una card anidada siempre redondea un poco menos que el panel que la contiene.
 
-> La escala anterior (`sm 10 · md 14 · lg 20 · xl 28 · 2xl 32`) inflaba cards y contenedores de datos; con listas y tablas dentro se veían "globo". La escala nueva mantiene la nitidez operativa. `rounded-full` sigue reservado para pills, badges y avatares.
-
-| Uso | Token / clase | Valor |
+| Clase | Valor | Uso |
 |---|---|---|
-| Base (`--radius`) | `0.5rem` | 8px |
-| Componentes pequeños (badges, pills, avatares) | `rounded-full` | 9999px |
-| Inputs, botones | `rounded-md` | 8px |
-| Botones pill, chips, toggles, dropdowns | `rounded-lg` | 12px |
-| Cards, paneles | `rounded-xl` | 16px |
-| Modal, sheet | `rounded-2xl` | 20px |
+| `rounded-xs` | 6px | Checkboxes, marcas de 20px |
+| `rounded-sm` | 8px | Chips, avatares cuadrados, botones `xs` |
+| `rounded-md` | 10px | **Todo lo que se pulsa**: botones, inputs, filas de menú, badges |
+| `rounded-lg` | 12px | Tiles, filas de lista, celdas |
+| `rounded-xl` | 14px | Cards dentro de un panel, chips de icono |
+| `rounded-2xl` | 16px | Cards de página, paneles, drawers, diálogos |
+| `rounded-3xl` | 24px | Barra de acciones flotante |
+| `rounded-full` | — | Avatares, puntos de estado, contadores |
+
+Prohibidos los radios arbitrarios (`rounded-[…px]`).
 
 ### Sombras
 
-SellUp usa sombras mínimas. El sistema de profundidad se comunica principalmente a través de **diferencias de color de superficie**, no de sombras.
+Tres sombras, teñidas en navy (nunca negro neutro):
 
-| Uso | Clase |
+| Clase | Uso |
 |---|---|
-| Card estándar | Sin sombra (borde define el límite) |
-| Card elevada / hover | `shadow-sm` |
-| Dropdown, popover | `shadow-md` (shadcn/ui por defecto) |
-| Modal | `shadow-lg` |
+| `shadow-card` | Reposo de cualquier superficie: card, métrica, tabla, pestaña activa |
+| `shadow-drawer` | Lo que flota sobre la página: drawers, diálogos, popovers, menús |
+| `shadow-rail` | La barra de acciones flotante (lo único que flota sobre contenido vivo) |
 
-**Prohibido:** `shadow-xl`, `shadow-2xl`, box-shadows custom hardcodeados.
+Una card estática no reacciona al puntero: solo se eleva (`hover:shadow-drawer`) si es pulsable.
+
+**Prohibido:** `shadow-sm/md/lg/xl/2xl` sueltas y `shadow-[…]` arbitrarias.
 
 ### Glows y halos
 
-Solo permitidos en:
-- Panel de marca del login (contexto editorial).
-- Indicadores de estado activo muy puntuales.
-
-No usar en la app interna.
+Solo en el panel de marca del login y en la identidad de IA (`su-ai-glow`). No usar en la app interna.
 
 ---
 
@@ -224,9 +229,31 @@ No usar en la app interna.
 />
 ```
 
-Props: `title` (requerido), `description`, `actions`, `className`.
+Props: `title` (requerido), `description`, `breadcrumbs`, `actions`, `meta`, `backHref`, `width`, `className`.
 
-Aplica: `text-2xl font-semibold tracking-tight` para el título. Usa en todas las páginas como primer elemento del contenido.
+El título es un `Heading` (h1 único de la vista, `text-2xl font-bold`). Usa en todas las páginas como primer elemento del contenido. `breadcrumbs` no pinta un renglón sobre el título: se publican en la cabecera del shell (ver abajo). `width` (`narrow` 720 · `normal` 1140 · `wide` 1600 · `full`) acota la cabecera; para acotar la página entera, `PageShell width` (`@/components/layout/page-shell`).
+
+---
+
+### Cabecera y menú del shell
+
+**Ubicación:** `src/components/layout/` — port de Thema `app-shell`.
+
+- **Ruta.** La cabecera pinta «SellUp › sección». Cada pantalla publica sus migas (`PageHeader breadcrumbs`, `DataTablePage breadcrumbs`, `SettingsPage trail`) y la cabecera las añade; lo hace `ShellBreadcrumbs` (`shell-header-slot.tsx`) con un portal, sin desajuste de hidratación. `ShellHeaderSlot` sirve para pintar cualquier otra identidad de pantalla en ese hueco.
+- **Notificaciones.** Popover anclado a la campana (no drawer): «N nuevas», lista, «Marcar leídas» y «Ver todas las notificaciones».
+- **Cuenta** (`AccountMenu`). Identidad y cerrar sesión. El tema y la configuración NO van aquí.
+- **Marca** (`WorkspaceMenu`, en el menú lateral). Tema (Claro / Oscuro / Como el sistema) y la configuración agrupada. No hay botón de tema suelto en la cabecera.
+- **Menú lateral** (`AppSidebar` + `SidebarIconRail`). Secciones plegables con sus vistas (Empresas, Contactos, Configuración); contraído, cada icono despliega sus vistas al pasar el puntero. El árbol sale de `sidebar-nav.ts` y respeta `navAccess`.
+- **Búsqueda** (`GlobalSearch`, ⌘K). Pestañas de alcance, recuento y grupos; los registros (empresas, contactos) se piden al escribir.
+
+### Avisos efímeros (toasts)
+
+Un solo `Toaster`: `ThemaToaster` (`src/components/feedback/thema-toaster.tsx`), montado en `src/app/layout.tsx`. Arriba a la derecha, 76px bajo el borde (libra la cabecera y no tapa la barra de acciones inferior), sobrio (`richColors={false}`), con botón de cerrar e iconos del sistema. Las pantallas solo llaman `toast(...)` de `sonner`; nunca montan otro `Toaster`.
+
+### Confirmaciones y modales
+
+- `ConfirmDialog` (`src/components/shared/confirm-dialog.tsx`) va sobre `AlertDialog`: **sin X y sin cierre por clic afuera**. Foco en Cancelar (o en el campo de `confirmationText`). Tono `destructive`: título en rojo, chip del tono y botón rojo sólido. No se cierra sola al confirmar. `description` es una frase; un error o un `Alert` van en `children`.
+- `ModalShell` (`src/components/shared/modal-shell.tsx`) para formularios cortos: `title`, `description`, `children`, `actions`, `size` (`sm` 384 · `md` 448 · `lg` 512 · `xl` 576). Las pantallas no montan `<Dialog>` a mano.
 
 ---
 
@@ -245,7 +272,7 @@ Aplica: `text-2xl font-semibold tracking-tight` para el título. Usa en todas la
 </SurfaceCard>
 ```
 
-Props de `SurfaceCard`: `elevated` (añade `shadow-sm`), `noPadding` (para tablas o contenidos custom).
+Props de `SurfaceCard`: `elevated` (añade `shadow-drawer`), `noPadding` (para tablas o contenidos custom). Reposo: `rounded-2xl border-border/60 bg-card shadow-card`, padding 24px.
 
 ---
 
@@ -314,8 +341,8 @@ Posición del icono (`iconPosition`):
   description="Con conexión operativa confirmada"
   value={12}
   icon={
-    <div className="rounded-lg p-1.5 bg-emerald-500/10">
-      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+    <div className="rounded-lg p-1.5 bg-success/10">
+      <CheckCircle2 className="h-4 w-4 text-success" />
     </div>
   }
 />
@@ -352,7 +379,7 @@ Variantes soportadas: `loading` (skeleton interno), `error` (mensaje + título).
 Reglas:
 - Usar `MetricCard` en lugar de `<SurfaceCard>` con markup manual para KPIs. Toda card de métricas de la plataforma debe pasar por este componente.
 - En grillas grandes (`grid-cols-6`, `grid-cols-5`) el gap debe ser `gap-3` o `gap-4`.
-- `valueClassName` permite tintar el value (ej. `text-emerald-600` para métricas positivas) y agregar `font-mono` cuando aplique.
+- `valueClassName` permite tintar el value (ej. `text-success` para métricas positivas) y agregar `font-mono` cuando aplique.
 - El título debe llegar en title-case desde la página (no transformarlo dentro del componente).
 - El estilo del `icon` (tamaño, color, fondo) viene desde el consumidor — el componente solo define el slot.
 
@@ -530,19 +557,35 @@ Todas las tablas de SellUp (catálogo de fuentes, batches, candidatos, cuentas, 
 
 ### 10.2 Estructura actual
 
+El motor es TanStack Table v8; la **experiencia** es la de la tabla de Thema. Las piezas visuales que no dependen del motor viven en `data-display/` (portadas de Thema) y `data-table/` las conecta con TanStack.
+
 ```
-src/components/data-table/
-├── data-table.tsx                    # Core: TanStack Table v8 + load mode + settings
-├── data-table-toolbar.tsx            # Title + description + search + settings + actions
-├── data-table-pagination.tsx         # Paginación clásica (page-size + páginas)
-├── data-table-load-more.tsx          # Lazy load: sentinel + IntersectionObserver
-├── data-table-settings-drawer.tsx    # Drawer: visibilidad columnas + modo de carga
-├── data-table-column-header.tsx      # Header clickable (sortable)
-├── data-table-column-popover.tsx     # Per-column popover (sort + filter)
-├── data-table-column-reorder.tsx     # Drag-and-drop column reordering
-├── data-table-row-actions.tsx        # Kebab dropdown por fila
-├── data-table-context-menu.tsx       # Right-click menu
-├── data-table-bulk-action-bar.tsx    # Portal de selección masiva (ver § 12)
+src/components/data-display/           # Piezas de Thema, sin motor
+├── table-header-controls.tsx         # FilterSortHeader, SortOnlyHeader, HeaderSortButton, HeaderFilterButton,
+│                                     #   SelectionHeaderMenu, HeaderSelectAllCheckbox, HeaderSelectionMark
+├── table-config-button.tsx           # TableConfigButton — panel «Configurar tabla» (Popover)
+├── use-table-config.ts               # useTableConfig — preferencias por tabla en localStorage
+├── use-column-drag.ts                # Arrastre nativo de la lista de columnas del panel
+└── row-actions-menu.tsx              # RowActionsMenu — «⋯» de una fila
+
+src/components/data-table/             # La tabla operable (TanStack)
+├── data-table.tsx                    # Core: estado, columnas de servicio, render
+├── data-table-types.ts               # DataTableProps, DataTableBulkAction, DataTableListRowState…
+├── data-table-utils.ts               # multiValueFilter, ids/labels de columna, aria-sort
+├── data-table-column-meta.ts         # DataTableColumnMeta (+ augmentación de ColumnMeta)
+├── data-table-toolbar.tsx            # Título + total · acciones · buscador que se abre · Configurar; modo «selección»
+├── data-table-active-filters.tsx     # Chips «Columna: valor ×» + «Limpiar todo»
+├── data-table-column-header.tsx      # Cabecera: orden con un clic + embudo aparte
+├── data-table-selection-header.tsx   # Menú de selección (paginado) / casilla (scroll infinito)
+├── data-table-row.tsx                # Fila: clic, selección, celdas fijadas, menú contextual
+├── data-table-pagination.tsx         # Pie paginado: «Página x de y · N <sustantivo>»
+├── data-table-load-more.tsx          # Pie de scroll infinito + centinela (IntersectionObserver)
+├── data-table-column-reorder.tsx     # Arrastre de cabeceras (dnd-kit)
+├── data-table-row-reorder.tsx        # Arrastre de filas (dnd-kit)
+├── data-table-row-actions.tsx        # Acciones por fila → RowActionsMenu
+├── data-table-context-menu.tsx       # Menú de clic derecho
+├── data-table-bulk-actions.tsx       # `bulkActions` → acciones de la barra flotante (§ 12) + acciones en la cabecera de la lista («En la pantalla»)
+├── use-column-auto-fit.ts            # Reparto del ancho y posición de columnas fijadas
 └── index.ts                          # Barrel exports
 ```
 
@@ -557,14 +600,14 @@ src/components/data-table/
 | `description` | `ReactNode` | — | Subtítulo debajo del título |
 | `count` | `number` | — | Badge numérico junto al título |
 | `actions` | `ReactNode` | — | Botones alineados a la derecha del toolbar |
-| `enableRowSelection` | `boolean` | `false` | Checkbox column + bulk action bar |
+| `enableRowSelection` | `boolean` | `false` | Checkbox column; la selección va a la barra flotante de la pantalla (§ 12) |
 | `bulkActions` | `DataTableBulkAction<T>[]` | `[]` | Acciones masivas |
 | `contextMenu` | `DataTableContextMenuConfig<T>` | — | Right-click menu items |
 | `stickyHeader` | `boolean` | `false` | `thead` sticky en scroll vertical |
 | `initialPageSize` | `number` | `20` | Filas por página / lote de lazy load |
 | `pageSizeOptions` | `number[]` | `[10, 20, 50, 100]` | Opciones de page-size (modo paginación) |
 | `enableColumnReorder` | `boolean` | `true` | Drag-and-drop en headers |
-| `pinnedColumnIds` | `string[]` | `["select", "actions"]` | Columnas excluidas del reorder |
+| `pinnedColumnIds` | `string[]` | `["select", "reorder", "actions"]` | Columnas de servicio: no se mueven, ni se ocultan, ni se fijan |
 | `manualSorting` / `manualFiltering` | `boolean` | `false` | Si `true`, el padre controla sort/filter via estado externo |
 | `onRowClick` | `(row: T) => void` | — | Click handler (no confundir con selección) |
 | `rowClickable` | `boolean` | `false` | Cursor + hover; necesario junto a `onRowClick` |
@@ -572,46 +615,72 @@ src/components/data-table/
 | `loading` | `boolean` | `false` | Skeleton overlay |
 | `hideToolbar` | `boolean` | `false` | Oculta toolbar completamente |
 | `className` | `string` | — | Wrapper extra classes |
+| `tableId` | `string` | — | Identidad estable de la tabla. Con ella se recuerda la configuración en `localStorage` (`sellup:table:<tableId>`). Sin ella funciona igual pero no recuerda |
+| `noun` | `string` | `"resultados"` | Sustantivo en plural de lo que se lista («empresas», «contactos»): pie, buscador y panel |
+| `nounGender` | `"f" \| "m"` | `"m"` | «3 seleccionadas» frente a «3 seleccionados» |
+| `defaultRowsMode` | `"lazy" \| "paged"` | `"lazy"` | Cómo llegan las filas de fábrica |
+| `getRowLabel` | `(row: T) => string` | — | Nombre de la fila en su casilla y en su menú («Acciones de Acme») |
+| `renderListItem` | `(row, state) => ReactNode` | — | Dibujo de una fila en la vista «Lista». Sin ella el panel no ofrece la vista |
+| `settingsExtraSections` | `ReactNode` | — | Secciones propias de la pantalla dentro de «Configurar tabla» (p. ej. filtros de alcance) |
+| `fillHeight` | `boolean` | `false` | Llena el alto del padre con scroll interno (§ 15) |
 
-### 10.4 Modos de carga — `loadMode`
+### 10.4 Cómo llegan las filas
 
-`DataTableSettings.loadMode` controla cómo se cargan las filas. Configurable desde `<DataTableSettingsDrawer>`:
+Lo elige quien mira en «Configurar tabla» y se recuerda por `tableId`:
 
-| Modo | Comportamiento | Cuándo usarlo |
-|------|----------------|---------------|
-| `'pagination'` | Filas paginadas con `<DataTablePagination>`. Default. | Datasets medianos (≤500 filas en memoria). |
-| `'lazy'` | Filas se revelan incrementalmente con `<DataTableLoadMore>` (IntersectionObserver, automático al hacer scroll). Ver § 13. | Datasets grandes cargados en memoria o listas que se benefician de scroll continuo. |
+| Modo | Comportamiento | Pie |
+|------|----------------|-----|
+| `'lazy'` — **Scroll infinito** (de fábrica) | Se cargan `initialPageSize` filas y un centinela al final del `<tbody>` trae el siguiente tramo al asomar (§ 13) | `Mostrando n de N <sustantivo>` |
+| `'paged'` — **Paginación** | Página por página | `Página x de y · N <sustantivo>` + tamaño de página + Anterior / Siguiente |
 
-El modo se guarda en estado interno del `<DataTable>`. La transición resetea `lazyVisibleCount` automáticamente y `pageSize` se ajusta a `Number.MAX_SAFE_INTEGER` en lazy para que TanStack no interfiera con el slice client-side.
+En los dos modos el corte se hace **después** de filtrar y ordenar (el scroll infinito es una sola página que crece), así que ordenar o filtrar siempre actúa sobre toda la lista y no solo sobre lo cargado. Cambiar filtros, orden o búsqueda vuelve al primer tramo.
 
-**Límite práctico:** lazy es client-side slicing. Para >1000 filas, mover a server-side pagination (`manualPagination`).
+Una tabla corta dentro de un panel puede arrancar paginada con `defaultRowsMode="paged"`.
 
-### 10.5 Ajustes de tabla — `DataTableSettings`
+**Límite práctico:** los datos están en memoria. Para >1000 filas, paginación en servidor.
 
-Estado: `{ globalSearch: boolean; loadMode: 'pagination' | 'lazy' }`.
+### 10.5 «Configurar tabla» — `TableConfigButton` + `useTableConfig`
 
-Configurable desde el `<DataTableSettingsDrawer>` que se abre con el ícono `SlidersHorizontal` en el toolbar. El drawer contiene:
+El botón del engranaje (junto al buscador) abre un **panel anclado** (Popover), no un drawer. Contiene, de arriba abajo:
 
-- **BUSCADOR GENERAL** (`Switch`) — muestra/oculta el input de búsqueda global.
-- **MODO DE CARGA** (`SegmentedControl`) — paginación vs carga perezosa (ver § 13).
-- **COLUMNAS VISIBLES** (checkboxes) — toggle de visibilidad por columna (vía `meta.label`).
+- **Secciones de la pantalla** (`settingsExtraSections`), si las hay.
+- **Columnas** — lista con asa para reordenar (mueve el mismo estado que arrastrar la cabecera), chincheta para **fijar** a la izquierda, ojo para **mostrar/ocultar**; las de servicio (selección, acciones) salen con candado como «Fija»; «Mostrar todas» si hay ocultas. Una columna con `enableHiding: false` se puede mover y fijar pero no ocultar.
+- **Cómo se ven** — Rejilla / Lista (solo si la pantalla pasa `renderListItem`).
+- **Cómo llegan las filas** — Scroll infinito / Paginación.
+- **Cómo se actúa sobre una fila** — Marcando filas / Menú en cada fila (solo con selección y `contextMenu`). Con «menú» desaparecen las casillas y cada fila lleva su «⋯» con las acciones del menú contextual.
+- **Restablecer** y un punto en el botón cuando la configuración no es la de fábrica.
 
-Default: `{ globalSearch: true, loadMode: 'pagination' }`. Sin "Modo de edición" — esa feature fue retirada.
+**«Dónde van las acciones» ya NO está en este panel.** Es una preferencia global de la persona (`useActionsPlacement`, § 12.6): se elige una vez en «Personalización» (menú de la marca) o en los ajustes de la barra, y vale para todas las tablas. La tabla la lee sola: con «En la pantalla», la cabecera de la lista se transforma mientras hay selección («× 3 seleccionadas» + acciones, con los mismos bloqueos y confirmaciones) y no se monta la barra flotante. Un valor `actions` guardado por tabla en versiones anteriores se ignora sin romper.
+
+Todo lo demás se guarda por tabla en `localStorage` (`sellup:table:<tableId>`) y se lee con `useSyncExternalStore`: el servidor y la hidratación pintan lo de fábrica y lo guardado se aplica después, sin desajuste de hidratación. Lo guardado ilegible se ignora.
+
+El buscador general ya no se activa desde ajustes: la lupa siempre está en la barra y abre el campo.
 
 ### 10.6 Columnas — meta fields
 
-`ColumnMeta` extiende `ColumnDef<T, V>['meta']` con campos del sistema:
+`DataTableColumnMeta` (`data-table-column-meta.ts`) extiende `ColumnDef['meta']`:
 
 ```ts
 {
-  label: string;                          // Aparece en "Columnas visibles"
-  facetedFilterTitle?: string;            // Título del dropdown
-  facetedFilterOptions?: { label, value }[]; // Opciones del multi-select
-  disablePopoverSearch?: boolean;         // Oculta el input de búsqueda en el popover
+  label?: string;                 // Nombre en «Configurar tabla» y en los chips de filtro
+  popoverTitle?: string;          // «Filtrar por <popoverTitle>» si difiere del título
+  filterOptions?: { label, value, icon? }[]; // Opciones del embudo (preferible para enums)
+  disableFilter?: boolean;        // Sin embudo: números, fechas, texto libre
+  disableSort?: boolean;          // Sin orden: la etiqueta es texto
+  filterChipLabel?: (value) => string; // Texto del chip para filtros que no son listas (rangos)
 }
 ```
 
-Los faceted filters se renderizan automáticamente en el toolbar cuando una columna tiene `facetedFilterOptions` Y `enableColumnFilter: true` (default).
+Qué cabecera sale de `<DataTableColumnHeader column title />`:
+
+| Columna | Declara | Cabecera |
+|---|---|---|
+| Enumerable (estado, país, fuente, responsable…) | `meta.filterOptions` (o pocos valores únicos, ≤ 50) | Orden + embudo |
+| Numérica o de fecha | `meta.disableFilter: true` | Solo orden |
+| Texto libre (nombre, dominio, email) | `meta.disableFilter: true` | Solo orden |
+| Sin valor por el que ordenar | `enableSorting: false` / `meta.disableSort` | Etiqueta |
+
+El filtro se guarda como `string[]`. Las columnas sin `filterFn` propio usan el de la tabla («el valor está entre los elegidos»); las que declaran el suyo (`'arrIncludesSome'`, un rango de fechas) lo conservan.
 
 ### 10.7 Uso mínimo
 
@@ -629,20 +698,17 @@ const columns: ColumnDef<Row>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Nombre" />,
     cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
     enableHiding: false,
-    meta: { label: 'Nombre' },
+    // Texto libre: se ordena y se busca; sin embudo.
+    meta: { label: 'Nombre', disableFilter: true },
   },
   {
     id: 'status',
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
-    filterFn: (row, _id, value: string[]) => {
-      if (!value?.length) return true;
-      return value.includes(row.original.status);
-    },
+    // Enumerable: orden + embudo con estas opciones y su recuento.
     meta: {
       label: 'Estado',
-      facetedFilterTitle: 'Estado',
-      facetedFilterOptions: [
+      filterOptions: [
         { label: 'Activo', value: 'active' },
         { label: 'Inactivo', value: 'inactive' },
       ],
@@ -653,6 +719,8 @@ const columns: ColumnDef<Row>[] = [
 export function MyList({ rows }: { rows: Row[] }) {
   return (
     <DataTable
+      tableId="elements"
+      noun="elementos"
       title="Listado de elementos"
       description="Vista operativa de todos los elementos registrados."
       columns={columns}
@@ -697,50 +765,42 @@ El `<DataTable>` implementa estas zonas visuales (de arriba a abajo):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Title + count   [search] [⚙] [actions]                          │  ← Toolbar
-│ Description (subtítulo)                                            │
+│ Título [total]                     [acciones] [🔍] [⚙ Configurar] │  ← Barra
+│ Descripción                                                      │
 ├─────────────────────────────────────────────────────────────────┤
-│ ☐ │ Col 1 ⇅▼ │ Col 2 ⇅▼ │ Col 3 ⇅▼ │ Col 4 ⇅▼ │ Acciones  │  ← Sticky header
-├───┼────────────┼────────────┼────────────┼────────────┼───────────┤
-│ ☐ │ ...        │ ...        │ ...        │ ...        │          │  ← Rows
-│ ☐ │ ...        │ ...        │ ...        │ ...        │          │
-├───┴────────────┴────────────┴────────────┴────────────┴───────────┤
-│ [Footer: pagination | load-more sentinel]                       │
+│ Filtros: [País: Colombia ×] [Estado: Nuevo ×]  Limpiar todo      │  ← Solo con filtros
+├─────────────────────────────────────────────────────────────────┤
+│ ☐▾│ Empresa ⇅ │ País ⇅ [▽] │ Estado ⇅ [▽ 2] │ Creación ⇅ │ │  ← Cabecera pegada
+├───┼───────────┼────────────┼────────────────┼────────────┤
+│ ☐ │ ...       │ ...        │ ...            │ ...        │      ← Filas
+├───┴───────────┴────────────┴────────────────┴────────────┤
+│ Mostrando 20 de 134 empresas   |   Página 1 de 7 · 134 empresas  │  ← Pie
 └─────────────────────────────────────────────────────────────────┘
-                                                (when selecting)
                               ┌─────────────────────────────────────┐
-                              │ N seleccionados  [acción1] [acción2] │  ← Floating
-                              └─────────────────────────────────────┘     bar (portal)
+                              │ N seleccionados  [acción1] [acción2] │  ← Barra flotante
+                              └─────────────────────────────────────┘     (portal) o cabecera
 ```
 
-#### 10.9.1 Per-column popover (Sort + Filter)
+#### 10.9.1 Cabecera de columna (orden + embudo)
 
-`<DataTableColumnPopover>` envuelve el header clickable y abre un popover con:
+`<DataTableColumnHeader>` pinta dos controles **a la vista** (Thema · `FilterSortHeader` / `SortOnlyHeader`):
 
-1. **ORDENAR** — botones `Asc` / `Desc` que controlan `column.toggleSorting`.
-2. **FILTRAR** — lista de checkboxes con conteos. Valores de `meta.facetedFilterOptions` (estático) o `column.getFacetedUniqueValues()` (derivado).
+1. **Etiqueta + flecha** — un clic alterna sin orden → ascendente → descendente → sin orden. La flecha se enciende en `text-primary` y la celda lleva `aria-sort`.
+2. **Embudo** (solo columnas enumerables) — abre un menú con casillas, el recuento de cada opción, un buscador cuando hay más de 8 y «Limpiar filtros (n)» arriba cuando hay alguno. Con filtro puesto el embudo va en `bg-primary/10 text-primary` y muestra cuántos valores hay elegidos. Etiqueta accesible: «Filtrar por <columna>». Las opciones con filas van primero.
 
-Filtros se almacenan como `string[]` en `column.filterValue` con `filterFn: 'arrIncludesSome'`.
+Fijar y ocultar una columna **no** viven en la cabecera: están en «Configurar tabla» (§ 10.5). Texto de cabecera: `text-xs font-semibold`, sin mayúsculas forzadas.
 
-**Indicadores en el header clickable** (en `<DataTableColumnHeader>`):
+Para un filtro que no es una lista (rango de fechas), compón `HeaderSortButton` + `HeaderFilterButton` de `@/components/data-display` con tu propio Popover (ver `prospect-date-range-column-header.tsx`).
 
-| Estado | Indicador |
-|---|---|
-| Sin sort ni filtro | `ChevronsUpDown` tenue (sólo en hover) |
-| Sort ascendente | `ArrowUp` sólido en `text-foreground` |
-| Sort descendente | `ArrowDown` sólido en `text-foreground` |
-| Filtro activo (cualquier valor en `column.filterValue`) | `ListFilter` sólido en `text-primary` (reemplaza el `ChevronsUpDown` por defecto) |
-| Columna pineada | `Pin` en `text-primary` |
+**Celdas** — el mismo dato se lee igual en todas las tablas; las piezas viven en `@/components/shared/table-cells`: el dato que falta es `EmptyCell` («—» apagado, con su nombre para el lector de pantalla), nunca un texto distinto por tabla («Sin dato», «Sin verificar»…); el país es `CountryCell` (bandera + nombre completo); un enlace que sale de SellUp es `ExternalLinkCell` o `ExternalIconLink` (icono, foco visible, no dispara el clic de la fila); el nombre que abre el detalle es `RowTitleButton`.
 
-El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el operador ve de un vistazo qué columnas están filtradas sin tener que abrir el popover.
+**Filtros activos** — `<DataTableActiveFilters>` pinta bajo la barra un chip `Columna: valor ×` por cada valor elegido y por la búsqueda, con «Limpiar todo». Sin filtros la fila no existe. Con filtros, el total junto al título es el de lo filtrado.
 
-**Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha hecho click en un sort header, el orden de filas es el que provee el padre (drag-and-drop). Al primer click en un sort header, TanStack toma el control (`manualSorting` pasa a `false`) y reordena la vista. Al limpiar el sort desde el popover (`Limpiar filtros`), el control vuelve al padre y reaparece el orden manual.
-
-**Anatomía del popover** — `w-72` (288px), `p-0`, `rounded-xl border border-border/40`. Cada sección (Título, Ordenar, Buscar, Filtrar) lleva `px-5` en el header de sección y `px-4` en el cuerpo para que el contenido (botones, input, checkboxes) respire ~16px del borde. Los items de filtro van con `px-2 py-1.5` y `gap-2.5` entre checkbox y label. Separadores entre secciones con `<Separator className="mx-4" />`.
+**Coexistencia row reorder + sort:** cuando `enableRowReorder` está activo y el usuario aún no ha ordenado, el orden de filas es el que provee el padre (drag-and-drop). Al ordenar por una cabecera, TanStack toma el control; al volver a «sin orden» (tercer clic), el control vuelve al padre.
 
 #### 10.9.2 Row right-click context menu
 
-`<DataTableContextMenu>` envuelve cada fila cuando el `DataTable` recibe `contextMenu`. Anatomía:
+`<DataTableContextMenu>` engancha el menú a la **propia fila** (`ContextMenuTrigger asChild` sobre el `<tr>`) cuando el `DataTable` recibe `contextMenu`: nada de `<div>` entre `<tbody>` y `<tr>`, que es HTML inválido y rompía la hidratación. Vale también con filas arrastrables (`enableRowReorder`): `DataTableRowReorder` no pinta el `<tr>`, le entrega a `DataTableRow` la ref y el desplazamiento de dnd-kit (`sortableRowProps`), así que la fila sigue siendo un único elemento y tampoco queda un `<div>` entre `<tr>` y `<td>`. Las mismas acciones alimentan el «Menú en cada fila» (§ 10.5). Anatomía:
 
 - `min-w-[220px]`, container `p-1.5`, `rounded-xl border border-border/30`.
 - Items con `px-2.5 py-2`, `gap-2.5` y icono `h-4 w-4` — el icono agrandado y el padding mayor dan aire al texto (evita que se vea "circular" / pegado al borde).
@@ -748,33 +808,44 @@ El `ListFilter` aparece aunque la columna no esté ordenada, de modo que el oper
 
 #### 10.9.3 Column reordering (drag-and-drop)
 
-`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "actions"]`) no son draggeables. Activado por defecto (`enableColumnReorder: true`).
+`<DataTableColumnReorder>` envuelve el header row con `@dnd-kit/core` + `@dnd-kit/sortable`. Columnas en `pinnedColumnIds` (default `["select", "reorder", "actions"]`) no se arrastran, ni se ocultan, ni se fijan. Activado por defecto (`enableColumnReorder: true`). Arrastrar una cabecera y arrastrar en el panel «Configurar tabla» mueven el mismo estado (`useTableConfig`).
 
-#### 10.9.4 Floating bulk action bar (portal pattern)
+El `DndContext` lleva `id={useId()}` y `accessibility={{ container: document.body }}`: sin eso, las regiones de anuncio de dnd-kit rompen la hidratación dentro de una tabla. La celda sigue siendo una cabecera de columna (no `role="button"`), para que `aria-sort` sea válido.
 
-`<DataTableBulkActionBar>` se renderiza via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para el patrón completo.
+**Ancho de columnas** — si sobra ancho, se reparte en proporción al `size` de cada columna; si faltan unos píxeles, las columnas anchas (`size ≥ 160`) ceden hasta un 15 % (nunca por debajo de su `minSize`) antes de obligar a desplazar de lado.
 
-#### 10.9.5 Settings drawer (no dialog)
+**Columnas fijadas** — las fijadas desde el panel pasan al principio y se quedan quietas a la izquierda (`position: sticky`) al desplazar la tabla de lado; las de servicio (selección) se quedan quietas con ellas.
 
-`<DataTableSettingsDrawer>` reemplaza el antiguo settings dialog. Contiene: switch de buscador, segmented control de modo de carga, listado de columnas visibles. Accesible desde el ícono `SlidersHorizontal` en el toolbar.
+#### 10.9.4 La selección en la barra flotante (portal pattern)
 
-#### 10.9.6 Search input
+Con filas marcadas, las `bulkActions` van a LA barra flotante de la pantalla (`DataListActionRail`, § 12), que se monta via `createPortal` a `document.body` (NO dentro de la tabla). Razón técnica: el `transform` del `animate-su-fade-in` del AppShell crea un containing block que rompe `position: fixed` para descendientes. Ver § 12 para la anatomía y la regla «una sola barra por pantalla».
 
-Input de búsqueda controlado por `state.globalFilter` (TanStack built-in). Aparece/oculta según `settings.globalSearch`.
+#### 10.9.5 Configurar tabla (panel, no drawer)
 
-#### 10.9.7 Pagination / Load-more footer
+`<TableConfigButton>` (§ 10.5). Sustituye al antiguo `DataTableSettingsDrawer`, que ya no existe.
 
-El footer cambia según `loadMode`:
+#### 10.9.6 Buscador
 
-- **Paginación:** `<DataTablePagination>` con formato `Mostrando {first} - {last} de {total} resultados` + `[« Anterior] 1 2 [Siguiente »]` con elipsis entre páginas no consecutivas. Página actual con `bg-foreground text-background`. Si `totalRows === 0`, solo "0 resultados".
-- **Lazy:** `<DataTableLoadMore>` con sentinel de IntersectionObserver. Ver § 13.
+La lupa de la barra abre el campo («Buscar en <sustantivo>»), controlado por `state.globalFilter`. La «×» lo limpia y lo cierra. La búsqueda activa aparece como chip en los filtros activos.
+
+#### 10.9.7 Selección
+
+- **Paginado** — la casilla de cabecera es un menú (`SelectionHeaderMenu`): «Seleccionar esta página (n) / Seleccionar todos (n) / Deseleccionar esta página / Deseleccionar todos».
+- **Scroll infinito** — es una casilla simple que marca todo lo cargado y, pulsada otra vez, lo suelta.
+- **Clic en la fila** — si la tabla **no** tiene `onRowClick`, picar en la fila la marca (salvo que el clic nazca en un botón, enlace, casilla o menú). Con `onRowClick`, abre el detalle como siempre.
+
+#### 10.9.8 Pie
+
+- **Scroll infinito:** `<DataTableLoadMore>` — `Mostrando n de N <sustantivo>`. El centinela (`<DataTableLazySentinel>`) va dentro del `<tbody>`. Ver § 13.
+- **Paginación:** `<DataTablePagination>` — `Página x de y · N <sustantivo>`, selector «Filas por página» y Anterior / Siguiente. El tamaño elegido se recuerda por `tableId`.
 
 ### 10.10 Checklist de migración
 
 - [ ] Reemplazar `useState`+`useMemo`+`Table` por `<DataTable>` con `columns` + `data` + `getRowId`.
 - [ ] Definir `meta.label` en toda columna visible.
-- [ ] Mover filtros `useState` (país, estado, etc.) a faceted filters via `meta.facetedFilterOptions`.
-- [ ] Acciones por fila: usar `DataTableRowActions` en slot `cell` con kebab `MoreHorizontal`.
+- [ ] Pasar `tableId` (estable) y `noun` (plural) a la tabla.
+- [ ] Mover filtros `useState` (país, estado, etc.) al embudo de su columna via `meta.filterOptions`; marcar `meta.disableFilter` en números, fechas y texto libre.
+- [ ] Acciones por fila: declararlas en `contextMenu.items` (sirven al clic derecho y al «Menú en cada fila»).
 - [ ] Right-click: declarar `contextMenu.items` con `DataTableContextMenuItem[]`.
 - [ ] Bulk actions: declarar `bulkActions` con `confirm` para acciones destructivas.
 - [ ] Eliminar imports de `Table*`, `Input` (search), `useState`/`useMemo` para filtros.
@@ -785,8 +856,8 @@ El footer cambia según `loadMode`:
 
 - **Máximo un badge de color por fila.** El badge de color se reserva para la señal más importante de la fila (típicamente el estado/salud). Las demás categorías van como **texto plano** (`text-muted-foreground`) o, si necesitan señal ligera, un **punto de color + texto** (`h-1.5 w-1.5 rounded-full` + label). Varias columnas de badges de colores distintos en la misma fila convierten el color en ruido y le quitan semántica.
 - **Un valor por defecto no es un badge.** Un estado que es idéntico en todas las filas de la vista (p. ej. "Por revisar" en el tab de candidatos) va como texto plano, no como badge repetido.
-- **Celdas de máximo 2 líneas.** Evitar apilar 3+ microlíneas de `text-[10px]` (nombre + email + LinkedIn + teléfono). Mover lo secundario a iconos o al detalle en el drawer/side panel.
-- **Microtexto mínimo `text-[11px]`** en celdas de datos; reservar `text-[10px]` para overlines y badges de conteo.
+- **Celdas de máximo 2 líneas.** Evitar apilar 3+ microlíneas de `text-xs` (nombre + email + LinkedIn + teléfono). Mover lo secundario a iconos o al detalle en el drawer/side panel.
+- **Microtexto mínimo `text-xs`** en celdas de datos y en badges de conteo. No hay tamaños por debajo de 12px.
 
 ### 10.11.1 Prohibiciones
 
@@ -840,7 +911,7 @@ Cuando el detalle de una entidad tiene múltiples sub-áreas (información gener
 ### 11.3 Implementación de referencia
 
 Combinar `DrawerShell` + `Tabs` (Base UI). Ejemplo real en
-`src/app/(sellup)/settings/source-catalog/source-detail-drawer.tsx`:
+`src/app/(sellup)/source-catalog/source-detail-drawer.tsx`:
 
 ```tsx
 import { DrawerShell } from '@/components/shared/drawer-shell';
@@ -874,7 +945,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
       <TabsTrigger value="batches">
         Lotes
         {batchesCount > 0 && (
-          <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+          <span className="ml-1.5 inline-flex items-center justify-center rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
             {batchesCount}
           </span>
         )}
@@ -890,11 +961,20 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 - **Variante de tabs:** siempre `variant="segmented"` dentro de un drawer (estándar de facto: los 4 drawers de detalle —fuente, cuenta, contacto, candidato— lo usan). `default` (con fondo `bg-muted`) se reserva para settings y formularios.
 - **Tab por defecto:** el que tenga el contenido más crítico / informativo. Para una entidad con info + relación, `Información` va primero.
-- **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/40 bg-muted/60 px-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground`.
+- **Badge de conteo:** incluir en el trigger cuando aplique (`Lotes 5`, `Actividad 12`). Estilo: `rounded-full border border-border/60 bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground`.
 - **Tabs opcionales:** si la entidad solo tiene `Información` (sin datos relacionados), omitir el wrapper `Tabs` y renderizar el contenido directo. No forzar un único tab "decorativo".
 - **Ancho del drawer:** para detail views con tablas usar un ancho acotado con tope — p. ej. `sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]` — para evitar un lienzo vacío en pantallas anchas; `sm:w-[480px]` o `sm:w-[560px]` para detail views simples. Evitar `!w-[90vw]` salvo que el contenido lo justifique.
 - **Footer del drawer:** acciones de copia (Copiar key/ID) y enlaces externos (Abrir URL). **Nunca** un "Abrir página completa".
 - **Datos del tab:** pre-cargar server-side y pasar como prop. No `useEffect` ni flash de loading al cambiar de tab.
+
+### 11.4 bis Secciones plegables y resumen
+
+- **Un título por sección.** Una sección que se pliega es `CollapsibleDrawerSection` (`@/components/shared/collapsible-drawer-section`): la misma tarjeta que `DrawerSection`, con la cabecera como botón. Nunca un rótulo plegable con una tarjeta dentro que repite el nombre.
+- **Plegada, dice qué contiene.** Pasa `summary` (una línea: «acme.co · con LinkedIn · 250 empleados») o `badge` (un contador). Arranca abierta (`defaultOpen`) la que trae algo que decidir.
+- **Resumen arriba.** Antes de las pestañas o de la primera sección, tres o cuatro datos clave en un `DetailList` (`columns={4}`). Lo que está en el resumen no se repite en las secciones.
+- **Sin tarjetas con rayas.** Si no hay datos que resumir (p. ej. un prospecto sin evaluar), el resumen dice por qué y qué falta, en vez de pintar «— / 100».
+- **Pie.** La acción principal, a la derecha; lo secundario y lo destructivo, a la izquierda.
+- **Títulos en frase.** «Datos oficiales y legales», no «Datos Oficiales y Legales».
 
 ### 11.5 Prohibiciones
 
@@ -906,52 +986,72 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 ---
 
-## 12. Floating Action Bar — Portal pattern
+## 12. Floating Action Bar — una sola barra por pantalla
 
-### 12.1 Problema
+La barra de acciones flotante es el `action-rail` de Thema (`@/components/action-rail`), no un contenedor con botones dentro. **Regla: una sola barra por pantalla.** Concentra todo lo que se puede hacer y cambia de contenido según lo que haya marcado; nunca conviven una «barra de acciones de pantalla» y una «barra masiva».
 
-`position: fixed` dentro de un contenedor que tiene un `transform` aplicado **no se posiciona respecto al viewport** — se posiciona respecto al contenedor. Esto se llama **containing block**.
+### 12.1 Anatomía
 
-El `<main>` de `AppShell` aplica `animate-su-fade-in` que usa `transform: translateY(...)` durante la animación. Cualquier `position: fixed` dentro de `<main>` queda "atrapado" en ese contenedor.
+```
+┌──────────────────────────────────────────────────────────────┐
+│ ⠿  ⚙ │ ✕ 3 seleccionadas │ ◻ ◻ ◻ ⋯ │        (con selección)  │
+│ ⠿  ⚙ │ ⋯ ◻ ◻ [ + Crear empresa ]            (sin selección)  │
+└──────────────────────────────────────────────────────────────┘
+  asa  ajustes  divisoria   grupo contextual / grupo persistente
+```
 
-**Síntoma:** la barra de acciones masivas se renderiza pero no se queda fija al fondo de la pantalla — se queda al final del contenedor scrollable.
+- **Marco** (`ActionRailShell`): `h-14 rounded-3xl border bg-nav shadow-rail`. Al principio lleva sus propios controles —el **asa de arrastre** (`RailDragHandle`) y el **menú de ajustes** (`RailSettingsMenu`)—, una divisoria y luego los dos grupos.
+- **Ajustes de la barra**: orientación (horizontal / vertical), visibilidad (mantener abierta / ocultar sola), **dónde van las acciones** (En esta barra / En la pantalla — § 12.6) y «Volver a su sitio». Se recuerdan en `localStorage` (`sellup:action-rail:*`) y valen para todas las pantallas, porque para quien la usa es una sola barra. Se leen con `useSyncExternalStore` (sin desajuste de hidratación).
+- **Recogida** es una pastilla de 64×6 que se abre al pasar el cursor, al enfocarla o al tocarla. Se mantiene abierta (`keepOpen`) mientras hay selección o un menú abierto, y se recoge inerte (`isBlocked`) mientras un panel abierto desde ella tiene la pantalla.
+- **Arrastrable**: se suelta en cualquier punto y se recuerda; doble clic en el asa la devuelve a su atraque (abajo al centro, o borde derecho si va de pie).
+- **Botones**: `RailButton` (icono 40×40 `rounded-xl`, etiqueta en tooltip, `tone="danger"`, `blockedReason` que la apaga y lo explica), `RailPrimaryAction` (la ÚNICA acción rellena: icono + etiqueta en `bg-primary`; `variant="ai"` conserva el degradado de IA; de pie queda cuadrada con tooltip), `RailOverflowMenu` («⋯»), `RailSelectionChip` («✕ 3 seleccionadas»), `RailCreateOption` (fila del popover de creación), `ConfirmActionPopover`.
+- **Movimiento**: sin framer-motion. Abrir/recoger y el escalonado de las acciones al cambiar de contexto son utilidades `su-rail-*` / `su-dock-item` de `globals.css` (`transform` + `opacity`), apagadas con `prefers-reduced-motion`.
+- **Agente de IA** (`RailAgentProvider` / `rail-agent.ts`): la barra cierra por la derecha, después de la primaria, con el agente de IA de la pantalla — un botón 40×40 con el degradado de IA (`bg-ai-gradient`) y la chispa; su nombre va en el tooltip. Es una segunda principal, a un clic; solo sin selección. De pie es el mismo botón cuadrado.
+- **Móvil** (`useCompactViewport`, < `lg`): la misma pieza en su otra forma, `ActionFab` — un botón flotante que despliega las mismas acciones; el agente de IA es una fila más, con su pastilla en el degradado de IA.
 
-### 12.2 Solución: portal a `document.body`
-
-`createPortal(jsx, document.body)` saca el elemento del árbol DOM actual y lo monta en otro contenedor. Como `document.body` no tiene `transform`, `position: fixed` vuelve a funcionar contra el viewport.
-
-### 12.3 Implementación de referencia
-
-`src/components/data-table/data-table-bulk-action-bar.tsx`:
+### 12.2 Cómo se monta en una pantalla de lista
 
 ```tsx
-'use client';
+// page.tsx (servidor)
+<ListActionRailProvider label="Acciones de empresas" gender="f">
+  <DataTablePage title="Empresas" actions={<AccountsScreenActions users={users} />}>
+    <AccountsDataTableClient accounts={accounts} />
+  </DataTablePage>
+</ListActionRailProvider>
 
-import * as React from 'react';
-import { createPortal } from 'react-dom';
-
-export function DataTableBulkActionBar({ count, onClear, children }: Props) {
-  // mount guard: evita hydration mismatch con SSR
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
-
-  if (!mounted) return null;
-
-  return createPortal(
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] ...">
-      {children}
-    </div>,
-    document.body,
-  );
-}
+// accounts-screen-actions.tsx (cliente): declara, no pinta botones
+const actions = React.useMemo<RailActionSpec[]>(() => [
+  { id: 'create', label: 'Crear empresa', icon: <Plus />, scope: ['screen'], primary: true, onSelect: () => setIsCreating(true) },
+], []);
+return (
+  <>
+    <RailScreenActions actions={actions} agent={agent} isBlocked={isCreating} />
+    <CreateAccountDrawer users={users} open={isCreating} onOpenChange={setIsCreating} />
+  </>
+);
 ```
+
+- **`ListActionRailProvider`** monta LA barra (`DataListActionRail`) y reserva su hueco para que no tape el pie de la tabla: `pb-20` tendida, `pr-20` de pie, nada si quien mira la arrastró.
+- **La pantalla** declara `RailActionSpec[]` con `scope: ["screen"]` en `<RailScreenActions>`: `primary` (una sola, cierra la fila), `overflow` (se pliega tras «⋯»), `blockedReason`, `options` (la primaria abre un popover de creación con varias opciones) y `onSelect`. Los drawers que abre se montan **controlados** (`open` / `onOpenChange`).
+- **La tabla** no necesita nada: `DataTable` traduce sus `bulkActions` a acciones de la barra y le cuenta la selección por contexto. `disabled(rows)` → `blockedReason` (con `disabledLabel(rows)` como explicación), `confirm` pregunta antes, `items` es un menú con nombre, `scope: ['single']` saca la acción de la barra cuando hay varias filas marcadas y `countInLabel` añade el recuento («Archivar (3)»).
+- **Sin selección** la barra enseña las acciones de pantalla (plegadas · de a diario · primaria al final). **Con selección** las SUSTITUYE por el recuento y las acciones sobre lo marcado.
+- **El agente de IA** se declara aparte, con `agent` (una `RailActionSpec` con `variant: "ai"`): «Generar con IA» en las tres vistas de Empresas (Empresas, Por revisar, Descartadas) y «Buscar contactos con IA» en Contactos. Usuarios y Configuración no tienen agente. Si la búsqueda con IA no puede ejecutarse, el agente NO se llama «Generar con IA» ni lleva el degradado: se llama «Búsqueda no disponible» (sin `variant`) y abre la explicación.
+- Con **«Dónde van las acciones» = En la pantalla** (§ 12.6) la barra no se monta: `RailScreenActions` pinta las acciones en la cabecera y las de selección van en la cabecera de la lista.
+- Una `DataTable` fuera de un `ListActionRailProvider` monta su propia barra solo mientras tiene filas marcadas.
+
+### 12.3 Por qué va por portal
+
+`position: fixed` dentro de un contenedor con `transform` **no se posiciona respecto al viewport** sino respecto a ese contenedor (containing block). El `<main>` de `AppShell` aplica `animate-su-fade-in`, que usa `transform`. `ActionRailShell` y `ActionFab` se montan con `createPortal(jsx, document.body)`, donde `fixed` vuelve a ser contra la ventana.
 
 ### 12.4 Reglas
 
-- **z-index:** `z-[60]` (drawer es `z-50`). Modal/dialog toma precedencia.
-- **Mount guard:** siempre usar `useState(false) + useEffect(setTrue)` para evitar SSR/hydration mismatch.
-- **Single source of truth:** el estado de selección vive en el `<DataTable>`; el bar solo lo lee y dispara callbacks.
-- **Hide cuando count === 0:** el bar no se monta si no hay selección.
+- **Una sola barra por pantalla.** No montes botones `<Button>` dentro de un contenedor flotante ni una segunda barra para la selección: declara `RailActionSpec` y deja que la barra resuelva modos, orden, escalonado y plegado.
+- **Una sola acción rellena** (la primaria). El resto son iconos con su etiqueta en tooltip.
+- **z-index:** `z-40`: flota sobre la página y por debajo del velo de drawers (`z-50`) y diálogos (`z-[60]`), que la cubren al abrirse.
+- **Cliente solamente:** la barra no se pinta en el servidor (`useSyncExternalStore`), así no hay desajuste de hidratación.
+- **Single source of truth:** la selección vive en el `<DataTable>`; la barra solo la lee y dispara callbacks.
+- **Animaciones:** solo las utilidades `su-rail-*` de `globals.css`; nada de keyframes en el componente.
+- **`DrawerActionRail`** es la misma barra dentro de un drawer (franja del pie, auto-ocultar y pastilla). No lleva asa de arrastre: el panel entra con `transform` y una posición guardada en coordenadas de ventana la dejaría fuera de él.
 
 ### 12.5 Cuándo replicar este patrón
 
@@ -963,6 +1063,29 @@ Usar portal a `document.body` para CUALQUIER elemento que necesite:
 
 ---
 
+### 12.6 Dónde van las acciones — preferencia global de la persona
+
+Port de Thema `actionsPlacement`. Quien prefiere la barra la quiere en todas las pantallas, así que **no es de cada tabla**: es UNA preferencia (`useActionsPlacement()` → `"rail" | "inline"`), fuera de React, guardada en `localStorage` (`sellup:actions-placement`) y leída con `useSyncExternalStore` (en el servidor y durante la hidratación manda la barra).
+
+Se cambia en dos sitios, y solo en esos:
+
+- **Ajustes de la barra** → grupo «Dónde van las acciones»: «En esta barra» / «En la pantalla». Pasarlas a la pantalla apaga la barra.
+- **Personalización** (menú de la marca, `PersonalizationMenu`) → «Acciones de la pantalla»: `SegmentedControl` «Barra flotante» / «En la pantalla» + una línea de ayuda. Es la única puerta para volver a encender la barra.
+
+Con **«En la pantalla»**:
+
+- La barra flotante **no se monta**, ni con filas marcadas, ni el botón flotante de móvil. El hueco reservado (`pb-20` / `pr-20`, `ActionRailReserve`) desaparece.
+- `RailScreenActions` pinta las acciones de pantalla en su sitio —el hueco `actions` de `DataTablePage` (también en la banda `compact`) y de `PageHeader`— con `ScreenHeaderActions` (port de Thema): lo plegado en «⋯», lo de a diario como botones `outline`, la principal rellena al final y el agente de IA como `AIButton` cerrando la fila. El reparto lo decide `railScreenTiers`, el mismo de la barra.
+- Las acciones de la selección van en la cabecera de la tabla (§ 10.5).
+- **Mismo conjunto, mismos bloqueos y confirmaciones** en las dos superficies: son las mismas `RailActionSpec` (`blockedReason` apaga y explica; `onSelect` es el mismo) y las mismas `bulkActions`.
+
+```tsx
+// No hace falta nada en la pantalla: la misma declaración vale para las dos superficies.
+<RailScreenActions actions={actions} agent={agent} isBlocked={isOpen} />
+```
+
+---
+
 ## 13. Lazy Load con IntersectionObserver
 
 ### 13.1 Propósito
@@ -971,15 +1094,17 @@ Reemplazar el botón "Cargar más" por scroll automático. Más natural para lis
 
 ### 13.2 Comportamiento
 
-Cuando `loadMode === 'lazy'`:
+En scroll infinito (`mode === 'lazy'`, el modo de fábrica):
 
-1. El padre renderiza `data.slice(0, lazyVisibleCount)`.
+1. La tabla es una sola «página» de TanStack que crece: `pagination = { pageIndex: 0, pageSize: lazyVisibleCount }`. El tramo se corta **después** de filtrar y ordenar.
 2. `lazyVisibleCount` empieza en `initialPageSize` (default 20).
-3. Un `<div>` invisible (`h-px w-full`) al final del footer es observado por un `IntersectionObserver` con `rootMargin: "120px 0px"`.
-4. Cuando el sentinel entra en el viewport (con 120px de提前), el observer dispara `onLoadMore()`.
-5. El padre incrementa `lazyVisibleCount` por `initialPageSize` (u otro paso).
-6. Si `lazyVisibleCount >= data.length`, se quita el sentinel.
-7. Cambios en `filters`, `globalFilter`, `sort` o `loadMode` resetean `lazyVisibleCount` a `initialPageSize`.
+3. `<DataTableLazySentinel>` añade al final del `<tbody>` unas filas fantasma (esqueleto); la primera es el centinela de un `IntersectionObserver` cuya raíz es **la caja que de verdad hace scroll** (la de la tabla con `fillHeight`, o la ventana) y con `rootMargin: "240px"`.
+4. Al asomar el centinela se suma `initialPageSize`; al crecer el tramo, el centinela se vuelve a montar (`key`) para volver a preguntar aunque siga a la vista.
+5. Cuando ya está todo cargado, el centinela desaparece. El pie dice `Mostrando n de N <sustantivo>`.
+6. Cambios en filtros, búsqueda, orden o modo vuelven al primer tramo (ajustado durante el render, no en un efecto).
+7. Con teclado, el botón «Cargar más <sustantivo>» (visible al recibir foco) hace lo mismo.
+
+> La implementación de referencia de § 13.3 es histórica; la vigente está en `data-table-load-more.tsx`.
 
 ### 13.3 Implementación de referencia
 
@@ -1068,11 +1193,12 @@ pagination: { pageSize: isLazy ? Number.MAX_SAFE_INTEGER : initialPageSize }
 
 ### 13.4 Reglas
 
-- **`rootMargin: "120px 0px"`** — activa carga antes de que el sentinel llegue al borde. 120px es un buen balance entre naturalidad y trigger temprano.
-- **Reset en cambios de filtro/sort** — el `useEffect` con deps `[isLazy, initialPageSize, globalFilter, columnFilters, sorting]` garantiza que el usuario no quede atrapado en un estado lazy inconsistente.
-- **Spinner sutil** — `Loader2` con `opacity-0` cuando idle para reservar espacio y evitar layout shift.
-- **Texto centrado** — `Mostrando X de Y · N más disponibles` o `Mostrando X de Y resultados` cuando se agota.
-- **Sin botón** — el patrón es scroll-only. El botón reintroduce fricción innecesaria.
+- **El centinela vive dentro de la caja con scroll.** Fuera de ella siempre «se ve» y la tabla se carga entera de un tirón.
+- **`rootMargin: "240px"`** — el siguiente tramo ya está puesto cuando el centinela llega al borde.
+- **Vuelta al primer tramo** al cambiar filtros, búsqueda u orden.
+- **Filas fantasma, no un spinner** — lo que hay bajo el pliegue son filas, y eso es lo que aparece.
+- **Pie** — `Mostrando n de N <sustantivo>`.
+- **Sin botón a la vista** — el botón «Cargar más» solo existe para teclado y lectores de pantalla.
 
 ### 13.5 Trade-offs
 
@@ -1173,7 +1299,8 @@ import { Badge } from '@/components/ui/badge';
 
 ### 14.4 Anti-patterns (NO hacer)
 
-- ❌ Dos botones/popovers separados para "ajustes" y "filtros" — todo vive en un solo `DataTableSettingsDrawer`.
+- ❌ Filtros de columna en una barra aparte o escondidos tras el título — van en el embudo de su columna y se ven como chips (§ 10.9.1).
+- ❌ Un drawer propio de «ajustes de tabla» — la configuración vive en el panel «Configurar tabla» (§ 10.5); lo propio de la pantalla entra por `settingsExtraSections`.
 - ❌ CSV export como acción en toolbar sin endpoint real — quitar o implementar primero.
 - ❌ Edit mode, density toggle, o view options popover — features retiradas.
 - ❌ Lazy load con botón "Cargar más" — usar IntersectionObserver (§ 13).
@@ -1255,16 +1382,41 @@ Encapsula el layout. Recibe título/descripción/acciones para `PageHeader`, mé
 Internamente:
 
 ```tsx
-<div className="flex flex-1 min-h-0 flex-col gap-6">
+<div className="-mx-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-1">
   <div className="shrink-0">
     <PageHeader title={title} description={description} actions={actions} backHref={backHref} />
   </div>
+  {tabs && <div className="shrink-0">{tabs}</div>}
   {metrics && <div className="shrink-0">{metrics}</div>}
-  <div className="flex flex-1 min-h-0 flex-col">{children}</div>
+  <div className="flex min-h-[min(100%,32rem)] flex-1 flex-col">{children}</div>
 </div>
 ```
 
-`gap-6` entre secciones. `shrink-0` en header y métricas para que no se colapsen. `flex-1 min-h-0` en el área de contenido para que ocupe el resto y permita scroll interno.
+`shrink-0` en header, pestañas y métricas para que no se colapsen; `flex-1` en el área de contenido para que ocupe todo el alto que queda.
+
+**Cabecera compacta (`compact`).** Las pantallas de lista con pestañas de módulo (Empresas, Contactos) gastaban el alto en título + descripción + pestañas + cuatro tarjetas de métricas y a la tabla le quedaban tres o cuatro filas. Con `compact`:
+
+- título, descripción (letra pequeña, hasta dos renglones) y pestañas van en **una sola banda** de la altura de las pestañas; en pantalla estrecha las pestañas bajan a su renglón;
+- los huecos entre bloques pasan de `gap-5` a `gap-3`;
+- las métricas dejan de ser tarjetas: son **indicadores que filtran** (`useQuickFilter` + `QuickFilterChips` en `@/components/filters/quick-filter-strip`). En pantalla ancha (≥ 1280px) van dentro de la barra de la tabla (`<DataTable actions={…} />`) y no gastan renglón; en estrecha, en su franja (`QuickFilterStrip`) sobre la tabla. Pulsar uno deja en la tabla solo sus filas (`aria-pressed`) y volver a pulsarlo lo quita; el número de cada uno se calcula sobre las mismas filas que pinta la tabla.
+
+Resultado a 1440×900: de 3–4 filas a 8–9 sin desplazar la página. El estado de carga de estas pantallas es `ListPageSkeleton`, que conserva la banda (título y migas de la vista) y pinta una tabla fantasma.
+
+Empresas y Contactos **no llevan pestañas de página**: la navegación entre sus vistas vive en el menú lateral (Empresas → Empresas / Por revisar / Descartadas; Contactos → Contactos / Por revisar; en móvil, en el cajón). El título dice la vista (`EMPRESAS_VIEW_TITLES`, `CONTACTOS_VIEW_TITLES`), las migas el módulo («Empresas › Por revisar») y el total vive en el título de la tabla. Las URL no cambiaron.
+
+```tsx
+<DataTablePage
+  compact
+  title="Por revisar"
+  description="…"
+  breadcrumbs={<Breadcrumbs items={[{ label: "Empresas", href: "/accounts" }, "Por revisar"]} />}
+  actions={<ProspectsScreenActions … />}
+>
+  <AccountsDataTableClient … />
+</DataTablePage>
+```
+
+**Alto mínimo de la tabla.** En una pantalla alta la cabecera y las métricas quedan fijas y la tabla llena el resto. En una baja (p. ej. 1440×900 con pestañas y métricas) el alto que quedaba dejaba ver solo unas cuatro filas: ahora la tabla no baja de `min(100%, 32rem)` y lo que se desplaza es la página (`overflow-y-auto` en la propia caja de `DataTablePage`), con la tabla conservando su scroll interno y su cabecera pegada. La caja con scroll es la de `DataTablePage` y no la del shell para que el hueco que reserva `ListActionRailProvider` (`pb-20` con la barra tendida, `pr-20` de pie) quede siempre fuera: la barra flotante nunca tapa el pie de la tabla. El `-mx-3 px-3` deja sitio a sombras y anillos de foco, que una caja con scroll recortaría.
 
 ### 15.4 Prop `fillHeight` en `<DataTable>`
 
@@ -1297,12 +1449,12 @@ AppShell
 
 ### 15.6 Reglas
 
-- **El `transform` del `animate-su-fade-in` no rompe el layout.** Solo afecta a `position: fixed` descendientes. Como sheets y bulk action bar ya están portaled a `document.body`, no hay conflicto.
+- **El `transform` del `animate-su-fade-in` no rompe el layout.** Solo afecta a `position: fixed` descendientes. Como los sheets y la barra de acciones ya están portaled a `document.body`, no hay conflicto.
 - **`min-h-0` es obligatorio** en todos los niveles de la cadena flex (main → inner div → DataTablePage → área de contenido). Sin él, los hijos no pueden reducir su altura para scrollear.
 - **Padding va en el inner div del AppShell**, no en el `DataTablePage`. El `DataTablePage` no añade padding propio.
-- **El bulk action bar sigue funcionando** porque está portaled a `document.body` (§ 12). Aparece flotante al fondo del viewport independientemente del scroll de la tabla.
+- **La barra de acciones sigue funcionando** porque está portaled a `document.body` (§ 12). Flota sobre la ventana independientemente del scroll de la tabla.
 - **Métricas opcionales.** Si la página no tiene métricas, omitir el prop `metrics`. La tabla se queda con todo el alto disponible.
-- **Drawer de detalle abre encima** sin verse afectado por el scroll interno. El sheet está en `z-50`, el bulk action bar en `z-[60]`.
+- **Drawer de detalle abre encima** sin verse afectado por el scroll interno. El sheet está en `z-50` y la barra de acciones en `z-40`: el drawer la cubre.
 
 ### 15.7 Cuándo NO usar `<DataTablePage>`
 

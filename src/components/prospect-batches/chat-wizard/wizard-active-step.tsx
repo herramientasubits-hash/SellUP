@@ -1,14 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import {
-  Building2,
-  Users,
-  Sparkles,
-  Loader2,
-  Clock,
-} from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ChatQuestionCard, ChatThinking, type ChatQuestionOptionDetail } from '@/components/chat';
+import { FieldError } from '@/components/forms/field';
 import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -128,7 +124,7 @@ function StepWrapper({ title, children, titleRef }: StepWrapperProps) {
       <h3
         ref={titleRef}
         tabIndex={-1}
-        className="text-sm font-semibold text-foreground focus:outline-none"
+        className="text-base font-semibold tracking-tight text-foreground focus:outline-none"
       >
         {title}
       </h3>
@@ -145,9 +141,7 @@ function StepBlockingIssues({ state, step }: { state: ProspectWizardState; step:
   return (
     <div className="space-y-2" role="alert">
       {issues.map((issue) => (
-        <p key={issue.code} className="text-xs text-destructive">
-          {issue.message}
-        </p>
+        <FieldError key={issue.code}>{issue.message}</FieldError>
       ))}
     </div>
   );
@@ -168,108 +162,38 @@ type SearchTypeStepProps = {
   titleRef: React.RefObject<HTMLHeadingElement | null>;
 };
 
+/** Las formas de búsqueda, como opciones numeradas de la pregunta del agente. */
+const SEARCH_TYPE_OPTIONS: readonly ChatQuestionOptionDetail[] = SEARCH_MODE_DEFINITIONS.map((def) => ({
+  value: def.mode,
+  label: def.label,
+  description: def.description,
+  ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
+}));
+
 function SearchTypeStep({ state, dispatch, titleRef }: SearchTypeStepProps) {
   const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON');
 
   return (
     <StepWrapper title="¿Qué tipo de prospectos quieres encontrar?" titleRef={titleRef}>
-      <div
-        className="space-y-3"
-        role="group"
+      {/* Una opción «Próximamente» se puede tocar: el reductor responde con el
+          aviso de abajo en vez de avanzar, que es como explica por qué no sirve. */}
+      <ChatQuestionCard
         aria-label="Tipo de búsqueda de prospectos"
-      >
-        {SEARCH_MODE_DEFINITIONS.map((def) => {
-          const isComingSoon = def.availability === 'coming_soon';
-          const isSelected = state.searchMode === def.mode;
-
-          const Icon =
-            def.mode === 'exploratory'
-              ? Building2
-              : def.mode === 'competitors'
-              ? Users
-              : Sparkles;
-
-          return (
-            <button
-              key={def.mode}
-              type="button"
-              onClick={() =>
-                dispatch({ type: 'SELECT_SEARCH_MODE', mode: def.mode })
-              }
-              aria-disabled={isComingSoon}
-              aria-pressed={isSelected}
-              className={[
-                'flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all',
-                // Design Refresh v13: 'coming_soon' claramente inerte — borde
-                // punteado, fondo muted y SIN hover (antes conservaba el hover
-                // azul de las activas y parecía clickeable).
-                isComingSoon
-                  ? 'cursor-default border-dashed border-border/70 bg-muted/20'
-                  : isSelected
-                  ? 'cursor-pointer border-su-brand bg-su-brand-soft/40 shadow-sm'
-                  : 'cursor-pointer border-border bg-card hover:border-su-brand/40 hover:bg-muted/40',
-              ].join(' ')}
-            >
-              <div
-                className={[
-                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                  isSelected && !isComingSoon
-                    ? 'bg-su-brand-soft'
-                    : isComingSoon
-                    ? 'bg-muted/50'
-                    : 'bg-muted',
-                ].join(' ')}
-              >
-                <Icon
-                  className={[
-                    'h-4 w-4',
-                    isSelected && !isComingSoon
-                      ? 'text-su-brand'
-                      : isComingSoon
-                      ? 'text-muted-foreground/40'
-                      : 'text-muted-foreground',
-                  ].join(' ')}
-                  aria-hidden
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={[
-                      'text-sm font-medium',
-                      isComingSoon ? 'text-muted-foreground' : 'text-foreground',
-                    ].join(' ')}
-                  >
-                    {def.label}
-                  </span>
-                  {isComingSoon && (
-                    <span className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
-                      <Clock className="h-2.5 w-2.5" aria-hidden />
-                      Próximamente
-                    </span>
-                  )}
-                </div>
-                <p
-                  className={[
-                    'mt-0.5 text-xs leading-relaxed',
-                    isComingSoon ? 'text-muted-foreground/60' : 'text-muted-foreground',
-                  ].join(' ')}
-                >
-                  {def.description}
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+        question={{ options: SEARCH_TYPE_OPTIONS }}
+        selected={state.searchMode ?? undefined}
+        active
+        onAnswer={(mode) => {
+          const definition = SEARCH_MODE_DEFINITIONS.find((def) => def.mode === mode);
+          if (definition) dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
+        }}
+      />
 
       {comingSoonWarning && (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
-        >
-          Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
-        </div>
+        <Alert variant="warning" role="status">
+          <AlertDescription className="text-xs">
+            Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
+          </AlertDescription>
+        </Alert>
       )}
     </StepWrapper>
   );
@@ -388,10 +312,10 @@ function SubindustriesStep({
         industria.
       </p>
 
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Subindustrias</span>
-          <span aria-live="polite" aria-atomic="true">
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Subindustrias</span>
+          <span className="shrink-0 tabular-nums" aria-live="polite" aria-atomic="true">
             {selected.length}/{max} seleccionadas
           </span>
         </div>
@@ -417,11 +341,11 @@ function SubindustriesStep({
       {/* § A.4 — la lista explícita, no sólo el resumen del control: una pérdida
           entre dos clics tiene que ser visible ANTES de gastar créditos. */}
       {selectedLabels.length > 0 && (
-        <ul className="space-y-1 text-xs text-muted-foreground">
+        <ul className="space-y-1 rounded-lg bg-surface-subtle px-3 py-2.5 text-xs text-muted-foreground">
           {selectedLabels.map((label, index) => (
             <li key={selected[index]} className="flex gap-1.5">
               <span aria-hidden>•</span>
-              <span className="text-foreground">{label}</span>
+              <span className="min-w-0 break-words text-foreground">{label}</span>
             </li>
           ))}
         </ul>
@@ -429,7 +353,7 @@ function SubindustriesStep({
 
       <StepBlockingIssues state={state} step="subindustries" />
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           className="flex-1"
@@ -456,6 +380,10 @@ function SubindustriesStep({
 // ── Additional criteria step ──────────────────────────────────────────────────
 // Gate: user first picks YES/NO. YES enables the composer (text_input mode);
 // NO skips directly to summary.
+
+const CRITERIA_YES = 'Sí, quiero agregar';
+const CRITERIA_NO = 'No, continuar';
+const CRITERIA_INTENTION_OPTIONS: readonly string[] = [CRITERIA_YES, CRITERIA_NO];
 
 type AdditionalCriteriaStepProps = {
   state: ProspectWizardState;
@@ -497,25 +425,15 @@ function AdditionalCriteriaStep({
 
       <StepBlockingIssues state={state} step="additional_criteria" />
 
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          size="sm"
-          className="flex-1"
-          onClick={onIntentionYes}
-        >
-          Sí, quiero agregar
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}
-        >
-          No, continuar
-        </Button>
-      </div>
+      <ChatQuestionCard
+        aria-label="¿Quieres agregar un criterio adicional?"
+        question={{ options: CRITERIA_INTENTION_OPTIONS }}
+        active
+        onAnswer={(answer) => {
+          if (answer === CRITERIA_YES) onIntentionYes();
+          else dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' });
+        }}
+      />
     </StepWrapper>
   );
 }
@@ -523,16 +441,5 @@ function AdditionalCriteriaStep({
 // ── Validating step ───────────────────────────────────────────────────────────
 
 function ValidatingStep() {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-xl bg-muted/40 px-5 py-4"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-su-brand" aria-hidden />
-      <p className="text-sm text-foreground">
-        Estamos revisando la configuración…
-      </p>
-    </div>
-  );
+  return <ChatThinking label="Estamos revisando la configuración…" />;
 }

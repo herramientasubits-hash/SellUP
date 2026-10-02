@@ -1,13 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info } from "@/icons";
 import { toast } from 'sonner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { AIButton } from '@/components/ai/ai-button';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Label } from '@/components/ui/label';
+import { FieldError, FieldLabel } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -186,7 +186,7 @@ export function ExploratorySearchFormV2({
       )}
 
       {/* Segmentation */}
-      <SurfaceCard>
+      <SurfaceCard className="space-y-4">
         <SurfaceCardHeader
           title="Segmentación"
           description="Define el mercado objetivo de la búsqueda."
@@ -227,11 +227,9 @@ export function ExploratorySearchFormV2({
 
         {/* Subindustries */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">
-              Subindustrias
-            </Label>
-            <span className="text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-2">
+            <FieldLabel>Subindustrias</FieldLabel>
+            <span className="text-xs tabular-nums text-muted-foreground">
               {form.subindustryIds.length}/{EXPLORATORY_SEARCH_LIMITS.subindustries.max}
             </span>
           </div>
@@ -282,12 +280,12 @@ export function ExploratorySearchFormV2({
             className="resize-none"
             aria-label="¿Qué características adicionales quieres encontrar?"
           />
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               No se enviará todavía a ningún modelo de IA.
             </p>
             <span
-              className={`text-xs font-mono ${
+              className={`shrink-0 text-xs tabular-nums ${
                 criteriaOverLimit
                   ? 'text-destructive font-semibold'
                   : 'text-muted-foreground'
@@ -297,10 +295,10 @@ export function ExploratorySearchFormV2({
             </span>
           </div>
           {criteriaOverLimit && (
-            <p className="text-xs text-destructive">
+            <FieldError>
               El criterio específico puede tener máximo{' '}
               {EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars} caracteres.
-            </p>
+            </FieldError>
           )}
         </div>
       </SurfaceCard>
@@ -308,11 +306,11 @@ export function ExploratorySearchFormV2({
       {/* Employee size — informational only */}
       <SurfaceCard>
         <SurfaceCardHeader title="Tamaño mínimo" />
-        <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
+        <div className="flex items-center justify-between rounded-lg bg-surface-muted px-4 py-3">
           <span className="text-sm font-medium text-foreground">Más de 200 empleados</span>
           <span className="text-xs text-muted-foreground">Fijo</span>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           Buscaremos empresas cuya entidad local en el país seleccionado supere este tamaño.
         </p>
       </SurfaceCard>
@@ -329,10 +327,10 @@ export function ExploratorySearchFormV2({
       )}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-between gap-3 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={onClose}
           disabled={submitting}
@@ -346,14 +344,8 @@ export function ExploratorySearchFormV2({
           disabled={!canSubmit}
           loading={submitting}
         >
-          {submitting ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Validando…
-            </>
-          ) : (
-            'Validar búsqueda'
-          )}
+          {/* El spinner lo pone `AIButton` con `loading`; aquí solo cambia el rótulo. */}
+          {submitting ? 'Validando…' : 'Validar búsqueda'}
         </AIButton>
       </div>
     </form>
@@ -385,19 +377,19 @@ function SearchSummaryCard({ catalog, form }: SearchSummaryCardProps) {
       <dl className="space-y-2 text-sm">
         <Row>
           <dt className="text-muted-foreground shrink-0">País</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {countryEntry ? `${getFlagEmoji(form.countryCode)} ${countryEntry.name}` : '—'}
           </dd>
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Industria</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {industryEntry?.name ?? '—'}
           </dd>
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Subindustrias</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {selectedSubs.length > 0
               ? selectedSubs.map((s) => s.name).join(', ')
               : '—'}
@@ -405,13 +397,13 @@ function SearchSummaryCard({ catalog, form }: SearchSummaryCardProps) {
         </Row>
         <Row>
           <dt className="text-muted-foreground shrink-0">Tamaño</dt>
-          <dd className="font-medium text-foreground text-right">
+          <dd className="min-w-0 break-words text-right font-medium text-foreground">
             {'>200 empleados'}
           </dd>
         </Row>
         {normalizedCriteria && (
           <div className="pt-1">
-            <dt className="text-muted-foreground text-xs mb-1">Criterio específico</dt>
+            <dt className="mb-1 text-xs text-muted-foreground">Criterio específico</dt>
             <dd className="text-xs text-foreground leading-relaxed line-clamp-3">
               {normalizedCriteria}
             </dd>
@@ -434,7 +426,7 @@ function ValidationResultCard({ result }: { result: ExploratorySearchValidationR
             Configuración validada. La generación de prospectos todavía no se ejecutó.
           </p>
           {result.warnings.map((w, i) => (
-            <p key={i} className="text-amber-600 dark:text-amber-400">
+            <p key={i} className="text-warning">
               {w}
             </p>
           ))}
@@ -454,7 +446,7 @@ function ValidationResultCard({ result }: { result: ExploratorySearchValidationR
           <p key={i}>· {msg}</p>
         ))}
         {result.warnings.map((w, i) => (
-          <p key={`w-${i}`} className="text-amber-600 dark:text-amber-400">
+          <p key={`w-${i}`} className="text-warning">
             {w}
           </p>
         ))}

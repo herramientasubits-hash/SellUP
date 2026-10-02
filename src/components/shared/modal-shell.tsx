@@ -41,9 +41,41 @@ const sizeClasses = {
   sm: 'sm:!max-w-sm w-full',  // 384px
   md: 'sm:!max-w-md w-full',  // 448px
   lg: 'sm:!max-w-lg w-full',  // 512px
-  xl: 'sm:!max-w-xl w-full',  // 576px;
+  xl: 'sm:!max-w-xl w-full',  // 576px
 };
 
+/**
+ * ModalShell — port de Thema `overlays/ModalShell.tsx`.
+ *
+ * El modal del sistema para un formulario corto o un contenido que cabe sin
+ * desplazarse: título y descripción arriba, el cuerpo, y un pie con las
+ * acciones (secundaria a la izquierda de la primaria). Tiene X y se cierra con
+ * clic afuera y con Escape; si lo que se pide es una confirmación, es
+ * `ConfirmDialog` (que no se cierra por accidente). Si el contenido crece, es
+ * un drawer (`DrawerShell`).
+ *
+ * Tamaños: `sm` 384px · `md` 448px (por defecto) · `lg` 512px · `xl` 576px.
+ *
+ * Las pantallas no montan `<Dialog>` + `<DialogContent>` a mano: usan esta
+ * pieza. Migrar un `<Dialog>` directo es mover su título/descripción a las
+ * props, su contenido a `children` y sus botones a `actions`.
+ *
+ * @example
+ * <ModalShell
+ *   open={open}
+ *   onOpenChange={setOpen}
+ *   title="Renombrar lote"
+ *   description="El nombre se ve en la lista de lotes."
+ *   actions={
+ *     <>
+ *       <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+ *       <Button onClick={save}>Guardar</Button>
+ *     </>
+ *   }
+ * >
+ *   <Field label="Nombre">…</Field>
+ * </ModalShell>
+ */
 export function ModalShell({
   open,
   onOpenChange,
@@ -71,7 +103,7 @@ export function ModalShell({
           </DialogHeader>
         )}
 
-        <div className="py-2">
+        <div data-slot="modal-shell-body" className="py-2">
           {children}
         </div>
 

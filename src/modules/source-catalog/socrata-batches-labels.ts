@@ -1,3 +1,5 @@
+import { formatInAppZone } from '@/lib/format-date';
+
 // ─── Batch status ─────────────────────────────────────────────────────────────
 
 export const BATCH_STATUS_LABELS: Record<string, string> = {
@@ -13,19 +15,19 @@ export const BATCH_STATUS_LABELS: Record<string, string> = {
 export function batchStatusBadgeClass(status: string): string {
   switch (status) {
     case 'ready_for_review':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'in_review':
-      return 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400';
+      return 'border-info/30 bg-info/10 text-info';
     case 'completed':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'cancelled':
-      return 'border-border/40 bg-muted/60 text-muted-foreground/60';
+      return 'border-border/60 bg-surface-muted text-muted-foreground';
     case 'failed':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'generating':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -42,17 +44,17 @@ export const CANDIDATE_STATUS_LABELS: Record<string, string> = {
 export function candidateStatusBadgeClass(status: string): string {
   switch (status) {
     case 'needs_review':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'approved':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'discarded':
-      return 'border-border/40 bg-muted/60 text-muted-foreground/60';
+      return 'border-border/60 bg-surface-muted text-muted-foreground';
     case 'converted_to_account':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'duplicate':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -70,13 +72,13 @@ export function reviewStatusBadgeClass(status: string): string {
   switch (status) {
     case 'approved':
     case 'auto_approved':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'rejected':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'needs_manual_review':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -92,13 +94,13 @@ export const EMPLOYEE_COUNT_STATUS_LABELS: Record<string, string> = {
 export function employeeCountStatusBadgeClass(status: string): string {
   switch (status) {
     case 'confirmed':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'estimated':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'unknown_requires_manual_validation':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -117,20 +119,20 @@ export const HUBSPOT_MATCH_STATUS_LABELS: Record<string, string> = {
 export function hubspotMatchStatusBadgeClass(status: string): string {
   switch (status) {
     case 'no_match':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'exact_match_customer':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'exact_match_prospect_active':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'exact_match_prospect_recyclable':
-      return 'border-su-brand/30 bg-su-brand-soft text-su-brand';
+      return 'border-primary/30 bg-primary/10 text-primary';
     case 'hubspot_lookup_failed':
       return 'border-destructive/20 bg-destructive/5 text-destructive/70';
     case 'not_attempted':
     case 'pending':
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -164,9 +166,9 @@ export function reviewFlagBadgeClass(flag: string): string {
     case 'hubspot_existing_prospect':
     case 'hubspot_recyclable_prospect':
     case 'no_tax_id':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -184,16 +186,16 @@ export const DUPLICATE_STATUS_LABELS: Record<string, string> = {
 export function duplicateStatusBadgeClass(status: string): string {
   switch (status) {
     case 'no_match':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return 'border-success/30 bg-success/10 text-success';
     case 'exact_duplicate':
       return 'border-destructive/30 bg-destructive/10 text-destructive';
     case 'possible_duplicate':
     case 'related_company':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     case 'insufficient_data':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
+      return 'border-warning/30 bg-warning/10 text-warning';
     default:
-      return 'border-border/40 bg-muted/30 text-muted-foreground';
+      return 'border-border/60 bg-surface-subtle text-muted-foreground';
   }
 }
 
@@ -215,9 +217,9 @@ export function formatDatasetLabel(dataset: string | null): string {
 
 export function formatShortDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('es-CO', {
+  return formatInAppZone(d, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
-  });
+  }, 'es-CO');
 }

@@ -41,22 +41,22 @@ export const TERMINAL_STATUS: Record<string, TerminalStatusCopy> = {
     label: 'Aprobado sin empresa',
     description:
       'Este prospecto ya fue aprobado antes sin crear empresa. Requiere conversión desde un hito de remediación.',
-    className: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    className: 'border-warning/30 bg-warning/10 text-warning',
   },
   discarded: {
     label: 'Descartado',
     description: 'Este prospecto fue descartado y no está disponible para aprobación.',
-    className: 'border-border/50 bg-muted/40 text-muted-foreground',
+    className: 'border-border/50 bg-surface-subtle text-muted-foreground',
   },
   duplicate: {
     label: 'Marcado como duplicado',
     description: 'Este prospecto fue marcado como duplicado y no puede aprobarse.',
-    className: 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400',
+    className: 'border-warning/30 bg-warning/10 text-warning',
   },
   converted_to_account: {
     label: 'Convertido en cuenta',
     description: 'Este prospecto ya fue convertido en una cuenta de SellUp.',
-    className: 'border-su-brand/30 bg-su-brand-soft text-su-brand',
+    className: 'border-primary/30 bg-primary/10 text-primary',
   },
 };
 

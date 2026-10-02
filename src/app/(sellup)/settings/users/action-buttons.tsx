@@ -1,15 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Plus, Loader2 } from "@/icons";
+import { ModalShell } from '@/components/shared/modal-shell';
+import { FieldLabel, FieldDescription } from '@/components/forms/field';
 import {
   Select,
   SelectContent,
@@ -17,9 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { createOrganizationGroup } from '@/modules/access/actions';
 import type { OrganizationGroup } from '@/modules/access/types';
 
@@ -27,10 +21,22 @@ const NO_PARENT = '__root__';
 
 interface ActionButtonsProps {
   groups: OrganizationGroup[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el diálogo no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ActionButtons({ groups }: ActionButtonsProps) {
-  const [showGroupDialog, setShowGroupDialog] = useState(false);
+export function ActionButtons({ groups, open: controlledOpen, onOpenChange }: ActionButtonsProps) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const showGroupDialog = isControlled ? controlledOpen : internalOpen;
+  const setShowGroupDialog = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -69,77 +75,76 @@ export function ActionButtons({ groups }: ActionButtonsProps) {
 
   return (
     <>
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-2 h-9 text-xs font-medium"
-        onClick={() => setShowGroupDialog(true)}
+      {!isControlled && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowGroupDialog(true)}
+        >
+          <Plus />
+          Agregar grupo
+        </Button>
+      )}
+
+      <ModalShell
+        open={showGroupDialog}
+        onOpenChange={v => { setShowGroupDialog(v); if (!v) reset(); }}
+        title="Crear grupo organizacional"
+        description="Define un nuevo grupo o subgrupo. Máximo 3 niveles de profundidad."
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setShowGroupDialog(false); reset(); }}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleCreateGroup} disabled={!name.trim() || loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loading ? 'Creando...' : 'Crear grupo'}
+            </Button>
+          </>
+        }
       >
-        <Plus className="h-3.5 w-3.5" />
-        Agregar grupo
-      </Button>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <FieldLabel htmlFor="cg-name" className="block leading-none">
+              Nombre del grupo <span className="text-destructive">*</span>
+            </FieldLabel>
+            <Input
+              id="cg-name"
+              placeholder="Ej: Colombia, Manufactura, Textiles..."
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+          </div>
 
-      <Dialog open={showGroupDialog} onOpenChange={v => { setShowGroupDialog(v); if (!v) reset(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Crear grupo organizacional</DialogTitle>
-            <DialogDescription>
-              Define un nuevo grupo o subgrupo. Máximo 3 niveles de profundidad.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="cg-name">
-                Nombre del grupo <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="cg-name"
-                placeholder="Ej: Colombia, Manufactura, Textiles..."
-                value={name}
-                onChange={e => setName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Grupo padre <span className="text-xs text-muted-foreground">(opcional)</span></Label>
-              <Select value={parentId || undefined} onValueChange={v => setParentId(v ?? '')}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Ninguno (grupo raíz)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_PARENT}>Ninguno (grupo raíz)</SelectItem>
-                  {validParents.map(g => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.depth === 0 ? g.name : `  · ${g.name}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {parentId && parentId !== NO_PARENT && (
-                <p className="text-xs text-muted-foreground">
-                  Nivel: {((groups.find(g => g.id === parentId)?.depth ?? -1) + 2)}
-                </p>
-              )}
-            </div>
-
-            {error && (
-              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
-                {error}
-              </p>
+          <div className="space-y-1.5">
+            <FieldLabel className="block leading-none">Grupo padre <span className="text-xs text-muted-foreground">(opcional)</span></FieldLabel>
+            <Select value={parentId || undefined} onValueChange={v => setParentId(v ?? '')}>
+              <SelectTrigger className="w-full" aria-label="Grupo padre">
+                <SelectValue placeholder="Ninguno (grupo raíz)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PARENT}>Ninguno (grupo raíz)</SelectItem>
+                {validParents.map(g => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.depth === 0 ? g.name : `  · ${g.name}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {parentId && parentId !== NO_PARENT && (
+              <FieldDescription>
+                Nivel: {((groups.find(g => g.id === parentId)?.depth ?? -1) + 2)}
+              </FieldDescription>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowGroupDialog(false); reset(); }}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreateGroup} disabled={!name.trim() || loading}>
-              {loading ? 'Creando...' : 'Crear grupo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </ModalShell>
     </>
   );
 }

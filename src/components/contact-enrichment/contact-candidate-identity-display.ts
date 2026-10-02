@@ -29,8 +29,8 @@ export interface IdentityDisplay {
 
 /** Estilos por tono (tokens del sistema; sin colores hardcodeados de marca). */
 export const IDENTITY_TONE_STYLES: Record<IdentityDisplayTone, string> = {
-  consistent: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  mismatch: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  consistent: 'bg-success/10 text-success',
+  mismatch: 'bg-warning/10 text-warning',
   unverified: 'bg-muted text-muted-foreground',
 };
 

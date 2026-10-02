@@ -1,9 +1,12 @@
-import { Inbox, Sparkles, Mail, Link2, CopyCheck } from 'lucide-react';
+import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { MetricCard } from '@/components/shared/metric-card';
-import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
-import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
-import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
+import {
+  CONTACTOS_TAB_DESCRIPTIONS,
+  CONTACTOS_VIEW_TITLES,
+  contactosViewCrumbs,
+} from '@/components/contacts/contacts-module-copy';
+import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
 import {
   getDuplicateContactCandidates,
@@ -39,7 +42,7 @@ interface ContactCandidatesPanelProps {
  * Renderiza `contact_enrichment_candidates` en `pending_review` con el contexto
  * de empresa del run. Es un listado de solo lectura: aprobar/rechazar y crear
  * contactos finales llegan en 17A.4B — aquí NO hay acciones de mutación. Mantiene
- * el header, los CTAs y el switcher de pills del módulo para no perder el wizard
+ * el header y los CTAs del módulo para no perder el wizard
  * conversacional ni "Crear contacto".
  */
 export async function ContactCandidatesPanel({
@@ -88,84 +91,18 @@ export async function ContactCandidatesPanel({
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
   );
 
-  const total = candidates.length;
-  const highRelevance = candidates.filter(
-    (c) => c.enrichment_metadata?.relevance?.status === 'high_relevance',
-  ).length;
-  const withEmail = candidates.filter((c) => !!c.email).length;
-  const withLinkedin = candidates.filter((c) => !!c.linkedin_url).length;
-
+  // Los indicadores (alta relevancia, con email, con LinkedIn) los calcula la
+  // tabla sobre estas mismas filas y los ofrece como filtros de un toque.
   return (
+    <ListActionRailProvider label="Acciones de contactos" gender="m">
     <DataTablePage
-      title="Contactos"
-      description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
-      tabs={<ContactsModuleTabsNav active={isDuplicateQueue ? 'duplicates' : 'candidates'} />}
-      actions={
-        <div className="flex items-center gap-2">
-          <ContactsEnrichmentCTA />
-          <CreateContactDrawer accounts={accounts} />
-        </div>
-      }
-      metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
-              sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
-              cola. Nunca se suman al mismo número. */}
-          {isDuplicateQueue ? (
-            <MetricCard
-              title="Duplicados"
-              description="Coinciden con un contacto existente"
-              value={total}
-              icon={
-                <div className="rounded-lg p-1.5 bg-muted/60">
-                  <CopyCheck className="h-4 w-4 text-muted-foreground" />
-                </div>
-              }
-            />
-          ) : (
-            <MetricCard
-              title="Por revisar"
-              description="Candidatos pendientes"
-              value={total}
-              icon={
-                <div className="rounded-lg p-1.5 bg-amber-500/10">
-                  <Inbox className="h-4 w-4 text-amber-500" />
-                </div>
-              }
-            />
-          )}
-          <MetricCard
-            title="Alta relevancia"
-            description="Mejor encaje detectado"
-            value={highRelevance}
-            icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Sparkles className="h-4 w-4 text-su-brand" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Con email"
-            description="Tienen correo"
-            value={withEmail}
-            icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Mail className="h-4 w-4 text-emerald-500" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Con LinkedIn"
-            description="Tienen perfil"
-            value={withLinkedin}
-            icon={
-              <div className="rounded-lg p-1.5 bg-blue-500/10">
-                <Link2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              </div>
-            }
-          />
-        </div>
-      }
+      compact
+      title={CONTACTOS_VIEW_TITLES[isDuplicateQueue ? 'duplicates' : 'candidates']}
+      description={CONTACTOS_TAB_DESCRIPTIONS[isDuplicateQueue ? 'duplicates' : 'candidates']}
+      // 4O-H3-B-R1 (§ 11): cada cola cuenta lo suyo en el título de su tabla;
+      // los duplicados nunca se suman a «Por revisar».
+      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(isDuplicateQueue ? 'duplicates' : 'candidates') ?? []} />}
+      actions={<ContactsScreenActions accounts={accounts} />}
     >
       <ContactCandidatesDataTableClient
         candidates={candidates}
@@ -183,5 +120,6 @@ export async function ContactCandidatesPanel({
         phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
       />
     </DataTablePage>
+    </ListActionRailProvider>
   );
 }

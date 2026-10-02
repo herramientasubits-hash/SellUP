@@ -2,7 +2,6 @@
 
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,6 +25,10 @@ interface DataTableContextMenuProps {
   children: React.ReactNode;
 }
 
+function isSingleElement(node: React.ReactNode): node is React.ReactElement {
+  return React.isValidElement(node) && node.type !== React.Fragment;
+}
+
 /**
  * Wraps a single table row with a right-click context menu.
  * The DataTable wraps each row automatically when the `contextMenu`
@@ -35,7 +38,12 @@ export function DataTableContextMenu({ items, children }: DataTableContextMenuPr
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="contents">{children}</div>
+        {/* El disparador es la propia fila: un <div> entre <tbody> y <tr> es
+            HTML inválido y el navegador lo saca de la tabla al leer la página
+            del servidor (error de hidratación). `DataTableRow` entrega siempre
+            un único <tr>, también con filas reordenables; el envoltorio queda
+            solo para un uso fuera de tabla con varios hijos. */}
+        {isSingleElement(children) ? children : <div className="contents">{children}</div>}
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-[220px]">
         {items.map((item, i) => (

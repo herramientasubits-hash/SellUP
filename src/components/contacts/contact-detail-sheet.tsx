@@ -1,9 +1,9 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  Loader2,
   Mail,
   Phone,
   Link2,
@@ -17,16 +17,19 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
-  Bot,
-  FileCheck2,
   AlertCircle,
   UserX,
-} from 'lucide-react';
+  Pencil,
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Timeline, TimelineItem } from '@/components/data-display';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { buildContactTraceabilityViewModel } from '@/modules/contacts/contact-traceability';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -43,6 +46,8 @@ import {
 } from '@/modules/contacts/types';
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
+import { ContactTraceabilityPanel, TraceCard, TraceRow } from './contact-traceability-panel';
+import { EditContactDrawer } from './edit-contact-drawer';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
 import {
@@ -76,20 +81,17 @@ import {
   type ContactDetailLoadOutcome,
 } from './contact-detail-load-copy';
 
-const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+// El estado, por variante del sistema (el mismo mapa que la tabla de contactos).
+const STATUS_VARIANT: Record<ContactStatus, 'positive' | 'neutral' | 'warning' | 'negative'> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  influencer: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-};
+const INLINE_LINK =
+  'rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
 
 const AUDIT_LABELS: Record<ContactAuditAction, string> = {
   contact_created: 'Contacto creado',
@@ -97,25 +99,25 @@ const AUDIT_LABELS: Record<ContactAuditAction, string> = {
   contact_status_changed: 'Estado cambiado',
   contact_archived: 'Contacto archivado',
   contact_primary_changed: 'Contacto primario actualizado',
-  contact_role_changed: 'Rol en cuenta actualizado',
+  contact_role_changed: 'Rol en la empresa actualizado',
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 function formatShortDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 interface ContactDetailSheetProps {
@@ -137,6 +139,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // cargando», y las tres se pintaban como el mismo spinner que nunca se iba.
   const [loadOutcome, setLoadOutcome] =
     React.useState<ContactDetailLoadOutcome | null>(null);
+  // «Editar contacto» es el botón principal del pie: el panel abre el editor y,
+  // al cerrarlo, vuelve a leer la ficha.
+  const [editOpen, setEditOpen] = React.useState(false);
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
@@ -207,12 +212,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   }, [open, contactId, loadData]);
 
   return (
+    <>
     <DrawerShell
       open={open}
       onOpenChange={(v) => !v && onClose()}
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
-      icon={<User className="h-5 w-5 text-su-brand" />}
+      icon={<User className="h-4 w-4" />}
       title={
         contact
           ? contact.full_name
@@ -222,55 +228,48 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
               ? CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY
               : CONTACT_DETAIL_LOADING_TITLE_COPY
       }
+      // Cabecera: nombre + estado (y la marca de primario). El rol y el cargo
+      // bajan al resumen, donde se leen con su etiqueta.
       titleBadge={
         contact ? (
-          <div className="flex items-center gap-2">
-            <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[contact.contact_status]}`}
-            >
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge variant={STATUS_VARIANT[contact.contact_status]}>
               {CONTACT_STATUS_LABELS[contact.contact_status]}
             </Badge>
             {contact.is_primary && (
-              <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              <Badge variant="warning">
+                <Star className="fill-warning" />
                 Primario
-              </div>
-            )}
-            {contact.role_in_account && (
-              <Badge
-                variant="outline"
-                className={`text-xs ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-              >
-                {ROLE_LABELS[contact.role_in_account as ContactRole]}
               </Badge>
             )}
-          </div>
+          </span>
         ) : undefined
       }
-      headerActions={
-        contact ? (
-          <ContactRowActions
-            contact={contact}
-            onActionComplete={() => loadData(contact.id)}
-          />
-        ) : undefined
-      }
+      // `span`: la descripción del panel es un párrafo y no admite bloques dentro.
       description={
+        contact && (contact.job_title || account) ? (
+          <span className="flex flex-wrap items-center gap-x-1.5">
+            {contact.job_title && <span>{contact.job_title}</span>}
+            {contact.job_title && account && <span aria-hidden>·</span>}
+            {account && <span>{account.name}</span>}
+          </span>
+        ) : undefined
+      }
+      loading={loading && !contact}
+      // Pie: lo secundario a la izquierda, la acción principal a la derecha.
+      actions={
         contact ? (
-          <div className="space-y-0.5">
-            {contact.job_title && (
-              <p className="text-xs text-muted-foreground">{contact.job_title}</p>
-            )}
-            {account && (
-              <Link
-                href={`/accounts/${account.id}`}
-                className="text-xs text-su-brand hover:underline"
-              >
-                {account.name}
-              </Link>
-            )}
-          </div>
+          <>
+            <ContactRowActions
+              contact={contact}
+              placement="drawer"
+              onActionComplete={() => loadData(contact.id)}
+            />
+            <Button type="button" size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil aria-hidden="true" />
+              Editar contacto
+            </Button>
+          </>
         ) : undefined
       }
     >
@@ -281,43 +280,63 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         nada que lo quitara. Ahora, terminada la carga, hay exactamente tres salidas y las
         tres son estables: contacto, «no disponible» o «no se pudo cargar».
       */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
-        </div>
-      ) : !contact ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="mb-3 rounded-full bg-muted/60 p-3">
-            {loadOutcome === 'load_error' ? (
-              <AlertCircle className="h-6 w-6 text-destructive/70" />
-            ) : (
-              <UserX className="h-6 w-6 text-muted-foreground/40" />
-            )}
-          </div>
-          <p className="text-sm font-medium text-foreground">
-            {loadOutcome === 'load_error'
+      {loading && !contact ? null : !contact ? (
+        <EmptyState
+          variant="plain"
+          className="py-20"
+          icon={loadOutcome === 'load_error' ? AlertCircle : UserX}
+          title={
+            loadOutcome === 'load_error'
               ? CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY
-              : CONTACT_DETAIL_NOT_FOUND_TITLE_COPY}
-          </p>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-            {loadOutcome === 'load_error'
+              : CONTACT_DETAIL_NOT_FOUND_TITLE_COPY
+          }
+          description={
+            loadOutcome === 'load_error'
               ? CONTACT_DETAIL_LOAD_ERROR_BODY_COPY
-              : CONTACT_DETAIL_NOT_FOUND_BODY_COPY}
-          </p>
-          {/* Reintentar sólo tiene sentido ante un fallo: si el contacto no está, insistir
-              no lo va a traer. */}
-          {loadOutcome === 'load_error' && contactId && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={() => loadData(contactId)}
-            >
-              {CONTACT_DETAIL_RETRY_COPY}
-            </Button>
-          )}
-        </div>
+              : CONTACT_DETAIL_NOT_FOUND_BODY_COPY
+          }
+          // Reintentar sólo tiene sentido ante un fallo: si el contacto no está, insistir
+          // no lo va a traer.
+          action={
+            loadOutcome === 'load_error' && contactId ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => loadData(contactId)}
+              >
+                {CONTACT_DETAIL_RETRY_COPY}
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
+        <div className="space-y-4">
+          {/* Lo esencial, antes de las pestañas: de qué empresa es, qué hace
+              allí y qué papel tiene para nosotros. */}
+          <section aria-label="Resumen del contacto">
+            <SurfaceCard className="p-4">
+            <DetailList columns={4}>
+              <DetailItem icon={Building2} label="Empresa" emptyLabel="Sin empresa">
+                {account ? (
+                  <Link href={`/accounts/${account.id}`} className={INLINE_LINK}>
+                    {account.name}
+                  </Link>
+                ) : null}
+              </DetailItem>
+              <DetailItem icon={Briefcase} label="Cargo" emptyLabel="Sin cargo">
+                {contact.job_title}
+              </DetailItem>
+              <DetailItem icon={Tag} label="Rol en la empresa" emptyLabel="Sin rol asignado">
+                {contact.role_in_account ? ROLE_LABELS[contact.role_in_account as ContactRole] : null}
+              </DetailItem>
+              <DetailItem icon={User} label="Seniority" emptyLabel="Sin seniority">
+                {contact.seniority ? SENIORITY_LABELS[contact.seniority] : null}
+              </DetailItem>
+            </DetailList>
+            </SurfaceCard>
+          </section>
+
         <Tabs defaultValue="resumen">
                 <TabsList variant="segmented" className="mb-2">
                   <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
@@ -329,29 +348,30 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 {/* Resumen */}
                 <TabsContent value="resumen" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Datos de contacto" />
-                      <dl className="space-y-3">
-                        {contact.email && (
-                          <DetailRow icon={Mail} label="Email">
-                            <a href={`mailto:${contact.email}`} className="text-su-brand hover:underline">
+                    <DrawerSection title="Datos de contacto" icon={Mail}>
+                      <DetailList className="gap-y-3 sm:grid-cols-1">
+                        <DetailItem icon={Mail} label="Email">
+                          {contact.email ? (
+                            <a href={`mailto:${contact.email}`} className={`break-all ${INLINE_LINK}`}>
                               {contact.email}
                             </a>
-                          </DetailRow>
-                        )}
+                          ) : (
+                            <span className="text-text-muted">Sin email. Añádelo con «Editar contacto».</span>
+                          )}
+                        </DetailItem>
                         {contact.mobile_phone && (
-                          <DetailRow icon={Phone} label="Celular">
-                            <a href={`tel:${contact.mobile_phone}`} className="hover:underline">
+                          <DetailItem icon={Phone} label="Celular">
+                            <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.mobile_phone}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
                         {contact.phone && (
-                          <DetailRow icon={Phone} label="Teléfono">
-                            <a href={`tel:${contact.phone}`} className="hover:underline">
+                          <DetailItem icon={Phone} label="Teléfono">
+                            <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.phone}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
                         {/*
                           4O-H4 — «Ver N números más». El CTA existe SÓLO si el
@@ -383,128 +403,100 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                           }}
                         />
                         {contact.linkedin_url && (
-                          <DetailRow icon={Link2} label="LinkedIn">
+                          <DetailItem icon={Link2} label="LinkedIn">
                             <a
                               href={contact.linkedin_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-su-brand hover:underline"
+                              className="break-all text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                             >
                               {contact.linkedin_url}
                             </a>
-                          </DetailRow>
+                          </DetailItem>
                         )}
-                        <DetailRow icon={Building2} label="Cuenta">
-                          {account ? (
-                            <Link href={`/accounts/${account.id}`} className="text-su-brand hover:underline">
-                              {account.name}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground/50">Sin cuenta</span>
-                          )}
-                        </DetailRow>
-                      </dl>
-                    </SurfaceCard>
+                      </DetailList>
+                    </DrawerSection>
 
-                    <SurfaceCard>
-                      <SurfaceCardHeader title="Cargo y función" />
-                      <dl className="space-y-3">
-                        {contact.job_title && (
-                          <DetailRow icon={Briefcase} label="Cargo">{contact.job_title}</DetailRow>
-                        )}
-                        {contact.department && (
-                          <DetailRow icon={Briefcase} label="Área">{contact.department}</DetailRow>
-                        )}
-                        {contact.seniority && (
-                          <DetailRow icon={User} label="Seniority">
-                            {SENIORITY_LABELS[contact.seniority]}
-                          </DetailRow>
-                        )}
-                        {contact.role_in_account && (
-                          <DetailRow icon={Tag} label="Rol en cuenta">
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] ${ROLE_STYLES[contact.role_in_account] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-                            >
-                              {ROLE_LABELS[contact.role_in_account as ContactRole]}
-                            </Badge>
-                          </DetailRow>
-                        )}
-                        <DetailRow icon={Tag} label="Fuente">
-                          <Badge variant="outline" className="text-[10px] bg-muted/40 border-transparent text-muted-foreground">
-                            {CONTACT_SOURCE_LABELS[contact.source]}
-                          </Badge>
-                        </DetailRow>
-                        <DetailRow icon={Tag} label="Creado">
+                    {/* Empresa, cargo, rol y seniority ya van en el resumen de
+                        arriba: aquí no se repiten. */}
+                    <DrawerSection title="Otros datos" icon={Briefcase}>
+                      <DetailList className="gap-y-3 sm:grid-cols-1">
+                        <DetailItem icon={Briefcase} label="Área">
+                          {contact.department || <span className="text-text-muted">Sin área</span>}
+                        </DetailItem>
+                        <DetailItem icon={Tag} label="Fuente">
+                          {CONTACT_SOURCE_LABELS[contact.source]}
+                        </DetailItem>
+                        <DetailItem icon={Tag} label="Creado">
                           {formatShortDate(contact.created_at)}
-                        </DetailRow>
-                      </dl>
-                      {contact.notes && (
-                        <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                            Notas
-                          </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
+                        </DetailItem>
+                      </DetailList>
+                      {/* Sin caja propia: las notas son un apartado más de la tarjeta,
+                          separado por una divisoria. */}
+                      <div className="mt-4 border-t border-border/50 pt-3">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">
+                          Notas
+                        </p>
+                        {contact.notes ? (
+                          <p className="break-words text-sm leading-relaxed text-foreground">
                             {contact.notes}
                           </p>
-                        </div>
-                      )}
-                    </SurfaceCard>
+                        ) : (
+                          <p className="text-sm leading-relaxed text-muted-foreground">
+                            Sin notas todavía. Añádelas con «Editar contacto».
+                          </p>
+                        )}
+                      </div>
+                    </DrawerSection>
                   </div>
                 </TabsContent>
 
                 {/* Actividad */}
                 <TabsContent value="actividad">
-                  <SurfaceCard>
-                    <SurfaceCardHeader
-                      title="Registro de actividad"
-                      description="Cambios y eventos de auditoría de este contacto."
-                    />
+                  <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de este contacto.">
                     {auditLog.length === 0 ? (
-                      <p className="py-6 text-center text-xs text-muted-foreground">
-                        Sin actividad registrada todavía.
-                      </p>
+                      <EmptyState
+                        variant="plain"
+                        icon={Activity}
+                        title="Sin actividad todavía"
+                        description="Los cambios de estado, de rol y las ediciones de este contacto aparecerán aquí."
+                      />
                     ) : (
-                      <ol className="space-y-3">
+                      <Timeline>
                         {auditLog.map((entry) => (
-                          <li key={entry.id} className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                              <Activity className="h-3.5 w-3.5 text-muted-foreground/60" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium text-foreground">
-                                {AUDIT_LABELS[entry.action_type]}
+                          <TimelineItem
+                            key={entry.id}
+                            icon={<Activity />}
+                            title={AUDIT_LABELS[entry.action_type]}
+                            description={formatDate(entry.created_at)}
+                          >
+                            {entry.actor && (
+                              <p className="text-xs text-muted-foreground">
+                                por {entry.actor.full_name ?? entry.actor.email}
                               </p>
-                              {entry.actor && (
-                                <p className="text-[11px] text-muted-foreground">
-                                  por {entry.actor.full_name ?? entry.actor.email}
-                                </p>
-                              )}
-                              <p className="text-[11px] text-muted-foreground/50">
-                                {formatDate(entry.created_at)}
-                              </p>
-                            </div>
-                          </li>
+                            )}
+                          </TimelineItem>
                         ))}
-                      </ol>
+                      </Timeline>
                     )}
-                  </SurfaceCard>
+                  </DrawerSection>
                 </TabsContent>
 
                 {/* Enriquecimiento — Calidad y trazabilidad */}
                 <TabsContent value="enriquecimiento">
-                  <ContactTraceabilityPanel contact={contact} />
+                  <ContactTraceabilityTab contact={contact} />
                 </TabsContent>
 
                 {/* HubSpot */}
                 <TabsContent value="hubspot">
-                  <SurfaceCard>
-                    <div className="flex items-start justify-between gap-4">
-                      <SurfaceCardHeader title="Sincronización HubSpot" />
-                      {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
-                          consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
-                          abajo usa para el copy, así que la tarjeta ya no puede mostrar un
-                          «Sincronizado» verde junto a un «Vinculado a HubSpot» neutro. */}
+                  {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
+                      consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
+                      abajo usa para el copy, así que la tarjeta ya no puede mostrar un
+                      «Sincronizado» verde junto a un «Vinculado a HubSpot» neutro. */}
+                  <DrawerSection
+                    title="Sincronización con HubSpot"
+                    icon={Globe}
+                    action={
                       <ContactHubSpotSyncButton
                         contact={{
                           id: contact.id,
@@ -514,27 +506,28 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         }}
                         onSynced={() => loadData(contact.id)}
                       />
-                    </div>
-                    <dl className="space-y-3">
-                      <DetailRow icon={Tag} label="HubSpot Contact ID">
+                    }
+                  >
+                    <DetailList className="gap-y-3 sm:grid-cols-1">
+                      <DetailItem icon={Tag} label="ID en HubSpot">
                         {contact.hubspot_contact_id ? (
-                          <span className="font-mono text-xs">{contact.hubspot_contact_id}</span>
+                          <span className="break-all font-mono text-xs">{contact.hubspot_contact_id}</span>
                         ) : (
-                          <span className="text-muted-foreground/50">No vinculado</span>
+                          <span className="text-muted-foreground">No vinculado</span>
                         )}
-                      </DetailRow>
-                      <DetailRow icon={Tag} label="Estado de sincronización">
+                      </DetailItem>
+                      <DetailItem icon={Tag} label="Estado de sincronización">
                         <HubSpotSyncStatusBadge contact={contact} />
-                      </DetailRow>
+                      </DetailItem>
                       {(() => {
                         const sync = contact.metadata?.hubspot_sync as
                           | Record<string, unknown>
                           | undefined;
                         const syncedAt = sync?.synced_at as string | undefined;
                         return syncedAt ? (
-                          <DetailRow icon={Tag} label="Sincronizado el">
+                          <DetailItem icon={Tag} label="Sincronizado el">
                             {formatDate(syncedAt)}
-                          </DetailRow>
+                          </DetailItem>
                         ) : null;
                       })()}
                       {(() => {
@@ -545,24 +538,24 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                         return (
                           <>
                             {state.attempted_at ? (
-                              <DetailRow icon={Tag} label="Último intento">
+                              <DetailItem icon={Tag} label="Último intento">
                                 {formatDate(state.attempted_at)}
-                              </DetailRow>
+                              </DetailItem>
                             ) : null}
                             {/* CUT-2 — desde cuándo HubSpot está desactualizado, no cuándo se
                                 registró el último cambio: es lo que responde «¿cuánto lleva
                                 esto sin enviarse?». */}
                             {state.stale_since ? (
-                              <DetailRow icon={Tag} label="Pendiente desde">
+                              <DetailItem icon={Tag} label="Pendiente desde">
                                 {formatDate(state.stale_since)}
-                              </DetailRow>
+                              </DetailItem>
                             ) : null}
                           </>
                         );
                       })()}
-                    </dl>
+                    </DetailList>
                     {!contact.email && (
-                      <p className="mt-3 text-[11px] text-muted-foreground">
+                      <p className="mt-3 text-xs text-muted-foreground">
                         Este contacto no tiene email, requisito para sincronizar con HubSpot.
                       </p>
                     )}
@@ -582,7 +575,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       );
                       if (!annex) return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           {HUBSPOT_AUTO_SYNC_BLOCKED_LABELS[annex.blocked_reason]} (
                           {formatDate(annex.checked_at)}). Puedes sincronizarlo con el botón
                           cuando la conexión esté disponible.
@@ -609,7 +602,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       );
                       if (!annex) return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           No se pudo actualizar automáticamente porque{' '}
                           {HUBSPOT_AUTO_UPDATE_BLOCKED_DETAIL[annex.blocked_reason]} (
                           {formatDate(annex.checked_at)}). El cambio sigue pendiente y se puede
@@ -631,7 +624,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       if (!hasPendingHubSpotPhoneChange(state)) return null;
                       if (state?.stale_source !== 'privacy') return null;
                       return (
-                        <p className="mt-3 text-[11px] text-muted-foreground">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           Este cambio proviene de una solicitud de privacidad, así que no se envía
                           automáticamente: requiere una acción explícita con el botón.
                         </p>
@@ -643,7 +636,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       todavía no viaja a HubSpot. Decirlo aquí evita que el badge se lea como una
                       promesa que este corte no cumple.
                     */}
-                    <p className="mt-3 text-[11px] text-muted-foreground">
+                    <p className="mt-3 text-xs text-muted-foreground">
                       «Sincronizado» significa que el contacto existe en HubSpot y está vinculado
                       a SellUp. «Pendiente de actualizar» significa que el teléfono cambió en
                       SellUp después de vincularlo y todavía no se ha enviado: se envía con el
@@ -652,180 +645,39 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       privacidad NUNCA se envía solo. Otros campos no se actualizan en HubSpot en
                       esta versión.
                     </p>
-                  </SurfaceCard>
+                  </DrawerSection>
                 </TabsContent>
               </Tabs>
+        </div>
             )}
     </DrawerShell>
+
+      {contact && (
+        <EditContactDrawer
+          key={contact.id}
+          contact={contact}
+          open={editOpen}
+          onClose={() => {
+            setEditOpen(false);
+            void loadData(contact.id);
+          }}
+        />
+      )}
+    </>
   );
 }
-
 // ── Calidad y trazabilidad ────────────────────────────────────────────────────
 
-function TraceCard({
-  title,
-  children,
-}: {
-  icon?: React.ComponentType<{ className?: string }>;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <SurfaceCard>
-      <SurfaceCardHeader title={title} />
-      <dl className="space-y-3">{children}</dl>
-    </SurfaceCard>
-  );
-}
-
-function TraceRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-          {label}
-        </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
-      </div>
-    </div>
-  );
-}
-
-function EmptyTrace({ message }: { message: string }) {
-  return (
-    <p className="py-2 text-xs text-muted-foreground/60 italic">{message}</p>
-  );
-}
-
-function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
+/**
+ * Pestaña «Origen y calidad». Las tres primeras tarjetas viven en
+ * `contact-traceability-panel.tsx`; la de HubSpot se queda AQUÍ porque el tono
+ * de su check lo decide la misma autoridad que el badge de la pestaña HubSpot.
+ */
+function ContactTraceabilityTab({ contact }: { contact: Contact }) {
   const vm = buildContactTraceabilityViewModel(contact);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {/* Card 1 — Origen */}
-      <TraceCard icon={Bot} title="Origen del contacto">
-        <TraceRow label="Origen">
-          <span className="flex items-center gap-1.5">
-            {vm.hasSourceCandidate ? (
-              <Badge
-                variant="outline"
-                className="text-[10px] bg-su-brand-soft text-su-brand border-transparent"
-              >
-                {vm.originLabel}
-              </Badge>
-            ) : (
-              <Badge
-                variant="outline"
-                className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-              >
-                {vm.originLabel}
-              </Badge>
-            )}
-          </span>
-        </TraceRow>
-        <TraceRow label="Fuente">
-          <Badge
-            variant="outline"
-            className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-          >
-            {vm.sourceLabel}
-          </Badge>
-        </TraceRow>
-        {vm.hasSourceCandidate && vm.sourceCandidateId && (
-          <TraceRow label="ID candidato">
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {vm.sourceCandidateId}
-            </span>
-          </TraceRow>
-        )}
-      </TraceCard>
-
-      {/* Card 2 — Calidad y datos accionables */}
-      <TraceCard icon={Sparkles} title="Calidad y datos accionables">
-        {vm.hasRelevanceData ? (
-          <>
-            <TraceRow label="Relevancia">
-              <RelevanceBadge label={vm.relevanceLabel} />
-            </TraceRow>
-            {vm.relevanceScore !== null && (
-              <TraceRow label="Score">
-                <span className="tabular-nums">{vm.relevanceScore.toFixed(2)}</span>
-              </TraceRow>
-            )}
-          </>
-        ) : (
-          <EmptyTrace message="Sin evaluación de IA registrada" />
-        )}
-        {vm.hasCompletionData ? (
-          <>
-            {vm.completedFields.length > 0 && (
-              <TraceRow label="Datos completados">
-                <span className="flex flex-wrap gap-1">
-                  {vm.completedFields.map((f) => (
-                    <Badge
-                      key={f}
-                      variant="outline"
-                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-                    >
-                      {f}
-                    </Badge>
-                  ))}
-                </span>
-              </TraceRow>
-            )}
-            {vm.hasActionableChannel !== null && (
-              <TraceRow label="Canal accionable">
-                <span className="flex items-center gap-1">
-                  {vm.hasActionableChannel ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
-                  )}
-                  <span>{vm.hasActionableChannel ? 'Sí' : 'No'}</span>
-                </span>
-              </TraceRow>
-            )}
-          </>
-        ) : null}
-      </TraceCard>
-
-      {/* Card 3 — Normalización */}
-      <TraceCard icon={FileCheck2} title="Normalización">
-        {vm.isNormalized ? (
-          <>
-            <TraceRow label="Estado">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                <span>Normalizado</span>
-              </span>
-            </TraceRow>
-            {vm.normalizedFields.length > 0 && (
-              <TraceRow label="Campos normalizados">
-                <span className="flex flex-wrap gap-1">
-                  {vm.normalizedFields.map((f) => (
-                    <Badge
-                      key={f}
-                      variant="outline"
-                      className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-                    >
-                      {f}
-                    </Badge>
-                  ))}
-                </span>
-              </TraceRow>
-            )}
-          </>
-        ) : (
-          <EmptyTrace message="Sin normalización registrada" />
-        )}
-      </TraceCard>
-
+    <ContactTraceabilityPanel vm={vm}>
       {/* Card 4 — HubSpot (resumen) */}
       <TraceCard icon={Globe} title="HubSpot">
         {/*
@@ -837,29 +689,26 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         <TraceRow label="Estado">
           {vm.hubspotSyncTone === 'synced' ? (
             <span className="flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               <span>{vm.hubspotSyncLabel}</span>
             </span>
           ) : (
             <span className="flex items-center gap-1">
-              <XCircle className="h-3.5 w-3.5 text-muted-foreground/40" />
+              <XCircle className="h-3.5 w-3.5 text-text-muted" />
               <span className="text-muted-foreground">{vm.hubspotSyncLabel}</span>
             </span>
           )}
         </TraceRow>
         {vm.hubspotContactId && (
-          <TraceRow label="HubSpot Contact ID">
-            <span className="font-mono text-[11px] text-muted-foreground">
+          <TraceRow label="ID en HubSpot">
+            <span className="break-all font-mono text-xs text-muted-foreground">
               {vm.hubspotContactId}
             </span>
           </TraceRow>
         )}
         {vm.hubspotMode && (
           <TraceRow label="Modo">
-            <Badge
-              variant="outline"
-              className="text-[10px] bg-muted/40 border-transparent text-muted-foreground"
-            >
+            <Badge variant="neutral">
               {vm.hubspotMode === 'created' ? 'Creado en HubSpot' :
                vm.hubspotMode === 'linked_existing' ? 'Vinculado a existente' :
                vm.hubspotMode}
@@ -868,38 +717,18 @@ function ContactTraceabilityPanel({ contact }: { contact: Contact }) {
         )}
         {vm.hubspotAssociationStatus && (
           <TraceRow label="Asociación con empresa">
-            <Badge
-              variant="outline"
-              className={`text-[10px] border-transparent ${
-                vm.hubspotAssociationStatus === 'associated'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-              }`}
-            >
+            <Badge variant={vm.hubspotAssociationStatus === 'associated' ? 'positive' : 'warning'}>
               {vm.hubspotAssociationStatus === 'associated' ? 'Asociado' :
                vm.hubspotAssociationStatus === 'failed' ? 'Falló' :
                vm.hubspotAssociationStatus}
             </Badge>
           </TraceRow>
         )}
-        <p className="mt-2 text-[10px] text-muted-foreground/40 italic">
-          Para sincronizar o ver el detalle completo, ve al tab HubSpot.
+        <p className="mt-2 text-xs text-text-muted">
+          Para sincronizar o ver el detalle completo, ve a la pestaña HubSpot.
         </p>
       </TraceCard>
-    </div>
-  );
-}
-
-function RelevanceBadge({ label }: { label: string }) {
-  const styles: Record<string, string> = {
-    Alta: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-    Media: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-    Baja: 'bg-muted/40 text-muted-foreground border-transparent',
-  };
-  return (
-    <Badge variant="outline" className={`text-[10px] ${styles[label] ?? 'bg-muted/40 text-muted-foreground border-transparent'}`}>
-      {label}
-    </Badge>
+    </ContactTraceabilityPanel>
   );
 }
 
@@ -913,27 +742,3 @@ function RelevanceBadge({ label }: { label: string }) {
  * que las llamadas de este archivo no cambien.
  */
 const HubSpotSyncStatusBadge = ContactHubSpotSyncBadge;
-
-function DetailRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  // Design Refresh v6: layout horizontal (label izquierda / valor derecha),
-  // consistente con el drawer de Empresa.
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <dt className="text-[11px] font-medium text-muted-foreground/80">
-          {label}
-        </dt>
-      </div>
-      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
-    </div>
-  );
-}

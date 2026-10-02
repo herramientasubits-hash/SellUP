@@ -1,9 +1,12 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import type { LucideIcon } from "@/icons";
+import { ThemaTabs } from "@/components/navigation/thema-tabs";
 
 export interface Tab {
   id: string;
   label: string;
+  /** Icono a la izquierda del nombre. */
+  icon?: LucideIcon;
   count?: number;
 }
 
@@ -13,48 +16,28 @@ interface TabsNavProps extends React.HTMLAttributes<HTMLDivElement> {
   onTabChange: (id: string) => void;
 }
 
+/**
+ * TabsNav — las pestañas de un módulo (nivel `page` de Thema): una pista tenue
+ * con las pestañas dentro; la activa va rellena con el primario. Cada pestaña
+ * puede llevar su icono y su contador, en línea con el nombre.
+ *
+ * Es un envoltorio fino de `ThemaTabs` en modo `navigation`: cambia de vista
+ * dentro de un mismo módulo navegando (query params), por eso son botones con
+ * `aria-current` y no un `tablist`.
+ */
 const TabsNav = React.forwardRef<HTMLDivElement, TabsNavProps>(
-  ({ tabs, activeTabId, onTabChange, className, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={cn(
-          "flex items-center gap-2 w-full bg-card px-4 py-2",
-          className
-        )}
-        {...props}
-      >
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={cn(
-                "relative rounded-full px-4 py-1.5 text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isActive
-                  ? "bg-su-brand text-su-brand-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              )}
-            >
-              {tab.label}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span
-                  className={cn(
-                    "absolute -top-1 -right-1 min-w-[16px] h-5 rounded-full bg-su-brand/20 text-[10px] font-medium px-1.5 text-center text-su-brand",
-                    isActive && "bg-su-brand-foreground/20 text-su-brand-foreground"
-                  )}
-                >
-                  {tab.count > 99 ? "99+" : tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
+  ({ tabs, activeTabId, onTabChange, ...props }, ref) => (
+    <ThemaTabs
+      ref={ref}
+      navigation
+      variant="page"
+      fitContent
+      tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, badge: tab.count }))}
+      activeTabId={activeTabId}
+      onTabChange={onTabChange}
+      {...props}
+    />
+  ),
 );
 
 TabsNav.displayName = "TabsNav";

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon } from "@/icons";
 import type { DateRange } from "react-day-picker";
 
 import { cn } from "@/lib/utils";
@@ -141,7 +141,7 @@ export const DateRangePicker = React.forwardRef<
               variant="outline"
               disabled={disabled}
               className={cn(
-                "w-full justify-start text-left font-normal",
+                "w-full min-w-0 justify-start text-left font-normal",
                 !hasRange && "text-muted-foreground",
                 hasError && "border-destructive text-destructive focus-visible:ring-destructive"
               )}
@@ -150,8 +150,8 @@ export const DateRangePicker = React.forwardRef<
               aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
               aria-labelledby={labelId}
             >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {displayText}
+              <CalendarIcon className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">{displayText}</span>
             </Button>
           }
         />
@@ -191,7 +191,7 @@ export const DateRangePicker = React.forwardRef<
       {error && (
         <p
           id={errorId}
-          className="text-xs text-destructive"
+          className="text-xs font-medium text-destructive"
         >
           {error}
         </p>

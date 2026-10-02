@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
 
 function GoogleIcon() {
   return (
@@ -83,19 +84,21 @@ export function GoogleSignInButton() {
 
   return (
     <div className="space-y-3">
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="lg"
         onClick={handleSignIn}
         disabled={isLoading}
         aria-busy={isLoading}
-        className="flex w-full items-center justify-center gap-3 rounded-xl bg-foreground px-5 py-3.5 text-sm font-semibold text-background shadow-sm transition-all duration-200 hover:bg-foreground/90 hover:shadow-md hover:shadow-foreground/5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full gap-3"
       >
         {isLoading ? <SpinnerIcon /> : <GoogleIcon />}
         {isLoading ? 'Redirigiendo a Google...' : 'Continuar con Google'}
-      </button>
+      </Button>
 
       {error && (
-        <p role="alert" className="text-center text-sm text-destructive">
+        <p role="alert" className="text-center text-sm font-medium text-destructive">
           {error}
         </p>
       )}

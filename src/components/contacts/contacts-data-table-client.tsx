@@ -5,15 +5,30 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, ExternalLink, Info, Pencil, Star, RefreshCw, Archive } from 'lucide-react';
+import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
+  type DataTableHandle,
+  type DataTableListRowState,
 } from '@/components/data-table';
+import { ListItem } from '@/components/data-display/list-item';
+import {
+  QuickFilterChips,
+  QuickFilterEmptyState,
+  QuickFilterStrip,
+  useQuickFilter,
+  useWideViewport,
+  type QuickFilterDefinition,
+} from '@/components/filters/quick-filter-strip';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { EmptyCell, RowTitleButton } from '@/components/shared/table-cells';
 import {
   ROLE_LABELS,
   CONTACT_STATUS_LABELS,
@@ -33,20 +48,50 @@ import { setPrimaryContact, changeContactStatus, archiveContact } from '@/module
 
 // ── Badge styles ───────────────────────────────────────────────
 
-const STATUS_STYLES: Record<ContactStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  inactive: 'bg-muted text-muted-foreground border-transparent',
-  left_company: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  do_not_contact: 'bg-destructive/10 text-destructive border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+type ContactBadgeVariant = 'positive' | 'neutral' | 'warning' | 'negative' | 'brand';
+
+const STATUS_VARIANT: Record<ContactStatus, ContactBadgeVariant> = {
+  active: 'positive',
+  inactive: 'neutral',
+  left_company: 'warning',
+  do_not_contact: 'negative',
+  archived: 'neutral',
 };
 
-const ROLE_STYLES: Record<string, string> = {
-  decision_maker: 'bg-su-brand-soft text-su-brand border-transparent',
-  economic_buyer: 'bg-su-brand-soft text-su-brand border-transparent',
-  champion: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  influencer: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-};
+// ── Indicadores que filtran ────────────────────────────────────
+// Eran tarjetas de métricas en la cabecera. Ahora son botones: pulsar uno deja
+// en la tabla solo esos contactos, y el número es exactamente lo que se ve.
+const CONTACT_QUICK_FILTERS: readonly QuickFilterDefinition<ContactListItem>[] = [
+  {
+    id: 'decision_makers',
+    label: 'Decisores',
+    icon: Crown,
+    tone: 'brand',
+    predicate: (contact) => contact.role_in_account === 'decision_maker',
+  },
+  {
+    id: 'champions',
+    label: 'Champions',
+    icon: Target,
+    tone: 'positive',
+    predicate: (contact) => contact.role_in_account === 'champion',
+  },
+  {
+    id: 'primary',
+    label: 'Primarios',
+    icon: Star,
+    tone: 'warning',
+    predicate: (contact) => contact.is_primary,
+  },
+];
+
+const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
+
+/** Los estados a los que se puede pasar un contacto desde su menú. */
+const SELECTABLE_STATUSES: ContactStatus[] = ['active', 'inactive', 'left_company', 'do_not_contact'];
+
+const INTERNAL_LINK =
+  'rounded-sm text-xs text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/40';
 
 // ── Filter option arrays ───────────────────────────────────────
 
@@ -76,12 +121,18 @@ interface ContactsDataTableClientProps {
   /** owner_id keyed by account_id — used for scope pre-filtering (contact → account → owner). */
   accountOwners?: Map<string, string>;
   scopeFilterOptions?: ScopeFilterOptions;
+  /**
+   * Lo que se ofrece cuando todavía no hay ningún contacto (buscarlos con IA,
+   * crear uno). Lo arma la página, que es la que tiene los drawers.
+   */
+  emptyActions?: React.ReactNode;
 }
 
 export function ContactsDataTableClient({
   contacts,
   accountOwners,
   scopeFilterOptions,
+  emptyActions,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
@@ -89,11 +140,11 @@ export function ContactsDataTableClient({
   const [editingContact, setEditingContact] = React.useState<ContactListItem | null>(null);
   const [editOpen, setEditOpen] = React.useState(false);
 
-  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>({
-    userId: '',
-    groupId: '',
-    roleKey: '',
-  });
+  const [archiving, setArchiving] = React.useState<ContactListItem | null>(null);
+  const [archivePending, setArchivePending] = React.useState(false);
+  const dataTableRef = React.useRef<DataTableHandle>(null);
+
+  const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
 
   const filteredContacts = React.useMemo(() => {
     if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return contacts;
@@ -123,6 +174,25 @@ export function ContactsDataTableClient({
       return allowedUserIds.has(ownerId);
     });
   }, [contacts, scopeFilter, scopeFilterOptions, accountOwners]);
+
+  const quick = useQuickFilter(filteredContacts, CONTACT_QUICK_FILTERS);
+  const toggleQuickFilter = React.useCallback(
+    (id: string) => {
+      // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
+      dataTableRef.current?.clearSelection();
+      quick.toggle(id);
+    },
+    [quick],
+  );
+  // En pantalla ancha los indicadores van dentro de la barra de la tabla (no
+  // gastan un renglón); en estrecha, en su franja encima.
+  const isWide = useWideViewport();
+  const quickFilterGroup = {
+    label: 'Indicadores de contactos',
+    options: quick.options,
+    value: quick.activeId,
+    onToggle: toggleQuickFilter,
+  };
 
   const openDetail = React.useCallback((contactId: string) => {
     setDetailContactId(contactId);
@@ -156,15 +226,23 @@ export function ContactsDataTableClient({
     toast.success(`Estado actualizado: ${CONTACT_STATUS_LABELS[status]}`);
   }
 
-  async function handleArchive(contact: ContactListItem) {
-    if (!confirm(`¿Archivar a "${contact.full_name}"? Esta acción requiere rol admin.`)) return;
-    const result = await archiveContact(contact.id);
-    if (!result.success) {
-      toast.error(result.error);
-      return;
+  // Archivar pide confirmación en un diálogo del sistema (antes, un `confirm()`
+  // del navegador): dice a quién y qué pasa, y espera a que termine.
+  async function confirmArchive() {
+    if (!archiving) return;
+    setArchivePending(true);
+    try {
+      const result = await archiveContact(archiving.id);
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${archiving.full_name} archivado`);
+      setArchiving(null);
+      router.refresh();
+    } finally {
+      setArchivePending(false);
     }
-    router.refresh();
-    toast.success(`${contact.full_name} archivado`);
   }
 
   // ── Column definitions ────────────────────────────────────────
@@ -179,51 +257,56 @@ export function ContactsDataTableClient({
         cell: ({ row }) => {
           const c = row.original;
           return (
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground/70">
-                {c.full_name.charAt(0).toUpperCase()}
-              </div>
-              <button
-                type="button"
-                onClick={() => openDetail(c.id)}
-                className="text-xs font-medium text-foreground hover:text-su-brand hover:underline text-left truncate"
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden
+                className="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground"
               >
-                {c.full_name}
-              </button>
+                {c.full_name.charAt(0).toUpperCase()}
+              </span>
+              <RowTitleButton onClick={() => openDetail(c.id)}>{c.full_name}</RowTitleButton>
+              {c.is_primary && (
+                <span role="img" aria-label="Contacto primario" title="Contacto primario" className="shrink-0 text-warning">
+                  <Star aria-hidden className="size-3.5" />
+                </span>
+              )}
             </div>
           );
         },
         size: 200,
         minSize: 160,
         enableHiding: false,
-        meta: { label: 'Nombre', popoverTitle: 'Nombre' },
+        // Texto libre: se ordena y se busca, no se filtra por valores.
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
       },
       {
         id: 'account_name',
         accessorKey: 'account_name',
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Cuenta" />
+          <DataTableColumnHeader column={column} title="Empresa" />
         ),
         cell: ({ row }) => {
           const c = row.original;
           return c.account_name ? (
             <Link
               href={`/accounts/${c.account_id}`}
-              className="text-xs text-su-brand hover:underline truncate block max-w-[180px]"
+              title={c.account_name}
+              onClick={(event) => event.stopPropagation()}
+              className={`block truncate ${INTERNAL_LINK}`}
             >
               {c.account_name}
             </Link>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <EmptyCell label="Sin empresa" />
           );
         },
         size: 180,
         minSize: 140,
         filterFn: 'arrIncludesSome',
         meta: {
-          label: 'Cuenta',
-          popoverTitle: 'Cuenta',
-          disablePopoverSearch: false,
+          // Enumerable: el embudo ofrece las empresas que aparecen en la lista.
+          label: 'Empresa',
+          popoverTitle: 'Empresa',
         },
       },
       {
@@ -232,14 +315,17 @@ export function ContactsDataTableClient({
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Cargo" />
         ),
-        cell: ({ row }) => (
-          <span className="text-xs text-foreground/80 truncate block max-w-[160px]">
-            {row.original.job_title ?? <span className="text-muted-foreground/40">—</span>}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.job_title ? (
+            <span className="block truncate text-xs text-foreground" title={row.original.job_title}>
+              {row.original.job_title}
+            </span>
+          ) : (
+            <EmptyCell label="Sin cargo" />
+          ),
         size: 160,
         minSize: 120,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo' },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
       },
       {
         id: 'email',
@@ -252,18 +338,20 @@ export function ContactsDataTableClient({
           return email ? (
             <a
               href={`mailto:${email}`}
-              className="flex items-center gap-1 text-xs text-su-brand hover:underline"
+              title={email}
+              onClick={(event) => event.stopPropagation()}
+              className={`flex min-w-0 items-center gap-1 ${INTERNAL_LINK}`}
             >
-              <Mail className="h-3 w-3 shrink-0" />
-              <span className="truncate max-w-[140px]">{email}</span>
+              <Mail aria-hidden className="h-3 w-3 shrink-0" />
+              <span className="truncate">{email}</span>
             </a>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <EmptyCell label="Sin email" />
           );
         },
         size: 180,
         minSize: 140,
-        meta: { label: 'Email', popoverTitle: 'Email' },
+        meta: { label: 'Email', popoverTitle: 'Email', disableFilter: true },
       },
       {
         id: 'phone_display',
@@ -277,18 +365,19 @@ export function ContactsDataTableClient({
           return phone ? (
             <a
               href={`tel:${phone}`}
-              className="flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+              onClick={(event) => event.stopPropagation()}
+              className="flex min-w-0 items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40"
             >
-              <Phone className="h-3 w-3 shrink-0" />
-              {phone}
+              <Phone aria-hidden className="h-3 w-3 shrink-0" />
+              <span className="truncate tabular-nums">{phone}</span>
             </a>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <EmptyCell label="Sin teléfono" />
           );
         },
         size: 140,
         minSize: 110,
-        meta: { label: 'Teléfono', popoverTitle: 'Teléfono' },
+        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', disableFilter: true },
       },
       {
         id: 'contact_status',
@@ -299,10 +388,7 @@ export function ContactsDataTableClient({
         cell: ({ row }) => {
           const status = row.original.contact_status;
           return (
-            <Badge
-              variant="outline"
-              className={`text-[10px] ${STATUS_STYLES[status]}`}
-            >
+            <Badge variant={STATUS_VARIANT[status]}>
               {CONTACT_STATUS_LABELS[status]}
             </Badge>
           );
@@ -324,15 +410,13 @@ export function ContactsDataTableClient({
         ),
         cell: ({ row }) => {
           const role = row.original.role_in_account;
+          // Un solo chip de color por fila (el estado): el rol va en texto.
           return role ? (
-            <Badge
-              variant="outline"
-              className={`text-[10px] ${ROLE_STYLES[role] ?? 'bg-muted text-muted-foreground border-transparent'}`}
-            >
-              {ROLE_LABELS[role as ContactRole]}
-            </Badge>
+            <span className="block truncate text-xs text-foreground">
+              {ROLE_LABELS[role as ContactRole] ?? role}
+            </span>
           ) : (
-            <span className="text-muted-foreground/40 text-xs">—</span>
+            <EmptyCell label="Sin rol" />
           );
         },
         size: 140,
@@ -350,11 +434,16 @@ export function ContactsDataTableClient({
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Seniority" />
         ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground truncate block max-w-[130px]">
-            {row.original.seniority ? (SENIORITY_LABELS[row.original.seniority] ?? '—') : '—'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const seniority = row.original.seniority ? SENIORITY_LABELS[row.original.seniority] : null;
+          return seniority ? (
+            <span className="block truncate text-xs text-muted-foreground" title={seniority}>
+              {seniority}
+            </span>
+          ) : (
+            <EmptyCell label="Sin seniority" />
+          );
+        },
         size: 130,
         minSize: 100,
         filterFn: 'arrIncludesSome',
@@ -387,8 +476,8 @@ export function ContactsDataTableClient({
           },
           {
             id: 'go-account',
-            label: 'Ir a la cuenta',
-            icon: ExternalLink,
+            label: 'Abrir la empresa',
+            icon: Building2,
             separator: true,
             onClick: () => {
               window.location.href = `/accounts/${row.account_id}`;
@@ -399,31 +488,31 @@ export function ContactsDataTableClient({
         if (!row.is_primary && row.contact_status === 'active') {
           items.push({
             id: 'set-primary',
-            label: 'Marcar primario',
+            label: 'Marcar como primario',
             icon: Star,
             onClick: () => handleSetPrimary(row),
           });
         }
 
-        items.push({
-          id: 'change-status',
-          label: 'Cambiar estado',
-          icon: RefreshCw,
-          separator: true,
-          onClick: () => {
-            const statuses: ContactStatus[] = ['active', 'inactive', 'left_company', 'do_not_contact'];
-            const currentIdx = statuses.indexOf(row.contact_status);
-            const nextIdx = (currentIdx + 1) % statuses.length;
-            handleChangeStatus(row, statuses[nextIdx]);
-          },
+        // Antes había un único «Cambiar estado» que saltaba al siguiente sin
+        // decir a cuál. Ahora cada estado posible es su propia entrada.
+        SELECTABLE_STATUSES.filter((status) => status !== row.contact_status).forEach((status, index) => {
+          items.push({
+            id: `status-${status}`,
+            label: `Marcar como «${CONTACT_STATUS_LABELS[status]}»`,
+            icon: RefreshCw,
+            separator: index === 0,
+            onClick: () => handleChangeStatus(row, status),
+          });
         });
 
         items.push({
           id: 'archive',
-          label: 'Archivar',
+          label: 'Archivar contacto',
           icon: Archive,
           variant: 'destructive' as const,
-          onClick: () => handleArchive(row),
+          separator: true,
+          onClick: () => setArchiving(row),
         });
 
         return items;
@@ -437,6 +526,8 @@ export function ContactsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Info,
         disabled: (rows) => rows.length !== 1,
@@ -444,6 +535,8 @@ export function ContactsDataTableClient({
       },
       {
         id: 'edit-contact',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Editar contacto',
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
@@ -451,8 +544,10 @@ export function ContactsDataTableClient({
       },
       {
         id: 'go-accounts',
-        label: 'Ir a cuentas',
-        icon: ExternalLink,
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
+        label: 'Abrir la empresa',
+        icon: Building2,
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => {
           window.location.href = `/accounts/${rows[0].account_id}`;
@@ -460,60 +555,151 @@ export function ContactsDataTableClient({
       },
       {
         id: 'set-primary',
-        label: 'Marcar primario',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
+        label: 'Marcar como primario',
         icon: Star,
         disabled: (rows) => rows.length !== 1 || rows[0].is_primary || rows[0].contact_status !== 'active',
         onClick: (rows) => handleSetPrimary(rows[0]),
       },
       {
         id: 'archive',
-        label: 'Archivar',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
+        label: 'Archivar contacto',
         icon: Archive,
         variant: 'destructive',
         disabled: (rows) => rows.length !== 1,
-        onClick: (rows) => handleArchive(rows[0]),
+        onClick: (rows) => setArchiving(rows[0]),
       },
     ],
     [openDetail, openEdit],
   );
 
+  // ── Vista de lista ────────────────────────────────────────────
+  const renderListItem = React.useCallback(
+    (row: Row, state: DataTableListRowState) => (
+      <ListItem
+        selected={state.selected}
+        leading={state.checkbox}
+        title={<RowTitleButton onClick={() => openDetail(row.id)}>{row.full_name}</RowTitleButton>}
+        description={
+          [row.job_title, row.account_name, row.email ?? row.mobile_phone ?? row.phone]
+            .filter(Boolean)
+            .join(' · ') || 'Sin cargo, empresa ni datos de contacto'
+        }
+        meta={
+          <Badge variant={STATUS_VARIANT[row.contact_status]}>
+            {CONTACT_STATUS_LABELS[row.contact_status]}
+          </Badge>
+        }
+        actions={state.menu}
+      />
+    ),
+    [openDetail],
+  );
+
+  // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
+  // Sin `emptyState`, la tabla pone su propio aviso de «nada coincide con
+  // estos filtros» junto a los chips, que ya traen «Limpiar todo».
+  let emptyState: React.ReactNode;
+  if (contacts.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Users}
+        title="Todavía no hay contactos"
+        description="Busca contactos con IA para tus empresas o crea uno a mano. Los que apruebes en «Por revisar» también llegan aquí."
+        action={emptyActions}
+      />
+    );
+  } else if (filteredContacts.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Users}
+        title="Ningún contacto en este alcance"
+        description="El usuario, grupo o rol elegido no tiene contactos en sus empresas."
+        action={
+          <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
+            Quitar filtros de alcance
+          </Button>
+        }
+      />
+    );
+  } else if (quick.rows.length === 0 && quick.activeLabel) {
+    emptyState = (
+      <QuickFilterEmptyState
+        icon={Users}
+        filterLabel={quick.activeLabel}
+        noun="contactos"
+        onClear={quick.clear}
+      />
+    );
+  }
+
   return (
     <>
-      <DataTable
-        columns={columns}
-        data={filteredContacts}
-        getRowId={(row) => row.id}
-        title="Listado de contactos"
-        description="Contactos vinculados a cuentas, roles, estado y fuente."
-        count={filteredContacts.length}
-        enableRowSelection
-        contextMenu={contextMenu}
-        bulkActions={bulkActions}
-        enableColumnReorder
-        initialPageSize={20}
-        fillHeight
-        onRowClick={(row) => openDetail(row.id)}
-        rowClickable
-        settingsExtraSections={
-          scopeFilterOptions?.showScopeFilters ? (
-            <ScopeFilterDrawerSection
-              scopeFilterOptions={scopeFilterOptions}
-              value={scopeFilter}
-              onChange={setScopeFilter}
-            />
-          ) : undefined
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {contacts.length > 0 && !isWide && (
+          <QuickFilterStrip
+            {...quickFilterGroup}
+            icon={Users}
+            total={quick.total}
+            noun={['contacto', 'contactos']}
+            className="shrink-0"
+          />
+        )}
+
+        <DataTable
+          ref={dataTableRef}
+          tableId="contacts"
+          noun="contactos"
+          getRowLabel={(row) => row.full_name}
+          columns={columns}
+          data={quick.rows}
+          getRowId={(row) => row.id}
+          title={quick.activeLabel ? `Contactos · ${quick.activeLabel}` : 'Listado de contactos'}
+          count={quick.rows.length}
+          actions={contacts.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          enableRowSelection
+          contextMenu={contextMenu}
+          bulkActions={bulkActions}
+          enableColumnReorder
+          initialPageSize={20}
+          fillHeight
+          onRowClick={(row) => openDetail(row.id)}
+          rowClickable
+          renderListItem={renderListItem}
+          settingsExtraSections={
+            scopeFilterOptions?.showScopeFilters ? (
+              <ScopeFilterDrawerSection
+                scopeFilterOptions={scopeFilterOptions}
+                value={scopeFilter}
+                onChange={setScopeFilter}
+              />
+            ) : undefined
+          }
+          emptyState={emptyState}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={archiving !== null}
+        onOpenChange={(open) => {
+          if (!open && !archivePending) setArchiving(null);
+        }}
+        variant="destructive"
+        icon={Archive}
+        title="Archivar contacto"
+        description={
+          archiving
+            ? `${archiving.full_name} dejará de aparecer en la lista. Solo un administrador puede archivar y queda registrado en auditoría.`
+            : undefined
         }
-        emptyState={
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Info className="h-6 w-6 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm font-medium text-foreground">Sin contactos todavía</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-              Crea contactos manualmente desde una cuenta o agrégales aquí vinculándolos a una cuenta.
-            </p>
-          </div>
-        }
+        confirmLabel="Archivar contacto"
+        loading={archivePending}
+        onConfirm={() => void confirmArchive()}
       />
 
       <ContactDetailSheet

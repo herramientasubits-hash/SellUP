@@ -6,8 +6,23 @@ import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer
 import { ContactEnrichmentDrawer } from './contact-enrichment-drawer';
 import type { ManualContactContext } from './contact-enrichment-drawer';
 
-export function ContactsEnrichmentCTA() {
-  const [enrichmentOpen, setEnrichmentOpen] = React.useState(false);
+interface ContactsEnrichmentCTAProps {
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto el buscador (la
+   * barra de acciones de la pantalla) y aquí no se pinta el botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function ContactsEnrichmentCTA({ open: controlledOpen, onOpenChange }: ContactsEnrichmentCTAProps = {}) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const enrichmentOpen = isControlled ? controlledOpen : internalOpen;
+  const setEnrichmentOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [createContactOpen, setCreateContactOpen] = React.useState(false);
   const [manualCtx, setManualCtx] = React.useState<ManualContactContext | null>(null);
 
@@ -24,9 +39,11 @@ export function ContactsEnrichmentCTA() {
 
   return (
     <>
-      <AIButton size="sm" onClick={() => setEnrichmentOpen(true)}>
-        Buscar contactos con IA
-      </AIButton>
+      {!isControlled && (
+        <AIButton size="sm" onClick={() => setEnrichmentOpen(true)}>
+          Buscar contactos con IA
+        </AIButton>
+      )}
       <ContactEnrichmentDrawer
         open={enrichmentOpen}
         onOpenChange={setEnrichmentOpen}

@@ -2,20 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { RotateCcw, Loader2, AlertTriangle } from 'lucide-react';
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { RotateCcw, AlertTriangle } from '@/icons';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { Field } from '@/components/forms/field';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { rollbackStructuredAgentBatchAction } from '@/modules/prospect-batches/actions';
 
@@ -62,78 +53,35 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(true)}
-            className="gap-1.5 text-muted-foreground"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Deshacer lote
-          </Button>
-        }
-      />
-
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader className="pt-2">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <AlertTriangle className="h-5 w-5" />
-            <DialogTitle className="text-base font-semibold">Deshacer este lote de candidatos</DialogTitle>
-          </div>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Esta acción revierte la creación del lote en SellUp y conserva el historial para auditoría. Los candidatos quedan descartados y el lote no afecta el flujo de prospección.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="rollback-reason" className="text-xs font-semibold text-muted-foreground/80">
-              Motivo (opcional)
-            </Label>
-            <Textarea
-              id="rollback-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ej. QA rollback para lote structured de Agente 1..."
-              disabled={loading}
-              rows={3}
-              className="resize-none text-xs"
-            />
-          </div>
-        </div>
-
-        <DialogFooter className="mt-2">
-          <DialogClose
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={handleClose}
-              />
-            }
-          >
-            Cancelar
-          </DialogClose>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={loading}
-            onClick={handleConfirm}
-            className="gap-1.5"
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3.5 w-3.5" />
-            )}
-            {loading ? 'Aplicando...' : 'Confirmar, deshacer lote'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
+      trigger={
+        <Button variant="outline" size="sm">
+          <RotateCcw className="h-3.5 w-3.5" />
+          Deshacer lote
+        </Button>
+      }
+      variant="destructive"
+      icon={AlertTriangle}
+      title="Deshacer este lote de candidatos"
+      description="Esta acción revierte la creación del lote en SellUp y conserva el historial para auditoría. Los candidatos quedan descartados y el lote no afecta el flujo de prospección."
+      confirmLabel={loading ? 'Aplicando...' : 'Confirmar, deshacer lote'}
+      loading={loading}
+      onConfirm={handleConfirm}
+      className="sm:max-w-md"
+    >
+      <Field label="Motivo (opcional)">
+        <Textarea
+          id="rollback-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Ej. QA rollback para lote structured de Agente 1..."
+          disabled={loading}
+          rows={3}
+          className="resize-none"
+        />
+      </Field>
+    </ConfirmDialog>
   );
 }

@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import { LayoutList, GitBranch } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { formatInAppZone } from '@/lib/format-date';
+import { useState, useMemo } from 'react';
+import { LayoutList, GitBranch, Users, UserCheck, Clock, UserPlus, PauseCircle, UserX, type LucideIcon } from "@/icons";
+import { FilterChips } from '@/components/filters/filter-chips';
+import { ListItem, ListItemGroup } from '@/components/data-display';
+import { SegmentedControl } from '@/components/selection/segmented-control';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { UserAvatar } from './user-avatar';
 import { OrgChart } from './org-chart';
 import { GroupsView } from './groups-view';
 import { SelectableUsersList } from './selectable-users-list';
@@ -15,8 +19,6 @@ import type { InternalUser, Role, UserPreapproval, OrganizationGroup } from '@/m
 import type { SelectableListMode } from './selectable-users-list';
 
 type UserFilter = 'all' | 'active' | 'pending' | 'preapproved' | 'suspended' | 'rejected';
-type UserViewMode = 'list' | 'org';
-type GroupViewMode = 'list' | 'org';
 
 interface UsersTabProps {
   users: InternalUser[];
@@ -39,91 +41,112 @@ interface GroupsTabProps {
   onGroupFilterChange?: (g: string | null) => void;
 }
 
-const USER_FILTERS: { id: UserFilter; label: string }[] = [
-  { id: 'all',         label: 'Todos' },
-  { id: 'active',      label: 'Activos' },
-  { id: 'pending',     label: 'Pendientes' },
-  { id: 'preapproved', label: 'Preautorizados' },
-  { id: 'suspended',   label: 'Suspendidos' },
-  { id: 'rejected',    label: 'Rechazados' },
+const USER_FILTERS: { id: UserFilter; label: string; icon: LucideIcon }[] = [
+  { id: 'all',         label: 'Todos',          icon: Users },
+  { id: 'active',      label: 'Activos',        icon: UserCheck },
+  { id: 'pending',     label: 'Pendientes',     icon: Clock },
+  { id: 'preapproved', label: 'Preautorizados', icon: UserPlus },
+  { id: 'suspended',   label: 'Suspendidos',    icon: PauseCircle },
+  { id: 'rejected',    label: 'Rechazados',     icon: UserX },
 ];
 
-function getInitials(name: string | null, email: string): string {
-  if (name) return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
+/** El estado de acceso que corresponde a cada chip. */
+const STATUS_BY_FILTER: Record<string, string> = {
+  active: 'active',
+  pending: 'pending_approval',
+  suspended: 'suspended',
+  rejected: 'rejected',
+};
+
+/** Los estados que entran en «Todos»: los archivados no se listan. */
+const LISTED_STATUSES = new Set<string>(['active', 'pending_approval', 'suspended', 'rejected']);
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatInAppZone(dateStr, { day: 'numeric', month: 'short', year: 'numeric' }, 'es-CO');
 }
 
-// ─── UserList (passes correct mode to SelectableUsersList) ───────────────────
+// ─── ViewToggle ───────────────────────────────────────────────────────────────
 
-interface UserListProps {
-  users: InternalUser[];
-  roles: Role[];
-  allUsers: InternalUser[];
-  activeUsers: InternalUser[];
-  groups: OrganizationGroup[];
-  filter: UserFilter;
-  isAdmin: boolean;
+type ViewMode = 'list' | 'org';
+
+interface ViewOption {
+  value: ViewMode;
+  label: string;
+  icon: LucideIcon;
 }
 
-function UserList({ users, roles, allUsers, activeUsers, groups, filter, isAdmin }: UserListProps) {
-  const mode: SelectableListMode = filter === 'all' ? 'all' : filter as Exclude<SelectableListMode, 'all'>;
+interface ViewToggleProps {
+  value: ViewMode;
+  onChange: (value: ViewMode) => void;
+  options: ViewOption[];
+  ariaLabel: string;
+  className?: string;
+}
+
+/** Lista u organigrama: dos formas de ver a las mismas personas. */
+const USER_VIEW_OPTIONS: ViewOption[] = [
+  { value: 'list', label: 'Lista', icon: LayoutList },
+  { value: 'org', label: 'Organigrama', icon: GitBranch },
+];
+
+/** Los grupos se ven como árbol (quién cuelga de quién) o con su gente dentro. */
+const GROUP_VIEW_OPTIONS: ViewOption[] = [
+  { value: 'list', label: 'Estructura', icon: GitBranch },
+  { value: 'org', label: 'Personas', icon: Users },
+];
+
+function ViewToggle({ value, onChange, options, ariaLabel, className }: ViewToggleProps) {
   return (
-    <SelectableUsersList
-      users={users}
-      roles={roles}
-      allUsers={allUsers}
-      activeUsers={activeUsers}
-      groups={groups}
-      mode={mode}
-      isAdmin={isAdmin}
+    <SegmentedControl
+      size="sm"
+      ariaLabel={ariaLabel}
+      className={className ? `w-fit ${className}` : 'w-fit'}
+      options={options}
+      value={value}
+      onChange={(next) => onChange(next as ViewMode)}
     />
   );
 }
 
-// ─── PreapprovalCard ─────────────────────────────────────────────────────────
+// ─── PreapprovalRow ──────────────────────────────────────────────────────────
 
-interface PreapprovalCardProps {
+interface PreapprovalRowProps {
   preapproval: UserPreapproval;
   isAdmin: boolean;
 }
 
-function PreapprovalCard({ preapproval, isAdmin }: PreapprovalCardProps) {
+/** Una persona con el acceso ya concedido que todavía no ha entrado. */
+function PreapprovalRow({ preapproval, isAdmin }: PreapprovalRowProps) {
+  const details = [
+    preapproval.email,
+    preapproval.role_name ?? 'Sin rol',
+    preapproval.manager_name ? `Jefe: ${preapproval.manager_name}` : 'Sin jefe',
+  ].join(' · ');
+
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-su-brand/20 bg-su-brand-soft/30 p-4">
-      <Avatar className="h-10 w-10">
-        <AvatarFallback className="bg-su-brand-soft text-su-brand text-xs">
-          {getInitials(preapproval.full_name, preapproval.email)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-foreground">
-            {preapproval.full_name ?? 'Sin nombre registrado'}
-          </span>
-          <Badge variant="outline" className="text-[10px] bg-su-brand-soft text-su-brand border-su-brand/30 shrink-0">
-            Esperando primer login
+    <ListItem
+      leading={<UserAvatar name={preapproval.full_name} email={preapproval.email} size="lg" />}
+      title={
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{preapproval.full_name ?? 'Sin nombre registrado'}</span>
+          <Badge variant="brand" className="shrink-0">
+            Aún no ha entrado
           </Badge>
-        </div>
-        <div className="truncate text-xs text-muted-foreground">{preapproval.email}</div>
-      </div>
-      <div className="hidden min-w-[100px] text-sm text-muted-foreground md:block">
-        {preapproval.role_name ?? 'Sin rol'}
-      </div>
-      <div className="hidden min-w-[120px] text-xs text-muted-foreground md:block">
-        {preapproval.manager_name ?? 'Sin jefe'}
-      </div>
-      <div className="hidden min-w-[140px] text-xs text-muted-foreground md:block">
-        Preautorizado: {formatDate(preapproval.created_at)}
-      </div>
-      {isAdmin && (
-        <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
-      )}
-    </div>
+        </span>
+      }
+      description={details}
+      meta={
+        <span className="hidden md:inline">
+          Preautorizado el {formatDate(preapproval.created_at)}
+        </span>
+      }
+      actions={
+        isAdmin ? (
+          <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -134,25 +157,17 @@ export function UsersTab({
   initialFilter = 'active', onFilterChange,
 }: UsersTabProps) {
   const [filter, setFilter] = useState<UserFilter>(initialFilter);
-  const [viewMode, setViewMode] = useState<UserViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
 
-  const statusMap: Record<string, string> = {
-    active: 'active',
-    pending: 'pending_approval',
-    suspended: 'suspended',
-    rejected: 'rejected',
-  };
-
-  const activeFilters = new Set(['active', 'pending_approval', 'suspended', 'rejected']);
   const filteredUsers = useMemo(() => {
-    if (filter === 'all') return users.filter(u => activeFilters.has(u.access_status));
+    if (filter === 'all') return users.filter(u => LISTED_STATUSES.has(u.access_status));
     if (filter === 'preapproved') return [];
-    const mapped = statusMap[filter];
+    const mapped = STATUS_BY_FILTER[filter];
     return mapped ? users.filter(u => u.access_status === mapped) : [];
   }, [users, filter]);
 
   const filterCounts = useMemo(() => ({
-    all:         users.filter(u => activeFilters.has(u.access_status)).length,
+    all:         users.filter(u => LISTED_STATUSES.has(u.access_status)).length,
     active:      users.filter(u => u.access_status === 'active').length,
     pending:     users.filter(u => u.access_status === 'pending_approval').length,
     preapproved: preapprovals.length,
@@ -160,106 +175,80 @@ export function UsersTab({
     rejected:    users.filter(u => u.access_status === 'rejected').length,
   }), [users, preapprovals]);
 
-  const showOrgChart = (filter === 'active' || filter === 'all') && viewMode === 'org';
+  const canShowOrgChart = filter === 'active' || filter === 'all';
   const showPreapprovedList = filter === 'preapproved';
-  const showUserList = viewMode === 'list' && !showPreapprovedList;
-  const showViewToggle = filter === 'active' || filter === 'all';
+  const showOrgChart = canShowOrgChart && viewMode === 'org';
+  const showUserList = !showPreapprovedList && !showOrgChart;
+  const listMode: SelectableListMode =
+    filter === 'preapproved' ? 'all' : filter;
+  const listTitle = USER_FILTERS.find((f) => f.id === filter)?.label ?? 'Usuarios';
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      {/* Filter bar + view toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-xl border border-border/60 bg-muted/40 p-1">
-          {USER_FILTERS.map(f => (
-            <button
-              key={f.id}
-              onClick={() => {
-                setFilter(f.id);
-                onFilterChange?.(f.id);
-              }}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
-                filter === f.id
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {f.label}
-              <span className={cn(
-                'ml-1.5 rounded-full px-1.5 py-0.5 text-[10px]',
-                filter === f.id ? 'bg-su-brand-soft text-su-brand' : 'bg-muted text-muted-foreground',
-              )}>
-                {filterCounts[f.id]}
-              </span>
-            </button>
-          ))}
-        </div>
+    <div className="flex flex-col gap-4">
+      {/* Una sola fila de estados: cada chip filtra la lista y dice cuántos hay.
+          Envuelve a la línea siguiente en vez de salirse por la derecha. */}
+      <FilterChips
+        wrap
+        ariaLabel="Filtrar usuarios por estado"
+        value={filter}
+        onChange={(value) => {
+          const next = value as UserFilter;
+          setFilter(next);
+          onFilterChange?.(next);
+        }}
+        options={USER_FILTERS.map((f) => ({
+          value: f.id,
+          label: f.label,
+          count: filterCounts[f.id],
+          icon: f.icon,
+        }))}
+      />
 
-        {showViewToggle && (
-          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
-            <button
-              onClick={() => setViewMode('list')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                viewMode === 'list' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <LayoutList className="h-3.5 w-3.5" />
-              Lista
-            </button>
-            <button
-              onClick={() => setViewMode('org')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                viewMode === 'org' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-              Organigrama
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Preapproved list */}
-      {showPreapprovedList && (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
-          {preapprovals.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">
-              No hay preautorizaciones pendientes.
-            </div>
-          ) : (
-            preapprovals.map(p => <PreapprovalCard key={p.id} preapproval={p} isAdmin={isAdmin} />)
-          )}
-        </div>
+      {canShowOrgChart && (
+        <ViewToggle
+          value={viewMode}
+          onChange={setViewMode}
+          options={USER_VIEW_OPTIONS}
+          ariaLabel="Ver usuarios como lista u organigrama"
+          className="self-end"
+        />
       )}
 
-      {/* Org chart */}
-      {showOrgChart && viewMode === 'org' && (
-        <div className="flex-1 min-h-0 overflow-hidden">
+      {/* Preautorizados: personas con acceso concedido que aún no han entrado */}
+      {showPreapprovedList && (
+        preapprovals.length === 0 ? (
+          <EmptyState
+            icon={UserPlus}
+            title="No hay nadie preautorizado"
+            description="Con «Agregar usuario» puedes dejar aprobado el acceso de alguien antes de que entre por primera vez."
+          />
+        ) : (
+          <ListItemGroup aria-label="Personas preautorizadas">
+            {preapprovals.map(p => <PreapprovalRow key={p.id} preapproval={p} isAdmin={isAdmin} />)}
+          </ListItemGroup>
+        )
+      )}
+
+      {showOrgChart && (
+        <div className="h-128 min-h-0 overflow-hidden">
           <OrgChart users={users} roles={roles} />
         </div>
       )}
 
-      {/* User list */}
       {showUserList && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {filteredUsers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-sm">
-              No hay usuarios en esta categoría.
-            </div>
-          ) : (
-            <UserList
-              users={filteredUsers}
-              roles={roles}
-              allUsers={allUsers}
-              activeUsers={activeUsers}
-              groups={groups}
-              filter={filter}
-              isAdmin={isAdmin}
-            />
-          )}
-        </div>
+        <SelectableUsersList
+          // Al cambiar de estado cambian las acciones en lote: la tabla empieza
+          // de cero para no arrastrar una selección de otra vista.
+          key={listMode}
+          users={filteredUsers}
+          roles={roles}
+          allUsers={allUsers}
+          activeUsers={activeUsers}
+          groups={groups}
+          mode={listMode}
+          isAdmin={isAdmin}
+          title={listTitle}
+        />
       )}
     </div>
   );
@@ -267,56 +256,32 @@ export function UsersTab({
 
 // ─── GroupsTab ─────────────────────────────────────────────────────────────────
 
-interface GroupsTabProps {
-  users: InternalUser[];
-  groups: OrganizationGroup[];
-  roles: Role[];
-}
-
 export function GroupsTab({ users, groups, roles, isAdmin = false }: GroupsTabProps) {
-  const [viewMode, setViewMode] = useState<GroupViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const activeUsers = useMemo(() => users.filter(u => u.access_status === 'active'), [users]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
         </span>
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
-          <button
-            onClick={() => setViewMode('list')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              viewMode === 'list' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <LayoutList className="h-3.5 w-3.5" />
-            Lista
-          </button>
-          <button
-            onClick={() => setViewMode('org')}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              viewMode === 'org' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            Organigrama
-          </button>
-        </div>
+        <ViewToggle
+          value={viewMode}
+          onChange={setViewMode}
+          options={GROUP_VIEW_OPTIONS}
+          ariaLabel="Ver la estructura de grupos o las personas de cada grupo"
+        />
       </div>
 
       {viewMode === 'list' && (
-        <SurfaceCard className="flex-1">
+        <SurfaceCard>
           <GroupManagementPanel groups={groups} />
         </SurfaceCard>
       )}
 
       {viewMode === 'org' && (
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-border/40">
-          <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
-        </div>
+        <GroupsView users={activeUsers} groups={groups} roles={roles} isAdmin={isAdmin} />
       )}
     </div>
   );

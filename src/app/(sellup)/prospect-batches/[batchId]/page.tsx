@@ -1,7 +1,7 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   Building2,
   CheckCircle2,
   XCircle,
@@ -9,15 +9,16 @@ import {
   ArrowRightCircle,
   AlertTriangle,
   Layers,
-  FlaskConical,
-  Globe,
-  RefreshCw,
-  ShieldCheck,
-  Info,
-} from 'lucide-react';
+  ChevronDown,
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { MetricCard } from '@/components/shared/metric-card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
@@ -40,20 +41,24 @@ import {
 import { resolveBatchCandidatesPanelState } from '@/components/prospect-batches/batch-candidates-panel-state';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   socrata_colombia: 'Fuente oficial',
   datos_gob_cl: 'Fuente oficial Chile',
 };
 
-const STATUS_STYLES: Record<BatchStatus, string> = {
-  draft: 'bg-muted text-muted-foreground',
-  generating: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  ready_for_review: 'bg-su-brand-soft text-su-brand',
-  in_review: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  completed: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  cancelled: 'bg-muted/60 text-muted-foreground/60',
-  failed: 'bg-destructive/10 text-destructive',
+const STATUS_VARIANT: Record<
+  BatchStatus,
+  'neutral' | 'brand' | 'warning' | 'info' | 'positive' | 'negative'
+> = {
+  draft: 'neutral',
+  generating: 'warning',
+  ready_for_review: 'brand',
+  in_review: 'info',
+  completed: 'positive',
+  cancelled: 'neutral',
+  failed: 'negative',
 };
 
 interface Props {
@@ -111,7 +116,7 @@ export default async function BatchDetailPage({ params }: Props) {
       : batch.name;
 
   const chileSubtitle = isStructuredChile
-    ? `Fuente oficial Chile · RES · ${new Date(batch.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    ? `Fuente oficial Chile · RES · ${formatInAppZone(batch.created_at, { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CL')}`
     : null;
 
   const pageSubtitle = (isStructuredOfficial || isApolloCandidateBatch)
@@ -152,64 +157,57 @@ export default async function BatchDetailPage({ params }: Props) {
       value: counts.total,
       icon: Building2,
       color: 'text-foreground',
-      bg: 'bg-muted/60',
+      bg: 'bg-surface-muted',
     },
     {
       label: 'Necesitan revisión',
       value: counts.needs_review,
       icon: AlertTriangle,
-      color: 'text-amber-600 dark:text-amber-400',
-      bg: 'bg-amber-500/10',
+      color: 'text-warning',
+      bg: 'bg-warning/15',
     },
     {
       label: 'Aprobados',
       value: counts.approved,
       icon: CheckCircle2,
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-500/10',
+      color: 'text-success',
+      bg: 'bg-success/10',
     },
     {
       label: 'Descartados',
       value: counts.discarded,
       icon: XCircle,
       color: 'text-muted-foreground',
-      bg: 'bg-muted/60',
+      bg: 'bg-surface-muted',
     },
     {
       label: 'Convertidos',
       value: counts.converted,
       icon: ArrowRightCircle,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
     },
     {
       label: 'Posibles duplicados',
       value: counts.duplicates,
       icon: GitMerge,
-      color: 'text-orange-600 dark:text-orange-400',
-      bg: 'bg-orange-500/10',
+      color: 'text-warning',
+      bg: 'bg-warning/15',
     },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div>
-        <Link
-          href="/prospects"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Prospectos
-        </Link>
-      </div>
-
       {/* Header */}
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs items={[{ label: 'Prospectos', href: '/prospects' }, pageTitle]} />
+        }
+        backHref="/prospects"
         title={pageTitle}
         description={pageSubtitle}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isAdmin &&
               batch.metadata?.batch_type === 'structured' &&
               (batch.metadata?.source_key === 'co_rues' ||
@@ -246,101 +244,65 @@ export default async function BatchDetailPage({ params }: Props) {
               ?.status === 'not_configured',
         );
         return (
-          <div className="rounded-xl border border-border/40 bg-muted/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
-            <div className="flex items-start gap-2.5">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="flex-1">
-                {hasImportValidation ? (
-                  <>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-foreground">
-                        Candidatos importados y validados automáticamente
-                      </p>
-                      {hsNotConfigured && (
-                        <Badge className="border-0 bg-muted text-muted-foreground/60 text-[9px] font-medium">
-                          HubSpot no configurado
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      SellUp revisó duplicidad local y calidad básica. HubSpot se validará cuando la
-                      integración esté configurada.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium text-foreground">
-                      Candidatos importados desde fuente externa
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Estos candidatos fueron cargados manualmente o desde un archivo externo.
-                      Requieren revisión humana antes de aprobarse o sincronizarse.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          <Alert className="animate-su-fade-in motion-reduce:animate-none">
+            {hasImportValidation ? (
+              <>
+                <AlertTitle className="flex flex-wrap items-center gap-2 text-sm">
+                  Candidatos importados y validados automáticamente
+                  {hsNotConfigured && <Badge variant="neutral">HubSpot no configurado</Badge>}
+                </AlertTitle>
+                <AlertDescription className="text-xs">
+                  SellUp revisó duplicidad local y calidad básica. HubSpot se validará cuando la
+                  integración esté configurada.
+                </AlertDescription>
+              </>
+            ) : (
+              <>
+                <AlertTitle className="text-sm">Candidatos importados desde fuente externa</AlertTitle>
+                <AlertDescription className="text-xs">
+                  Estos candidatos fueron cargados manualmente o desde un archivo externo.
+                  Requieren revisión humana antes de aprobarse o sincronizarse.
+                </AlertDescription>
+              </>
+            )}
+          </Alert>
         );
       })()}
 
       {/* Alerta de rollback lógico aplicado */}
       {batch.status === 'cancelled' && batch.metadata?.rollback_logical === true && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-3.5 animate-in fade-in-0 duration-200">
-          <div className="flex items-start gap-2.5">
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            <div>
-              <p className="text-sm font-medium text-destructive dark:text-red-400">
-                Lote revertido
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Los datos permanecen para auditoría, pero el lote ya no está operativo.
-                {typeof batch.metadata?.rollback_reason === 'string' && (
-                  <span className="block mt-1 text-[10px] text-muted-foreground/80 font-mono">
-                    Motivo: {batch.metadata.rollback_reason}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="destructive" className="animate-su-fade-in motion-reduce:animate-none">
+          <AlertTitle className="text-sm">Lote revertido</AlertTitle>
+          <AlertDescription className="text-xs">
+            Los datos permanecen para auditoría, pero el lote ya no está operativo.
+            {typeof batch.metadata?.rollback_reason === 'string' && (
+              <span className="mt-1 block font-mono">Motivo: {batch.metadata.rollback_reason}</span>
+            )}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Banner revisión humana — lotes estructurados */}
       {batch.metadata?.batch_type === 'structured' &&
         batch.metadata?.human_review_required === true && (
-          <div className="rounded-xl border border-su-brand/30 bg-su-brand-soft/40 px-5 py-3.5 animate-in fade-in-0 duration-200">
-            <div className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  Empresas verificadas con fuente oficial
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {isStructuredChile
-                    ? 'Estas empresas fueron contrastadas con el Registro de Empresas y Sociedades de Chile. Requieren revisión humana antes de aprobarse o sincronizarse.'
-                    : 'Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.'}
-                </p>
-              </div>
-            </div>
-          </div>
+          <Alert variant="info" className="animate-su-fade-in motion-reduce:animate-none">
+            <AlertTitle className="text-sm text-foreground">Empresas verificadas con fuente oficial</AlertTitle>
+            <AlertDescription className="text-xs">
+              {isStructuredChile
+                ? 'Estas empresas fueron contrastadas con el Registro de Empresas y Sociedades de Chile. Requieren revisión humana antes de aprobarse o sincronizarse.'
+                : 'Estas empresas fueron contrastadas con el registro oficial de Colombia. Requieren revisión humana antes de aprobarse o sincronizarse con HubSpot.'}
+            </AlertDescription>
+          </Alert>
         )}
 
       {/* Alerta modo mock */}
       {batch.metadata?.generation_mode === 'mock' && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5">
-          <div className="flex items-start gap-2.5">
-            <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-            <div>
-              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                Lote generado en modo prueba
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="warning">
+          <AlertTitle className="text-sm">Lote generado en modo prueba</AlertTitle>
+          <AlertDescription className="text-xs">
+            Este lote fue generado con datos mock para validar el flujo del pipeline. No usar estos candidatos para convertirlos en empresas reales.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Alerta novelty: empresas omitidas por repetición reciente */}
@@ -354,44 +316,32 @@ export default async function BatchDetailPage({ params }: Props) {
           .slice(0, 3)
           .map((i) => i.name);
         return (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <div>
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                  SellUp omitió {skippedCount} empresa{skippedCount !== 1 ? 's' : ''} repetida{skippedCount !== 1 ? 's' : ''}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {skippedCount === 1
-                    ? 'Esta empresa ya estaba pendiente de revisión en un lote reciente y fue omitida para evitar duplicados.'
-                    : `Estas empresas ya estaban pendientes de revisión en lotes recientes y fueron omitidas para evitar duplicados.`}
-                  {previewNames.length > 0 && (
-                    <span className="ml-1">
-                      Ej.: {previewNames.join(', ')}{(ns?.skipped_items?.length ?? 0) > 3 ? '…' : '.'}
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
+          <Alert variant="warning">
+            <AlertTitle className="text-sm">
+              SellUp omitió {skippedCount} empresa{skippedCount !== 1 ? 's' : ''} repetida{skippedCount !== 1 ? 's' : ''}
+            </AlertTitle>
+            <AlertDescription className="text-xs">
+              {skippedCount === 1
+                ? 'Esta empresa ya estaba pendiente de revisión en un lote reciente y fue omitida para evitar duplicados.'
+                : `Estas empresas ya estaban pendientes de revisión en lotes recientes y fueron omitidas para evitar duplicados.`}
+              {previewNames.length > 0 && (
+                <span className="ml-1">
+                  Ej.: {previewNames.join(', ')}{(ns?.skipped_items?.length ?? 0) > 3 ? '…' : '.'}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
         );
       })()}
 
       {/* Alerta modo prueba controlada con búsqueda real */}
       {batch.metadata?.generation_mode === 'controlled_real_test' && (
-        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 px-5 py-3.5">
-          <div className="flex items-start gap-2.5">
-            <Globe className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-            <div>
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
-                Lote generado con búsqueda web real (prueba controlada)
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Este lote fue generado usando Tavily para búsquedas reales en modo de prueba controlada. Los datos son reales pero el lote se generó en un entorno de validación — revisar antes de convertir candidatos.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Alert variant="info">
+          <AlertTitle className="text-sm">Lote generado con búsqueda web real (prueba controlada)</AlertTitle>
+          <AlertDescription className="text-xs">
+            Este lote fue generado usando Tavily para búsquedas reales en modo de prueba controlada. Los datos son reales pero el lote se generó en un entorno de validación — revisar antes de convertir candidatos.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Información de búsqueda incremental */}
@@ -416,45 +366,40 @@ export default async function BatchDetailPage({ params }: Props) {
           error: 'Error en búsqueda',
         };
         return (
-          <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/40 px-5 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">
-                  Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {stoppedReason && (
-                    <span>Detuvo por: <span className="font-medium text-foreground/80">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
-                  )}
-                  {totalRaw !== undefined && (
-                    <span>Resultados evaluados: <span className="font-medium text-foreground/80">{totalRaw}</span></span>
-                  )}
-                  {totalAcc !== undefined && (
-                    <span>Candidatos acumulados: <span className="font-medium text-foreground/80">{totalAcc}</span></span>
-                  )}
-                  {usefulCount !== undefined && (
-                    <span>Útiles: <span className="font-medium text-foreground/80">{usefulCount}</span></span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <Alert variant="info">
+            <AlertTitle className="text-sm text-foreground">
+              Búsqueda incremental · {roundsExecuted} ronda{roundsExecuted !== 1 ? 's' : ''}
+            </AlertTitle>
+            <AlertDescription className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {stoppedReason && (
+                <span>Detuvo por: <span className="font-medium text-foreground">{reasonLabels[stoppedReason] ?? stoppedReason}</span></span>
+              )}
+              {totalRaw !== undefined && (
+                <span>Resultados evaluados: <span className="font-medium text-foreground">{totalRaw}</span></span>
+              )}
+              {totalAcc !== undefined && (
+                <span>Candidatos acumulados: <span className="font-medium text-foreground">{totalAcc}</span></span>
+              )}
+              {usefulCount !== undefined && (
+                <span>Útiles: <span className="font-medium text-foreground">{usefulCount}</span></span>
+              )}
+            </AlertDescription>
+          </Alert>
         );
       })()}
 
       {/* Batch meta */}
       <div className="flex flex-wrap items-center gap-2">
         {batch.metadata?.review_ready === false && batch.status === 'ready_for_review' ? (
-          <Badge className="bg-muted text-muted-foreground border-0 text-[10px] font-semibold">
+          <Badge variant="neutral">
             Sin candidatas útiles
           </Badge>
         ) : (
-          <Badge className={`${STATUS_STYLES[batch.status]} border-0 text-[10px] font-semibold`}>
+          <Badge variant={STATUS_VARIANT[batch.status]}>
             {BATCH_STATUS_LABELS[batch.status]}
           </Badge>
         )}
-        <Badge variant="outline" className="text-[10px]">
+        <Badge variant="outline">
           {isApolloCandidateBatch
             ? 'Fuente comercial'
             : isStructuredChile
@@ -462,45 +407,41 @@ export default async function BatchDetailPage({ params }: Props) {
             : (BATCH_SOURCE_VENDOR_LABELS[batch.source] ?? BATCH_SOURCE_LABELS[batch.source])}
         </Badge>
         {!isStructuredOfficial && !isApolloCandidateBatch && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline">
             Profundidad: {BATCH_SEARCH_DEPTH_LABELS[batch.search_depth]}
           </Badge>
         )}
         {batch.country && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline">
             {batch.country}
           </Badge>
         )}
         {batch.industry && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline">
             {isStructuredChile ? `Criterio solicitado: ${batch.industry}` : batch.industry}
           </Badge>
         )}
         {!isApolloCandidateBatch && batch.estimated_cost_usd !== null && batch.estimated_cost_usd > 0 && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline">
             Costo est.: ${Number(batch.estimated_cost_usd).toFixed(4)}
           </Badge>
         )}
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => (
-          <SurfaceCard key={card.label} className="py-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  {card.label}
-                </p>
-                <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
-                  {card.value}
-                </p>
+          <MetricCard
+            key={card.label}
+            title={card.label}
+            value={card.value}
+            compact
+            icon={
+              <div className={`rounded-xl p-2 ${card.bg}`}>
+                <card.icon className={`h-4 w-4 ${card.color}`} aria-hidden="true" />
               </div>
-              <div className={`rounded-lg p-1 ${card.bg}`}>
-                <card.icon className={`h-3.5 w-3.5 ${card.color}`} />
-              </div>
-            </div>
-          </SurfaceCard>
+            }
+          />
         ))}
       </div>
 
@@ -513,46 +454,46 @@ export default async function BatchDetailPage({ params }: Props) {
         return (
           <SurfaceCard>
             <div className="flex items-center justify-between gap-2 mb-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              <p className="text-xs font-semibold text-muted-foreground">
                 Tamaño ICP
               </p>
-              <span className="text-[10px] text-muted-foreground/50">
+              <span className="text-xs text-muted-foreground">
                 Umbral: {icpSummary.threshold}
               </span>
             </div>
             <div className="flex flex-wrap gap-4">
               <div className="space-y-0.5">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">ICP &gt;200</p>
-                <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                <p className="text-xs text-muted-foreground">ICP &gt;200</p>
+                <p className="text-xl font-semibold tabular-nums text-success">
                   {icpSummary.pass}
                 </p>
               </div>
               <div className="space-y-0.5">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Pendiente</p>
-                <p className="text-xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                <p className="text-xs text-muted-foreground">Pendiente</p>
+                <p className="text-xl font-semibold tabular-nums text-warning">
                   {icpSummary.needs_validation}
                 </p>
               </div>
               <div className="space-y-0.5">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Bloqueados</p>
+                <p className="text-xs text-muted-foreground">Bloqueados</p>
                 <p className="text-xl font-semibold tabular-nums text-destructive">
                   {icpSummary.blocked}
                 </p>
               </div>
             </div>
             {icpSummary.topBlockedReasons.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-border/30 space-y-1">
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+              <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
+                <p className="text-xs text-muted-foreground">
                   Razones de bloqueo
                 </p>
                 <ul className="space-y-0.5">
                   {icpSummary.topBlockedReasons.map((reason, i) => (
-                    <li key={i} className="text-xs text-muted-foreground/80 truncate">
+                    <li key={i} className="text-xs text-muted-foreground truncate">
                       · {reason}
                     </li>
                   ))}
                   {icpSummary.hiddenReasonCount > 0 && (
-                    <li className="text-[10px] text-muted-foreground/50 italic">
+                    <li className="text-xs text-muted-foreground italic">
                       +{icpSummary.hiddenReasonCount} más
                     </li>
                   )}
@@ -565,13 +506,13 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* Candidates table */}
       <SurfaceCard noPadding>
-        <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
-          <p className="text-sm font-semibold text-foreground">
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
+          <p className="min-w-0 truncate text-sm font-semibold text-foreground" title={candidatesPanel.headline}>
             {candidatesPanel.headline}
           </p>
           <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 text-muted-foreground/60" />
-            <span className="text-xs text-muted-foreground/60">
+            <Layers className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+            <span className="text-xs text-muted-foreground">
               {batch.target_count ? `Objetivo: ${batch.target_count}` : ''}
             </span>
           </div>
@@ -584,7 +525,7 @@ export default async function BatchDetailPage({ params }: Props) {
           aparece si la lectura paginada se quedó corta.
         */}
         {candidatesPanel.hasDurableCandidates && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-5 py-3">
             <p className="text-xs text-muted-foreground">
               {candidatesPanel.showReviewCallout
                 ? candidatesPanel.calloutMessage
@@ -592,7 +533,7 @@ export default async function BatchDetailPage({ params }: Props) {
             </p>
             <Link
               href={candidatesPanel.prospectosHref}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             >
               Revisar en Prospectos
               <ArrowRightCircle className="h-3.5 w-3.5" />
@@ -608,30 +549,42 @@ export default async function BatchDetailPage({ params }: Props) {
         POR QUÉ el clasificador de calidad las señala.
       */}
       {qualityFlaggedCandidates.length > 0 && (
-        <details className="group rounded-xl border border-border/40 bg-card p-4">
-          <summary className="flex cursor-pointer items-center justify-between font-semibold text-xs text-muted-foreground hover:text-foreground">
-            <span className="flex items-center gap-2">
-              <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
-              <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
-                Inactivas, disueltas, duplicadas o sin NIT
+        <SurfaceCard className="p-4">
+          <Collapsible>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="group/quality h-auto w-full justify-between whitespace-normal px-2 py-1.5 text-left text-muted-foreground"
+                />
+              }
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <span>Empresas señaladas por calidad ({qualityFlaggedCandidates.length})</span>
+                <Badge variant="warning">Inactivas, disueltas, duplicadas o sin NIT</Badge>
               </span>
-            </span>
-          </summary>
-          <p className="mt-2 text-[11px] text-muted-foreground/70">
+              <ChevronDown
+                aria-hidden
+                className="transition-transform group-aria-expanded/quality:rotate-180 motion-reduce:transition-none"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+          <p className="mt-2 px-2 text-xs text-muted-foreground">
             Estas empresas aparecen en la tabla de arriba. Aquí sólo se explica la
             señal de calidad; no cambia qué acciones autoriza la revisión.
           </p>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border/40 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  <th className="px-3 py-2">Empresa</th>
-                  <th className="px-3 py-2">Razón social / Identificador</th>
-                  <th className="px-3 py-2">Ubicación</th>
-                  <th className="px-3 py-2">Señal / Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Empresa</TableHead>
+                  <TableHead>Razón social / Identificador</TableHead>
+                  <TableHead>Ubicación</TableHead>
+                  <TableHead>Señal / Motivo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {qualityFlaggedCandidates.map((c) => {
                   const flags = c.review_flags ?? [];
                   const reasons: string[] = [];
@@ -667,25 +620,27 @@ export default async function BatchDetailPage({ params }: Props) {
                   });
 
                   return (
-                    <tr key={c.id} className="border-b border-border/30 last:border-0 hover:bg-muted/20">
-                      <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
-                      <td className="px-3 py-2 font-mono">
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium text-foreground">{c.name}</TableCell>
+                      <TableCell className="whitespace-normal font-mono">
                         {c.legal_name || '—'}
-                        {c.tax_identifier && <span className="block text-[10px] text-muted-foreground">NIT/ID: {c.tax_identifier}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.city || c.region || '—'}</td>
-                      <td className="px-3 py-2">
-                        <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                        {c.tax_identifier && <span className="block text-xs text-muted-foreground">NIT/ID: {c.tax_identifier}</span>}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{c.city || c.region || '—'}</TableCell>
+                      <TableCell className="whitespace-normal">
+                        <Badge variant="warning" className="h-auto whitespace-normal py-0.5 text-left">
                           {reasons.length > 0 ? reasons.join(', ') : 'Omitida por calidad'}
-                        </span>
-                      </td>
-                    </tr>
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </details>
+            </CollapsibleContent>
+          </Collapsible>
+        </SurfaceCard>
       )}
     </div>
   );

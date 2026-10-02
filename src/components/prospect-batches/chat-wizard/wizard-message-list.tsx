@@ -1,8 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, XCircle, Pencil, Loader2 } from 'lucide-react';
-import { AIOrb } from './ai-orb';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ChatAgentMessage, ChatThinking, ChatThread, ChatUserMessage, type ChatMessage } from '@/components/chat';
 import type {
   DerivedWizardMessage,
   EditableWizardStep,
@@ -41,8 +41,29 @@ const REVIEW_PHASE_STEPS = new Set<string>([
   'error',
 ]);
 
+/**
+ * El mensaje derivado del asistente, en la forma que pide el hilo de Thema.
+ * `createdAt` va en 0 a propósito: los mensajes se derivan del estado en cada
+ * render y no tienen hora propia; nada del hilo la enseña.
+ */
+function toChatMessage(message: DerivedWizardMessage): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role === 'user' ? 'user' : 'agent',
+    text: message.content,
+    createdAt: 0,
+    status: 'done',
+  };
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/**
+ * El hilo del asistente, con las piezas de chat de Thema: las respuestas del
+ * agente van sin burbuja y con la marca (`ChatAgentMessage`), lo que eligió la
+ * persona va en su burbuja a la derecha con copiar y editar (`ChatUserMessage`),
+ * los avisos son `Alert` y «escribiendo» es `ChatThinking`.
+ */
 export function WizardMessageList({
   messages,
   visibleCount,
@@ -52,19 +73,21 @@ export function WizardMessageList({
 }: WizardMessageListProps) {
   const effectiveVisible = visibleCount ?? messages.length;
   const visibleMessages = messages.slice(0, effectiveVisible);
+  const byId = React.useMemo(() => new Map(visibleMessages.map((msg) => [msg.id, msg])), [visibleMessages]);
+  const chatMessages = React.useMemo(() => visibleMessages.map(toChatMessage), [visibleMessages]);
 
   return (
-    <div
-      role="log"
+    <ChatThread
+      messages={chatMessages}
       aria-label="Historial de la conversación"
-      aria-live="polite"
-      aria-atomic="false"
-      aria-relevant="additions"
-      className="space-y-2"
-    >
-      {visibleMessages.map((msg) => {
+      className="gap-4"
+      renderMessage={(chatMessage) => {
+        const msg = byId.get(chatMessage.id);
+        if (!msg) return null;
         if (msg.role === 'assistant') {
-          return <AssistantMessage key={msg.id} message={msg} />;
+          // Ninguna respuesta del asistente es «la última» para las acciones: son
+          // preguntas del flujo, y copiar se ofrece al pasar o al enfocar.
+          return <ChatAgentMessage message={chatMessage} isLast={false} />;
         }
         if (msg.role === 'user') {
           const canEdit =
@@ -72,96 +95,29 @@ export function WizardMessageList({
             msg.step !== currentStep &&
             !REVIEW_PHASE_STEPS.has(currentStep);
           return (
-            <UserMessage
-              key={msg.id}
-              message={msg}
-              canEdit={canEdit}
-              onEdit={() => onEditStep(msg.step as EditableWizardStep)}
+            <ChatUserMessage
+              message={chatMessage}
+              onEditRequest={canEdit ? () => onEditStep(msg.step as EditableWizardStep) : undefined}
+              editLabel={`Editar respuesta: ${msg.content}`}
             />
           );
         }
         if (msg.messageType === 'warning') {
-          return <WarningMessage key={msg.id} message={msg} />;
+          return (
+            <Alert variant="warning" role="status">
+              <AlertDescription className="min-w-0 break-words text-xs">{msg.content}</AlertDescription>
+            </Alert>
+          );
         }
-        return <ErrorMessage key={msg.id} message={msg} />;
-      })}
-
-      {/* Typing indicator */}
-      {isTyping && effectiveVisible < messages.length && (
-        <div className="flex items-start gap-2.5 animate-su-fade-in">
-          <AIOrb size="sm" className="mt-0.5" />
-          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-muted/40 px-4 py-3">
-            <Loader2 className="h-3 w-3 animate-spin text-su-brand" />
-            <span className="text-sm text-muted-foreground/70 animate-pulse">
-              escribiendo
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Message bubbles ───────────────────────────────────────────────────────────
-
-function AssistantMessage({ message }: { message: DerivedWizardMessage }) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <AIOrb size="sm" className="mt-0.5" />
-      <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-muted/60 px-4 py-2.5 text-sm text-foreground">
-        {message.content}
-      </div>
-    </div>
-  );
-}
-
-type UserMessageProps = {
-  message: DerivedWizardMessage;
-  canEdit: boolean;
-  onEdit: () => void;
-};
-
-function UserMessage({ message, canEdit, onEdit }: UserMessageProps) {
-  return (
-    <div className="flex items-end justify-end gap-2">
-      {canEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`Editar respuesta: ${message.content}`}
-          className="mb-0.5 flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Pencil className="h-3 w-3" aria-hidden />
-          Editar
-        </button>
-      )}
-      <div className="max-w-[80%] rounded-xl rounded-tr-sm bg-su-brand/10 px-4 py-2.5 text-sm text-foreground">
-        {message.content}
-      </div>
-    </div>
-  );
-}
-
-function WarningMessage({ message }: { message: DerivedWizardMessage }) {
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+        return (
+          <Alert variant="destructive">
+            <AlertDescription className="min-w-0 break-words text-xs">{msg.content}</AlertDescription>
+          </Alert>
+        );
+      }}
     >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
-    </div>
-  );
-}
-
-function ErrorMessage({ message }: { message: DerivedWizardMessage }) {
-  return (
-    <div
-      role="alert"
-      className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
-    >
-      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
-    </div>
+      {/* El agente está escribiendo el siguiente mensaje. */}
+      {isTyping && effectiveVisible < messages.length && <ChatThinking label="Escribiendo…" />}
+    </ChatThread>
   );
 }

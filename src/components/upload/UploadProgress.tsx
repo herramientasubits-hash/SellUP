@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2 } from "@/icons";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { UploadProgressStatus } from "./uploadTypes";
@@ -46,7 +46,7 @@ export function UploadProgress({
       aria-valuenow={value}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label={label || "Upload progress"}
+      aria-label={label || "Progreso de la carga"}
     >
       <div className="flex items-center justify-between gap-4">
         <div className="flex flex-col min-w-0">
@@ -54,7 +54,7 @@ export function UploadProgress({
             <span className={cn(
               "text-sm font-semibold truncate",
               isError && "text-destructive",
-              isSuccess && "text-su-brand"
+              isSuccess && "text-primary"
             )}>
               {label}
             </span>
@@ -64,17 +64,17 @@ export function UploadProgress({
               "text-xs text-muted-foreground truncate",
               isError && "text-destructive font-medium"
             )}>
-              {isError ? (error || "An error occurred") : description}
+              {isError ? (error || "Ocurrió un error.") : description}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isProcessing && <Loader2 className="h-4 w-4 animate-spin text-su-brand" />}
-          {isSuccess && <CheckCircle2 className="h-4 w-4 text-su-brand" />}
-          {isError && <AlertCircle className="h-4 w-4 text-destructive" />}
+          {isProcessing && <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />}
+          {isSuccess && <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden="true" />}
+          {isError && <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />}
           {showValue && status !== "idle" && (
-            <span className="text-sm font-bold tabular-nums">
+            <span className="text-sm font-semibold tabular-nums">
               {Math.round(value)}%
             </span>
           )}
@@ -86,7 +86,7 @@ export function UploadProgress({
         className={cn(
           "h-2",
           isError && "[&>div]:bg-destructive",
-          isSuccess && "[&>div]:bg-su-brand"
+          isSuccess && "[&>div]:bg-primary"
         )}
       />
     </div>

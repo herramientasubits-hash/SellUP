@@ -1,8 +1,8 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import {
-  Loader2,
   Building2,
   Brain,
   Users,
@@ -15,11 +15,17 @@ import {
   Calendar,
   User,
   Briefcase,
-} from 'lucide-react';
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Button } from '@/components/ui/button';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { SurfaceCard } from '@/components/shared/surface-card';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { Timeline, TimelineItem } from '@/components/data-display';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
@@ -47,12 +53,14 @@ import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-su
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground border-transparent',
-  ready_for_research: 'bg-su-brand-soft text-su-brand border-transparent',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
+
+const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
+  new: 'neutral',
+  ready_for_research: 'brand',
+  research_in_progress: 'warning',
+  ready_for_outreach: 'positive',
+  archived: 'neutral',
 };
 
 const AUDIT_ICONS: Partial<Record<AccountAuditAction, React.ComponentType<{ className?: string }>>> = {
@@ -64,21 +72,21 @@ const AUDIT_ICONS: Partial<Record<AccountAuditAction, React.ComponentType<{ clas
 };
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 function formatShortDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
 interface AccountDetailSheetProps {
@@ -105,14 +113,21 @@ interface SheetData {
 export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }: AccountDetailSheetProps) {
   const [data, setData] = React.useState<SheetData | null>(null);
   const [loading, setLoading] = React.useState(false);
+  // Antes, si la empresa no se podía leer, el panel se quedaba girando para
+  // siempre. Ahora lo dice y ofrece reintentar.
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
+    setLoadFailed(false);
     try {
       const account = await getAccountById(id);
-      if (!account) return;
+      if (!account) {
+        setLoadFailed(true);
+        return;
+      }
       const [auditLog, contacts, contactsSummary, users, contactEnrichmentRuns] = await Promise.all([
         getAccountAudit(id),
         getContactsByAccount(id),
@@ -121,6 +136,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         getContactEnrichmentRunsByAccountId(id),
       ]);
       setData({ account, auditLog, contacts, contactsSummary, users, contactEnrichmentRuns });
+    } catch {
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -135,7 +152,10 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       })();
       return () => { cancelled = true; };
     } else if (!open) {
-      queueMicrotask(() => setData(null));
+      queueMicrotask(() => {
+        setData(null);
+        setLoadFailed(false);
+      });
     }
   }, [open, accountId, loadData]);
 
@@ -151,23 +171,34 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         onOpenChange={(v) => !v && onClose()}
         side="right"
         className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
-        icon={<Building2 className="h-5 w-5 text-su-brand" />}
-        title={data ? data.account.name : 'Cargando cuenta...'}
+        icon={<Building2 className="h-4 w-4" />}
+        title={data ? data.account.name : loadFailed ? 'Empresa no disponible' : 'Cargando empresa…'}
         description={data ? (data.account.legal_name || undefined) : undefined}
         titleBadge={
           data ? (
             <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[data.account.pipeline_status]}`}
+              variant={STATUS_VARIANT[data.account.pipeline_status]}
             >
               {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
             </Badge>
           ) : undefined
         }
-        headerActions={
+        loading={loading && !data}
+        // Pie: lo secundario (editar, cambiar estado, archivar) a la izquierda y
+        // la acción principal del panel a la derecha.
+        actions={
           data ? (
             <>
+              <AccountDetailActions
+                accountId={data.account.id}
+                currentStatus={data.account.pipeline_status}
+                users={data.users}
+                onChanged={() => loadData(data.account.id)}
+                onArchived={onClose}
+              />
               <AccountEnrichContactsButton
+                variant="default"
+                label="Buscar contactos"
                 preloadedCompany={{
                   name: data.account.name,
                   domain: data.account.domain,
@@ -179,22 +210,60 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                 disabled={data.account.pipeline_status === 'archived'}
                 onRequestOpen={onRequestEnrich}
               />
-              <AccountDetailActions
-                accountId={data.account.id}
-                currentStatus={data.account.pipeline_status}
-                users={data.users}
-              />
             </>
           ) : undefined
         }
       >
-        {loading || !data ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
-          </div>
+        {!data ? (
+          loadFailed ? (
+            <EmptyState
+              variant="plain"
+              icon={Building2}
+              title="No pudimos cargar esta empresa"
+              description="Puede que ya no exista o que no tengas acceso a ella. Si crees que es un error, inténtalo de nuevo."
+              action={
+                accountId ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => loadData(accountId)}>
+                    Reintentar
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : null
         ) : (
-          // Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
-          // sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más).
+          <div className="space-y-4">
+            {/* Lo esencial, antes de las pestañas: quién la lleva, dónde está,
+                cómo se llega a ella y cuánta gente conocemos dentro. */}
+            <section aria-label="Resumen de la empresa">
+              <SurfaceCard className="p-4">
+              <DetailList columns={4}>
+                <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
+                  {data.account.owner?.full_name ?? data.account.owner?.email}
+                </DetailItem>
+                <DetailItem icon={MapPin} label="Ubicación" emptyLabel="Sin ubicación">
+                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                </DetailItem>
+                <DetailItem icon={Globe} label="Sitio web" emptyLabel="Sin sitio web">
+                  {data.account.website ? (
+                    <a
+                      href={data.account.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                    >
+                      {data.account.domain ?? data.account.website}
+                    </a>
+                  ) : null}
+                </DetailItem>
+                <DetailItem icon={Users} label="Contactos">
+                  <span className="tabular-nums">{data.contacts.length}</span>
+                </DetailItem>
+              </DetailList>
+            </SurfaceCard>
+            </section>
+
+          {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
+              sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más). */}
           <Tabs defaultValue="resumen">
                   <TabsList variant="segmented" className="mb-2">
                     <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
@@ -224,30 +293,10 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                       return peMigoBlock ? <PeruMigoLegalValidationBlock block={peMigoBlock} /> : null;
                     })()}
                     <div className="grid gap-4 md:grid-cols-2">
-                      <SurfaceCard>
-                        <SurfaceCardHeader title="Datos de la empresa" />
-                        {/* Design Refresh v4: todos los campos siempre visibles
-                            (— si faltan) para una ficha consistente y menos vacía. */}
+                      {/* Sitio web, ubicación, responsable y contactos ya van en
+                          el resumen de arriba: aquí no se repiten. */}
+                      <DrawerSection title="Datos de la empresa" icon={Building2}>
                         <dl className="space-y-3">
-                          <DetailRow icon={Globe} label="Sitio web">
-                            {data.account.website ? (
-                              <a
-                                href={data.account.website}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-su-brand hover:underline"
-                              >
-                                {data.account.domain ?? data.account.website}
-                              </a>
-                            ) : (
-                              <EmptyValue />
-                            )}
-                          </DetailRow>
-                          <DetailRow icon={MapPin} label="Ubicación">
-                            {[data.account.city, data.account.region, data.account.country]
-                              .filter(Boolean)
-                              .join(', ') || <EmptyValue />}
-                          </DetailRow>
                           <DetailRow icon={Briefcase} label="Industria">
                             {data.account.industry || <EmptyValue />}
                           </DetailRow>
@@ -259,106 +308,79 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                             label={data.account.tax_identifier_type ?? 'ID fiscal'}
                           >
                             {data.account.tax_identifier
-                              ? <span className="font-mono text-xs">{data.account.tax_identifier}</span>
+                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.tax_identifier}</span>
                               : <EmptyValue />}
                           </DetailRow>
                           <DetailRow icon={Tag} label="Fuente">
-                            <Badge variant="outline" className="text-[10px]">
-                              {SOURCE_LABELS[data.account.source as AccountSource]}
-                            </Badge>
+                            {SOURCE_LABELS[data.account.source as AccountSource]}
+                          </DetailRow>
+                          <DetailRow icon={Globe} label="ID en HubSpot">
+                            {data.account.hubspot_company_id
+                              ? <span className="break-all font-mono text-xs tabular-nums">{data.account.hubspot_company_id}</span>
+                              : <EmptyValue>Sin sincronizar</EmptyValue>}
                           </DetailRow>
                           <DetailRow icon={Calendar} label="Creada">
                             {formatShortDate(data.account.created_at)}
                           </DetailRow>
                         </dl>
-                      </SurfaceCard>
+                      </DrawerSection>
 
-                      <SurfaceCard>
-                        <SurfaceCardHeader title="Asignación y estado" />
-                        <dl className="space-y-3">
-                          <DetailRow icon={User} label="Owner">
-                            {data.account.owner?.full_name ??
-                              data.account.owner?.email ?? <EmptyValue>Sin asignar</EmptyValue>}
-                          </DetailRow>
-                          <DetailRow icon={Tag} label="Estado pipeline">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[data.account.pipeline_status]}`}
-                            >
-                              {PIPELINE_STATUS_LABELS[data.account.pipeline_status]}
-                            </span>
-                          </DetailRow>
-                          <DetailRow icon={Users} label="Contactos">
-                            {data.contacts.length > 0
-                              ? `${data.contacts.length}`
-                              : <EmptyValue />}
-                          </DetailRow>
-                          <DetailRow icon={Globe} label="HubSpot ID">
-                            {data.account.hubspot_company_id
-                              ? <span className="font-mono text-xs">{data.account.hubspot_company_id}</span>
-                              : <EmptyValue />}
-                          </DetailRow>
-                        </dl>
-                        {data.account.notes && (
-                          <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                              Notas
-                            </p>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              {data.account.notes}
-                            </p>
-                          </div>
+                      <DrawerSection title="Notas" icon={Tag}>
+                        {data.account.notes ? (
+                          <p className="break-words text-sm leading-relaxed text-foreground">
+                            {data.account.notes}
+                          </p>
+                        ) : (
+                          <p className="text-sm leading-relaxed text-muted-foreground">
+                            Sin notas todavía. Añádelas con «Editar empresa», en el menú de acciones del pie.
+                          </p>
                         )}
-                      </SurfaceCard>
+                      </DrawerSection>
                     </div>
 
                     {/* Actividad reciente — llena el Resumen y da contexto sin
                         cambiar de tab. Usa el mismo auditLog del tab Actividad. */}
-                    <SurfaceCard>
-                      <SurfaceCardHeader
-                        title="Actividad reciente"
-                        actions={
-                          data.auditLog.length > 3 ? (
-                            <span className="text-[11px] text-muted-foreground/70">
-                              {data.auditLog.length} eventos
-                            </span>
-                          ) : undefined
-                        }
-                      />
+                    <DrawerSection
+                      title="Actividad reciente"
+                      icon={Activity}
+                      action={
+                        data.auditLog.length > 3 ? (
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {data.auditLog.length} eventos
+                          </span>
+                        ) : undefined
+                      }
+                    >
                       {data.auditLog.length === 0 ? (
-                        <div className="flex flex-col items-center gap-2 py-8 text-center">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/50">
-                            <Activity className="h-4 w-4 text-muted-foreground/40" />
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Sin actividad registrada todavía.
-                          </p>
-                        </div>
+                        <EmptyState
+                          variant="plain"
+                          icon={Activity}
+                          title="Sin actividad todavía"
+                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
+                        />
                       ) : (
-                        <ol className="space-y-3">
+                        <Timeline>
                           {data.auditLog.slice(0, 4).map((entry) => {
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
-                              <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/70" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-foreground">
-                                    {AUDIT_ACTION_LABELS[entry.action_type]}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground/70">
+                              <TimelineItem
+                                key={entry.id}
+                                icon={<Icon />}
+                                title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                description={
+                                  <>
                                     {entry.actor
                                       ? `${entry.actor.full_name ?? entry.actor.email} · `
                                       : ''}
                                     {formatDate(entry.created_at)}
-                                  </p>
-                                </div>
-                              </li>
+                                  </>
+                                }
+                              />
                             );
                           })}
-                        </ol>
+                        </Timeline>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </TabsContent>
 
                   {/* Contactos */}
@@ -374,62 +396,45 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
 
                   {/* Inteligencia */}
                   <TabsContent value="inteligencia">
-                    <SurfaceCard>
-                      <div className="flex flex-col items-center gap-3 py-10 text-center">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-                          <Brain className="h-5 w-5 text-muted-foreground/40" />
-                        </div>
-                        <div className="max-w-sm space-y-1">
-                          <p className="text-sm font-semibold text-foreground">
-                            Inteligencia comercial — Próxima fase
-                          </p>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            Árbol empresarial, señales de negocio y análisis de competidores.
-                          </p>
-                        </div>
-                      </div>
-                    </SurfaceCard>
+                    <EmptyState
+                      icon={Brain}
+                      title="Todavía no hay inteligencia comercial"
+                      description="Aquí verás el árbol empresarial, las señales de negocio y los competidores de esta empresa cuando estén disponibles."
+                    />
                   </TabsContent>
 
                   {/* Actividad */}
                   <TabsContent value="actividad">
-                    <SurfaceCard>
-                      <SurfaceCardHeader
-                        title="Registro de actividad"
-                        description="Cambios y eventos de auditoría de esta cuenta."
-                      />
+                    <DrawerSection title="Registro de actividad" icon={Activity} hint="Cambios y eventos de auditoría de esta empresa.">
                       {data.auditLog.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-muted-foreground">
-                          Sin actividad registrada todavía.
-                        </p>
+                        <EmptyState
+                          variant="plain"
+                          icon={Activity}
+                          title="Sin actividad todavía"
+                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
+                        />
                       ) : (
-                        <ol className="space-y-3">
+                        <Timeline>
                           {data.auditLog.map((entry) => {
                             const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
                             return (
-                              <li key={entry.id} className="flex items-start gap-3">
-                                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                                  <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-foreground">
-                                    {AUDIT_ACTION_LABELS[entry.action_type]}
+                              <TimelineItem
+                                key={entry.id}
+                                icon={<Icon />}
+                                title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                description={formatDate(entry.created_at)}
+                              >
+                                {entry.actor && (
+                                  <p className="text-xs text-muted-foreground">
+                                    por {entry.actor.full_name ?? entry.actor.email}
                                   </p>
-                                  {entry.actor && (
-                                    <p className="text-[11px] text-muted-foreground">
-                                      por {entry.actor.full_name ?? entry.actor.email}
-                                    </p>
-                                  )}
-                                  <p className="text-[11px] text-muted-foreground/50">
-                                    {formatDate(entry.created_at)}
-                                  </p>
-                                </div>
-                              </li>
+                                )}
+                              </TimelineItem>
                             );
                           })}
-                        </ol>
+                        </Timeline>
                       )}
-                    </SurfaceCard>
+                    </DrawerSection>
                   </TabsContent>
 
                   {/* Agentes */}
@@ -437,7 +442,8 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                     <AccountAgentsRunHistory runs={data.contactEnrichmentRuns} />
                   </TabsContent>
                 </Tabs>
-              )}
+          </div>
+        )}
       </DrawerShell>
 
       {/* Nested contact detail sheet */}
@@ -463,19 +469,17 @@ function DetailRow({
   // la derecha) para una lectura más tabular y ordenada; contraste del label
   // subido de /50 a /70.
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <dt className="text-[11px] font-medium text-muted-foreground/80">
-          {label}
-        </dt>
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <dt className="text-xs text-muted-foreground">{label}</dt>
       </div>
-      <dd className="min-w-0 flex-1 text-right text-xs text-foreground">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>
   );
 }
 
 /** Valor vacío consistente para campos sin dato (— o texto custom). */
 function EmptyValue({ children }: { children?: React.ReactNode }) {
-  return <span className="text-muted-foreground/40">{children ?? '—'}</span>;
+  return <span className="text-text-muted">{children ?? '—'}</span>;
 }

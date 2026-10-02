@@ -18,8 +18,6 @@ import {
 } from '@tanstack/react-table';
 import {
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
   Pencil,
   ChevronLeft,
   ChevronRight,
@@ -29,10 +27,12 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+  Loader2,
+} from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { FieldLabel } from '@/components/forms/field';
+import { SearchableSelect } from '@/components/forms/searchable-select';
 import { cn } from '@/lib/utils';
 import type {
   ImportClassificationPreviewRow,
@@ -40,7 +40,8 @@ import type {
   ManualClassificationCorrection,
   CatalogVersionState,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
-import { CLASSIFICATION_STATUS_MAP } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
 
 // ── Local catalog types ────────────────────────────────────────────────────────
 
@@ -83,423 +84,13 @@ export type ImportClassificationTableProps = {
   ) => Promise<void>;
 };
 
-// ── Country code → display name (subset LATAM + common) ───────────────────────
-
-const COUNTRY_NAMES: Record<string, string> = {
-  AR: 'Argentina', BO: 'Bolivia', BR: 'Brasil', CL: 'Chile',
-  CO: 'Colombia', CR: 'Costa Rica', DO: 'R. Dominicana', EC: 'Ecuador',
-  GT: 'Guatemala', HN: 'Honduras', MX: 'México', NI: 'Nicaragua',
-  PA: 'Panamá', PE: 'Perú', PY: 'Paraguay', SV: 'El Salvador',
-  UY: 'Uruguay', VE: 'Venezuela', US: 'EE.UU.', ES: 'España',
-};
-
-function countryLabel(code: string | null): string {
-  if (!code) return '—';
-  return COUNTRY_NAMES[code.toUpperCase()] ?? code;
-}
-
-// ── Domain extractor ──────────────────────────────────────────────────────────
-
-function extractDomain(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const normalized = url.startsWith('http') ? url : `https://${url}`;
-    return new URL(normalized).hostname.replace(/^www\./, '');
-  } catch {
-    return null;
-  }
-}
-
-// ── StatusBadge ───────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: ImportClassificationPreviewRow['validationStatus'] }) {
-  const config = CLASSIFICATION_STATUS_MAP[status];
-  const variantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-    success: 'secondary',
-    warning: 'default',
-    destructive: 'destructive',
-    default: 'default',
-    secondary: 'secondary',
-    outline: 'outline',
-  };
-  const iconMap: Record<string, React.ReactNode> = {
-    valid: <CheckCircle2 className="h-3 w-3 text-emerald-500" />,
-    normalized: <CheckCircle2 className="h-3 w-3 text-su-brand" />,
-    warning: <AlertTriangle className="h-3 w-3 text-amber-500" />,
-    requires_review: <Pencil className="h-3 w-3 text-destructive" />,
-    invalid: <XCircle className="h-3 w-3 text-destructive" />,
-  };
-  return (
-    <Badge variant={variantMap[config.variant] ?? 'secondary'} className="gap-1 text-[10px] font-medium whitespace-nowrap">
-      {iconMap[status]}
-      {config.label}
-    </Badge>
-  );
-}
-
-// ── ClassificationCell ────────────────────────────────────────────────────────
-
-function ClassificationCell({
-  canonicalName,
-  originalValue,
-  matchStatus,
-}: {
-  canonicalName: string | null;
-  originalValue: string | null;
-  matchStatus: string;
-}) {
-  if (!canonicalName && !originalValue) {
-    return <span className="text-xs text-muted-foreground italic">Sin valor</span>;
-  }
-  const isDifferent =
-    canonicalName &&
-    originalValue &&
-    canonicalName.toLowerCase() !== originalValue.toLowerCase();
-  return (
-    <div className="space-y-0.5">
-      <p className="text-xs font-medium text-foreground">{canonicalName ?? originalValue ?? '—'}</p>
-      {isDifferent && (
-        <p className="text-[10px] text-muted-foreground">
-          Original: <span className="italic">{originalValue}</span>
-        </p>
-      )}
-      {(matchStatus === 'alias_match' || matchStatus === 'normalized_match') && isDifferent && (
-        <p className="text-[10px] text-su-brand">Normalizado automáticamente</p>
-      )}
-    </div>
-  );
-}
-
-// ── Warning message translator (classifier emits messages in English) ──────────
-
-function translateWarning(message: string): string {
-  if (/^Industry value is empty or not provided/.test(message))
-    return 'El valor de industria está vacío o no fue proporcionado.';
-
-  const industryNotFound = message.match(/^Industry not found in catalog: "(.+)"\./);
-  if (industryNotFound)
-    return `La industria "${industryNotFound[1]}" no existe en el catálogo actual.`;
-
-  const industryAmbiguous = message.match(/^Ambiguous industry name: "(.+)"\./);
-  if (industryAmbiguous)
-    return `El nombre de industria "${industryAmbiguous[1]}" es ambiguo.`;
-
-  const industryAmbiguousNorm = message.match(/^Ambiguous industry after normalization: "(.+)"\./);
-  if (industryAmbiguousNorm)
-    return `La industria "${industryAmbiguousNorm[1]}" es ambigua tras la normalización.`;
-
-  if (/^Subindustry value is empty or not provided/.test(message))
-    return 'El valor de subindustria está vacío o no fue proporcionado.';
-
-  const subNotFound = message.match(/^Subindustry not found in catalog: "(.+)"\./);
-  if (subNotFound)
-    return `La subindustria "${subNotFound[1]}" no existe en el catálogo actual.`;
-
-  const subWrongIndustry = message.match(/^Subindustry "(.+)" was found in catalog but does not belong/);
-  if (subWrongIndustry)
-    return `La subindustria "${subWrongIndustry[1]}" existe en el catálogo pero no pertenece a la industria detectada.`;
-
-  const subAmbiguousWithin = message.match(/^Ambiguous subindustry "(.+)" — multiple matches within/);
-  if (subAmbiguousWithin)
-    return `La subindustria "${subAmbiguousWithin[1]}" es ambigua — múltiples coincidencias dentro de la industria detectada.`;
-
-  const subAmbiguousAcross = message.match(/^Ambiguous subindustry "(.+)" — multiple matches across/);
-  if (subAmbiguousAcross)
-    return `La subindustria "${subAmbiguousAcross[1]}" es ambigua — múltiples coincidencias en distintas industrias.`;
-
-  const subRecognized = message.match(/^Subindustry "(.+)" recognized; parent industry suggested/);
-  if (subRecognized)
-    return `La subindustria "${subRecognized[1]}" fue reconocida; industria sugerida pero no confirmada.`;
-
-  const subCountryRequired = message.match(/^Subindustry "(.+)" has country restrictions but no country code/);
-  if (subCountryRequired)
-    return `La subindustria "${subCountryRequired[1]}" tiene restricciones por país, pero no se proporcionó código de país.`;
-
-  const subNotApplicable = message.match(/^Subindustry "(.+)" is not applicable to country "(.+)"/);
-  if (subNotApplicable)
-    return `La subindustria "${subNotApplicable[1]}" no aplica para el país "${subNotApplicable[2]}".`;
-
-  return message;
-}
-
-// ── DetailField — labeled field for the expanded detail layout ────────────────
-
-function DetailField({
-  label,
-  value,
-  fullWidth,
-}: {
-  label: string;
-  value: React.ReactNode;
-  fullWidth?: boolean;
-}) {
-  return (
-    <div className={cn('space-y-0.5', fullWidth && 'col-span-full')}>
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{label}</p>
-      <div className="text-xs text-foreground">{value}</div>
-    </div>
-  );
-}
-
-// ── ExpandedDetailRow ─────────────────────────────────────────────────────────
-
-function ExpandedDetailRow({
-  row,
-  colSpan,
-  showSubindustry,
-}: {
-  row: ImportClassificationPreviewRow;
-  colSpan: number;
-  showSubindustry: boolean;
-}) {
-  const statusConfig = CLASSIFICATION_STATUS_MAP[row.validationStatus];
-
-  const websiteHref = row.website
-    ? row.website.startsWith('http') ? row.website : `https://${row.website}`
-    : null;
-  const linkedinHref = row.linkedinUrl
-    ? row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`
-    : null;
-  const sourceHref = row.sourceUrl
-    ? row.sourceUrl.startsWith('http') ? row.sourceUrl : `https://${row.sourceUrl}`
-    : null;
-
-  const showOriginalValues =
-    (row.industryOriginalValue || (showSubindustry && row.subindustryOriginalValue)) &&
-    (row.correctionSource === 'manual' ||
-      row.industryMatchStatus === 'alias_match' ||
-      row.industryMatchStatus === 'normalized_match' ||
-      row.subindustryMatchStatus === 'alias_match' ||
-      row.subindustryMatchStatus === 'normalized_match');
-
-  const hasInfoBlock =
-    row.description ||
-    row.countryCode ||
-    row.city ||
-    row.website ||
-    row.linkedinUrl ||
-    row.companySize ||
-    row.confidence ||
-    row.notes;
-
-  const hasEvidenceBlock = row.sourceUrl || row.sourceEvidence;
-
-  const hasClassificationBlock =
-    row.industryCanonicalName ||
-    (showSubindustry && row.subindustryCanonicalName) ||
-    showOriginalValues ||
-    (row.warnings && row.warnings.length > 0) ||
-    row.requiresHumanReview;
-
-  return (
-    <tr>
-      <td colSpan={colSpan} className="px-0 pb-0 pt-0">
-        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/30 bg-muted/20">
-
-          {/* ── Bloque 1: Resumen ──────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/20 bg-muted/30 px-3 py-2">
-            <span className="text-xs font-semibold text-foreground">{row.companyName}</span>
-            <span className={cn(
-              'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-              row.validationStatus === 'valid' || row.validationStatus === 'normalized'
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : row.validationStatus === 'warning'
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  : 'bg-destructive/10 text-destructive',
-            )}>
-              {statusConfig.label}
-            </span>
-            {row.industryCanonicalName && (
-              <span className="text-[10px] text-muted-foreground">
-                {row.industryCanonicalName}
-                {row.subindustryCanonicalName && (
-                  <> · <span className="text-muted-foreground/80">{row.subindustryCanonicalName}</span></>
-                )}
-              </span>
-            )}
-          </div>
-
-          <div className="p-3 space-y-4">
-
-            {/* ── Bloque 2: Información detectada ─────────────────────────────── */}
-            {hasInfoBlock && (
-              <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                  Información detectada
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {row.description && (
-                    <DetailField
-                      label="Descripción"
-                      fullWidth
-                      value={<span className="leading-relaxed">{row.description}</span>}
-                    />
-                  )}
-                  {row.countryCode && (
-                    <DetailField label="País" value={countryLabel(row.countryCode)} />
-                  )}
-                  {row.city && (
-                    <DetailField label="Ciudad" value={row.city} />
-                  )}
-                  {row.companySize && (
-                    <DetailField label="Tamaño" value={row.companySize} />
-                  )}
-                  {row.confidence && (
-                    <DetailField label="Confianza" value={row.confidence} />
-                  )}
-                  {websiteHref && (
-                    <DetailField
-                      label="Sitio web"
-                      value={
-                        <a
-                          href={websiteHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
-                          title={row.website ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.website) ?? row.website}
-                        </a>
-                      }
-                    />
-                  )}
-                  {linkedinHref && (
-                    <DetailField
-                      label="LinkedIn"
-                      value={
-                        <a
-                          href={linkedinHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
-                          title={row.linkedinUrl ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.linkedinUrl)?.replace('linkedin.com/', 'li/') ?? row.linkedinUrl}
-                        </a>
-                      }
-                    />
-                  )}
-                  {row.notes && (
-                    <DetailField label="Notas" fullWidth value={row.notes} />
-                  )}
-                  {!hasInfoBlock && (
-                    <p className="col-span-full text-xs text-muted-foreground italic">No disponible</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── Bloque 3: Evidencia ──────────────────────────────────────────── */}
-            {hasEvidenceBlock && (
-              <div className="space-y-2 border-t border-border/20 pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                  Evidencia
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {sourceHref && (
-                    <DetailField
-                      label="URL de evidencia"
-                      value={
-                        <a
-                          href={sourceHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-su-brand hover:underline max-w-[220px] truncate"
-                          title={row.sourceUrl ?? undefined}
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                          {extractDomain(row.sourceUrl) ?? row.sourceUrl}
-                        </a>
-                      }
-                    />
-                  )}
-                  {row.sourceEvidence && (
-                    <DetailField label="Fuente / evidencia" value={row.sourceEvidence} />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── Bloque 4: Clasificación ──────────────────────────────────────── */}
-            {hasClassificationBlock && (
-              <div className="space-y-2 border-t border-border/20 pt-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                  Clasificación
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                  {row.industryCanonicalName && (
-                    <DetailField label="Industria detectada" value={row.industryCanonicalName} />
-                  )}
-                  {showSubindustry && row.subindustryCanonicalName && (
-                    <DetailField label="Subindustria detectada" value={row.subindustryCanonicalName} />
-                  )}
-                </div>
-
-                {/* Valores originales */}
-                {showOriginalValues && (
-                  <div className="mt-2 rounded-md bg-muted/40 px-3 py-2 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                      Valores originales
-                    </p>
-                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-                      {row.industryOriginalValue && (
-                        <span>Industria: <em>{row.industryOriginalValue}</em></span>
-                      )}
-                      {showSubindustry && row.subindustryOriginalValue && (
-                        <span>Subindustria: <em>{row.subindustryOriginalValue}</em></span>
-                      )}
-                      {row.correctionSource === 'manual' && (
-                        <span className="text-su-brand font-medium">— corregido manualmente</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Advertencias */}
-                {row.warnings && row.warnings.length > 0 && (
-                  <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/8 px-3 py-2 space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-                      Advertencias de clasificación
-                    </p>
-                    <ul className="space-y-1">
-                      {row.warnings.map((w, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300">
-                          <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
-                          <span>{translateWarning(w.message)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Motivo de revisión requerida */}
-                {row.requiresHumanReview && (
-                  <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 space-y-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-destructive/80">
-                      Motivo de revisión requerida
-                    </p>
-                    <p className="text-xs text-destructive leading-relaxed">
-                      Esta fila requiere corrección manual antes de poder importarse.
-                      {row.industryCanonicalId === null &&
-                        ' La industria no pudo clasificarse automáticamente.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Empty state */}
-            {!hasInfoBlock && !hasEvidenceBlock && !hasClassificationBlock && (
-              <p className="text-xs text-muted-foreground italic">No hay información adicional para esta fila.</p>
-            )}
-          </div>
-        </div>
-      </td>
-    </tr>
-  );
-}
+import {
+  ClassificationCell,
+  ExpandedDetailRow,
+  StatusBadge,
+  countryLabel,
+  extractDomain,
+} from './import-classification-row-detail';
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -688,7 +279,7 @@ export function ImportClassificationTable({
         accessorKey: 'companyName',
         header: 'Empresa',
         cell: ({ row }) => (
-          <span className="text-xs font-medium text-foreground block max-w-[160px] truncate" title={row.original.companyName}>
+          <span className="text-xs font-medium text-foreground block max-w-40 truncate" title={row.original.companyName}>
             {row.original.companyName}
           </span>
         ),
@@ -715,7 +306,7 @@ export function ImportClassificationTable({
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              className="inline-flex max-w-30 items-center gap-1 truncate rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               title={domain}
               onClick={(e) => e.stopPropagation()}
             >
@@ -738,7 +329,7 @@ export function ImportClassificationTable({
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-su-brand hover:underline max-w-[120px] truncate"
+              className="inline-flex max-w-30 items-center gap-1 truncate rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               title={row.original.linkedinUrl}
               onClick={(e) => e.stopPropagation()}
             >
@@ -776,25 +367,25 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber && !!catalog;
           if (isEditing) {
             return (
-              <div className="min-w-[160px]" onClick={(e) => e.stopPropagation()}>
-                <label className="sr-only" htmlFor={`edit-industry-${row.original.rowNumber}`}>
-                  Industria
-                </label>
-                <select
-                  id={`edit-industry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60"
+              <div
+                role="group"
+                aria-label="Industria"
+                className="min-w-40"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SearchableSelect
+                  options={industryOptions}
                   value={editIndustryId}
-                  onChange={(e) => {
-                    setEditIndustryId(e.target.value);
+                  onValueChange={(value) => {
+                    setEditIndustryId(value);
                     setEditSubindustryId('');
                   }}
-                  autoFocus
-                >
-                  <option value="">Seleccionar industria</option>
-                  {industryOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  placeholder="Seleccionar industria"
+                  searchPlaceholder="Buscar industria…"
+                  emptyMessage="No se encontraron industrias."
+                  compact
+                  className="h-8 px-2 text-xs"
+                />
               </div>
             );
           }
@@ -814,40 +405,37 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber && !!catalog;
           if (isEditing) {
             return (
-              <div className="min-w-[160px] space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                <label className="sr-only" htmlFor={`edit-subindustry-${row.original.rowNumber}`}>
-                  Subindustria
-                </label>
-                <select
-                  id={`edit-subindustry-${row.original.rowNumber}`}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-su-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
-                  value={editSubindustryId}
-                  onChange={(e) => setEditSubindustryId(e.target.value)}
-                  disabled={!editIndustryId}
-                >
-                  <option value="">
-                    {editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
-                  </option>
-                  {subindustryOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+              <div className="min-w-40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                <div role="group" aria-label="Subindustria">
+                  <SearchableSelect
+                    options={subindustryOptions}
+                    value={editSubindustryId}
+                    onValueChange={setEditSubindustryId}
+                    placeholder={editIndustryId ? 'Seleccionar subindustria' : 'Elige industria primero'}
+                    searchPlaceholder="Buscar subindustria…"
+                    emptyMessage="No se encontraron subindustrias."
+                    disabled={!editIndustryId}
+                    compact
+                    className="h-8 px-2 text-xs"
+                  />
+                </div>
                 {equivalentRows.length > 0 && (
-                  <label
-                    className="flex items-center gap-1.5 cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="flex items-center gap-1.5">
                     <Checkbox
+                      id={`edit-equivalent-${row.original.rowNumber}`}
                       checked={editApplyToEquivalent}
                       onCheckedChange={(v) => setEditApplyToEquivalent(!!v)}
                       className="h-3.5 w-3.5 shrink-0"
                       aria-label={`Aplicar también a ${equivalentRows.length} filas equivalentes`}
                     />
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <FieldLabel
+                      htmlFor={`edit-equivalent-${row.original.rowNumber}`}
+                      className="flex cursor-pointer items-center gap-1 text-xs font-normal text-muted-foreground"
+                    >
                       <Users className="h-3 w-3 shrink-0" />
                       También {equivalentRows.length} equivalente{equivalentRows.length !== 1 ? 's' : ''}
-                    </span>
-                  </label>
+                    </FieldLabel>
+                  </div>
                 )}
               </div>
             );
@@ -872,9 +460,9 @@ export function ImportClassificationTable({
           const isEditing = editingRowNumber === row.original.rowNumber;
           if (isEditing && editError) {
             return (
-              <div className="flex items-start gap-1 max-w-[120px]" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start gap-1 max-w-30" onClick={(e) => e.stopPropagation()}>
                 <AlertTriangle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-                <span className="text-[10px] text-destructive leading-tight">{editError}</span>
+                <span className="text-xs text-destructive leading-tight">{editError}</span>
               </div>
             );
           }
@@ -896,15 +484,14 @@ export function ImportClassificationTable({
               >
                 <Button
                   type="button"
-                  size="sm"
+                  size="xs"
                   onClick={handleSaveEdit}
                   disabled={editSaving || !editIndustryId}
-                  className="h-7 gap-1 text-[10px] bg-su-brand text-white hover:bg-su-brand/90"
                   aria-label="Guardar corrección"
                 >
                   {editSaving ? (
                     <>
-                      <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                      <Loader2 className="h-3 w-3 animate-spin" />
                       Guardando
                     </>
                   ) : (
@@ -917,10 +504,9 @@ export function ImportClassificationTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={cancelEditing}
                   disabled={editSaving}
-                  className="h-7 gap-1 text-[10px]"
                   aria-label="Cancelar corrección"
                 >
                   <X className="h-3 w-3" />
@@ -935,9 +521,9 @@ export function ImportClassificationTable({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="xs"
                 onClick={() => toggleDetail(row.original.rowNumber)}
-                className="h-7 gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label={isExpanded ? `Cerrar detalles de ${row.original.companyName}` : `Ver detalles de ${row.original.companyName}`}
                 aria-expanded={isExpanded}
               >
@@ -952,9 +538,9 @@ export function ImportClassificationTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={() => startEditing(row.original)}
-                  className="h-7 gap-1 text-[10px] text-su-brand hover:text-su-brand"
+                  className="text-primary hover:text-primary"
                   aria-label={`Corregir clasificación de ${row.original.companyName}`}
                 >
                   <Pencil className="h-3 w-3" />
@@ -1007,15 +593,12 @@ export function ImportClassificationTable({
   return (
     <div className="flex flex-col gap-0 h-full">
       <div className="overflow-x-auto flex-1">
-        <table className="w-full text-xs">
-          <thead>
+        <Table className="text-xs">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-border/30 bg-muted/30">
+              <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header, idx) => (
-                  <th
-                    key={header.id}
-                    className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap"
-                  >
+                  <TableHead key={header.id}>
                     {idx === 0 ? (
                       <Checkbox
                         checked={headerCheckState}
@@ -1025,18 +608,18 @@ export function ImportClassificationTable({
                     ) : header.isPlaceholder ? null : (
                       flexRender(header.column.columnDef.header, header.getContext())
                     )}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </thead>
-          <tbody className="divide-y divide-border/20">
+          </TableHeader>
+          <TableBody>
             {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-muted-foreground">
-                  No hay filas que coincidan con el filtro.
-                </td>
-              </tr>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={visibleColumns.length}>
+                  <EmptyState variant="plain" title="No hay filas que coincidan con el filtro." />
+                </TableCell>
+              </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => {
                 const isSelected = selectedRowIds.has(row.original.rowNumber);
@@ -1044,13 +627,12 @@ export function ImportClassificationTable({
                 const isExpanded = expandedRowNumber === row.original.rowNumber;
                 return (
                   <React.Fragment key={row.id}>
-                    <tr
+                    <TableRow
                       className={cn(
-                        'transition-colors',
-                        isEditing && 'bg-su-brand-soft/20 ring-1 ring-inset ring-su-brand/30',
-                        !isEditing && isSelected && 'bg-su-brand-soft/30 hover:bg-su-brand-soft/50 cursor-pointer',
-                        !isEditing && !isSelected && 'hover:bg-muted/20 opacity-60 cursor-pointer',
-                        !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/5 hover:bg-destructive/10',
+                        isEditing && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
+                        !isEditing && isSelected && 'cursor-pointer bg-primary/10',
+                        !isEditing && !isSelected && 'cursor-pointer opacity-60',
+                        !isEditing && row.original.requiresHumanReview && isSelected && 'bg-destructive/10',
                       )}
                       onClick={() => {
                         if (isEditing) return;
@@ -1061,11 +643,11 @@ export function ImportClassificationTable({
                       }}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-3 py-2.5 align-top">
+                        <TableCell key={cell.id} className="align-top whitespace-normal">
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
+                        </TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                     {isExpanded && !isEditing && (
                       <ExpandedDetailRow row={row.original} colSpan={visibleColumns.length} showSubindustry={showSubindustry} />
                     )}
@@ -1073,13 +655,13 @@ export function ImportClassificationTable({
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Pagination */}
       {table.getPageCount() > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t border-border/20 text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-between border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
           <span>
             Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()}
           </span>
@@ -1087,20 +669,20 @@ export function ImportClassificationTable({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
-              className="h-6 w-6 p-0"
+              aria-label="Página anterior"
             >
               <ChevronLeft className="h-3 w-3" />
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
-              className="h-6 w-6 p-0"
+              aria-label="Página siguiente"
             >
               <ChevronRight className="h-3 w-3" />
             </Button>

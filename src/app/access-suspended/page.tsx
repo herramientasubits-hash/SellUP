@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { LogOut, Mail, Ban } from 'lucide-react';
-import { signOut } from '@/modules/auth/actions';
+import { Ban } from "@/icons";
+import { AccessStatusScreen } from '@/components/shared/access-status-screen';
 
 export default async function AccessSuspendedPage() {
   const supabase = await createClient();
@@ -14,35 +14,12 @@ export default async function AccessSuspendedPage() {
   }
 
   return (
-    <div className="w-full max-w-md text-center">
-      <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500/10">
-        <Ban className="h-8 w-8 text-orange-500" />
-      </div>
-
-      <h1 className="mb-3 text-2xl font-extrabold tracking-tight text-foreground">
-        Acceso suspended
-      </h1>
-
-      <p className="mb-8 text-sm text-muted-foreground leading-relaxed">
-        Tu acceso a SellUp ha sido temporalmente suspendido. Por favor,
-        contacta al administrador del sistema para obtener más información sobre
-        el estado de tu cuenta.
-      </p>
-
-      <div className="mb-8 flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-card p-4">
-        <Mail className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm text-foreground">{user.email}</span>
-      </div>
-
-      <form action={signOut}>
-        <button
-          type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        >
-          <LogOut className="h-4 w-4" />
-          Cerrar sesión
-        </button>
-      </form>
-    </div>
+    <AccessStatusScreen
+      icon={Ban}
+      tone="warning"
+      title="Acceso suspendido"
+      description="Tu acceso a SellUp ha sido temporalmente suspendido. Por favor, contacta al administrador del sistema para obtener más información sobre el estado de tu cuenta."
+      email={user.email}
+    />
   );
 }

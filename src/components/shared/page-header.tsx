@@ -1,18 +1,39 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/icons";
 import { cn } from "@/lib/utils";
+import { Heading, Text } from "@/components/typography";
+import { ShellBreadcrumbs } from "@/components/layout/shell-header-slot";
+import { PAGE_WIDTH_CLASSES, type PageWidth } from "@/components/layout/page-shell";
 
 interface PageHeaderProps {
   title: string;
   description?: string;
+  /**
+   * Las migas de la pantalla (`<Breadcrumbs items={…} />`). Dentro de la app
+   * se publican en la cabecera del shell, junto a «SellUp › sección»; no
+   * ocupan un renglón sobre el título.
+   */
   breadcrumbs?: ReactNode;
   actions?: ReactNode;
   meta?: ReactNode;
   className?: string;
   backHref?: string;
+  /**
+   * Ancho máximo de la cabecera, cuando la página estrecha su contenido sin
+   * envolverse en `PageShell`: `narrow` 720 · `normal` 1140 · `wide` 1600 ·
+   * `full`. Sin valor, ocupa el ancho que le dé su contenedor.
+   */
+  width?: PageWidth;
 }
 
+/**
+ * PageHeader — port de Thema `utility/PageHeader.tsx`.
+ *
+ * La cabecera de una pantalla: título, descripción, acciones (una sola
+ * primaria) y metadatos. La ubicación la dice la cabecera del shell: aquí solo
+ * se le pasan las `breadcrumbs`.
+ */
 export function PageHeader({
   title,
   description,
@@ -21,45 +42,56 @@ export function PageHeader({
   meta,
   className,
   backHref,
+  width,
 }: PageHeaderProps) {
   return (
-    <div className={cn("flex flex-col gap-4 pb-6", className)}>
-      {breadcrumbs && <div>{breadcrumbs}</div>}
-      
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="min-w-0 space-y-1">
+    <header
+      data-width={width}
+      className={cn(
+        "flex flex-col gap-3 pb-6",
+        width && "mx-auto w-full",
+        width && PAGE_WIDTH_CLASSES[width],
+        className,
+      )}
+    >
+      {/* Las migas se publican en la cabecera del shell; fuera de él, quedan aquí. */}
+      {breadcrumbs && <ShellBreadcrumbs>{breadcrumbs}</ShellBreadcrumbs>}
+
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+        <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-2">
             {backHref && (
               <Link
                 href={backHref}
-                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Volver"
+                className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-4 w-4" />
               </Link>
             )}
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <Heading level={3} as="h1" weight="bold">
               {title}
-            </h1>
+            </Heading>
           </div>
           {description && (
-            <p className="text-sm text-muted-foreground leading-snug max-w-3xl">
+            <Text as="p" tone="secondary" className="max-w-3xl leading-relaxed">
               {description}
-            </p>
+            </Text>
           )}
         </div>
-        
+
         {actions && (
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {actions}
           </div>
         )}
       </div>
 
       {meta && (
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {meta}
         </div>
       )}
-    </div>
+    </header>
   );
 }

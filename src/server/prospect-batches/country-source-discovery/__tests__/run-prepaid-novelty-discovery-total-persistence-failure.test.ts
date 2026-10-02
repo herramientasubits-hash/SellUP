@@ -41,7 +41,7 @@ function company(key: string): CountrySourceCompany {
     countryCode: 'CO',
     city: null,
     region: null,
-    domain: null,
+    domain: `free-${String(key).toLowerCase().replace(/[^a-z0-9]+/g, '-')}.com.co`, // AGENT1-FREE-SOURCE-UNVERIFIED-1: sólo cuenta para la meta lo que trae sitio
     declaredIndustry: 'Fabricación de productos farmacéuticos',
     industryCode: '2100',
     coarseSector: 'MANUFACTURA',

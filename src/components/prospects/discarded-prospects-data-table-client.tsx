@@ -18,16 +18,36 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { SendHorizonal, Ban, Info, ExternalLink, Building2 } from 'lucide-react';
+import { SendHorizonal, Ban, Info, ExternalLink, Building2, Globe, Sparkles, UserRoundX } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
+  type DataTableHandle,
+  type DataTableListRowState,
 } from '@/components/data-table';
+import { ListItem } from '@/components/data-display/list-item';
+import {
+  QuickFilterChips,
+  QuickFilterEmptyState,
+  QuickFilterStrip,
+  useQuickFilter,
+  useWideViewport,
+  type QuickFilterDefinition,
+} from '@/components/filters/quick-filter-strip';
+import {
+  CountryCell,
+  EmptyCell,
+  ExternalLinkCell,
+  RowTitleButton,
+  countryName,
+} from '@/components/shared/table-cells';
+import { PROSPECTOS_DISCARDED_TAB_ROUTE } from '@/config/navigation';
 import {
   DateRangeColumnHeader,
   type DateRangeFilterValue,
@@ -49,9 +69,45 @@ import { ScopeFiltersInDrawer } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 const COUNTRY_FILTER_OPTIONS = LATAM_COUNTRIES.map((c) => ({
-  label: `${c.name} (${c.code})`,
+  label: c.name,
   value: c.code,
 }));
+
+// ── Indicadores que filtran ────────────────────────────────────
+// Eran tarjetas de métricas en la cabecera. Ahora son botones: pulsar uno deja
+// en la tabla solo esas empresas, y el número es exactamente lo que se ve.
+const DISCARDED_QUICK_FILTERS: readonly QuickFilterDefinition<DiscardedProspectItem>[] = [
+  {
+    id: 'new_today',
+    label: 'Nuevas hoy',
+    icon: Sparkles,
+    tone: 'positive',
+    predicate: (item) => Boolean(item.createdAt) && isProspectCreatedToday(item.createdAt),
+  },
+  {
+    id: 'pipeline',
+    label: 'Descartadas por el pipeline',
+    icon: Ban,
+    tone: 'neutral',
+    predicate: (item) => item.disposition !== 'manual_discard',
+  },
+  {
+    id: 'manual',
+    label: 'Descartes manuales',
+    icon: UserRoundX,
+    tone: 'warning',
+    predicate: (item) => item.disposition === 'manual_discard',
+  },
+];
+
+function getStatusBadge(item: DiscardedProspectItem): {
+  label: string;
+  variant: 'brand' | 'warning' | 'neutral';
+} {
+  if (item.status === 'sent_to_review') return { label: 'Enviada a revisión', variant: 'brand' };
+  if (item.sendToReviewBlockedReason) return { label: 'Duplicada', variant: 'warning' };
+  return { label: 'Descartada', variant: 'neutral' };
+}
 
 const DISPOSITION_FILTER_OPTIONS = (
   Object.keys(DISCARD_DISPOSITION_LABELS) as DiscardDispositionCode[]
@@ -71,6 +127,11 @@ interface DiscardedProspectsDataTableClientProps {
   currentRoleKey?: string;
   /** Deep link desde una operación concreta: oculta los filtros de alcance. */
   sourceId?: string;
+  /**
+   * Cierto si la lista llega ya filtrada por la URL (búsqueda, país, sector o
+   * alcance): un vacío así no es «no hay descartadas».
+   */
+  hasUrlFilters?: boolean;
 }
 
 export function DiscardedProspectsDataTableClient({
@@ -80,8 +141,10 @@ export function DiscardedProspectsDataTableClient({
   currentGroupId = '',
   currentRoleKey = '',
   sourceId,
+  hasUrlFilters = false,
 }: DiscardedProspectsDataTableClientProps) {
   const router = useRouter();
+  const dataTableRef = React.useRef<DataTableHandle>(null);
   // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — `items` es la fuente de verdad del
   // servidor; `hiddenItemIds` es sólo una superposición optimista del mismo
   // render (filas recién enviadas a revisión) para que la fila desaparezca al
@@ -93,6 +156,24 @@ export function DiscardedProspectsDataTableClient({
     () => items.filter((item) => !hiddenItemIds.has(item.itemId)),
     [items, hiddenItemIds],
   );
+  const quick = useQuickFilter(rows, DISCARDED_QUICK_FILTERS);
+  const toggleQuickFilter = React.useCallback(
+    (id: string) => {
+      // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
+      dataTableRef.current?.clearSelection();
+      quick.toggle(id);
+    },
+    [quick],
+  );
+  // En pantalla ancha los indicadores van dentro de la barra de la tabla (no
+  // gastan un renglón); en estrecha, en su franja encima.
+  const isWide = useWideViewport();
+  const quickFilterGroup = {
+    label: 'Indicadores de empresas descartadas',
+    options: quick.options,
+    value: quick.activeId,
+    onToggle: toggleQuickFilter,
+  };
   const [selected, setSelected] = React.useState<DiscardedProspectItem | null>(null);
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
   const [bulkPending, setBulkPending] = React.useState(false);
@@ -190,16 +271,9 @@ export function DiscardedProspectsDataTableClient({
         cell: ({ row }) => {
           const item = row.original;
           return (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelected(item);
-              }}
-              className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded transition-colors text-sm"
-            >
+            <RowTitleButton onClick={() => setSelected(item)} title={item.name}>
               {item.name}
-            </button>
+            </RowTitleButton>
           );
         },
         size: 220,
@@ -210,11 +284,18 @@ export function DiscardedProspectsDataTableClient({
         id: 'domain',
         accessorKey: 'domain',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Dominio" />,
-        cell: ({ row }) => (
-          <span className="truncate text-xs text-muted-foreground">
-            {row.original.domain ?? '—'}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.domain ? (
+            <ExternalLinkCell
+              href={row.original.domain}
+              icon={Globe}
+              label={`Abrir el sitio web de ${row.original.name}`}
+            >
+              {row.original.domain}
+            </ExternalLinkCell>
+          ) : (
+            <EmptyCell label="Sin dominio" />
+          ),
         size: 170,
         minSize: 130,
         meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
@@ -223,9 +304,9 @@ export function DiscardedProspectsDataTableClient({
         id: 'countryCode',
         accessorKey: 'countryCode',
         header: ({ column }) => <DataTableColumnHeader column={column} title="País" />,
-        cell: ({ row }) => <span className="text-xs">{row.original.countryCode ?? '—'}</span>,
-        size: 110,
-        minSize: 90,
+        cell: ({ row }) => <CountryCell code={row.original.countryCode} />,
+        size: 130,
+        minSize: 110,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
@@ -237,11 +318,14 @@ export function DiscardedProspectsDataTableClient({
         id: 'industry',
         accessorKey: 'industry',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Industria" />,
-        cell: ({ row }) => (
-          <span className="truncate text-xs text-muted-foreground">
-            {row.original.industry ?? 'Sin sector'}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.industry ? (
+            <span className="block truncate text-xs text-muted-foreground" title={row.original.industry}>
+              {row.original.industry}
+            </span>
+          ) : (
+            <EmptyCell label="Sin industria" />
+          ),
         size: 150,
         minSize: 120,
         filterFn: 'arrIncludesSome',
@@ -255,25 +339,34 @@ export function DiscardedProspectsDataTableClient({
         id: 'sourcePrimary',
         accessorKey: 'sourcePrimary',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Proveedor" />,
-        cell: ({ row }) => (
-          <span className="truncate text-xs text-muted-foreground">
-            {row.original.sourcePrimary ?? '—'}
-          </span>
-        ),
+        cell: ({ row }) =>
+          row.original.sourcePrimary ? (
+            <span className="block truncate text-xs text-muted-foreground">
+              {row.original.sourcePrimary}
+            </span>
+          ) : (
+            <EmptyCell label="Sin proveedor" />
+          ),
         size: 130,
         minSize: 100,
         filterFn: 'arrIncludesSome',
-        meta: { label: 'Proveedor', popoverTitle: 'Proveedor', disableFilter: true },
+        // Enumerable: el embudo ofrece los proveedores que aparecen en la lista.
+        meta: { label: 'Proveedor', popoverTitle: 'Proveedor' },
       },
       {
         id: 'roundOrigin',
         accessorKey: 'roundOrigin',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Ronda/origen" />,
-        cell: ({ row }) => (
-          <span className="truncate text-xs text-muted-foreground">
-            {row.original.roundOrigin ?? row.original.batchName ?? '—'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const origin = row.original.roundOrigin ?? row.original.batchName;
+          return origin ? (
+            <span className="block truncate text-xs text-muted-foreground" title={origin}>
+              {origin}
+            </span>
+          ) : (
+            <EmptyCell label="Sin ronda ni origen" />
+          );
+        },
         size: 180,
         minSize: 140,
         meta: { label: 'Ronda/origen', popoverTitle: 'Ronda/origen', disableFilter: true },
@@ -290,11 +383,15 @@ export function DiscardedProspectsDataTableClient({
           const isNew = createdAt ? isProspectCreatedToday(createdAt) : false;
           return (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {createdAt ? formatProspectDate(createdAt) : '—'}
-              </span>
+              {createdAt ? (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {formatProspectDate(createdAt)}
+                </span>
+              ) : (
+                <EmptyCell label="Sin fecha" />
+              )}
               {isNew && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
                   Nuevo
                 </Badge>
               )}
@@ -320,11 +417,15 @@ export function DiscardedProspectsDataTableClient({
         id: 'disposition',
         accessorKey: 'disposition',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo" />,
-        cell: ({ row }) => (
-          <Badge variant="outline" className="text-[10px] font-medium">
-            {DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo'}
-          </Badge>
-        ),
+        // Un solo chip de color por fila (el estado): el motivo va en texto.
+        cell: ({ row }) => {
+          const reason = DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo';
+          return (
+            <span className="block truncate text-xs text-foreground" title={reason}>
+              {reason}
+            </span>
+          );
+        },
         size: 190,
         minSize: 150,
         filterFn: 'arrIncludesSome',
@@ -338,23 +439,10 @@ export function DiscardedProspectsDataTableClient({
         id: 'status',
         accessorKey: 'status',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
-        cell: ({ row }) => (
-          <Badge
-            className={
-              row.original.status === 'sent_to_review'
-                ? 'border-0 bg-su-brand-soft text-su-brand text-[10px]'
-                : row.original.sendToReviewBlockedReason
-                  ? 'border-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px]'
-                  : 'border-0 bg-muted text-muted-foreground text-[10px]'
-            }
-          >
-            {row.original.status === 'sent_to_review'
-              ? 'Enviada a revisión'
-              : row.original.sendToReviewBlockedReason
-                ? 'Duplicada'
-                : 'Descartada'}
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const status = getStatusBadge(row.original);
+          return <Badge variant={status.variant}>{status.label}</Badge>;
+        },
         size: 140,
         minSize: 110,
         filterFn: 'arrIncludesSome',
@@ -375,9 +463,10 @@ export function DiscardedProspectsDataTableClient({
           const isPending = pendingItemId === item.itemId;
           return (
             <Button
-              size="sm"
+              type="button"
+              size="xs"
               variant="outline"
-              className="gap-1.5 text-xs"
+              aria-busy={isPending || undefined}
               disabled={!canSendToReview(item) || isPending || bulkPending}
               title={item.sendToReviewBlockedReason ?? undefined}
               onClick={(e) => {
@@ -385,7 +474,7 @@ export function DiscardedProspectsDataTableClient({
                 void handleSendToReview(item);
               }}
             >
-              <SendHorizonal className="h-3 w-3" />
+              <SendHorizonal aria-hidden="true" />
               Enviar a revisión
             </Button>
           );
@@ -447,6 +536,8 @@ export function DiscardedProspectsDataTableClient({
     () => [
       {
         id: 'view-detail',
+        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+        scope: ['single'],
         label: 'Ver detalle',
         icon: Info,
         disabled: (selectedRows) => selectedRows.length !== 1,
@@ -507,45 +598,141 @@ export function DiscardedProspectsDataTableClient({
     [bulkPending, handleBulkSendToReview],
   );
 
-  return (
-    <>
-      <DataTable
-        columns={columns}
-        data={rows}
-        getRowId={(row) => row.itemId}
-        title="Empresas descartadas"
-        description="Empresas que el pipeline descartó automáticamente o que se descartaron en revisión. Envíalas de vuelta sin volver a buscar."
-        count={rows.length}
-        enableRowSelection
-        bulkActions={bulkActions}
-        contextMenu={contextMenu}
-        enableColumnReorder
-        initialPageSize={20}
-        fillHeight
-        onRowClick={(row) => setSelected(row)}
-        rowClickable
-        settingsExtraSections={
-          scopeFilterOptions && !sourceId ? (
-            <ScopeFiltersInDrawer
-              scopeFilterOptions={scopeFilterOptions}
-              currentUserId={currentUserId}
-              currentGroupId={currentGroupId}
-              currentRoleKey={currentRoleKey}
-            />
-          ) : undefined
-        }
-        emptyState={
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-muted/60 p-3">
-              <Building2 className="h-6 w-6 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm font-medium text-foreground">Sin empresas descartadas</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-              Ninguna empresa descartada en el alcance actual.
-            </p>
-          </div>
+  // ── Vista de lista ────────────────────────────────────────────
+  const renderListItem = React.useCallback(
+    (item: DiscardedProspectItem, state: DataTableListRowState) => {
+      const status = getStatusBadge(item);
+      const isPending = pendingItemId === item.itemId;
+      return (
+        <ListItem
+          selected={state.selected}
+          leading={state.checkbox}
+          title={
+            <RowTitleButton onClick={() => setSelected(item)} title={item.name}>
+              {item.name}
+            </RowTitleButton>
+          }
+          description={[
+            DISCARD_DISPOSITION_LABELS[item.disposition] ?? 'Otro motivo',
+            countryName(item.countryCode),
+            item.domain,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          meta={<Badge variant={status.variant}>{status.label}</Badge>}
+          actions={
+            state.menu ?? (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                aria-busy={isPending || undefined}
+                disabled={!canSendToReview(item) || isPending || bulkPending}
+                title={item.sendToReviewBlockedReason ?? undefined}
+                onClick={() => void handleSendToReview(item)}
+              >
+                <SendHorizonal aria-hidden="true" />
+                Enviar a revisión
+              </Button>
+            )
+          }
+        />
+      );
+    },
+    [pendingItemId, bulkPending, handleSendToReview],
+  );
+
+  // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
+  // Sin `emptyState`, la tabla pone su propio aviso de «nada coincide con
+  // estos filtros» junto a los chips, que ya traen «Limpiar todo».
+  let emptyState: React.ReactNode;
+  if (rows.length === 0 && (hasUrlFilters || sourceId)) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="Ninguna descartada con estos filtros"
+        description="El enlace por el que llegaste trae filtros que dejan la lista vacía."
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => router.push(PROSPECTOS_DISCARDED_TAB_ROUTE)}
+          >
+            Limpiar filtros
+          </Button>
         }
       />
+    );
+  } else if (rows.length === 0) {
+    emptyState = (
+      <EmptyState
+        variant="plain"
+        icon={Building2}
+        title="No hay empresas descartadas"
+        description="Aquí verás las que el pipeline deje fuera y las que descartes al revisar, por si quieres rescatar alguna."
+      />
+    );
+  } else if (quick.rows.length === 0 && quick.activeLabel) {
+    emptyState = (
+      <QuickFilterEmptyState
+        icon={Building2}
+        filterLabel={quick.activeLabel}
+        noun="empresas descartadas"
+        onClear={quick.clear}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {rows.length > 0 && !isWide && (
+          <QuickFilterStrip
+            {...quickFilterGroup}
+            icon={Building2}
+            tone="neutral"
+            total={quick.total}
+            noun={['empresa descartada', 'empresas descartadas']}
+            className="shrink-0"
+          />
+        )}
+
+        <DataTable
+          ref={dataTableRef}
+          tableId="prospects-discarded"
+          noun="empresas descartadas"
+          nounGender="f"
+          getRowLabel={(row) => row.name}
+          columns={columns}
+          data={quick.rows}
+          getRowId={(row) => row.itemId}
+          title={quick.activeLabel ? `Descartadas · ${quick.activeLabel}` : 'Empresas descartadas'}
+          count={quick.rows.length}
+          actions={rows.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
+          enableRowSelection
+          bulkActions={bulkActions}
+          contextMenu={contextMenu}
+          enableColumnReorder
+          initialPageSize={20}
+          fillHeight
+          onRowClick={(row) => setSelected(row)}
+          rowClickable
+          renderListItem={renderListItem}
+          settingsExtraSections={
+            scopeFilterOptions && !sourceId ? (
+              <ScopeFiltersInDrawer
+                scopeFilterOptions={scopeFilterOptions}
+                currentUserId={currentUserId}
+                currentGroupId={currentGroupId}
+                currentRoleKey={currentRoleKey}
+              />
+            ) : undefined
+          }
+          emptyState={emptyState}
+        />
+      </div>
       <DiscardedProspectDetailSheet
         item={selected}
         open={selected !== null}

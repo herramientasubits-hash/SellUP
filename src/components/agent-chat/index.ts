@@ -1,13 +1,12 @@
 // ── Shared conversational agent-chat primitives ───────────────────────────────
-// Neutral building blocks for conversational agent wizards. Agente 1 keeps its
-// own (prospect-coupled) chat components untouched; these are reused by Agente 2A
-// and any future agent wizard.
+// Lo que comparten los asistentes conversacionales (Agente 2A y los que vengan):
+// el contrato neutro de mensajes, el revelado progresivo y el hilo, que pinta
+// con las piezas de chat de Thema (`@/components/chat`).
+//
+// La marca, la caja de escribir y las tarjetas de opción ya no viven aquí: son
+// `ChatMark`, `ChatComposer` y `ChatQuestionCard` del sistema.
 
-export { AgentChatOrb } from './agent-chat-orb';
 export { AgentChatTimeline } from './agent-chat-timeline';
-export { AgentChatComposer } from './agent-chat-composer';
-export type { AgentChatComposerMode } from './agent-chat-composer';
-export { AgentChatOptionCard } from './agent-chat-option-card';
 export { useProgressiveReveal } from './use-progressive-reveal';
 export type { ProgressiveReveal } from './use-progressive-reveal';
 export type { AgentChatMessage, AgentChatRole, AgentChatTone } from './agent-chat-types';

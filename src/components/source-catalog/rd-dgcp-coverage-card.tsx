@@ -19,7 +19,19 @@ import type {
   DgcpCoverageSourceReason,
   DgcpSourceCoverageSummary,
 } from '@/server/services/rd-dgcp-source-coverage-summary';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Landmark } from "@/icons";
+import {
+  CoverageBullet,
+  CoverageBulletList,
+  CoverageCard,
+  CoverageCardError,
+  CoverageFieldGroup,
+  CoverageFieldRow,
+  CoverageSection,
+  CoverageSignalSummary,
+  CoverageSourceReason,
+  CoverageStatusNotice,
+} from '@/components/source-catalog/coverage-card';
 
 // ---------------------------------------------------------------------------
 // Pure display helpers — exported for unit tests
@@ -59,36 +71,6 @@ export function isDgcpFiscalSource(summary: DgcpSourceCoverageSummary): boolean 
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FieldRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
-  );
-}
-
-function LimitationRow({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
-      {children}
-    </li>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main card
 // ---------------------------------------------------------------------------
 
@@ -97,106 +79,59 @@ interface RdDgcpCoverageCardProps {
   error?: boolean;
 }
 
+const CARD_TITLE = 'Cobertura DGCP República Dominicana';
+
 export function RdDgcpCoverageCard({ summary, error }: RdDgcpCoverageCardProps) {
   if (error || !summary) {
     return (
-      <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura DGCP República Dominicana" />
-        <p className="text-sm text-muted-foreground">
-          No se pudo cargar el resumen de cobertura. Verifique la configuración del servicio.
-        </p>
-      </SurfaceCard>
+      <CoverageCardError
+        icon={Landmark}
+        title={CARD_TITLE}
+        message="No se pudo cargar el resumen de cobertura. Revisa la configuración del servicio."
+      />
     );
   }
 
-  const sourceReasonLabel = formatDgcpCoverageSourceReason(summary.coverageSourceReason);
-
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title="Cobertura DGCP República Dominicana" />
-
-      {/* Señal tipo */}
-      <div className="mb-4 rounded-lg border border-border/40 bg-muted/30 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
-          Tipo de señal
-        </p>
+    <CoverageCard icon={Landmark} title={CARD_TITLE}>
+      <CoverageSignalSummary title="Tipo de señal">
         <p className="text-sm font-medium text-foreground">Procurement B2G</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Identifica empresas dominicanas que han vendido al Estado. Señal comercial de priorización.
         </p>
-      </div>
+      </CoverageSignalSummary>
 
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>Carga piloto</SectionTitle>
+      <CoverageFieldGroup title="Carga piloto">
+        <CoverageFieldRow label="Proveedores cargados" value={formatDgcpLoadedRows(summary.loadedRows)} />
+        <CoverageFieldRow label="Estado de cobertura" value={formatDgcpCoverageStatus(summary.coverageStatus)} />
+        <CoverageFieldRow label="Tipo de señal" value="Señal procurement / B2G" />
+        <CoverageFieldRow label="Fuente del indicador" value={formatDgcpCoverageSource(summary.coverageSource)} />
+      </CoverageFieldGroup>
 
-        <FieldRow
-          label="Proveedores cargados"
-          value={formatDgcpLoadedRows(summary.loadedRows)}
-        />
-        <FieldRow
-          label="Estado de cobertura"
-          value={formatDgcpCoverageStatus(summary.coverageStatus)}
-        />
-        <FieldRow
-          label="Tipo de señal"
-          value="Señal procurement / B2G"
-        />
-        <FieldRow
-          label="Fuente del indicador"
-          value={formatDgcpCoverageSource(summary.coverageSource)}
-        />
+      <CoverageFieldGroup title="Clasificación">
+        <CoverageFieldRow label="CIIU oficial" value="No disponible — no se inventa" />
+        <CoverageFieldRow label="Fuente fiscal / tributaria" value="No — no es fuente fiscal" />
+        <CoverageFieldRow label="Fuente legal / registral" value="No — no es fuente legal" />
+        <CoverageFieldRow label="Valida RNC" value="No — no reemplaza DGII" />
+      </CoverageFieldGroup>
 
-        <SectionTitle>Clasificación</SectionTitle>
+      <CoverageSection title="Limitaciones">
+        <CoverageBulletList>
+          <CoverageBullet>No representa el universo completo de proveedores DGCP.</CoverageBullet>
+          <CoverageBullet>No es snapshot completo — muestra piloto controlada.</CoverageBullet>
+          <CoverageBullet>No valida RNC.</CoverageBullet>
+          <CoverageBullet>No reemplaza DGII ni la base RNC.</CoverageBullet>
+          <CoverageBullet>No contiene CIIU oficial.</CoverageBullet>
+          <CoverageBullet>Solo se usa si existe match local por RNC en source_company_snapshots.</CoverageBullet>
+        </CoverageBulletList>
+      </CoverageSection>
 
-        <FieldRow
-          label="CIIU oficial"
-          value="No disponible — no se inventa"
-        />
-        <FieldRow
-          label="Fuente fiscal / tributaria"
-          value="No — no es fuente fiscal"
-        />
-        <FieldRow
-          label="Fuente legal / registral"
-          value="No — no es fuente legal"
-        />
-        <FieldRow
-          label="Valida RNC"
-          value="No — no reemplaza DGII"
-        />
-      </dl>
+      <CoverageStatusNotice title="Estado operativo">
+        Hay piloto local disponible. Se requiere carga amplia y operativización para marcarla como fuente conectada completa.
+        El post-approval puede usar match local si existe el RNC en snapshots.
+      </CoverageStatusNotice>
 
-      {/* Limitaciones explícitas */}
-      <div className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-          Limitaciones
-        </p>
-        <ul className="space-y-1.5">
-          <LimitationRow>No representa el universo completo de proveedores DGCP.</LimitationRow>
-          <LimitationRow>No es snapshot completo — muestra piloto controlada.</LimitationRow>
-          <LimitationRow>No valida RNC.</LimitationRow>
-          <LimitationRow>No reemplaza DGII ni la base RNC.</LimitationRow>
-          <LimitationRow>No contiene CIIU oficial.</LimitationRow>
-          <LimitationRow>Solo se usa si existe match local por RNC en source_company_snapshots.</LimitationRow>
-        </ul>
-      </div>
-
-      {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
-          Estado operativo
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Hay piloto local disponible. Se requiere carga amplia y operativización para marcarla como fuente conectada completa.
-          El post-approval puede usar match local si existe el RNC en snapshots.
-        </p>
-      </div>
-
-      {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
-          Motivo: {sourceReasonLabel}
-        </p>
-      )}
-    </SurfaceCard>
+      <CoverageSourceReason reason={formatDgcpCoverageSourceReason(summary.coverageSourceReason)} />
+    </CoverageCard>
   );
 }

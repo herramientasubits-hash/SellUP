@@ -1,7 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Loader2, Layers, Globe, Target, User, Zap } from 'lucide-react';
+import {
+  Plus,
+  Loader2,
+  Layers,
+  Zap,
+  Globe,
+  Target,
+  User,
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +30,10 @@ import {
   type InternalUserOption,
   type BatchSearchDepth,
 } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { NumberField } from '@/components/forms/number-field';
 
 interface CreateBatchDrawerProps {
   users: InternalUserOption[];
@@ -106,10 +117,10 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
       }
       title="Nuevo lote manual"
       description="Un lote agrupa empresas candidatas antes de convertirlas en prospectos con expediente propio."
-      icon={<Layers className="h-4 w-4 text-su-brand" />}
+      icon={<Layers className="h-4 w-4" />}
       size="xl"
       actions={
-        <div className="flex w-full items-center justify-end gap-2">
+        <>
           <Button
             type="button"
             variant="outline"
@@ -133,16 +144,16 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
             )}
             Guardar lote
           </Button>
-        </div>
+        </>
       }
     >
       <form
         id="create-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-4"
       >
         {/* Identificación */}
-        <Section icon={Layers} label="Identificación">
+        <DrawerSection title="Identificación" icon={Layers} contentClassName="space-y-4">
           <Field label="Nombre del lote" required>
             <Input
               value={form.name}
@@ -161,11 +172,11 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
               disabled={saving}
             />
           </Field>
-        </Section>
+        </DrawerSection>
 
         {/* Segmentación */}
-        <Section icon={Globe} label="Segmentación">
-          <Row>
+        <DrawerSection title="Segmentación" icon={Globe} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="País">
               <Select
                 value={form.country_code}
@@ -200,31 +211,33 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Parámetros */}
-        <Section icon={Target} label="Parámetros">
-          <Row>
-            <Field label="Cantidad objetivo">
-              <Input
-                type="number"
+        <DrawerSection title="Parámetros" icon={Target} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
+              label="Cantidad objetivo"
+              description={`Para cuidar calidad y costos, el MVP permite máximo ${MVP_MAX_CANDIDATES} empresas candidatas por lote.`}
+            >
+              <NumberField
                 min={1}
                 max={MVP_MAX_CANDIDATES}
-                value={form.target_count}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const num = parseInt(val);
-                  if (val === '' || (!isNaN(num) && num <= MVP_MAX_CANDIDATES)) {
-                    set('target_count', val);
-                  }
-                }}
+                step={1}
+                precision={0}
+                value={form.target_count === '' ? null : Number(form.target_count)}
+                onValueChange={(next) =>
+                  // Mismo tope que antes: nunca queda guardado más del máximo,
+                  // ni siquiera a medio escribir.
+                  set(
+                    'target_count',
+                    next === null ? '' : String(Math.min(Math.trunc(next), MVP_MAX_CANDIDATES)),
+                  )
+                }
                 placeholder="25"
                 disabled={saving}
               />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Para cuidar calidad y costos, el MVP permite máximo {MVP_MAX_CANDIDATES} empresas candidatas por lote.
-              </p>
             </Field>
             <Field label="Profundidad de búsqueda">
               <Select
@@ -244,12 +257,12 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Asignación */}
         {users.length > 0 && (
-          <Section icon={User} label="Asignación">
+          <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
             <Field label="Responsable (owner)">
               <Select
                 value={form.owner_id}
@@ -268,7 +281,7 @@ export function CreateBatchDrawer({ users }: CreateBatchDrawerProps) {
                 </SelectContent>
               </Select>
             </Field>
-          </Section>
+          </DrawerSection>
         )}
       </form>
     </DrawerShell>

@@ -1,16 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { Building2, Check, Globe, MapPin, PenLine, AlertCircle, Sparkles } from 'lucide-react';
+import { Check, PenLine, Sparkles } from "@/icons";
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  AgentChatTimeline,
-  AgentChatComposer,
-  AgentChatOptionCard,
-  useProgressiveReveal,
-  type AgentChatComposerMode,
-} from '@/components/agent-chat';
+import { Field } from '@/components/forms/field';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AgentChatTimeline, useProgressiveReveal } from '@/components/agent-chat';
+import { ChatComposer, ChatQuestionCard, type ChatQuestionOptionDetail } from '@/components/chat';
 import {
   resolveContactEnrichmentCompanyAction,
   createContactEnrichmentRequestAction,
@@ -38,7 +36,7 @@ import {
   CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
 } from './contact-enrichment-chat-error-copy';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { SourceBadge, CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
+import { CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
@@ -78,19 +76,55 @@ function typingLabelForStep(step: ContactEnrichmentChatStep): string {
   if (step === 'searching_contacts') return 'Buscando contactos con el proveedor configurado…';
   if (step === 'searching_apollo') return 'Buscando perfiles relevantes en Apollo…';
   if (step === 'searching_lusha') return 'Buscando perfiles en Lusha…';
-  return 'escribiendo';
+  return 'Escribiendo…';
+}
+
+const SOURCE_LABELS: Record<CompanyCandidate['source'], string> = {
+  sellup: 'SellUp',
+  hubspot: 'HubSpot',
+  manual: 'Manual',
+};
+
+/** Lo que distingue a una empresa de otra con el mismo nombre: dominio, país e id de HubSpot. */
+function candidateDescription(candidate: CompanyCandidate): string | undefined {
+  const parts = [
+    candidate.domain,
+    candidate.country,
+    candidate.hubspotCompanyId ? `HS: ${candidate.hubspotCompanyId}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+function candidateKey(candidate: CompanyCandidate, index: number): string {
+  return `${candidate.source}-${candidate.sellupAccountId ?? candidate.hubspotCompanyId ?? candidate.domain ?? index}`;
 }
 
 // ── Main wizard ─────────────────────────────────────────────────────────────────
 
+/** Lo que la cabecera del panel del agente puede pedirle al asistente: empezar con otra empresa. */
+export type ContactEnrichmentChatWizardHandle = {
+  reset: () => void;
+};
+
 interface ContactEnrichmentChatWizardProps {
   initialCompany?: ContactEnrichmentInitialCompany;
   onCreateManualContact?: (ctx: ManualContactContext) => void;
+  /**
+   * `panel` (dentro del panel del agente): el hilo desplaza y la caja se queda
+   * abajo. `page` (la pantalla suelta): columna centrada que desplaza con la página.
+   */
+  layout?: 'panel' | 'page';
+  ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
+  /** Avisa de si hay una llamada en vuelo, para no ofrecer «Nueva conversación» a medias. */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 export function ContactEnrichmentChatWizard({
   initialCompany,
   onCreateManualContact,
+  layout = 'page',
+  ref,
+  onBusyChange,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
     contactEnrichmentChatReducer,
@@ -110,6 +144,12 @@ export function ContactEnrichmentChatWizard({
     state.step === 'searching_lusha';
   const isTyping = isRevealing || isLoadingStep;
   const showActiveRegion = !isTyping;
+
+  React.useEffect(() => {
+    onBusyChange?.(isLoadingStep);
+  }, [isLoadingStep, onBusyChange]);
+
+  const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
 
   // ── Autoscroll to bottom as messages reveal / step changes ──────────────────
   React.useEffect(() => {
@@ -248,13 +288,37 @@ export function ContactEnrichmentChatWizard({
     dispatch({ type: 'RESET' });
   }
 
-  const composerMode: AgentChatComposerMode =
-    state.step === 'await_company' ? 'text' : 'locked';
+  React.useImperativeHandle(ref, () => ({ reset: handleReset }));
+
+  const composerUnlocked = state.step === 'await_company';
+
+  // La caja se enfoca sola en cuanto se puede escribir en ella.
+  React.useEffect(() => {
+    if (!composerUnlocked) return;
+    const id = setTimeout(() => composerInputRef.current?.focus(), 60);
+    return () => clearTimeout(id);
+  }, [composerUnlocked]);
+
+  // Las empresas encontradas, como opciones numeradas de la pregunta del agente.
+  const candidateOptions: ChatQuestionOptionDetail[] = state.candidates.map((candidate, index) => ({
+    value: candidateKey(candidate, index),
+    label: candidate.name,
+    description: candidateDescription(candidate),
+    hint: SOURCE_LABELS[candidate.source],
+  }));
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  const isPanel = layout === 'panel';
+
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-0">
+    <div
+      className={cn(
+        'flex flex-col',
+        isPanel ? 'h-full min-h-0 flex-1' : 'mx-auto min-h-full w-full max-w-2xl',
+      )}
+    >
+      <div className={cn(isPanel && 'min-h-0 flex-1 overflow-y-auto px-4 py-5')}>
       <div ref={scrollRef} className="flex flex-col gap-4 pb-4">
         <AgentChatTimeline
           messages={state.messages}
@@ -267,28 +331,25 @@ export function ContactEnrichmentChatWizard({
           <div className="space-y-3">
             {state.step === 'selecting_company' && (
               <>
-                {state.candidates.map((candidate, i) => (
-                  <AgentChatOptionCard
-                    key={`${candidate.source}-${candidate.sellupAccountId ?? candidate.hubspotCompanyId ?? candidate.domain ?? i}`}
-                    icon={
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-su-brand-soft">
-                        <Building2 className="h-4 w-4 text-su-brand" aria-hidden />
-                      </div>
-                    }
-                    title={candidate.name}
-                    ariaLabel={`Usar ${candidate.name}`}
-                    meta={<CandidateMeta candidate={candidate} />}
-                    trailing={<SourceBadge source={candidate.source} />}
-                    onClick={() => handleSelectCandidate(candidate)}
-                  />
-                ))}
+                {/* Las coincidencias son una pregunta del agente: se elige tocando
+                    una o con la tecla de su número. */}
+                <ChatQuestionCard
+                  aria-label="Elige la empresa"
+                  question={{ options: candidateOptions }}
+                  active
+                  onAnswer={(key) => {
+                    const index = candidateOptions.findIndex((option) => option.value === key);
+                    const candidate = state.candidates[index];
+                    if (candidate) handleSelectCandidate(candidate);
+                  }}
+                />
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleContinueAsManual}
                   className="w-full"
                 >
-                  <PenLine className="mr-2 h-4 w-4" aria-hidden />
+                  <PenLine className="h-4 w-4" aria-hidden />
                   Continuar como empresa manual
                 </Button>
                 <SecondaryReset onReset={handleReset} label="Buscar otra empresa" />
@@ -302,12 +363,12 @@ export function ContactEnrichmentChatWizard({
             {state.step === 'confirming' && state.selectedCandidate && (
               <div className="space-y-3">
                 <CompanyChip candidate={state.selectedCandidate} />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={handleReset} className="flex-1">
                     Cambiar empresa
                   </Button>
                   <Button onClick={handleConfirm} className="flex-1">
-                    <Check className="mr-2 h-4 w-4" aria-hidden />
+                    <Check className="h-4 w-4" aria-hidden />
                     Confirmar empresa
                   </Button>
                 </div>
@@ -340,7 +401,7 @@ export function ContactEnrichmentChatWizard({
                   <>
                     <AutomaticEnrichmentInfoCard />
                     <Button onClick={handleSearchContacts} className="w-full">
-                      <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                      <Sparkles className="h-4 w-4" aria-hidden />
                       Buscar contactos con IA
                     </Button>
                   </>
@@ -350,31 +411,34 @@ export function ContactEnrichmentChatWizard({
             )}
 
             {state.step === 'error' && (
-              <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-destructive" aria-hidden />
-                  <p className="text-sm font-medium text-destructive">No se pudo continuar</p>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {state.errorMessage ?? 'Error desconocido'}
-                </p>
-                <Button variant="outline" size="sm" onClick={handleReset}>
-                  Intentar de nuevo
-                </Button>
-              </div>
+              <Alert variant="destructive">
+                <AlertTitle>No se pudo continuar</AlertTitle>
+                <AlertDescription>
+                  <p>{state.errorMessage ?? 'Error desconocido'}</p>
+                  <Button variant="outline" size="sm" onClick={handleReset} className="mt-3">
+                    Intentar de nuevo
+                  </Button>
+                </AlertDescription>
+              </Alert>
             )}
           </div>
         )}
       </div>
 
-      <div className="sticky bottom-0 mt-auto border-t border-border/30 bg-background pb-2 pt-3">
-        <AgentChatComposer
-          mode={composerMode}
-          value={composerText}
-          placeholder={composerPlaceholder(state.step)}
-          maxLength={120}
+      </div>
+
+      {/* La caja de escribir de Thema. Solo se enciende cuando el agente espera
+          el nombre de la empresa; el resto del flujo se contesta eligiendo. */}
+      <div className={cn(isPanel ? 'shrink-0 px-4 pb-4 pt-2' : 'sticky bottom-0 mt-auto bg-background pb-2 pt-3')}>
+        <ChatComposer
+          compact
+          value={composerUnlocked ? composerText : ''}
           onChange={setComposerText}
-          onSubmit={handleSubmitCompany}
+          onSend={handleSubmitCompany}
+          placeholder={composerPlaceholder(state.step)}
+          disabled={!composerUnlocked}
+          maxLength={120}
+          inputRef={composerInputRef}
         />
       </div>
     </div>
@@ -382,30 +446,6 @@ export function ContactEnrichmentChatWizard({
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────────
-
-function CandidateMeta({ candidate }: { candidate: CompanyCandidate }) {
-  return (
-    <>
-      {candidate.domain && (
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Globe className="h-3 w-3" aria-hidden />
-          {candidate.domain}
-        </span>
-      )}
-      {candidate.country && (
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <MapPin className="h-3 w-3" aria-hidden />
-          {candidate.country}
-        </span>
-      )}
-      {candidate.hubspotCompanyId && (
-        <span className="font-mono text-[10px] text-muted-foreground">
-          HS: {candidate.hubspotCompanyId}
-        </span>
-      )}
-    </>
-  );
-}
 
 function SecondaryReset({ onReset, label }: { onReset: () => void; label: string }) {
   return (
@@ -425,8 +465,8 @@ function AutomaticEnrichmentInfoCard() {
   return (
     <SurfaceCard className="space-y-2 p-4">
       <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
-          <Sparkles className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10">
+          <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden />
         </div>
         <p className="text-sm font-semibold text-foreground">Búsqueda automática de contactos</p>
       </div>
@@ -437,7 +477,7 @@ function AutomaticEnrichmentInfoCard() {
         Si el proveedor principal no encuentra resultados suficientes, SellUp podrá intentar un
         proveedor alternativo según configuración.
       </p>
-      <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+      <p className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
         Los candidatos quedan en revisión humana; no se crean contactos finales ni se escribe en
         HubSpot sin tu aprobación. El teléfono personal queda fuera de alcance.
       </p>
@@ -457,34 +497,28 @@ function ExtraDataCard({
   const hasEnough = domain.trim().length > 0 || country.trim().length > 0;
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border/50 bg-card p-5">
+    <SurfaceCard className="space-y-4 p-5">
       <div className="space-y-3">
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Globe className="h-3 w-3" aria-hidden />
-            Dominio de la empresa
-          </label>
+        <Field label="Dominio de la empresa">
           <Input
+            id="extra-data-domain"
             placeholder="ejemplo.com"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             autoFocus
           />
-        </div>
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            <MapPin className="h-3 w-3" aria-hidden />
-            País
-          </label>
+        </Field>
+        <Field label="País">
           <Input
+            id="extra-data-country"
             placeholder="Colombia"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           />
-        </div>
+        </Field>
       </div>
       <p className="text-xs text-muted-foreground">Puedes completar solo uno de los dos campos.</p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
           Buscar otra empresa
         </Button>
@@ -493,10 +527,10 @@ function ExtraDataCard({
           onClick={() => onConfirm(domain.trim(), country.trim())}
           className="flex-1"
         >
-          <PenLine className="mr-2 h-4 w-4" aria-hidden />
+          <PenLine className="h-4 w-4" aria-hidden />
           Continuar con empresa manual
         </Button>
       </div>
-    </div>
+    </SurfaceCard>
   );
 }

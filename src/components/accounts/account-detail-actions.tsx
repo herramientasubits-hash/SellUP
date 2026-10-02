@@ -2,17 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Tag, Archive, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Tag, Archive } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,13 +15,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { updateAccount, archiveAccount } from '@/modules/accounts/actions';
+import { updateAccount } from '@/modules/accounts/actions';
 import {
   PIPELINE_STATUS_LABELS,
   type InternalUserOption,
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
+import { ArchiveAccountDialog } from './archive-account-dialog';
 
 const ACTIVE_STATUSES: { value: PipelineStatus; label: string }[] = [
   { value: 'new', label: PIPELINE_STATUS_LABELS.new },
@@ -42,57 +35,65 @@ interface AccountDetailActionsProps {
   accountId: string;
   currentStatus: PipelineStatus;
   users: InternalUserOption[];
+  /**
+   * Avisa de que el estado cambió. Quien muestra la empresa con datos cargados
+   * en el cliente (el panel lateral) la usa para volver a leerlos; la página de
+   * detalle no la necesita porque `router.refresh()` ya la repinta.
+   */
+  onChanged?: () => void;
+  /**
+   * Avisa de que la empresa se archivó. Con ella el menú NO navega a la lista:
+   * quien lo aloja decide (el panel lateral se cierra).
+   */
+  onArchived?: () => void;
 }
 
 export function AccountDetailActions({
   accountId,
   currentStatus,
   users,
+  onChanged,
+  onArchived,
 }: AccountDetailActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
-  const [archiving, setArchiving] = React.useState(false);
 
   async function handleStatusChange(status: PipelineStatus) {
     const result = await updateAccount(accountId, { pipeline_status: status });
     if (result.success) {
       router.refresh();
-      toast.success(`Estado cambiado a "${PIPELINE_STATUS_LABELS[status]}"`);
+      onChanged?.();
+      toast.success(`Estado cambiado a «${PIPELINE_STATUS_LABELS[status]}»`);
     } else {
       toast.error(result.error);
     }
   }
 
-  async function handleArchive() {
-    setArchiving(true);
-    try {
-      const result = await archiveAccount(accountId);
-      if (result.success) {
-        setArchiveOpen(false);
-        toast.success('Cuenta archivada');
-        router.push('/accounts');
-      } else {
-        toast.error(result.error);
-      }
-    } finally {
-      setArchiving(false);
+  function handleArchived() {
+    if (onArchived) {
+      router.refresh();
+      onArchived();
+    } else {
+      router.push('/accounts');
     }
   }
 
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger>
-          <div className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card hover:bg-accent transition-colors">
-            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-            <span className="sr-only">Acciones de cuenta</span>
-          </div>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger
+          render={
+            <Button type="button" variant="outline" size="icon-sm">
+              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+              <span className="sr-only">Más acciones de la empresa</span>
+            </Button>
+          }
+        />
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className="h-3.5 w-3.5" />
-            Editar cuenta
+            Editar empresa
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
@@ -105,7 +106,7 @@ export function AccountDetailActions({
                 <DropdownMenuItem
                   key={s.value}
                   onClick={() => handleStatusChange(s.value)}
-                  className={currentStatus === s.value ? 'font-medium text-su-brand' : ''}
+                  className={currentStatus === s.value ? 'font-medium text-primary' : ''}
                 >
                   {s.label}
                 </DropdownMenuItem>
@@ -115,7 +116,7 @@ export function AccountDetailActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>
             <Archive className="h-3.5 w-3.5" />
-            Archivar
+            Archivar empresa
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -124,45 +125,18 @@ export function AccountDetailActions({
         accountId={accountId}
         users={users}
         open={editOpen}
-        onOpenChange={setEditOpen}
+        onOpenChange={(nextOpen) => {
+          setEditOpen(nextOpen);
+          // Al cerrar el editor, quien aloja el menú vuelve a leer la empresa.
+          if (!nextOpen) onChanged?.();
+        }}
       />
 
-      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archivar cuenta</DialogTitle>
-            <DialogDescription>
-              Esta acción retira la cuenta del pipeline activo. Solo un administrador puede
-              realizarla y queda registrada en auditoría. ¿Confirmas?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setArchiveOpen(false)}
-              disabled={archiving}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleArchive}
-              disabled={archiving}
-            >
-              {archiving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Archivando…
-                </>
-              ) : (
-                'Archivar cuenta'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveAccountDialog
+        accountId={archiveOpen ? accountId : null}
+        onClose={() => setArchiveOpen(false)}
+        onArchived={handleArchived}
+      />
     </>
   );
 }

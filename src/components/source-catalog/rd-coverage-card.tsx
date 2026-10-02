@@ -14,7 +14,14 @@ import type {
   RdCoverageSourceReason,
   RdSourceCoverageSummary,
 } from '@/server/services/rd-source-coverage-summary';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Building2 } from "@/icons";
+import {
+  CoverageCard,
+  CoverageCardError,
+  CoverageFieldGroup,
+  CoverageFieldRow,
+  CoverageSourceReason,
+} from '@/components/source-catalog/coverage-card';
 
 // ---------------------------------------------------------------------------
 // Pure display helpers — exported for unit tests
@@ -44,27 +51,6 @@ export function formatRdCoverageStatus(status: 'complete_snapshot' | 'partial_sn
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FieldRow({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main card
 // ---------------------------------------------------------------------------
 
@@ -73,80 +59,52 @@ interface RdCoverageCardProps {
   error?: boolean;
 }
 
+const CARD_TITLE = 'Cobertura DGII República Dominicana';
+
 export function RdCoverageCard({ summary, error }: RdCoverageCardProps) {
   if (error || !summary) {
     return (
-      <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura DGII República Dominicana" />
-        <p className="text-sm text-muted-foreground">
-          No se pudo cargar el resumen de cobertura. Verifique la configuración del servicio.
-        </p>
-      </SurfaceCard>
+      <CoverageCardError
+        icon={Building2}
+        title={CARD_TITLE}
+        message="No se pudo cargar el resumen de cobertura. Revisa la configuración del servicio."
+      />
     );
   }
 
-  const sourceLabel = formatRdCoverageSource(summary.coverageSource);
-  const sourceReasonLabel = formatRdCoverageSourceReason(summary.coverageSourceReason);
-
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title="Cobertura DGII República Dominicana" />
-
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>Padrón RNC cargado</SectionTitle>
-
-        <FieldRow
+    <CoverageCard icon={Building2} title={CARD_TITLE}>
+      <CoverageFieldGroup title="Padrón RNC cargado">
+        <CoverageFieldRow
           label="RNC jurídicos cargados"
           value={`${formatRdLoadedRnc(summary.loadedRnc)} empresas`}
         />
-        <FieldRow
-          label="Cobertura snapshot"
-          value={formatRdCoverageStatus(summary.coverageStatus)}
-        />
-        <FieldRow
-          label="Fuente del indicador"
-          value={sourceLabel}
-        />
+        <CoverageFieldRow label="Cobertura snapshot" value={formatRdCoverageStatus(summary.coverageStatus)} />
+        <CoverageFieldRow label="Fuente del indicador" value={formatRdCoverageSource(summary.coverageSource)} />
+      </CoverageFieldGroup>
 
-        <SectionTitle>Identificadores fuera de scope</SectionTitle>
-
-        <FieldRow
-          label="Cédulas/personas físicas persistidas"
-          value="0"
-        />
-        <FieldRow
+      <CoverageFieldGroup title="Identificadores fuera de scope">
+        <CoverageFieldRow label="Cédulas/personas físicas persistidas" value="0" />
+        <CoverageFieldRow
           label="Cédulas descartadas (fuera de scope)"
           value={formatRdOutOfScope(summary.outOfScopeIdentifiers)}
         />
+      </CoverageFieldGroup>
 
-        <SectionTitle>Clasificación económica</SectionTitle>
+      <CoverageFieldGroup title="Clasificación económica">
+        <CoverageFieldRow label="Actividad económica" value="Texto libre DGII" />
+        <CoverageFieldRow label="CIIU oficial" value="No disponible para MVP" />
+      </CoverageFieldGroup>
 
-        <FieldRow
-          label="Actividad económica"
-          value="Texto libre DGII"
-        />
-        <FieldRow
-          label="CIIU oficial"
-          value="No disponible para MVP"
-        />
-
-        <SectionTitle>Notas</SectionTitle>
-
-        <FieldRow
-          label="Incluye personas físicas"
-          value="No — solo RNC jurídicos (9 dígitos)"
-        />
-        <FieldRow
+      <CoverageFieldGroup title="Notas">
+        <CoverageFieldRow label="Incluye personas físicas" value="No — solo RNC jurídicos (9 dígitos)" />
+        <CoverageFieldRow
           label="Sector oficial"
           value="No disponible — usar actividad económica texto libre"
         />
-      </dl>
+      </CoverageFieldGroup>
 
-      {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
-          Motivo: {sourceReasonLabel}
-        </p>
-      )}
-    </SurfaceCard>
+      <CoverageSourceReason reason={formatRdCoverageSourceReason(summary.coverageSourceReason)} />
+    </CoverageCard>
   );
 }

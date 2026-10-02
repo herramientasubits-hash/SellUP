@@ -1,7 +1,9 @@
-import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from 'lucide-react';
+import { formatInAppZone } from '@/lib/format-date';
+import { BrainCircuit, CheckCircle, Settings, DollarSign, Clock } from "@/icons";
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   getAllAIProviders,
@@ -22,32 +24,39 @@ function formatCurrency(amount: number, currency: string = 'USD'): string {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-CO', {
+  return formatInAppZone(dateStr, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
-function getStatusBadge(status: string) {
-  const map: Record<string, { label: string; className: string }> = {
-    active: { label: 'Activo', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' },
-    inactive: { label: 'Inactivo', className: 'bg-muted text-muted-foreground border-border' },
-    not_configured: { label: 'Sin configurar', className: 'bg-amber-500/10 text-amber-500 border-amber-500/30' },
-    error: { label: 'Error', className: 'bg-destructive/10 text-destructive border-destructive/30' },
+type BadgeTone = 'positive' | 'neutral' | 'warning' | 'negative';
+
+function getStatusBadge(status: string): { label: string; variant: BadgeTone } {
+  const map: Record<string, { label: string; variant: BadgeTone }> = {
+    active: { label: 'Activo', variant: 'positive' },
+    inactive: { label: 'Inactivo', variant: 'neutral' },
+    not_configured: { label: 'Sin configurar', variant: 'warning' },
+    error: { label: 'Error', variant: 'negative' },
   };
-  return map[status] ?? { label: status, className: '' };
+  return map[status] ?? { label: status, variant: 'neutral' };
 }
 
-function getConnectionBadge(connStatus: string | undefined) {
-  const map: Record<string, { label: string; className: string; icon: string }> = {
-    connected: { label: 'Conectado', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30', icon: '✓' },
-    not_tested: { label: 'Sin probar', className: 'bg-muted text-muted-foreground border-border', icon: '?' },
-    not_configured: { label: 'Sin credenciales', className: 'bg-amber-500/10 text-amber-500 border-amber-500/30', icon: '!' },
-    error: { label: 'Error conexión', className: 'bg-destructive/10 text-destructive border-destructive/30', icon: '✗' },
+function getConnectionBadge(connStatus: string | undefined): { label: string; variant: BadgeTone } {
+  const map: Record<string, { label: string; variant: BadgeTone }> = {
+    connected: { label: 'Conectado', variant: 'positive' },
+    not_tested: { label: 'Conexión sin probar', variant: 'neutral' },
+    not_configured: { label: 'Sin credenciales', variant: 'warning' },
+    error: { label: 'Error de conexión', variant: 'negative' },
   };
-  return map[connStatus ?? ''] ?? { label: 'Desconocido', className: '', icon: '' };
+  return map[connStatus ?? ''] ?? { label: 'Desconocido', variant: 'neutral' };
 }
+
+/** Una fila de las listas de proveedores, modelos y tarifas. */
+const ROW_CLASS = 'flex flex-wrap items-center gap-4 px-5 py-4';
+/** La lista vive en una sola tarjeta: las filas se separan con una línea, no con cajas. */
+const LIST_CLASS = 'divide-y divide-border/50';
 
 function formatNumber(num: number | null): string {
   if (num === null) return '-';
@@ -62,6 +71,8 @@ export async function AiSettingsSection() {
     getAIConfigSummary(),
   ]);
 
+  const pricedModels = models.filter(m => m.current_pricing);
+
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -71,8 +82,8 @@ export async function AiSettingsSection() {
           value={summary.activeProvider ?? '-'}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-su-brand-soft">
-              <BrainCircuit className="h-6 w-6 text-su-brand" />
+            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10">
+              <BrainCircuit className="size-6 text-primary" />
             </div>
           }
         />
@@ -82,8 +93,8 @@ export async function AiSettingsSection() {
           value={summary.activeModel ?? '-'}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
-              <CheckCircle className="h-6 w-6 text-emerald-500" />
+            <div className="flex size-12 items-center justify-center rounded-xl bg-success/10">
+              <CheckCircle className="size-6 text-success" />
             </div>
           }
         />
@@ -93,8 +104,8 @@ export async function AiSettingsSection() {
           value={`${summary.activeModels}/${summary.totalModels}`}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
-              <Settings className="h-6 w-6 text-blue-500" />
+            <div className="flex size-12 items-center justify-center rounded-xl bg-info/10">
+              <Settings className="size-6 text-info" />
             </div>
           }
         />
@@ -104,8 +115,8 @@ export async function AiSettingsSection() {
           value={formatDate(summary.lastPricingUpdate)}
           iconPosition="left-large"
           icon={
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10">
-              <Clock className="h-6 w-6 text-amber-500" />
+            <div className="flex size-12 items-center justify-center rounded-xl bg-warning/10">
+              <Clock className="size-6 text-warning" />
             </div>
           }
         />
@@ -124,43 +135,44 @@ export async function AiSettingsSection() {
       </SurfaceCard>
 
       <Tabs defaultValue="providers" className="space-y-4">
-        <TabsList className="bg-muted/50">
+        <TabsList>
           <TabsTrigger value="providers" className="gap-2">
-            <BrainCircuit className="h-4 w-4" />
+            <BrainCircuit className="size-4" />
             Proveedores ({providers.length})
           </TabsTrigger>
           <TabsTrigger value="models" className="gap-2">
-            <Settings className="h-4 w-4" />
+            <Settings className="size-4" />
             Modelos ({models.length})
           </TabsTrigger>
           <TabsTrigger value="tariffs" className="gap-2">
-            <DollarSign className="h-4 w-4" />
-            Tarifas
+            <DollarSign className="size-4" />
+            Tarifas ({pricedModels.length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="providers" className="space-y-3">
+        <TabsContent value="providers">
           {providers.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay proveedores registrados.
-            </div>
+            <EmptyState
+              icon={BrainCircuit}
+              title="No hay proveedores de IA"
+              description="Cuando se registre un proveedor aparecerá aquí para conectarlo."
+            />
           ) : (
-            providers.map(provider => (
-              <div
-                key={provider.id}
-                className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-su-brand-soft">
-                  <BrainCircuit className="h-5 w-5 text-su-brand" />
+            <SurfaceCard noPadding>
+            <ul className={LIST_CLASS}>
+            {providers.map(provider => (
+              <li key={provider.id} className={ROW_CLASS}>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <BrainCircuit className="size-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground">{provider.name}</span>
-                    <Badge variant="outline" className={`text-[10px] ${getStatusBadge(provider.status).className}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-medium text-foreground">{provider.name}</span>
+                    <Badge variant={getStatusBadge(provider.status).variant}>
                       {getStatusBadge(provider.status).label}
                     </Badge>
-                    <Badge variant="outline" className={`text-[10px] ${getConnectionBadge(provider.connection_status).className}`}>
-                      {getConnectionBadge(provider.connection_status).icon} {getConnectionBadge(provider.connection_status).label}
+                    <Badge variant={getConnectionBadge(provider.connection_status).variant}>
+                      {getConnectionBadge(provider.connection_status).label}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{provider.description}</p>
@@ -173,29 +185,32 @@ export async function AiSettingsSection() {
                   item={provider}
                   models={models.filter(m => m.provider_id === provider.id)}
                 />
-              </div>
-            ))
+              </li>
+            ))}
+            </ul>
+            </SurfaceCard>
           )}
         </TabsContent>
 
-        <TabsContent value="models" className="space-y-3">
+        <TabsContent value="models">
           {models.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay modelos registrados.
-            </div>
+            <EmptyState
+              icon={Settings}
+              title="No hay modelos registrados"
+              description="Conecta un proveedor y actualiza sus modelos disponibles para verlos aquí."
+            />
           ) : (
-            models.map(model => (
-              <div
-                key={model.id}
-                className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                  <Settings className="h-5 w-5 text-muted-foreground" />
+            <SurfaceCard noPadding>
+            <ul className={LIST_CLASS}>
+            {models.map(model => (
+              <li key={model.id} className={ROW_CLASS}>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted">
+                  <Settings className="size-5 text-muted-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground">{model.name}</span>
-                    <Badge variant="outline" className={`text-[10px] ${getStatusBadge(model.status).className}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-medium text-foreground">{model.name}</span>
+                    <Badge variant={getStatusBadge(model.status).variant}>
                       {getStatusBadge(model.status).label}
                     </Badge>
                   </div>
@@ -215,14 +230,14 @@ export async function AiSettingsSection() {
                   {model.current_pricing ? (
                     <div className="text-sm">
                       <div className="text-muted-foreground">
-                        In: {formatCurrency(model.current_pricing.input_cost_per_million_tokens, model.current_pricing.currency)}/M
+                        Entrada: {formatCurrency(model.current_pricing.input_cost_per_million_tokens, model.current_pricing.currency)}/M
                       </div>
                       <div className="text-muted-foreground">
-                        Out: {formatCurrency(model.current_pricing.output_cost_per_million_tokens, model.current_pricing.currency)}/M
+                        Salida: {formatCurrency(model.current_pricing.output_cost_per_million_tokens, model.current_pricing.currency)}/M
                       </div>
                     </div>
                   ) : (
-                    <span className="text-xs text-amber-500">Sin tarifa</span>
+                    <Badge variant="warning">Sin tarifa</Badge>
                   )}
                 </div>
                 <AIControls
@@ -230,31 +245,32 @@ export async function AiSettingsSection() {
                   item={model}
                   activeConfig={activeConfig}
                 />
-              </div>
-            ))
+              </li>
+            ))}
+            </ul>
+            </SurfaceCard>
           )}
         </TabsContent>
 
-        <TabsContent value="tariffs" className="space-y-3">
-          {models.filter(m => m.current_pricing).length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              No hay tarifas registradas. Activa un modelo y agrega sus costos.
-            </div>
+        <TabsContent value="tariffs">
+          {pricedModels.length === 0 ? (
+            <EmptyState
+              icon={DollarSign}
+              title="No hay tarifas registradas"
+              description="Activa un modelo y agrega su tarifa desde la pestaña Modelos para calcular el costo de cada ejecución."
+            />
           ) : (
-            models
-              .filter(m => m.current_pricing)
-              .map(model => (
-                <div
-                  key={model.id}
-                  className="flex items-center gap-4 rounded-xl border border-border/50 bg-card p-4"
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
-                    <DollarSign className="h-5 w-5 text-amber-500" />
+            <SurfaceCard noPadding>
+            <ul className={LIST_CLASS}>
+            {pricedModels.map(model => (
+                <li key={model.id} className={ROW_CLASS}>
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-warning/10">
+                    <DollarSign className="size-5 text-warning" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-foreground">{model.name}</span>
-                      <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-medium text-foreground">{model.name}</span>
+                      <Badge variant="outline">
                         Vigente
                       </Badge>
                     </div>
@@ -264,26 +280,28 @@ export async function AiSettingsSection() {
                   </div>
                   <div className="flex gap-6">
                     <div className="text-center">
-                      <p className="text-xs text-muted-foreground">Input</p>
+                      <p className="text-xs text-muted-foreground">Entrada</p>
                       <p className="font-semibold text-foreground">
                         {formatCurrency(model.current_pricing?.input_cost_per_million_tokens ?? 0, model.current_pricing?.currency ?? 'USD')}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">por millón tokens</p>
+                      <p className="text-xs text-muted-foreground">por millón tokens</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-muted-foreground">Output</p>
+                      <p className="text-xs text-muted-foreground">Salida</p>
                       <p className="font-semibold text-foreground">
                         {formatCurrency(model.current_pricing?.output_cost_per_million_tokens ?? 0, model.current_pricing?.currency ?? 'USD')}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">por millón tokens</p>
+                      <p className="text-xs text-muted-foreground">por millón tokens</p>
                     </div>
                   </div>
                   <AIControls
                     type="pricing"
                     item={model}
                   />
-                </div>
-              ))
+                </li>
+            ))}
+            </ul>
+            </SurfaceCard>
           )}
         </TabsContent>
       </Tabs>

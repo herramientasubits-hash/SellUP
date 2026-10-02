@@ -2,17 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2 } from 'lucide-react';
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { Sparkles } from '@/icons';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import {
@@ -81,57 +72,36 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(true)}
-            className="gap-1.5 text-xs text-muted-foreground"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Sugerir sector y tamaño
-          </Button>
-        }
-      />
-
-      <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader className="pt-2">
-          <DialogTitle className="text-base font-semibold">¿Sugerir sector y tamaño con Claude?</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Claude leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
-            y dejará una sugerencia con su fuente. Máximo {CLASSIFIER_MAX_COMPANIES_PER_RUN} por vez.
-            Costo aproximado: US$0,01 a US$0,05 por empresa.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="py-2 space-y-1.5">
-          <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground">
-            <li>Sólo sugiere: no cambia el estado de ningún candidato.</li>
-            <li>Cada dato trae su fuente; lo que no se puede verificar se descarta.</li>
-            <li>El tamaño siempre es estimado.</li>
-            <li>Usa el modelo de Configuración → IA y cuenta en el consumo de Anthropic.</li>
-            <li>No toca HubSpot ni gasta créditos de Apollo o Lusha.</li>
-          </ul>
-        </div>
-
-        <DialogFooter className="mt-2">
-          <DialogClose render={<Button variant="outline" size="sm" disabled={loading} onClick={handleClose} />}>
-            Cancelar
-          </DialogClose>
-          <Button size="sm" onClick={handleConfirm} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Clasificando…
-              </>
-            ) : (
-              'Sugerir'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
+      trigger={
+        <Button variant="outline" size="sm">
+          <Sparkles className="h-3.5 w-3.5" />
+          Sugerir sector y tamaño
+        </Button>
+      }
+      icon={Sparkles}
+      title="¿Sugerir sector y tamaño con Claude?"
+      description={
+        <>
+          Claude leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
+          y dejará una sugerencia con su fuente. Máximo {CLASSIFIER_MAX_COMPANIES_PER_RUN} por vez.
+          Costo aproximado: US$0,01 a US$0,05 por empresa.
+        </>
+      }
+      confirmLabel={loading ? 'Clasificando…' : 'Sugerir'}
+      loading={loading}
+      onConfirm={handleConfirm}
+      className="sm:max-w-md"
+    >
+      <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+        <li>Sólo sugiere: no cambia el estado de ningún candidato.</li>
+        <li>Cada dato trae su fuente; lo que no se puede verificar se descarta.</li>
+        <li>El tamaño siempre es estimado.</li>
+        <li>Usa el modelo de Configuración → IA y cuenta en el consumo de Anthropic.</li>
+        <li>No toca HubSpot ni gasta créditos de Apollo o Lusha.</li>
+      </ul>
+    </ConfirmDialog>
   );
 }

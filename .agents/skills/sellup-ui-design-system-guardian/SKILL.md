@@ -7,6 +7,8 @@
 
 ---
 
+> **Tema vigente:** «Azul» de Thema. Guía de traducción: `docs/THEMA_AZUL_MIGRATION.md`. Verificación: `node scripts/check-design-system.mjs` (0 hallazgos).
+
 ## Purpose
 
 Enforce consistent visual design, token usage, and Light/Dark compliance across all SellUp UI surfaces. This Skill works as a portable reference for any agent or developer modifying the SellUp interface.
@@ -44,7 +46,7 @@ Before writing code, verify:
 5. **Can this be reused or extended?** (Don't invent new patterns if one exists)
 
 **Deliverable:** 1-sentence specification.  
-Example: *"Create an elevated card showing account status with --su-brand border-top, text-base font-semibold section title, and shadow-sm hover state."*
+Example: *"Create an elevated card showing account status with a primary accent, text-base font-semibold section title, `shadow-card` at rest and `rounded-2xl`."*
 
 ---
 
@@ -57,8 +59,8 @@ Example: *"Create an elevated card showing account status with --su-brand border
 | **Colors** | Use ONLY CSS custom properties (`--su-brand`, `--background`, `--card`, `--muted-foreground`, `--border`, `--su-border-subtle`, `--su-border-strong`). Zero hardcoded hex/rgba in operativa. |
 | **Typography** | Follow semantic scale: page `text-2xl font-semibold`, section `text-base font-semibold`, body `text-sm`, caption `text-xs`. No arbitrary text-* sizes. |
 | **Components** | Reuse PageHeader, SurfaceCard, ModulePlaceholder, NavLink before building custom. |
-| **Shadows** | Limit to `{none, shadow-sm, shadow-md, shadow-lg}`. No shadow-xl, shadow-2xl, or custom box-shadows. |
-| **Radius** | Use `rounded-md` (inputs/buttons), `rounded-xl` (cards/panels), `rounded-full` (badges/avatars). No arbitrary values. |
+| **Shadows** | Only `shadow-card` (surfaces at rest), `shadow-drawer` (floating: drawers, dialogs, popovers), `shadow-rail` (floating action bar). No `shadow-sm/md/lg/xl/2xl`, no custom box-shadows. |
+| **Radius** | Thema scale: `rounded-md` 10px (buttons, inputs, badges), `rounded-lg` (rows, tiles), `rounded-xl` (nested cards), `rounded-2xl` (page cards, drawers, dialogs), `rounded-full` (avatars, dots). No arbitrary values. |
 | **Light/Dark** | Test both modes. Use `dark:` prefix for overrides. Validate token swaps maintain contrast. |
 | **Animations** | Use only `su-*` utilities from globals.css (su-fade-in, su-slide-in, su-scale-in, su-pulse). No custom keyframes. |
 
@@ -111,7 +113,7 @@ When in doubt, consult these files in order:
    shadcn/ui components and extensions (Tabs, Popover, Checkbox, Switch, SegmentedControl, etc.).
 
 5. **`src/components/data-table/`**  
-   Unified data table system (DataTable, DataTableSettingsDrawer, DataTableLoadMore, DataTableBulkActionBar, etc.).
+   Unified data table system (DataTable, DataTableColumnHeader, DataTableActiveFilters, DataTableLoadMore, etc.; la selección va a la barra flotante de `@/components/action-rail`; panel «Configurar tabla» = TableConfigButton de data-display).
 
 6. **`src/components/layout/`**  
    AppShell, AppHeader, AppSidebar, theme-toggle.
@@ -169,7 +171,7 @@ No other operativa component may bypass token usage.
 
 | Use | Token | Tailwind | Value |
 |-----|-------|----------|-------|
-| Primary accent | `--su-brand` | `text-su-brand` / `bg-su-brand` | `oklch(0.60 0.20 265)` ≈ #5b7eff |
+| Primary accent | `--su-brand` | `text-su-brand` / `bg-su-brand` | `#0C5BEF` light / `#3865F5` dark (tema Azul de Thema) |
 | Brand tinted bg | `--su-brand-soft` | `bg-su-brand-soft` | 10-12% opacity variant |
 
 ### Borders
@@ -185,10 +187,10 @@ No other operativa component may bypass token usage.
 
 | State | Recommended | Usage |
 |-------|-------------|-------|
-| Success | `text-emerald-500`, `bg-emerald-500/10` | Positive outcomes |
-| Warning | `text-amber-500`, `bg-amber-500/10` | Alerts, cautions |
+| Success | `text-success`, `bg-success/10`, `<Badge variant="positive">` | Positive outcomes |
+| Warning | `text-warning`, `bg-warning/15`, `<Badge variant="warning">` | Alerts, cautions |
 | Error | `text-destructive`, `bg-destructive/10` | Failures, destructive actions |
-| Info | `text-su-brand`, `bg-su-brand-soft` | Information, hints |
+| Info | `text-info`, `bg-info/10`, `<Badge variant="info">` | Information, hints |
 
 ---
 
@@ -229,7 +231,7 @@ Before building a custom component, verify:
 2. Use PageHeader (text-2xl font-semibold title).
 3. Use SurfaceCard for metric containers (optional elevation).
 4. Map colors: `--su-brand` for accent, `--card` for bg, `--foreground` for text.
-5. Test light/dark. Confirm `shadow-sm` on hover.
+5. Test light/dark. Cards rest on `shadow-card`; only clickable cards lift on hover.
 6. Run `npm run lint && npm run typecheck && npm run build`.
 7. Commit with tokens and components used.
 
@@ -240,7 +242,7 @@ Before building a custom component, verify:
 2. § 15: usa `<DataTablePage>` para el layout (header + métricas fijas, tabla con scroll interno).
 3. § 10 DataTable: define columns con `meta.label`, habilita `enableRowSelection` + `bulkActions` + `contextMenu`, y pasa `fillHeight` para scroll interno.
 4. § 11 Drawer con Tabs: si el detalle tiene >1 área, envuelve en `Tabs variant="line"`. Sin "Abrir página completa".
-5. § 12 Floating Bar: usa `DataTableBulkActionBar` (ya portaliza internamente).
+5. § 12 Floating Bar: una sola barra por pantalla — `ListActionRailProvider` + `RailScreenActions`; `DataTable` le pasa la selección sola (ya portaliza internamente).
 6. Pre-carga server-side todos los datos del drawer (no fetch on tab change).
 7. Verifica: `npm run lint && npm run typecheck && npm run build`.
 8. Commit con prefijo `feat:` y mensaje claro.
@@ -250,7 +252,7 @@ Before building a custom component, verify:
 
 1. Check if badge exists in src/components/ui/.
 2. If not, review Design System Foundation § 3 (state colors).
-3. Use semantic tokens: `text-emerald-500`, `bg-emerald-500/10` for success.
+3. Use semantic tokens: `text-success`, `bg-success/10` for success (never the raw Tailwind palette).
 4. Ensure `rounded-full` (badges are pills).
 5. Test light/dark contrast.
 6. Add to src/components/ui/ if reusable.
@@ -289,7 +291,7 @@ This Skill **reduces context bloat** by:
 **Future prompts can be shorter:**
 
 ❌ Instead of:  
-*"Create a card with --su-brand border, text-base title, shadow-sm on hover, tested in dark mode, using SurfaceCard..."*
+*"Create a card with a primary accent, text-base title, shadow-card at rest, tested in dark mode, using SurfaceCard..."*
 
 ✅ Use:  
 *"Create a [description] following sellup-ui-design-system-guardian."*

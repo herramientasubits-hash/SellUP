@@ -1,14 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, XCircle, Loader2 } from 'lucide-react';
-import { AgentChatOrb } from './agent-chat-orb';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ChatAgentMessage, ChatThinking, ChatThread, ChatUserMessage, type ChatMessage } from '@/components/chat';
 import type { AgentChatMessage } from './agent-chat-types';
 
 // ── Conversation timeline ─────────────────────────────────────────────────────
-// Renders the message history (assistant / user / system bubbles) plus a typing
-// indicator. Visual language matches the Agente 1 conversation, kept neutral so
-// any conversational agent wizard can reuse it.
+// El hilo de un asistente conversacional, pintado con las piezas de chat de
+// Thema: las respuestas del agente van sin burbuja y con la marca
+// (`ChatAgentMessage`), lo que escribió la persona va en su burbuja a la derecha
+// (`ChatUserMessage`), los avisos son `Alert` y la espera es `ChatThinking` (la
+// marca que gira, el rótulo con brillo y los segundos que lleva).
+//
+// Este archivo solo traduce el contrato neutro `AgentChatMessage` al del hilo.
 
 interface AgentChatTimelineProps {
   messages: AgentChatMessage[];
@@ -20,106 +24,64 @@ interface AgentChatTimelineProps {
   typingLabel?: string;
 }
 
+function toChatMessage(message: AgentChatMessage): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role === 'user' ? 'user' : 'agent',
+    text: message.content,
+    // Los mensajes se derivan del estado y no tienen hora propia; el hilo no la enseña.
+    createdAt: 0,
+    status: 'done',
+  };
+}
+
 export function AgentChatTimeline({
   messages,
   visibleCount,
   isTyping = false,
-  typingLabel = 'escribiendo',
+  typingLabel = 'Escribiendo…',
 }: AgentChatTimelineProps) {
   const effectiveVisible = visibleCount ?? messages.length;
   const visibleMessages = messages.slice(0, effectiveVisible);
+  const byId = React.useMemo(() => new Map(visibleMessages.map((msg) => [msg.id, msg])), [visibleMessages]);
+  const chatMessages = React.useMemo(() => visibleMessages.map(toChatMessage), [visibleMessages]);
 
   return (
-    <div
-      role="log"
+    <ChatThread
+      messages={chatMessages}
       aria-label="Historial de la conversación"
-      aria-live="polite"
-      aria-atomic="false"
-      aria-relevant="additions"
-      className="space-y-2"
-    >
-      {visibleMessages.map((message) => {
+      className="gap-4"
+      renderMessage={(chatMessage) => {
+        const message = byId.get(chatMessage.id);
+        if (!message) return null;
         if (message.role === 'assistant') {
-          return <AssistantMessage key={message.id} message={message} />;
+          return <ChatAgentMessage message={chatMessage} isLast={false} />;
         }
         if (message.role === 'user') {
-          return <UserMessage key={message.id} message={message} />;
+          return <ChatUserMessage message={chatMessage} />;
         }
         if (message.tone === 'warning') {
-          return <WarningMessage key={message.id} message={message} />;
+          return (
+            <Alert variant="warning" role="status">
+              <AlertDescription className="min-w-0 break-words text-xs">{message.content}</AlertDescription>
+            </Alert>
+          );
         }
         if (message.tone === 'error') {
-          return <ErrorMessage key={message.id} message={message} />;
+          return (
+            <Alert variant="destructive">
+              <AlertDescription className="min-w-0 break-words text-xs">{message.content}</AlertDescription>
+            </Alert>
+          );
         }
-        return <SystemMessage key={message.id} message={message} />;
-      })}
-
-      {isTyping && (
-        <div className="flex items-start gap-2.5 animate-su-fade-in">
-          <AgentChatOrb size="sm" className="mt-0.5" />
-          <div className="flex items-center gap-1.5 rounded-xl rounded-tl-sm bg-muted/40 px-4 py-3">
-            <Loader2 className="h-3 w-3 animate-spin text-su-brand" />
-            <span className="text-sm text-muted-foreground/70 animate-pulse">
-              {typingLabel}
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Message bubbles ───────────────────────────────────────────────────────────
-
-function AssistantMessage({ message }: { message: AgentChatMessage }) {
-  return (
-    <div className="flex items-start gap-2.5 animate-su-fade-in">
-      <AgentChatOrb size="sm" className="mt-0.5" />
-      <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-sm bg-muted/60 px-4 py-2.5 text-sm text-foreground">
-        {message.content}
-      </div>
-    </div>
-  );
-}
-
-function UserMessage({ message }: { message: AgentChatMessage }) {
-  return (
-    <div className="flex items-end justify-end animate-su-fade-in">
-      <div className="max-w-[80%] whitespace-pre-line rounded-xl rounded-tr-sm bg-su-brand/10 px-4 py-2.5 text-sm text-foreground">
-        {message.content}
-      </div>
-    </div>
-  );
-}
-
-function SystemMessage({ message }: { message: AgentChatMessage }) {
-  return (
-    <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-      {message.content}
-    </div>
-  );
-}
-
-function WarningMessage({ message }: { message: AgentChatMessage }) {
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-400"
+        return (
+          <Alert role="note">
+            <AlertDescription className="min-w-0 break-words text-xs">{message.content}</AlertDescription>
+          </Alert>
+        );
+      }}
     >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
-    </div>
-  );
-}
-
-function ErrorMessage({ message }: { message: AgentChatMessage }) {
-  return (
-    <div
-      role="alert"
-      className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
-    >
-      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{message.content}</span>
-    </div>
+      {isTyping && <ChatThinking label={typingLabel} />}
+    </ChatThread>
   );
 }

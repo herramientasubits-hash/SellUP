@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X } from "@/icons";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils";
  * Five tones (using existing semantic tokens + Tailwind palette):
  *  - neutral → bg-secondary
  *  - info    → bg-info/10 text-info border-info/20
- *  - success → bg-emerald-500/10 text-emerald-600 dark:text-emerald-400
- *  - warning → bg-amber-500/10 text-amber-600 dark:text-amber-400
+ *  - success → bg-success/10 text-success
+ *  - warning → bg-warning/15 text-warning
  *  - danger  → bg-destructive/10 text-destructive
  */
 type TagTone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -31,9 +31,9 @@ const TONE_CLASSES: Record<TagTone, string> = {
   neutral: "bg-secondary text-secondary-foreground border-transparent",
   info: "bg-info/10 text-info border-info/20",
   success:
-    "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    "bg-success/10 text-success border-success/20",
   warning:
-    "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+    "bg-warning/15 text-warning border-warning/25",
   danger: "bg-destructive/10 text-destructive border-destructive/20",
 };
 

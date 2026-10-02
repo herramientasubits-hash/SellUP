@@ -1,21 +1,18 @@
 'use client';
 
+import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { Building2, Globe, ShieldCheck, ExternalLink, Link2, AlertTriangle } from 'lucide-react';
+import { Building2, Globe, ShieldCheck, ExternalLink, Link2, AlertTriangle } from "@/icons";
 import { getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState as SharedEmptyState } from '@/components/ui/empty-state';
 import {
   hasOwnershipUnverifiedFlag,
   OWNERSHIP_UNVERIFIED_DETAIL,
   OWNERSHIP_UNVERIFIED_LABEL,
 } from '@/modules/prospect-batches/ownership-review-flag';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { ModalShell } from '@/components/shared/modal-shell';
 import {
   Tooltip,
   TooltipTrigger,
@@ -37,6 +34,7 @@ import {
 } from './batch-candidate-safe-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface TableQualityCheck {
   has_website?: boolean;
@@ -58,14 +56,16 @@ interface TableCandidateMetadata {
   validation?: TableValidationMetadata;
 }
 
-const STATUS_STYLES: Record<CandidateStatus, string> = {
-  generated: 'bg-muted text-muted-foreground',
-  normalized: 'bg-muted text-muted-foreground',
-  needs_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  approved: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  discarded: 'bg-muted/60 text-muted-foreground/60',
-  duplicate: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-  converted_to_account: 'bg-su-brand-soft text-su-brand',
+type StatusTone = 'neutral' | 'warning' | 'positive' | 'negative' | 'brand';
+
+const STATUS_TONES: Record<CandidateStatus, StatusTone> = {
+  generated: 'neutral',
+  normalized: 'neutral',
+  needs_review: 'warning',
+  approved: 'positive',
+  discarded: 'neutral',
+  duplicate: 'warning',
+  converted_to_account: 'brand',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -112,13 +112,13 @@ const FIT_STATUS_LABELS: Record<string, string> = {
 
 function MatchDetail({ match }: { match: DuplicateMatch }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-3 space-y-1">
+    <li className="space-y-1 py-2.5 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-foreground">
           {SOURCE_LABELS[match.source] ?? match.source}
         </span>
         {match.confidence !== null && (
-          <span className="text-[10px] text-muted-foreground tabular-nums">
+          <span className="text-xs text-muted-foreground tabular-nums">
             Conf: {match.confidence}%
           </span>
         )}
@@ -138,15 +138,15 @@ function MatchDetail({ match }: { match: DuplicateMatch }) {
           }
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-su-brand hover:underline block"
+          className="block break-all rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           {match.matched_website}
         </a>
       )}
       {match.reason && (
-        <p className="text-[10px] text-muted-foreground/70 italic">{match.reason}</p>
+        <p className="text-xs text-muted-foreground italic">{match.reason}</p>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -188,17 +188,17 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   }
 
   let primaryDupLabel = 'Sin verificar';
-  let primaryDupStyle = 'bg-muted text-muted-foreground/60';
+  let primaryDupVariant: 'neutral' | 'negative' | 'warning' | 'positive' = 'neutral';
 
   if (sellupStatus === 'duplicate' || hsStatus === 'match') {
     primaryDupLabel = 'Duplicado confirmado';
-    primaryDupStyle = 'bg-destructive/10 text-destructive';
+    primaryDupVariant = 'negative';
   } else if (sellupStatus === 'possible_duplicate' || hsStatus === 'possible_match') {
     primaryDupLabel = 'Posible duplicado';
-    primaryDupStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    primaryDupVariant = 'warning';
   } else if (sellupStatus === 'no_match' || hsStatus === 'no_match') {
     primaryDupLabel = 'Sin coincidencias';
-    primaryDupStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    primaryDupVariant = 'positive';
   }
 
   let sellupTooltipLabel = 'SellUp: sin verificar';
@@ -218,11 +218,12 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger render={
-            <Badge className={`${primaryDupStyle} border-0 text-[10px] font-semibold w-fit py-0.5 cursor-help`}>
+            <Badge variant={primaryDupVariant} className="cursor-help">
               {primaryDupLabel}
             </Badge>
-          } />          <TooltipContent className="text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2.5 rounded-xl shadow-md z-[70] space-y-1">
-            <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Duplicidad</p>
+          } />
+          <TooltipContent className="flex-col items-start gap-1 leading-relaxed">
+            <p className="mb-1 border-b border-background/20 pb-1 font-semibold">Detalle de Duplicidad</p>
             <p>{sellupTooltipLabel}</p>
             <p>{hsTooltipLabel}</p>
           </TooltipContent>
@@ -230,56 +231,48 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
       </TooltipProvider>
 
       {matches.length > 0 && (
-        <button
+        <Button
+          variant="link"
+          size="xs"
           onClick={() => setDetailOpen(true)}
-          className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline text-left font-medium"
+          className="h-auto justify-start p-0 font-medium text-warning"
         >
           {matches.length === 1 ? '1 coincidencia' : `${matches.length} coincidencias`}
-        </button>
+        </Button>
       )}
 
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Coincidencias de duplicidad</DialogTitle>
-            <DialogDescription>
-              {candidate.name} · {primaryDupLabel}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {dc?.summary && (
-              <p className="text-sm text-muted-foreground">{dc.summary}</p>
-            )}
-            {matches.length > 0 ? (
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {matches.map((match, i) => (
-                  <MatchDetail key={i} match={match} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Sin detalle de duplicidad disponible.
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ModalShell
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        title="Coincidencias de duplicidad"
+        description={`${candidate.name} · ${primaryDupLabel}`}
+      >
+        <div className="space-y-3">
+          {dc?.summary && <p className="text-sm text-muted-foreground">{dc.summary}</p>}
+          {matches.length > 0 ? (
+            <ul className="max-h-60 divide-y divide-border/50 overflow-y-auto pr-1">
+              {matches.map((match, i) => (
+                <MatchDetail key={i} match={match} />
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sin detalle de duplicidad disponible.</p>
+          )}
+        </div>
+      </ModalShell>
     </div>
   );
 }
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-3 rounded-full bg-muted/60 p-3">
-        <Building2 className="h-6 w-6 text-muted-foreground/40" />
-      </div>
-      <p className="text-sm font-medium text-muted-foreground">Sin empresas candidatas</p>
-      <p className="mt-1 text-xs text-muted-foreground/60">
-        Usa el botón &quot;Agregar empresa candidata&quot; para comenzar.
-      </p>
-    </div>
+    <SharedEmptyState
+      icon={Building2}
+      title="Sin empresas candidatas"
+      description={'Usa el botón "Agregar empresa candidata" para comenzar.'}
+      variant="plain"
+      className="py-16"
+    />
   );
 }
 
@@ -293,10 +286,10 @@ function getCandidateOriginLabel(candidate: CandidateWithBatch): string {
   if (batch.source === 'manual') return 'Creación manual';
   if (batch.source === 'external_import') {
     if (batch.created_at) {
-      const date = new Date(batch.created_at).toLocaleDateString('es-CO', {
+      const date = formatInAppZone(batch.created_at, {
         day: '2-digit',
         month: 'short',
-      });
+      }, 'es-CO');
       return `Importado el ${date}`;
     }
     return 'Importación externa';
@@ -340,9 +333,9 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
   return (
     <>
       <div className="su-table-scroll">
-        <table className="su-table su-table-sticky">
-          <thead>
-            <tr className="border-b border-border/40">
+        <Table className="su-table su-table-sticky">
+          <TableHeader>
+            <TableRow>
               {['Empresa', 'Perfil', 'Calidad', 'Duplicidad', 'Estado', ''].map(
                 (col) => {
                   let tooltipContent = '';
@@ -355,10 +348,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                   }
 
                   return (
-                    <th
-                      key={col}
-                      className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60"
-                    >
+                    <TableHead key={col}>
                       {tooltipContent ? (
                         <TooltipProvider>
                           <Tooltip>
@@ -367,7 +357,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                                 {col}
                               </span>
                             } />
-                            <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                            <TooltipContent className="max-w-xs leading-relaxed">
                               {tooltipContent}
                             </TooltipContent>
                           </Tooltip>
@@ -375,13 +365,13 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                       ) : (
                         col
                       )}
-                    </th>
+                    </TableHead>
                   );
                 }
               )}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {candidates.map((c) => {
               const isChileOfficialCandidate =
                 c.source_primary === 'datos_gob_cl' ||
@@ -414,14 +404,14 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               }
 
               let completenessText = 'Información completa';
-              let completenessStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+              let completenessVariant: 'positive' | 'neutral' | 'warning' = 'positive';
               if (missingFields.length > 0) {
                 if (missingFields.length >= 3 && !c.website && !c.tax_identifier) {
                   completenessText = 'Sin evidencia';
-                  completenessStyle = 'bg-muted text-muted-foreground';
+                  completenessVariant = 'neutral';
                 } else {
                   completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
-                  completenessStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+                  completenessVariant = 'warning';
                 }
               }
 
@@ -460,30 +450,31 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
               }
 
               return (
-                <tr
+                <TableRow
                   key={c.id}
-                  className="group border-b border-border/30 transition-colors last:border-0 hover:bg-muted/30"
+                  className="group [&>td]:whitespace-normal"
                 >
                   {/* ── Empresa ── */}
-                  <td className="px-4 py-2.5 max-w-[220px]">
+                  <TableCell className="max-w-56">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
+                        <Button
                           id={`candidate-trigger-${c.id}`}
-                          type="button"
+                          variant="link"
                           onClick={() => openCandidateDetail(c, 'detail')}
-                          className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded focus:text-su-brand transition-colors text-sm line-clamp-2"
+                          title={c.name}
+                          className="line-clamp-2 h-auto whitespace-normal p-0 text-left text-sm text-foreground hover:text-primary hover:no-underline focus:text-primary"
                         >
                           {c.name}
-                        </button>
+                        </Button>
                         {isChileOfficialCandidate ? (
-                          <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
-                            <ShieldCheck className="h-2.5 w-2.5" />
+                          <Badge variant="brand" className="shrink-0">
+                            <ShieldCheck aria-hidden />
                             Fuente oficial Chile
                           </Badge>
                         ) : isStructuredCandidate(c) ? (
-                          <Badge className="border-0 bg-su-brand-soft text-su-brand text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0">
-                            <ShieldCheck className="h-2.5 w-2.5" />
+                          <Badge variant="brand" className="shrink-0">
+                            <ShieldCheck aria-hidden />
                             {VENDOR_STRUCTURED_SOURCE_LABELS[c.source_primary ?? ''] ?? 'Fuente oficial'}
                           </Badge>
                         ) : null}
@@ -496,16 +487,17 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           <Badge
                             data-testid="ownership-unverified-badge"
                             title={OWNERSHIP_UNVERIFIED_DETAIL}
-                            className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold flex items-center gap-0.5 px-1.5 py-0.5 shrink-0 cursor-help"
+                            variant="warning"
+                            className="shrink-0 cursor-help"
                           >
-                            <AlertTriangle className="h-2.5 w-2.5" />
+                            <AlertTriangle aria-hidden />
                             {OWNERSHIP_UNVERIFIED_LABEL}
                           </Badge>
                         )}
                       </div>
 
                       {location && (
-                        <p className="text-[10px] text-muted-foreground/75 leading-tight">
+                        <p className="text-xs text-muted-foreground leading-tight">
                           {location}
                         </p>
                       )}
@@ -515,12 +507,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           href={c.website.startsWith('http') ? c.website : `https://${c.website}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] text-su-brand hover:underline font-medium"
+                          className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Globe className="h-2.5 w-2.5" />
-                          <span className="truncate max-w-[150px]">{domain ?? c.website}</span>
-                          <ExternalLink className="h-2 w-2 opacity-60" />
+                          <Globe className="h-3 w-3 shrink-0" aria-hidden />
+                          <span className="max-w-40 truncate">{domain ?? c.website}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
                         </a>
                       )}
                       {(() => {
@@ -536,14 +528,14 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                                   target="_blank"
                                   rel="noreferrer"
                                   aria-label={liDisplay.label}
-                                  className={`inline-flex items-center gap-1 text-[10px] hover:underline font-medium ${isSuggested ? 'text-amber-500 dark:text-amber-400' : 'text-su-brand'}`}
+                                  className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 ${isSuggested ? 'text-warning' : 'text-primary'}`}
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <Link2 className="h-2.5 w-2.5" />
+                                  <Link2 className="h-3 w-3" aria-hidden />
                                   <span>{isSuggested ? 'LinkedIn?' : 'LinkedIn'}</span>
                                 </a>
                               } />
-                              <TooltipContent className="text-[11px] bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                              <TooltipContent>
                                 {liDisplay.label}
                               </TooltipContent>
                             </Tooltip>
@@ -551,12 +543,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         );
                       })()}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Perfil ── */}
-                  <td className="px-4 py-2.5 max-w-[180px]">
-                    <div className="space-y-0.5 text-xs text-muted-foreground/85">
-                      <p className="font-medium text-foreground/90 truncate">
+                  <TableCell className="max-w-44">
+                    <div className="space-y-0.5 text-xs text-muted-foreground">
+                      <p className="truncate font-medium text-foreground" title={sectorDescription ?? undefined}>
                         {sectorDescription ?? 'Sin sector'}
                       </p>
                       {c.company_size && (
@@ -569,12 +561,12 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           c.metadata as Record<string, unknown> | null | undefined,
                           c.company_size
                         );
-                        const toneClass: Record<string, string> = {
-                          success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                          warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                          danger: 'bg-destructive/10 text-destructive',
-                          neutral: 'bg-muted text-muted-foreground/60',
-                        };
+                        const toneVariant = {
+                          success: 'positive',
+                          warning: 'warning',
+                          danger: 'negative',
+                          neutral: 'neutral',
+                        } as const;
                         const tooltipText = icpState.tone === 'neutral'
                           ? 'Este candidato no pasó por ICP Size Gate o viene de flujo legacy.'
                           : (icpState.reason ?? icpState.description);
@@ -582,84 +574,84 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger render={
-                                <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help w-fit ${toneClass[icpState.tone]}`}>
+                                <Badge variant={toneVariant[icpState.tone]} className="cursor-help">
                                   {icpState.label}
-                                </span>
+                                </Badge>
                               } />
-                              <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                              <TooltipContent className="max-w-xs leading-relaxed">
                                 {tooltipText}
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         );
                       })()}
-                      <p className="text-[10px] text-muted-foreground/60">
+                      <p className="text-xs text-muted-foreground">
                         {getCandidateOriginLabel(c as CandidateWithBatch)}
                       </p>
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Calidad ── */}
-                  <td className="px-4 py-2.5">
+                  <TableCell>
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger render={
                           <div className="flex flex-col gap-1 w-fit cursor-help">
-                            <Badge className={`${completenessStyle} border-0 text-[10px] font-semibold w-fit py-0.5`}>
+                            <Badge variant={completenessVariant}>
                               {completenessText}
                             </Badge>
-                            <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1 font-medium leading-none">
+                            <span className="text-xs text-muted-foreground flex items-center gap-1 font-medium leading-none">
                               {confidenceText}
                             </span>
-                            <span className={`text-[10px] flex items-center gap-1 font-medium leading-none ${
-                              fiscalStatusKey === 'validated' 
-                                ? 'text-emerald-600/80 dark:text-emerald-400/80' 
-                                : fiscalStatusKey === 'to_review' 
-                                ? 'text-amber-600/80 dark:text-amber-400/80' 
-                                : 'text-muted-foreground/60'
+                            <span className={`flex items-center gap-1 text-xs font-medium leading-none ${
+                              fiscalStatusKey === 'validated'
+                                ? 'text-success'
+                                : fiscalStatusKey === 'to_review'
+                                ? 'text-warning'
+                                : 'text-muted-foreground'
                             }`}>
                               {fiscalText}
                             </span>
                           </div>
                         } />
-                        <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-3 rounded-xl shadow-md z-[70] space-y-1.5">
-                          <p className="font-semibold text-xs border-b border-border/40 pb-1 mb-1">Detalle de Calidad</p>
-                          <ul className="space-y-1 text-muted-foreground">
+                        <TooltipContent className="max-w-xs flex-col items-start gap-1.5 leading-relaxed">
+                          <p className="mb-1 border-b border-background/20 pb-1 font-semibold">Detalle de Calidad</p>
+                          <ul className="space-y-1 text-background/80">
                             <li className="flex items-center gap-1.5">
-                              <span className={c.website ? 'text-emerald-500' : 'text-amber-500'}>
+                              <span className={c.website ? 'text-success' : 'text-warning'}>
                                 {c.website ? '✓' : '✗'}
                               </span>
                               <span>Sitio web: {c.website ? 'Presente' : 'Pendiente'}</span>
                             </li>
                             <li className="flex items-center gap-1.5">
-                              <span className={!missingFields.includes('linkedin_url') ? 'text-emerald-500' : 'text-amber-500'}>
+                              <span className={!missingFields.includes('linkedin_url') ? 'text-success' : 'text-warning'}>
                                 {!missingFields.includes('linkedin_url') ? '✓' : '✗'}
                               </span>
                               <span>LinkedIn: {!missingFields.includes('linkedin_url') ? 'Presente' : 'Pendiente'}</span>
                             </li>
                             <li className="flex items-center gap-1.5">
-                              <span className={c.tax_identifier ? 'text-emerald-500' : fiscalStatusKey === 'to_review' ? 'text-amber-500' : 'text-muted-foreground/60'}>
+                              <span className={c.tax_identifier ? 'text-success' : fiscalStatusKey === 'to_review' ? 'text-warning' : 'text-muted-foreground'}>
                                 {c.tax_identifier ? '✓' : fiscalStatusKey === 'to_review' ? '?' : '✗'}
                               </span>
                               <span>Identificador fiscal: {c.tax_identifier ? `Presente (${c.tax_identifier_type || 'NIT'})` : fiscalStatusKey === 'to_review' ? 'Sugerido por revisar' : 'No disponible'}</span>
                             </li>
-                            <li className="flex items-center gap-1.5 border-t border-border/20 pt-1 mt-1">
+                            <li className="flex items-center gap-1.5 border-t border-background/20 pt-1 mt-1">
                               <span className="font-medium">Nivel de confianza:</span>
-                              <span className="text-foreground capitalize">{confidenceText.split(' ')[1]}</span>
+                              <span className="capitalize text-background">{confidenceText.split(' ')[1]}</span>
                             </li>
                           </ul>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </td>
+                  </TableCell>
 
                   {/* ── Duplicidad ── */}
-                  <td className="px-4 py-2.5">
+                  <TableCell>
                     <DuplicateCheckCell candidate={c} />
-                  </td>
+                  </TableCell>
 
                   {/* ── Estado ── */}
-                  <td className="px-4 py-2.5 min-w-[120px]">
+                  <TableCell className="min-w-32">
                     <div className="space-y-1">
                       {(() => {
                         const validationMeta = (c.metadata as unknown as TableCandidateMetadata)?.validation;
@@ -672,35 +664,35 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         const enrichmentError = enrichment.error_message as string | undefined;
 
                         let statusLabel = CANDIDATE_STATUS_LABELS[c.status];
-                        let statusStyle = STATUS_STYLES[c.status];
+                        let statusTone: StatusTone = STATUS_TONES[c.status];
                         let showEnrichmentOverride = false;
 
                         if (enrichmentStatus === 'pending') {
                           statusLabel = 'Enriquecimiento pendiente';
-                          statusStyle = 'bg-muted text-muted-foreground/80';
+                          statusTone = 'neutral';
                           showEnrichmentOverride = true;
                         } else if (enrichmentStatus === 'enriching') {
                           statusLabel = 'Enriqueciendo...';
-                          statusStyle = 'bg-su-brand-soft text-su-brand';
+                          statusTone = 'brand';
                           showEnrichmentOverride = true;
                         } else if (enrichmentStatus === 'failed') {
                           statusLabel = 'Enriquecimiento fallido';
-                          statusStyle = 'bg-destructive/10 text-destructive';
+                          statusTone = 'negative';
                           showEnrichmentOverride = true;
                         }
 
                         if (!showEnrichmentOverride) {
                           if (validationMeta && !hasDuplicate) {
                             statusLabel = 'Validado para revisión';
-                            statusStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+                            statusTone = 'positive';
                           } else if (c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized') {
                             statusLabel = 'Necesita revisión';
-                            statusStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+                            statusTone = 'warning';
                           }
                         }
 
                         const badgeNode = (
-                          <Badge className={`${statusStyle} border-0 text-[10px] font-semibold py-0.5 w-fit ${enrichmentStatus === 'enriching' ? 'animate-pulse' : ''}`}>
+                          <Badge variant={statusTone} className={enrichmentStatus === 'enriching' ? 'animate-pulse' : undefined}>
                             {statusLabel}
                           </Badge>
                         );
@@ -709,8 +701,8 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger render={badgeNode} />
-                              <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-destructive text-destructive-foreground border-0 p-2.5 rounded-xl shadow-md z-[70]">
-                                <p className="font-semibold text-xs border-b border-white/20 pb-1 mb-1">Detalle del Error</p>
+                              <TooltipContent className="max-w-xs flex-col items-start gap-1 bg-destructive leading-relaxed text-destructive-foreground">
+                                <p className="mb-1 border-b border-destructive-foreground/20 pb-1 font-semibold">Detalle del Error</p>
                                 <p>{enrichmentError || 'Error desconocido durante el enriquecimiento con IA.'}</p>
                               </TooltipContent>
                             </Tooltip>
@@ -748,11 +740,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger render={
-                                  <span className="text-[10px] text-muted-foreground/70 cursor-help hover:text-foreground font-medium transition-colors">
+                                  <span className="cursor-help text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                                     {evalText}
                                   </span>
                                 } />
-                                <TooltipContent className="max-w-xs text-[11px] leading-relaxed bg-popover text-popover-foreground border border-border p-2 rounded shadow-md z-[70]">
+                                <TooltipContent className="max-w-xs leading-relaxed">
                                   Evaluación automática basada en la información pública disponible. No reemplaza la revisión comercial.
                                 </TooltipContent>
                               </Tooltip>
@@ -761,17 +753,17 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         );
                       })()}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* ── Acciones ── */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <BatchCandidateSafeActions candidate={c} onOpenDetail={openCandidateDetail} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Drawer de detalle de candidato */}

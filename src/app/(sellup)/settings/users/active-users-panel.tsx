@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { LayoutList, GitBranch, Layers } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { LayoutList, GitBranch, Layers } from "@/icons";
+import { SegmentedControl } from '@/components/selection/segmented-control';
 
 interface ActiveUsersPanelProps {
   userCount: number;
@@ -14,39 +14,30 @@ interface ActiveUsersPanelProps {
 
 type View = 'list' | 'org' | 'groups';
 
+const VIEW_OPTIONS = [
+  { value: 'list', label: 'Lista', icon: LayoutList },
+  { value: 'org', label: 'Organigrama', icon: GitBranch },
+  { value: 'groups', label: 'Grupos', icon: Layers },
+];
+
 export function ActiveUsersPanel({ userCount, listContent, orgContent, groupsContent }: ActiveUsersPanelProps) {
   const [view, setView] = useState<View>('list');
 
-  const tabs: { id: View; label: string; icon: ReactNode }[] = [
-    { id: 'list',   label: 'Lista',       icon: <LayoutList className="h-3.5 w-3.5" /> },
-    { id: 'org',    label: 'Organigrama', icon: <GitBranch  className="h-3.5 w-3.5" /> },
-    { id: 'groups', label: 'Grupos',      icon: <Layers     className="h-3.5 w-3.5" /> },
-  ];
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {userCount} {userCount === 1 ? 'usuario activo' : 'usuarios activos'}
         </span>
 
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setView(tab.id)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                view === tab.id
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          size="sm"
+          ariaLabel="Vista de usuarios activos"
+          className="w-fit"
+          options={VIEW_OPTIONS}
+          value={view}
+          onChange={(next) => setView(next as View)}
+        />
       </div>
 
       {view === 'list'   && listContent}

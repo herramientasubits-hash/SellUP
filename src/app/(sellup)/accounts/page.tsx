@@ -1,93 +1,107 @@
-import { Building2, Globe, TrendingUp, Search } from 'lucide-react';
+import { Suspense } from 'react';
+import Link from 'next/link';
+import { ClipboardCheck } from "@/icons";
+import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { MetricCard } from '@/components/shared/metric-card';
+import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
+import { buttonVariants } from '@/components/ui/button';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
+import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
-import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import {
   ProspectsModulePanel,
+  loadGenerateProspectsAgent,
   type ProspectsPanelSearchParams,
 } from '@/components/prospects/prospects-module-panel';
 import {
-  getAccountsSummary,
-  getAccountsList,
-  getActiveUsers,
-} from '@/modules/accounts/actions';
+  EMPRESAS_TAB_DESCRIPTIONS,
+  EMPRESAS_VIEW_TITLES,
+  empresasViewCrumbs,
+  type ModuleTabId,
+} from '@/components/prospects/empresas-module-copy';
+import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
 }
 
-export default async function AccountsPage({ searchParams }: PageProps) {
-  // "Empresas" is the single module entry point and hosts the pill switcher
-  // (Empresas / Prospectos). Prospectos lives here as an internal tab — when
-  // `?tab=prospectos` is present we render its server panel in place, keeping
-  // the user inside the module instead of navigating to a separate route.
-  const { tab, ...prospectsParams } = await searchParams;
-  if (tab === 'prospectos') {
-    return <ProspectsModulePanel params={prospectsParams} />;
-  }
+const SKELETON_NOUN: Record<ModuleTabId, string> = {
+  empresas: 'empresas',
+  prospectos: 'empresas por revisar',
+  descartadas: 'empresas descartadas',
+};
 
-  const [summary, accounts, users, scopeFilterOptions] = await Promise.all([
-    getAccountsSummary(),
+export default async function AccountsPage({ searchParams }: PageProps) {
+  // «Empresas» aloja sus tres vistas (Empresas / Por revisar / Descartadas), a
+  // las que se llega desde el menú lateral: con `?tab=prospectos` se pinta su
+  // panel de servidor en el sitio, sin cambiar de ruta. La página no lleva
+  // pestañas: el título dice la vista y las migas, el módulo.
+  const { tab, ...prospectsParams } = await searchParams;
+  const activeTab: ModuleTabId =
+    tab !== 'prospectos' ? 'empresas' : prospectsParams.view === 'descartadas' ? 'descartadas' : 'prospectos';
+
+  // Mientras llegan los datos se ve la pantalla con su forma (cabecera,
+  // tabla fantasma) en vez de la pantalla anterior congelada.
+  // La `key` hace que el esqueleto vuelva a salir al cambiar de pestaña.
+  const skeletonCrumbs = empresasViewCrumbs(activeTab);
+
+  return (
+    <Suspense
+      key={activeTab}
+      fallback={
+        <ListPageSkeleton
+          title={EMPRESAS_VIEW_TITLES[activeTab]}
+          description={EMPRESAS_TAB_DESCRIPTIONS[activeTab]}
+          breadcrumbs={skeletonCrumbs ? <Breadcrumbs items={skeletonCrumbs} /> : undefined}
+          noun={SKELETON_NOUN[activeTab]}
+          columns={activeTab === 'empresas' ? 7 : 6}
+        />
+      }
+    >
+      {activeTab === 'empresas' ? <AccountsPanel /> : <ProspectsModulePanel params={prospectsParams} />}
+    </Suspense>
+  );
+}
+
+async function AccountsPanel() {
+  // El agente «Generar con IA» es el mismo asistente de «Por revisar», resuelto
+  // por la misma carga de servidor y en paralelo con los datos de la pestaña.
+  const [accounts, users, scopeFilterOptions, generateAgent] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
+    loadGenerateProspectsAgent(),
   ]);
 
   return (
-    <DataTablePage
-      title="Empresas"
-      description="Centraliza empresas, prospectos y cuentas comerciales con su expediente vivo."
-      tabs={<ModuleTabsNav active="empresas" />}
-      actions={<CreateAccountDrawer users={users} />}
-      metrics={
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            title="Total empresas"
-            description="Empresas en el sistema"
-            value={summary.total}
-            icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Building2 className="h-4 w-4 text-su-brand" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Nuevas"
-            description="Recientes"
-            value={summary.new}
-            icon={
-              <div className="rounded-lg p-1.5 bg-muted/60">
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Listas para investigar"
-            description="Pendientes de research"
-            value={summary.ready_for_research}
-            icon={
-              <div className="rounded-lg p-1.5 bg-su-brand-soft">
-                <Search className="h-4 w-4 text-su-brand" />
-              </div>
-            }
-          />
-          <MetricCard
-            title="Listas para contacto"
-            description="Aptas para outreach"
-            value={summary.ready_for_outreach}
-            icon={
-              <div className="rounded-lg p-1.5 bg-emerald-500/10">
-                <Globe className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-            }
-          />
-        </div>
-      }
-    >
-      <AccountsDataTableClient accounts={accounts} users={users} scopeFilterOptions={scopeFilterOptions} />
-    </DataTablePage>
+    <ListActionRailProvider label="Acciones de empresas" gender="f">
+      <DataTablePage
+        compact
+        title={EMPRESAS_VIEW_TITLES.empresas}
+        description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
+        actions={<AccountsScreenActions users={users} generateAgent={generateAgent} />}
+      >
+        <AccountsDataTableClient
+          accounts={accounts}
+          users={users}
+          scopeFilterOptions={scopeFilterOptions}
+          emptyActions={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href={PROSPECTOS_TAB_ROUTE}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <ClipboardCheck aria-hidden="true" />
+                Revisar prospectos
+              </Link>
+              <CreateAccountDrawer users={users} />
+            </div>
+          }
+        />
+      </DataTablePage>
+    </ListActionRailProvider>
   );
 }

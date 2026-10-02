@@ -15,11 +15,14 @@ import {
   Sparkles,
   Clock,
   Loader2,
-  AlertTriangle,
-} from 'lucide-react';
+} from "@/icons";
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -51,6 +54,7 @@ import type {
   PendingReviewCandidate,
   PendingReviewBatch,
 } from '@/modules/prospect-review/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // Friendly messages for each typed rejection reason from the approve action.
 const APPROVE_ERROR_MESSAGES: Record<string, string> = {
@@ -78,10 +82,13 @@ const COUNTRY_LABELS: Record<string, string> = {
   EC: 'Ecuador',
 };
 
-const CONFIDENCE_BADGE: Record<ConfidenceBand, { label: string; classes: string }> = {
-  high: { label: 'Alta', classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' },
-  medium: { label: 'Media', classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand' },
-  low: { label: 'Baja', classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500' },
+const CONFIDENCE_BADGE: Record<
+  ConfidenceBand,
+  { label: string; variant: 'positive' | 'brand' | 'warning' }
+> = {
+  high: { label: 'Alta', variant: 'positive' },
+  medium: { label: 'Media', variant: 'brand' },
+  low: { label: 'Baja', variant: 'warning' },
 };
 
 function countryLabel(code: string | null): string {
@@ -125,40 +132,36 @@ function ScoreCell({ score }: { score: number | null }) {
 
 function ConfidenceBadge({ score }: { score: number | null }) {
   const band = confidenceBand(score);
-  if (!band) return <span className="text-muted-foreground/40">—</span>;
+  if (!band) return <span className="text-text-muted">—</span>;
   const cfg = CONFIDENCE_BADGE[band];
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${cfg.classes}`}
-    >
+    <Badge variant={cfg.variant}>
       {cfg.label} · {formatScore(score)}
-    </span>
+    </Badge>
   );
 }
 
 function DuplicateBadge({ candidate }: { candidate: PendingReviewCandidate }) {
   if (isPossibleDuplicate(candidate)) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
-        <Copy className="h-2.5 w-2.5" />
+      <Badge variant="warning">
+        <Copy aria-hidden="true" />
         Posible duplicado
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border/40 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground/70">
-      Sin coincidencia
-    </span>
+    <Badge variant="neutral">Sin coincidencia</Badge>
   );
 }
 
 function HubspotBadge({ candidate }: { candidate: PendingReviewCandidate }) {
-  if (!hasHubspotMatch(candidate)) return <span className="text-muted-foreground/40">—</span>;
+  if (!hasHubspotMatch(candidate)) return <span className="text-text-muted">—</span>;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-500">
-      <ShieldCheck className="h-2.5 w-2.5" />
+    <Badge variant="warning">
+      <ShieldCheck aria-hidden="true" />
       HubSpot
-    </span>
+    </Badge>
   );
 }
 
@@ -167,7 +170,7 @@ function HubspotBadge({ candidate }: { candidate: PendingReviewCandidate }) {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <span className="text-xs font-semibold text-muted-foreground">
         {label}
       </span>
       <span className="text-sm text-foreground">{children}</span>
@@ -212,10 +215,10 @@ function CandidateDetail({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-su-brand hover:underline"
+                className="inline-flex items-center gap-1 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               >
                 {host}
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
               </a>
             ) : (
               host
@@ -239,31 +242,28 @@ function CandidateDetail({
       </div>
 
       {/* Scores */}
-      <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Puntajes
-        </p>
+      <DrawerSection title="Puntajes">
         <div className="grid grid-cols-3 gap-3 text-center">
           <div>
             <p className="font-mono text-lg font-semibold text-foreground tabular-nums">
               {formatScore(candidate.fitScore)}
             </p>
-            <p className="text-[10px] text-muted-foreground">Fit</p>
+            <p className="text-xs text-muted-foreground">Fit</p>
           </div>
           <div>
             <p className="font-mono text-lg font-semibold text-foreground tabular-nums">
               {formatScore(candidate.confidenceScore)}
             </p>
-            <p className="text-[10px] text-muted-foreground">Confianza</p>
+            <p className="text-xs text-muted-foreground">Confianza</p>
           </div>
           <div>
             <p className="font-mono text-lg font-semibold text-foreground tabular-nums">
               {formatScore(candidate.dataCompletenessScore)}
             </p>
-            <p className="text-[10px] text-muted-foreground">Completitud</p>
+            <p className="text-xs text-muted-foreground">Completitud</p>
           </div>
         </div>
-      </div>
+      </DrawerSection>
 
       {/* Señales / clasificación */}
       <div className="grid grid-cols-2 gap-x-4">
@@ -281,25 +281,22 @@ function CandidateDetail({
         <DetailRow label="Lote de origen">{batchLabel(candidate.batchId ?? '', batch)}</DetailRow>
         <DetailRow label="Antigüedad">{formatAge(age)}</DetailRow>
         <DetailRow label="Estado de revisión">
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
-            Por revisar
-          </span>
+          <Badge variant="warning">Por revisar</Badge>
         </DetailRow>
       </div>
 
       {/* Actions */}
-      <div className="rounded-xl border border-su-brand/20 bg-su-brand/5 p-3">
+      <div className="border-t border-border/50 pt-4">
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             onClick={onApprove}
             disabled={approving}
-            className="bg-su-brand text-white hover:bg-su-brand/90"
           >
             {approving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="animate-spin" aria-hidden="true" />
             ) : (
-              <CheckCircle2 className="h-3.5 w-3.5" />
+              <CheckCircle2 aria-hidden="true" />
             )}
             Aprobar
           </Button>
@@ -310,16 +307,16 @@ function CandidateDetail({
               size="sm"
               disabled
               title="Disponible en siguiente fase"
-              className="cursor-not-allowed opacity-60"
+              className="cursor-not-allowed"
             >
-              <a.icon className="h-3.5 w-3.5" />
+              <a.icon aria-hidden="true" />
               {a.label}
             </Button>
           ))}
         </div>
         <div className="mt-2 flex items-start gap-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-su-brand" />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          <p className="text-xs leading-relaxed text-muted-foreground">
             Aprobar cambia el estado a <strong className="font-medium text-foreground">aprobado</strong>{' '}
             sin convertir a cuenta ni enviar a HubSpot. El resto de acciones se habilitarán en el
             siguiente hito.
@@ -418,19 +415,15 @@ export function ReviewQueueClient({
 
   if (candidates.length === 0) {
     return (
-      <SurfaceCard>
-        <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-          <Building2 className="h-6 w-6 text-muted-foreground/40" />
-          <p className="text-sm font-medium text-foreground">
-            No hay candidatos que coincidan con los filtros
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {totalPending > 0
-              ? 'Ajusta o limpia los filtros para ver la cola completa.'
-              : 'No hay candidatos limpios pendientes de revisión en este momento.'}
-          </p>
-        </div>
-      </SurfaceCard>
+      <EmptyState
+        icon={Building2}
+        title="No hay candidatos que coincidan con los filtros"
+        description={
+          totalPending > 0
+            ? 'Ajusta o limpia los filtros para ver la cola completa.'
+            : 'No hay candidatos limpios pendientes de revisión en este momento.'
+        }
+      />
     );
   }
 
@@ -443,54 +436,49 @@ export function ReviewQueueClient({
           return (
             <SurfaceCard key={group.batchId ?? '__none__'} noPadding>
               {/* Batch header */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 px-5 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-3">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-su-brand-soft">
-                    <Layers className="h-3.5 w-3.5 text-su-brand" />
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+                    <Layers className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{label}</p>
                     {batch?.source && (
-                      <p className="text-[11px] text-muted-foreground">Fuente: {batch.source}</p>
+                      <p className="text-xs text-muted-foreground">Fuente: {batch.source}</p>
                     )}
                   </div>
                 </div>
-                <span className="rounded-full bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
                   {group.candidates.length} candidato{group.candidates.length !== 1 ? 's' : ''}
                 </span>
               </div>
 
               {/* Candidates table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border/40">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
                       {['Empresa', 'País', 'Industria', 'Fit', 'Conf.', 'Compl.', 'Duplicado', 'HubSpot', 'Antigüedad', 'Estado'].map(
-                        (h, i) => (
-                          <th
-                            key={h}
-                            className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
-                              i === 0 ? 'text-left' : 'text-left'
-                            }`}
-                          >
+                        (h) => (
+                          <TableHead key={h}>
                             {h}
-                          </th>
+                          </TableHead>
                         ),
                       )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {group.candidates.map((c) => {
                       const host = hostname(c.website, c.domain);
                       const href = externalHref(c.website, c.domain);
                       const age = ageInDays(c.createdAt, new Date(nowISO));
                       return (
-                        <tr
+                        <TableRow
                           key={c.id}
                           onClick={() => setSelectedId(c.id)}
-                          className="cursor-pointer transition-colors hover:bg-muted/30"
+                          className="cursor-pointer"
                         >
-                          <td className="px-4 py-3">
+                          <TableCell>
                             <div className="flex flex-col">
                               <span className="font-medium text-foreground">{c.name ?? '—'}</span>
                               {host && (
@@ -500,49 +488,47 @@ export function ReviewQueueClient({
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex items-center gap-1 text-[11px] text-su-brand hover:underline"
+                                    className="inline-flex items-center gap-1 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                                   >
-                                    <Globe className="h-2.5 w-2.5" />
+                                    <Globe className="h-3 w-3" aria-hidden="true" />
                                     {host}
                                   </a>
                                 ) : (
-                                  <span className="text-[11px] text-muted-foreground">{host}</span>
+                                  <span className="text-xs text-muted-foreground">{host}</span>
                                 )
                               )}
                             </div>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
                             {countryLabel(c.countryCode)}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{c.industry ?? '—'}</td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{c.industry ?? '—'}</TableCell>
+                          <TableCell>
                             <ScoreCell score={c.fitScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <ConfidenceBadge score={c.confidenceScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <ScoreCell score={c.dataCompletenessScore} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <DuplicateBadge candidate={c} />
-                          </td>
-                          <td className="px-4 py-3">
+                          </TableCell>
+                          <TableCell>
                             <HubspotBadge candidate={c} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
                             {formatAge(age)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
-                              Por revisar
-                            </span>
-                          </td>
-                        </tr>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="warning">Por revisar</Badge>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </SurfaceCard>
           );
@@ -559,8 +545,8 @@ export function ReviewQueueClient({
         title={selected?.name ?? 'Detalle del candidato'}
         description="Vista de solo lectura — revisión de prospecto pendiente"
         icon={
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-su-brand-soft">
-            <Building2 className="h-4 w-4 text-su-brand" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+            <Building2 className="h-4 w-4 text-primary" />
           </div>
         }
       >
@@ -600,12 +586,11 @@ export function ReviewQueueClient({
               No se convierte a cuenta ni se envía a HubSpot.
             </AlertDialogDescription>
             {approveNeedsWarning && (
-              <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-600 dark:text-amber-500">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="text-xs">
+              <Alert variant="warning" className="mt-2 text-left">
+                <AlertDescription className="text-xs text-current">
                   Este candidato tiene posible coincidencia. Revisa antes de aprobar.
-                </span>
-              </div>
+                </AlertDescription>
+              </Alert>
             )}
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -632,7 +617,7 @@ export function ReviewQueueClient({
               }}
               disabled={approving}
             >
-              {approving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {approving && <Loader2 className="animate-spin" aria-hidden="true" />}
               Aprobar
             </AlertDialogAction>
           </AlertDialogFooter>

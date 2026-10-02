@@ -2,8 +2,17 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Loader2, Globe, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
+import {
+  Sparkles,
+  Loader2,
+  Globe,
+  CheckCircle2,
+  Brain,
+  Workflow,
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AIButton } from '@/components/ai/ai-button';
 import {
@@ -16,7 +25,8 @@ import {
 import { toast } from 'sonner';
 import { generateTavilyProspectBatch } from '@/modules/prospect-batches/actions';
 import { LATAM_COUNTRIES, INDUSTRIES } from '@/modules/prospect-batches/types';
-import { Section, Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+import { Field } from '@/components/forms/field';
 
 const EMPTY = {
   countryCode: '',
@@ -96,47 +106,48 @@ export function GenerateTavilyBatchDrawer() {
       }
       title="Buscar empresas con IA"
       description="SellUp buscará empresas en la web, evaluará los resultados con IA y dejará los mejores candidatos encontrados en revisión."
-      icon={<Sparkles className="h-4 w-4 text-su-brand" />}
+      icon={<Sparkles className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={generating}
+          >
+            Cancelar
+          </Button>
           {generating && progressMsg && (
-            <p className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {progressMsg}
+            <p
+              role="status"
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
+              <span className="min-w-0 truncate" title={progressMsg}>{progressMsg}</span>
             </p>
           )}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={generating}
-            >
-              Cancelar
-            </Button>
-            <AIButton
-              form="generate-tavily-batch-form"
-              type="submit"
-              size="sm"
-              disabled={!canSubmit}
-              loading={generating}
-            >
-              {generating ? 'Buscando…' : 'Buscar empresas'}
-            </AIButton>
-          </div>
+          <AIButton
+            form="generate-tavily-batch-form"
+            type="submit"
+            size="sm"
+            disabled={!canSubmit}
+            loading={generating}
+          >
+            {generating ? 'Buscando…' : 'Buscar empresas'}
+          </AIButton>
         </>
       }
     >
       <form
         id="generate-tavily-batch-form"
         onSubmit={handleSubmit}
-        className="space-y-8"
+        className="space-y-4"
       >
         {/* Segmentación */}
-        <Section icon={Globe} label="Segmentación">
-          <Row>
+        <DrawerSection title="Segmentación" icon={Globe} contentClassName="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="País" required>
               <Select
                 value={form.countryCode}
@@ -173,28 +184,24 @@ export function GenerateTavilyBatchDrawer() {
                 </SelectContent>
               </Select>
             </Field>
-          </Row>
-        </Section>
+          </div>
+        </DrawerSection>
 
         {/* Info nota */}
-        <div className="rounded-xl border border-border/40 bg-muted/40 px-4 py-3">
-          <div className="flex gap-2.5">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-            <p className="text-xs text-muted-foreground">
+        <Alert variant="warning" role="note">
+          <AlertDescription className="text-xs">
+            <p>
               Los candidatos no se aprueban automáticamente. La cantidad final puede variar según la disponibilidad y calidad de resultados.
-              <span className="mt-1 block text-muted-foreground/70">
+              <span className="mt-1 block">
                 Ninguna empresa se crea en SellUp sin revisión humana.
               </span>
             </p>
-          </div>
-        </div>
+          </AlertDescription>
+        </Alert>
 
         {/* Fuentes */}
-        <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            Cómo funciona
-          </p>
-          <div className="flex flex-col gap-1.5">
+        <DrawerSection title="Cómo funciona" icon={Workflow} tone="neutral">
+          <ul className="space-y-3">
             {[
               {
                 icon: Globe,
@@ -212,18 +219,16 @@ export function GenerateTavilyBatchDrawer() {
                 desc: 'Detecta si ya existen en SellUp o HubSpot',
               },
             ].map((src) => (
-              <div
-                key={src.label}
-                className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-card px-3 py-2"
-              >
-                <src.icon className="h-3.5 w-3.5 shrink-0 text-su-brand" />
-                <span className="text-xs font-medium text-foreground">{src.label}</span>
-                <span className="text-xs text-muted-foreground">·</span>
-                <span className="text-xs text-muted-foreground">{src.desc}</span>
-              </div>
+              <li key={src.label} className="flex items-start gap-2.5">
+                <src.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground">{src.label}</p>
+                  <p className="text-xs text-muted-foreground">{src.desc}</p>
+                </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </DrawerSection>
       </form>
     </DrawerShell>
   );

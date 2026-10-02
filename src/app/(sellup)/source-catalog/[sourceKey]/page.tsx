@@ -1,0 +1,429 @@
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import { Database, ExternalLink } from "@/icons";
+import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  getSourceCatalogViewModel,
+  getSourceConnectionRecord,
+} from '@/modules/source-catalog/queries';
+import { getSourceConnectionTestHistory } from '@/modules/source-catalog/history-queries';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { getPeruSourceCoverageSummary } from '@/server/services/peru-source-coverage-summary';
+import { PeruCoverageCard } from '@/components/source-catalog/peru-coverage-card';
+import { getRdSourceCoverageSummary } from '@/server/services/rd-source-coverage-summary';
+import { RdCoverageCard } from '@/components/source-catalog/rd-coverage-card';
+import { getDgcpSourceCoverageSummary } from '@/server/services/rd-dgcp-source-coverage-summary';
+import { RdDgcpCoverageCard } from '@/components/source-catalog/rd-dgcp-coverage-card';
+import { getSicopSourceCoverageSummary } from '@/server/services/cr-sicop-source-coverage-summary';
+import { CrSicopCoverageCard } from '@/components/source-catalog/cr-sicop-coverage-card';
+import { getPaPanamaCompraConvenioCoverageSummary } from '@/server/services/pa-panamacompra-convenio-source-coverage-summary';
+import { PaPanamaCompraConvenioCoverageCard } from '@/components/source-catalog/pa-panamacompra-convenio-coverage-card';
+import { getSvComprasalSignalsSummary } from '@/server/services/sv-comprasal-signals-summary';
+import { SvComprasalSignalsCard } from '@/components/source-catalog/sv-comprasal-signals-card';
+import { HnContratacionesAbiertasCard } from '@/components/source-catalog/hn-contrataciones-abiertas-card';
+import { getHnContratacionesCoverageSummary } from '@/server/services/hn-contrataciones-coverage-summary';
+import {
+  BrReceitaCnpjStatusCard,
+  BR_RECEITA_CNPJ_SOURCE_KEY,
+} from '@/components/source-catalog/br-receita-cnpj-status-card';
+import {
+  OPERATIONAL_STATUS_LABELS,
+  AUTOMATION_LEVEL_LABELS,
+  TYPE_LABELS,
+  PRIORITY_LABELS,
+  COUNTRY_LABELS,
+  operationalStatusBadgeClass,
+  operationalStatusDotClass,
+} from '@/modules/source-catalog/labels';
+import {
+  isManualSignalOnly as checkIsManualSignalOnly,
+  shouldSkipGenericConnectionPanels,
+} from '@/modules/source-catalog/connection-panel-guards';
+import { CopyKeyButton } from './copy-key-button';
+import { TestConnectionPanel } from './test-connection-panel';
+import { ConnectionTestHistory } from './connection-test-history';
+import { SourceCredentialPanel } from './source-credential-panel';
+import { SourceDryRunPanel } from './source-dry-run-panel';
+import { DenuePreviewBatchPanel } from './denue-preview-batch-panel';
+import { ChileResDryRunPanel } from './chile-res-dry-run-panel';
+import { ChileCompraOcdsDryRunPanel } from './chilecompra-ocds-dry-run-panel';
+// ChileCompraDryRunPanel (legacy ticket) import omitted — descartado del MVP
+
+export const dynamic = 'force-dynamic';
+
+type Props = {
+  params: Promise<{ sourceKey: string }>;
+};
+
+export async function generateStaticParams() {
+  const { sources } = getSourceCatalogViewModel();
+  return sources.map((s) => ({ sourceKey: s.key }));
+}
+
+export default async function SourceDetailPage({ params }: Props) {
+  const { sourceKey } = await params;
+  const { sources } = getSourceCatalogViewModel();
+  const source = sources.find((s) => s.key === sourceKey);
+
+  if (!source) notFound();
+
+  const isSunatPeru = source.key === 'pe_sunat_bulk';
+  const isDgiiRd = source.key === 'rd_dgii_bulk';
+  const isDgcpRd = source.key === 'do_dgcp';
+  const isCrSicop = source.key === 'cr_sicop';
+  const isPaConvenio = source.key === 'pa_panamacompra_convenio';
+  const isSvComprasal = source.key === 'sv_comprasal';
+  const isHnContrataciones = source.key === 'hn_contrataciones_abiertas';
+  const isBrReceitaCnpj = source.key === BR_RECEITA_CNPJ_SOURCE_KEY;
+  const isManualSignalOnly = checkIsManualSignalOnly(source);
+  const skipConnectionPanels = shouldSkipGenericConnectionPanels(source);
+
+  const [history, connectionRecord, isAdmin, peruCoverage, rdCoverage, dgcpCoverage, sicopCoverage, paConvenioCoverage, svComprasalSignals, hnCoverage] = await Promise.all([
+    getSourceConnectionTestHistory(sourceKey),
+    getSourceConnectionRecord(sourceKey),
+    isCurrentUserAdmin(),
+    isSunatPeru
+      ? getPeruSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isDgiiRd
+      ? getRdSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isDgcpRd
+      ? getDgcpSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isCrSicop
+      ? getSicopSourceCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isPaConvenio
+      ? getPaPanamaCompraConvenioCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+    isSvComprasal
+      ? getSvComprasalSignalsSummary().catch(() => null)
+      : Promise.resolve(null),
+    isHnContrataciones
+      ? getHnContratacionesCoverageSummary().catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const statusClass = operationalStatusBadgeClass(source.operationalStatus);
+  const dotClass = operationalStatusDotClass(source.operationalStatus);
+  const statusLabel = OPERATIONAL_STATUS_LABELS[source.operationalStatus];
+
+  const countryLabels =
+    source.countryCodes.length > 0
+      ? source.countryCodes.map((c) => COUNTRY_LABELS[c] ?? c).join(', ')
+      : 'Global';
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Catálogo de fuentes', href: '/source-catalog' },
+              source.name,
+            ]}
+          />
+        }
+        title={source.name}
+        description={`Fuente de datos · ${countryLabels}`}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <CopyKeyButton sourceKey={source.key} />
+            {source.url && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={source.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink aria-hidden="true" />
+                  Abrir sitio de la fuente
+                </Link>
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      {/* Status badge */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className={statusClass}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+          {statusLabel}
+        </Badge>
+        <Badge variant="neutral">{PRIORITY_LABELS[source.priority]}</Badge>
+        <Badge variant="neutral">{TYPE_LABELS[source.type]}</Badge>
+        <Badge variant="neutral">
+          Automatización: {AUTOMATION_LEVEL_LABELS[source.automationLevel]}
+        </Badge>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Info general */}
+        <SurfaceCard>
+          <SurfaceCardHeader title="Información general" />
+          <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                Identificador interno
+              </dt>
+              <dd className="break-all font-mono text-foreground">{source.key}</dd>
+            </div>
+            <div>
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                País
+              </dt>
+              <dd className="text-foreground">{countryLabels}</dd>
+            </div>
+            {source.sectors.length > 0 && (
+              <div>
+                <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                  Sectores
+                </dt>
+                <dd className="text-foreground">{source.sectors.join(', ')}</dd>
+              </div>
+            )}
+            {source.url && (
+              <div>
+                <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                  URL
+                </dt>
+                <dd>
+                  <Link
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                  >
+                    {source.url}
+                    <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
+                  </Link>
+                </dd>
+              </div>
+            )}
+          </dl>
+        </SurfaceCard>
+
+        {/* Uso recomendado */}
+        <SurfaceCard>
+          <SurfaceCardHeader title="Uso recomendado" />
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {source.recommendedUse}
+          </p>
+        </SurfaceCard>
+
+        {/* Limitaciones */}
+        {source.limitations.length > 0 && (
+          <SurfaceCard>
+            <SurfaceCardHeader title="Limitaciones" />
+            <ul className="space-y-2">
+              {source.limitations.map((item, i) => (
+                <li key={i} className="flex gap-2 text-sm text-muted-foreground">
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </SurfaceCard>
+        )}
+
+        {/* Riesgos */}
+        {source.riskNotes.length > 0 && (
+          <SurfaceCard>
+            <SurfaceCardHeader title="Notas de riesgo" />
+            <ul className="space-y-2">
+              {source.riskNotes.map((item, i) => (
+                <li key={i} className="flex gap-2 text-sm text-warning">
+                  <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </SurfaceCard>
+        )}
+      </div>
+
+      {/* Acceso técnico / Credencial */}
+      {isBrReceitaCnpj ? (
+        <BrReceitaCnpjStatusCard />
+      ) : isManualSignalOnly ? (
+        <SurfaceCard>
+          <SurfaceCardHeader title="Cómo se usa esta fuente" />
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Esta fuente se consulta a mano, como referencia. SellUp no la lee automáticamente.
+          </p>
+        </SurfaceCard>
+      ) : isHnContrataciones ? (
+        <SurfaceCard>
+          <SurfaceCardHeader title="Acceso técnico" />
+          <dl className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <dt className="text-muted-foreground">Credenciales:</dt>
+              <dd>
+                <Badge variant="positive">No requeridas</Badge>
+              </dd>
+            </div>
+            <div>
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                Publisher institucional
+              </dt>
+              <dd className="text-foreground">ONCAE Honduras</dd>
+            </div>
+            <div>
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                Feed técnico consumido por SellUp
+              </dt>
+              <dd className="text-foreground">OCP Data Registry · publicación Honduras ONCAE</dd>
+            </div>
+            <div>
+              <dt className="mb-0.5 text-xs font-medium text-muted-foreground">
+                Formato
+              </dt>
+              <dd className="text-foreground">JSONL.gz / OCDS</dd>
+            </div>
+          </dl>
+        </SurfaceCard>
+      ) : connectionRecord ? (
+        <SourceCredentialPanel
+          sourceKey={source.key}
+          record={connectionRecord}
+          isAdmin={isAdmin}
+        />
+      ) : source.type === 'public_dataset' || source.key === 'co_rues' || (source.operationalStatus === 'operational_verified' && !source.url?.includes('api')) ? (
+        <SurfaceCard>
+          <SurfaceCardHeader title="Credencial de API" />
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Requiere credencial:</span>
+              <Badge variant="neutral">No requiere credencial</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Esta fuente es de acceso público. La prueba de conexión solo comprueba que responde:
+              no trae empresas ni guarda datos.
+            </p>
+          </div>
+        </SurfaceCard>
+      ) : (
+        <SurfaceCard>
+          <SurfaceCardHeader title="Credencial de API" />
+          <p className="text-sm text-muted-foreground">
+            Todavía no se ha configurado una credencial para esta fuente.
+          </p>
+        </SurfaceCard>
+      )}
+
+      {/* Dry-run de fuente (solo mx_denue) */}
+      {source.key === 'mx_denue' && (
+        <SourceDryRunPanel
+          sourceKey={connectionRecord?.source_key ?? 'denue_mexico'}
+          hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
+          isAdmin={isAdmin}
+        />
+      )}
+
+      {/* Dry-run RES Chile (solo cl_res) */}
+      {source.key === 'cl_res' && (
+        <ChileResDryRunPanel isAdmin={isAdmin} />
+      )}
+
+      {/* ChileCompra OCDS abierto (solo cl_chilecompra_ocds) — read-only, sin credencial */}
+      {source.key === 'cl_chilecompra_ocds' && (
+        <ChileCompraOcdsDryRunPanel isAdmin={isAdmin} />
+      )}
+
+      {/* ChileCompra legacy (ticket/Clave Única) descartado del MVP — dry-run panel desactivado */}
+
+      {/* Lote preview DENUE (solo mx_denue) */}
+      {source.key === 'mx_denue' && (
+        <DenuePreviewBatchPanel
+          hasStoredCredential={connectionRecord?.credentials_status === 'stored'}
+          isAdmin={isAdmin}
+        />
+      )}
+
+      {/* Cobertura Perú — solo pe_sunat_bulk */}
+      {isSunatPeru && (
+        peruCoverage
+          ? <PeruCoverageCard summary={peruCoverage} />
+          : <PeruCoverageCard error />
+      )}
+
+      {/* Cobertura RD — solo rd_dgii_bulk */}
+      {isDgiiRd && (
+        rdCoverage
+          ? <RdCoverageCard summary={rdCoverage} />
+          : <RdCoverageCard error />
+      )}
+
+      {/* Cobertura DGCP — solo do_dgcp (señal procurement B2G, muestra piloto) */}
+      {isDgcpRd && (
+        dgcpCoverage
+          ? <RdDgcpCoverageCard summary={dgcpCoverage} />
+          : <RdDgcpCoverageCard error />
+      )}
+
+      {/* Cobertura SICOP — solo cr_sicop (señal procurement B2G, muestra piloto) */}
+      {isCrSicop && (
+        sicopCoverage
+          ? <CrSicopCoverageCard summary={sicopCoverage} />
+          : <CrSicopCoverageCard error />
+      )}
+
+      {/* Cobertura PanamaCompra Convenio Marco — solo pa_panamacompra_convenio (señal procurement B2G, muestra piloto) */}
+      {isPaConvenio && (
+        paConvenioCoverage
+          ? <PaPanamaCompraConvenioCoverageCard summary={paConvenioCoverage} />
+          : <PaPanamaCompraConvenioCoverageCard error />
+      )}
+
+      {/* Honduras OCDS snapshot — solo hn_contrataciones_abiertas (snapshot parcial persistido, post-approval no habilitado) */}
+      {isHnContrataciones && (
+        <HnContratacionesAbiertasCard coverage={hnCoverage} />
+      )}
+
+      {/* Señales COMPRASAL El Salvador — solo sv_comprasal (señal débil weak_name_only, sin post-approval, sin matching automático) */}
+      {isSvComprasal && (
+        svComprasalSignals
+          ? <SvComprasalSignalsCard summary={svComprasalSignals} />
+          : <SvComprasalSignalsCard error />
+      )}
+
+      {/* Prueba de conexión — oculta para señales read-only, snapshots, fuentes manuales puras y hn_contrataciones */}
+      {!isHnContrataciones && !skipConnectionPanels && (
+        <TestConnectionPanel
+          sourceKey={source.key}
+          sourceName={source.name}
+        />
+      )}
+
+      {/* Historial de pruebas — oculto para señales read-only, snapshots, fuentes manuales puras y hn_contrataciones */}
+      {!isHnContrataciones && !skipConnectionPanels && (
+        <ConnectionTestHistory history={history} />
+      )}
+
+      {/* Lotes Socrata — solo co_rues */}
+      {source.key === 'co_rues' && (
+        <SurfaceCard className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              aria-hidden="true"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-border/40"
+            >
+              <Database className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight text-foreground">Lotes de datos abiertos</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Los lotes de empresas candidatas traídos de esta fuente. Solo consulta: desde ahí no se aprueba ni se envía nada.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/source-catalog/socrata-batches">Ver lotes</Link>
+          </Button>
+        </SurfaceCard>
+      )}
+    </div>
+  );
+}

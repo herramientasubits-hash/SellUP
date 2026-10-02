@@ -1,174 +1,328 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { LogOut, Settings } from "lucide-react";
-import type { User } from "@supabase/supabase-js";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ChevronDown, ChevronsUpDown, PanelLeftClose } from "@/icons";
 import { cn } from "@/lib/utils";
+import type { NavAccessContext } from "@/config/navigation";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSidebar } from "@/components/layout/sidebar-context";
+import { SidebarIconRail } from "@/components/layout/sidebar-icon-rail";
+import { PersonalizationMenu } from "@/components/layout/personalization-menu";
+import { WorkspaceMenu } from "@/components/layout/workspace-menu";
 import {
-  mainNavItems,
-  getVisibleNavItems,
-  type NavAccessContext,
-} from "@/config/navigation";
-import { NavLink, MobileNavLink } from "@/components/navigation/nav-link";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { NotificationBell } from "@/components/notifications/notification-bell";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
-import { createClient } from "@/lib/supabase/client";
+  buildSidebarNav,
+  buildWorkspaceSettingsGroups,
+  resolveActiveSidebarNode,
+  type SidebarNavChild,
+  type SidebarNavRoot,
+} from "@/components/layout/sidebar-nav";
 
-export { MobileNavLink };
+const PRODUCT_NAME = "SellUp";
+const PRODUCT_TAGLINE = "Inteligencia comercial";
+const SETTINGS_ALL = { label: "Toda la configuración", href: "/settings" } as const;
+const BRAND_MENU_LABEL = `${PRODUCT_NAME}: personalización y configuración`;
 
 interface AppSidebarProps {
   className?: string;
-  user: User;
-  initialUnreadCount?: number;
   navAccess: NavAccessContext;
+  /**
+   * Siempre desplegado y sin botón de contraer: el menú dentro del cajón del
+   * móvil, donde contraerlo no tiene sentido.
+   */
+  forceExpanded?: boolean;
+  /** Tras elegir un destino (el cajón del móvil se cierra). */
+  onNavigate?: () => void;
+}
+
+/** La marca del producto: el chip con el degradado del tema y, desplegado, el nombre. */
+export function BrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <span
+        aria-hidden
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-gradient text-sm font-bold text-primary-foreground shadow-card"
+      >
+        S
+      </span>
+      {!compact && (
+        <span className="flex min-w-0 flex-col text-left leading-tight">
+          <span className="truncate text-sm font-bold tracking-tight text-foreground">
+            Sell<span className="text-primary">Up</span>
+          </span>
+          <span className="truncate text-xs text-text-muted">{PRODUCT_TAGLINE}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+const ROW_CLASSES =
+  "relative flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
+
+/** Sección sin vistas: una fila que navega. */
+function RootLeaf({
+  item,
+  isCurrent,
+  onNavigate,
+}: {
+  item: SidebarNavRoot;
+  isCurrent: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={isCurrent ? "page" : undefined}
+      className={cn(
+        ROW_CLASSES,
+        isCurrent &&
+          "bg-sidebar-accent font-semibold text-primary hover:bg-sidebar-accent hover:text-primary",
+      )}
+    >
+      <item.icon className={cn("size-4 shrink-0", isCurrent ? "text-primary" : "text-text-muted")} />
+      <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+    </Link>
+  );
+}
+
+function ChildRow({
+  child,
+  isCurrent,
+  onNavigate,
+}: {
+  child: SidebarNavChild;
+  isCurrent: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={child.href}
+      onClick={onNavigate}
+      aria-current={isCurrent ? "page" : undefined}
+      className={cn(
+        "relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        isCurrent && "font-semibold text-primary hover:text-primary",
+      )}
+    >
+      {isCurrent && (
+        <span aria-hidden className="absolute -left-2.5 bottom-0.5 top-0.5 w-0.5 rounded-full bg-primary" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-left">{child.label}</span>
+    </Link>
+  );
+}
+
+/** Sección con vistas: la cabecera pliega y despliega; las vistas navegan. */
+function Accordion({
+  item,
+  isOpen,
+  activeChildId,
+  onToggle,
+  onNavigate,
+}: {
+  item: SidebarNavRoot;
+  isOpen: boolean;
+  activeChildId: string | null;
+  onToggle: () => void;
+  onNavigate?: () => void;
+}) {
+  const panelId = React.useId();
+  return (
+    <div data-slot="sidebar-section">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        className={cn(
+          ROW_CLASSES,
+          // Abierta, la sección es el rótulo de su grupo: pesa por tipografía,
+          // no por color de marca (que es de la vista activa).
+          isOpen && "font-semibold text-foreground",
+          // Plegada, su icono es lo único que dice «estás aquí dentro».
+          !isOpen && activeChildId && "text-primary",
+        )}
+      >
+        <item.icon
+          className={cn(
+            "size-4 shrink-0",
+            !isOpen && activeChildId ? "text-primary" : "text-text-muted",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-text-muted transition-transform duration-200",
+            isOpen && "rotate-180",
+          )}
+        />
+      </button>
+      {isOpen && (
+        <div
+          id={panelId}
+          role="group"
+          aria-label={item.label}
+          className="mb-2 ml-4 mt-1 flex flex-col gap-1 border-l border-border pl-2"
+        >
+          {(item.children ?? []).map((child) => (
+            <ChildRow
+              key={child.id}
+              child={child}
+              isCurrent={child.id === activeChildId}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
- * Icon-rail sidebar — 80px fixed width.
- * Pattern from plantilla-proyectos-shadcn (SidebarRail.tsx).
- * Only icons visible; labels appear in tooltip on hover (NavLink).
- * Layout (top → bottom): brand · nav · notifications · theme · user.
+ * Menú lateral — port de Thema (`app-shell/AppSidebar` + `SidebarIconRail`).
+ *
+ * Desplegado (240px): la marca abre el menú de la plataforma —Personalización
+ * y TODA la configuración, agrupada— y debajo va la navegación de módulos, con
+ * secciones plegables: Empresas y Contactos despliegan las vistas que hoy
+ * también están en las pestañas de cada pantalla. La sección en la que estás
+ * llega abierta. Configuración no es un módulo de esta lista: se entra por la
+ * marca.
+ *
+ * Contraído (64px): el mismo menú como riel de iconos; cada sección con vistas
+ * las muestra al pasar el puntero.
+ *
+ * Solo lista lo que puede ver quien mira (`navAccess`).
  */
-export function AppSidebar({
-  className,
-  user,
-  initialUnreadCount = 0,
-  navAccess,
-}: AppSidebarProps) {
-  const router = useRouter();
+export function AppSidebar({ className, navAccess, forceExpanded = false, onNavigate }: AppSidebarProps) {
+  const { collapsed: storedCollapsed, toggle } = useSidebar();
+  const collapsed = forceExpanded ? false : storedCollapsed;
+  const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
 
-  const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
+  const { isAdmin, roleKey } = navAccess;
+  const navigation = React.useMemo(() => buildSidebarNav({ isAdmin, roleKey }), [isAdmin, roleKey]);
+  const settingsGroups = React.useMemo(
+    () => buildWorkspaceSettingsGroups({ isAdmin, roleKey }),
+    [isAdmin, roleKey],
+  );
+  const active = resolveActiveSidebarNode(
+    navigation,
+    pathname,
+    new URLSearchParams(searchParams?.toString() ?? ""),
+  );
 
-  const displayName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    user.email ??
-    "Usuario";
-  const avatarUrl = user.user_metadata?.avatar_url as string | undefined;
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  // La sección en la que estás llega abierta; al cambiar de sección se abre la
+  // nueva sin cerrar lo que la persona abrió a mano.
+  const [openSections, setOpenSections] = React.useState<Readonly<Record<string, boolean>>>(() =>
+    active.rootId ? { [active.rootId]: true } : {},
+  );
+  const [adoptedRootId, setAdoptedRootId] = React.useState(active.rootId);
+  if (adoptedRootId !== active.rootId) {
+    setAdoptedRootId(active.rootId);
+    if (active.rootId) setOpenSections({ ...openSections, [active.rootId]: true });
+  }
 
-  const handleSignOut = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  };
+  const toggleSection = (id: string) =>
+    setOpenSections((sections) => ({ ...sections, [id]: !sections[id] }));
+
+  const workspaceMenu = (trigger: React.ReactElement, side: "bottom" | "right") => (
+    <WorkspaceMenu
+      trigger={trigger}
+      side={side}
+      productName={PRODUCT_NAME}
+      tagline={PRODUCT_TAGLINE}
+      groups={settingsGroups}
+      all={isAdmin ? SETTINGS_ALL : undefined}
+      extra={<PersonalizationMenu />}
+      onNavigate={onNavigate}
+    />
+  );
+
+  if (collapsed) {
+    return (
+      <SidebarIconRail
+        className={className}
+        navigation={navigation}
+        active={active}
+        onExpand={toggle}
+        brand={workspaceMenu(
+          <button
+            type="button"
+            aria-label={BRAND_MENU_LABEL}
+            className="mb-2 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <BrandMark compact />
+          </button>,
+          "right",
+        )}
+      />
+    );
+  }
 
   return (
-    <div className={cn("flex h-full flex-col", className)}>
-      {/* Top zone — user avatar only */}
-      <div className="flex shrink-0 flex-col items-center border-b border-sidebar-border/30 pt-4 pb-3">
-        <DropdownMenu>
+    <div className={cn("flex h-full flex-col p-3 pt-4", className)}>
+      {/* Contraer: deja el riel de iconos a la vista. */}
+      {!forceExpanded && (
+        <div className="mb-2 flex shrink-0 justify-end">
           <Tooltip>
             <TooltipTrigger
               render={
-                <DropdownMenuTrigger
-                  className={cn(
-                    "group flex items-center justify-center rounded-full p-0.5 transition-all",
-                    "hover:ring-2 hover:ring-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25",
-                    "data-[popup-open]:ring-2 data-[popup-open]:ring-white/20",
-                  )}
-                  aria-label={`Cuenta de ${displayName}`}
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-label="Contraer menú"
+                  aria-expanded
+                  className="flex size-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
-                  <Avatar className="h-8 w-8 ring-2 ring-sidebar-border/60 transition-all group-hover:ring-white/25">
-                    <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[10px] font-bold text-white">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                </DropdownMenuTrigger>
+                  <PanelLeftClose className="size-4" />
+                </button>
               }
             />
-            <TooltipContent side="right">Mi cuenta</TooltipContent>
+            <TooltipContent side="right">Contraer menú</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent
-            align="end"
-            side="right"
-            sideOffset={10}
-            className="w-64"
-          >
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-0">
-                <div className="flex items-center gap-3 px-1 py-1.5">
-                  <Avatar size="lg" className="shrink-0">
-                    <AvatarImage src={avatarUrl} alt={displayName} />
-                    <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-semibold text-foreground leading-tight">
-                      {displayName}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground font-normal">
-                      {user.email}
-                    </span>
-                  </div>
-                </div>
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              onClick={() => router.push("/settings")}
-            >
-              <Settings className="h-4 w-4" />
-              Configuración
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              variant="destructive"
-              onClick={handleSignOut}
-            >
-              <LogOut className="h-4 w-4" />
-              Cerrar sesión
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+        </div>
+      )}
 
-      {/* Nav — middle, icon-rail with hover tooltips */}
-      <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-4">
-        {visibleNavItems.map((item, i) => (
-            <div
-              key={item.href}
-              style={{ animationDelay: `${i * 40}ms` }}
-              className="animate-su-slide-in flex w-full justify-center"
-            >
-              <NavLink item={item} mode="rail" />
-            </div>
-        ))}
+      {/* La marca: de ella cuelga lo que se ajusta una vez (personalización, configuración). */}
+      {workspaceMenu(
+        <button
+          type="button"
+          aria-label={BRAND_MENU_LABEL}
+          className="mb-4 flex w-full shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card px-3 py-2 transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <span className="min-w-0 flex-1">
+            <BrandMark />
+          </span>
+          <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-text-muted" />
+        </button>,
+        "bottom",
+      )}
+
+      <nav aria-label="Navegación principal" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
+        {navigation.map((item) =>
+          item.children ? (
+            <Accordion
+              key={item.id}
+              item={item}
+              isOpen={Boolean(openSections[item.id])}
+              activeChildId={active.rootId === item.id ? active.childId : null}
+              onToggle={() => toggleSection(item.id)}
+              onNavigate={onNavigate}
+            />
+          ) : (
+            <RootLeaf
+              key={item.id}
+              item={item}
+              isCurrent={active.rootId === item.id}
+              onNavigate={onNavigate}
+            />
+          ),
+        )}
       </nav>
-
-      {/* Bottom dock — notifications + theme toggle only */}
-      <div className="shrink-0 border-t border-sidebar-border/30 px-2 pt-2 pb-3 flex flex-col items-center gap-1">
-        <NotificationBell
-          initialUnreadCount={initialUnreadCount}
-          variant="sidebar"
-        />
-        <ThemeToggle variant="sidebar" />
-      </div>
     </div>
   );
 }

@@ -24,19 +24,27 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 
 interface PopoverContentProps extends React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Popup> {
   align?: "start" | "center" | "end";
+  /** Lado preferido; Base UI voltea solo si no cabe. */
+  side?: "top" | "right" | "bottom" | "left";
   sideOffset?: number;
+  /**
+   * Clases del posicionador (la capa que flota). Sirve para bajar el
+   * `z-index` cuando el popover contiene un `Select`, cuyo desplegable vive
+   * en `z-[70]` y quedaría tapado.
+   */
+  positionerClassName?: string;
 }
 
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Popup>,
   PopoverContentProps
->(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
+>(({ className, positionerClassName, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
   <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Positioner sideOffset={sideOffset} align={align} positionMethod="fixed" className="z-[9999]">
+    <PopoverPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} positionMethod="fixed" className={cn("z-[9999]", positionerClassName)}>
       <PopoverPrimitive.Popup
         ref={ref}
         className={cn(
-          "z-[9999] w-72 rounded-xl border border-border/30 bg-popover p-4 text-popover-foreground shadow-md outline-none",
+          "z-[9999] w-72 rounded-xl border border-border/60 bg-popover p-4 text-popover-foreground shadow-drawer outline-none",
           "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
           "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,

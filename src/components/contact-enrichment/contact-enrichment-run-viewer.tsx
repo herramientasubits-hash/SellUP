@@ -7,9 +7,12 @@
 // Phone numbers are never rendered (see the hito's "no revelar teléfonos"
 // constraint) even when a candidate row carries one.
 
-import { Building2, Calendar, Globe, Info, MapPin, XCircle } from 'lucide-react';
+import { withAppTimeZone } from '@/lib/format-date';
+import { Building2, Calendar, Globe, Info, MapPin, Users, XCircle } from "@/icons";
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { IconTile } from '@/components/utility';
 import { getLushaEmptyStateCopy } from './contact-enrichment-empty-state-copy';
 import { classifyLushaRunViewerBranch } from '@/modules/contact-enrichment/run-viewer-branch-classifier';
 import type {
@@ -18,33 +21,35 @@ import type {
   ContactEnrichmentRunProviderUsage,
 } from '@/modules/contact-enrichment/run-viewer-types';
 
-const RUN_STATUS_BADGE: Record<ContactEnrichmentRunDetail['status'], { label: string; className: string }> = {
-  pending: { label: 'Pendiente', className: 'text-muted-foreground border-border bg-muted/30' },
-  resolving: { label: 'Resolviendo', className: 'text-muted-foreground border-border bg-muted/30' },
-  ready_to_enrich: { label: 'Listo para enriquecer', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
-  enriching: { label: 'Enriqueciendo', className: 'text-su-brand border-su-brand/30 bg-su-brand-soft' },
-  ready_for_review: { label: 'Listo para revisión', className: 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10' },
-  completed: { label: 'Completado', className: 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10' },
-  failed: { label: 'Fallido', className: 'text-destructive border-destructive/30 bg-destructive/10' },
-  superseded: { label: 'Reemplazado', className: 'text-muted-foreground border-border bg-muted/30' },
+type StatusVariant = 'neutral' | 'brand' | 'positive' | 'negative' | 'warning';
+
+const RUN_STATUS_BADGE: Record<ContactEnrichmentRunDetail['status'], { label: string; variant: StatusVariant }> = {
+  pending: { label: 'Pendiente', variant: 'neutral' },
+  resolving: { label: 'Resolviendo', variant: 'neutral' },
+  ready_to_enrich: { label: 'Listo para enriquecer', variant: 'brand' },
+  enriching: { label: 'Enriqueciendo', variant: 'brand' },
+  ready_for_review: { label: 'Listo para revisión', variant: 'positive' },
+  completed: { label: 'Completado', variant: 'positive' },
+  failed: { label: 'Fallido', variant: 'negative' },
+  superseded: { label: 'Reemplazado', variant: 'neutral' },
 };
 
-const CANDIDATE_STATUS_BADGE: Record<ContactEnrichmentRunCandidate['status'], { label: string; className: string }> = {
-  pending_review: { label: 'Por revisar', className: 'text-amber-600 border-amber-500/30 bg-amber-500/10' },
-  approved: { label: 'Aprobado', className: 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10' },
-  discarded: { label: 'Descartado', className: 'text-muted-foreground border-border bg-muted/30' },
-  duplicate: { label: 'Duplicado', className: 'text-muted-foreground border-border bg-muted/30' },
+const CANDIDATE_STATUS_BADGE: Record<ContactEnrichmentRunCandidate['status'], { label: string; variant: StatusVariant }> = {
+  pending_review: { label: 'Por revisar', variant: 'warning' },
+  approved: { label: 'Aprobado', variant: 'positive' },
+  discarded: { label: 'Descartado', variant: 'neutral' },
+  duplicate: { label: 'Duplicado', variant: 'neutral' },
 };
 
 function formatDateTime(iso: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-CO', {
+  return new Date(iso).toLocaleString('es-CO', withAppTimeZone({
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }));
 }
 
 // ── Run header ────────────────────────────────────────────────────────────
@@ -57,7 +62,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
       <SurfaceCardHeader
         title="Contexto del run"
         actions={
-          <Badge variant="outline" className={`text-xs ${statusBadge.className}`}>
+          <Badge variant={statusBadge.variant}>
             {statusBadge.label}
           </Badge>
         }
@@ -66,12 +71,12 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Empresa</dt>
-          <dd className="font-medium text-foreground">{run.companyName || '—'}</dd>
+          <dd className="min-w-0 truncate font-medium text-foreground">{run.companyName || '—'}</dd>
         </div>
         <div className="flex items-center gap-2">
           <Globe className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Dominio</dt>
-          <dd className="text-foreground">{run.companyDomain ?? 'Sin dominio'}</dd>
+          <dd className="min-w-0 truncate text-foreground">{run.companyDomain ?? 'Sin dominio'}</dd>
         </div>
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -81,7 +86,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" aria-hidden />
           <dt className="sr-only">Ejecutado</dt>
-          <dd className="text-foreground">{formatDateTime(run.createdAt)}</dd>
+          <dd className="tabular-nums text-foreground">{formatDateTime(run.createdAt)}</dd>
         </div>
       </dl>
 
@@ -92,21 +97,21 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Intento</dt>
-          <dd className="font-medium text-foreground">{run.attemptOrder ?? '—'}</dd>
+          <dd className="font-medium tabular-nums text-foreground">{run.attemptOrder ?? '—'}</dd>
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Costo estimado</dt>
-          <dd className="font-medium text-foreground">US$ {run.estimatedCostUsd.toFixed(4)}</dd>
+          <dd className="font-medium tabular-nums text-foreground">US$ {run.estimatedCostUsd.toFixed(4)}</dd>
         </div>
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Costo real</dt>
-          <dd className="font-medium text-foreground">
+          <dd className="font-medium tabular-nums text-foreground">
             {run.realCostUsd != null ? `US$ ${run.realCostUsd.toFixed(4)}` : 'No disponible'}
           </dd>
         </div>
       </dl>
 
-      <p className="border-t border-border/50 pt-3 font-mono text-[11px] text-muted-foreground">
+      <p className="break-all border-t border-border/50 pt-3 font-mono text-xs text-muted-foreground">
         run_id: {run.id}
       </p>
     </SurfaceCard>
@@ -133,9 +138,7 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-            <XCircle className="h-4 w-4 text-amber-500" aria-hidden />
-          </div>
+          <IconTile icon={<XCircle />} tone="warning" aria-hidden />
           <p className="text-sm font-semibold text-foreground">Lusha no está disponible o no tiene credenciales configuradas</p>
         </div>
         <p className="text-xs text-muted-foreground">No se ejecutó el proveedor y no se crearon candidatos.</p>
@@ -175,29 +178,26 @@ function LushaOutcomeCard({
     return (
       <SurfaceCard className="space-y-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-            <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
-          </div>
-          <div className="space-y-1">
+          <IconTile icon={<Info />} tone="neutral" aria-hidden />
+          <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
             <p className="text-xs text-muted-foreground">{copy.detail}</p>
           </div>
         </div>
 
-        <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
-          <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
-        </div>
+        {/* Sin caja propia: ya está dentro de la tarjeta del resultado. */}
+        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
 
         <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Resultados brutos</dt>
-            <dd className="font-medium text-foreground">{latestUsage?.rawResultsCount ?? 0}</dd>
+            <dd className="font-medium tabular-nums text-foreground">{latestUsage?.rawResultsCount ?? 0}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Créditos usados</dt>
-            <dd className="font-medium text-foreground">{latestUsage?.creditsUsed ?? 0}</dd>
+            <dd className="font-medium tabular-nums text-foreground">{latestUsage?.creditsUsed ?? 0}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Reveal de teléfono</dt>
             <dd className="font-medium text-foreground">
               {latestUsage?.phoneRevealEnabled ? 'ejecutado' : 'no ejecutado'}
@@ -236,9 +236,7 @@ function CandidatesList({ candidates }: { candidates: ContactEnrichmentRunCandid
         <SurfaceCardHeader title={`Candidatos (${candidates.length})`} />
       </div>
       {candidates.length === 0 ? (
-        <p className="px-5 pb-5 text-xs text-muted-foreground">
-          Este run no tiene candidatos asociados.
-        </p>
+        <EmptyState variant="plain" icon={Users} title="Este run no tiene candidatos asociados." />
       ) : (
         <div className="divide-y divide-border/50 overflow-x-auto">
           {candidates.map((candidate) => {
@@ -252,10 +250,10 @@ function CandidatesList({ candidates }: { candidates: ContactEnrichmentRunCandid
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] border-border bg-muted/30 text-muted-foreground">
+                  <Badge variant="neutral">
                     {candidate.source}
                   </Badge>
-                  <Badge variant="outline" className={`text-[10px] ${statusBadge.className}`}>
+                  <Badge variant={statusBadge.variant}>
                     {statusBadge.label}
                   </Badge>
                 </div>

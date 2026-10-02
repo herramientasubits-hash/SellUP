@@ -2,8 +2,7 @@ import { redirect } from 'next/navigation';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminBudgetSummary } from '@/modules/budgets/budget-resolution';
 import { getBudgetRulesForAdmin } from '@/modules/budgets/rule-queries';
-import { PageHeader } from '@/components/shared/page-header';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { SettingsPage } from '@/components/settings/settings-page';
 import { BudgetSummaryCards } from '../budget-credits/budget-summary-cards';
 import { BudgetProvidersTable } from '../budget-credits/budget-providers-table';
 import {
@@ -71,27 +70,18 @@ export default async function ProvidersConsumptionPage() {
   }
 
   return (
-    <div className="space-y-8 px-8 py-6">
-      <PageHeader
-        title="Proveedores y consumo"
-        description="Administra proveedores, cuotas, presupuestos, reglas, modelos de IA y trazabilidad de consumo desde un solo lugar."
-        backHref="/settings"
+    <SettingsPage
+      title="Proveedores y consumo"
+      description="Conecta los proveedores de datos e IA, fija sus cuotas y revisa cuánto se ha gastado este mes."
+    >
+      <BudgetSummaryCards providers={summary.providers} />
+      <BudgetProvidersTable
+        providers={summary.providers}
+        resolvedAt={summary.resolvedAt}
+        allRules={rules}
+        providerConnectionStates={providerConnectionStates}
+        aiProviderConnectionStates={aiProviderConnectionStates}
       />
-
-      <div className="space-y-8">
-        <BudgetSummaryCards providers={summary.providers} />
-        <SurfaceCard>
-          <div className="p-1">
-            <BudgetProvidersTable
-              providers={summary.providers}
-              resolvedAt={summary.resolvedAt}
-              allRules={rules}
-              providerConnectionStates={providerConnectionStates}
-              aiProviderConnectionStates={aiProviderConnectionStates}
-            />
-          </div>
-        </SurfaceCard>
-      </div>
-    </div>
+    </SettingsPage>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,7 @@ export function RadioCardGroup({
           return (
             <label
               key={option.value}
-              className="group relative flex flex-col p-0 rounded-xl outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-su-brand focus-visible:ring-offset-2 data-[state=checked]:z-10"
+              className="group relative flex flex-col p-0 rounded-2xl outline-none transition-all duration-200 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40 data-[state=checked]:z-10"
             >
               <input
                 type="radio"
@@ -91,25 +91,25 @@ export function RadioCardGroup({
                 aria-checked={isSelected}
               />
               <Card className={cn(
-                "flex flex-col w-full h-full p-5 border-2 transition-all duration-200",
-                "group-data-[state=checked]:border-su-brand group-data-[state=checked]:bg-su-brand/[0.02] group-data-[state=checked]:ring-1 group-data-[state=checked]:ring-su-brand/20",
-                "group-data-[state=unchecked]:border-border/50 group-data-[state=unchecked]:bg-card group-data-[state=unchecked]:hover:border-su-brand/30",
-                isDisabled && "opacity-50 grayscale-[0.5] hover:border-border/50"
+                "flex flex-col w-full h-full p-5 border-2 shadow-none transition-all duration-200",
+                "group-data-[state=checked]:border-primary group-data-[state=checked]:bg-primary/5 group-data-[state=checked]:ring-1 group-data-[state=checked]:ring-primary/20",
+                "group-data-[state=unchecked]:border-border/60 group-data-[state=unchecked]:bg-card group-data-[state=unchecked]:hover:border-primary/30",
+                isDisabled && "opacity-50 grayscale-[0.5] hover:border-border/60"
               )}>
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className={cn(
                     "p-2.5 rounded-xl border transition-colors",
-                    "group-data-[state=checked]:bg-su-brand group-data-[state=checked]:text-su-brand-foreground group-data-[state=checked]:border-su-brand",
-                    "group-data-[state=unchecked]:bg-muted/50 group-data-[state=unchecked]:text-muted-foreground group-data-[state=unchecked]:border-border/50 group-hover:group-data-[state=unchecked]:bg-su-brand/5 group-hover:group-data-[state=unchecked]:text-su-brand group-hover:group-data-[state=unchecked]:border-su-brand/20"
+                    "group-data-[state=checked]:bg-primary group-data-[state=checked]:text-primary-foreground group-data-[state=checked]:border-primary",
+                    "group-data-[state=unchecked]:bg-surface-muted group-data-[state=unchecked]:text-muted-foreground group-data-[state=unchecked]:border-border/60 group-hover:group-data-[state=unchecked]:bg-primary/5 group-hover:group-data-[state=unchecked]:text-primary group-hover:group-data-[state=unchecked]:border-primary/20"
                   )}>
-                    {Icon ? <Icon className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5 opacity-20 group-data-[state=checked]:opacity-100" />}
+                    {Icon ? <Icon className="h-5 w-5" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5 opacity-20 group-data-[state=checked]:opacity-100" />}
                   </div>
                   {option.badge && (
                     <Badge
                       variant="outline"
                       className={cn(
-                        "font-bold uppercase tracking-wider text-[9px]",
-                        "group-data-[state=checked]:bg-su-brand group-data-[state=checked]:text-su-brand-foreground group-data-[state=checked]:border-transparent"
+                       "",
+                       "group-data-[state=checked]:bg-primary group-data-[state=checked]:text-primary-foreground group-data-[state=checked]:border-transparent"
                       )}
                     >
                       {option.badge}
@@ -119,11 +119,11 @@ export function RadioCardGroup({
 
                 <div className="flex flex-col min-w-0 flex-1">
                   {option.eyebrow && (
-                    <span className="text-[10px] font-bold text-su-brand/70 uppercase tracking-widest mb-1">
+                    <span className="text-xs font-semibold text-primary mb-1">
                       {option.eyebrow}
                     </span>
                   )}
-                  <h4 className="text-sm font-bold truncate leading-snug">
+                  <h4 className="text-sm font-semibold truncate leading-snug">
                     {option.label}
                   </h4>
                   {option.description && (
@@ -134,10 +134,10 @@ export function RadioCardGroup({
                 </div>
 
                 <div className={cn(
-                  "absolute top-2 right-2 flex items-center justify-center h-5 w-5 bg-su-brand rounded-full text-su-brand-foreground shadow-sm scale-0 transition-transform duration-200",
+                  "absolute top-2 right-2 flex items-center justify-center h-5 w-5 bg-primary rounded-full text-primary-foreground shadow-card scale-0 transition-transform duration-200",
                   "group-data-[state=checked]:scale-100"
                 )}>
-                  <CheckCircle2 className="h-3 w-3" />
+                  <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                 </div>
               </Card>
             </label>

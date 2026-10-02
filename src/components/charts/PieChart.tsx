@@ -97,12 +97,16 @@ export function PieChart({
           data: data.map((d) => ({ name: d.label, value: d.value })),
           type: "pie",
           name: seriesName,
-          radius: donut ? ["50%", "70%"] : [0, "70%"],
-          center: ["50%", "50%"],
+          radius: donut ? ["48%", "68%"] : [0, "68%"],
+          // El gráfico sube para dejar la leyenda debajo: a 375px una leyenda
+          // lateral se monta sobre el anillo.
+          center: ["50%", "44%"],
           avoidLabelOverlap: true,
+          padAngle: donut ? 2 : 0,
           itemStyle: {
             borderColor: "transparent",
             borderWidth: 0,
+            borderRadius: donut ? 4 : 0,
           },
           label: {
             show: false,
@@ -111,16 +115,21 @@ export function PieChart({
           emphasis: {
             label: {
               show: true,
-              fontSize: 18,
-              fontWeight: "bold",
+              fontSize: 16,
+              fontWeight: 600,
             },
           },
         },
       ],
       legend: {
-        orient: "vertical",
-        left: "right",
-        top: "center",
+        type: "scroll",
+        orient: "horizontal",
+        left: "center",
+        bottom: 0,
+        icon: "circle",
+        itemWidth: 8,
+        itemHeight: 8,
+        itemGap: 16,
       },
     };
   }, [data, seriesName, donut]);
@@ -132,7 +141,7 @@ export function PieChart({
       option={option}
       height={height}
       loading={loading}
-      empty={empty}
+      empty={empty || !data || data.length === 0}
       error={error}
       ariaLabel={ariaLabel ?? title}
       summary={summary}

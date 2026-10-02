@@ -1,78 +1,15 @@
 import { redirect } from 'next/navigation';
-import { CheckCircle2, XCircle, Clock, WifiOff, ShieldCheck, Search, AlertTriangle, Ban } from 'lucide-react';
-import { PageHeader } from '@/components/shared/page-header';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
+import {
+  IntegrationCapabilities,
+  IntegrationStatusCard,
+  TechnicalRow,
+} from '@/components/settings/integration-overview';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getGoogleCSEIntegration } from '@/modules/integrations/actions';
 import { GoogleCSEActionsPanel } from './google-cse-actions-client';
 import type { GoogleCSEMetadata } from '@/modules/integrations/types';
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Intl.DateTimeFormat('es-CO', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso));
-}
-
-function ConnectionStatusBlock({ connectionStatus }: { connectionStatus: string | undefined }) {
-  const status = connectionStatus ?? 'not_tested';
-
-  const map: Record<
-    string,
-    {
-      label: string;
-      icon: React.ComponentType<{ className?: string }>;
-      color: string;
-      bg: string;
-      border: string;
-    }
-  > = {
-    connected: {
-      label: 'Conectado',
-      icon: CheckCircle2,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-500/10',
-      border: 'border-emerald-500/30',
-    },
-    error: {
-      label: 'Error de conexión',
-      icon: XCircle,
-      color: 'text-destructive',
-      bg: 'bg-destructive/10',
-      border: 'border-destructive/30',
-    },
-    disconnected: {
-      label: 'Desconectado',
-      icon: WifiOff,
-      color: 'text-amber-500',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30',
-    },
-    not_tested: {
-      label: 'Sin probar',
-      icon: Clock,
-      color: 'text-muted-foreground',
-      bg: 'bg-muted/30',
-      border: 'border-border/40',
-    },
-  };
-
-  const config = map[status] ?? map.not_tested;
-  const Icon = config.icon;
-
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium ${config.bg} ${config.border} ${config.color}`}
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      {config.label}
-    </div>
-  );
-}
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default async function GoogleCSEIntegrationPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -87,212 +24,85 @@ export default async function GoogleCSEIntegrationPage() {
   const cx_masked = integration.cx_masked;
   const metadata = conn?.metadata as GoogleCSEMetadata | null;
 
-  return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Google Custom Search"
-        description="Proveedor de búsqueda web alternativo que usa Google Custom Search Engine. Complementa a Tavily con cobertura de resultados de Google para el Agente 1."
-        backHref="/settings/integrations"
-      />
+  const isReachable = isAvailable && hasCredential && conn?.connection_status === 'connected';
 
-      {!isAvailable && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-4">
-          <Ban className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-          <div>
-            <p className="text-sm font-semibold text-destructive ">
-              Proveedor no disponible — Google Custom Search JSON API
-            </p>
-            <p className="mt-1 text-xs text-destructive/80 leading-relaxed">
-              Google Custom Search JSON API no está disponible para este proyecto de Google Cloud
-              (<code className="rounded bg-destructive/10 px-1 py-0.5 text-[10px] font-mono">PERMISSION_DENIED</code>).
-              La documentación oficial de Google indica que esta API no se otorga automáticamente
-              a nuevos clientes. SellUp mantendrá este proveedor deshabilitado hasta que exista acceso válido.
-            </p>
-          </div>
-        </div>
+  return (
+    <SettingsPage
+      title="Google Custom Search"
+      description="Buscador de Google que complementa a Tavily para encontrar empresas y comprobar sus sitios al prospectar."
+      trail={[{ label: 'Integraciones comerciales', href: '/settings/integrations' }]}
+    >
+      {!isAvailable ? (
+        <Alert variant="destructive">
+          <AlertTitle>Google no permite usar este buscador todavía</AlertTitle>
+          <AlertDescription>
+            Google ya no da acceso automático a este servicio a cuentas nuevas. SellUp lo mantiene apagado
+            hasta que la cuenta de Google de la empresa tenga acceso. El motivo exacto está en «Detalles
+            técnicos».
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert variant="warning">
+          <AlertTitle>Google da 100 búsquedas gratis al día</AlertTitle>
+          <AlertDescription>
+            Las demás cuestan unos 5 USD por cada 1.000. «Probar conexión» también gasta 1 búsqueda.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Estado de conexión + resultado del último test */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Estado */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Estado de la integración"
-            description="Estado actual de credenciales y conexión con Google CSE."
-          />
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Credenciales</span>
-              {hasCredential ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Almacenadas
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground/60">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
-                  No configuradas
-                </span>
-              )}
-            </div>
-
-            {cx_masked && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Search Engine ID</span>
-                <code className="rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-foreground">
-                  {cx_masked}
-                </code>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Conexión</span>
-              <ConnectionStatusBlock connectionStatus={conn?.connection_status} />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Última prueba</span>
-              <span className="text-xs font-medium text-foreground">
-                {formatDate(conn?.last_tested_at ?? null)}
-              </span>
-            </div>
-
-            {conn?.last_connection_error && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
-                <p className="text-[11px] font-medium text-destructive mb-0.5">Último error</p>
-                <p className="text-[11px] text-destructive/80">{conn.last_connection_error}</p>
-              </div>
-            )}
-          </div>
-        </SurfaceCard>
-
-        {/* Resultado del último test */}
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Resultado del último test"
-            description="Datos registrados en la última prueba de conexión exitosa."
-          />
-          {metadata?.response_time_ms != null ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-muted/20 px-3 py-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-su-brand-soft text-su-brand shrink-0">
-                  <Search className="h-4 w-4" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Tiempo de respuesta</p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {metadata.response_time_ms} ms
-                  </p>
-                </div>
-              </div>
-              {metadata.results_count != null && (
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-xs text-muted-foreground">Resultados obtenidos</span>
-                  <span className="text-xs font-medium text-foreground">
-                    {metadata.results_count}
-                  </span>
-                </div>
-              )}
-            </div>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <IntegrationStatusCard
+          name="Google Custom Search"
+          hasCredential={hasCredential}
+          connectionStatus={conn?.connection_status}
+          lastTestedAt={conn?.last_tested_at}
+          lastError={conn?.last_connection_error}
+        >
+          {/* Sin acceso de Google no hay nada que conectar ni probar. */}
+          {isAvailable ? (
+            <GoogleCSEActionsPanel hasCredential={hasCredential} cx_masked={cx_masked} />
           ) : (
-            <div className="flex flex-col items-center justify-center py-6 text-center">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted/40">
-                <Search className="h-5 w-5 text-muted-foreground/50" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Prueba la conexión para ver el resultado.
-              </p>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              No hay acciones disponibles mientras Google no dé acceso al buscador.
+            </p>
           )}
-        </SurfaceCard>
+        </IntegrationStatusCard>
+
+        <IntegrationCapabilities
+          name="Google Custom Search"
+          description="Complementa la búsqueda de empresas. No reemplaza a Apollo, Lusha ni HubSpot."
+          capabilities={[
+            { label: 'Buscar empresas en la web al prospectar', state: isReachable ? 'ready' : 'pending' },
+            { label: 'Comprobar el sitio web de una empresa', state: isReachable ? 'ready' : 'pending' },
+            { label: 'Búsquedas libres lanzadas por el equipo', state: 'off' },
+          ]}
+        />
       </div>
 
-      {/* Aviso de cuota */}
-      <SurfaceCard>
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-          <div>
-            <p className="text-[0.8125rem] font-semibold text-foreground ">
-              Google CSE tiene un límite de 100 consultas gratuitas/día
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              El plan gratuito incluye 100 consultas al día. Consultas adicionales cuestan
-              $5 por cada 1,000 (~$0.005/consulta). El botón &ldquo;Probar conexión&rdquo;
-              también consume 1 consulta. Mantener Google CSE desactivado para usuarios
-              finales hasta validar calidad y costos.
-            </p>
-          </div>
+      <TechnicalDetails summary="Identificador del buscador y resultado de la última prueba. Útil para soporte.">
+        <div>
+          {cx_masked && (
+            <TechnicalRow label="Identificador del buscador (Search Engine ID)">
+              <code className="font-mono">{cx_masked}</code>
+            </TechnicalRow>
+          )}
+          {!isAvailable && (
+            <TechnicalRow label="Respuesta de Google">
+              <code className="font-mono">PERMISSION_DENIED</code> — Custom Search JSON API no disponible para este
+              proyecto de Google Cloud
+            </TechnicalRow>
+          )}
+          {metadata?.response_time_ms != null && (
+            <TechnicalRow label="Tiempo de respuesta">{metadata.response_time_ms} ms</TechnicalRow>
+          )}
+          {metadata?.results_count != null && (
+            <TechnicalRow label="Resultados que devolvió la prueba">{metadata.results_count}</TechnicalRow>
+          )}
+          {!cx_masked && isAvailable && metadata?.response_time_ms == null && (
+            <p className="text-sm text-muted-foreground">Prueba la conexión para ver su resultado.</p>
+          )}
         </div>
-      </SurfaceCard>
-
-      {/* Panel de acciones — oculto si el proveedor no está disponible */}
-      {isAvailable && (
-        <SurfaceCard>
-          <SurfaceCardHeader
-            title="Acciones"
-            description={
-              hasCredential
-                ? 'Prueba la conexión (consume 1 consulta), actualiza las credenciales o desconecta Google CSE.'
-                : 'Ingresa tu API Key y Search Engine ID para activar la integración.'
-            }
-          />
-          <GoogleCSEActionsPanel hasCredential={hasCredential} cx_masked={cx_masked} />
-        </SurfaceCard>
-      )}
-
-      {/* Alcance */}
-      <SurfaceCard>
-        <SurfaceCardHeader
-          title="Alcance de esta integración"
-          description="Google CSE complementa el Agente 1 para investigación web. No reemplaza Apollo, Lusha ni HubSpot."
-        />
-        <div className="space-y-2">
-          {[
-            { label: 'Validar API Key, CX y conexión con Google CSE', enabled: true },
-            { label: 'Búsqueda web controlada para el Agente 1', enabled: true },
-            { label: 'Verificación de sitios web de empresas prospecto', enabled: true },
-            { label: 'Búsquedas automáticas para usuarios finales', enabled: false },
-            { label: 'Reemplazar Apollo / Lusha / HubSpot', enabled: false },
-            { label: 'Ejecutar búsquedas desde esta pantalla de configuración', enabled: false },
-          ].map(({ label, enabled }) => (
-            <div key={label} className="flex items-center gap-2.5">
-              <span
-                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  enabled ? 'bg-emerald-500' : 'bg-muted-foreground/25'
-                }`}
-              />
-              <span
-                className={`text-xs ${enabled ? 'text-foreground' : 'text-muted-foreground/60'}`}
-              >
-                {label}
-              </span>
-              {!enabled && (
-                <span className="ml-auto text-[10px] font-medium text-muted-foreground/50 border border-border/30 rounded-full px-2 py-0.5">
-                  No aplica
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </SurfaceCard>
-
-      {/* Seguridad */}
-      <SurfaceCard elevated>
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-          <div>
-            <p className="text-[0.8125rem] font-semibold text-foreground ">
-              Almacenamiento seguro de credenciales
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              La API Key y el Search Engine ID se almacenan de forma segura en Supabase Vault.
-              Nunca se exponen en el navegador ni se registran en logs.
-              La API Key no volverá a mostrarse completa una vez guardada.
-              SellUp solo las usa para búsquedas controladas del Agente 1.
-            </p>
-          </div>
-        </div>
-      </SurfaceCard>
-    </div>
+      </TechnicalDetails>
+    </SettingsPage>
   );
 }

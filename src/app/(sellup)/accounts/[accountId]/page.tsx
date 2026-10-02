@@ -1,3 +1,4 @@
+import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import {
   Building2,
@@ -12,11 +13,23 @@ import {
   Calendar,
   User,
   Briefcase,
-} from 'lucide-react';
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { DetailItem, DetailList } from '@/components/shared/detail-list';
+import { Heading } from '@/components/typography/heading';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { UrlTabs, type UrlTab } from '@/components/navigation/url-tabs';
+import {
+  StatusBadge,
+  Timeline,
+  TimelineItem,
+  type StatusType,
+  type TimelineTone,
+} from '@/components/data-display';
+import { TabsContent } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
@@ -25,7 +38,6 @@ import { AccountAgentsRunHistory } from '@/components/contact-enrichment/account
 import {
   PIPELINE_STATUS_LABELS,
   SOURCE_LABELS,
-  AUDIT_ACTION_LABELS,
   type PipelineStatus,
   type AccountSource,
   type AccountAuditAction,
@@ -38,44 +50,86 @@ import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-c
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
+  searchParams: Promise<{ tab?: string | string[] }>;
 }
 
-const STATUS_STYLES: Record<PipelineStatus, string> = {
-  new: 'bg-muted text-muted-foreground border-transparent',
-  ready_for_research: 'bg-su-brand-soft text-su-brand border-transparent',
-  research_in_progress: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-transparent',
-  ready_for_outreach: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
-  archived: 'bg-muted/60 text-muted-foreground/60 border-transparent',
+const PIPELINE_STATUS_TYPE: Record<PipelineStatus, StatusType> = {
+  new: 'neutral',
+  ready_for_research: 'info',
+  research_in_progress: 'pending',
+  ready_for_outreach: 'active',
+  archived: 'inactive',
 };
 
+const LINK_CLASSES =
+  'rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  }, 'es-CO');
 }
 
 function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-CO', {
+  return formatInAppZone(iso, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
+  }, 'es-CO');
 }
 
-const AUDIT_ICONS: Record<AccountAuditAction, typeof Activity> = {
-  account_created: Building2,
-  account_updated: Briefcase,
-  account_status_changed: Tag,
-  account_archived: Building2,
-  account_owner_changed: User,
+interface AuditPresentation {
+  title: string;
+  icon: typeof Activity;
+  tone: TimelineTone;
+}
+
+const AUDIT_PRESENTATION: Record<AccountAuditAction, AuditPresentation> = {
+  account_created: { title: 'Empresa creada', icon: Building2, tone: 'positive' },
+  account_updated: { title: 'Datos actualizados', icon: Briefcase, tone: 'default' },
+  account_status_changed: { title: 'Cambio de estado', icon: Tag, tone: 'primary' },
+  account_archived: { title: 'Empresa archivada', icon: Building2, tone: 'warning' },
+  account_owner_changed: { title: 'Cambio de responsable', icon: User, tone: 'info' },
 };
 
-export default async function AccountDetailPage({ params }: AccountDetailPageProps) {
-  const { accountId } = await params;
+const FALLBACK_AUDIT: AuditPresentation = { title: 'Cambio registrado', icon: Activity, tone: 'default' };
+
+interface HubSpotPresentation {
+  label: string;
+  status: StatusType;
+}
+
+/** Por qué una empresa sin ficha en HubSpot todavía no la tiene. */
+const HUBSPOT_SYNC_STATUS: Record<string, HubSpotPresentation> = {
+  blocked_duplicate: { label: 'No se creó: ya existe en HubSpot', status: 'warning' },
+  blocked_inactive_or_liquidation: {
+    label: 'No se envió: la empresa parece inactiva o en liquidación',
+    status: 'warning',
+  },
+  failed_create: { label: 'No se pudo crear en HubSpot', status: 'error' },
+  failed_lookup: { label: 'No se pudo comprobar en HubSpot', status: 'error' },
+  skipped_flag_off: { label: 'El envío a HubSpot está desactivado', status: 'neutral' },
+  skipped_no_connection: { label: 'HubSpot no está conectado', status: 'neutral' },
+  skipped_missing_write_scope: { label: 'Falta permiso para escribir en HubSpot', status: 'neutral' },
+  skipped_rollback: { label: 'No se envía: la empresa no está operativa', status: 'neutral' },
+};
+
+function resolveHubSpotPresentation(
+  hubspotCompanyId: string | null | undefined,
+  metadata: Record<string, unknown>,
+): HubSpotPresentation {
+  if (hubspotCompanyId) return { label: 'Sincronizada', status: 'active' };
+  const syncStatus = metadata.hubspot_sync_status;
+  const known = typeof syncStatus === 'string' ? HUBSPOT_SYNC_STATUS[syncStatus] : undefined;
+  return known ?? { label: 'Aún no está en HubSpot', status: 'neutral' };
+}
+
+export default async function AccountDetailPage({ params, searchParams }: AccountDetailPageProps) {
+  const [{ accountId }, { tab }] = await Promise.all([params, searchParams]);
 
   const [account, auditLog, users, contacts, contactsSummary, contactEnrichmentRuns] = await Promise.all([
     getAccountById(accountId),
@@ -97,29 +151,39 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
   const isRolledBack = safeMetadata.rollback_logical === true;
   const pendingHubSpotMatch = readPendingHubSpotMatch(safeMetadata);
+  const hubspot = resolveHubSpotPresentation(account.hubspot_company_id, safeMetadata);
+  const location = [account.city, account.region, account.country].filter(Boolean).join(', ');
+  const ownerName = account.owner?.full_name ?? account.owner?.email ?? null;
+
+  const tabs: UrlTab[] = [
+    { id: 'resumen', label: 'Resumen' },
+    { id: 'contactos', label: 'Contactos', count: contacts.length },
+    { id: 'inteligencia', label: 'Inteligencia' },
+    { id: 'actividad', label: 'Actividad' },
+    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length },
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
+        className="pb-0"
         title={account.name}
         description={account.legal_name ?? undefined}
         backHref="/accounts"
+        breadcrumbs={
+          <Breadcrumbs items={[{ label: 'Empresas', href: '/accounts' }, account.name]} />
+        }
+        meta={
+          <>
+            <StatusBadge
+              status={PIPELINE_STATUS_TYPE[account.pipeline_status]}
+              label={PIPELINE_STATUS_LABELS[account.pipeline_status]}
+            />
+            {isRolledBack && <StatusBadge status="warning" label="No operativa" />}
+          </>
+        }
         actions={
-          <div className="flex items-center gap-2">
-            {isRolledBack && (
-              <Badge
-                variant="outline"
-                className="text-xs border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-              >
-                No operativa
-              </Badge>
-            )}
-            <Badge
-              variant="outline"
-              className={`text-xs ${STATUS_STYLES[account.pipeline_status]}`}
-            >
-              {PIPELINE_STATUS_LABELS[account.pipeline_status]}
-            </Badge>
+          <>
             <AccountEnrichContactsButton
               preloadedCompany={{
                 name: account.name,
@@ -136,7 +200,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
               currentStatus={account.pipeline_status}
               users={users}
             />
-          </div>
+          </>
         }
       />
 
@@ -163,140 +227,122 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         }
       />
 
-      <Tabs defaultValue="resumen">
-        <TabsList className="mb-4">
-          <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          <TabsTrigger value="contactos">Contactos</TabsTrigger>
-          <TabsTrigger value="inteligencia">Inteligencia</TabsTrigger>
-          <TabsTrigger value="actividad">Actividad</TabsTrigger>
-          <TabsTrigger value="agentes">Agentes</TabsTrigger>
-        </TabsList>
+      {/* Lo esencial de la empresa, de un vistazo y antes de las pestañas. */}
+      <SurfaceCard className="p-5">
+        <DetailList columns={4} aria-label="Datos clave">
+          <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
+            {ownerName}
+          </DetailItem>
+          <DetailItem icon={Briefcase} label="Industria">
+            {account.industry}
+          </DetailItem>
+          <DetailItem icon={MapPin} label="Ubicación">
+            {location}
+          </DetailItem>
+          <DetailItem icon={Users} label="Contactos" emptyLabel="Sin contactos todavía">
+            {contactsSummary.total > 0 && (
+              <span className="tabular-nums">
+                {contactsSummary.total}
+                {contactsSummary.decision_makers > 0 && (
+                  <span className="text-muted-foreground">
+                    {' '}· {contactsSummary.decision_makers}{' '}
+                    {contactsSummary.decision_makers === 1 ? 'decisor' : 'decisores'}
+                  </span>
+                )}
+              </span>
+            )}
+          </DetailItem>
+        </DetailList>
+      </SurfaceCard>
 
+      <UrlTabs
+        ariaLabel="Secciones de la empresa"
+        tabs={tabs}
+        initialTab={typeof tab === 'string' ? tab : undefined}
+      >
         {/* ── Resumen ─────────────────────────────────────────── */}
-        <TabsContent value="resumen" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Datos de la cuenta */}
+        <TabsContent value="resumen">
+          <div className="grid gap-4 lg:grid-cols-2">
             <SurfaceCard>
               <SurfaceCardHeader title="Datos de la empresa" />
-              <dl className="space-y-3">
+              <DetailList>
                 {account.website && (
-                  <DetailRow icon={Globe} label="Sitio web">
+                  <DetailItem icon={Globe} label="Sitio web">
                     <a
                       href={account.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-su-brand hover:underline"
+                      className={LINK_CLASSES}
                     >
                       {account.domain ?? account.website}
                     </a>
-                  </DetailRow>
+                  </DetailItem>
                 )}
                 {account.linkedin_url && (
-                  <DetailRow icon={Link2} label="LinkedIn">
+                  <DetailItem icon={Link2} label="LinkedIn">
                     <a
                       href={account.linkedin_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-su-brand hover:underline break-all"
+                      className={`break-all ${LINK_CLASSES}`}
                     >
                       {account.linkedin_url.replace(/^https?:\/\/(www\.)?/i, '')}
                     </a>
-                  </DetailRow>
+                  </DetailItem>
                 )}
-                {(account.country ?? account.city) && (
-                  <DetailRow icon={MapPin} label="Ubicación">
-                    {[account.city, account.region, account.country].filter(Boolean).join(', ')}
-                  </DetailRow>
-                )}
-                {account.industry && (
-                  <DetailRow icon={Briefcase} label="Industria">
-                    {account.industry}
-                  </DetailRow>
-                )}
-                {account.company_size && (
-                  <DetailRow icon={Users} label="Tamaño">
-                    {account.company_size}
-                  </DetailRow>
-                )}
+                <DetailItem icon={MapPin} label="Ubicación">
+                  {location}
+                </DetailItem>
+                <DetailItem icon={Briefcase} label="Industria">
+                  {account.industry}
+                </DetailItem>
+                <DetailItem icon={Users} label="Tamaño">
+                  {account.company_size}
+                </DetailItem>
                 {account.tax_identifier && (
-                  <DetailRow icon={Hash} label={account.tax_identifier_type ?? 'ID fiscal'}>
-                    {account.tax_identifier}
-                  </DetailRow>
+                  <DetailItem icon={Hash} label={account.tax_identifier_type ?? 'ID fiscal'}>
+                    <span className="tabular-nums">{account.tax_identifier}</span>
+                  </DetailItem>
                 )}
-                <DetailRow icon={Tag} label="Fuente">
-                  <Badge variant="outline" className="text-[10px]">
-                    {SOURCE_LABELS[account.source as AccountSource]}
-                  </Badge>
-                </DetailRow>
-                <DetailRow icon={Calendar} label="Creada">
-                  {formatShortDate(account.created_at)}
-                </DetailRow>
-              </dl>
+              </DetailList>
             </SurfaceCard>
 
-            {/* Owner y estado */}
             <SurfaceCard>
-              <SurfaceCardHeader title="Asignación y estado" />
-              <dl className="space-y-3">
-                <DetailRow icon={User} label="Owner">
-                  {account.owner?.full_name ?? account.owner?.email ?? (
-                    <span className="text-muted-foreground/50">Sin asignar</span>
+              <SurfaceCardHeader title="Seguimiento" />
+              <DetailList>
+                <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
+                  {ownerName}
+                </DetailItem>
+                <DetailItem icon={Globe} label="HubSpot">
+                  <StatusBadge status={hubspot.status} label={hubspot.label} />
+                  {account.hubspot_company_id && (
+                    <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                      Ficha n.º {account.hubspot_company_id}
+                    </p>
                   )}
-                </DetailRow>
-                <DetailRow icon={Tag} label="Estado pipeline">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      STATUS_STYLES[account.pipeline_status]
-                    }`}
-                  >
-                    {PIPELINE_STATUS_LABELS[account.pipeline_status]}
-                  </span>
-                </DetailRow>
-                {account.hubspot_company_id ? (
-                  <DetailRow icon={Globe} label="HubSpot">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                        Sincronizado
-                      </span>
-                      <p className="font-mono text-[11px] text-muted-foreground">
-                        {account.hubspot_company_id}
-                      </p>
-                    </div>
-                  </DetailRow>
-                ) : (() => {
-                  const syncStatus = safeMetadata.hubspot_sync_status as string | undefined;
-                  if (!syncStatus) return null;
+                </DetailItem>
+                <DetailItem icon={Tag} label="Cómo llegó">
+                  <Badge variant="outline">
+                    {SOURCE_LABELS[account.source as AccountSource]}
+                  </Badge>
+                </DetailItem>
+                <DetailItem icon={Calendar} label="Creada">
+                  {formatShortDate(account.created_at)}
+                </DetailItem>
+              </DetailList>
 
-                  const statusMap: Record<string, { label: string; className: string }> = {
-                    blocked_duplicate: { label: 'No creado: duplicado en HubSpot', className: 'text-amber-600 dark:text-amber-400' },
-                    blocked_inactive_or_liquidation: { label: 'No sincronizado · señal de liquidación o inactividad', className: 'text-amber-600 dark:text-amber-400' },
-                    failed_create: { label: 'Error al crear en HubSpot', className: 'text-destructive' },
-                    failed_lookup: { label: 'Error en verificación HubSpot', className: 'text-destructive' },
-                    skipped_flag_off: { label: 'Sincronización HubSpot desactivada', className: 'text-muted-foreground/60' },
-                    skipped_no_connection: { label: 'HubSpot sin conexión activa', className: 'text-muted-foreground/60' },
-                    skipped_missing_write_scope: { label: 'HubSpot sin permiso de escritura', className: 'text-muted-foreground/60' },
-                    skipped_rollback: { label: 'Cuenta no operativa · sin sync', className: 'text-muted-foreground/60' },
-                  };
-
-                  const info = statusMap[syncStatus];
-                  if (!info) return null;
-
-                  return (
-                    <DetailRow icon={Globe} label="HubSpot">
-                      <span className={`text-xs ${info.className}`}>{info.label}</span>
-                    </DetailRow>
-                  );
-                })()}
-              </dl>
-
-              {account.notes && (
-                <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2.5">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                    Notas
+              <section className="mt-4 border-t border-border/60 pt-4">
+                <Heading level={6} as="h3" weight="medium" className="mb-1 text-xs leading-normal text-muted-foreground">
+                  Notas
+                </Heading>
+                {account.notes ? (
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">{account.notes}</p>
+                ) : (
+                  <p className="text-sm text-text-muted">
+                    Sin notas. Añádelas con «Editar empresa», en el menú de acciones.
                   </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{account.notes}</p>
-                </div>
-              )}
+                )}
+              </section>
             </SurfaceCard>
           </div>
         </TabsContent>
@@ -312,10 +358,10 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
         {/* ── Inteligencia ─────────────────────────────────────── */}
         <TabsContent value="inteligencia">
-          <PlaceholderTab
+          <EmptyState
             icon={Brain}
-            title="Inteligencia comercial — Próxima fase"
-            description="Árbol empresarial, señales de negocio, noticias recientes y análisis de competidores. Generado por el Agente 1 y enriquecido con Apollo/Lusha."
+            title="Aún no hay inteligencia comercial de esta empresa"
+            description="Cuando esté disponible verás aquí su estructura, sus señales de negocio y sus noticias recientes. Mientras tanto, empieza por sus contactos."
           />
         </TabsContent>
 
@@ -323,39 +369,37 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         <TabsContent value="actividad">
           <SurfaceCard>
             <SurfaceCardHeader
-              title="Registro de actividad"
-              description="Cambios y eventos de auditoría de esta cuenta."
+              title="Historial"
+              description="Quién cambió qué en esta empresa, de lo más reciente a lo más antiguo."
             />
             {auditLog.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                Sin actividad registrada todavía.
-              </p>
+              <EmptyState
+                variant="plain"
+                icon={Activity}
+                title="Aún no hay cambios registrados"
+                description="Cuando alguien cambie el estado, el responsable o los datos de la empresa, quedará anotado aquí."
+              />
             ) : (
-              <ol className="space-y-3">
+              <Timeline>
                 {auditLog.map((entry) => {
-                  const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
+                  const presentation = AUDIT_PRESENTATION[entry.action_type] ?? FALLBACK_AUDIT;
+                  const Icon = presentation.icon;
                   return (
-                    <li key={entry.id} className="flex items-start gap-3">
-                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                        <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-foreground">
-                          {AUDIT_ACTION_LABELS[entry.action_type]}
-                        </p>
-                        {entry.actor && (
-                          <p className="text-[11px] text-muted-foreground">
-                            por {entry.actor.full_name ?? entry.actor.email}
-                          </p>
-                        )}
-                        <p className="text-[11px] text-muted-foreground/50">
-                          {formatDate(entry.created_at)}
-                        </p>
-                      </div>
-                    </li>
+                    <TimelineItem
+                      key={entry.id}
+                      icon={<Icon />}
+                      tone={presentation.tone}
+                      title={presentation.title}
+                      time={formatDate(entry.created_at)}
+                      description={
+                        entry.actor
+                          ? `Por ${entry.actor.full_name ?? entry.actor.email}`
+                          : undefined
+                      }
+                    />
                   );
                 })}
-              </ol>
+              </Timeline>
             )}
           </SurfaceCard>
         </TabsContent>
@@ -364,57 +408,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
         <TabsContent value="agentes">
           <AccountAgentsRunHistory runs={contactEnrichmentRuns} />
         </TabsContent>
-      </Tabs>
+      </UrlTabs>
     </div>
-  );
-}
-
-// ── Componentes auxiliares ────────────────────────────────────
-
-function DetailRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <dt className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-          {label}
-        </dt>
-        <dd className="mt-0.5 text-xs text-foreground">{children}</dd>
-      </div>
-    </div>
-  );
-}
-
-function PlaceholderTab({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-}) {
-  return (
-    <SurfaceCard>
-      <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-          <Icon className="h-5 w-5 text-muted-foreground/40" />
-        </div>
-        <div className="max-w-sm space-y-1">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
-        </div>
-      </div>
-    </SurfaceCard>
   );
 }

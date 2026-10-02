@@ -2,38 +2,29 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Menu, LogOut, Settings, Sparkles } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Building2, ChevronRight, PanelLeft, User as UserIcon } from "@/icons";
 import type { User } from "@supabase/supabase-js";
-import { Button } from "@/components/ui/button";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
+  GlobalSearch,
+  type SearchNavigateItem,
+  type SearchObjectItem,
+} from "@/components/search";
+import { getAccountsList } from "@/modules/accounts/actions";
+import { getAllContacts } from "@/modules/contacts/actions";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { MobileNavLink } from "@/components/layout/app-sidebar";
+import { DrawerShell } from "@/components/shared/drawer-shell";
+import { AppSidebar } from "@/components/layout/app-sidebar";
+import { AccountMenu } from "@/components/layout/account-menu";
+import { setShellHeaderHost, usePublishedCrumbs } from "@/components/layout/shell-header-slot";
 import {
   mainNavItems,
   getVisibleNavItems,
   type NavAccessContext,
+  type NavItem,
+  SOURCE_CATALOG_ROUTE,
 } from "@/config/navigation";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+import { getVisibleSettingsSections } from "@/components/settings/settings-sections";
 import { createClient } from "@/lib/supabase/client";
 
 interface AppHeaderProps {
@@ -42,22 +33,168 @@ interface AppHeaderProps {
   navAccess: NavAccessContext;
 }
 
+/** Palabras con las que también se busca una sección de Configuración. */
+const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  users: ["roles", "permisos", "equipo"],
+  providers: ["apollo", "lusha", "tavily", "claude", "presupuesto", "créditos", "gasto", "tope"],
+  integrations: ["hubspot", "slack"],
+  activity: ["historial", "auditoría"],
+  "my-drive": ["google", "drive"],
+};
+
+/** Palabras con las que también se busca un módulo. */
+const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  [SOURCE_CATALOG_ROUTE]: ["fuentes", "países", "registros"],
+};
+
+const SEARCH_OBJECTS_HINT = "Registros: tus 200 empresas y 500 contactos más recientes.";
+
+function compact(values: readonly (string | null | undefined)[]): string[] {
+  return values.filter((value): value is string => Boolean(value));
+}
+
+/**
+ * Los registros de la búsqueda general: empresas y contactos. Reutiliza las
+ * lecturas que ya alimentan sus tablas (mismo permiso y mismo alcance
+ * comercial); no hay consulta nueva. Si una de las dos falla, la otra sigue.
+ */
+async function loadSearchObjects(): Promise<SearchObjectItem[]> {
+  const [accounts, contacts] = await Promise.allSettled([getAccountsList(), getAllContacts()]);
+  if (accounts.status === "rejected" && contacts.status === "rejected") {
+    throw new Error("No se pudieron cargar los registros de la búsqueda.");
+  }
+
+  const accountItems: SearchObjectItem[] =
+    accounts.status === "fulfilled"
+      ? accounts.value.map((account) => ({
+          id: `account-${account.id}`,
+          title: account.name,
+          meta: compact([account.industry, account.country]),
+          keywords: compact([account.domain, account.website, account.owner_name]),
+          icon: Building2,
+          group: "Empresas",
+          href: `/accounts/${account.id}`,
+        }))
+      : [];
+  const contactItems: SearchObjectItem[] =
+    contacts.status === "fulfilled"
+      ? contacts.value.map((contact) => ({
+          id: `contact-${contact.id}`,
+          title: contact.full_name,
+          meta: compact([contact.job_title, contact.account_name]),
+          keywords: compact([contact.email]),
+          icon: UserIcon,
+          group: "Contactos",
+          href: `/contacts/${contact.id}`,
+        }))
+      : [];
+
+  return [...accountItems, ...contactItems];
+}
+
+/** Cómo se nombra el rol en el chip de la cuenta. */
+function roleLabel({ isAdmin, roleKey }: NavAccessContext): string {
+  if (isAdmin) return "Administrador";
+  if (!roleKey) return "Miembro";
+  return roleKey.charAt(0).toUpperCase() + roleKey.slice(1).replace(/_/g, " ");
+}
+
+/**
+ * La ruta de la cabecera. Sin migas publicadas pinta «SellUp › sección». Cuando
+ * la pantalla publica las suyas (`PageHeader breadcrumbs`, vía
+ * `ShellBreadcrumbs`), la sección pasa a ser un enlace y las migas de la
+ * pantalla se pintan a continuación, en el hueco.
+ */
+function HeaderRoute({ current }: { current: NavItem | undefined }) {
+  const published = usePublishedCrumbs();
+  const hasPublished = published.length > 0;
+  // Si la pantalla ya empieza sus migas por la sección, no se repite.
+  const showSection = Boolean(current) && !(hasPublished && published[0]?.firstLabel === current?.title);
+
+  return (
+    <div data-slot="shell-route" className="flex min-w-0 items-center gap-1.5 overflow-hidden text-sm">
+      <nav aria-label="Ruta" className="flex shrink-0 items-center gap-1.5">
+        <Link
+          href="/pipeline"
+          className="shrink-0 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          SellUp
+        </Link>
+        {showSection && current && (
+          <>
+            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />
+            {hasPublished ? (
+              <Link
+                href={current.href}
+                className="shrink-0 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {current.title}
+              </Link>
+            ) : (
+              <span aria-current="page" className="truncate font-semibold text-foreground">
+                {current.title}
+              </span>
+            )}
+          </>
+        )}
+        {hasPublished && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />}
+      </nav>
+      {/* El hueco donde la pantalla montada pinta sus migas. `overflow-hidden`:
+          en pantalla estrecha cede el sitio en vez de montarse sobre los
+          botones de la derecha. */}
+      <div
+        ref={setShellHeaderHost}
+        data-slot="shell-header-slot"
+        className="flex min-w-0 items-center gap-2 overflow-hidden [&_[data-slot=breadcrumbs]]:flex-nowrap [&_[data-slot=breadcrumbs]]:gap-1.5 [&_[data-slot=breadcrumbs]]:whitespace-nowrap [&_[data-slot=breadcrumbs]]:text-sm [&_[data-slot=breadcrumbs]_[aria-current=page]]:font-semibold"
+      />
+    </div>
+  );
+}
+
+/**
+ * Cabecera del shell — port de Thema (`app-shell/AppHeader`).
+ *
+ * Esta franja es para lo transversal: dónde estás (la ruta, con las migas que
+ * publica cada pantalla), la búsqueda, los avisos y la cuenta. El tema y la
+ * configuración no están aquí: cuelgan de la marca, en el menú lateral. No
+ * repite el título de la pantalla: ese es el `PageHeader`.
+ */
 export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeaderProps) {
   const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
-  const visibleNavItems = getVisibleNavItems(mainNavItems, navAccess);
+  const { isAdmin, roleKey } = navAccess;
+  const current = mainNavItems.find(
+    (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
+  );
+
+  // Las secciones de Configuración también son destinos de la búsqueda: son
+  // justo a lo que se llega una vez al mes y de lo que no se recuerda la ruta.
+  const searchDestinations = React.useMemo<SearchNavigateItem[]>(
+    () => [
+      ...getVisibleNavItems(mainNavItems, { isAdmin, roleKey }).map((item) => ({
+        id: item.href,
+        label: item.title,
+        href: item.href,
+        icon: item.icon,
+        keywords: NAV_KEYWORDS[item.href],
+      })),
+      ...getVisibleSettingsSections({ isAdmin, isActive: true }).map((section) => ({
+        id: `settings-${section.id}`,
+        label: section.title,
+        href: section.href,
+        icon: section.icon,
+        section: "Configuración",
+        keywords: SETTINGS_KEYWORDS[section.id],
+      })),
+    ],
+    [isAdmin, roleKey],
+  );
 
   const displayName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    user.email ??
-    "Usuario";
+    (user.user_metadata?.full_name as string | undefined) ?? user.email ?? "Usuario";
   const avatarUrl = user.user_metadata?.avatar_url as string | undefined;
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -67,176 +204,49 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-20 w-full items-center justify-between border-b border-border/40 bg-background/75 su-glass px-4 md:px-8">
-      {/* Mobile brand — visible only on small screens (sidebar is hidden on mobile) */}
-      <Link
-        href="/pipeline"
-        className="flex items-center gap-2 select-none md:hidden"
-        aria-label="SellUp"
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-4 sm:gap-3 sm:px-6">
+      {/* Menú en móvil: ahí el lateral es un cajón. */}
+      <button
+        type="button"
+        onClick={() => setMobileMenuOpen(true)}
+        aria-label="Abrir menú"
+        aria-haspopup="dialog"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-su-brand to-su-accent-cool text-[12px] font-extrabold text-white shadow-sm shadow-su-brand/30">
-          S
-        </span>
-        <span className="text-[15px] font-bold tracking-tight">
-          <span className="text-foreground">Sell</span>
-          <span className="su-gradient-text">Up</span>
-        </span>
-      </Link>
+        <PanelLeft className="size-4" />
+      </button>
+      <DrawerShell
+        open={mobileMenuOpen}
+        onOpenChange={setMobileMenuOpen}
+        side="left"
+        size="sm"
+        title="Menú"
+        className="w-72 sm:!max-w-xs"
+      >
+        <AppSidebar
+          navAccess={navAccess}
+          forceExpanded
+          onNavigate={() => setMobileMenuOpen(false)}
+          className="p-0 pt-0"
+        />
+      </DrawerShell>
 
-      {/* Desktop context — eyebrow label that bridges brand and content */}
-      <div className="hidden items-center gap-2.5 md:flex">
-        <span className="flex h-6 items-center gap-1.5 rounded-full border border-border/60 bg-card/60 px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70 backdrop-blur-sm">
-          <Sparkles className="h-3 w-3 text-su-brand" />
-          Workspace
-        </span>
-        <div className="hidden h-4 w-px bg-border lg:block" />
-        <span className="hidden text-xs text-muted-foreground/60 lg:inline">
-          Sesión activa
-        </span>
-      </div>
+      <HeaderRoute current={current} />
 
-      {/* Actions */}
-      <div className="flex items-center gap-1.5">
-        {/* Mobile menu */}
-        <Sheet>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <SheetTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="md:hidden"
-                      aria-label="Abrir menú"
-                    >
-                      <Menu className="h-4 w-4" />
-                    </Button>
-                  }
-                />
-              }
-            />
-            <TooltipContent side="bottom">Abrir menú</TooltipContent>
-          </Tooltip>
-          <SheetContent
-            side="left"
-            className="flex w-72 flex-col gap-0 bg-sidebar p-0 text-sidebar-foreground"
-          >
-            {/* Brand */}
-            <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-sidebar-border/40 px-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-su-brand to-su-accent-cool text-[15px] font-extrabold text-white shadow-sm shadow-su-brand/30 ring-1 ring-white/10">
-                S
-              </span>
-              <div className="flex min-w-0 flex-col leading-none">
-                <span className="text-[15px] font-bold tracking-tight">
-                  <span className="text-sidebar-foreground">Sell</span>
-                  <span className="su-gradient-text">Up</span>
-                </span>
-                <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/45">
-                  Inteligencia Comercial
-                </span>
-              </div>
-            </div>
-
-            {/* Nav */}
-            <nav className="flex-1 overflow-y-auto px-2.5 py-5">
-              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-foreground/40">
-                Navegación
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {visibleNavItems.map((item) => (
-                  <MobileNavLink key={item.href} item={item} />
-                ))}
-              </div>
-            </nav>
-
-            {/* User card — bottom of mobile menu */}
-            <div className="shrink-0 border-t border-sidebar-border/40 p-2.5">
-              <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] p-2">
-                <Avatar
-                  size="lg"
-                  className="shrink-0 border-2 border-sidebar-border/40"
-                >
-                  <AvatarImage src={avatarUrl} alt={displayName} />
-                  <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-1 flex-col items-start">
-                  <span className="w-full truncate text-[13px] font-semibold text-sidebar-foreground">
-                    {displayName}
-                  </span>
-                  <span className="w-full truncate text-[11px] text-sidebar-foreground/50">
-                    {user.email}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-1.5 flex gap-1">
-                <button
-                  onClick={() => router.push("/settings")}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-sidebar-foreground/55 transition-all hover:bg-sidebar-accent hover:text-sidebar-foreground/80"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  Configuración
-                </button>
-                <button
-                  onClick={handleSignOut}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-destructive/80 transition-all hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Salir
-                </button>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-
+      {/* Acciones transversales */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
+        <GlobalSearch
+          navigate={searchDestinations}
+          loadObjects={loadSearchObjects}
+          objectsHint={SEARCH_OBJECTS_HINT}
+          placeholder="Buscar…"
+        />
         <NotificationBell initialUnreadCount={initialUnreadCount} />
-
-        <ThemeToggle />
-
-        {/* Mobile-only avatar — quick access to dropdown menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger className="ml-0.5 inline-flex cursor-pointer rounded-full p-0 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden">
-            <Avatar className="h-8 w-8 border-2 border-su-brand/20">
-              <AvatarImage src={avatarUrl} alt={displayName} />
-              <AvatarFallback className="bg-gradient-to-br from-su-brand to-su-accent-cool text-[11px] font-bold text-white">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-foreground leading-tight">
-                    {displayName}
-                  </span>
-                  <span className="text-xs text-muted-foreground font-normal">
-                    {user.email}
-                  </span>
-                </div>
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              onClick={() => router.push("/settings")}
-            >
-              <Settings className="h-4 w-4" />
-              Configuración
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="cursor-pointer"
-              variant="destructive"
-              onClick={handleSignOut}
-            >
-              <LogOut className="h-4 w-4" />
-              Cerrar sesión
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AccountMenu
+          user={{ name: displayName, email: user.email, avatarUrl }}
+          roleLabel={roleLabel(navAccess)}
+          onLogout={handleSignOut}
+        />
       </div>
     </header>
   );

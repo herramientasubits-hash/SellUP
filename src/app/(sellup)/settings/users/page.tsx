@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { PageHeader } from '@/components/shared/page-header';
+import { SettingsPage } from '@/components/settings/settings-page';
 import {
   getAllUsers,
   getAllRoles,
@@ -8,8 +8,8 @@ import {
   getOrganizationGroups,
 } from '@/modules/access/actions';
 import { UsersSettingsClient } from './users-settings-client';
-import { AddUserDrawer } from './add-user-drawer';
-import { ActionButtons } from './action-buttons';
+import { UsersScreenActions } from './users-screen-actions';
+import { ListActionRailProvider } from '@/components/action-rail';
 
 export default async function UsersManagementPage() {
   const isAdmin = await isCurrentUserAdmin();
@@ -23,41 +23,25 @@ export default async function UsersManagementPage() {
   ]);
 
   const activeUsers    = users.filter(u => u.access_status === 'active');
-  const pendingUsers   = users.filter(u => u.access_status === 'pending_approval');
-  const suspendedUsers = users.filter(u => u.access_status === 'suspended');
-  const rejectedUsers  = users.filter(u => u.access_status === 'rejected');
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-start justify-between gap-4 shrink-0 px-8 pt-6 pb-2">
-        <PageHeader
-          title="Usuarios y acceso"
-          description="Gestionar solicitudes, roles, jerarquía y estados de acceso de SellUp."
-          backHref="/settings"
+    <ListActionRailProvider label="Acciones de usuarios" gender="m">
+      {/* El hueco inferior deja sitio a la barra flotante de acciones. */}
+      <SettingsPage
+        title="Usuarios y acceso"
+        description="Aprueba solicitudes y gestiona roles, grupos y accesos del equipo."
+        className="pb-24"
+        actions={<UsersScreenActions roles={roles} activeUsers={activeUsers} groups={groups} />}
+      >
+        <UsersSettingsClient
+          users={users}
+          roles={roles}
+          activeUsers={activeUsers}
+          preapprovals={preapprovals}
+          groups={groups}
+          isAdmin={isAdmin}
         />
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <ActionButtons groups={groups} />
-            <AddUserDrawer roles={roles} activeUsers={activeUsers} groups={groups} />
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-h-0 px-8 pb-4 overflow-hidden">
-        <div className="h-full">
-          <UsersSettingsClient
-            users={users}
-            roles={roles}
-            activeUsers={activeUsers}
-            pendingUsers={pendingUsers}
-            suspendedUsers={suspendedUsers}
-            rejectedUsers={rejectedUsers}
-            preapprovals={preapprovals}
-            groups={groups}
-            isAdmin={isAdmin}
-          />
-        </div>
-      </div>
-    </div>
+      </SettingsPage>
+    </ListActionRailProvider>
   );
 }

@@ -211,10 +211,28 @@ describe('ProspectReviewActions — action hierarchy (UX2)', () => {
   it('keeps the auxiliary copy explaining approve/discard/duplicate are available (Q3F-5AZ.2G-2)', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     assert.ok(
-      screen.getByText(
-        /Puedes aprobar, descartar o marcar como duplicado este prospecto\. Las demás acciones se\s+habilitarán en próximos hitos\./i,
-      ),
+      screen.getByText(/Puedes aprobar, descartar o marcar como duplicado este prospecto\./i),
     );
+  });
+
+  // UX-EMPRESAS-CONTACTOS — la segunda frase del copy auxiliar («Las demás
+  // acciones se habilitarán en próximos hitos») era jerga de proyecto y se
+  // quitó: la primera sigue diciendo qué se puede hacer.
+  it('no longer shows project jargon about future milestones', () => {
+    const { container } = render(<ProspectReviewActions candidate={candidate({})} />);
+    assert.doesNotMatch(container.textContent ?? '', /próximos hitos/i);
+  });
+
+  // UX-EMPRESAS-CONTACTOS — la primaria va a la derecha: «Descartar» y «Más
+  // acciones» quedan a la izquierda y «Aprobar» cierra la fila.
+  it('places Descartar and "Más acciones" before Aprobar, which closes the row', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    const labels = screen
+      .queryAllByRole('button')
+      .map((b) => b.textContent?.trim())
+      .filter((text) => text === 'Aprobar' || text === 'Descartar' || text === 'Más acciones');
+    assert.deepEqual(labels, ['Descartar', 'Más acciones', 'Aprobar']);
+    assert.ok(approveButton()!.className.includes('ml-auto'), 'Aprobar stays at the right end');
   });
 
   it('groups Marcar duplicado / Enviar a enriquecimiento / Mantener en revisión inside "Más acciones" (Q3F-5AZ.2G-2: duplicate ENABLED for eligible, others disabled)', async () => {

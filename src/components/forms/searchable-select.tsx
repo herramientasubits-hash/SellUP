@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +64,7 @@ export function SearchableSelect({
             aria-expanded={open}
             disabled={disabled}
             className={cn(
-              "h-11 w-full justify-between font-normal rounded-xl border-input bg-card px-4 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-su-brand/30 focus:border-su-brand disabled:cursor-not-allowed disabled:opacity-50 transition-all",
+              "w-full justify-between bg-card px-3 font-normal text-foreground dark:bg-muted",
               !value && "text-muted-foreground",
               className
             )}
@@ -74,14 +74,14 @@ export function SearchableSelect({
                 ? options.find((option) => option.value === value)?.label
                 : placeholder}
             </span>
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           </Button>
         }
       />
       {/* Use --anchor-width (Base UI variable) to match trigger width, capped at available space */}
       <PopoverContent
         className={cn(
-          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border shadow-md",
+          "w-(--anchor-width) max-w-(--available-width) p-0 rounded-xl border border-border/60 shadow-drawer",
           contentClassName,
         )}
       >
@@ -113,7 +113,7 @@ export function SearchableSelect({
                   {option.description && (
                     <span
                       className={cn(
-                        "text-[11px] text-muted-foreground leading-tight mt-0.5",
+                        "text-xs text-muted-foreground leading-tight mt-0.5",
                         compact && "line-clamp-1",
                       )}
                     >

@@ -5,14 +5,13 @@ import { useRouter } from 'next/navigation';
 import {
   Loader2,
   Building2,
-  Globe,
-  MapPin,
   Briefcase,
   Hash,
+  MapPin,
   User,
-  FileText,
-} from 'lucide-react';
+} from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -33,13 +32,11 @@ import {
   type TaxIdentifierType,
   type InternalUserOption,
 } from '@/modules/accounts/types';
-import {
-  IndustryCombobox,
-  Section,
-  Field,
-  Row,
-  getFlagEmoji,
-} from './account-form-helpers';
+import { Field } from '@/components/forms/field';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { SearchableSelect } from '@/components/forms/searchable-select';
+import { getFlagEmoji } from './account-form-helpers';
+import { buildIndustryOptions } from './industry-options';
 
 interface AccountEditDrawerProps {
   accountId: string;
@@ -90,7 +87,7 @@ export function AccountEditDrawer({
         const account = await getAccountById(accountId);
         if (cancelled) return;
         if (!account) {
-          setError('Cuenta no encontrada');
+          setError('No encontramos esta empresa.');
           return;
         }
         setForm({
@@ -153,7 +150,7 @@ export function AccountEditDrawer({
       }
       handleClose();
       router.refresh();
-      toast.success('Cuenta actualizada correctamente');
+      toast.success('Empresa actualizada');
     } finally {
       setPending(false);
     }
@@ -163,67 +160,61 @@ export function AccountEditDrawer({
     <DrawerShell
       open={open}
       onOpenChange={(v) => !v && handleClose()}
-      title="Editar cuenta"
-      description="Modifica los datos de la cuenta. Los cambios quedan registrados en auditoría."
-      icon={<Building2 className="h-4 w-4 text-su-brand" />}
+      title="Editar empresa"
+      description="Modifica los datos de la empresa. Los cambios quedan registrados en auditoría."
+      icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
         <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
+          </Button>
           {error && (
-            <p className="mr-auto flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <p role="alert" className="min-w-0 flex-1 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
               {error}
             </p>
           )}
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClose}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              form="edit-account-form"
-              size="sm"
-              disabled={pending || loading || !form.name.trim()}
-            >
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando…
-                </>
-              ) : (
-                'Guardar cambios'
-              )}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            form="edit-account-form"
+            size="sm"
+            disabled={pending || loading || !form.name.trim()}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando…
+              </>
+            ) : (
+              'Guardar cambios'
+            )}
+          </Button>
         </>
       }
     >
       {/* ── Loading skeleton ── */}
       {loading ? (
-        <div className="space-y-8">
+        <div className="space-y-4" aria-busy="true">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-3 w-3 rounded" />
-                <Skeleton className="h-2.5 w-24" />
-                <Skeleton className="h-px flex-1" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <SurfaceCard key={i} className="space-y-6">
+              <Skeleton className="h-5 w-28" />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Skeleton className="h-2.5 w-20" />
-                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
                 <div className="space-y-1.5">
-                  <Skeleton className="h-2.5 w-20" />
-                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
               </div>
-            </div>
+            </SurfaceCard>
           ))}
         </div>
       ) : (
@@ -231,11 +222,11 @@ export function AccountEditDrawer({
         <form
           id="edit-account-form"
           onSubmit={handleSubmit}
-          className="space-y-8"
+          className="space-y-4"
         >
           {/* Identificación */}
-          <Section icon={Building2} label="Identificación">
-            <Field id="edit-name" label="Nombre de empresa / prospecto" required>
+          <DrawerSection title="Identificación" icon={Building2} contentClassName="space-y-4">
+            <Field label="Nombre de empresa / prospecto" required>
               <Input
                 id="edit-name"
                 placeholder="Ej. Bancolombia, Rappi, Nubank…"
@@ -244,8 +235,8 @@ export function AccountEditDrawer({
                 autoFocus
               />
             </Field>
-            <Row>
-              <Field id="edit-legal_name" label="Razón social">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Razón social">
                 <Input
                   id="edit-legal_name"
                   placeholder="Nombre legal registrado"
@@ -253,30 +244,31 @@ export function AccountEditDrawer({
                   onChange={(e) => set('legal_name', e.target.value)}
                 />
               </Field>
-              <Field id="edit-website" label="Sitio web">
-                <div className="relative">
-                  <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/40" />
-                  <Input
-                    id="edit-website"
-                    type="url"
-                    placeholder="https://ejemplo.com"
-                    value={form.website}
-                    onChange={(e) => set('website', e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
+              <Field label="Sitio web">
+                <Input
+                  id="edit-website"
+                  type="url"
+                  placeholder="https://ejemplo.com"
+                  value={form.website}
+                  onChange={(e) => set('website', e.target.value)}
+                />
               </Field>
-            </Row>
-          </Section>
+            </div>
+          </DrawerSection>
 
           {/* Empresa */}
-          <Section icon={Briefcase} label="Empresa">
-            <Row>
+          <DrawerSection title="Empresa" icon={Briefcase} contentClassName="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Industria">
-                <IndustryCombobox
+                <SearchableSelect
+                  options={buildIndustryOptions(form.industry)}
                   value={form.industry}
-                  onChange={(v) => set('industry', v)}
-                />
+                  onValueChange={(v) => set('industry', v)}
+                  placeholder="Seleccionar industria"
+                  searchPlaceholder="Buscar industria…"
+                  emptyMessage="No hay industrias con ese nombre."
+                  compact
+                  />
               </Field>
               <Field label="Tamaño de empresa">
                 <Select
@@ -295,12 +287,12 @@ export function AccountEditDrawer({
                   </SelectContent>
                 </Select>
               </Field>
-            </Row>
-          </Section>
+            </div>
+          </DrawerSection>
 
           {/* Ubicación */}
-          <Section icon={MapPin} label="Ubicación">
-            <Row>
+          <DrawerSection title="Ubicación" icon={MapPin} contentClassName="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="País">
                 <Select
                   value={form.country_code}
@@ -332,7 +324,7 @@ export function AccountEditDrawer({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field id="edit-city" label="Ciudad">
+              <Field label="Ciudad">
                 <Input
                   id="edit-city"
                   placeholder="Bogotá, CDMX, São Paulo…"
@@ -340,8 +332,8 @@ export function AccountEditDrawer({
                   onChange={(e) => set('city', e.target.value)}
                 />
               </Field>
-            </Row>
-            <Field id="edit-region" label="Departamento / Estado / Provincia">
+            </div>
+            <Field label="Departamento / Estado / Provincia">
               <Input
                 id="edit-region"
                 placeholder="Cundinamarca, Jalisco, São Paulo…"
@@ -349,11 +341,11 @@ export function AccountEditDrawer({
                 onChange={(e) => set('region', e.target.value)}
               />
             </Field>
-          </Section>
+          </DrawerSection>
 
           {/* Identificación fiscal */}
-          <Section icon={Hash} label="Identificación fiscal">
-            <Row>
+          <DrawerSection title="Identificación fiscal" icon={Hash} contentClassName="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Tipo de identificador">
                 <Select
                   value={form.tax_identifier_type}
@@ -376,7 +368,7 @@ export function AccountEditDrawer({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field id="edit-tax-number" label="Número">
+              <Field label="Número">
                 <Input
                   id="edit-tax-number"
                   placeholder="Número de identificación"
@@ -384,11 +376,11 @@ export function AccountEditDrawer({
                   onChange={(e) => set('tax_identifier', e.target.value)}
                 />
               </Field>
-            </Row>
-          </Section>
+            </div>
+          </DrawerSection>
 
           {/* Asignación */}
-          <Section icon={User} label="Asignación">
+          <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
             {users.length > 0 && (
               <Field label="Owner / Responsable">
                 <Select
@@ -398,7 +390,7 @@ export function AccountEditDrawer({
                   <SelectTrigger className="w-full">
                     {form.owner_id ? (
                       <span className="flex items-center gap-2 text-sm">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-su-brand-soft text-[10px] font-semibold text-su-brand">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                           {(
                             users.find((u) => u.id === form.owner_id)?.full_name ?? 'U'
                           )
@@ -418,7 +410,7 @@ export function AccountEditDrawer({
                     {users.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         <span className="flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs font-semibold">
                             {(u.full_name ?? u.email).charAt(0).toUpperCase()}
                           </span>
                           <span>{u.full_name ?? u.email}</span>
@@ -429,20 +421,16 @@ export function AccountEditDrawer({
                 </Select>
               </Field>
             )}
-            <Field id="edit-notes" label="Notas">
-              <div className="relative">
-                <FileText className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/40" />
-                <Textarea
-                  id="edit-notes"
-                  placeholder="Contexto, señales de compra, próximos pasos…"
-                  value={form.notes}
-                  onChange={(e) => set('notes', e.target.value)}
-                  rows={3}
-                  className="pl-8 pt-2 text-sm"
-                />
-              </div>
+            <Field label="Notas">
+              <Textarea
+                id="edit-notes"
+                placeholder="Contexto, señales de compra, próximos pasos…"
+                value={form.notes}
+                onChange={(e) => set('notes', e.target.value)}
+                rows={3}
+              />
             </Field>
-          </Section>
+          </DrawerSection>
         </form>
       )}
     </DrawerShell>

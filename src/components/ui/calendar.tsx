@@ -10,7 +10,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "@/icons";
 
 function Calendar({
   className,
@@ -90,7 +90,7 @@ function Calendar({
         ),
         weekdays: cn("grid grid-cols-7 mb-2", defaultClassNames.weekdays),
         weekday: cn(
-          "rounded-[var(--cell-radius)] text-xs font-semibold text-muted-foreground uppercase tracking-wide select-none h-[var(--cell-size)] flex items-center justify-center",
+          "rounded-[var(--cell-radius)] text-xs font-semibold text-muted-foreground select-none h-[var(--cell-size)] flex items-center justify-center",
           defaultClassNames.weekday
         ),
         week: cn("grid grid-cols-7", defaultClassNames.week),

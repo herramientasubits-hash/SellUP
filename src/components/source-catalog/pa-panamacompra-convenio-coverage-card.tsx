@@ -22,7 +22,19 @@ import type {
   PaCoverageSourceReason,
   PaPanamaCompraConvenioCoverageSummary,
 } from '@/server/services/pa-panamacompra-convenio-source-coverage-summary';
-import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
+import { Landmark } from "@/icons";
+import {
+  CoverageBullet,
+  CoverageBulletList,
+  CoverageCard,
+  CoverageCardError,
+  CoverageFieldGroup,
+  CoverageFieldRow,
+  CoverageSection,
+  CoverageSignalSummary,
+  CoverageSourceReason,
+  CoverageStatusNotice,
+} from '@/components/source-catalog/coverage-card';
 
 // ---------------------------------------------------------------------------
 // Pure display helpers — exported for unit tests
@@ -61,36 +73,6 @@ export function isPaFiscalSource(summary: PaPanamaCompraConvenioCoverageSummary)
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FieldRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-xs font-medium text-foreground text-right tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </p>
-  );
-}
-
-function LimitationRow({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex gap-2 text-xs text-muted-foreground">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
-      {children}
-    </li>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main card
 // ---------------------------------------------------------------------------
 
@@ -99,23 +81,24 @@ interface PaPanamaCompraConvenioCoverageCardProps {
   error?: boolean;
 }
 
+const CARD_TITLE = 'Cobertura PanamaCompra Convenio Marco';
+
 export function PaPanamaCompraConvenioCoverageCard({
   summary,
   error,
 }: PaPanamaCompraConvenioCoverageCardProps) {
   if (error || !summary) {
     return (
-      <SurfaceCard>
-        <SurfaceCardHeader title="Cobertura PanamaCompra Convenio Marco" />
-        <p className="text-sm text-muted-foreground">
-          No se pudo cargar el resumen de cobertura. Verifique la configuración del servicio.
-        </p>
-      </SurfaceCard>
+      <CoverageCardError
+        icon={Landmark}
+        title={CARD_TITLE}
+        message="No se pudo cargar el resumen de cobertura. Revisa la configuración del servicio."
+      />
     );
   }
 
-  const sourceReasonLabel = formatPaCoverageSourceReason(summary.coverageSourceReason);
   const bd = summary.breakdown;
+  const isPartialSnapshot = summary.coverageStatus === 'partial_snapshot';
 
   const conveniosRead = bd?.convenios_read != null ? String(bd.convenios_read) : 'No reportado';
   const providersFound = bd?.providers_found != null ? bd.providers_found.toLocaleString('es-PA') : 'No reportado';
@@ -125,112 +108,71 @@ export function PaPanamaCompraConvenioCoverageCard({
   const coverageScope = bd?.coverage_scope ?? 'convenio_marco';
 
   return (
-    <SurfaceCard>
-      <SurfaceCardHeader title="Cobertura PanamaCompra Convenio Marco" />
-
-      {/* Señal tipo */}
-      <div className="mb-4 rounded-lg border border-border/40 bg-muted/30 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
-          Tipo de señal
-        </p>
+    <CoverageCard icon={Landmark} title={CARD_TITLE}>
+      <CoverageSignalSummary title="Tipo de señal">
         <p className="text-sm font-medium text-foreground">Procurement B2G</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Identifica empresas panameñas que aparecen como proveedoras en Convenio Marco. Señal comercial de priorización.
         </p>
-      </div>
+      </CoverageSignalSummary>
 
-      <dl className="divide-y divide-border/20">
-        <SectionTitle>{summary.coverageStatus === 'partial_snapshot' ? 'Carga operativa' : 'Carga piloto'}</SectionTitle>
-
-        <FieldRow
-          label="Proveedores cargados"
-          value={formatPaLoadedRows(summary.loadedRows)}
-        />
-        <FieldRow
-          label="Estado de cobertura"
-          value={formatPaCoverageStatus(summary.coverageStatus)}
-        />
-        <FieldRow
-          label="Tipo de señal"
-          value="Señal procurement / B2G"
-        />
-        <FieldRow
+      <CoverageFieldGroup title={isPartialSnapshot ? 'Carga operativa' : 'Carga piloto'}>
+        <CoverageFieldRow label="Proveedores cargados" value={formatPaLoadedRows(summary.loadedRows)} />
+        <CoverageFieldRow label="Estado de cobertura" value={formatPaCoverageStatus(summary.coverageStatus)} />
+        <CoverageFieldRow label="Tipo de señal" value="Señal procurement / B2G" />
+        <CoverageFieldRow
           label="Alcance"
           value={coverageScope === 'convenio_marco' ? 'Convenio Marco' : coverageScope}
         />
-        <FieldRow
-          label="Fuente del indicador"
-          value={formatPaCoverageSource(summary.coverageSource)}
-        />
-        {summary.refreshSource && (
-          <FieldRow
-            label="Fuente de carga"
-            value={summary.refreshSource}
-          />
-        )}
+        <CoverageFieldRow label="Fuente del indicador" value={formatPaCoverageSource(summary.coverageSource)} />
+        {summary.refreshSource && <CoverageFieldRow label="Fuente de carga" value={summary.refreshSource} />}
+      </CoverageFieldGroup>
 
-        <SectionTitle>{summary.coverageStatus === 'partial_snapshot' ? 'Breakdown operativo' : 'Breakdown piloto'}</SectionTitle>
+      <CoverageFieldGroup title={isPartialSnapshot ? 'Breakdown operativo' : 'Breakdown piloto'}>
+        <CoverageFieldRow label="Convenios leídos" value={conveniosRead} />
+        <CoverageFieldRow label="Proveedores encontrados" value={providersFound} />
+        <CoverageFieldRow label="Proveedores únicos" value={uniqueProviders} />
+        <CoverageFieldRow label="Proveedores con RUC" value={providersWithRuc} />
+        <CoverageFieldRow label="Snapshots construidos" value={snapshotsBuilt} />
+      </CoverageFieldGroup>
 
-        <FieldRow label="Convenios leídos" value={conveniosRead} />
-        <FieldRow label="Proveedores encontrados" value={providersFound} />
-        <FieldRow label="Proveedores únicos" value={uniqueProviders} />
-        <FieldRow label="Proveedores con RUC" value={providersWithRuc} />
-        <FieldRow label="Snapshots construidos" value={snapshotsBuilt} />
+      <CoverageFieldGroup title="Clasificación">
+        <CoverageFieldRow label="Fuente fiscal / tributaria" value="No — no es fuente fiscal" />
+        <CoverageFieldRow label="Fuente legal / registral" value="No — no es fuente legal" />
+        <CoverageFieldRow label="Valida RUC Panamá" value="No — no reemplaza DGI Panamá" />
+        <CoverageFieldRow label="Reemplaza DGI Panamá" value="No" />
+        <CoverageFieldRow label="Reemplaza Registro Público" value="No" />
+        <CoverageFieldRow label="Cubre toda la contratación pública" value="No — solo Convenio Marco" />
+      </CoverageFieldGroup>
 
-        <SectionTitle>Clasificación</SectionTitle>
+      <CoverageSection title="Limitaciones">
+        <CoverageBulletList>
+          {bd?.limitations && bd.limitations.length > 0 ? (
+            bd.limitations.map((lim, i) => <CoverageBullet key={i}>{lim}</CoverageBullet>)
+          ) : (
+            <>
+              <CoverageBullet>Muestra piloto de proveedores de Convenio Marco solamente.</CoverageBullet>
+              <CoverageBullet>No cubre adjudicaciones generales de PanamaCompra.</CoverageBullet>
+              <CoverageBullet>No cubre todos los proveedores del Estado panameño.</CoverageBullet>
+              <CoverageBullet>No es fuente legal ni tributaria para Panamá.</CoverageBullet>
+              <CoverageBullet>No valida RUC Panamá ni reemplaza DGI Panamá.</CoverageBullet>
+              <CoverageBullet>No reemplaza Registro Público de Panamá.</CoverageBullet>
+              <CoverageBullet>CIIU no disponible en PanamaCompra — no se inventa.</CoverageBullet>
+            </>
+          )}
+        </CoverageBulletList>
+      </CoverageSection>
 
-        <FieldRow label="Fuente fiscal / tributaria" value="No — no es fuente fiscal" />
-        <FieldRow label="Fuente legal / registral" value="No — no es fuente legal" />
-        <FieldRow label="Valida RUC Panamá" value="No — no reemplaza DGI Panamá" />
-        <FieldRow label="Reemplaza DGI Panamá" value="No" />
-        <FieldRow label="Reemplaza Registro Público" value="No" />
-        <FieldRow label="Cubre toda la contratación pública" value="No — solo Convenio Marco" />
-      </dl>
+      <CoverageStatusNotice title="Estado operativo">
+        {isPartialSnapshot
+          ? 'Snapshot operativo parcial cargado. No existe post-approval Panamá activo. La fuente permanece en '
+          : 'Muestra piloto disponible. No existe post-approval Panamá activo. La fuente permanece en '}
+        <span className="font-medium">eligible_not_connected</span>{' '}
+        hasta que se operativice el flujo de enriquecimiento local.
+        {' '}No es fuente legal. No es fuente tributaria. No valida RUC. No reemplaza DGI Panamá. No reemplaza Registro Público.
+      </CoverageStatusNotice>
 
-      {/* Limitaciones explícitas */}
-      <div className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-          Limitaciones
-        </p>
-        <ul className="space-y-1.5">
-          {bd?.limitations && bd.limitations.length > 0
-            ? bd.limitations.map((lim, i) => (
-                <LimitationRow key={i}>{lim}</LimitationRow>
-              ))
-            : (
-              <>
-                <LimitationRow>Muestra piloto de proveedores de Convenio Marco solamente.</LimitationRow>
-                <LimitationRow>No cubre adjudicaciones generales de PanamaCompra.</LimitationRow>
-                <LimitationRow>No cubre todos los proveedores del Estado panameño.</LimitationRow>
-                <LimitationRow>No es fuente legal ni tributaria para Panamá.</LimitationRow>
-                <LimitationRow>No valida RUC Panamá ni reemplaza DGI Panamá.</LimitationRow>
-                <LimitationRow>No reemplaza Registro Público de Panamá.</LimitationRow>
-                <LimitationRow>CIIU no disponible en PanamaCompra — no se inventa.</LimitationRow>
-              </>
-            )}
-        </ul>
-      </div>
-
-      {/* Estado operativo */}
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-1">
-          Estado operativo
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {summary.coverageStatus === 'partial_snapshot'
-            ? 'Snapshot operativo parcial cargado. No existe post-approval Panamá activo. La fuente permanece en '
-            : 'Muestra piloto disponible. No existe post-approval Panamá activo. La fuente permanece en '}
-          <span className="font-medium">eligible_not_connected</span>{' '}
-          hasta que se operativice el flujo de enriquecimiento local.
-          {' '}No es fuente legal. No es fuente tributaria. No valida RUC. No reemplaza DGI Panamá. No reemplaza Registro Público.
-        </p>
-      </div>
-
-      {sourceReasonLabel && (
-        <p className="mt-3 text-[11px] text-muted-foreground/60">
-          Motivo: {sourceReasonLabel}
-        </p>
-      )}
-    </SurfaceCard>
+      <CoverageSourceReason reason={formatPaCoverageSourceReason(summary.coverageSourceReason)} />
+    </CoverageCard>
   );
 }

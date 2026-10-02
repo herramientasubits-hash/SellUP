@@ -2,35 +2,106 @@
 
 import * as React from "react";
 import type { Column } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronsUpDown, ListFilter, Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
-  DataTableColumnPopover,
-  type DataTableColumnMeta,
-} from "./data-table-column-popover";
+  FilterSortHeader,
+  SortOnlyHeader,
+  type HeaderFilterOption,
+  type HeaderSort,
+} from "@/components/data-display/table-header-controls";
+import type { DataTableColumnMeta } from "./data-table-column-meta";
 
-interface DataTableColumnHeaderProps<TData, TValue>
-  extends React.HTMLAttributes<HTMLDivElement> {
+/**
+ * Por encima de este número de valores distintos una columna sin
+ * `meta.filterOptions` se considera texto libre (nombres, dominios): no es
+ * enumerable y no se le ofrece embudo.
+ */
+const MAX_FACETED_FILTER_OPTIONS = 50;
+
+/** Sin orden → ascendente → descendente → sin orden. */
+export function cycleColumnSort<TData, TValue>(column: Column<TData, TValue>): void {
+  const sorted = column.getIsSorted();
+  if (sorted === false) column.toggleSorting(false);
+  else if (sorted === "asc") column.toggleSorting(true);
+  else column.clearSorting();
+}
+
+/** Los valores elegidos en el embudo de una columna (vacío si no hay o no es una lista). */
+export function getColumnFilterValues<TData, TValue>(column: Column<TData, TValue>): string[] {
+  const value = column.getFilterValue();
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function useFilterOptions<TData, TValue>(
+  column: Column<TData, TValue>,
+  enabled: boolean,
+): HeaderFilterOption[] {
+  const meta = (column.columnDef.meta ?? {}) as DataTableColumnMeta;
+  const staticOptions = meta.filterOptions;
+  // TanStack memoiza el mapa de valores únicos: misma referencia si las filas no cambian.
+  const facets = enabled ? column.getFacetedUniqueValues() : undefined;
+
+  return React.useMemo(() => {
+    if (!enabled) return [];
+    if (staticOptions) {
+      // Las claves del mapa son el valor crudo de la celda; las opciones, texto.
+      const counts = new Map<string, number>();
+      facets?.forEach((count, value) => {
+        const key = String(value);
+        counts.set(key, (counts.get(key) ?? 0) + count);
+      });
+      // Si ninguna opción casa con los valores de la columna, el recuento no
+      // dice nada (la celda guarda otra cosa): mejor sin cifras que con ceros.
+      const countable = staticOptions.some((option) => counts.has(option.value));
+      const options = staticOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        icon: option.icon,
+        count: countable ? (counts.get(option.value) ?? 0) : undefined,
+      }));
+      if (!countable) return options;
+      // Primero lo que hay: en una lista larga (países, sectores) las opciones
+      // sin filas quedan al final en vez de estorbar arriba.
+      return [...options.filter((option) => (option.count ?? 0) > 0), ...options.filter((option) => !option.count)];
+    }
+    if (!facets || facets.size === 0 || facets.size > MAX_FACETED_FILTER_OPTIONS) return [];
+    return Array.from(facets.entries())
+      .filter(([value]) => value !== null && value !== undefined && value !== "")
+      .map(([value, count]) => ({ value: String(value), label: String(value), count }))
+      .sort((a, b) => a.label.localeCompare(b.label, "es"));
+  }, [enabled, staticOptions, facets]);
+}
+
+interface DataTableColumnHeaderProps<TData, TValue> {
   column: Column<TData, TValue>;
   title: string;
-  /** Disable sort controls (also removes the popover sort section). */
+  /** Quita el orden: la etiqueta pasa a ser texto. */
   disableSort?: boolean;
-  /** Disable filter controls (also removes the popover filter section). */
+  /** Quita el embudo. */
   disableFilter?: boolean;
-  /** Hide the popover entirely and render a plain label. */
+  /** Etiqueta sola, sin orden ni embudo. */
   noPopover?: boolean;
-  /** Callback to pin the column. When provided, adds a pin button to the popover. */
+  /** @deprecated Fijar una columna vive ahora en «Configurar tabla». Sin efecto. */
   onPin?: (side: "left" | "right" | false) => void;
-  /** Whether the column is currently pinned (and to which side). */
+  /** @deprecated Ver `onPin`. */
   pinned?: "left" | "right" | false;
+  align?: "left" | "right";
+  className?: string;
 }
 
 /**
- * Sortable + filterable column header. Renders a clickable button that opens
- * a popover with sort / search / filter controls (matching the reference
- * template's per-column popover UX).
+ * Cabecera de columna de `DataTable` con la anatomía de Thema: dos controles a
+ * la vista. La etiqueta con su flecha ordena (sin orden → asc → desc → sin
+ * orden) y, en las columnas enumerables, un embudo aparte abre el filtro por
+ * valores con su recuento.
+ *
+ * - Con `meta.filterOptions` (o pocos valores únicos) → orden + embudo.
+ * - Con `meta.disableFilter` / `enableColumnFilter: false` → solo orden
+ *   (números, fechas, texto libre).
+ * - Con `enableSorting: false` y sin filtro → etiqueta.
+ *
+ * Fijar y ocultar la columna se hace desde «Configurar tabla».
  */
 export function DataTableColumnHeader<TData, TValue>({
   column,
@@ -38,75 +109,48 @@ export function DataTableColumnHeader<TData, TValue>({
   disableSort = false,
   disableFilter = false,
   noPopover = false,
-  onPin,
-  pinned = false,
+  align = "left",
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   const meta = (column.columnDef.meta ?? {}) as DataTableColumnMeta;
-  const popoverTitle = meta.popoverTitle ?? title;
-  const canSort = column.getCanSort() && !disableSort;
-  const canFilter = column.getCanFilter() && !disableFilter;
-  const isFiltered = canFilter && column.getIsFiltered();
+  const canSort = !noPopover && column.getCanSort() && !disableSort && meta.disableSort !== true;
+  const canFilter =
+    !noPopover && column.getCanFilter() && !disableFilter && meta.disableFilter !== true;
 
-  if (noPopover || (!canSort && !canFilter && !onPin)) {
+  const options = useFilterOptions(column, canFilter);
+  const sort: HeaderSort = canSort ? column.getIsSorted() : false;
+  const onSort = canSort ? () => cycleColumnSort(column) : undefined;
+
+  if (canFilter && options.length > 0) {
+    const current = getColumnFilterValues(column);
     return (
-      <span
-        className={cn(
-          "text-[11px] font-semibold tracking-wider uppercase text-muted-foreground",
-          className,
-        )}
-      >
-        {title}
-      </span>
+      <FilterSortHeader
+        label={title}
+        filterLabel={meta.popoverTitle ?? title}
+        options={options}
+        selected={new Set(current)}
+        onToggleFilter={(value) => {
+          const next = current.includes(value)
+            ? current.filter((other) => other !== value)
+            : [...current, value];
+          column.setFilterValue(next.length > 0 ? next : undefined);
+        }}
+        onClearFilter={() => column.setFilterValue(undefined)}
+        sort={sort}
+        onSort={onSort}
+        align={align}
+        className={className}
+      />
     );
   }
 
-  const sorted = column.getIsSorted();
+  if (onSort) {
+    return <SortOnlyHeader label={title} sort={sort} onSort={onSort} align={align} className={className} />;
+  }
 
   return (
-    <DataTableColumnPopover
-      column={column}
-      sortable={canSort}
-      filterable={canFilter}
-    >
-      <button
-        type="button"
-        className={cn(
-          "group inline-flex items-center gap-1.5 -mx-1.5 px-1.5 py-1 rounded-md",
-          "hover:bg-muted/40 transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-          className,
-        )}
-        aria-label={`Opciones de columna ${popoverTitle}`}
-      >
-        <span className="text-[11px] font-semibold tracking-wider uppercase text-foreground">
-          {title}
-        </span>
-        {canSort && sorted === "asc" && (
-          <ArrowUp className="h-3 w-3 text-foreground" strokeWidth={2.5} />
-        )}
-        {canSort && sorted === "desc" && (
-          <ArrowDown className="h-3 w-3 text-foreground" strokeWidth={2.5} />
-        )}
-        {canSort && sorted === false && !isFiltered && (
-          <ChevronsUpDown className="h-3 w-3 text-muted-foreground/60 group-hover:text-muted-foreground" />
-        )}
-        {isFiltered && (
-          <ListFilter
-            className="h-3 w-3 text-primary"
-            strokeWidth={2.5}
-            aria-label={`Filtros activos en ${popoverTitle}`}
-          />
-        )}
-        {pinned && (
-          <Pin className="h-3 w-3 text-primary" strokeWidth={2.5} aria-label={`Fijada ${pinned === "left" ? "izquierda" : "derecha"}`} />
-        )}
-      </button>
-    </DataTableColumnPopover>
+    <span className={cn("block truncate text-xs font-semibold text-muted-foreground", className)}>
+      {title}
+    </span>
   );
 }
-
-/**
- * Re-exported as a convenience so consumers can use either name.
- */
-export { Button as DataTableColumnHeaderButton };

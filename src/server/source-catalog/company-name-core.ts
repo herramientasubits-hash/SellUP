@@ -196,6 +196,26 @@ export const SPAIN_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Chile (Registro de Empresas y Sociedades), más largas
+ * primero. SOURCES-CL-RUT-BY-NAME-1.
+ */
+export const CHILE_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD POR ACCIONES',
+  'SOCIEDAD ANONIMA',
+  'LIMITADA',
+  'S P A',
+  'E I R L',
+  'S R L',
+  'S A',
+  'LTDA',
+  'EIRL',
+  'SPA',
+  'SRL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,

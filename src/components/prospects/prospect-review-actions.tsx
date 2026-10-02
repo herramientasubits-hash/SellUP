@@ -19,7 +19,9 @@
 // No opportunity/proposal is created; no bulk approve.
 //
 // UX2 reorders the presentation so the zone reads as a hierarchy instead of a
-// flat row of equal-weight buttons:
+// flat row of equal-weight buttons. UX-EMPRESAS-CONTACTOS then moves the
+// primary to the RIGHT end of the row (Descartar and "Más acciones" stay on the
+// left) — placement only; eligibility, wrappers and confirmations are untouched:
 //   - Aprobar        → primary, enabled only when the candidate is eligible.
 //   - Descartar      → secondary/destructive. Q3F-5AZ.2G-1 ENABLES it for an
 //                       eligible (needs_review, clean-production) candidate;
@@ -51,10 +53,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Field, FieldLabel } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
@@ -356,24 +359,24 @@ export function ProspectReviewActions({
   if (view.terminal) return null;
 
   return (
-    <div className="shrink-0 border-t border-border/50 bg-muted/20 px-7 py-4">
+    <div className="shrink-0 border-t border-border/50 bg-surface-subtle px-7 py-4">
       {confirming ? (
-        <div className="rounded-xl border border-su-brand/30 bg-su-brand/5 p-3 space-y-3">
+        <Alert variant="info" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Aprobar y crear empresa?</p>
-            <p className="text-xs text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Aprobar y crear empresa?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Esto validará el prospecto, creará la empresa en SellUp e intentará sincronizarla con
               HubSpot según la configuración disponible. No se creará oportunidad ni propuesta
               todavía.
-            </p>
+            </AlertDescription>
             {view.hasHubspotMatch ? (
-              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              <p className="text-xs font-medium text-warning">
                 Este prospecto tiene una coincidencia de HubSpot. Al aprobar, SellUp intentará
                 vincular la empresa existente.
               </p>
             ) : (
               view.needsWarning && (
-                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                <p className="text-xs font-medium text-warning">
                   Este prospecto tiene posible coincidencia. Revisa antes de aprobar y crear
                   empresa.
                 </p>
@@ -381,16 +384,11 @@ export function ProspectReviewActions({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              onClick={doApprove}
-              disabled={approving}
-              className="bg-su-brand text-white hover:bg-su-brand/90"
-            >
+            <Button type="button" size="sm" onClick={doApprove} disabled={approving} aria-busy={approving}>
               {approving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
+                <CheckCircle2 aria-hidden="true" />
               )}
               Confirmar aprobación
             </Button>
@@ -404,15 +402,15 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : discardConfirming ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-3">
+        <Alert variant="destructive" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Descartar prospecto?</p>
-            <p className="text-xs text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Descartar prospecto?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Este prospecto saldrá de la revisión y no se creará como empresa en SellUp. Podrás
               conservar trazabilidad del descarte.
-            </p>
+            </AlertDescription>
             <p className="text-xs font-medium text-foreground">
               Selecciona el motivo para conservar trazabilidad del descarte.
             </p>
@@ -422,9 +420,9 @@ export function ProspectReviewActions({
               the drawer stacking bugs of Q3F-5AZ.2C-HF* must not come back). */}
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground" id="discard-reason-label">
+              <FieldLabel className="block text-foreground" id="discard-reason-label">
                 Motivo de descarte
-              </Label>
+              </FieldLabel>
               <div
                 role="group"
                 aria-labelledby="discard-reason-label"
@@ -433,35 +431,41 @@ export function ProspectReviewActions({
                 {DISCARD_REASONS.map((r) => {
                   const selected = discardReasonKey === r.value;
                   return (
-                    <button
+                    <Button
                       key={r.value}
                       type="button"
+                      variant={selected ? 'destructive' : 'outline'}
+                      size="sm"
                       aria-pressed={selected}
                       disabled={discarding}
                       onClick={() => setDiscardReasonKey(r.value)}
-                      className={`rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                        selected
-                          ? 'border-destructive bg-destructive/10'
-                          : 'border-border/50 bg-card hover:bg-muted/40'
-                      }`}
+                      className="h-auto min-h-8 shrink-0 justify-start whitespace-normal py-1.5 text-left font-medium"
                     >
-                      <span
-                        className={`text-xs leading-snug ${
-                          selected ? 'font-medium text-destructive' : 'text-foreground'
-                        }`}
-                      >
-                        {r.label}
-                      </span>
-                    </button>
+                      {r.label}
+                    </Button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="discard-reason-text" className="text-xs font-medium text-muted-foreground">
-                {isOtherDiscardReason ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
-              </Label>
+            <Field
+              label={isOtherDiscardReason ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
+              className="text-foreground"
+              error={
+                // Only nag once the reviewer has actually started composing — an
+                // untouched panel shows the neutral instruction above instead.
+                !discardReasonValidation.ok && hasStartedDiscardReason
+                  ? DISCARD_REASON_HINTS[discardReasonValidation.code]
+                  : undefined
+              }
+              description={
+                discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 ? (
+                  <span className="tabular-nums">
+                    {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
+                  </span>
+                ) : undefined
+              }
+            >
               <Textarea
                 id="discard-reason-text"
                 value={discardReasonText}
@@ -473,35 +477,25 @@ export function ProspectReviewActions({
                 placeholder={
                   isOtherDiscardReason ? 'Describe el motivo…' : 'Contexto adicional opcional…'
                 }
-                className="min-h-[64px] text-xs"
+                className="min-h-16"
               />
-              {discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 && (
-                <p className="text-[11px] text-muted-foreground">
-                  {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
-                </p>
-              )}
-              {/* Only nag once the reviewer has actually started composing — an
-                  untouched panel shows the neutral instruction above instead. */}
-              {!discardReasonValidation.ok && hasStartedDiscardReason && (
-                <p className="text-[11px] font-medium text-destructive">
-                  {DISCARD_REASON_HINTS[discardReasonValidation.code]}
-                </p>
-              )}
-            </div>
+            </Field>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <Button
-              variant="destructive"
+              type="button"
+              variant="destructive-solid"
               size="sm"
+              aria-busy={discarding}
               onClick={doDiscard}
               disabled={discarding || !discardReasonValidation.ok}
               title={discardReasonValidation.ok ? undefined : 'Selecciona un motivo de descarte'}
             >
               {discarding ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <XCircle className="h-3.5 w-3.5" />
+                <XCircle aria-hidden="true" />
               )}
               Confirmar descarte
             </Button>
@@ -515,27 +509,29 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : duplicateConfirming ? (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-3">
+        <Alert variant="warning" className="[&>div]:gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">¿Marcar prospecto como duplicado?</p>
-            <p className="text-xs text-muted-foreground">
+            <AlertTitle className="text-foreground">¿Marcar prospecto como duplicado?</AlertTitle>
+            <AlertDescription className="text-xs leading-relaxed">
               Este prospecto saldrá de la revisión como duplicado. No se creará empresa en SellUp ni
               se sincronizará con HubSpot.
-            </p>
+            </AlertDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
+              type="button"
               size="sm"
+              variant="warning"
               onClick={doMarkDuplicate}
               disabled={markingDuplicate}
-              className="bg-amber-500 text-white hover:bg-amber-500/90"
+              aria-busy={markingDuplicate}
             >
               {markingDuplicate ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <Copy className="h-3.5 w-3.5" />
+                <Copy aria-hidden="true" />
               )}
               Confirmar duplicado
             </Button>
@@ -549,45 +545,36 @@ export function ProspectReviewActions({
               Cancelar
             </Button>
           </div>
-        </div>
+        </Alert>
       ) : (
         <div className="space-y-2">
+          {/* La primaria va a la DERECHA, donde termina la lectura; las que
+              sacan al prospecto de la revisión, a la izquierda. El orden del
+              DOM sigue al visual, así que el tabulador llega a «Aprobar» al final. */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Primary — the only enabled action, and only when eligible. */}
-            <Button
-              size="sm"
-              onClick={() => setConfirming(true)}
-              disabled={!view.canApprove}
-              title={view.canApprove ? undefined : 'No disponible para este candidato'}
-              className="bg-su-brand text-white hover:bg-su-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Aprobar
-            </Button>
-
             {/* Secondary/destructive — Q3F-5AZ.2G-1 enables Descartar for an
                 eligible (needs_review, clean-production) candidate. Clicking it
                 arms the inline discard confirmation; it never discards directly.
                 Disabled (with the future-action hint) otherwise. */}
             <Button
-              variant="outline"
+              type="button"
+              variant="destructive"
               size="sm"
               onClick={() => setDiscardConfirming(true)}
               disabled={!view.canDiscard}
               title={view.canDiscard ? undefined : FUTURE_ACTION_HINT}
-              className="text-destructive disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <DISCARD_ACTION.icon className="h-3.5 w-3.5" />
+              <DISCARD_ACTION.icon aria-hidden="true" />
               {DISCARD_ACTION.label}
             </Button>
 
             {/* Remaining future actions collapsed into a small menu. */}
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="ghost" size="sm" className="text-muted-foreground">
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="sm" />}
+              >
                   Más acciones
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
+                  <ChevronDown aria-hidden="true" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-56">
                 {/* Q3F-5AZ.2G-2 — "Marcar duplicado" is enabled for an eligible
@@ -602,7 +589,7 @@ export function ProspectReviewActions({
                   <MARK_DUPLICATE_ACTION.icon className="h-3.5 w-3.5" />
                   <span className="flex-1">{MARK_DUPLICATE_ACTION.label}</span>
                   {!view.canMarkDuplicate && (
-                    <span className="text-[10px] text-muted-foreground">{FUTURE_ACTION_HINT}</span>
+                    <span className="text-xs text-muted-foreground">{FUTURE_ACTION_HINT}</span>
                   )}
                 </DropdownMenuItem>
                 {/* Remaining future actions stay disabled. */}
@@ -610,16 +597,29 @@ export function ProspectReviewActions({
                   <DropdownMenuItem key={a.label} disabled title={FUTURE_ACTION_HINT}>
                     <a.icon className="h-3.5 w-3.5" />
                     <span className="flex-1">{a.label}</span>
-                    <span className="text-[10px] text-muted-foreground">{FUTURE_ACTION_HINT}</span>
+                    <span className="text-xs text-muted-foreground">{FUTURE_ACTION_HINT}</span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Primary — enabled only when eligible. `ml-auto` la mantiene a la
+                derecha también cuando la fila se parte en pantalla estrecha. */}
+            <Button
+              type="button"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setConfirming(true)}
+              disabled={!view.canApprove}
+              title={view.canApprove ? undefined : 'No disponible para este candidato'}
+            >
+              <CheckCircle2 aria-hidden="true" />
+              Aprobar
+            </Button>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Puedes aprobar, descartar o marcar como duplicado este prospecto. Las demás acciones se
-            habilitarán en próximos hitos.
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Puedes aprobar, descartar o marcar como duplicado este prospecto.
           </p>
         </div>
       )}

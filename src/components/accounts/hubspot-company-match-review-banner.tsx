@@ -8,7 +8,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Loader2 } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { resolveHubSpotCompanyMatchAction } from '@/modules/accounts/hubspot-company-review-actions';
 
@@ -54,19 +55,18 @@ export function HubSpotCompanyMatchReviewBanner({
   }
 
   return (
-    <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3.5">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-          Podría ya existir en HubSpot como &laquo;{pendingMatch.name ?? 'empresa sin nombre'}
-          &raquo;
-          {pendingMatch.domain ? ` (${pendingMatch.domain})` : ''}
-        </p>
-        <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-relaxed">
-          Coincidencia por {pendingMatch.matchMethod}, confianza {pendingMatch.confidence}%.
-          &iquest;Es la misma empresa?
-        </p>
-        <div className="flex gap-2 pt-1">
+    <Alert variant="warning">
+      <AlertTitle className="text-sm">
+        Podría ya existir en HubSpot como &laquo;{pendingMatch.name ?? 'empresa sin nombre'}
+        &raquo;
+        {pendingMatch.domain ? ` (${pendingMatch.domain})` : ''}
+      </AlertTitle>
+      <AlertDescription className="text-xs leading-relaxed text-warning">
+        Coincidencia por {pendingMatch.matchMethod}, confianza {pendingMatch.confidence}%.
+        &iquest;Es la misma empresa?
+      </AlertDescription>
+      <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button
             type="button"
             size="sm"
@@ -89,8 +89,8 @@ export function HubSpotCompanyMatchReviewBanner({
             No, es una empresa nueva
           </Button>
         </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && <p className="text-xs font-medium text-destructive">{error}</p>}
       </div>
-    </div>
+    </Alert>
   );
 }

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User } from 'lucide-react';
+import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network, Loader2 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldLabel, FieldError } from '@/components/forms/field';
 import { Textarea } from '@/components/ui/textarea';
 import { DrawerShell } from '@/components/shared/drawer-shell';
+import { DrawerSection } from '@/components/shared/drawer-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
@@ -14,10 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { createPreapproval } from '@/modules/access/actions';
 import type { Role, InternalUser, OrganizationGroup } from '@/modules/access/types';
+import { UserAvatar } from './user-avatar';
 
 const NO_MANAGER = '__none__';
 const NO_GROUP = '__none__';
@@ -26,16 +28,28 @@ interface AddUserDrawerProps {
   roles: Role[];
   activeUsers: InternalUser[];
   groups: OrganizationGroup[];
+  /**
+   * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
+   * acciones de la pantalla) y el drawer no pinta su propio botón.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-function getInitials(name: string, email: string): string {
-  if (name.trim()) return name.trim().split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  const local = email.split('@')[0];
-  return local.slice(0, 2).toUpperCase();
-}
-
-export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps) {
-  const [open, setOpen] = useState(false);
+export function AddUserDrawer({
+  roles,
+  activeUsers,
+  groups,
+  open: controlledOpen,
+  onOpenChange,
+}: AddUserDrawerProps) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +66,6 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
   const selectedRole = roles.find(r => r.id === roleId);
   const selectedManager = activeUsers.find(u => u.id === managerId);
   const selectedGroup = groups.find(g => g.id === groupId);
-  const previewInitials = getInitials(fullName, email || 'NN');
 
   const sortedGroups = [...groups].sort((a, b) => {
     if (a.depth !== b.depth) return a.depth - b.depth;
@@ -96,43 +109,46 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
       open={open}
       onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}
       trigger={
-        <Button size="sm" className="gap-2 h-9 text-xs font-medium" onClick={() => setOpen(true)}>
-          <UserPlus className="h-3.5 w-3.5" />
-          Agregar usuario
-        </Button>
+        isControlled ? undefined : (
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <UserPlus className="h-3.5 w-3.5" />
+            Agregar usuario
+          </Button>
+        )
       }
       title="Agregar usuario"
       description="Preautoriza un correo @ubits.co. El acceso se activa en el primer inicio de sesión con Google."
-      icon={<User className="h-4 w-4 text-su-brand" />}
+      icon={<User className="h-4 w-4" />}
       size="lg"
       actions={
-        <div className="flex items-center gap-3 ml-auto">
+        <>
           <Button
+            type="button"
             variant="outline"
             onClick={() => { setOpen(false); reset(); }}
-            className="text-sm"
           >
             Cancelar
           </Button>
           <Button
+            type="button"
             onClick={handleSubmit}
             disabled={!emailValid || !roleId || loading}
-            className="text-sm gap-2 h-9"
           >
-            <UserPlus className="h-3.5 w-3.5" />
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
             {loading ? 'Preautorizando...' : 'Preautorizar'}
           </Button>
-        </div>
+        </>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Identity preview */}
-        <div className="flex items-center gap-4 rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
-          <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="bg-su-brand-soft text-su-brand text-sm font-semibold">
-              {previewInitials}
-            </AvatarFallback>
-          </Avatar>
+        {/* Agrupa datos, no es una tarjeta: fondo sutil y sin borde. */}
+        <div className="flex items-center gap-4 rounded-xl bg-surface-subtle px-4 py-3">
+          <UserAvatar name={fullName} email={email || 'NN'} size="xl" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-foreground">
               {fullName.trim() || <span className="text-muted-foreground italic">Nombre completo</span>}
@@ -141,7 +157,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               {email || <span className="italic">correo@ubits.co</span>}
             </p>
             {selectedRole && (
-              <Badge variant="outline" className="mt-1 text-[10px] bg-su-brand-soft text-su-brand border-su-brand/20">
+              <Badge variant="brand" className="mt-1">
                 {selectedRole.name}
               </Badge>
             )}
@@ -149,16 +165,13 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
         </div>
 
         {/* ── Section: Identidad ────────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Identidad
-          </p>
+        <DrawerSection title="Identidad" icon={User} contentClassName="space-y-4">
 
           {/* Email */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-email" className="text-sm">
+            <FieldLabel htmlFor="au-email" className="block leading-none">
               Correo corporativo <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
@@ -167,33 +180,29 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                 placeholder="nombre.apellido@ubits.co"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className={`pl-9 pr-9 ${
-                  emailTouched
-                    ? emailValid
-                      ? 'border-emerald-500/60 focus-visible:ring-emerald-500/30'
-                      : 'border-destructive/60 focus-visible:ring-destructive/30'
-                    : ''
-                }`}
+                aria-invalid={emailTouched && !emailValid ? true : undefined}
+                aria-describedby={emailTouched && !emailValid ? 'au-email-error' : undefined}
+                className="pl-9 pr-9"
               />
               {emailTouched && (
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                   {emailValid
-                    ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ? <CheckCircle2 className="h-4 w-4 text-success" />
                     : <XCircle className="h-4 w-4 text-destructive" />
                   }
                 </span>
               )}
             </div>
             {emailTouched && !emailValid && (
-              <p className="text-xs text-destructive">Debe terminar en @ubits.co</p>
+              <FieldError id="au-email-error">Debe terminar en @ubits.co</FieldError>
             )}
           </div>
 
           {/* Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-name" className="text-sm">
+            <FieldLabel htmlFor="au-name" className="block leading-none">
               Nombre completo <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
@@ -205,19 +214,16 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               />
             </div>
           </div>
-        </div>
+        </DrawerSection>
 
         {/* ── Section: Acceso ───────────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Acceso
-          </p>
+        <DrawerSection title="Acceso" icon={KeyRound} contentClassName="space-y-4">
 
           {/* Role */}
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Rol base <span className="text-destructive">*</span>
-            </Label>
+            </FieldLabel>
             <Select value={roleId || undefined} onValueChange={v => setRoleId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Seleccionar rol" />
@@ -228,7 +234,7 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
                     <div className="flex flex-col py-0.5">
                       <span className="font-medium">{r.name}</span>
                       {r.description && (
-                        <span className="text-[11px] text-muted-foreground leading-tight">{r.description}</span>
+                        <span className="text-xs text-muted-foreground leading-tight">{r.description}</span>
                       )}
                     </div>
                   </SelectItem>
@@ -239,9 +245,9 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Manager */}
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Líder inmediato <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Select value={managerId || undefined} onValueChange={v => setManagerId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin líder asignado" />
@@ -256,28 +262,21 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
               </SelectContent>
             </Select>
             {selectedManager && (
-              <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
-                <Avatar className="h-6 w-6 shrink-0">
-                  <AvatarFallback className="bg-su-brand-soft text-su-brand text-[10px]">
-                    {getInitials(selectedManager.full_name ?? '', selectedManager.email)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-xs text-foreground">{selectedManager.full_name ?? selectedManager.email}</span>
+              <div className="flex items-center gap-2 rounded-lg bg-surface-subtle px-3 py-2">
+                <UserAvatar name={selectedManager.full_name} email={selectedManager.email} size="xs" />
+                <span className="min-w-0 truncate text-xs text-foreground">{selectedManager.full_name ?? selectedManager.email}</span>
               </div>
             )}
           </div>
-        </div>
+        </DrawerSection>
 
         {/* ── Section: Organización ─────────────────────── */}
-        <div className="space-y-4">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Organización
-          </p>
+        <DrawerSection title="Organización" icon={Network} contentClassName="space-y-4">
 
           <div className="space-y-1.5">
-            <Label className="text-sm">
+            <FieldLabel className="block leading-none">
               Grupo <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Select value={groupId || undefined} onValueChange={v => setGroupId(v ?? '')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin grupo asignado" />
@@ -302,24 +301,24 @@ export function AddUserDrawer({ roles, activeUsers, groups }: AddUserDrawerProps
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <Label htmlFor="au-notes" className="text-sm">
+            <FieldLabel htmlFor="au-notes" className="block leading-none">
               Notas internas <span className="text-xs text-muted-foreground">(opcional)</span>
-            </Label>
+            </FieldLabel>
             <Textarea
               id="au-notes"
               placeholder="Contexto de la preautorización, área, fecha de ingreso..."
               rows={3}
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              className="resize-none text-sm"
+              className="resize-none"
             />
           </div>
-        </div>
+        </DrawerSection>
 
         {error && (
-          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </DrawerShell>

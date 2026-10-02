@@ -97,7 +97,7 @@ export function SparklineChart({
           smooth: true,
           symbol: "none",
           lineStyle: {
-            width: 1,
+            width: 1.5,
           },
           areaStyle: {
             opacity: trendOpacity,
@@ -112,20 +112,24 @@ export function SparklineChart({
     };
   }, [data, showTooltip, trend]);
 
+  // Sin datos: una línea base tenue. El `EmptyState` del gráfico grande (título +
+  // descripción) no cabe en los 32px de un sparkline y se desbordaría de la celda.
+  const isEmpty = !loading && (empty || !data || data.length === 0);
+
   return (
-    <div className={cn("flex items-center justify-center", className)}>
+    <div className={cn("flex min-w-0 items-center justify-center", className)}>
       {summary && <div className="sr-only">{summary}</div>}
       <div
         role="img"
         aria-label={ariaLabel}
+        className="flex items-center"
         style={{ height, width: "100%" }}
       >
-        <EChart
-          option={option}
-          height={height}
-          loading={loading}
-          empty={empty}
-        />
+        {isEmpty ? (
+          <div className="h-px w-full rounded-full bg-border" aria-hidden="true" />
+        ) : (
+          <EChart option={option} height={height} loading={loading} />
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
-import { Cpu, Activity, TrendingUp, PackageOpen } from 'lucide-react';
-import { SurfaceCard } from '@/components/shared/surface-card';
+import { Cpu, Activity, TrendingUp, PackageOpen } from "@/icons";
+import { MetricCard } from '@/components/shared/metric-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 
@@ -29,16 +29,27 @@ export function BudgetSummaryCards({ providers }: Props) {
       ? resolveCostDisplay({
           valueUsd: totalUsd,
           costTruth: toCostTruth(consumptionHasUnknownCost),
-          formatUsd: (v) => `$${v.toFixed(2)} USD`,
+          formatUsd: (v) => `$${v.toFixed(2)}`,
         })
       : null;
 
-  const consumptionLabel = [
-    totalCredits > 0 ? `${totalCredits.toLocaleString()} cr` : null,
-    usdDisplay?.label ?? null,
-  ]
-    .filter(Boolean)
-    .join(' · ') || '—';
+  // Valor principal + subtítulo, cada uno en su renglón: los dólares mandan
+  // (los créditos de proveedores distintos no se suman entre sí con sentido) y
+  // los créditos acompañan debajo.
+  const creditsLabel =
+    totalCredits > 0
+      ? `${totalCredits.toLocaleString('es-CO')} ${totalCredits === 1 ? 'crédito' : 'créditos'}`
+      : null;
+  const consumption: { value: string; unit?: string; detail?: string } = usdDisplay
+    ? {
+        value: usdDisplay.label,
+        // «Costo desconocido» no es una cifra: no lleva unidad.
+        unit: usdDisplay.label.startsWith('$') ? 'USD' : undefined,
+        detail: creditsLabel ?? undefined,
+      }
+    : creditsLabel
+      ? { value: totalCredits.toLocaleString('es-CO'), unit: totalCredits === 1 ? 'crédito' : 'créditos' }
+      : { value: '—', detail: 'Sin consumo registrado' };
   const consumptionDescription = usdDisplay?.description ?? undefined;
 
   // Sin cuota: connected/active providers that should have allowance but don't
@@ -52,56 +63,57 @@ export function BudgetSummaryCards({ providers }: Props) {
   const cards: {
     label: string;
     value: string;
+    unit?: string;
+    detail?: string;
     titleAttr?: string;
     icon: typeof Cpu;
     color: string;
-    bg: string;
   }[] = [
     {
-      label: 'Proveedores en catálogo',
+      label: 'Proveedores',
       value: String(totalProviders),
+      detail: 'En el catálogo',
       icon: Cpu,
-      color: 'text-su-brand',
-      bg: 'bg-su-brand-soft',
+      color: 'text-primary',
     },
     {
       label: 'Conectados',
       value: String(connectedProviders.length),
+      detail: `de ${totalProviders}`,
       icon: Activity,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-500/10',
+      color: 'text-success',
     },
     {
       label: 'Consumo del mes',
-      value: consumptionLabel,
+      value: consumption.value,
+      unit: consumption.unit,
+      detail: consumption.detail,
       titleAttr: consumptionDescription,
       icon: TrendingUp,
-      color: 'text-amber-500',
-      bg: 'bg-amber-500/10',
+      color: 'text-warning',
     },
     {
-      label: 'Sin cuota configurada',
+      label: 'Sin cuota',
       value: String(withoutAllowance),
+      detail: withoutAllowance > 0 ? 'Conectados sin tope mensual' : 'Todos tienen tope mensual',
       icon: PackageOpen,
-      color: withoutAllowance > 0 ? 'text-amber-500' : 'text-muted-foreground',
-      bg: withoutAllowance > 0 ? 'bg-amber-500/10' : 'bg-muted/30',
+      color: withoutAllowance > 0 ? 'text-warning' : 'text-muted-foreground',
     },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <SurfaceCard key={card.label} className="flex items-center gap-4 p-4">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.bg} ${card.color}`}>
-            <card.icon className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{card.label}</p>
-            <p className="truncate text-lg font-semibold text-foreground" title={card.titleAttr}>
-              {card.value}
-            </p>
-          </div>
-        </SurfaceCard>
+        <MetricCard
+          key={card.label}
+          title={card.label}
+          value={card.value}
+          subtitle={card.unit}
+          description={card.detail}
+          hint={card.titleAttr}
+          valueClassName="whitespace-nowrap"
+          icon={<card.icon className={card.color} aria-hidden="true" />}
+        />
       ))}
     </div>
   );

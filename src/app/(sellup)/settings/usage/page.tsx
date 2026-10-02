@@ -1,12 +1,34 @@
 import { redirect } from 'next/navigation';
-import { Bot, Plug, Star, Info, FlaskConical, DollarSign, Zap, CheckCircle2, TrendingUp } from 'lucide-react';
+import { Bot, Plug, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { MetricCard } from '@/components/shared/metric-card';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  StatusBadge as SystemStatusBadge,
+  TableShell,
+  Timeline,
+  TimelineItem,
+  type StatusType,
+  type TimelineTone,
+} from '@/components/data-display';
+import { BarList } from '@/components/charts/BarList';
+import { DistributionBar } from '@/components/charts/DistributionBar';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { EffectivenessMeter } from '../../ai-usage/effectiveness-meter';
+import {
+  agentRunSegments,
+  mockAgentCostItems,
+  mockProviderCostData,
+  providerCallSegments,
+} from './usage-chart-data';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { getUsageSummary, getRecentUsageActivity } from '@/modules/usage-tracking/actions';
-import type { AgentRun, ProviderUsageLog, ResultQualityEvent } from '@/modules/usage-tracking/types';
+import { AgentRunsTable, ProviderLogsTable, QualityEventsTable } from './usage-activity-tables';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 import { CostValue } from '@/components/shared/cost-value';
 import {
@@ -16,19 +38,11 @@ import {
   MOCK_ACTIVITY,
 } from '@/modules/usage-tracking/mock-data';
 import type { MockAgentStat, MockProviderStat, MockActivityItem } from '@/modules/usage-tracking/mock-data';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ============================================================
 // Helpers
 // ============================================================
-
-function formatRelativeTime(isoDate: string): string {
-  const diff = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
-  if (diff < 60) return 'Hace un momento';
-  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
-  if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-  return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-}
 
 function formatCost(usd: number, decimals = 4): string {
   if (usd === 0) return '$0.00';
@@ -36,154 +50,93 @@ function formatCost(usd: number, decimals = 4): string {
   return `$${usd.toFixed(decimals)}`;
 }
 
+type BadgeTone = 'positive' | 'warning' | 'negative' | 'neutral' | 'brand';
+
+const STATUS_BADGE: Record<string, { label: string; variant: BadgeTone }> = {
+  completed:      { label: 'Completado',  variant: 'positive' },
+  running:        { label: 'En curso',    variant: 'brand' },
+  failed:         { label: 'Error',       variant: 'negative' },
+  cancelled:      { label: 'Cancelado',   variant: 'neutral' },
+  pending:        { label: 'Pendiente',   variant: 'warning' },
+  success:        { label: 'Correcta',    variant: 'positive' },
+  error:          { label: 'Error',       variant: 'negative' },
+  rate_limited:   { label: 'Demasiadas seguidas', variant: 'warning' },
+  quota_exceeded: { label: 'Cuota agotada', variant: 'negative' },
+  active:         { label: 'Activo',      variant: 'positive' },
+  idle:           { label: 'Inactivo',    variant: 'neutral' },
+  planned:        { label: 'Planificado', variant: 'warning' },
+};
+
+/** El chip de estado del sistema (`StatusBadge` de Thema) para cada tono. */
+const BADGE_STATUS: Record<BadgeTone, StatusType> = {
+  positive: 'completed',
+  warning: 'warning',
+  negative: 'error',
+  neutral: 'neutral',
+  brand: 'info',
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; classes: string; dot: string }> = {
-    completed:      { label: 'Completado',  classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    running:        { label: 'En curso',    classes: 'border-su-brand/30 bg-su-brand/10 text-su-brand',         dot: 'bg-su-brand' },
-    failed:         { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    cancelled:      { label: 'Cancelado',   classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    pending:        { label: 'Pendiente',   classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    success:        { label: 'OK',          classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    error:          { label: 'Error',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    rate_limited:   { label: 'Rate limit',  classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-    quota_exceeded: { label: 'Cuota',       classes: 'border-destructive/30 bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-    active:         { label: 'Activo',      classes: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500' },
-    idle:           { label: 'Inactivo',    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',   dot: 'bg-muted-foreground/25' },
-    planned:        { label: 'Planificado', classes: 'border-amber-500/30 bg-amber-500/10 text-amber-500',       dot: 'bg-amber-500' },
-  };
-  const config = map[status] ?? {
-    label: status,
-    classes: 'border-border/40 bg-muted/30 text-muted-foreground/60',
-    dot: 'bg-muted-foreground/25',
-  };
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${config.classes}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
-      {config.label}
-    </span>
-  );
+  const config = STATUS_BADGE[status] ?? { label: status, variant: 'neutral' as const };
+  return <SystemStatusBadge status={BADGE_STATUS[config.variant]} label={config.label} />;
 }
 
-function EventTypeBadge({ type }: { type: string }) {
-  const map: Record<string, string> = {
-    generated:            'bg-su-brand/10 text-su-brand',
-    normalized:           'bg-muted/40 text-muted-foreground',
-    duplicate_detected:   'bg-amber-500/10 text-amber-500',
-    discarded:            'bg-destructive/10 text-destructive',
-    approved:             'bg-emerald-500/10 text-emerald-500',
-    converted_to_account: 'bg-emerald-500/10 text-emerald-600',
-    sent_to_hubspot:      'bg-su-brand/10 text-su-brand',
-    contact_useful:       'bg-emerald-500/10 text-emerald-500',
-    contact_invalid:      'bg-destructive/10 text-destructive',
-  };
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${map[type] ?? 'bg-muted/40 text-muted-foreground'}`}>
-      {type.replace(/_/g, ' ')}
-    </span>
-  );
-}
+const CHART_ROW = 'grid gap-4 lg:grid-cols-2';
+const DONUT_HEIGHT = 260;
+const formatRuns = (value: number) => value.toLocaleString('es-ES');
+
+/** Tono del punto del feed según el estado de la ejecución. */
+const STATUS_TIMELINE_TONE: Record<BadgeTone, TimelineTone> = {
+  positive: 'positive',
+  warning: 'warning',
+  negative: 'negative',
+  neutral: 'default',
+  brand: 'primary',
+};
 
 // ============================================================
-// Tablas — datos reales
+// Tablas — marco compartido
 // ============================================================
 
-function AgentRunsTable({ runs }: { runs: AgentRun[] }) {
-  if (runs.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin ejecuciones de agentes todavía.</p>;
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/40">
-            {['Agente', 'Estado', 'Generados', 'Aprobados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/20">
-          {runs.map((run) => (
-            <tr key={run.id}>
-              <td className="py-2.5 pr-4 font-medium text-foreground">{run.agent_name ?? run.agent_key}</td>
-              <td className="py-2.5 pr-4"><StatusBadge status={run.status} /></td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{run.results_generated}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{run.results_approved}</td>
-              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(Number(run.estimated_cost_usd), 2)}</td>
-              <td className="py-2.5 text-right text-muted-foreground">{run.created_at ? formatRelativeTime(run.created_at) : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function headCell(isLeft: boolean): string {
+  return isLeft ? 'text-left' : 'text-right';
 }
 
-function ProviderLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
-  if (logs.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin llamadas a proveedores todavía.</p>;
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/40">
-            {['Proveedor', 'Operación', 'Estado', 'Resultados', 'Costo est.', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 3 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/20">
-          {logs.map((log) => (
-            <tr key={log.id}>
-              <td className="py-2.5 pr-4 font-medium text-foreground capitalize">{log.provider_key}</td>
-              <td className="py-2.5 pr-4 text-muted-foreground">{log.operation_key.replace(/_/g, ' ')}</td>
-              <td className="py-2.5 pr-4"><StatusBadge status={log.status} /></td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{log.results_returned}</td>
-              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
-                <CostValue
-                  display={resolveCostDisplay({
-                    valueUsd: log.estimated_cost_usd ?? 0,
-                    costTruth: toCostTruth(log.estimated_cost_usd == null),
-                    formatUsd: (v) => formatCost(v, 2),
-                  })}
-                />
-              </td>
-              <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(log.created_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+interface UsageTableProps {
+  title: string;
+  description: string;
+  count: number;
+  /** Cabeceras, y cuántas de ellas (desde la izquierda) se alinean a la izquierda. */
+  columns: string[];
+  leftAligned: number;
+  emptyLabel: string;
+  children: React.ReactNode;
 }
 
-function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
-  if (events.length === 0) {
-    return <p className="text-xs text-muted-foreground py-4 text-center">Sin eventos de calidad todavía.</p>;
-  }
+function UsageTable({ title, description, count, columns, leftAligned, emptyLabel, children }: UsageTableProps) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/40">
-            {['Tipo', 'Evento', 'Fuente', 'Notas', 'Hace'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 4 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
+    <TableShell
+      title={
+        <>
+          {title}
+          <Badge variant="neutral" className="tabular-nums">{count}</Badge>
+        </>
+      }
+      description={description}
+      empty={count === 0}
+      emptyState={<EmptyState variant="plain" title={emptyLabel} />}
+    >
+      <Table className="text-xs tabular-nums">
+        <TableHeader>
+          <TableRow>
+            {columns.map((h, i) => (
+              <TableHead key={h} scope="col" className={headCell(i < leftAligned)}>{h}</TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/20">
-          {events.map((ev) => (
-            <tr key={ev.id}>
-              <td className="py-2.5 pr-4 text-muted-foreground capitalize">{ev.result_type}</td>
-              <td className="py-2.5 pr-4"><EventTypeBadge type={ev.event_type} /></td>
-              <td className="py-2.5 pr-4 text-muted-foreground">{ev.source_key ?? '—'}</td>
-              <td className="py-2.5 pr-4 text-muted-foreground max-w-[200px] truncate">{ev.notes ?? '—'}</td>
-              <td className="py-2.5 text-right text-muted-foreground">{formatRelativeTime(ev.created_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{children}</TableBody>
+      </Table>
+    </TableShell>
   );
 }
 
@@ -193,65 +146,61 @@ function QualityEventsTable({ events }: { events: ResultQualityEvent[] }) {
 
 function MockAgentsTable({ agents }: { agents: MockAgentStat[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/40">
-            {['Agente', 'Estado', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo / aprobado'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/20">
-          {agents.map((a) => (
-            <tr key={a.key}>
-              <td className="py-2.5 pr-4 font-medium text-foreground">{a.name}</td>
-              <td className="py-2.5 pr-4"><StatusBadge status={a.status} /></td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.executions}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.resultsGenerated}</td>
-              <td className="py-2.5 pr-4 text-right text-foreground font-medium">{a.resultsApproved}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{a.effectivenessRate.toFixed(1)}%</td>
-              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</td>
-              <td className="py-2.5 text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <UsageTable
+      title="Efectividad por agente"
+      description="Ejecuciones, costo y tasa de aprobación por agente — datos de ejemplo."
+      count={agents.length}
+      columns={['Agente', 'Estado', 'Ejec.', 'Generados', 'Aprobados', 'Efectividad', 'Costo est.', 'Costo / aprobado']}
+      leftAligned={2}
+      emptyLabel="Sin ejecuciones de agentes todavía."
+    >
+      {agents.map((a) => (
+        <TableRow key={a.key}>
+          <TableCell className="font-medium text-foreground">{a.name}</TableCell>
+          <TableCell><StatusBadge status={a.status} /></TableCell>
+          <TableCell className="text-right text-muted-foreground">{a.executions}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{a.resultsGenerated}</TableCell>
+          <TableCell className="text-right font-medium text-foreground">{a.resultsApproved}</TableCell>
+          <TableCell>
+            <EffectivenessMeter pct={a.effectivenessRate} label={`Efectividad de ${a.name}`} />
+          </TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.estimatedCostUsd, 2)}</TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">{formatCost(a.avgCostPerApproved)}</TableCell>
+        </TableRow>
+      ))}
+    </UsageTable>
   );
 }
 
 function MockProvidersTable({ providers }: { providers: MockProviderStat[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/40">
-            {['Proveedor', 'Operación', 'Llamadas', 'Devueltos', 'Útiles', 'Efectividad', 'Costo est.', 'Costo / útil'].map((h, i) => (
-              <th key={h} className={`pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${i < 2 ? 'text-left' : 'text-right'} pr-4 last:pr-0`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/20">
-          {providers.map((p) => (
-            <tr key={p.key}>
-              <td className="py-2.5 pr-4 font-medium text-foreground">{p.name}</td>
-              <td className="py-2.5 pr-4 text-muted-foreground">{p.operation}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.calls}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.resultsReturned}</td>
-              <td className="py-2.5 pr-4 text-right text-foreground font-medium">{p.usefulResults}</td>
-              <td className="py-2.5 pr-4 text-right text-muted-foreground">{p.effectivenessRate.toFixed(1)}%</td>
-              <td className="py-2.5 pr-4 text-right font-mono text-muted-foreground">
-                {p.estimatedCostUsd === 0 ? <span className="text-muted-foreground/40">—</span> : formatCost(p.estimatedCostUsd, 2)}
-              </td>
-              <td className="py-2.5 text-right font-mono text-muted-foreground">
-                {p.avgCostPerUsefulResult === 0 ? <span className="text-muted-foreground/40">—</span> : formatCost(p.avgCostPerUsefulResult)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <UsageTable
+      title="Efectividad por proveedor"
+      description="Llamadas, resultados útiles y costo por proveedor — datos de ejemplo."
+      count={providers.length}
+      columns={['Proveedor', 'Operación', 'Llamadas', 'Devueltos', 'Útiles', 'Efectividad', 'Costo est.', 'Costo / útil']}
+      leftAligned={2}
+      emptyLabel="Sin llamadas a proveedores todavía."
+    >
+      {providers.map((p) => (
+        <TableRow key={p.key}>
+          <TableCell className="font-medium text-foreground">{p.name}</TableCell>
+          <TableCell className="text-muted-foreground">{p.operation}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{p.calls}</TableCell>
+          <TableCell className="text-right text-muted-foreground">{p.resultsReturned}</TableCell>
+          <TableCell className="text-right font-medium text-foreground">{p.usefulResults}</TableCell>
+          <TableCell>
+            <EffectivenessMeter pct={p.effectivenessRate} label={`Efectividad de ${p.name}`} />
+          </TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">
+            {p.estimatedCostUsd === 0 ? <span className="text-text-muted">—</span> : formatCost(p.estimatedCostUsd, 2)}
+          </TableCell>
+          <TableCell className="text-right font-mono text-muted-foreground">
+            {p.avgCostPerUsefulResult === 0 ? <span className="text-text-muted">—</span> : formatCost(p.avgCostPerUsefulResult)}
+          </TableCell>
+        </TableRow>
+      ))}
+    </UsageTable>
   );
 }
 
@@ -260,25 +209,25 @@ function MockActivityTable({ items }: { items: MockActivityItem[] }) {
     agent: 'Agente', provider: 'Proveedor', quality: 'Calidad',
   };
   return (
-    <div className="divide-y divide-border/20">
+    <Timeline>
       {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 py-2.5">
-          <span className="w-20 shrink-0 text-[10px] text-muted-foreground">{item.relativeTime}</span>
-          <span className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {typeLabel[item.type]}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-            <span className="font-medium text-foreground">{item.providerOrAgent}</span>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="truncate text-muted-foreground">{item.operation}</span>
+        <TimelineItem
+          key={item.id}
+          tone={STATUS_TIMELINE_TONE[STATUS_BADGE[item.status]?.variant ?? 'neutral']}
+          title={item.providerOrAgent}
+          time={item.relativeTime}
+          description={item.operation}
+        >
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="neutral">{typeLabel[item.type]}</Badge>
+            <StatusBadge status={item.status} />
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {item.estimatedCostUsd > 0 ? formatCost(item.estimatedCostUsd, 2) : '—'}
+            </span>
           </div>
-          <StatusBadge status={item.status} />
-          <span className="w-20 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
-            {item.estimatedCostUsd > 0 ? formatCost(item.estimatedCostUsd, 2) : '—'}
-          </span>
-        </div>
+        </TimelineItem>
       ))}
-    </div>
+    </Timeline>
   );
 }
 
@@ -300,12 +249,17 @@ export default async function UsagePage() {
     activity.provider_logs.length === 0 &&
     activity.quality_events.length === 0;
 
+  const mockProviderCost = mockProviderCostData(MOCK_PROVIDERS);
+  const mockProviderCostBreakdown = mockProviderCost
+    .map((part) => `${part.label}: ${formatCost(part.value, 2)}`)
+    .join(' · ');
+
   const summaryCards = [
-    { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground',   bg: 'bg-muted/40' },
-    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-su-brand' : 'text-muted-foreground', bg: 'bg-muted/40' },
-    { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground', bg: 'bg-muted/40' },
-    { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground',   bg: 'bg-muted/40' },
-    { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-emerald-500',  bg: 'bg-emerald-500/10' },
+    { label: 'Ejecuciones',  value: isEmpty ? String(MOCK_SUMMARY.totalExecutions)   : String(summary.total_agent_runs),      sub: 'de agentes',           icon: Bot,          accent: 'text-foreground' },
+    { label: 'En curso',     value: isEmpty ? '0'                                     : String(summary.running_agent_runs),    sub: 'agentes activos',      icon: Zap,          accent: summary.running_agent_runs > 0 ? 'text-primary' : 'text-muted-foreground' },
+    { label: 'Fallidas',     value: isEmpty ? '0'                                     : String(summary.failed_agent_runs),     sub: 'con error',            icon: Bot,          accent: summary.failed_agent_runs > 0 ? 'text-destructive' : 'text-muted-foreground' },
+    { label: 'Llamadas API', value: isEmpty ? String(MOCK_SUMMARY.totalProviderCalls) : String(summary.total_provider_calls), sub: 'a proveedores',        icon: Plug,         accent: 'text-foreground' },
+    { label: 'Aprobados',    value: isEmpty ? String(MOCK_SUMMARY.totalApproved)      : '—',                                  sub: 'resultados aprobados', icon: CheckCircle2, accent: 'text-success' },
     {
       label: 'Costo est.',
       value: isEmpty
@@ -319,63 +273,63 @@ export default async function UsagePage() {
             })}
           />
         ),
-      sub: 'USD estimados', icon: DollarSign, accent: 'text-su-brand', bg: 'bg-su-brand-soft',
+      sub: 'USD estimados', icon: DollarSign, accent: 'text-primary',
     },
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <LegacyCompatBanner
-        message="Esta vista sigue disponible como base interna. La lectura operativa principal de proveedores y consumo vive en Proveedores y consumo."
+        message="El consumo de cada proveedor se revisa ahora en Proveedores y consumo. Esta vista se conserva para ver el detalle de la actividad."
         ctaLabel="Ir a Proveedores y consumo"
         ctaHref="/settings/providers?tab=consumo"
       />
       <PageHeader
+        breadcrumbs={
+          <Breadcrumbs
+            items={[
+              { label: 'Proveedores y consumo', href: '/settings/providers' },
+              'Uso, costos y efectividad',
+            ]}
+          />
+        }
         title="Uso, costos y efectividad"
-        description="Foundation operativa para monitorear ejecuciones de agentes, llamadas a proveedores y calidad de resultados."
-        backHref="/settings"
+        description="Qué hicieron los agentes, qué se consultó a los proveedores y qué pasó con cada resultado."
         actions={isEmpty ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-500">
-            <FlaskConical className="h-3 w-3" />
-            Datos demo
-          </span>
+          <Badge variant="warning">
+            <FlaskConical aria-hidden="true" />
+            Datos de ejemplo
+          </Badge>
         ) : undefined}
       />
 
       {/* ── Aviso contextual ─────────────────────────────────── */}
-      <div className="flex items-start gap-3 rounded-xl border border-su-brand/20 bg-su-brand/5 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-        <p className="text-xs text-muted-foreground leading-relaxed">
+      <Alert variant="info" role="note">
+        <AlertDescription>
           {isEmpty ? (
             <>
-              La BD aún no tiene ejecuciones registradas.{' '}
-              <strong className="text-foreground font-medium">Los datos que ves son ilustrativos</strong>{' '}
-              y desaparecerán automáticamente cuando los agentes comiencen a registrar actividad en producción.
+              Todavía no hay actividad registrada.{' '}
+              <strong className="font-medium text-foreground">Los datos que ves son de ejemplo</strong> y desaparecerán
+              en cuanto los agentes empiecen a trabajar.
             </>
           ) : (
             <>
-              Esta vista es la <strong className="text-foreground font-medium">foundation operativa</strong>.
-              Los dashboards avanzados se construirán cuando existan datos históricos suficientes.
+              Aquí ves <strong className="font-medium text-foreground">la actividad más reciente</strong>. Los análisis
+              por periodo llegarán cuando haya suficiente historial.
             </>
           )}
-        </p>
-      </div>
+        </AlertDescription>
+      </Alert>
 
       {/* ── Summary cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => (
           <MetricCard
             key={card.label}
             title={card.label}
             description={card.sub}
             value={card.value}
-            valueClassName={`font-mono ${card.accent}`}
-            iconPosition="top"
-            icon={
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.accent}`} />
-              </div>
-            }
+            icon={<card.icon className={card.accent} aria-hidden="true" />}
           />
         ))}
       </div>
@@ -383,29 +337,34 @@ export default async function UsagePage() {
       {/* ── Tablas demo (cuando BD vacía) ───────────────────── */}
       {isEmpty && (
         <div className="space-y-6">
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Efectividad por agente"
-              description="Ejecuciones, costo y tasa de aprobación por agente — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Bot className="h-4 w-4 text-su-brand" /></div>}
+          <section aria-label="Gráficos de ejemplo" className={CHART_ROW}>
+            <BarList
+              title="Costo por agente"
+              description="Costo estimado en USD, con los resultados aprobados — datos de ejemplo."
+              count={MOCK_AGENTS.length}
+              items={mockAgentCostItems(MOCK_AGENTS)}
+              formatValue={(value) => formatCost(value, 2)}
             />
-            <MockAgentsTable agents={MOCK_AGENTS} />
-          </SurfaceCard>
+            <DonutChart
+              title="De qué está hecho el costo"
+              description="Reparto del costo estimado (USD) entre proveedores — datos de ejemplo."
+              seriesName="Costo estimado (USD)"
+              data={mockProviderCost}
+              height={DONUT_HEIGHT}
+              ariaLabel="Reparto del costo estimado entre proveedores, con datos de ejemplo"
+              summary={`Costo estimado por proveedor (datos de ejemplo). ${mockProviderCostBreakdown}.`}
+              footer={<span className="tabular-nums">{mockProviderCostBreakdown}</span>}
+            />
+          </section>
 
-          <SurfaceCard>
-            <SurfaceCardHeader
-              title="Efectividad por proveedor"
-              description="Llamadas, resultados útiles y costo por proveedor — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/40"><Plug className="h-4 w-4 text-muted-foreground" /></div>}
-            />
-            <MockProvidersTable providers={MOCK_PROVIDERS} />
-          </SurfaceCard>
+          <MockAgentsTable agents={MOCK_AGENTS} />
+
+          <MockProvidersTable providers={MOCK_PROVIDERS} />
 
           <SurfaceCard>
             <SurfaceCardHeader
               title="Actividad reciente"
-              description="Últimas ejecuciones de agentes y llamadas a proveedores — datos ilustrativos."
-              actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><TrendingUp className="h-4 w-4 text-su-brand" /></div>}
+              description="Últimas ejecuciones de agentes y llamadas a proveedores — datos de ejemplo."
             />
             <MockActivityTable items={MOCK_ACTIVITY} />
           </SurfaceCard>
@@ -415,54 +374,40 @@ export default async function UsagePage() {
       {/* ── Tablas reales (cuando hay datos) ────────────────── */}
       {!isEmpty && (
         <div className="space-y-6">
-          {activity.agent_runs.length > 0 && (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Ejecuciones de agentes"
-                description={`Últimas ${activity.agent_runs.length} ejecuciones`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Bot className="h-4 w-4 text-su-brand" /></div>}
-              />
-              <AgentRunsTable runs={activity.agent_runs} />
-            </SurfaceCard>
-          )}
-          {activity.provider_logs.length > 0 && (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Llamadas a proveedores"
-                description={`Últimas ${activity.provider_logs.length} llamadas`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Plug className="h-4 w-4 text-su-brand" /></div>}
-              />
-              <ProviderLogsTable logs={activity.provider_logs} />
-            </SurfaceCard>
-          )}
-          {activity.quality_events.length > 0 && (
-            <SurfaceCard>
-              <SurfaceCardHeader
-                title="Eventos de calidad de resultados"
-                description={`Últimos ${activity.quality_events.length} eventos`}
-                actions={<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-su-brand-soft"><Star className="h-4 w-4 text-su-brand" /></div>}
-              />
-              <QualityEventsTable events={activity.quality_events} />
-            </SurfaceCard>
-          )}
+          <section aria-label="Cómo salió la actividad" className={CHART_ROW}>
+            <DistributionBar
+              title="Cómo van las ejecuciones"
+              description="Todas las ejecuciones de agentes registradas."
+              unit="ejecuciones"
+              segments={agentRunSegments(summary)}
+              formatValue={formatRuns}
+              emptyLabel="Todavía no hay ejecuciones de agentes."
+            />
+            <DistributionBar
+              title="Cómo salieron las consultas"
+              description="Todas las consultas a proveedores registradas."
+              unit="consultas"
+              segments={providerCallSegments(summary)}
+              formatValue={formatRuns}
+              emptyLabel="Todavía no hay consultas a proveedores."
+            />
+          </section>
+
+          {activity.agent_runs.length > 0 && <AgentRunsTable runs={activity.agent_runs} />}
+          {activity.provider_logs.length > 0 && <ProviderLogsTable logs={activity.provider_logs} />}
+          {activity.quality_events.length > 0 && <QualityEventsTable events={activity.quality_events} />}
         </div>
       )}
 
       {/* ── Estado de configuración de precios ──────────────── */}
-      <SurfaceCard>
-        <div className="flex items-start gap-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-su-brand" />
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Configuración de costos por proveedor</p>
-            <p className="text-xs text-muted-foreground">
-              Los costos dependen de{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">provider_pricing_config</code>.{' '}
-              Apollo y Lusha ya cuentan con costo estimado por crédito según los contratos vigentes.
-              Otros proveedores (Anthropic, OpenAI) pueden requerir configuración adicional según el modelo activo.
-            </p>
-          </div>
-        </div>
-      </SurfaceCard>
+      <Alert role="note">
+        <AlertTitle>De dónde salen los costos</AlertTitle>
+        <AlertDescription>
+          Los costos son estimados a partir del precio configurado para cada proveedor. Apollo y Lusha
+          ya tienen su precio por crédito según el contrato vigente; los proveedores de IA pueden
+          necesitar que se configure el precio del modelo en uso.
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }

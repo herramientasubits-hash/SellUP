@@ -1,10 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Building2, Check, Globe, Info, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from 'lucide-react';
+import { Building2, Check, Globe, Lightbulb, MapPin, ShieldCheck, UserPlus, XCircle } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ChatCardView } from '@/components/chat/chat-card-view';
+import type { ChatCardRow } from '@/components/chat/types';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { IconTile } from '@/components/utility';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import type {
   CompanyCandidate,
@@ -25,23 +29,13 @@ import {
 export function SourceBadge({ source }: { source: 'sellup' | 'hubspot' | 'manual' }) {
   if (source === 'manual') {
     return (
-      <Badge
-        variant="outline"
-        className="text-[10px] border-muted-foreground/30 text-muted-foreground bg-muted/40"
-      >
+      <Badge variant="neutral">
         Manual
       </Badge>
     );
   }
   return (
-    <Badge
-      variant="outline"
-      className={
-        source === 'sellup'
-          ? 'text-[10px] border-su-brand/30 text-su-brand bg-su-brand-soft'
-          : 'text-[10px] border-amber-500/30 text-amber-600 bg-amber-500/10'
-      }
-    >
+    <Badge variant={source === 'sellup' ? 'brand' : 'warning'}>
       {source === 'sellup' ? 'SellUp' : 'HubSpot'}
     </Badge>
   );
@@ -57,10 +51,8 @@ function sourceLabel(source: 'sellup' | 'hubspot' | 'manual'): string {
 
 export function CompanyChip({ candidate }: { candidate: CompanyCandidate }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 p-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-su-brand-soft">
-        <Building2 className="h-4 w-4 text-su-brand" aria-hidden />
-      </div>
+    <SurfaceCard className="flex items-center gap-3 p-3">
+      <IconTile icon={<Building2 />} aria-hidden />
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-foreground">{candidate.name}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
@@ -80,11 +72,17 @@ export function CompanyChip({ candidate }: { candidate: CompanyCandidate }) {
         </div>
         <p className="mt-1 text-xs text-muted-foreground">Fuente: {sourceLabel(candidate.source)}</p>
       </div>
-    </div>
+    </SurfaceCard>
   );
 }
 
 // ── Run result snapshot ───────────────────────────────────────────────────────
+//
+// El resultado de una corrida dentro de la conversación. Cada bloque de cifras es
+// una tarjeta `rows` de `ChatCardView` —la tarjeta de datos del chat del sistema—
+// y cada desenlace que no es una cifra (sin credenciales, error del proveedor, sin
+// candidatos) es un `Alert` en su tono. Los rótulos, las cifras y sus unidades son
+// los mismos de siempre.
 
 export function RunResultSnapshot({
   runResult,
@@ -119,163 +117,110 @@ export function RunResultSnapshot({
 
   const lushaTerminalError = lushaCredentialsMissing || lushaCompanyContextError || lushaProviderError;
 
+  const runRows: ChatCardRow[] = [
+    ...(candidate ? [{ key: 'company', label: 'Empresa', value: candidate.name }] : []),
+    {
+      key: 'candidates',
+      label: 'Candidatos',
+      value: String(
+        lushaResult
+          ? lushaResult.candidatesCreated
+          : apolloResult
+            ? apolloResult.totalCandidates
+            : runResult.candidatesCount,
+      ),
+    },
+    { key: 'run-id', label: 'Run ID', value: runResult.runId },
+  ];
+
+  const existingRows: ChatCardRow[] = [
+    {
+      key: 'sellup',
+      label: 'SellUp',
+      value:
+        sellup?.status === 'skipped'
+          ? `omitido — ${sellup.reason}`
+          : sellup?.status === 'error'
+            ? 'error al leer'
+            : String(sellup?.count ?? 0),
+    },
+    {
+      key: 'hubspot',
+      label: 'HubSpot',
+      value:
+        hubspot?.status === 'skipped'
+          ? `omitido${hubspot.reason ? ` — ${hubspot.reason}` : ''}`
+          : hubspot?.status === 'error'
+            ? 'error al leer'
+            : String(hubspot?.count ?? 0),
+    },
+    // Total para deduplicación — siempre visible, incluido 0 (Hito 17A.2B)
+    {
+      key: 'total',
+      label: 'Total para deduplicación',
+      value: String(combined?.totalExistingContacts ?? 0),
+    },
+  ];
+
+  const incompleteRows: ChatCardRow[] = combined
+    ? [
+        { key: 'missing-email', label: 'Sin email', count: combined.incompleteContacts.missingEmail },
+        { key: 'missing-phone', label: 'Sin teléfono', count: combined.incompleteContacts.missingPhone },
+        {
+          key: 'missing-linkedin',
+          label: 'Sin LinkedIn',
+          count: combined.incompleteContacts.missingLinkedin,
+        },
+      ]
+        .filter((row) => row.count > 0)
+        .map((row) => ({ key: row.key, label: row.label, value: String(row.count) }))
+    : [];
+
   return (
-    <SurfaceCard className="space-y-4 p-6">
-      <div className="flex items-center gap-2">
-        {lushaTerminalError ? (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
-            <XCircle className="h-4 w-4 text-amber-500" aria-hidden />
-          </div>
-        ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-            <Check className="h-4 w-4 text-emerald-500" aria-hidden />
-          </div>
-        )}
-        <p className="text-sm font-semibold text-foreground">
+    <div className="space-y-3" data-testid="run-result-snapshot">
+      <div className="flex flex-wrap items-center gap-2">
+        <IconTile
+          icon={lushaTerminalError ? <XCircle /> : <Check />}
+          tone={lushaTerminalError ? 'warning' : 'positive'}
+          size="sm"
+          aria-hidden
+        />
+        <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
           {lushaTerminalError ? 'Run no ejecutado' : 'Run creado'}
         </p>
+        {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
+          <Badge variant="warning">Sin credenciales</Badge>
+        ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
+          <Badge variant="neutral">Desactivado</Badge>
+        ) : provider === 'lusha' && lushaCompanyContextError ? (
+          <Badge variant="warning">Sin contexto de empresa</Badge>
+        ) : provider === 'lusha' && lushaResult?.status === 'provider_error' ? (
+          <Badge variant="negative">Error del proveedor</Badge>
+        ) : (
+          <Badge variant="positive">
+            {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
+              ? 'Listo para revisión'
+              : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
+                ? 'Completado'
+                : 'Listo para enriquecer'}
+          </Badge>
+        )}
       </div>
 
-      <dl className="space-y-2 text-sm">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Estado</dt>
-          <dd>
-            {provider === 'lusha' && lushaResult?.status === 'missing_api_key' ? (
-              <Badge
-                variant="outline"
-                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
-              >
-                Sin credenciales
-              </Badge>
-            ) : provider === 'lusha' && lushaResult?.status === 'disabled' ? (
-              <Badge
-                variant="outline"
-                className="text-xs text-muted-foreground border-border bg-muted/30"
-              >
-                Desactivado
-              </Badge>
-            ) : provider === 'lusha' && lushaCompanyContextError ? (
-              <Badge
-                variant="outline"
-                className="text-xs text-amber-600 border-amber-500/30 bg-amber-500/10"
-              >
-                Sin contexto de empresa
-              </Badge>
-            ) : provider === 'lusha' && lushaResult?.status === 'provider_error' ? (
-              <Badge
-                variant="outline"
-                className="text-xs text-destructive border-destructive/30 bg-destructive/10"
-              >
-                Error del proveedor
-              </Badge>
-            ) : (
-              <Badge
-                variant="outline"
-                className="text-xs text-emerald-600 border-emerald-500/30 bg-emerald-500/10"
-              >
-                {apolloResult?.status === 'ready_for_review' || lushaResult?.status === 'ready_for_review' || lushaResult?.providerStatus === 'success'
-                  ? 'Listo para revisión'
-                  : apolloResult?.status === 'completed' || lushaResult?.status === 'completed'
-                    ? 'Completado'
-                    : 'Listo para enriquecer'}
-              </Badge>
-            )}
-          </dd>
-        </div>
-        {candidate && (
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Empresa</dt>
-            <dd className="font-medium text-foreground">{candidate.name}</dd>
-          </div>
-        )}
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Candidatos</dt>
-          <dd className="font-medium text-foreground">
-            {lushaResult
-              ? lushaResult.candidatesCreated
-              : apolloResult
-                ? apolloResult.totalCandidates
-                : runResult.candidatesCount}
-          </dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Run ID</dt>
-          <dd className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
-            {runResult.runId}
-          </dd>
-        </div>
-      </dl>
+      <ChatCardView data-testid="run-result-run" card={{ kind: 'rows', rows: runRows }} />
 
       {snapshot && (
-        <div className="space-y-3 border-t border-border pt-3">
-          <p className="text-xs font-medium text-foreground">Contactos existentes detectados</p>
-          <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">SellUp</dt>
-              <dd className="font-medium text-foreground">
-                {sellup?.status === 'skipped' ? (
-                  <span className="text-muted-foreground">omitido — {sellup.reason}</span>
-                ) : sellup?.status === 'error' ? (
-                  <span className="text-destructive">error al leer</span>
-                ) : (
-                  (sellup?.count ?? 0)
-                )}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">HubSpot</dt>
-              <dd className="font-medium text-foreground">
-                {hubspot?.status === 'skipped' ? (
-                  <span className="text-muted-foreground">
-                    omitido{hubspot.reason ? ` — ${hubspot.reason}` : ''}
-                  </span>
-                ) : hubspot?.status === 'error' ? (
-                  <span className="text-destructive">error al leer</span>
-                ) : (
-                  (hubspot?.count ?? 0)
-                )}
-              </dd>
-            </div>
-            {/* Total para deduplicación — siempre visible, incluido 0 (Hito 17A.2B) */}
-            <div className="flex justify-between border-t border-border/50 pt-1.5">
-              <dt className="text-muted-foreground">Total para deduplicación</dt>
-              <dd className="font-semibold text-foreground">
-                {combined?.totalExistingContacts ?? 0}
-              </dd>
-            </div>
-          </dl>
+        <ChatCardView
+          data-testid="run-result-existing"
+          card={{ kind: 'rows', title: 'Contactos existentes detectados', rows: existingRows }}
+        />
+      )}
 
-          {combined &&
-            (combined.incompleteContacts.missingEmail > 0 ||
-              combined.incompleteContacts.missingPhone > 0 ||
-              combined.incompleteContacts.missingLinkedin > 0) && (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Contactos incompletos</p>
-                <dl className="space-y-1 text-xs">
-                  {combined.incompleteContacts.missingEmail > 0 && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Sin email</dt>
-                      <dd className="text-amber-600">{combined.incompleteContacts.missingEmail}</dd>
-                    </div>
-                  )}
-                  {combined.incompleteContacts.missingPhone > 0 && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Sin teléfono</dt>
-                      <dd className="text-amber-600">{combined.incompleteContacts.missingPhone}</dd>
-                    </div>
-                  )}
-                  {combined.incompleteContacts.missingLinkedin > 0 && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Sin LinkedIn</dt>
-                      <dd className="text-amber-600">
-                        {combined.incompleteContacts.missingLinkedin}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              </div>
-            )}
-        </div>
+      {incompleteRows.length > 0 && (
+        <ChatCardView
+          data-testid="run-result-incomplete"
+          card={{ kind: 'rows', title: 'Contactos incompletos', rows: incompleteRows }}
+        />
       )}
 
       {apolloResult ? (
@@ -288,34 +233,40 @@ export function RunResultSnapshot({
           onCreateManualContact={onCreateManualContact}
         />
       ) : lushaCredentialsMissing ? (
-        <p className="border-t border-border pt-3 text-xs text-amber-600">
-          {lushaResult?.status === 'missing_api_key'
-            ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
-            : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
-        </p>
+        <Alert variant="warning" role="note">
+          <AlertDescription className="text-xs text-warning">
+            {lushaResult?.status === 'missing_api_key'
+              ? 'Lusha no pudo acceder a la credencial configurada en Supabase Vault desde este runtime. No se ejecutó el proveedor y no se crearon candidatos.'
+              : 'Lusha está desactivado en este entorno. No se ejecutó el proveedor y no se crearon candidatos.'}
+          </AlertDescription>
+        </Alert>
       ) : lushaCompanyContextError ? (
-        <p className="border-t border-border pt-3 text-xs text-amber-600">
-          No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
-        </p>
+        <Alert variant="warning" role="note">
+          <AlertDescription className="text-xs text-warning">
+            No se pudo resolver suficiente contexto de la empresa para ejecutar Lusha. No se crearon candidatos.
+          </AlertDescription>
+        </Alert>
       ) : lushaProviderError ? (
-        <p className="border-t border-border pt-3 text-xs text-destructive">
-          {lushaResult?.error ??
-            'No fue posible completar la búsqueda con Lusha. El proveedor devolvió un error durante la búsqueda. Intenta nuevamente más tarde o revisa el estado de la integración.'}
-        </p>
+        <Alert variant="destructive" role="note">
+          <AlertDescription className="text-xs text-destructive">
+            {lushaResult?.error ??
+              'No fue posible completar la búsqueda con Lusha. El proveedor devolvió un error durante la búsqueda. Intenta nuevamente más tarde o revisa el estado de la integración.'}
+          </AlertDescription>
+        </Alert>
       ) : lushaResult && lushaResult.candidatesCreated === 0 ? (
         <LushaEmptyState result={lushaResult} />
       ) : lushaResult ? (
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Los candidatos quedaron pendientes de revisión. No se crearon contactos finales.
         </p>
       ) : (
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {provider === 'lusha'
             ? 'Lusha buscará o enriquecerá perfiles para crear candidatos revisables con email corporativo cuando esté disponible. Teléfono deshabilitado en esta fase. No se crean contactos finales ni se escribe en HubSpot.'
             : 'Apollo buscará perfiles de RR. HH. para crear candidatos revisables. No se crean contactos finales ni se escribe en HubSpot.'}
         </p>
       )}
-    </SurfaceCard>
+    </div>
   );
 }
 
@@ -334,36 +285,24 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
   });
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-          <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
-          <p className="text-xs text-muted-foreground">{copy.detail}</p>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
-        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
-      </div>
-
-      <dl className="space-y-1.5 border-t border-border/50 pt-3 text-xs">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Resultados brutos</dt>
-          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Créditos usados</dt>
-          <dd className="font-medium text-foreground">{result.creditsUsed ?? 0}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Reveal de teléfono</dt>
-          <dd className="font-medium text-foreground">no ejecutado</dd>
-        </div>
-      </dl>
-    </div>
+    <>
+      <Alert role="note">
+        <AlertTitle className="text-sm">{copy.headline}</AlertTitle>
+        <AlertDescription className="text-xs">{copy.detail}</AlertDescription>
+        <AlertDescription className="text-xs">{copy.notAnError}</AlertDescription>
+      </Alert>
+      <ChatCardView
+        data-testid="lusha-empty-metrics"
+        card={{
+          kind: 'rows',
+          rows: [
+            { key: 'raw', label: 'Resultados brutos', value: String(result.rawResultsCount) },
+            { key: 'credits', label: 'Créditos usados', value: String(result.creditsUsed ?? 0) },
+            { key: 'phone-reveal', label: 'Reveal de teléfono', value: 'no ejecutado' },
+          ],
+        }}
+      />
+    </>
   );
 }
 
@@ -373,11 +312,9 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
   const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
   const isLusha = provider === 'lusha';
   return (
-    <SurfaceCard className="space-y-3 p-4">
+    <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-su-brand-soft">
-          <ShieldCheck className="h-3.5 w-3.5 text-su-brand" aria-hidden />
-        </div>
+        <IconTile icon={<ShieldCheck />} size="sm" aria-hidden />
         <p className="text-sm font-semibold text-foreground">
           {isLusha ? 'Control de enriquecimiento Lusha' : 'Control de créditos Apollo'}
         </p>
@@ -389,32 +326,21 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
       </p>
       {isLusha ? (
         <>
-          <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground font-medium">Búsqueda / enriquecimiento Lusha</dt>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Máximo de intentos</dt>
-              <dd className="font-medium text-foreground">3</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
-              <dd className="font-medium text-foreground">15</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Email corporativo</dt>
-              <dd className="font-medium text-foreground">habilitado si está disponible</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Teléfono</dt>
-              <dd className="font-medium text-foreground">deshabilitado en esta fase</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
-              <dd className="font-medium text-foreground">no disponible</dd>
-            </div>
-          </dl>
-          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+          <ChatCardView
+            data-testid="preflight-lusha"
+            card={{
+              kind: 'rows',
+              title: 'Búsqueda / enriquecimiento Lusha',
+              rows: [
+                { key: 'attempts', label: 'Máximo de intentos', value: '3' },
+                { key: 'results', label: 'Máximo de resultados a evaluar', value: '15' },
+                { key: 'email', label: 'Email corporativo', value: 'habilitado si está disponible' },
+                { key: 'phone', label: 'Teléfono', value: 'deshabilitado en esta fase' },
+                { key: 'phone-reveal', label: 'Reveal automático de teléfono', value: 'no disponible' },
+              ],
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
             Lusha puede consumir créditos según disponibilidad del proveedor. SellUp limita
             resultados e intentos para evitar corridas amplias. Los candidatos quedan en revisión
             humana; no se crean contactos finales ni se escribe en HubSpot.
@@ -422,50 +348,61 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
         </>
       ) : (
         <>
-          <dl className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground font-medium">Búsqueda Apollo</dt>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Máximo de intentos</dt>
-              <dd className="font-medium text-foreground">{g.maxSearchAttempts}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Máximo de resultados a evaluar</dt>
-              <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Créditos máximos de búsqueda</dt>
-              <dd className="font-medium text-foreground">
-                {g.maxEstimatedSearchCreditsPerRun === 0
-                  ? 'sin costo'
-                  : `${g.maxEstimatedSearchCreditsPerRun} créditos`}
-              </dd>
-            </div>
-            <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
-              <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Máximo de perfiles a completar</dt>
-              <dd className="font-medium text-foreground">{g.maxCompletionCandidates}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Créditos máximos estimados de completion</dt>
-              <dd className="font-medium text-foreground">{g.maxCompletionCreditsPerRun}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Teléfono (de búsqueda)</dt>
-              <dd className="font-medium text-foreground">se conserva si Apollo lo entrega</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
-              <dd className="text-muted-foreground">
-                ~{g.phoneRevealCredits} créditos —{' '}
-                {g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'}
-              </dd>
-            </div>
-          </dl>
-          <p className="border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+          <ChatCardView
+            data-testid="preflight-apollo-search"
+            card={{
+              kind: 'rows',
+              title: 'Búsqueda Apollo',
+              rows: [
+                { key: 'attempts', label: 'Máximo de intentos', value: String(g.maxSearchAttempts) },
+                {
+                  key: 'results',
+                  label: 'Máximo de resultados a evaluar',
+                  value: String(g.maxSearchResultsPerRun),
+                },
+                {
+                  key: 'credits',
+                  label: 'Créditos máximos de búsqueda',
+                  value:
+                    g.maxEstimatedSearchCreditsPerRun === 0
+                      ? 'sin costo'
+                      : `${g.maxEstimatedSearchCreditsPerRun} créditos`,
+                },
+              ],
+            }}
+          />
+          <ChatCardView
+            data-testid="preflight-apollo-completion"
+            card={{
+              kind: 'rows',
+              title: 'Completion de perfiles',
+              rows: [
+                {
+                  key: 'profiles',
+                  label: 'Máximo de perfiles a completar',
+                  value: String(g.maxCompletionCandidates),
+                },
+                {
+                  key: 'credits',
+                  label: 'Créditos máximos estimados de completion',
+                  value: String(g.maxCompletionCreditsPerRun),
+                },
+                {
+                  key: 'phone',
+                  label: 'Teléfono (de búsqueda)',
+                  value: 'se conserva si Apollo lo entrega',
+                },
+                {
+                  key: 'phone-reveal',
+                  label: 'Reveal automático de teléfono',
+                  value: `~${g.phoneRevealCredits} créditos — ${
+                    g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'
+                  }`,
+                },
+              ],
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
             La búsqueda puede consumir créditos según el plan. SellUp limita resultados e intentos
             para evitar corridas amplias. Solo se completarán perfiles de alta relevancia (RR. HH.,
             Talento, Aprendizaje, Cultura).
@@ -476,7 +413,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
           </p>
         </>
       )}
-    </SurfaceCard>
+    </div>
   );
 }
 
@@ -506,30 +443,20 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
   const canCreateManual = !!(runId && accountId && onCreateManualContact);
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-          <AlertCircle className="h-4 w-4 text-amber-500" aria-hidden />
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">{copy.headline}</p>
-          <p className="text-xs text-muted-foreground">{copy.detail}</p>
-        </div>
-      </div>
+    <Alert variant="warning" role="note">
+      <AlertTitle className="text-sm text-foreground">{copy.headline}</AlertTitle>
+      <AlertDescription className="text-xs">{copy.detail}</AlertDescription>
+      <AlertDescription className="text-xs">{copy.notAnError}</AlertDescription>
 
-      <div className="rounded-lg border border-border/50 bg-card px-3 py-2">
-        <p className="text-xs text-muted-foreground">{copy.notAnError}</p>
-      </div>
-
-      <div className="space-y-2">
+      <div className="space-y-2 pt-2">
         <div className="flex items-center gap-1.5">
-          <Lightbulb className="h-3.5 w-3.5 text-su-brand" aria-hidden />
+          <Lightbulb className="h-3.5 w-3.5 text-primary" aria-hidden />
           <p className="text-xs font-medium text-foreground">Qué puedes hacer</p>
         </div>
         <ul className="space-y-1.5">
           {copy.tips.map((tip) => (
             <li key={tip} className="flex items-start gap-2 text-xs text-muted-foreground">
-              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-border-strong" aria-hidden />
               {tip}
             </li>
           ))}
@@ -537,7 +464,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
       </div>
 
       {canCreateManual && (
-        <div className="border-t border-border/50 pt-3">
+        <div className="pt-2">
           <Button
             size="sm"
             variant="outline"
@@ -549,7 +476,7 @@ function ApolloEmptyState({ result, runId, accountId, onCreateManualContact }: A
           </Button>
         </div>
       )}
-    </div>
+    </Alert>
   );
 }
 
@@ -567,59 +494,115 @@ interface ApolloResultSummaryProps {
 function ApolloResultSummary({ result, runId, accountId, companyName, companyDomain, onCreateManualContact }: ApolloResultSummaryProps) {
   if (result.providerStatus === 'error' || result.providerStatus === 'skipped') {
     return (
-      <div className="border-t border-border pt-3">
-        <p className="text-xs text-amber-600">
+      <Alert variant="warning" role="note">
+        <AlertDescription className="text-xs text-warning">
           {result.error ?? 'Apollo no pudo ejecutarse. No se crearon candidatos.'}
-        </p>
-      </div>
+        </AlertDescription>
+      </Alert>
     );
   }
 
   const hasNoReviewableCandidates = result.candidatesCreated === 0;
 
+  const resultRows: ChatCardRow[] = [
+    { key: 'found', label: 'Perfiles encontrados', value: String(result.rawResultsCount) },
+    {
+      key: 'filtered',
+      label: 'Filtrados por relevancia/calidad',
+      value: String(result.rejectedByRelevance),
+    },
+    {
+      key: 'completion-attempted',
+      label: 'Intentos de completar datos',
+      value: String(result.completionAttempted),
+    },
+    {
+      key: 'actionable',
+      label: 'Candidatos con datos accionables',
+      value: String(result.actionableContactsCount),
+    },
+    {
+      key: 'ready',
+      label: 'Candidatos listos para revisión',
+      value: String(result.candidatesCreated),
+    },
+    { key: 'duplicates', label: 'Duplicados omitidos', value: String(result.duplicatesSkipped) },
+    ...(result.possibleDuplicates > 0
+      ? [
+          {
+            key: 'possible-duplicates',
+            label: 'Posibles duplicados',
+            value: String(result.possibleDuplicates),
+          },
+        ]
+      : []),
+    {
+      key: 'final-status',
+      label: 'Estado final',
+      value: result.status === 'ready_for_review' ? 'Listo para revisión' : 'Completado',
+    },
+  ];
+
+  const cost = result.costGuardrail;
+  const costRows: ChatCardRow[] = cost
+    ? [
+        { key: 'email', label: 'Email/básico', value: String(cost.actual_credits_email) },
+        cost.phone_completion_enabled
+          ? { key: 'phone', label: 'Teléfono', value: String(cost.actual_credits_phone) }
+          : { key: 'phone-reveal', label: 'Reveal automático de teléfono', value: 'no ejecutado' },
+        {
+          key: 'total',
+          label: 'Total',
+          value:
+            cost.actual_credits_total === 0 && result.completionAttempted === 0
+              ? 'sin créditos de completion'
+              : `${cost.actual_credits_total} créditos`,
+          // El aviso del guardrail explica la cifra del total: va pegado a ella.
+          hint: cost.guardrail_blocked
+            ? `Guardrail activado — algunos perfiles no se completaron para no superar el límite de ${cost.max_credits_per_run} créditos.`
+            : null,
+        },
+      ]
+    : [];
+
+  const search = result.searchGuardrail;
+  const searchRows: ChatCardRow[] = search
+    ? [
+        { key: 'evaluated', label: 'Resultados evaluados', value: String(result.rawResultsCount) },
+        {
+          key: 'credits',
+          label: 'Créditos de búsqueda',
+          value:
+            search.estimated_search_credits === 0
+              ? 'sin costo'
+              : `${search.estimated_search_credits} créditos`,
+          hint: search.blocked_by_search_budget
+            ? `Búsqueda detenida al alcanzar el límite de ${search.max_results_per_run} resultados.`
+            : null,
+        },
+        ...(search.stopped_early_reason
+          ? [
+              {
+                key: 'stop-reason',
+                label: 'Motivo de corte',
+                value:
+                  search.stopped_early_reason === 'target_reviewable_reached'
+                    ? 'objetivo alcanzado'
+                    : search.stopped_early_reason === 'search_budget_reached'
+                      ? 'límite de resultados alcanzado'
+                      : 'intentos agotados',
+              },
+            ]
+          : []),
+      ]
+    : [];
+
   return (
-    <div className="space-y-3 border-t border-border pt-3">
-      <p className="text-xs font-medium text-foreground">Resultado de Apollo</p>
-      <dl className="space-y-1.5 text-xs">
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Perfiles encontrados</dt>
-          <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Filtrados por relevancia/calidad</dt>
-          <dd className={result.rejectedByRelevance > 0 ? 'text-amber-600' : 'text-foreground'}>
-            {result.rejectedByRelevance}
-          </dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Intentos de completar datos</dt>
-          <dd className="font-medium text-foreground">{result.completionAttempted}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Candidatos con datos accionables</dt>
-          <dd className="font-medium text-foreground">{result.actionableContactsCount}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Candidatos listos para revisión</dt>
-          <dd className="font-semibold text-foreground">{result.candidatesCreated}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="text-muted-foreground">Duplicados omitidos</dt>
-          <dd className="font-medium text-foreground">{result.duplicatesSkipped}</dd>
-        </div>
-        {result.possibleDuplicates > 0 && (
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Posibles duplicados</dt>
-            <dd className="text-amber-600">{result.possibleDuplicates}</dd>
-          </div>
-        )}
-        <div className="flex justify-between border-t border-border/50 pt-1.5">
-          <dt className="text-muted-foreground">Estado final</dt>
-          <dd className="font-medium text-foreground">
-            {result.status === 'ready_for_review' ? 'Listo para revisión' : 'Completado'}
-          </dd>
-        </div>
-      </dl>
+    <>
+      <ChatCardView
+        data-testid="apollo-result"
+        card={{ kind: 'rows', title: 'Resultado de Apollo', rows: resultRows }}
+      />
 
       {hasNoReviewableCandidates ? (
         <ApolloEmptyState
@@ -636,92 +619,28 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         </p>
       )}
 
-      {result.costGuardrail && (
-        <div className="space-y-1.5 border-t border-border/50 pt-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Créditos de completion</p>
-          <dl className="space-y-1 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Email/básico</dt>
-              <dd className="font-medium text-foreground">
-                {result.costGuardrail.actual_credits_email}
-              </dd>
-            </div>
-            {result.costGuardrail.phone_completion_enabled && (
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Teléfono</dt>
-                <dd className="font-medium text-foreground">
-                  {result.costGuardrail.actual_credits_phone}
-                </dd>
-              </div>
-            )}
-            {!result.costGuardrail.phone_completion_enabled && (
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Reveal automático de teléfono</dt>
-                <dd className="text-muted-foreground">no ejecutado</dd>
-              </div>
-            )}
-            <div className="flex justify-between border-t border-border/50 pt-1">
-              <dt className="text-muted-foreground">Total</dt>
-              <dd className="font-semibold text-foreground">
-                {result.costGuardrail.actual_credits_total === 0 && result.completionAttempted === 0
-                  ? 'sin créditos de completion'
-                  : `${result.costGuardrail.actual_credits_total} créditos`}
-              </dd>
-            </div>
-          </dl>
-          {result.costGuardrail.guardrail_blocked && (
-            <p className="text-[11px] text-amber-600">
-              Guardrail activado — algunos perfiles no se completaron para no superar el límite de{' '}
-              {result.costGuardrail.max_credits_per_run} créditos.
-            </p>
-          )}
+      {cost && (
+        <>
+          <ChatCardView
+            data-testid="apollo-completion-credits"
+            card={{ kind: 'rows', title: 'Créditos de completion', rows: costRows }}
+          />
           {result.completionAttempted > 0 && result.actionableContactsCount === 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Se intentó completar datos en {result.completionAttempted} perfil
               {result.completionAttempted !== 1 ? 'es' : ''}, pero Apollo no devolvió canales
               accionables.
             </p>
           )}
-        </div>
+        </>
       )}
 
-      {result.searchGuardrail && (
-        <div className="space-y-1.5 border-t border-border/50 pt-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Búsqueda Apollo</p>
-          <dl className="space-y-1 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Resultados evaluados</dt>
-              <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Créditos de búsqueda</dt>
-              <dd className="font-medium text-foreground">
-                {result.searchGuardrail.estimated_search_credits === 0
-                  ? 'sin costo'
-                  : `${result.searchGuardrail.estimated_search_credits} créditos`}
-              </dd>
-            </div>
-            {result.searchGuardrail.stopped_early_reason && (
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Motivo de corte</dt>
-                <dd className="text-muted-foreground">
-                  {result.searchGuardrail.stopped_early_reason === 'target_reviewable_reached'
-                    ? 'objetivo alcanzado'
-                    : result.searchGuardrail.stopped_early_reason === 'search_budget_reached'
-                      ? 'límite de resultados alcanzado'
-                      : 'intentos agotados'}
-                </dd>
-              </div>
-            )}
-          </dl>
-          {result.searchGuardrail.blocked_by_search_budget && (
-            <p className="text-[11px] text-amber-600">
-              Búsqueda detenida al alcanzar el límite de{' '}
-              {result.searchGuardrail.max_results_per_run} resultados.
-            </p>
-          )}
-        </div>
+      {search && (
+        <ChatCardView
+          data-testid="apollo-search"
+          card={{ kind: 'rows', title: 'Búsqueda Apollo', rows: searchRows }}
+        />
       )}
-    </div>
+    </>
   );
 }

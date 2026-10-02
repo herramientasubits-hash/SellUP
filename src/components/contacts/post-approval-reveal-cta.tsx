@@ -40,7 +40,7 @@
 // accionable—.
 
 import * as React from 'react';
-import { Loader2, PhoneCall } from 'lucide-react';
+import { Loader2, PhoneCall } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   getOfficialContactPhoneRevealOfferAction,
@@ -228,7 +228,7 @@ export function OfficialContactPhoneRevealCta({
     if (!text && !mayRescue) return null;
     return (
       <div className="space-y-2">
-        {text && <p className="text-xs text-muted-foreground">{text}</p>}
+        {text && <p className="text-xs leading-relaxed text-muted-foreground">{text}</p>}
         {mayRescue && (
           <OfficialContactRescuePanel
             contactId={contactId}
@@ -250,9 +250,9 @@ export function OfficialContactPhoneRevealCta({
         onClick={handleClick}
       >
         {busy || inFlight ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+          <Loader2 className="animate-spin" aria-hidden />
         ) : (
-          <PhoneCall className="mr-2 h-4 w-4" aria-hidden />
+          <PhoneCall aria-hidden />
         )}
         {busy
           ? OFFICIAL_REVEAL_BUSY_LABEL
@@ -260,8 +260,8 @@ export function OfficialContactPhoneRevealCta({
             ? OFFICIAL_REVEAL_REUSE_LABEL
             : OFFICIAL_REVEAL_BUY_LABEL}
       </Button>
-      <p className="text-xs text-muted-foreground">{officialRevealHelperText(offer)}</p>
-      {notice && <p className="text-xs text-foreground">{notice}</p>}
+      <p className="text-xs leading-relaxed text-muted-foreground">{officialRevealHelperText(offer)}</p>
+      {notice && <p className="text-xs font-medium text-foreground" aria-live="polite">{notice}</p>}
       <OfficialContactRescuePanel
         contactId={contactId}
         revealStateKey={offer.status}

@@ -10,8 +10,9 @@ import {
   File,
   X,
   AlertCircle,
-} from "lucide-react";
+} from "@/icons";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import type { UploadFileItem } from "./uploadTypes";
 import { formatFileSize, getFileKind } from "./uploadUtils";
 
@@ -68,21 +69,21 @@ export function FilePreview({
   if (variant === "compact") {
     return (
       <div className={cn(
-        "flex items-center gap-2 px-3 py-1.5 rounded-full border bg-secondary/30 border-border/50 text-xs font-medium max-w-fit",
-        hasError && "border-destructive/50 bg-destructive/5",
+        "flex items-center gap-2 px-3 py-1.5 rounded-md border bg-surface-subtle border-border/60 text-xs font-medium max-w-fit",
+        hasError && "border-destructive/20 bg-destructive/10",
         disabled && "opacity-50",
         className
       )}>
-        <Icon className={cn("h-3.5 w-3.5 shrink-0", hasError ? "text-destructive" : "text-muted-foreground")} />
+        <Icon aria-hidden="true" className={cn("h-3.5 w-3.5 shrink-0", hasError ? "text-destructive" : "text-muted-foreground")} />
         <span className="truncate max-w-[120px]">{name}</span>
         {removable && !disabled && (
           <button
             type="button"
             onClick={onRemove}
-            className="hover:text-destructive transition-colors ml-1 p-0.5"
-            aria-label={`Remove ${name}`}
+            className="ml-1 rounded-xs p-0.5 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+            aria-label={`Quitar ${name}`}
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3" aria-hidden="true" />
           </button>
         )}
       </div>
@@ -92,26 +93,26 @@ export function FilePreview({
   if (variant === "row") {
     return (
       <div className={cn(
-        "flex items-center gap-3 p-3 rounded-lg border bg-card/50 border-border/50 transition-colors",
-        hasError && "border-destructive/50 bg-destructive/5",
+        "flex items-center gap-3 p-3 rounded-xl border bg-card border-border/60 transition-colors",
+        hasError && "border-destructive/20 bg-destructive/10",
         disabled && "opacity-50",
         className
       )}>
         <div className={cn(
-          "p-2 rounded-md bg-background border border-border/50",
+          "p-2 rounded-md bg-surface-muted border border-border/60",
           hasError && "text-destructive"
         )}>
-          <Icon className="h-5 w-5" />
+          <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col">
           <span className="text-sm font-medium truncate">{name}</span>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-tight">
+          <span className="text-xs text-muted-foreground">
             {formatFileSize(size)} • {kind}
           </span>
           {hasError && (
-            <span className="text-[10px] text-destructive font-medium mt-0.5 flex items-center gap-1">
-              <AlertCircle className="h-2.5 w-2.5" />
+            <span className="text-xs text-destructive font-medium mt-0.5 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" aria-hidden="true" />
               {error}
             </span>
           )}
@@ -121,10 +122,10 @@ export function FilePreview({
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
-            aria-label={`Remove ${name}`}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+            aria-label={`Quitar ${name}`}
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
       </div>
@@ -134,46 +135,46 @@ export function FilePreview({
   // Default: Card variant
   return (
     <div className={cn(
-      "flex flex-col p-4 rounded-xl border bg-card border-border/50 shadow-sm transition-all",
-      hasError && "border-destructive/50 ring-1 ring-destructive/20",
-      !disabled && !hasError && "hover:border-su-brand/30",
+      "flex flex-col p-4 rounded-xl border bg-card border-border/60 shadow-card transition-all",
+      hasError && "border-destructive/20 ring-1 ring-destructive/20",
+      !disabled && !hasError && "hover:border-primary/30",
       disabled && "opacity-50 grayscale-[0.5]",
       className
     )}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className={cn(
-          "p-3 rounded-xl bg-muted/50 border border-border/50",
-          hasError ? "text-destructive bg-destructive/10" : "text-su-brand"
+          "p-3 rounded-xl bg-surface-muted border border-border/60",
+          hasError ? "text-destructive bg-destructive/10" : "text-primary"
         )}>
-          <Icon className="h-6 w-6" />
+          <Icon className="h-6 w-6" aria-hidden="true" />
         </div>
         {removable && !disabled && (
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-destructive"
-            aria-label={`Remove ${name}`}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+            aria-label={`Quitar ${name}`}
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
       </div>
 
       <div className="flex flex-col min-w-0">
-        <span className="text-sm font-bold truncate" title={name}>{name}</span>
+        <span className="text-sm font-semibold truncate" title={name}>{name}</span>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+          <span className="text-xs font-semibold text-muted-foreground">
             {formatFileSize(size)}
           </span>
-          <span className="text-[10px] font-bold text-su-brand/70 uppercase px-1.5 py-0.5 rounded-md bg-su-brand/5 border border-su-brand/10">
+          <Badge variant="brand">
             {kind}
-          </span>
+          </Badge>
         </div>
 
         {hasError && (
           <div className="mt-3 flex items-start gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20">
-            <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-            <span className="text-[10px] text-destructive font-medium leading-tight">
+            <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
+            <span className="text-xs text-destructive font-medium leading-tight">
               {error}
             </span>
           </div>

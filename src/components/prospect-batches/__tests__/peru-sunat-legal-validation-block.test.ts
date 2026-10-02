@@ -40,16 +40,16 @@ function makeBlock(
 // ── getSunatStatusDisplay ──────────────────────────────────────────────────────
 
 describe('getSunatStatusDisplay', () => {
-  it('verified → label Verificado SUNAT, emerald badge', () => {
+  it('verified → label Verificado SUNAT, success badge', () => {
     const display = getSunatStatusDisplay('verified');
     assert.strictEqual(display.label, 'Verificado SUNAT');
-    assert.ok(display.badgeClass.includes('emerald'), 'badge should be emerald');
+    assert.ok(display.badgeClass.includes('success'), 'badge should be success');
   });
 
-  it('flagged → label Revisar SUNAT, amber badge', () => {
+  it('flagged → label Revisar SUNAT, warning badge', () => {
     const display = getSunatStatusDisplay('flagged');
     assert.strictEqual(display.label, 'Revisar SUNAT');
-    assert.ok(display.badgeClass.includes('amber'), 'badge should be amber');
+    assert.ok(display.badgeClass.includes('warning'), 'badge should be warning');
   });
 
   it('not_found → label No encontrado en SUNAT, muted badge', () => {
@@ -64,10 +64,10 @@ describe('getSunatStatusDisplay', () => {
     assert.ok(display.badgeClass.includes('muted'), 'badge should be muted');
   });
 
-  it('snapshot_unavailable → label Snapshot SUNAT no disponible, amber badge', () => {
+  it('snapshot_unavailable → label Snapshot SUNAT no disponible, warning badge', () => {
     const display = getSunatStatusDisplay('snapshot_unavailable');
     assert.strictEqual(display.label, 'Snapshot SUNAT no disponible');
-    assert.ok(display.badgeClass.includes('amber'), 'badge should be amber');
+    assert.ok(display.badgeClass.includes('warning'), 'badge should be warning');
   });
 
   it('null → defaults to Validación SUNAT pendiente', () => {

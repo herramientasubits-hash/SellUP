@@ -5,7 +5,7 @@
 // Allows the user to change which column maps to Industry or Subindustry.
 
 import * as React from 'react';
-import { ArrowRight, Check, Info } from 'lucide-react';
+import { ArrowRight, Check } from "@/icons";
 import {
   Select,
   SelectContent,
@@ -13,12 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type {
   ImportColumnMapping,
   ImportColumnTarget,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ── Labels for column targets ─────────────────────────────────────────────────
 
@@ -83,61 +85,52 @@ export function ImportColumnMappingTable({
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="rounded-xl border border-su-brand/20 bg-su-brand-soft/20 p-3 space-y-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-su-brand">
-          Columnas detectadas para clasificación
-        </p>
-        <div className="flex flex-wrap gap-3 text-xs">
-          <div className="flex items-center gap-1.5">
+      <Alert variant="info">
+        <AlertTitle className="text-xs">Columnas detectadas para clasificación</AlertTitle>
+        <AlertDescription className="flex flex-wrap gap-3 text-xs">
+          <span className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Industria:</span>
             {industryMapping ? (
-              <Badge variant="secondary" className="text-[10px] bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="brand">
                 {industryMapping.sourceColumn}
               </Badge>
             ) : (
               <span className="text-muted-foreground italic">No detectada</span>
             )}
-          </div>
-          <div className="flex items-center gap-1.5">
+          </span>
+          <span className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Subindustria:</span>
             {subindustryMapping ? (
-              <Badge variant="secondary" className="text-[10px] bg-su-brand-soft text-su-brand border-0">
+              <Badge variant="brand">
                 {subindustryMapping.sourceColumn}
               </Badge>
             ) : (
               <span className="text-muted-foreground italic">No detectada (opcional)</span>
             )}
-          </div>
-        </div>
-      </div>
+          </span>
+        </AlertDescription>
+      </Alert>
 
       {/* Conflict warning */}
       {hasConflict && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-2">
-          <Info className="h-3.5 w-3.5 text-destructive shrink-0" />
-          <p className="text-xs text-destructive">
+        <Alert variant="destructive">
+          <AlertDescription className="text-xs text-destructive">
             Dos columnas no pueden asignarse al mismo campo. Corrige el mapeo antes de continuar.
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Mapping table */}
-      <div className="overflow-x-auto rounded-xl border border-border/40">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/30 bg-muted/30">
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">
-                Columna del archivo
-              </th>
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">
-                Asignada a
-              </th>
-              <th className="px-3 py-2 text-left font-semibold text-muted-foreground">
-                Valores de muestra
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/20">
+      <div className="overflow-x-auto rounded-xl border border-border/60">
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Columna del archivo</TableHead>
+              <TableHead>Asignada a</TableHead>
+              <TableHead>Valores de muestra</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {columnMappings.map((mapping) => {
               const isKey = isKeyClassificationTarget(mapping.targetField);
               const isDuplicate =
@@ -145,19 +138,18 @@ export function ImportColumnMappingTable({
                 hasDuplicateTarget(columnMappings, mapping.targetField);
 
               return (
-                <tr
+                <TableRow
                   key={mapping.sourceColumn}
                   className={cn(
-                    'transition-colors',
-                    isKey ? 'bg-su-brand-soft/10 hover:bg-su-brand-soft/20' : 'hover:bg-muted/20',
-                    isDuplicate && 'bg-destructive/5',
+                    isKey && 'bg-primary/10',
+                    isDuplicate && 'bg-destructive/10',
                   )}
                 >
                   {/* Column name */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <div className="flex items-center gap-1.5">
                       {isKey && (
-                        <Check className="h-3 w-3 text-su-brand shrink-0" />
+                        <Check className="h-3 w-3 text-primary shrink-0" />
                       )}
                       <span className={cn(
                         'font-medium',
@@ -166,24 +158,24 @@ export function ImportColumnMappingTable({
                         {mapping.sourceColumn}
                       </span>
                       {mapping.detectedAutomatically && isKey && (
-                        <Badge variant="outline" className="text-[9px] text-muted-foreground px-1 py-0">
+                        <Badge variant="outline" className="text-muted-foreground">
                           auto
                         </Badge>
                       )}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* Target select */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     <div className="flex items-center gap-1.5">
-                      <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                       {isKey || mapping.targetField === 'ignore' ? (
                         <Select
                           value={mapping.targetField}
                           onValueChange={(v) => onMappingChange(mapping.sourceColumn, v as ImportColumnTarget)}
                         >
-                          <SelectTrigger className={cn(
-                            'h-7 text-xs min-w-[140px]',
+                          <SelectTrigger size="sm" className={cn(
+                            'min-w-36',
                             isDuplicate && 'border-destructive',
                           )}>
                             <SelectValue />
@@ -197,32 +189,32 @@ export function ImportColumnMappingTable({
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className="text-muted-foreground text-[11px]">
+                        <span className="text-muted-foreground text-xs">
                           {TARGET_LABELS[mapping.targetField] ?? mapping.targetField}
                         </span>
                       )}
                     </div>
-                  </td>
+                  </TableCell>
 
                   {/* Sample values */}
-                  <td className="px-3 py-2.5">
+                  <TableCell>
                     {mapping.sampleValues.length > 0 ? (
-                      <span className="text-[10px] text-muted-foreground truncate block max-w-[200px]">
+                      <span className="block max-w-48 truncate text-xs text-muted-foreground" title={mapping.sampleValues.slice(0, 3).join(', ')}>
                         {mapping.sampleValues.slice(0, 3).join(', ')}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-muted-foreground/40 italic">—</span>
+                      <span className="text-xs italic text-text-muted">—</span>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Legacy note */}
-      <p className="text-[10px] text-muted-foreground leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         Columnas con nombres como <span className="font-medium">Sector</span> o{' '}
         <span className="font-medium">Subsector</span> son detectadas automáticamente como Industria y Subindustria.
         La subindustria es opcional: si el archivo no la incluye, la importación continuará sin ella.

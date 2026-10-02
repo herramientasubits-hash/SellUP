@@ -2,18 +2,18 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertTriangle, Hash, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Hash, CheckCircle2, ExternalLink } from "@/icons";
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { Field, FieldDescription, FieldLabel } from '@/components/forms/field';
+import { Text } from '@/components/typography';
+import { ModalShell } from '@/components/shared/modal-shell';
+import { IntegrationCredentialModal } from '@/components/settings/integration-credential-modal';
+import { IntegrationDisconnectDialog } from '@/components/settings/integration-disconnect-dialog';
+import { SecretInput } from '@/components/settings/secret-input';
 import {
   testSlackConnectionAction,
   createSlackChannelAction,
@@ -22,31 +22,35 @@ import {
   configureSlackOAuthApp,
 } from '@/modules/integrations/actions';
 
-// ============================================================
-// Connect Modal — recoge Client ID, Client Secret y Redirect URI
-// ============================================================
+const REQUIRED_BOT_SCOPES = ['channels:manage', 'chat:write'] as const;
+const DEFAULT_CHANNEL_NAME = 'sellup-alertas';
+const CHANNEL_CREATED_CLOSE_DELAY_MS = 1500;
 
-interface ConnectModalProps {
+interface ModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
+// ============================================================
+// Connect Modal — recoge Client ID, Client Secret y Redirect URI
+// ============================================================
+
+function SlackConnectModal({ open, onOpenChange }: ModalProps) {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState('');
-  const [showSecret, setShowSecret] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  function handleClose() {
+  function handleOpenChange(nextOpen: boolean) {
     if (isPending) return;
-    setClientId('');
-    setClientSecret('');
-    setRedirectUri('');
-    setShowSecret(false);
-    setError(null);
-    onOpenChange(false);
+    if (!nextOpen) {
+      setClientId('');
+      setClientSecret('');
+      setRedirectUri('');
+      setError(null);
+    }
+    onOpenChange(nextOpen);
   }
 
   function handleSubmit() {
@@ -55,137 +59,98 @@ function SlackConnectModal({ open, onOpenChange }: ConnectModalProps) {
       try {
         const result = await configureSlackOAuthApp(clientId, clientSecret, redirectUri);
         if (!result.success) {
-          setError(result.error ?? 'Error al guardar la configuración.');
+          setError(result.error ?? 'No se pudo guardar la configuración.');
           return;
         }
         // Credenciales guardadas — iniciar flujo OAuth
         window.location.href = '/api/integrations/slack/oauth/start';
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error inesperado. Intenta nuevamente.');
+        setError(err instanceof Error ? err.message : 'Algo salió mal. Inténtalo de nuevo.');
       }
     });
   }
 
   const canSubmit =
-    clientId.trim().length > 0 &&
-    clientSecret.trim().length > 0 &&
-    redirectUri.trim().length > 0;
+    clientId.trim().length > 0 && clientSecret.trim().length > 0 && redirectUri.trim().length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="">Conectar Slack</DialogTitle>
-          <DialogDescription>
-            Introduce los datos de tu Slack App. SellUp los guardará de forma segura y
-            abrirá el flujo OAuth para autorizar el acceso al workspace.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-1">
-          {/* Client ID */}
-          <div className="space-y-1.5">
-            <Label htmlFor="slack-client-id">Client ID</Label>
-            <Input
-              id="slack-client-id"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="123456789012.987654321098"
-              disabled={isPending}
-              autoComplete="off"
-              className="font-mono text-sm"
-            />
-          </div>
-
-          {/* Client Secret */}
-          <div className="space-y-1.5">
-            <Label htmlFor="slack-client-secret">Client Secret</Label>
-            <div className="relative">
-              <Input
-                id="slack-client-secret"
-                type={showSecret ? 'text' : 'password'}
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                placeholder="••••••••••••••••••••••••••••••••"
-                disabled={isPending}
-                autoComplete="off"
-                className="pr-9 font-mono text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecret((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
-              >
-                {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Redirect URI */}
-          <div className="space-y-1.5">
-            <Label htmlFor="slack-redirect-uri">Redirect URI</Label>
-            <Input
-              id="slack-redirect-uri"
-              value={redirectUri}
-              onChange={(e) => setRedirectUri(e.target.value)}
-              placeholder="https://tu-dominio.com/api/integrations/slack/oauth/callback"
-              disabled={isPending}
-              autoComplete="off"
-              className="font-mono text-sm"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Debe usar HTTPS y estar registrada en tu Slack App → OAuth &amp; Permissions.
-            </p>
-          </div>
-
-          {/* Permisos requeridos */}
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Bot Token Scopes requeridos
-            </p>
-            <div className="flex flex-wrap gap-1.5 pt-0.5">
-              {['channels:manage', 'chat:write'].map((scope) => (
-                <span
-                  key={scope}
-                  className="inline-flex items-center gap-1 rounded-full border border-su-brand/30 bg-su-brand-soft px-2.5 py-0.5 text-[11px] font-medium text-su-brand"
-                >
-                  <CheckCircle2 className="h-3 w-3" />
-                  {scope}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <a
-            href="https://api.slack.com/apps"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-su-brand hover:underline"
-          >
-            Crear o gestionar Slack Apps
-            <ExternalLink className="h-3 w-3" />
-          </a>
-
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={isPending}>
+    <ModalShell
+      open={open}
+      onOpenChange={handleOpenChange}
+      size="lg"
+      title="Conectar Slack"
+      description="Escribe los datos de tu Slack App. SellUp los guarda de forma segura y te lleva a Slack para autorizar el acceso al workspace."
+      actions={
+        <>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPending}>
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isPending || !canSubmit}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Loader2 className="animate-spin" />}
             Guardar y conectar
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Client ID" disabled={isPending}>
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder="123456789012.987654321098"
+            autoComplete="off"
+            className="font-mono"
+          />
+        </Field>
+
+        <Field label="Client Secret" disabled={isPending}>
+          <SecretInput
+            value={clientSecret}
+            onValueChange={setClientSecret}
+            secretName="secreto"
+            placeholder="••••••••••••••••••••••••••••••••"
+          />
+        </Field>
+
+        <Field
+          label="Redirect URI"
+          description="Debe usar HTTPS y estar registrada en tu Slack App → OAuth & Permissions."
+          disabled={isPending}
+        >
+          <Input
+            value={redirectUri}
+            onChange={(e) => setRedirectUri(e.target.value)}
+            placeholder="https://tu-dominio.com/api/integrations/slack/oauth/callback"
+            autoComplete="off"
+            className="font-mono"
+          />
+        </Field>
+
+        {/* Permisos requeridos */}
+        <div className="space-y-1.5">
+          <Text size="xs" weight="semibold" tone="muted">
+            Permisos que debe tener el bot (Bot Token Scopes)
+          </Text>
+          <div className="flex flex-wrap gap-1.5">
+            {REQUIRED_BOT_SCOPES.map((scope) => (
+              <Badge key={scope} variant="brand">
+                <CheckCircle2 />
+                {scope}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        <Button asChild variant="link" size="sm" className="h-auto px-0">
+          <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer">
+            Crear o gestionar Slack Apps
+            <ExternalLink />
+          </a>
+        </Button>
+
+        {error && <Alert variant="destructive">{error}</Alert>}
+      </div>
+    </ModalShell>
   );
 }
 
@@ -211,7 +176,10 @@ export function SlackConnectButton() {
 export function SlackTestConnectionButton() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   function handleTest() {
     setResult(null);
@@ -224,21 +192,15 @@ export function SlackTestConnectionButton() {
 
   return (
     <div className="space-y-2">
-      <Button variant="outline" onClick={handleTest} disabled={isPending}>
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+      <Button onClick={handleTest} disabled={isPending}>
+        {isPending && <Loader2 className="animate-spin" />}
         Probar conexión
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Conexión verificada.' : 'Error de conexión.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -248,105 +210,52 @@ export function SlackTestConnectionButton() {
 // Create Channel Modal
 // ============================================================
 
-interface CreateChannelModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelModalProps) {
-  const router = useRouter();
-  const [channelName, setChannelName] = useState('sellup-alertas');
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  function handleClose() {
-    if (isPending) return;
-    setChannelName('sellup-alertas');
-    setError(null);
-    setSuccessMsg(null);
-    onOpenChange(false);
-  }
-
-  function handleSubmit() {
-    setError(null);
-    setSuccessMsg(null);
-
-    startTransition(async () => {
-      const result = await createSlackChannelAction(channelName);
-      if (result.success) {
-        setSuccessMsg(result.message ?? 'Canal creado correctamente.');
-        setTimeout(() => {
-          handleClose();
-          router.refresh();
-        }, 1500);
-      } else {
-        setError(result.message ?? result.error ?? 'Error al crear el canal.');
-      }
-    });
-  }
+export function SlackCreateChannelModal({ open, onOpenChange }: ModalProps) {
+  const [channelName, setChannelName] = useState(DEFAULT_CHANNEL_NAME);
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="">Crear canal oficial de SellUp</DialogTitle>
-          <DialogDescription>
-            Este canal recibirá alertas y comunicaciones operativas generadas por SellUp.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="slack-channel">Nombre del canal</Label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                <Hash className="h-4 w-4" />
-              </span>
-              <Input
-                id="slack-channel"
-                type="text"
-                value={channelName}
-                onChange={(e) => setChannelName(e.target.value)}
-                className="pl-9 font-mono text-sm"
-                disabled={isPending}
-                placeholder="sellup-alertas"
-                autoComplete="off"
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Solo letras minúsculas, números y guiones. Máximo 80 caracteres.
-            </p>
-          </div>
-
-          {error && (
-            <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {error}
-            </p>
-          )}
-
-          {successMsg && (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-              {successMsg}
-            </p>
-          )}
+    <IntegrationCredentialModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Crear canal oficial de SellUp"
+      description="Este canal recibirá las alertas y los avisos operativos que genere SellUp."
+      submitLabel="Crear canal"
+      canSubmit={channelName.trim().length > 0}
+      onSubmit={async () => {
+        const result = await createSlackChannelAction(channelName);
+        // Esta acción explica su fallo en `message`; el diálogo lo espera en `error`.
+        return { ...result, error: result.message ?? result.error };
+      }}
+      onReset={() => setChannelName(DEFAULT_CHANNEL_NAME)}
+      successFallback="Canal creado correctamente."
+      errorFallback="No se pudo crear el canal."
+      closeDelayMs={CHANNEL_CREATED_CLOSE_DELAY_MS}
+    >
+      {({ isPending }) => (
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor="slack-channel">Nombre del canal</FieldLabel>
+          <InputGroup>
+            <InputGroupAddon>
+              <Hash />
+            </InputGroupAddon>
+            <InputGroupInput
+              id="slack-channel"
+              type="text"
+              value={channelName}
+              onChange={(e) => setChannelName(e.target.value)}
+              className="font-mono"
+              disabled={isPending}
+              placeholder={DEFAULT_CHANNEL_NAME}
+              autoComplete="off"
+              aria-describedby="slack-channel-description"
+            />
+          </InputGroup>
+          <FieldDescription id="slack-channel-description">
+            Solo letras minúsculas, números y guiones. Máximo 80 caracteres.
+          </FieldDescription>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={isPending}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isPending || channelName.trim().length === 0}
-          >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Crear canal
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      )}
+    </IntegrationCredentialModal>
   );
 }
 
@@ -356,7 +265,10 @@ export function SlackCreateChannelModal({ open, onOpenChange }: CreateChannelMod
 
 export function SlackSendTestMessageButton() {
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   function handleSend() {
     setResult(null);
@@ -369,20 +281,14 @@ export function SlackSendTestMessageButton() {
   return (
     <div className="space-y-2">
       <Button variant="outline" onClick={handleSend} disabled={isPending}>
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {isPending && <Loader2 className="animate-spin" />}
         Enviar mensaje de prueba
       </Button>
 
       {result && (
-        <p
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            result.success
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'border-destructive/30 bg-destructive/10 text-destructive'
-          }`}
-        >
+        <Alert variant={result.success ? 'success' : 'destructive'}>
           {result.message ?? (result.success ? 'Mensaje enviado.' : 'Error al enviar.')}
-        </p>
+        </Alert>
       )}
     </div>
   );
@@ -392,64 +298,15 @@ export function SlackSendTestMessageButton() {
 // Disconnect Dialog
 // ============================================================
 
-interface DisconnectDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-export function SlackDisconnectDialog({ open, onOpenChange }: DisconnectDialogProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  function handleClose() {
-    if (isPending) return;
-    setError(null);
-    onOpenChange(false);
-  }
-
-  function handleDisconnect() {
-    setError(null);
-    startTransition(async () => {
-      const result = await disconnectSlack();
-      if (result.success) {
-        handleClose();
-        router.refresh();
-      } else {
-        setError(result.error ?? 'Error al desconectar.');
-      }
-    });
-  }
-
+export function SlackDisconnectDialog({ open, onOpenChange }: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="">Desconectar Slack</DialogTitle>
-          <DialogDescription>
-            SellUp dejará de tener acceso al workspace. El canal creado en Slack no se eliminará.
-            Podrás volver a conectar en cualquier momento.
-          </DialogDescription>
-        </DialogHeader>
-
-        {error && (
-          <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={isPending}>
-            Cancelar
-          </Button>
-          <Button variant="destructive" onClick={handleDisconnect} disabled={isPending}>
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Desconectar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <IntegrationDisconnectDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Desconectar Slack"
+      description="SellUp dejará de tener acceso al workspace. El canal creado en Slack no se elimina y puedes volver a conectar cuando quieras."
+      onDisconnect={disconnectSlack}
+    />
   );
 }
 
@@ -476,11 +333,7 @@ export function SlackActionsPanel({ isConnected }: SlackActionsPanelProps) {
     <div className="flex flex-wrap items-start gap-3">
       <SlackTestConnectionButton />
 
-      <Button
-        variant="ghost"
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={() => setDisconnectOpen(true)}
-      >
+      <Button variant="destructive" onClick={() => setDisconnectOpen(true)}>
         Desconectar
       </Button>
 

@@ -8,8 +8,11 @@
  */
 
 import * as React from 'react';
-import { AlertCircle, CheckCircle2, CircleDot, Loader2, ShieldCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleDot, ShieldCheck } from "@/icons";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/feedback/spinner';
+import { SurfaceCard } from '@/components/shared/surface-card';
 import {
   diagnoseLushaCredentialsAction,
   diagnoseLushaExecutionPreflightAction,
@@ -73,7 +76,7 @@ function CheckRow({ label, value }: { label: string; value: boolean | null | und
     <div className="flex items-center justify-between gap-2 py-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       {value ? (
-        <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+        <span className="flex items-center gap-1 text-xs font-medium text-success">
           <CheckCircle2 className="h-3 w-3" aria-hidden /> Disponible
         </span>
       ) : (
@@ -87,7 +90,7 @@ function CheckRow({ label, value }: { label: string; value: boolean | null | und
 
 function SecretStatusRow({ label, found, nonEmpty }: { label: string; found: boolean; nonEmpty: boolean }) {
   const text = !found ? 'No encontrado' : !nonEmpty ? 'Vacío' : 'Encontrado';
-  const color = !found || !nonEmpty ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400';
+  const color = !found || !nonEmpty ? 'text-destructive' : 'text-success';
   return (
     <div className="flex items-center justify-between gap-2 py-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -123,55 +126,54 @@ function LushaPreflightSection() {
 
   if (pf.status === 'idle') {
     return (
-      <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-2 mt-2">
+      <SurfaceCard className="space-y-2 p-3">
         <p className="text-xs text-muted-foreground leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
         <Button
           variant="outline"
           size="sm"
           onClick={runPreflight}
-          className="w-full text-xs"
+          className="w-full"
           data-testid="lusha-preflight-button"
         >
-          <ShieldCheck className="mr-2 h-3.5 w-3.5" aria-hidden />
+          <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
           Validar preflight del runner
         </Button>
-      </div>
+      </SurfaceCard>
     );
   }
 
   if (pf.status === 'loading') {
     return (
-      <div className="rounded-xl border border-border/40 bg-card/50 p-3 flex items-center gap-2 mt-2">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+      <SurfaceCard className="flex items-center gap-2 p-3">
+        {/* Decorativo: el texto de al lado ya anuncia la espera. */}
+        <Spinner decorative size="sm" />
         <span className="text-xs text-muted-foreground">Validando preflight del runner…</span>
-      </div>
+      </SurfaceCard>
     );
   }
 
   if (pf.status === 'error') {
     return (
-      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2 mt-2">
-        <p className="text-xs font-medium text-destructive">Error en preflight</p>
-        <p className="text-xs text-muted-foreground">{pf.message}</p>
-        <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="text-xs text-muted-foreground">
-          Reintentar
-        </Button>
-      </div>
+      <Alert variant="destructive">
+        <AlertTitle className="text-xs">Error en preflight</AlertTitle>
+        <AlertDescription className="text-xs">{pf.message}</AlertDescription>
+        <div>
+          <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })}>
+            Reintentar
+          </Button>
+        </div>
+      </Alert>
     );
   }
 
   const { result: r } = pf;
   const ok = r.wouldExecuteProvider;
-  const borderC = ok ? 'border-emerald-500/30' : 'border-amber-500/30';
-  const bgC = ok ? 'bg-emerald-500/5' : 'bg-amber-500/5';
-  const Icon = ok ? CheckCircle2 : AlertCircle;
-  const iconC = ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400';
 
   function boolBadge(v: boolean) {
     return v ? (
-      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Habilitado</span>
+      <span className="text-xs font-medium text-success">Habilitado</span>
     ) : (
-      <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Deshabilitado</span>
+      <span className="text-xs font-medium text-warning">Deshabilitado</span>
     );
   }
 
@@ -181,11 +183,9 @@ function LushaPreflightSection() {
   }
 
   return (
-    <div className={`rounded-xl border ${borderC} ${bgC} p-4 space-y-3 mt-2`} data-testid="lusha-preflight-result">
-      <div className="flex items-center gap-2">
-        <Icon className={`h-4 w-4 ${iconC}`} aria-hidden />
-        <p className="text-xs font-semibold text-foreground">Preflight del runner Lusha</p>
-      </div>
+    <Alert variant={ok ? 'success' : 'warning'} role="status" data-testid="lusha-preflight-result">
+      <AlertTitle className="text-xs text-foreground">Preflight del runner Lusha</AlertTitle>
+      <div className="space-y-3 pt-1">
 
       <div className="space-y-0.5">
         <div className="flex items-center justify-between gap-2 py-0.5">
@@ -199,12 +199,12 @@ function LushaPreflightSection() {
         {r.stages.credential.fingerprint && (
           <div className="flex items-center justify-between gap-2 py-0.5">
             <span className="text-xs text-muted-foreground">Fingerprint</span>
-            <span className="font-mono text-[10px] text-muted-foreground">{r.stages.credential.fingerprint}…</span>
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{r.stages.credential.fingerprint}…</span>
           </div>
         )}
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-xs text-muted-foreground">Runner entry</span>
-          <span className={`text-xs font-medium ${r.stages.runnerEntry.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+          <span className={`text-xs font-medium ${r.stages.runnerEntry.reachable ? 'text-success' : 'text-warning'}`}>
             {r.stages.runnerEntry.reachable ? 'Alcanzable' : 'Bloqueado'}
           </span>
         </div>
@@ -214,29 +214,30 @@ function LushaPreflightSection() {
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-xs text-muted-foreground">Would execute provider</span>
-          <span className={`text-xs font-medium ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+          <span className={`text-xs font-medium ${ok ? 'text-success' : 'text-warning'}`}>
             {ok ? 'Sí' : 'No'}
           </span>
         </div>
         {r.blockedBy && (
           <div className="flex items-center justify-between gap-2 py-0.5">
             <span className="text-xs text-muted-foreground">Blocked by</span>
-            <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">{r.blockedBy}</span>
+            <span className="font-mono text-xs text-warning">{r.blockedBy}</span>
           </div>
         )}
       </div>
 
-      <div className="border-t border-border/30" />
-      <div className="rounded-lg border border-border/40 bg-background/60 px-3 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Recomendación</p>
+      <div className="border-t border-border/50" />
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground mb-1">Recomendación</p>
         <p className="text-xs text-foreground leading-relaxed" data-testid="lusha-preflight-recommendation">{r.recommendation}</p>
       </div>
 
-      <p className="text-[10px] text-muted-foreground/70 leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
-      <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="w-full text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground leading-relaxed">{LUSHA_PREFLIGHT_DISCLAIMER}</p>
+      <Button variant="ghost" size="sm" onClick={() => setPf({ status: 'idle' })} className="w-full">
         Cerrar preflight
       </Button>
-    </div>
+      </div>
+    </Alert>
   );
 }
 
@@ -263,7 +264,7 @@ export function LushaCredentialDiagnosticCard() {
   // ── Idle ─────────────────────────────────────────────────────────────────────
   if (diag.status === 'idle') {
     return (
-      <div className="rounded-xl border border-border/40 bg-card/50 p-3 space-y-2">
+      <SurfaceCard className="space-y-2 p-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
           {LUSHA_DIAG_DISCLAIMER}
         </p>
@@ -271,46 +272,41 @@ export function LushaCredentialDiagnosticCard() {
           variant="outline"
           size="sm"
           onClick={runDiagnostic}
-          className="w-full text-xs"
+          className="w-full"
           data-testid="lusha-diag-button"
         >
-          <ShieldCheck className="mr-2 h-3.5 w-3.5" aria-hidden />
+          <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
           Diagnosticar conexión Lusha
         </Button>
-      </div>
+      </SurfaceCard>
     );
   }
 
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (diag.status === 'loading') {
     return (
-      <div className="rounded-xl border border-border/40 bg-card/50 p-3 flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+      <SurfaceCard className="flex items-center gap-2 p-3">
+        {/* Decorativo: el texto de al lado ya anuncia la espera. */}
+        <Spinner decorative size="sm" />
         <span className="text-xs text-muted-foreground">
           Diagnosticando acceso seguro a Supabase Vault…
         </span>
-      </div>
+      </SurfaceCard>
     );
   }
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (diag.status === 'error') {
     return (
-      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-destructive" aria-hidden />
-          <p className="text-xs font-medium text-destructive">Error al ejecutar diagnóstico</p>
+      <Alert variant="destructive">
+        <AlertTitle className="text-xs">Error al ejecutar diagnóstico</AlertTitle>
+        <AlertDescription className="text-xs">{diag.message}</AlertDescription>
+        <div>
+          <Button variant="ghost" size="sm" onClick={() => setDiag({ status: 'idle' })}>
+            Reintentar
+          </Button>
         </div>
-        <p className="text-xs text-muted-foreground">{diag.message}</p>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setDiag({ status: 'idle' })}
-          className="text-xs text-muted-foreground"
-        >
-          Reintentar
-        </Button>
-      </div>
+      </Alert>
     );
   }
 
@@ -319,27 +315,15 @@ export function LushaCredentialDiagnosticCard() {
   const color = stageColor(result.stage);
   const { checks, safeDetails } = result;
 
-  const borderColor =
-    color === 'green'
-      ? 'border-emerald-500/30'
-      : color === 'amber'
-        ? 'border-amber-500/30'
-        : 'border-destructive/30';
-  const bgColor =
-    color === 'green'
-      ? 'bg-emerald-500/5'
-      : color === 'amber'
-        ? 'bg-amber-500/5'
-        : 'bg-destructive/5';
-
   const stageTextColor =
     color === 'green'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-success'
       : color === 'amber'
-        ? 'text-amber-600 dark:text-amber-400'
+        ? 'text-warning'
         : 'text-destructive';
 
-  const StageIcon = color === 'green' ? CheckCircle2 : color === 'amber' ? AlertCircle : AlertCircle;
+  const resultVariant =
+    color === 'green' ? 'success' : color === 'amber' ? 'warning' : 'destructive';
 
   // Source resolved
   const sourceResolved =
@@ -350,15 +334,12 @@ export function LushaCredentialDiagnosticCard() {
         : 'Ninguna';
 
   return (
-    <div
-      className={`rounded-xl border ${borderColor} ${bgColor} p-4 space-y-3`}
-      data-testid="lusha-diag-result"
-    >
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <StageIcon className={`h-4 w-4 ${stageTextColor}`} aria-hidden />
-        <p className="text-xs font-semibold text-foreground">Diagnóstico de conexión Lusha</p>
-      </div>
+    <div className="space-y-2">
+    {/* El resultado es un aviso del sistema en el tono de su etapa: verde si la
+        credencial se resolvió desde Vault, ámbar si cayó al fallback, rojo si no. */}
+    <Alert variant={resultVariant} role="status" data-testid="lusha-diag-result">
+      <AlertTitle className="text-xs text-foreground">Diagnóstico de conexión Lusha</AlertTitle>
+      <div className="space-y-3 pt-1">
 
       {/* Stage */}
       <div className="flex items-start justify-between gap-2">
@@ -369,11 +350,11 @@ export function LushaCredentialDiagnosticCard() {
       </div>
 
       {/* Divider */}
-      <div className="border-t border-border/30" />
+      <div className="border-t border-border/50" />
 
       {/* Checks */}
       <div className="space-y-0.5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+        <p className="text-xs font-semibold text-muted-foreground mb-1">
           Checks
         </p>
         <CheckRow label="Supabase URL" value={checks.hasSupabaseUrl} />
@@ -382,7 +363,7 @@ export function LushaCredentialDiagnosticCard() {
         {safeDetails.supabaseUrlHost && (
           <div className="flex items-center justify-between gap-2 py-0.5">
             <span className="text-xs text-muted-foreground">Host Supabase</span>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
               {safeDetails.supabaseUrlHost}
             </span>
           </div>
@@ -400,9 +381,9 @@ export function LushaCredentialDiagnosticCard() {
       {/* Vault */}
       {checks.adminClientCreated && (
         <>
-          <div className="border-t border-border/30" />
+          <div className="border-t border-border/50" />
           <div className="space-y-0.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Vault
             </p>
             <div className="flex items-center justify-between gap-2 py-0.5">
@@ -410,7 +391,7 @@ export function LushaCredentialDiagnosticCard() {
               <span
                 className={`text-xs font-medium ${
                   checks.vaultRpcOk
-                    ? 'text-emerald-600 dark:text-emerald-400'
+                    ? 'text-success'
                     : checks.vaultRpcCalled
                       ? 'text-destructive'
                       : 'text-muted-foreground'
@@ -429,7 +410,7 @@ export function LushaCredentialDiagnosticCard() {
             {safeDetails.vaultSecretFingerprint && (
               <div className="flex items-center justify-between gap-2 py-0.5">
                 <span className="text-xs text-muted-foreground">Fingerprint (SHA-256)</span>
-                <span className="font-mono text-[10px] text-muted-foreground">
+                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
                   {safeDetails.vaultSecretFingerprint}…
                 </span>
               </div>
@@ -445,13 +426,13 @@ export function LushaCredentialDiagnosticCard() {
             {safeDetails.rpcErrorCode && (
               <div className="flex items-center justify-between gap-2 py-0.5">
                 <span className="text-xs text-muted-foreground">RPC error</span>
-                <span className="font-mono text-[10px] text-destructive">
+                <span className="font-mono text-xs text-destructive">
                   {safeDetails.rpcErrorCode}
                 </span>
               </div>
             )}
             {safeDetails.rpcErrorMessage && (
-              <p className="text-[10px] text-destructive/80 break-words">
+              <p className="text-xs text-destructive break-words">
                 {safeDetails.rpcErrorMessage}
               </p>
             )}
@@ -460,9 +441,9 @@ export function LushaCredentialDiagnosticCard() {
       )}
 
       {/* Env fallback */}
-      <div className="border-t border-border/30" />
+      <div className="border-t border-border/50" />
       <div className="space-y-0.5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+        <p className="text-xs font-semibold text-muted-foreground mb-1">
           Fallback
         </p>
         <CheckRow label="Fallback LUSHA_API_KEY" value={checks.hasLushaEnvFallback} />
@@ -477,7 +458,7 @@ export function LushaCredentialDiagnosticCard() {
       </div>
 
       {/* Source & recommendation */}
-      <div className="border-t border-border/30" />
+      <div className="border-t border-border/50" />
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground">Fuente resuelta</span>
@@ -486,8 +467,8 @@ export function LushaCredentialDiagnosticCard() {
             {sourceResolved}
           </span>
         </div>
-        <div className="rounded-lg border border-border/40 bg-background/60 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground mb-1">
             Recomendación
           </p>
           <p className="text-xs text-foreground leading-relaxed" data-testid="lusha-diag-recommendation">
@@ -499,19 +480,19 @@ export function LushaCredentialDiagnosticCard() {
       {/* Exception details if any */}
       {(safeDetails.exceptionName || safeDetails.exceptionMessage) && (
         <>
-          <div className="border-t border-border/30" />
+          <div className="border-t border-border/50" />
           <div className="space-y-0.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">
               Excepción
             </p>
             {safeDetails.exceptionName && (
               <div className="flex items-center justify-between gap-2 py-0.5">
                 <span className="text-xs text-muted-foreground">Tipo</span>
-                <span className="font-mono text-[10px] text-destructive">{safeDetails.exceptionName}</span>
+                <span className="font-mono text-xs text-destructive">{safeDetails.exceptionName}</span>
               </div>
             )}
             {safeDetails.exceptionMessage && (
-              <p className="text-[10px] text-destructive/80 break-words">{safeDetails.exceptionMessage}</p>
+              <p className="text-xs text-destructive break-words">{safeDetails.exceptionMessage}</p>
             )}
           </div>
         </>
@@ -519,7 +500,7 @@ export function LushaCredentialDiagnosticCard() {
 
       {/* Disclaimer */}
       <p
-        className="text-[10px] text-muted-foreground/70 leading-relaxed pt-1"
+        className="text-xs text-muted-foreground leading-relaxed pt-1"
         data-testid="lusha-diag-disclaimer"
       >
         {LUSHA_DIAG_DISCLAIMER}
@@ -529,13 +510,16 @@ export function LushaCredentialDiagnosticCard() {
         variant="ghost"
         size="sm"
         onClick={() => setDiag({ status: 'idle' })}
-        className="w-full text-xs text-muted-foreground"
+        className="w-full"
       >
         Cerrar diagnóstico
       </Button>
+      </div>
+    </Alert>
 
-      {/* Preflight section — shown after credential diagnostic */}
-      <LushaPreflightSection />
+    {/* Preflight section — shown after credential diagnostic. Va DEBAJO del
+        resultado, como bloque hermano: antes era una caja dentro de la caja. */}
+    <LushaPreflightSection />
     </div>
   );
 }

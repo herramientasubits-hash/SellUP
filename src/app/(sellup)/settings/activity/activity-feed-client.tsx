@@ -1,18 +1,26 @@
 'use client';
 
-import { useState, useTransition, useCallback, useRef } from 'react';
+import { formatInAppZone } from '@/lib/format-date';
+import { useState, useTransition, useCallback, useMemo, useRef } from 'react';
 import {
   Activity,
   Users,
   Link2,
   Cpu,
   Search,
-  ChevronDown,
   Loader2,
   ChevronRight,
-} from 'lucide-react';
+} from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard } from '@/components/shared/surface-card';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
+import { Timeline, TimelineItem, type TimelineTone } from '@/components/data-display';
+import { Spinner } from '@/components/feedback/spinner';
+import { SearchableSelect } from '@/components/forms/searchable-select';
+import { SegmentedControl } from '@/components/selection/segmented-control';
+import { Heading } from '@/components/typography';
 import { getPlatformActivity } from '@/modules/system-status/activity-actions';
 import type {
   ActivityViewerContext,
@@ -43,7 +51,7 @@ function formatRelativeTime(iso: string): string {
   if (hrs < 24) return `hace ${hrs}h`;
   const days = Math.floor(hrs / 24);
   if (days < 30) return `hace ${days}d`;
-  return new Date(iso).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' });
+  return formatInAppZone(iso, { month: 'short', day: 'numeric' }, 'es-CO');
 }
 
 function displayName(user: { email: string; full_name: string | null } | null): string {
@@ -55,124 +63,79 @@ function displayName(user: { email: string; full_name: string | null } | null): 
 
 // Design Refresh v2: el icono de categoría lleva un tinte sutil por fuente.
 // Así el color señala la categoría sin necesidad del badge uppercase repetido.
-const SOURCE_ICON_TINT: Record<AdminActivitySource, string> = {
-  users: 'bg-su-brand-soft text-su-brand',
-  integrations: 'bg-amber-500/10 text-amber-500',
-  ai: 'bg-violet-500/10 text-violet-500',
+const SOURCE_TONE: Record<AdminActivitySource, TimelineTone> = {
+  users: 'primary',
+  integrations: 'warning',
+  ai: 'default',
 };
 
 function SourceIcon({ source }: { source: AdminActivitySource }) {
   const iconClass = 'h-3 w-3';
-  if (source === 'users') return <Users className={iconClass} />;
-  if (source === 'integrations') return <Link2 className={iconClass} />;
-  return <Cpu className={iconClass} />;
+  if (source === 'users') return <Users className={iconClass} aria-hidden="true" />;
+  if (source === 'integrations') return <Link2 className={iconClass} aria-hidden="true" />;
+  return <Cpu className={iconClass} aria-hidden="true" />;
 }
 
-function UserSelector({
-  value,
-  options,
-  onChange,
-}: {
+const ALL_USERS_ID = 'all';
+const ALL_USERS_LABEL = 'Todos los usuarios';
+
+interface UserSelectorProps {
   value: string;
   options: { id: string; email: string; full_name: string | null }[];
   onChange: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
+}
 
-  const filtered = options.filter((u) => {
-    const q = query.toLowerCase();
-    return (
-      u.email.toLowerCase().includes(q) ||
-      (u.full_name?.toLowerCase().includes(q) ?? false)
-    );
-  });
+/**
+ * De quién se ve la actividad. El buscador del desplegable compara contra el
+ * valor de cada opción, así que el valor es «nombre · correo» (legible y único
+ * por el correo) y aquí se traduce de vuelta al id de la persona.
+ */
+function UserSelector({ value, options, onChange }: UserSelectorProps) {
+  const entries = useMemo(
+    () => [
+      { id: ALL_USERS_ID, key: ALL_USERS_LABEL, label: ALL_USERS_LABEL, description: undefined },
+      ...options.map((user) => {
+        const name = user.full_name?.trim();
+        return {
+          id: user.id,
+          key: name ? `${name} · ${user.email}` : user.email,
+          label: name || user.email,
+          description: name ? user.email : undefined,
+        };
+      }),
+    ],
+    [options],
+  );
 
-  const selected = options.find((u) => u.id === value);
+  const selectedKey = entries.find((entry) => entry.id === value)?.key ?? ALL_USERS_LABEL;
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-8 min-w-[180px] max-w-[260px] items-center justify-between gap-2 rounded-lg border border-border/60 bg-card px-3 text-xs text-foreground transition-colors hover:border-su-brand/40 hover:bg-su-brand-soft/30"
-      >
-        <span className="truncate">
-          {value === 'all'
-            ? 'Todos los usuarios'
-            : (selected?.full_name?.trim() || selected?.email || 'Usuario')}
-        </span>
-        <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-      </button>
-
-      {open && (
-        <>
-          {/* backdrop */}
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => { setOpen(false); setQuery(''); }}
-          />
-          <div className="absolute left-0 top-9 z-20 w-72 rounded-xl border border-border/60 bg-card shadow-md">
-            <div className="p-2">
-              <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/30 px-2.5 py-1.5">
-                <Search className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                <input
-                  autoFocus
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar usuario…"
-                  className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
-                />
-              </div>
-            </div>
-            <ul className="max-h-56 overflow-y-auto pb-1">
-              {query === '' && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => { onChange('all'); setOpen(false); setQuery(''); }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-muted/40 ${value === 'all' ? 'text-su-brand font-medium' : 'text-foreground'}`}
-                  >
-                    <Users className="h-3 w-3 text-muted-foreground" />
-                    Todos los usuarios
-                  </button>
-                </li>
-              )}
-              {filtered.map((u) => (
-                <li key={u.id}>
-                  <button
-                    type="button"
-                    onClick={() => { onChange(u.id); setOpen(false); setQuery(''); }}
-                    className={`flex w-full flex-col px-3 py-2 text-left transition-colors hover:bg-muted/40 ${value === u.id ? 'bg-su-brand-soft/40' : ''}`}
-                  >
-                    <span className={`text-xs font-medium ${value === u.id ? 'text-su-brand' : 'text-foreground'}`}>
-                      {u.full_name?.trim() || u.email}
-                    </span>
-                    {u.full_name && (
-                      <span className="text-[10px] text-muted-foreground">{u.email}</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-              {filtered.length === 0 && (
-                <li className="px-3 py-3 text-center text-xs text-muted-foreground/60">
-                  Sin resultados
-                </li>
-              )}
-            </ul>
-          </div>
-        </>
-      )}
-    </div>
+    <SearchableSelect
+      compact
+      className="h-8 w-auto min-w-44 max-w-64 text-xs"
+      contentClassName="w-72"
+      options={entries.map((entry) => ({
+        value: entry.key,
+        label: entry.label,
+        description: entry.description,
+      }))}
+      value={selectedKey}
+      onValueChange={(key) => {
+        const entry = entries.find((candidate) => candidate.key === key);
+        if (entry) onChange(entry.id);
+      }}
+      placeholder={ALL_USERS_LABEL}
+      searchPlaceholder="Buscar usuario…"
+      emptyMessage="Nadie coincide con tu búsqueda."
+    />
   );
 }
 
-const SOURCE_TABS: { key: SourceFilter; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'users', label: 'Usuarios' },
-  { key: 'integrations', label: 'Integraciones' },
-  { key: 'ai', label: 'IA' },
+const SOURCE_OPTIONS: { value: SourceFilter; label: string }[] = [
+  { value: 'all', label: 'Todo' },
+  { value: 'users', label: 'Usuarios' },
+  { value: 'integrations', label: 'Integraciones' },
+  { value: 'ai', label: 'IA' },
 ];
 
 // ─── Main component ───────────────────────────────────────────────
@@ -254,23 +217,29 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
   const showUserSelector =
     context.isAdmin || context.isManager;
 
+  // De quién es la actividad que se ve: va en la cabecera, antes de leer la lista.
+  const scopeNote = context.isAdmin
+    ? 'Ves la actividad de toda la plataforma.'
+    : context.isManager
+      ? 'Ves la actividad de tu equipo.'
+      : 'Ves tu propia actividad.';
+
   return (
     <div className="space-y-6">
       {!embedded && (
         <PageHeader
           title="Actividad de la plataforma"
-          description="Historial de acciones administrativas, integraciones y configuración de IA."
-          backHref="/settings"
+          description={`Quién hizo qué y cuándo. ${scopeNote}`}
         />
       )}
       {embedded && (
-        <h2 className="text-base font-semibold text-foreground">
+        <Heading level={6} as="h2">
           Actividad administrativa reciente
-        </h2>
+        </Heading>
       )}
 
       {/* ── Filters ────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         {/* User selector */}
         {showUserSelector && (
           <UserSelector
@@ -280,127 +249,116 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
           />
         )}
 
-        {/* Source tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-card p-0.5">
-          {SOURCE_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => handleSourceChange(tab.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                sourceFilter === tab.key
-                  ? 'bg-su-brand text-white shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Tipo de actividad */}
+        <SegmentedControl
+          size="sm"
+          ariaLabel="Filtrar por tipo de actividad"
+          className="w-fit max-w-full overflow-x-auto"
+          options={SOURCE_OPTIONS}
+          value={sourceFilter}
+          onChange={(next) => handleSourceChange(next as SourceFilter)}
+        />
 
         {/* Search */}
-        <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-1.5 transition-colors focus-within:border-su-brand/40">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          <input
+        <div className="relative w-full sm:w-56">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            inputSize="sm"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Buscar en actividad…"
-            className="w-44 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
+            aria-label="Buscar en actividad"
+            className="pl-8"
           />
         </div>
 
         {/* Loading indicator */}
         {isPending && (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
+          <Spinner size="sm" label="Cargando actividad" />
         )}
       </div>
 
       {/* ── Activity list ──────────────────────────────────── */}
-      <SurfaceCard noPadding>
+      <SurfaceCard noPadding className="overflow-hidden">
         {events.length === 0 && !isPending ? (
-          <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
-            <Activity className="h-8 w-8 text-muted-foreground/30" />
-            <p className="text-sm font-medium text-muted-foreground">Sin eventos registrados</p>
-            <p className="text-xs text-muted-foreground/60">
-              {search
-                ? 'Intenta con otros términos de búsqueda.'
-                : 'No hay actividad disponible para los filtros seleccionados.'}
-            </p>
-          </div>
+          <EmptyState
+            variant="plain"
+            icon={Activity}
+            title={search ? 'Nada coincide con tu búsqueda' : 'No hay actividad con estos filtros'}
+            description={
+              search
+                ? 'Prueba con otra palabra o borra la búsqueda.'
+                : 'Elige «Todo» o cambia de persona para ver más actividad.'
+            }
+          />
         ) : (
-          <ul className="divide-y divide-border/40">
+          <Timeline
+            className={`px-5 py-4 transition-opacity duration-200 ${isPending ? 'opacity-60' : ''}`}
+          >
             {events.map((event) => (
-              <li key={event.id} className="flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-muted/20">
-                {/* Source icon — tinte por categoría (reemplaza el badge de fila) */}
-                <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${SOURCE_ICON_TINT[event.source]}`}>
-                  <SourceIcon source={event.source} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-medium text-foreground">{event.label}</span>
-                  </div>
-
-                  {/* Description */}
-                  {event.description && (
-                    <p className="mt-0.5 text-xs text-muted-foreground">{event.description}</p>
-                  )}
-
-                  {/* Actor / Target */}
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <TimelineItem
+                key={event.id}
+                tone={SOURCE_TONE[event.source]}
+                icon={<SourceIcon source={event.source} />}
+                title={<span className="break-words">{event.label}</span>}
+                time={formatRelativeTime(event.created_at)}
+                description={
+                  event.description ? (
+                    <span className="break-words">{event.description}</span>
+                  ) : undefined
+                }
+              >
+                {/* Actor / Target */}
+                {(event.actor || event.target) && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                     {event.actor && (
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                        <span className="font-medium text-muted-foreground/90">Por:</span>
+                      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        <span className="font-medium text-muted-foreground">Por:</span>
                         {displayName(event.actor)}
                       </span>
                     )}
                     {event.target && (
                       <>
                         {event.actor && (
-                          <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                          <ChevronRight className="h-3 w-3 shrink-0 text-text-muted" aria-hidden="true" />
                         )}
-                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                          <span className="font-medium text-muted-foreground/90">Sobre:</span>
+                        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                          <span className="font-medium text-muted-foreground">Sobre:</span>
                           {displayName(event.target)}
                         </span>
                       </>
                     )}
                   </div>
-                </div>
-
-                <span className="shrink-0 text-[10px] text-muted-foreground/50 mt-0.5">
-                  {formatRelativeTime(event.created_at)}
-                </span>
-              </li>
+                )}
+              </TimelineItem>
             ))}
-          </ul>
+          </Timeline>
         )}
 
         {/* Load more */}
         {hasMore && (
-          <div className="border-t border-border/40 p-4">
-            <button
+          <div className="border-t border-border/50 p-4">
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={handleLoadMore}
               disabled={isLoadingMore}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border/50 bg-muted/20 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+              className="w-full"
             >
               {isLoadingMore ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : null}
-              {isLoadingMore ? 'Cargando…' : 'Cargar más eventos'}
-            </button>
+              {isLoadingMore ? 'Cargando…' : 'Ver actividad anterior'}
+            </Button>
           </div>
         )}
       </SurfaceCard>
 
-      <p className="text-[11px] text-muted-foreground/50">
-        {context.isAdmin
-          ? 'Vista de administrador — actividad de toda la plataforma.'
-          : context.isManager
-          ? 'Vista de líder — actividad de tu equipo según el organigrama.'
-          : 'Mostrando tu actividad en la plataforma.'}
-      </p>
+      {embedded && <p className="text-xs text-muted-foreground">{scopeNote}</p>}
     </div>
   );
 }

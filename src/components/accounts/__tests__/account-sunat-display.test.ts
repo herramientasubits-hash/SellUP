@@ -64,7 +64,7 @@ describe('PE account with SUNAT metadata', () => {
   it('displays "Verificado SUNAT" for verified status', () => {
     const display = getSunatStatusDisplay('verified');
     assert.strictEqual(display.label, 'Verificado SUNAT');
-    assert.ok(display.badgeClass.includes('emerald'));
+    assert.ok(display.badgeClass.includes('success'));
   });
 
   it('country_code lowercase pe is treated as PE', () => {

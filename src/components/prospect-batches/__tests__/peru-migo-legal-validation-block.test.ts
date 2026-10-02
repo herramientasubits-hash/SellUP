@@ -49,10 +49,10 @@ function shouldShowMigoBlock(
 // ── getMigoStatusDisplay — all required statuses ───────────────────────────────
 
 describe('getMigoStatusDisplay', () => {
-  it('verified → "Verificado por Migo", emerald badge', () => {
+  it('verified → "Verificado por Migo", success badge', () => {
     const d = getMigoStatusDisplay('verified');
     assert.strictEqual(d.label, 'Verificado por Migo');
-    assert.ok(d.badgeClass.includes('emerald'));
+    assert.ok(d.badgeClass.includes('success'));
   });
 
   it('not_found → "No encontrado en Migo", muted badge', () => {
@@ -61,16 +61,16 @@ describe('getMigoStatusDisplay', () => {
     assert.ok(d.badgeClass.includes('muted'));
   });
 
-  it('flagged → "Revisar Migo", amber badge', () => {
+  it('flagged → "Revisar Migo", warning badge', () => {
     const d = getMigoStatusDisplay('flagged');
     assert.strictEqual(d.label, 'Revisar Migo');
-    assert.ok(d.badgeClass.includes('amber'));
+    assert.ok(d.badgeClass.includes('warning'));
   });
 
-  it('api_unavailable → "Migo no disponible", amber badge', () => {
+  it('api_unavailable → "Migo no disponible", warning badge', () => {
     const d = getMigoStatusDisplay('api_unavailable');
     assert.strictEqual(d.label, 'Migo no disponible');
-    assert.ok(d.badgeClass.includes('amber'));
+    assert.ok(d.badgeClass.includes('warning'));
   });
 
   it('invalid_ruc_format → "RUC inválido", muted badge', () => {

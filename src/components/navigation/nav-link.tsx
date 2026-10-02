@@ -33,16 +33,16 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
                 aria-label={item.title}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
+                  "relative flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors duration-200",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   isActive
-                    ? "bg-white/10 text-white"
-                    : "text-sidebar-foreground/55 hover:bg-white/[0.05] hover:text-sidebar-foreground/85",
+                    ? "bg-sidebar-accent text-primary"
+                    : "text-text-muted hover:bg-background hover:text-foreground",
                 )}
               >
                 <item.icon
                   className={cn(
-                    "h-[18px] w-[18px] shrink-0 transition-all duration-200",
-                    isActive ? "text-white" : "text-sidebar-foreground/50",
+                    "size-[18px] shrink-0",
                   )}
                 />
               </Link>
@@ -61,21 +61,20 @@ export function NavLink({ item, mode = "full" }: NavLinkProps) {
       href={item.href}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "group relative flex items-center gap-3 py-2.5 pl-3.5 pr-3 text-[0.8125rem] font-medium transition-all duration-200",
+        "group relative flex h-9 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
         isActive
-          ? "bg-white/10 text-white"
-          : "text-sidebar-foreground/60 hover:bg-white/[0.04] hover:text-sidebar-foreground",
+          ? "bg-sidebar-accent font-semibold text-primary"
+          : "text-muted-foreground hover:bg-background hover:text-foreground",
       )}
     >
       <item.icon
         className={cn(
-          "h-[18px] w-[18px] shrink-0 transition-all duration-200",
-          isActive
-            ? "text-white"
-            : "text-sidebar-foreground/45 group-hover:text-sidebar-foreground/80",
+          "size-4 shrink-0",
+          isActive ? "text-primary" : "text-text-muted group-hover:text-foreground",
         )}
       />
-      <span className="flex-1 truncate">{item.title}</span>
+      <span className="min-w-0 flex-1 truncate">{item.title}</span>
     </Link>
   );
 }
@@ -92,13 +91,13 @@ export function MobileNavLink({ item }: NavLinkProps) {
           href={item.href}
           aria-current={isActive ? "page" : undefined}
           className={cn(
-            "relative flex items-center gap-3 px-3.5 py-2.5 text-[0.8125rem] font-medium transition-all duration-200",
+            "relative flex h-9 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors duration-200",
             isActive
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+              ? "bg-sidebar-accent font-semibold text-primary"
+              : "text-muted-foreground hover:bg-background hover:text-foreground",
           )}
         >
-          <item.icon className="h-[18px] w-[18px] shrink-0" />
+          <item.icon className="size-4 shrink-0" />
           {item.title}
         </Link>
       }
