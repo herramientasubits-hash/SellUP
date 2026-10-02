@@ -39,7 +39,7 @@ interface DiscardedProspectsPanelProps {
  * dentro de Prospectos y ahora es hermana de las otras dos en una sola fila
  * (hoy, una vista del menú lateral: Empresas → Descartadas). La superficie replica la de
  * "Candidatos por revisar": mismos indicadores que filtran, misma <DataTable>
- * con selección, barra de acciones masivas y filtros de alcance.
+ * con selección, barra de acciones masivas y filtro de equipo.
  *
  * La barra de la pantalla lleva el agente de IA del módulo («Generar con IA»),
  * el mismo asistente de las otras dos pestañas: aquí es donde más sentido
@@ -83,7 +83,6 @@ export async function DiscardedProspectsPanel({ params, generateAgent }: Discard
         scopeFilterOptions={scopeFilterOptions}
         currentUserId={params.userId ?? ''}
         currentGroupId={params.groupId ?? ''}
-        currentRoleKey={params.roleKey ?? ''}
         sourceId={params.sourceId ?? undefined}
         hasUrlFilters={Boolean(
           params.search || params.country || params.industry || params.userId || params.groupId,

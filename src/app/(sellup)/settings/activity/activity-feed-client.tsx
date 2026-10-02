@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
+import { settingsBreadcrumbs } from '@/components/settings/settings-page';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -228,6 +229,7 @@ export function ActivityFeedClient({ context, initialEvents, initialHasMore, emb
     <div className="space-y-6">
       {!embedded && (
         <PageHeader
+          breadcrumbs={settingsBreadcrumbs(undefined, 'Actividad de la plataforma')}
           title="Actividad de la plataforma"
           description={`Quién hizo qué y cuándo. ${scopeNote}`}
         />

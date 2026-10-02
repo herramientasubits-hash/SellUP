@@ -4,6 +4,7 @@ import { CheckCircle2, FolderOpen } from "@/icons";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { StatusBadge, type StatusType } from '@/components/data-display';
 import { PageHeader } from '@/components/shared/page-header';
+import { settingsBreadcrumbs } from '@/components/settings/settings-page';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { hasActiveAccess } from '@/modules/access/actions';
 import { getUserDriveConnection } from '@/modules/drive/actions';
@@ -47,6 +48,7 @@ export default async function MyDrivePage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
+        breadcrumbs={settingsBreadcrumbs(undefined, 'Mi Google Drive')}
         title="Mi Google Drive"
         description="Conecta tu Drive para guardar y organizar los archivos que SellUp genere en tu espacio de trabajo."
       />

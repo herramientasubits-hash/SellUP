@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plug, MessageSquare, HardDrive, Bot, Globe, Search, ArrowRight } from "@/icons";
+import { Plug, MessageSquare, HardDrive, Bot, Search, ArrowRight } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { SettingsPage } from '@/components/settings/settings-page';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -41,17 +41,19 @@ const INTEGRATION_META: Record<
     href: '/settings/integrations/samu',
     cta: 'Ver conexión',
   },
-  tavily: {
-    icon: Globe,
-    href: '/settings/integrations/tavily',
-    cta: 'Ver conexión',
-  },
   google_cse: {
     icon: Search,
     href: '/settings/integrations/google-cse',
     cta: 'Ver conexión',
   },
 };
+
+/**
+ * Lo que no se lista aquí aunque exista como integración: Google Drive es
+ * personal (Mi Google Drive) y Tavily es un proveedor de datos que se conecta y
+ * se mide en «Proveedores y consumo».
+ */
+const NOT_LISTED_HERE: ReadonlySet<string> = new Set(['google_drive', 'tavily']);
 
 function ConnectionStatusBadge({
   credentialsStatus,
@@ -192,7 +194,9 @@ export default async function IntegrationsPage() {
   if (!isAdmin) redirect('/settings');
 
   const allIntegrations = await getAllIntegrations();
-  const integrations = allIntegrations.filter((i) => i.integration_key !== 'google_drive');
+  const integrations = allIntegrations.filter(
+    (i) => !NOT_LISTED_HERE.has(i.integration_key),
+  );
 
   return (
     <SettingsPage

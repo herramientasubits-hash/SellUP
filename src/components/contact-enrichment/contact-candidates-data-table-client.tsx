@@ -36,7 +36,9 @@ import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filte
 import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
 import {
-  ScopeFilterDrawerSection,
+  EMPTY_SCOPE_FILTER,
+  TeamFilterButton,
+  resolveScopeOwnerIds,
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
 import { isCandidateCreatedToday } from '@/modules/contact-enrichment/candidate-date-utils';
@@ -95,8 +97,6 @@ const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCand
     predicate: (candidate) => Boolean(candidate.linkedin_url),
   },
 ];
-
-const EMPTY_SCOPE_FILTER: ScopeFilterState = { userId: '', groupId: '', roleKey: '' };
 
 /** El estado del flujo, en texto: todas las filas de una cola comparten el suyo. */
 function workflowStatusLabel(candidate: PendingContactCandidate): string {
@@ -260,32 +260,13 @@ export function ContactCandidatesDataTableClient({
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilterState>(EMPTY_SCOPE_FILTER);
   const dataTableRef = React.useRef<DataTableHandle>(null);
 
+  // «Equipo»: los registros cuyas empresas lleva alguien del grupo o la persona elegida.
   const filteredCandidates = React.useMemo(() => {
-    if (!scopeFilterOptions?.showScopeFilters || !accountOwners) return candidates;
-    const { userId, groupId, roleKey } = scopeFilter;
-    if (!userId && !groupId && !roleKey) return candidates;
-    const allowedUserIds = new Set(
-      scopeFilterOptions.users
-        .filter((u) => {
-          if (roleKey && u.role_key !== roleKey) return false;
-          if (groupId) {
-            if (!u.group_id) return false;
-            const inSubtree = (gid: string): boolean => {
-              if (gid === groupId) return true;
-              const g = scopeFilterOptions.groups.find((x) => x.id === gid);
-              return g?.parent_group_id ? inSubtree(g.parent_group_id) : false;
-            };
-            if (!inSubtree(u.group_id)) return false;
-          }
-          return true;
-        })
-        .map((u) => u.id),
-    );
+    const ownerIds = resolveScopeOwnerIds(scopeFilterOptions, scopeFilter);
+    if (!ownerIds || !accountOwners) return candidates;
     return candidates.filter((c) => {
       const ownerId = c.account_id ? accountOwners.get(c.account_id) : undefined;
-      if (!ownerId) return false;
-      if (userId) return ownerId === userId;
-      return allowedUserIds.has(ownerId);
+      return ownerId != null && ownerIds.has(ownerId);
     });
   }, [candidates, scopeFilter, scopeFilterOptions, accountOwners]);
 
@@ -513,11 +494,11 @@ export function ContactCandidatesDataTableClient({
       <EmptyState
         variant="plain"
         icon={UserSearch}
-        title="Ningún candidato en este alcance"
-        description="El usuario, grupo o rol elegido no tiene candidatos en sus empresas."
+        title="Ningún candidato en este equipo"
+        description="El grupo o la persona elegidos no tienen candidatos en sus empresas."
         action={
           <Button type="button" variant="outline" size="sm" onClick={() => setScopeFilter(EMPTY_SCOPE_FILTER)}>
-            Quitar filtros de alcance
+            Quitar filtro de equipo
           </Button>
         }
       />
@@ -557,15 +538,17 @@ export function ContactCandidatesDataTableClient({
         // La descripción de la cola la dice la cabecera de la página: aquí no se repite.
         title={quick.activeLabel ? `${queueCopy.title} · ${quick.activeLabel}` : queueCopy.title}
         count={quick.rows.length}
-        actions={candidates.length > 0 && isWide ? <QuickFilterChips {...quickFilterGroup} /> : undefined}
-        settingsExtraSections={
-          scopeFilterOptions?.showScopeFilters ? (
-            <ScopeFilterDrawerSection
-              scopeFilterOptions={scopeFilterOptions}
-              value={scopeFilter}
-              onChange={setScopeFilter}
-            />
-          ) : undefined
+        actions={
+          <>
+            {candidates.length > 0 && isWide && <QuickFilterChips {...quickFilterGroup} />}
+            {scopeFilterOptions && (
+              <TeamFilterButton
+                scopeFilterOptions={scopeFilterOptions}
+                value={scopeFilter}
+                onChange={setScopeFilter}
+              />
+            )}
+          </>
         }
         enableRowSelection
         bulkActions={bulkActions}

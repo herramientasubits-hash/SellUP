@@ -1,7 +1,8 @@
 /**
  * Secciones de Configuración — quién ve qué y a qué sección pertenece una ruta.
- * De esta lista salen el resumen y la navegación lateral: si aquí se cuela una
- * sección que quien mira no puede abrir, se le pinta un enlace que redirige.
+ * De esta lista salen el resumen, las migas y el menú de la marca: si aquí se
+ * cuela una sección que quien mira no puede abrir, se le pinta un enlace que
+ * redirige.
  */
 
 import { describe, it } from 'node:test';
@@ -13,10 +14,10 @@ import {
 } from '../settings-sections';
 
 describe('getVisibleSettingsSections — permisos', () => {
-  it('un administrador ve las siete secciones', () => {
+  it('un administrador ve las cinco secciones', () => {
     const sections = getVisibleSettingsSections({ isAdmin: true, isActive: true });
 
-    assert.equal(sections.length, 7);
+    assert.equal(sections.length, 5);
     assert.deepEqual(sections, [...SETTINGS_SECTIONS]);
   });
 
@@ -33,13 +34,7 @@ describe('getVisibleSettingsSections — permisos', () => {
   it('las secciones administrativas son las que redirigen a quien no es admin', () => {
     const adminOnly = SETTINGS_SECTIONS.filter((s) => s.access === 'admin').map((s) => s.id);
 
-    assert.deepEqual(adminOnly, [
-      'users',
-      'providers',
-      'automations',
-      'integrations',
-      'prospecting',
-    ]);
+    assert.deepEqual(adminOnly, ['users', 'providers', 'integrations']);
   });
 });
 
@@ -54,6 +49,13 @@ describe('resolveSettingsSectionId — en qué sección está una ruta', () => {
     assert.equal(resolveSettingsSectionId('/settings/budget-credits'), 'providers');
     assert.equal(resolveSettingsSectionId('/settings/budget-credits/rules'), 'providers');
     assert.equal(resolveSettingsSectionId('/settings/usage'), 'providers');
+  });
+
+  it('Automatizaciones y «Prospección y enriquecimiento» ya no son secciones', () => {
+    assert.equal(SETTINGS_SECTIONS.some((s) => s.id === 'automations'), false);
+    assert.equal(SETTINGS_SECTIONS.some((s) => s.id === 'prospecting'), false);
+    // Prospección se fundió en Proveedores y consumo: su ruta antigua es de ahí.
+    assert.equal(resolveSettingsSectionId('/settings/prospecting'), 'providers');
   });
 
   it('el resumen y una ruta sin sección no marcan ninguna', () => {
