@@ -130,6 +130,38 @@ const JOB_BOARD_DOMAINS = new Set([
   'talent.com',
 ]);
 
+/**
+ * AGENT1-TAVILY-FIRST-4 — portales de empleo con un dominio por país
+ * (`opcionempleo.com.pe`, `bumeran.com.ar`…). Prod 02-10 (PE×Energía,
+ * c530fef3): `opcionempleo.com.pe` entró como empresa porque la lista sólo
+ * tenía `.cl` y `.com`. Se reconoce la marca en cualquier terminación de país.
+ */
+export const JOB_BOARD_BRAND_LABELS: readonly string[] = Object.freeze([
+  'opcionempleo',
+  'computrabajo',
+  'bumeran',
+  'laborum',
+  'jobsora',
+  'jooble',
+  'multitrabajos',
+  'zonajobs',
+]);
+
+/** `true` si el dominio es `<marca>.<terminación de país>` (o un subdominio suyo). */
+export function isJobBoardBrandDomain(domain: string): boolean {
+  const labels = domain.toLowerCase().split('.');
+  for (let i = 0; i < labels.length - 1; i++) {
+    if (!JOB_BOARD_BRAND_LABELS.includes(labels[i])) continue;
+    // Detrás de la marca sólo puede venir la terminación (`com`, `pe`, `com.pe`…).
+    if (labels.slice(i + 1).every((label) => label.length >= 2 && label.length <= 3)) return true;
+  }
+  return false;
+}
+
+function isJobBoardDomain(domain: string): boolean {
+  return domainMatchesSet(domain, JOB_BOARD_DOMAINS) || isJobBoardBrandDomain(domain);
+}
+
 const SOFTWARE_DIRECTORY_DOMAINS = new Set([
   'comparasoftware.com',
   'capterra.com',
@@ -846,7 +878,7 @@ export function isProspectableCompanyResult(result: {
   }
 
   // 6. Job boards
-  if (domainMatchesSet(domain, JOB_BOARD_DOMAINS)) {
+  if (isJobBoardDomain(domain)) {
     return {
       isProspectable: false,
       reason: `Portal de empleo (${domain})`,
@@ -1078,7 +1110,7 @@ export function classifySearchResult(result: {
   }
 
   // 4. Job boards (incluyendo subdominios como co.computrabajo.com)
-  if (domainMatchesSet(domain, JOB_BOARD_DOMAINS)) {
+  if (isJobBoardDomain(domain)) {
     return {
       resultType: 'job_board',
       shouldKeep: false,

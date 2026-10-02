@@ -90,6 +90,11 @@ export type RescueBatchDeps = {
   ) => Promise<boolean>;
   /** Pasa la fila de Descartadas a «Candidatos por revisar». null = no se pudo. */
   admitDisposition: (dispositionId: string, origin: SendToReviewOrigin) => Promise<string | null>;
+  /**
+   * Tras pasar a revisión, deja en la fila de Descartadas la decisión final del rescate
+   * (antes se quedaba «en proceso»). Ausente = no se marca. Nunca bloquea.
+   */
+  markDispositionSent?: (dispositionId: string, rescue: Record<string, unknown>) => Promise<void>;
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
   claimIdentities: (batchId: string, candidateIds: readonly string[]) => Promise<void>;
   /**
@@ -410,6 +415,7 @@ async function rescueDisposition(
     );
     if (candidateId) {
       admittedIds.push(candidateId);
+      await markSent(deps, row.id, origin.metadata);
       return { tag: decision.kind === 'reassign' ? 'reassigned' : 'admitted', cost };
     }
     return { tag: 'failed', cost };
@@ -420,6 +426,17 @@ async function rescueDisposition(
     buildDispositionStaysEvidence(withFound(evidence), result, staysDecision, decidedAt),
   );
   return { tag: saved ? 'kept' : 'failed', cost };
+}
+
+/** Marca final en la fila de Descartadas; un fallo sólo se registra (es informativo). */
+async function markSent(deps: RescueBatchDeps, dispositionId: string, metadata: Record<string, unknown>) {
+  const rescue = metadata[CLAUDE_RESCUE_METADATA_KEY];
+  if (!deps.markDispositionSent || !rescue || typeof rescue !== 'object') return;
+  try {
+    await deps.markDispositionSent(dispositionId, rescue as Record<string, unknown>);
+  } catch (err) {
+    console.error('[claude-rescue] disposition mark failed:', err instanceof Error ? err.message : err);
+  }
 }
 
 /**
@@ -468,9 +485,11 @@ async function reassignStoredSectorMismatches(
       sizePassedIcpGate: false,
     });
     if (!decision) continue;
-    const candidateId = await deps.admitDisposition(row.id, buildStoredReassignDispositionOrigin(row.evidence, decision, decidedAt));
+    const origin = buildStoredReassignDispositionOrigin(row.evidence, decision, decidedAt);
+    const candidateId = await deps.admitDisposition(row.id, origin);
     if (candidateId) {
       reopenedIds.push(candidateId);
+      await markSent(deps, row.id, origin.metadata);
       reassigned++;
     }
   }

@@ -74,8 +74,11 @@ import {
   combineWriterTruths,
   isTavilyFirstSatisfied,
   resolveInlineRescueWindowMs,
+  reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
+  tavilyOwnReviewable,
   withRecountedAcceptance,
+  type ReopenBatchClient,
   type TavilyFirstOutcome,
   type WriterTruthLike,
 } from './wizard-tavily-first';
@@ -307,6 +310,12 @@ export type WizardExecutionDeps = {
    * cuentan para la meta, leídos DESPUÉS de la revisión de Claude. `null` = no se pudo.
    */
   listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
+  /**
+   * AGENT1-TAVILY-FIRST-4 — devuelve el lote a `generating` antes de que Apollo
+   * complete (el escritor de Tavily lo dejó en `ready_for_review`). `false` = no
+   * se pudo y Apollo no corre. Sin dep ⇒ no se reabre (comportamiento previo).
+   */
+  reopenBatchForApollo?: (batchId: string) => Promise<boolean>;
   /** AGENT1-TAVILY-FIRST-2 — inicio de la acción, para medir los 300 s de Vercel. */
   actionStartedAtMs?: number;
   /** Reloj inyectable (pruebas). Por defecto `Date.now`. */
@@ -619,6 +628,9 @@ export async function executeProspectWizardGenerationAction(
         .eq('metadata->target_completeness->>counts_toward_target', 'true');
       return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
     },
+    // Mismo cliente de sesión que `markBatchFailed`: la RLS acota la fila.
+    reopenBatchForApollo: (batchId) =>
+      reopenBatchForApolloAfterTavilyFirst(supabase as unknown as ReopenBatchClient, batchId),
     countReviewableCandidates: async (batchId) => {
       const { count, error } = await budgetClient
         .from('prospect_candidates')
@@ -2158,11 +2170,17 @@ export async function executeProspectWizardGeneration(
       }
 
       if (tavilyFirstResult) {
-        const target = WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES;
+        // AGENT1-TAVILY-FIRST-4 — Tavily responde por el HUECO que dejaron la capa
+        // gratuita y el banco (mismo lote), y sólo cuentan las filas que él aportó.
+        const target = apolloResultDemand.remainingTarget;
+        const preExistingReviewable = prePaidContributed ? prePaidNovelty.persistedCount : 0;
         const countReviewable = async (): Promise<number | null> =>
-          deps.countReviewableCandidates
-            ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
-            : null;
+          tavilyOwnReviewable(
+            deps.countReviewableCandidates
+              ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+              : null,
+            preExistingReviewable,
+          );
         const before = await countReviewable();
         let after = before;
         let claudeReviewed = false;
@@ -2217,9 +2235,23 @@ export async function executeProspectWizardGeneration(
       }
     }
   }
-  /** Tavily cierra la corrida (bastó, o no queda tiempo para Apollo). */
+  // AGENT1-TAVILY-FIRST-4 — el escritor de Apollo sólo escribe en lotes
+  // `draft`/`generating`; Tavily dejó éste en `ready_for_review` (c530fef3).
+  if (
+    (tavilyFirstOutcome?.outcome === 'apollo_completed' || tavilyFirstOutcome?.outcome === 'failed') &&
+    deps.reopenBatchForApollo
+  ) {
+    const reopened = await deps.reopenBatchForApollo(reservedBatchId).catch(() => false);
+    if (!reopened && tavilyFirstOutcome.outcome === 'apollo_completed' && tavilyFirstResult) {
+      // Sin reabrir, Apollo pagaría y su escritor rechazaría el lote: se entrega lo de Tavily.
+      tavilyFirstOutcome = { ...tavilyFirstOutcome, outcome: 'batch_reopen_failed' };
+    }
+  }
+  /** Tavily cierra la corrida (bastó, no queda tiempo para Apollo o no se pudo reabrir). */
   const tavilyFirstSatisfied =
-    (tavilyFirstOutcome?.outcome === 'satisfied' || tavilyFirstOutcome?.outcome === 'short_no_time') &&
+    (tavilyFirstOutcome?.outcome === 'satisfied' ||
+      tavilyFirstOutcome?.outcome === 'short_no_time' ||
+      tavilyFirstOutcome?.outcome === 'batch_reopen_failed') &&
     tavilyFirstResult !== null;
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
@@ -2516,6 +2548,8 @@ export async function executeProspectWizardGeneration(
    */
   const lushaWaterfall: LushaWaterfallLegOutcome = tavilyFirstOutcome?.outcome === 'short_no_time'
     ? { executed: false, reason: 'tavily_first_time_budget' }
+    : tavilyFirstOutcome?.outcome === 'batch_reopen_failed'
+    ? { executed: false, reason: 'tavily_first_batch_reopen_failed' }
     : tavilyFirstSatisfied
     ? { executed: false, reason: 'tavily_first_reviewable_met' }
     : tavilyFirstOutcome?.outcome === 'apollo_completed' &&

@@ -14,7 +14,8 @@
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
- * (cl_res_registry) name→RUT and Costa Rica (cr_company_registry) name→cédula jurídica. No promise of MX/… enrichment
+ * (cl_res_registry) name→RUT, Costa Rica (cr_company_registry) name→cédula jurídica
+ * and Bolivia (SEPREC, live) name→NIT. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -63,6 +64,11 @@ import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ei
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
+import {
+  BO_SEPREC_LIVE_SOURCE_KEY,
+  buildSeprecNameLiveQuery,
+  normalizeBoliviaCompanyCore,
+} from '@/server/source-catalog/connectors/seprec-bolivia/seprec-name-live-query';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -207,6 +213,17 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^3\d{9}$/,
       normalizeCore: normalizeCostaRicaCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cr_company_registry', 'CR'),
+    }),
+    // SOURCES-BO-NIT-BY-NAME-LIVE-1 — Bolivia no publica padrón: búsqueda EN VIVO en
+    // el registro de comercio (SEPREC), acotada en tiempo y en número de consultas.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'BO',
+      sourceKey: BO_SEPREC_LIVE_SOURCE_KEY,
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{7,13}$/,
+      normalizeCore: normalizeBoliviaCompanyCore,
+      querySnapshots: buildSeprecNameLiveQuery(),
+      singleWordIsSignalOnly: true,
     }),
   ];
 }

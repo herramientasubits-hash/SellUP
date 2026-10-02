@@ -49,7 +49,9 @@ export type LushaWaterfallSkipReason =
   /** AGENT1-TAVILY-FIRST-1 — Tavily ya dejó suficientes empresas para revisar. */
   | 'tavily_first_reviewable_met'
   /** AGENT1-TAVILY-FIRST-2 — tras Tavily + Claude + Apollo no queda margen en los 300 s. */
-  | 'tavily_first_time_budget';
+  | 'tavily_first_time_budget'
+  /** AGENT1-TAVILY-FIRST-4 — el lote no se pudo reabrir para Apollo: se entregó lo de Tavily. */
+  | 'tavily_first_batch_reopen_failed';
 
 export type LushaWaterfallDecision =
   | { readonly run: false; readonly reason: LushaWaterfallSkipReason }

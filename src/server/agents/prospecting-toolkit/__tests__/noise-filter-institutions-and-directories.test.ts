@@ -181,3 +181,19 @@ describe('AGENT1-TAVILY-FREE-CREDITS-1 — ruido visto en Prod 01-10', () => {
   // Una ONG sí es cliente: no se filtra por publicar noticias.
   it('pasa: transparenciacolombia.org.co (ONG)', () => assert.equal(kept('https://transparenciacolombia.org.co/'), true));
 });
+
+describe('AGENT1-TAVILY-FIRST-4 — portales de empleo en cualquier país', () => {
+  for (const url of [
+    'https://www.opcionempleo.com.pe/empleo-petroleo.html',
+    'https://www.opcionempleo.com.co/empleo.html',
+    'https://www.bumeran.com.ar/empleos.html',
+    'https://www.laborum.pe/',
+    'https://mx.jooble.org/trabajo',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  // La marca debe ser la etiqueta registrable: no basta con contenerla.
+  for (const url of ['https://bumeranconsulting.com.pe/', 'https://laborum.consultores-andinos.com/']) {
+    it(`pasa: ${url}`, () => assert.equal(kept(url), true));
+  }
+});
