@@ -31,6 +31,44 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const SNAPSHOT_TABLE = 'peru_sunat_ruc_snapshot';
 
+/**
+ * SOURCES-PE-POST-APPROVAL-REGISTRY-FALLBACK-1 — la tabla de arriba está VACÍA en
+ * Producción (verificado el 02-10), así que ningún RUC salía confirmado y el
+ * worker pasaba siempre al respaldo de pago Migo. El mismo padrón de SUNAT está
+ * cargado en `source_company_snapshots` (pe_sunat_registry, 867.359 sociedades)
+ * y sólo contiene sociedades ACTIVAS y HABIDAS: encontrar el RUC ahí lo confirma.
+ */
+const REGISTRY_TABLE = 'source_company_snapshots';
+export const PE_SUNAT_REGISTRY_FALLBACK_SOURCE_KEY = 'pe_sunat_registry';
+
+export interface PeSunatRegistrySnapshotRow {
+  normalized_tax_id: string;
+  legal_name: string;
+  source_year: number | null;
+  imported_at: string | null;
+  raw_data: { ubigeo?: string | null } | null;
+}
+
+/** Fila de pe_sunat_registry → fila con la forma del snapshot antiguo (activa y habida). */
+export function registryRowToSnapshotRow(row: PeSunatRegistrySnapshotRow): PeruSunatRucSnapshotRow {
+  return {
+    ruc: row.normalized_tax_id,
+    legal_name: row.legal_name,
+    taxpayer_status: 'ACTIVO',
+    domicile_condition: 'HABIDO',
+    ubigeo: row.raw_data?.ubigeo ?? null,
+    department: null,
+    province: null,
+    district: null,
+    address: null,
+    source_key: PE_SUNAT_REGISTRY_FALLBACK_SOURCE_KEY,
+    snapshot_period: row.source_year === null ? null : String(row.source_year),
+    snapshot_loaded_at: row.imported_at,
+    is_active: true,
+    is_habido: true,
+  };
+}
+
 // ── Types ──────────────────────────────────────────────────────
 
 export type PeruLegalValidationStatus =
@@ -243,6 +281,8 @@ function getAdminSupabase() {
  */
 export async function lookupPeruSunatByRuc(
   ruc: string,
+  /** Sólo para pruebas: cliente de lectura inyectado. */
+  adminClient?: Pick<ReturnType<typeof createClient>, 'from'>,
 ): Promise<PeruSunatLegalLookupResult> {
   const normalizedRuc = normalizeRuc(ruc);
 
@@ -252,7 +292,7 @@ export async function lookupPeruSunatByRuc(
 
   let admin;
   try {
-    admin = getAdminSupabase();
+    admin = adminClient ?? getAdminSupabase();
   } catch {
     return buildLegalLookupResult(normalizedRuc, null, { snapshotAvailable: false });
   }
@@ -269,10 +309,26 @@ export async function lookupPeruSunatByRuc(
     if (error) {
       return buildLegalLookupResult(normalizedRuc, null, { snapshotAvailable: false });
     }
+    if (data) {
+      return buildLegalLookupResult(normalizedRuc, data as PeruSunatRucSnapshotRow, {
+        snapshotAvailable: true,
+      });
+    }
 
+    // Sin fila en el snapshot antiguo: el mismo padrón cargado aparte (sólo lectura).
+    const registry = await admin
+      .from(REGISTRY_TABLE)
+      .select('normalized_tax_id, legal_name, source_year, imported_at, raw_data')
+      .eq('source_key', PE_SUNAT_REGISTRY_FALLBACK_SOURCE_KEY)
+      .eq('normalized_tax_id', normalizedRuc)
+      .limit(1)
+      .maybeSingle();
+    if (registry.error) {
+      return buildLegalLookupResult(normalizedRuc, null, { snapshotAvailable: false });
+    }
     return buildLegalLookupResult(
       normalizedRuc,
-      data as PeruSunatRucSnapshotRow | null,
+      registry.data ? registryRowToSnapshotRow(registry.data as PeSunatRegistrySnapshotRow) : null,
       { snapshotAvailable: true },
     );
   } catch {

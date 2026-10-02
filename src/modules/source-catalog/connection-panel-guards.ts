@@ -46,6 +46,8 @@ export function isManualSignalOnly(source: SourceConnectionFields): boolean {
  *     el número fiscal por nombre (pe_sunat_registry, cl_res_registry, etc.)
  *   - connected_free_discovery   → capa gratuita por industria sobre una carga
  *     ya hecha (ar_rns)
+ *   - connected_paid_provider    → Apollo, Lusha y Tavily: sus claves viven en
+ *     las variables de Vercel, no en este panel
  * Estas fuentes no ofrecen "Conectar" y tampoco deben mostrar paneles de prueba
  * de conexión: la exclusión solo OCULTA paneles, nunca expone una conexión.
  */
@@ -60,6 +62,7 @@ export function shouldSkipGenericConnectionPanels(source: SourceConnectionFields
     flow === 'pending_integration_design' ||
     flow === 'requires_validation' ||
     flow === 'connected_identity_in_run' ||
-    flow === 'connected_free_discovery'
+    flow === 'connected_free_discovery' ||
+    flow === 'connected_paid_provider'
   );
 }

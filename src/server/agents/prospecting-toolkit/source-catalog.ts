@@ -892,7 +892,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'El RUT por nombre en cada corrida usa otra carga del mismo registro: «Registro de Empresas y Sociedades — RUT por nombre» (cl_res_registry, 1.265.085 sociedades).',
+      'Chile NO tiene capa gratuita por industria activa: el camino antiguo que leía esta fuente está apagado (0 empresas en Prod). El RUT por nombre en cada corrida usa otra carga del mismo registro: «Registro de Empresas y Sociedades — RUT por nombre» (cl_res_registry, 1.265.085 sociedades).',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P0',
@@ -1079,7 +1079,10 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     sellupUse: 'enrichment',
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
-    nextAction: 'Snapshot SUNAT cargado (2.317.298 registros, cobertura completa). Enrichment legal post-approval activo. Sin credenciales requeridas. El RUC por nombre en cada corrida usa una carga separada: pe_sunat_registry.',
+    // SOURCES-CATALOG-COUNTRY-AUDIT-1 (02-10): el snapshot post-approval
+    // (peru_sunat_ruc_snapshot) está VACÍO en Producción.
+    nextAction:
+      'Enrichment legal post-approval conectado. Su snapshot propio está vacío en Producción (peru_sunat_ruc_snapshot = 0 filas, verificado el 02-10), así que desde el 02-10 la confirmación lee también el mismo padrón cargado aparte (pe_sunat_registry, 867.359 sociedades activas y habidas): encontrar el RUC ahí lo confirma sin llamar a Migo.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P0',
@@ -1185,7 +1188,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'eligible_not_connected',
     connectionMode: 'not_connected',
     nextAction:
-      'Requiere API Key en panel de credenciales. Útil para validar RUC peruano, estado del contribuyente, condición de domicilio y dirección. No devuelve CIIU según spike real Perú.3N-R.',
+      'Clave guardada y probada el 01-07 (el panel la muestra conectada). Respaldo DE PAGO del enriquecimiento posterior a la aprobación: sólo se consulta cuando SUNAT no confirma el RUC (no está en el padrón de sociedades activas y habidas).',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P2',
@@ -1404,7 +1407,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '72 proveedores con RTN cargados en el snapshot piloto 2024. El Agente 1 completa el RTN por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana.',
+      '72 proveedores con RTN cargados en el snapshot piloto 2024. El Agente 1 completa el RTN por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana. Cobertura muy baja: hace falta una fuente más grande para Honduras.',
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P2',
@@ -1929,10 +1932,18 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'global_opencorporates',
     name: 'OpenCorporates',
+    // SOURCES-CATALOG-COUNTRY-AUDIT-1 (02-10): descartada. Su API para uso
+    // comercial es de pago y cada país ya tiene su registro oficial gratuito.
+    // Clave y prioridad no cambian: el respaldo global la pide por su clave.
+    sellupUse: 'not_for_ai_flow',
+    aiFlowStatus: 'manual_only',
+    connectionMode: 'not_applicable',
+    nextAction:
+      'Descartada: la API para uso comercial es de pago, y cada país ya tiene su registro oficial gratuito conectado (número fiscal por nombre). No se conecta.',
     countryCodes: [],
     sectors: [],
     priority: 'P2',
-    operationalStatus: 'connection_required',
+    operationalStatus: 'discarded_paid_or_tos',
     type: 'public_dataset',
     url: 'https://opencorporates.com/',
     automationLevel: 'medium',
@@ -1945,29 +1956,54 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   {
     key: 'global_apollo',
     name: 'Apollo.io',
+    // SOURCES-CATALOG-COUNTRY-AUDIT-1 (02-10): Apollo es el proveedor pagado
+    // principal del Agente 1. Estado presentacional: clave y prioridad no cambian.
+    sellupUse: 'discovery',
+    aiFlowStatus: 'connected_paid_provider',
+    connectionMode: 'backend_connected',
+    nextAction:
+      'Conectado: proveedor pagado principal del Agente 1. Entra después del banco de empresas, de la capa gratuita del país (CO, DO, AR, MX) y de Tavily cuando está primero. Su clave vive en las variables de Vercel.',
     countryCodes: [],
     sectors: [],
     priority: 'P2',
-    operationalStatus: 'connection_required',
+    operationalStatus: 'operational_verified',
     type: 'commercial_provider',
-    url: null,
+    url: 'https://www.apollo.io/',
     automationLevel: 'high',
-    recommendedUse: 'Fallback pagado cuando fuentes públicas no alcanzan el objetivo de cantidad. Cobertura débil en LatAm vs USA.',
-    limitations: ['Cobertura débil en LatAm', 'Datos de contacto con 25-40% de rebote esperado', 'Costo por crédito'],
-    riskNotes: ['Solo usar como último recurso explícito autorizado', 'No usar como primera fuente de discovery'],
+    recommendedUse:
+      'Búsqueda pagada de empresas por país, industria y tamaño, y datos de la empresa (dominio, LinkedIn, empleados). El número fiscal no sale de Apollo: lo completa la fuente oficial de cada país.',
+    limitations: [
+      'Cobertura débil en algunos países (medido el 02-10: Bolivia × Tecnología trajo 6 empresas, 5 públicas o educativas).',
+      'Cada búsqueda y cada empresa completada gastan créditos.',
+      'Orden de resultados no estable entre búsquedas (soporte Apollo, 29-09).',
+    ],
+    riskNotes: ['Gasta créditos: respeta el presupuesto mensual del asistente.'],
   },
   {
     key: 'global_lusha',
     name: 'Lusha',
+    // SOURCES-CATALOG-COUNTRY-AUDIT-1 (02-10): Lusha es el respaldo pagado del
+    // Agente 1 cuando Apollo no llega al objetivo. Estado presentacional: sigue
+    // fuera de recommendedSources (se excluye por su clave).
+    sellupUse: 'discovery',
+    aiFlowStatus: 'connected_paid_provider',
+    connectionMode: 'backend_connected',
+    nextAction:
+      'Conectado: respaldo pagado del Agente 1 cuando Apollo no llega al objetivo («Busca primero con Apollo; si no alcanza, completa con Lusha»). Su clave vive en las variables de Vercel.',
     countryCodes: [],
     sectors: [],
     priority: 'P2',
-    operationalStatus: 'validation_only',
+    operationalStatus: 'operational_verified',
     type: 'commercial_provider',
-    url: null,
+    url: 'https://www.lusha.com/',
     automationLevel: 'high',
-    recommendedUse: 'Enriquecimiento de datos de contacto (teléfono, email directo) bajo demanda ÚNICAMENTE.',
-    limitations: ['Nunca usar para discovery de empresas', 'Solo enriquecimiento de contactos ya identificados'],
-    riskNotes: ['Excluida de discovery — no aparece en recommendedSources'],
+    recommendedUse:
+      'Búsqueda pagada de empresas como respaldo de Apollo. El número fiscal no sale de Lusha: lo completa la fuente oficial de cada país.',
+    limitations: [
+      'Sin exclusión por API: puede devolver empresas ya vistas (soporte Lusha, 29-09).',
+      '1 crédito = 25 resultados.',
+      'Los teléfonos y contactos NO se piden desde el Agente 1.',
+    ],
+    riskNotes: ['Gasta créditos: respeta el presupuesto mensual del asistente.', 'Excluida de recommendedSources.'],
   },
 ];
