@@ -22,7 +22,13 @@ import { ChatCardView, type ChatCardRow } from '@/components/chat';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { WizardApolloTwoRoundOutcome } from './wizard-two-round-progress-panel';
-import { RUN_PROGRESS_FALLBACK_LABEL } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
+import {
+  RUN_PROGRESS_FALLBACK_LABEL,
+  RUN_PROGRESS_PERCENT,
+  RUN_PROGRESS_STAGES,
+  nextRunProgressPercent,
+  type RunProgressStage,
+} from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import {
   buildNoNewCandidatesCompactBreakdown,
   toNoNewCandidatesBreakdownRows,
@@ -62,15 +68,21 @@ export type WizardGenerationOverlayProps = {
  * una server action: el cliente despacha las server actions de una en una, y la
  * consulta se quedaba en cola detrás de la propia corrida hasta que terminaba.
  */
-async function fetchRunProgress(clientRequestId: string): Promise<{ label: string } | null> {
+type RunProgressSnapshotView = { label: string; stage: RunProgressStage | null };
+
+async function fetchRunProgress(clientRequestId: string): Promise<RunProgressSnapshotView | null> {
   try {
     const response = await fetch(
       `/api/prospect-batches/run-progress?clientRequestId=${encodeURIComponent(clientRequestId)}`,
       { cache: 'no-store' },
     );
     if (!response.ok) return null;
-    const body = (await response.json()) as { progress?: { label?: unknown } | null };
-    return typeof body.progress?.label === 'string' ? { label: body.progress.label } : null;
+    const body = (await response.json()) as { progress?: { label?: unknown; stage?: unknown } | null };
+    if (typeof body.progress?.label !== 'string') return null;
+    const stage = (RUN_PROGRESS_STAGES as readonly unknown[]).includes(body.progress.stage)
+      ? (body.progress.stage as RunProgressStage)
+      : null;
+    return { label: body.progress.label, stage };
   } catch {
     return null;
   }
@@ -81,8 +93,9 @@ async function fetchRunProgress(clientRequestId: string): Promise<{ label: strin
  * hasta que el servidor anota una, se dice «Preparando la búsqueda»; si una
  * lectura falla, se queda la última que sí llegó.
  */
-function useRunProgressLabel(clientRequestId: string | null): string {
+function useRunProgress(clientRequestId: string | null): { label: string; percent: number } {
   const [label, setLabel] = React.useState(RUN_PROGRESS_FALLBACK_LABEL);
+  const [percent, setPercent] = React.useState(RUN_PROGRESS_PERCENT.starting);
   React.useEffect(() => {
     if (!clientRequestId) return undefined;
     let cancelled = false;
@@ -90,7 +103,10 @@ function useRunProgressLabel(clientRequestId: string | null): string {
     const poll = async () => {
       const snapshot = await fetchRunProgress(clientRequestId);
       if (cancelled) return;
-      if (snapshot) setLabel(snapshot.label);
+      if (snapshot) {
+        setLabel(snapshot.label);
+        setPercent((previous) => nextRunProgressPercent(previous, snapshot.stage));
+      }
       timer = setTimeout(poll, RUN_PROGRESS_POLL_MS);
     };
     void poll();
@@ -99,7 +115,7 @@ function useRunProgressLabel(clientRequestId: string | null): string {
       if (timer) clearTimeout(timer);
     };
   }, [clientRequestId]);
-  return label;
+  return { label, percent };
 }
 
 /**
@@ -109,11 +125,12 @@ function useRunProgressLabel(clientRequestId: string | null): string {
  * empresas con Apollo…», «Completando la búsqueda con Lusha»—, tal como el
  * servidor lo anota al empezar cada etapa.
  *
- * Sin barra a propósito: nadie sabe cuánto falta, y una barra que avanzara sola
- * afirmaría un progreso que nadie ha medido. Los segundos sí son reales.
+ * La barra avanza por ETAPAS reales (`RUN_PROGRESS_PERCENT`): sube cuando el
+ * servidor anota que empezó una etapa nueva, nunca por tiempo, y no retrocede.
+ * Si una etapa tarda, la barra espera con ella. Los segundos también son reales.
  */
 function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayProps) {
-  const label = useRunProgressLabel(clientRequestId);
+  const { label, percent } = useRunProgress(clientRequestId);
   const [startedAt] = React.useState(() => Date.now());
   const [seconds, setSeconds] = React.useState(0);
   React.useEffect(() => {
@@ -126,6 +143,8 @@ function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayPro
       <AiAnalyzingState
         className="flex-1"
         title={label}
+        progress={percent}
+        detail="Progreso de la búsqueda"
         caption={
           seconds > 0
             ? `Generando empresas candidatas · ${seconds} s`

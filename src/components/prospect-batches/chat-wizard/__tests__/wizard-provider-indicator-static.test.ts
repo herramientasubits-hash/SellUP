@@ -91,17 +91,12 @@ describe('3 — el wizard cliente no infiere el proveedor', () => {
     assert.match(src.wizard, /discoveryProvider\?:\s*WizardDiscoveryProviderKey\s*\|\s*null/);
   });
 
-  it('renderiza la fila del indicador', () => {
-    assert.match(src.wizard, /<WizardProviderIndicatorRow indicator=\{providerIndicator\}/);
-  });
-
-  it('reduce el estado con el módulo puro, sin lógica propia de flags', () => {
-    assert.match(src.wizard, /resolveWizardProviderIndicator\(/);
-    assert.match(src.wizard, /serverDiscoveryProvider:\s*discoveryProvider/);
-  });
-
-  it('el nombre del proveedor omitido viene del backend, no de un supuesto', () => {
-    assert.match(src.wizard, /setSkippedProvider\(result\.providerSkipped\.provider\)/);
+  // Decisión de la dueña (02-10): la línea «Proveedor de búsqueda» ya no se
+  // muestra en el chat. Lo que hace el agente lo cuenta la espera, en vivo y por
+  // etapas (incluido el proveedor que esté corriendo).
+  it('ya no pinta la fila «Proveedor de búsqueda»', () => {
+    assert.doesNotMatch(src.wizard, /<WizardProviderIndicatorRow/);
+    assert.doesNotMatch(src.wizard, /resolveWizardProviderIndicator\(/);
   });
 
   it('no lee env ni flags en el cliente', () => {

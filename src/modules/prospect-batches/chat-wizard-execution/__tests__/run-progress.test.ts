@@ -124,3 +124,28 @@ describe('readClientRequestId', () => {
     assert.equal(readClientRequestId(null), null);
   });
 });
+
+describe('nextRunProgressPercent — la barra avanza por etapas reales', () => {
+  it('sube con cada etapa nueva, en el orden de la corrida', async () => {
+    const { nextRunProgressPercent, RUN_PROGRESS_PERCENT } = await import('../run-progress');
+    let p = RUN_PROGRESS_PERCENT.starting;
+    for (const stage of ['free_sources', 'tavily', 'apollo', 'lusha'] as const) {
+      const next = nextRunProgressPercent(p, stage);
+      assert.ok(next > p, stage);
+      p = next;
+    }
+  });
+
+  it('🔴 nunca retrocede: «reviewing», una etapa anterior o nada no restan', async () => {
+    const { nextRunProgressPercent, RUN_PROGRESS_PERCENT } = await import('../run-progress');
+    const p = RUN_PROGRESS_PERCENT.apollo;
+    assert.equal(nextRunProgressPercent(p, 'reviewing'), p);
+    assert.equal(nextRunProgressPercent(p, 'tavily'), p);
+    assert.equal(nextRunProgressPercent(p, null), p);
+  });
+
+  it('nunca llega a 100 mientras corre: el final lo dice el resultado', async () => {
+    const { RUN_PROGRESS_PERCENT } = await import('../run-progress');
+    assert.ok(Object.values(RUN_PROGRESS_PERCENT).every((v) => v > 0 && v < 100));
+  });
+});

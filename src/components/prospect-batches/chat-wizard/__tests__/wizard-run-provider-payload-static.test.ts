@@ -156,7 +156,6 @@ describe('§ 3 · caso 6 — una corrida nueva vuelve a Tavily', () => {
       mintBlock.includes('setRequestedProvider(undefined);'),
       'una corrida nueva debe volver al predeterminado',
     );
-    assert.ok(mintBlock.includes('setRunResolvedProvider(null);'));
     assert.ok(mintBlock.includes('setTwoRoundOutcome(null);'));
   });
 
