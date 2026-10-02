@@ -270,12 +270,6 @@ type GenerateAIBatchDrawerProps = {
    */
   autoProviderCascade?: boolean;
   /**
-   * AGENT1-TAVILY-TRIAL-1 — el usuario actual puede marcar «Probar esta corrida
-   * con Tavily». Resuelto en el servidor (admin ∧ prueba ∧ modo automático);
-   * ausente ⇒ `false`, la casilla no existe.
-   */
-  adminTavilyTrialAvailable?: boolean;
-  /**
    * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento ya resuelto en el servidor.
    * Sólo se transporta hasta el wizard para que la UI pueda nombrarlo; este
    * componente no lo interpreta ni lo deduce. `null` = sin resolución conocida.
@@ -305,7 +299,7 @@ type GenerateAIBatchDrawerProps = {
   onOpenChange?: (open: boolean) => void;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, adminTavilyTrialAvailable = false, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -584,7 +578,6 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             providerOverrideCapability={providerOverrideCapability}
             apolloRunModeLimits={apolloRunModeLimits}
             budgetPreflight={budgetPreflight}
-            adminTavilyTrialAvailable={adminTavilyTrialAvailable}
           />
         </ChatPanel>
       </>

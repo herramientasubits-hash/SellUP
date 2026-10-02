@@ -71,13 +71,42 @@ function noMatch(input: DuplicateCheckInput): DuplicateCheckResult {
 
 describe('tabla SCIAN aprobada', () => {
   it('fija la tabla aprobada por la dueña (trinquete)', () => {
-    assert.equal(Object.keys(MX_SCIAN_MACRO).length, 39);
+    assert.equal(Object.keys(MX_SCIAN_MACRO).length, 42);
     assert.equal(MX_SCIAN_MACRO['5415'], 'technology');
     assert.equal(MX_SCIAN_MACRO['515'], null);
     assert.equal(MX_SCIAN_MACRO['61'], null);
     assert.equal(MX_SCIAN_MACRO['72'], null);
     assert.equal(MX_SCIAN_MACRO['4641'], 'health_pharma');
     assert.deepEqual([...MX_DENUE_ESTRATOS], ['7', '6', '5']);
+  });
+
+  it('la 519 ya no es Tecnología entera: bibliotecas públicas → Gobierno, portales → Tecnología (dueña, 01-10)', () => {
+    assert.equal(MX_SCIAN_MACRO['519'], undefined);
+    assert.equal(resolveScianMacro('519212'), 'government');
+    assert.equal(resolveScianMacro('519290'), 'technology');
+    assert.equal(resolveScianMacro('519211'), null);
+    assert.equal(resolveScianMacro('519110'), null);
+    // Y se consultan donde corresponde: Gobierno pide la 5192; Tecnología también,
+    // pero la tabla descarta las bibliotecas al re-clasificar.
+    assert.ok(MX_DENUE_QUERY_PLAN.government.some((f) => f.rama === '5192'));
+    assert.ok(MX_DENUE_QUERY_PLAN.technology.some((f) => f.rama === '5192'));
+    assert.equal(MX_DENUE_QUERY_PLAN.technology.some((f) => f.subsector === '519' && f.rama === '0'), false);
+  });
+
+  it('una búsqueda de Tecnología descarta las bibliotecas públicas y una de Gobierno las ofrece', async () => {
+    const rows = [
+      est('B1', { activityCode: '519212', name: 'BIBLIOTECA DE MEXICO', legalName: 'BIBLIOTECA DE MEXICO' }),
+      est('P1', { activityCode: '519290', name: 'PORTAL SINTETICO', legalName: 'PORTAL SINTETICO S.A. DE C.V.' }),
+    ];
+    const reads: MxDenueDiscoveryReads = {
+      async readEstablishments({ filter, estrato }) {
+        return estrato === '7' && filter.rama === '5192' ? rows : [];
+      },
+    };
+    const tech = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(tech.companies.map((c) => c.industryCode), ['519290']);
+    const gov = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'government', limit: 10 });
+    assert.deepEqual(gov.companies.map((c) => c.industryCode), ['519212']);
   });
 
   it('gana el prefijo más largo', () => {
@@ -160,7 +189,7 @@ describe('buildMxDenueDiscoveryAdapter', () => {
       '5112': [est('S1', { activityCode: '511210' }), est('S2', { activityCode: '511210' })],
       '517': [est('T1', { activityCode: '517311' }), est('T2', { activityCode: '517312' }), est('T3', { activityCode: '517311' })],
       '518': [],
-      '519': [],
+      '5192': [],
       '5415': [est('C1', { activityCode: '541510' })],
     };
     const reads: MxDenueDiscoveryReads = {
