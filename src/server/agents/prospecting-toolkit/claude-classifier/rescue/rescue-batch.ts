@@ -165,13 +165,30 @@ function isLushaSectorReview(row: ClassifiableCandidateRow): boolean {
   return row.source_primary === 'lusha' && !row.metadata?.target_completeness;
 }
 
-export function needsCandidateRescue(row: ClassifiableCandidateRow, nowMs: number): boolean {
+/**
+ * Lote del piloto «Claude busca empresas»: sus candidatos no traen `target_completeness`
+ * (lo escriben Apollo y Tavily). Sin esto, uno sin tamaño quedaba sin revisar
+ * (Prod 02-10: Coelum Networks).
+ */
+function isUnassessedPilotCandidate(row: ClassifiableCandidateRow): boolean {
+  if (row.metadata?.target_completeness) return false;
+  const status = (row.metadata?.icp_size_gate as { size_status?: unknown } | undefined)?.size_status;
+  return status === undefined || status === null || status === 'unknown';
+}
+
+export function needsCandidateRescue(
+  row: ClassifiableCandidateRow,
+  nowMs: number,
+  /** Lote del piloto «Claude busca empresas» (`metadata.claude_company_search`). */
+  options: { includeUnassessed?: boolean } = {},
+): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
   if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.metadata?.claude_classification)) {
     return false;
   }
   if (isLushaSectorReview(row)) return true;
+  if (options.includeUnassessed && isUnassessedPilotCandidate(row)) return true;
   return failedConditions(row.metadata).some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
 }
 
@@ -517,6 +534,8 @@ export async function rescueBatchWithClaude(
     triggeredBy: string | null;
     /** Tiempo para EMPEZAR empresas nuevas; por defecto RESCUE_RUN_DEADLINE_MS. */
     deadlineMs?: number;
+    /** Lote del piloto «Claude busca empresas»: revisar también los que no traen completitud. */
+    includeUnassessed?: boolean;
   },
   deps: RescueBatchDeps,
 ): Promise<RescueBatchSummary> {
@@ -545,7 +564,9 @@ export async function rescueBatchWithClaude(
 
   const startedMs = deps.nowMs();
   const work: WorkItem[] = [
-    ...candidates.filter((row) => needsCandidateRescue(row, startedMs)).map((row) => ({ kind: 'candidate' as const, row })),
+    ...candidates
+      .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed: params.includeUnassessed === true }))
+      .map((row) => ({ kind: 'candidate' as const, row })),
     ...dispositions.filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch)).map((row) => ({ kind: 'disposition' as const, row })),
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
