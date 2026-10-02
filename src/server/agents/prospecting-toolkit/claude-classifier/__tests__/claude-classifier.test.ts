@@ -878,3 +878,66 @@ describe('L. la respuesta directa verificada cuenta como evidencia (ATV, Prod 30
     assert.equal(r.requestedIndustryFit?.verification, 'quote_verified');
   });
 });
+
+// ─── M. LinkedIn tomado de la FUENTE de un dato verificado (Volcan, Prod 02-10) ──
+//
+// Lote 97c86cf7 (PE×Energía): Claude sacó el tamaño de Volcan de
+// linkedin.com/company/volcan-compañia-minera («Company size: 1,001-5,000») pero no
+// rellenó `linkedin_company_url` ⇒ `linkedin: null` y la empresa no contaba para la
+// meta sólo por el LinkedIn. Ahora esa URL entra como candidata y pasa por las
+// MISMAS comprobaciones (resultado de búsqueda + slug que coincide con el nombre).
+
+describe('M. LinkedIn desde la fuente del tamaño o del sector', () => {
+  const LI = 'https://pe.linkedin.com/company/clinica-san-felipe';
+
+  it('sin linkedin_company_url, la página de LinkedIn usada como fuente del tamaño queda como LinkedIn', async () => {
+    const r = await classifyCompany({ company: COMPANY, catalog: CATALOG, model: MODEL }, deps());
+    assert.ok(r.linkedin, 'debe reconocer el LinkedIn usado como fuente');
+    assert.match(r.linkedin.url, /linkedin\.com\/company\/clinica-san-felipe/);
+    assert.equal(r.linkedin.source, 'provided_search_result');
+  });
+
+  it('si esa página NO vino de la búsqueda, no se acepta (misma regla de siempre)', async () => {
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({ runConversation: async () => modelResponse(submission(), []) }),
+    );
+    assert.equal(r.linkedin, null);
+  });
+
+  it('si el slug no coincide con la empresa, no se acepta', async () => {
+    const other = 'https://pe.linkedin.com/company/minera-totalmente-distinta';
+    const sub = submission({
+      employee_range: { min: 1001, max: 5000, quote: '1001-5000 empleados', source_url: other, confidence: 0.7 },
+    });
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({ runConversation: async () => modelResponse(sub, [other]) }),
+    );
+    assert.equal(r.linkedin, null);
+  });
+
+  it('con varias páginas de LinkedIn como fuente, gana la que coincide con el nombre (no la primera)', async () => {
+    const other = 'https://pe.linkedin.com/company/minera-totalmente-distinta';
+    const sub = submission({
+      sector: { industry_id: SALUD_ID, subindustry_id: null, quote: 'Somos una clínica privada con más de 1.200 colaboradores', source_url: other, confidence: 0.9 },
+      employee_range: { min: 1001, max: 5000, quote: '1001-5000 empleados', source_url: LI, confidence: 0.7 },
+    });
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({ runConversation: async () => modelResponse(sub, [other, LI]) }),
+    );
+    assert.ok(r.linkedin);
+    assert.match(r.linkedin.url, /clinica-san-felipe/);
+  });
+
+  it('si Claude propuso linkedin_company_url, se usa ésa como siempre', async () => {
+    const claimed = 'https://pe.linkedin.com/company/clinica-san-felipe-sa';
+    const r = await classifyCompany(
+      { company: COMPANY, catalog: CATALOG, model: MODEL },
+      deps({ runConversation: async () => modelResponse(submission({ linkedin_company_url: claimed }), [claimed, LI]) }),
+    );
+    assert.ok(r.linkedin);
+    assert.match(r.linkedin.url, /clinica-san-felipe-sa/);
+  });
+});
