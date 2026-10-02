@@ -336,6 +336,20 @@ describe('C. runClaudeCompanySearch', () => {
     );
   });
 
+  it('dentro de la corrida del asistente escribe en ESE lote, sin tocar sus claves, y el uso va con su batch_id', async () => {
+    const seen: Array<{ existingBatchId?: string; metadata: Record<string, unknown> }> = [];
+    const f = fakeDeps({
+      writeCandidates: async (p) => (seen.push(p), { batchId: 'b1', candidatesCreated: 2, completeValidCandidates: 1, acceptedCandidateIds: ['x'], errors: [] }),
+    });
+    const s = await runClaudeCompanySearch({ sourceBatchId: 'b1', triggeredBy: 'u1', writeIntoSourceBatch: true, phaseMs: 60_000 }, f.deps);
+    assert.equal(s.ok && s.batchId, 'b1');
+    assert.equal(seen[0].existingBatchId, 'b1');
+    assert.equal('industry_id' in seen[0].metadata, false, 'el lote del asistente ya tiene sus claves');
+    assert.equal((seen[0].metadata.claude_company_search as { mode: string }).mode, 'wizard_leg');
+    assert.deepEqual(f.logs.map((l) => l.batch_id), ['b1', 'b1']);
+    assert.deepEqual(s.ok && s.acceptedCandidateIds, ['x']);
+  });
+
   it('sin empresas que pasen el filtro no crea lote, pero registra lo pagado', async () => {
     const f = fakeDeps({
       runSearch: async ({ onCall }) => {

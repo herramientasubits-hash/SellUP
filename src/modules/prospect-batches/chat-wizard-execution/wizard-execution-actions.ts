@@ -992,10 +992,18 @@ export async function executeProspectWizardGenerationAction(
         import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
         import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
       ]);
-      const summary = await runClaudeCompanySearch(
-        { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
-        buildLiveClaudeCompanySearchDeps(auth.internalUserId),
-      );
+      let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
+      try {
+        summary = await runClaudeCompanySearch(
+          { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
+          buildLiveClaudeCompanySearchDeps(auth.internalUserId),
+        );
+      } catch (err) {
+        // El motivo queda en la traza del lote (antes sólo decía «failed»).
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error('[claude-search-leg] failed:', detail);
+        return { executed: false, reason: `failed:${detail.slice(0, 160)}` };
+      }
       if (!summary.ok) return { executed: false, reason: summary.error };
       return {
         executed: true,
