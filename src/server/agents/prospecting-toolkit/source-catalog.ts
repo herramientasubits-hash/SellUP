@@ -1539,6 +1539,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'NIT seguro sólo con el núcleo del nombre exacto. Si la marca aparece dentro de la razón social de UNA sola sociedad activa (búsqueda con 5 resultados o menos: Logibol → OPERADOR LOGISTICO DE CARGAS LOGIBOL S.R.L.), su NIT queda como PISTA para revisar, nunca en el campo fiscal.',
       'Aseguradoras y administradoras de fondos usan un nombre corto («Credifondo SAFI», «Alianza Seguros») que el SEPREC escribe largo (SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION, COMPAÑIA DE SEGUROS): si el nombre corto da 0 resultados se hace UNA búsqueda más con la forma larga, y lo que salga también queda sólo como PISTA.',
       'Sin NIT para las empresas con la matrícula NO renovada: el SEPREC las lista como activas pero no muestra su ficha (medido el 02-10 con Solucredit S.R.L.).',
+      'Si la marca llega con el país o el dominio pegados («Get Server Bolivia», «Cognos.com.bo») y no hay resultados, la búsqueda extra se hace sin esa cola (antes que la del sector); lo que salga también es sólo PISTA.',
     ],
     riskNotes: [
       'Si el SEPREC cambia o cae, las empresas bolivianas simplemente quedan sin NIT; la corrida sigue.',
