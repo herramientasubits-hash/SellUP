@@ -214,7 +214,9 @@ export async function classifyCompany(
   // LinkedIn que usó como FUENTE del tamaño o del sector es candidata. Cada una pasa
   // por las mismas comprobaciones; gana la primera que coincide con la empresa (no
   // la primera de la lista). Prod 02-10: Volcan quedaba sin LinkedIn por esto.
-  if (!linkedinCheck.linkedin && !submission.linkedin_company_url) {
+  // AGENT1-TAVILY-FIRST-5 — también cuando Claude propuso una URL que no pasó
+  // (Prod 02-10, Engie: la propuesta falló y la página de la evidencia no se miró).
+  if (!linkedinCheck.linkedin) {
     for (const candidate of linkedInCompanyUrlsFromEvidence([
       verified.employeeRange?.sourceUrl,
       verified.sector?.sourceUrl,

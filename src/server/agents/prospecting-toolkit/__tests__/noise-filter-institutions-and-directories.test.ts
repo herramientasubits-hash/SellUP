@@ -197,3 +197,20 @@ describe('AGENT1-TAVILY-FIRST-4 — portales de empleo en cualquier país', () =
     it(`pasa: ${url}`, () => assert.equal(kept(url), true));
   }
 });
+
+describe('AGENT1-TAVILY-FIRST-5 — fichas de terceros y portales del Estado (Prod 02-10)', () => {
+  for (const url of [
+    'https://www.perulicitaciones.com/empresa/egasa',
+    'https://www.universidadperu.com/empresas/emp-de-generacion-electrica-arequipa.php',
+    'https://www.datosperu.org/empresa-emp-de-generacion-electrica-arequipa-sa-20216293593.php',
+    'https://www.transparencia.gob.pe/enlaces/pte_transparencia_enlaces.aspx?id_entidad=1',
+    'https://prod.seace.gob.pe/buscador',
+    'https://www.mercadopublico.cl/Home',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  // La ONG Transparencia por Colombia SÍ es cliente; y una entidad con su dominio propio también.
+  for (const url of ['https://transparenciacolombia.org.co/', 'https://www.egasa.com.pe/', 'https://www.minem.gob.pe/']) {
+    it(`pasa: ${url}`, () => assert.equal(kept(url), true));
+  }
+});
