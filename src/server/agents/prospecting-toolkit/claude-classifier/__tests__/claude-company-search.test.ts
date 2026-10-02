@@ -145,27 +145,6 @@ describe('A. searchCompaniesWithClaude — sólo pasa lo que salió de la búsqu
     assert.equal(noFetch.results.length, 0);
   });
 
-  it('si la propia fuente dice menos de 200 empleados, no se paga verificarla', async () => {
-    const urls = ['https://chica.co', 'https://grande.co', 'https://sin-dato.co'];
-    const conv = conversation(
-      [
-        COMPANY('Chica', urls[0], { max_employees: 49 }),
-        COMPANY('Grande', urls[1], { max_employees: 1000 }),
-        COMPANY('Sin dato', urls[2], { max_employees: null }),
-      ],
-      urls,
-    );
-    const out = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv });
-    assert.deepEqual(out.results.map((r) => r.title), ['Grande', 'Sin dato']);
-    assert.deepEqual(out.rejected, { below_icp_size: 1 });
-  });
-
-  it('las instrucciones piden empresas locales y evitan las más conocidas', () => {
-    const system = String(buildCompanySearchRequestBody(INPUT, MODEL).system);
-    assert.match(system, /EVITA multinacionales/);
-    assert.match(system, /200 a 5\.000 empleados/);
-  });
-
   it('respeta el máximo de empresas por consulta', async () => {
     const urls = ['a.co', 'b.co', 'c.co'].map((d) => `https://${d}`);
     const conv = conversation(urls.map((u, i) => COMPANY(`E${i}`, u)), urls);

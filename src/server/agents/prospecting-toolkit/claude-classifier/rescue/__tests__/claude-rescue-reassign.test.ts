@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideRescue } from '../rescue-decision';
+import { decideRescue, looksLikeMediaCompany } from '../rescue-decision';
 import {
   attachIndustryCatalogVersion,
   buildCandidateRescuePatch,
@@ -417,5 +417,63 @@ describe('E. prospect_candidates exige industria + versión de catálogo', () =>
     if (decision.kind !== 'reassign') return;
     const o = buildDispositionReassignOrigin(clinic(), decision, 200, AT);
     assert.equal(o.columns?.subindustry_id, null);
+  });
+});
+
+// ─── F. Medios: siempre descartados (decisión de la dueña 02-10) ─────────────
+
+describe('F. medios de comunicación', () => {
+  const media = (quote: string) => clinic({ sector: { ...clinic().sector!, industryId: 'servicios', industryName: 'Compañía de Servicios', quote } });
+
+  it('un medio con otra macro y tamaño UBITS se DESCARTA, no se reasigna', () => {
+    const d = decideRescue(media('Administra los medios de comunicación del Estado, en radio y televisión'), CTX);
+    assert.equal(d.kind, 'discard');
+  });
+
+  it('una telecom («internet, televisión y telefonía») NO es medio', () => {
+    assert.equal(looksLikeMediaCompany(['Empresa de telecomunicaciones que distribuye servicios de internet, televisión y telefonía']), false);
+  });
+
+  it('sin falsos positivos: canales de venta, consumo diario, prensas hidráulicas', () => {
+    assert.equal(looksLikeMediaCompany(['Venta de calzado por canales digitales']), false);
+    assert.equal(looksLikeMediaCompany(['Productos de consumo diario para el hogar']), false);
+    assert.equal(looksLikeMediaCompany(['Fabricante de prensas hidráulicas']), false);
+  });
+
+  it('detecta diarios, canales de TV y portales de noticias', () => {
+    assert.equal(looksLikeMediaCompany(['Diario de mayor circulación del país']), true);
+    assert.equal(looksLikeMediaCompany(['Actividades de programación y transmisión de televisión']), true);
+    assert.equal(looksLikeMediaCompany(['atv.pe: noticias de Perú y el mundo']), true);
+  });
+
+  it('un descarte guardado de un medio no se reabre', () => {
+    const stored = storedDiscard({
+      sector: {
+        industry_id: 'gob',
+        industry_name: 'Gobierno',
+        matches_current_industry: false,
+        quote: 'se encarga de administrar los medios de comunicación del Estado',
+        source_url: 'https://irtp.gob.pe/',
+      },
+    });
+    assert.equal(decideStoredReassignment({ requestedIndustryName: TECH, icpMinEmployees: 200, sizePassedIcpGate: false, stored }), null);
+  });
+});
+
+// ─── G. La fila de Descartadas queda con la decisión final ───────────────────
+
+describe('G. marca final en Descartadas', () => {
+  it('tras pasar a revisión se marca con la decisión final (no «en proceso»)', async () => {
+    const marks: Array<{ id: string; rescue: Record<string, unknown> }> = [];
+    const f = fakeDeps({ markDispositionSent: async (id, rescue) => void marks.push({ id, rescue }) });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.deepEqual(marks.map((m) => m.id), ['dd1']);
+    assert.equal(marks[0].rescue.decision, 'reassign');
+  });
+
+  it('si marcar falla, el rescate sigue', async () => {
+    const f = fakeDeps({ markDispositionSent: async () => { throw new Error('boom'); } });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.reassigned, 2);
   });
 });
