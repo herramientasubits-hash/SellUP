@@ -230,6 +230,24 @@ export const COSTA_RICA_LEGAL_FORMS: readonly string[] = [
   'SA',
 ];
 
+/**
+ * Formas societarias de Bolivia (SEPREC), más largas primero.
+ * SOURCES-BO-NIT-BY-NAME-LIVE-1.
+ */
+export const BOLIVIA_LEGAL_FORMS: readonly string[] = [
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD ANONIMA MIXTA',
+  'SOCIEDAD ANONIMA',
+  'LIMITADA',
+  'S A M',
+  'S R L',
+  'S A',
+  'LTDA',
+  'SAM',
+  'SRL',
+  'SA',
+];
+
 /** Núcleo comparable del nombre con las formas dadas, o cadena vacía. */
 export function normalizeCompanyNameCore(
   name: string | null | undefined,
