@@ -15,6 +15,7 @@ import {
   safeAccountMetadata,
 } from '@/modules/accounts/hubspot-company-sync-presentation';
 import { PIPELINE_STAGES, PIPELINE_STAGE_IDS, resolveCurrentStage, resolveStageStates } from './stages';
+import { latestStageNote } from './stage-notes';
 import { computeSignals, daysBetween, highestSeverity, severityRank, SIGNAL_IDS } from './signals';
 import type {
   AccountJourney,
@@ -334,6 +335,7 @@ export function buildAccountJourney(input: AccountJourneyInput): AccountJourney 
       hubspotLabel: hubspotPresentation.label,
       hubspotStatus: hubspotPresentation.status,
       hubspotSynced,
+      lastStageNote: latestStageNote(account.notes),
     },
     currentStageId,
     substatusLabel,

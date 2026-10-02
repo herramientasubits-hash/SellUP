@@ -464,3 +464,26 @@ describe('Read model — etapa disponible pero sin empezar', () => {
     assert.equal(isStageNotStarted({ id: 'enriquecimiento', phase: 'hecho' }, { contactsTotal: 0, runsTotal: 1 }), false);
   });
 });
+
+describe('Read model — última nota de etapa', () => {
+  it('lee la última nota que dejó alguien al mover de etapa; sin notas de etapa, ninguna', () => {
+    const withNote = buildAccountJourney({
+      account: account({
+        notes:
+          'Cliente de 2024.\n\n[Inteligencia de cuenta · Lista para investigar · 2 de oct de 2026, 9:05 a. m. · Ana Pérez]\nReunión con Luisa: quieren liderazgo.',
+      }),
+      origin: ORIGIN,
+      contacts: [],
+      runs: [],
+      audit: [],
+      now: NOW,
+    });
+    assert.deepEqual(withNote.account.lastStageNote, {
+      header: 'Inteligencia de cuenta · Lista para investigar · 2 de oct de 2026, 9:05 a. m. · Ana Pérez',
+      body: 'Reunión con Luisa: quieren liderazgo.',
+    });
+
+    const plain = buildAccountJourney({ account: account({ notes: 'Solo una nota libre.' }), origin: ORIGIN, contacts: [], runs: [], audit: [], now: NOW });
+    assert.equal(plain.account.lastStageNote, null);
+  });
+});

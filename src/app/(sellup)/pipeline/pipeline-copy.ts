@@ -188,3 +188,42 @@ export const STAGE_VISUAL: Record<PipelineStageId, { icon: LucideIcon; tone: Met
   venta_interna: { icon: Briefcase, tone: "brand", chartTone: "neutral" },
   cierre: { icon: CheckCircle2, tone: "positive", chartTone: "positive" },
 };
+
+// ── Mover de etapa con contexto ─────────────────────────────────
+
+export const STAGE_MOVE_COPY = {
+  title: (company: string, stage: string) => `Mover ${company} a «${stage}»`,
+  question: "¿Cómo le damos a SellUp el contexto de esta etapa?",
+  groupLabel: "Contexto de la etapa",
+  ai: "Que lo haga la IA",
+  aiBadge: "Recomendada",
+  aiDescription: (agent: string) => `Abre el ${agent.charAt(0).toLowerCase()}${agent.slice(1)} en el panel lateral.`,
+  aiSoon: "El agente de esta etapa llega pronto",
+  aiUnavailable: "No se puede abrir el agente desde aquí",
+  outside: "Ya lo hice por fuera",
+  outsideDescription: "Sube los contactos o cuéntanos qué pasó.",
+  outsideGroupLabel: "Qué hiciste por fuera",
+  contacts: "Subir los contactos",
+  contactsDescription: "Abre el alta de contactos de esta empresa.",
+  contactsUnavailable: "No se pueden subir contactos desde aquí",
+  hubspot: "Ya están en HubSpot: sincronizarlos",
+  hubspotSoon: "Pronto: traer los contactos desde HubSpot",
+  paste: "Pegar la información",
+  pasteDescription: "Notas, contactos o el resumen de una reunión.",
+  pasteLabel: "Lo que pasó en esta etapa",
+  pasteHint: "Lo guardamos en las notas de la empresa. Más adelante la IA lo convertirá en datos.",
+  none: "Moverla sin acción",
+  noneDescription: "No recomendado: SellUp se queda sin contexto.",
+  noneLabel: "Motivo",
+  noneHint: "Una línea que explique por qué; se guarda en las notas de la empresa.",
+  tooShort: (min: number) => `Escribe al menos ${min} caracteres.`,
+  confirm: {
+    pick: "Mover",
+    ai: "Mover y abrir el agente",
+    contacts: "Mover y subir los contactos",
+    paste: "Mover y guardar",
+    none: "Mover sin acción",
+  },
+  saving: "Moviendo…",
+  failed: "No se pudo mover la empresa. Inténtalo de nuevo.",
+} as const;

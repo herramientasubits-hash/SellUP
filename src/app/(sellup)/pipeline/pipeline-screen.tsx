@@ -7,7 +7,8 @@ import { ListActionRailProvider } from "@/components/action-rail";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ContactEnrichmentDrawer } from "@/components/contact-enrichment/contact-enrichment-drawer";
 import { countryName } from "@/components/shared/table-cells";
-import { updateAccount } from "@/modules/accounts/actions";
+import { CreateContactDrawer } from "@/components/contacts/create-contact-drawer";
+import { moveAccountStage } from "@/modules/pipeline/actions";
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
 import type { PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import type { AccountJourney, PipelineOverview } from "@/modules/pipeline/types";
@@ -15,8 +16,18 @@ import { usePipelineUrlFilters } from "./pipeline-filter-state";
 import { pipelineHref, type PipelineView } from "./pipeline-copy";
 import { PipelineFrame } from "./pipeline-frame";
 import { PipelineBoard } from "./pipeline-board";
-import { PipelineJourney, type ChangeStageResult } from "./pipeline-journey";
+import { PipelineJourney } from "./pipeline-journey";
+import type { ChangeStageResult, StageMoveContext } from "./pipeline-stage-move";
 import { PipelineRailGap, PipelineScreenActions, usePipelineRailAtBottom } from "./pipeline-screen-actions";
+
+/** La empresa sobre la que se abre un panel lateral (agente o alta de contactos). */
+interface PanelCompany {
+  id: string;
+  name: string;
+  domain: string | null;
+  countryCode: string | null;
+  hubspotCompanyId: string | null;
+}
 
 interface PipelineScreenProps {
   overview: PipelineOverview;
@@ -32,8 +43,9 @@ interface PipelineScreenProps {
 /**
  * La pantalla Pipeline en el cliente: lleva la vista y la empresa elegida a la
  * URL (`?view=` y `?account=`), y conecta la ÚNICA escritura de la pantalla
- * —mover una empresa de etapa con `updateAccount`—, que siempre nace de una
- * confirmación de la persona.
+ * —mover una empresa de etapa (`moveAccountStage`: estado + notas en una sola
+ * `updateAccount`)—, que siempre nace del flujo «Mover de etapa» y nunca se
+ * hace a ciegas.
  */
 export function PipelineScreen({ overview, view, selectedAccountId, journey, journeyError = false, initialFilters }: PipelineScreenProps) {
   const router = useRouter();
@@ -53,19 +65,78 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
     [router, filters],
   );
 
+  // La empresa sobre la que se abre el agente o el alta de contactos: la del recorrido o, desde el
+  // tablero, la que se acaba de mover.
+  const [panelCompany, setPanelCompany] = React.useState<PanelCompany | null>(null);
+  const [contactsOpen, setContactsOpen] = React.useState(false);
+
+  const companyFor = React.useCallback(
+    (accountId: string): PanelCompany | null => {
+      if (journey && journey.account.id === accountId) {
+        return {
+          id: journey.account.id,
+          name: journey.account.name,
+          domain: journey.account.domain,
+          countryCode: journey.account.countryCode,
+          hubspotCompanyId: journey.account.hubspotCompanyId,
+        };
+      }
+      const account = overview.accounts.find((candidate) => candidate.id === accountId);
+      return account
+        ? { id: account.id, name: account.name, domain: account.domain, countryCode: account.countryCode, hubspotCompanyId: null }
+        : null;
+    },
+    [journey, overview.accounts],
+  );
+
+  /**
+   * Mueve de etapa con el contexto que eligió la persona (una sola escritura: estado + notas) y,
+   * si eligió que lo haga la IA o subir los contactos, abre ese panel para esa empresa.
+   */
   const changeStage = React.useCallback(
-    async (accountId: string, status: PipelineStatus): Promise<ChangeStageResult> => {
-      const result = await updateAccount(accountId, { pipeline_status: status });
-      if (result.success) {
-        toast.success(`Etapa cambiada a «${PIPELINE_STATUS_LABELS[status]}»`);
-        router.refresh();
+    async (accountId: string, status: PipelineStatus, context: StageMoveContext): Promise<ChangeStageResult> => {
+      const note =
+        context.kind === "paste"
+          ? { kind: "paste" as const, text: context.text }
+          : context.kind === "none"
+            ? { kind: "none" as const, text: context.reason }
+            : null;
+      const result = await moveAccountStage(accountId, status, note);
+      if (!result.success) {
+        toast.error(result.error);
+        return result;
+      }
+      toast.success(
+        note
+          ? `Etapa cambiada a «${PIPELINE_STATUS_LABELS[status]}». Guardamos el contexto en las notas.`
+          : `Etapa cambiada a «${PIPELINE_STATUS_LABELS[status]}»`,
+      );
+      router.refresh();
+      if (context.kind === "ai" || context.kind === "contacts") {
+        setPanelCompany(companyFor(accountId));
+        if (context.kind === "ai") setEnrichmentOpen(true);
+        else setContactsOpen(true);
       }
       return result;
     },
-    [router],
+    [router, companyFor],
   );
 
-  const openEnrichment = React.useCallback(() => setEnrichmentOpen(true), []);
+  const openEnrichment = React.useCallback(() => {
+    setPanelCompany(null);
+    setEnrichmentOpen(true);
+  }, []);
+  const enrichmentCompany: PanelCompany | null =
+    panelCompany ??
+    (journey
+      ? {
+          id: journey.account.id,
+          name: journey.account.name,
+          domain: journey.account.domain,
+          countryCode: journey.account.countryCode,
+          hubspotCompanyId: journey.account.hubspotCompanyId,
+        }
+      : null);
   const viewAccount = React.useCallback((accountId: string) => router.push(`/accounts/${accountId}`), [router]);
 
   const pendingAccountId = isNavigating && targetAccountId !== selectedAccountId ? targetAccountId : null;
@@ -87,7 +158,8 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
           onChangeStage={changeStage}
           onSearchContacts={openEnrichment}
           onViewAccount={viewAccount}
-          isBlocked={enrichmentOpen || stageDetailOpen}
+          isBlocked={enrichmentOpen || contactsOpen || stageDetailOpen}
+          canUploadContacts
         />
       }
     >
@@ -103,7 +175,8 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
           accounts={overview.accounts}
           onMoveAccount={changeStage}
           onOpenAccount={(accountId) => navigate("recorrido", accountId)}
-          onMoveFailed={(message) => toast.error(message)}
+          canUseAi
+          canUploadContacts
           filters={filters}
           onFiltersChange={setFilters}
         />
@@ -124,22 +197,43 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
 
       <PipelineRailGap visible={railAtBottom} />
 
-      {journey && (
+      {enrichmentCompany && (
         <ContactEnrichmentDrawer
           open={enrichmentOpen}
           onOpenChange={(open) => {
             setEnrichmentOpen(open);
             // Al cerrar, lo que el agente haya encontrado se refleja en la etapa.
-            if (!open) router.refresh();
+            if (!open) {
+              setPanelCompany(null);
+              router.refresh();
+            }
           }}
           preloadedCompany={{
-            name: journey.account.name,
-            domain: journey.account.domain,
-            country: countryName(journey.account.countryCode),
-            countryCode: journey.account.countryCode,
-            sellupAccountId: journey.account.id,
-            hubspotCompanyId: journey.account.hubspotCompanyId,
+            name: enrichmentCompany.name,
+            domain: enrichmentCompany.domain,
+            country: countryName(enrichmentCompany.countryCode),
+            countryCode: enrichmentCompany.countryCode,
+            sellupAccountId: enrichmentCompany.id,
+            hubspotCompanyId: enrichmentCompany.hubspotCompanyId,
           }}
+        />
+      )}
+
+      {/* «Ya lo hice por fuera → Subir los contactos»: el alta de contactos que ya existe, con la
+          empresa puesta. No hay importación masiva de contactos: se suben de uno en uno. */}
+      {panelCompany && (
+        <CreateContactDrawer
+          open={contactsOpen}
+          onOpenChange={(open) => {
+            setContactsOpen(open);
+            if (!open) {
+              setPanelCompany(null);
+              router.refresh();
+            }
+          }}
+          accountId={panelCompany.id}
+          accountLabel={panelCompany.domain ? `${panelCompany.name} · ${panelCompany.domain}` : panelCompany.name}
+          metadata={{ created_from: "pipeline_stage_move" }}
         />
       )}
     </PipelineFrame>

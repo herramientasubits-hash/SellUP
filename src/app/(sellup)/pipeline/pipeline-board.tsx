@@ -3,11 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { ArrowRight, LayoutDashboard } from "@/icons";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { countryName } from "@/components/shared/table-cells";
 import { Kanban, type KanbanColumn, type KanbanItem } from "@/components/data-display";
 import type { PipelineStatus } from "@/modules/accounts/types";
@@ -18,11 +16,11 @@ import {
 } from "@/modules/pipeline/pipeline-filters";
 import type { PipelineOverviewAccount } from "@/modules/pipeline/types";
 import { PipelineFilterBar } from "./pipeline-filters-panel";
+import { StageMoveDialog, type ChangeStageAction, type ChangeStageResult, type StageMoveContext } from "./pipeline-stage-move";
 import {
   BOARD_COLUMNS,
   PROSPECTS_HREF,
   SIGNAL_BADGE_VARIANT,
-  boardColumnTitle,
   daysAgoLabel,
 } from "./pipeline-copy";
 
@@ -38,13 +36,17 @@ export const PIPELINE_BOARD_COLUMNS: readonly KanbanColumn[] = [
   { id: "ready_for_outreach", title: BOARD_COLUMNS[3].title, description: BOARD_COLUMNS[3].description, tone: "positive" },
 ];
 
-export type MoveAccountResult = { success: true } | { success: false; error: string };
+export type MoveAccountResult = ChangeStageResult;
 
 interface PipelineBoardProps {
   /** Las empresas activas del pipeline (las archivadas no están en el tablero). */
   accounts: readonly PipelineOverviewAccount[];
   /** Mueve la empresa de estado. Sin ella, el tablero solo se mira. */
-  onMoveAccount?: (accountId: string, status: PipelineStatus) => Promise<MoveAccountResult>;
+  onMoveAccount?: ChangeStageAction;
+  /** Quien monta el tablero puede abrir el agente de IA de la empresa tras mover. */
+  canUseAi?: boolean;
+  /** Quien monta el tablero puede abrir el alta de contactos de la empresa tras mover. */
+  canUploadContacts?: boolean;
   /** Abre el recorrido de la empresa. */
   onOpenAccount?: (accountId: string) => void;
   /** Avisa de que el movimiento falló (un toast); la tarjeta ya volvió a su columna. */
@@ -85,16 +87,19 @@ function toItem(account: PipelineOverviewAccount, status: PipelineStatus): Kanba
  * PipelineBoard — la vista «Tablero»: el `Kanban` del sistema con una tarjeta
  * por empresa en la columna de su estado.
  *
- * Mover una tarjeta (arrastrando o con teclado) NO escribe: pide confirmación
- * («¿Mover X a Y?») y solo al aceptar llama a `onMoveAccount`. Si se cancela o
- * falla, la tarjeta vuelve a su columna. El cambio de etapa siempre lo decide
- * la persona.
+ * Mover una tarjeta (arrastrando o con teclado) NO escribe: abre el flujo de
+ * «Mover de etapa» (`StageMoveDialog`), el mismo de la barra de acciones, que
+ * pide el contexto de la etapa; solo al confirmar se llama a `onMoveAccount`. Si
+ * se cancela, la tarjeta vuelve a su columna; si falla, el diálogo sigue abierto
+ * con el motivo. El cambio de etapa siempre lo decide la persona.
  */
 export function PipelineBoard({
   accounts,
   onMoveAccount,
   onOpenAccount,
   onMoveFailed,
+  canUseAi = false,
+  canUploadContacts = false,
   filters: controlledFilters,
   onFiltersChange,
   now: nowProp,
@@ -107,7 +112,6 @@ export function PipelineBoard({
   const visibleAccounts = React.useMemo(() => applyPipelineFilters(accounts, filters, now), [accounts, filters, now]);
   const [pending, setPending] = React.useState<PendingMove | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
 
   // La tarjeta se enseña en la columna destino mientras se pregunta; al cancelar o fallar, vuelve.
   const items = React.useMemo(
@@ -149,35 +153,27 @@ export function PipelineBoard({
       setPending(null);
       return;
     }
-    setError(null);
     setPending({ accountId: account.id, accountName: account.name, to: toColumnId as BoardStatus });
   }
 
-  async function confirmMove() {
-    if (!pending || !onMoveAccount || isSaving) return;
+  /** Mueve con el contexto elegido. Si falla, el diálogo sigue abierto con el motivo y la tarjeta en espera. */
+  async function confirmMove(context: StageMoveContext): Promise<ChangeStageResult> {
+    if (!pending || !onMoveAccount) return { success: false, error: "No se pudo mover la empresa." };
     setIsSaving(true);
-    let failure: string | null = null;
+    let result: ChangeStageResult;
     try {
-      const result = await onMoveAccount(pending.accountId, pending.to);
-      if (!result.success) failure = result.error;
+      result = await onMoveAccount(pending.accountId, pending.to, context);
     } catch {
-      failure = "No se pudo mover la empresa. Inténtalo de nuevo.";
+      result = { success: false, error: "No se pudo mover la empresa. Inténtalo de nuevo." };
     }
     setIsSaving(false);
-    setPending(null);
-    if (failure) {
-      setError(failure);
-      onMoveFailed?.(failure);
-    }
+    if (result.success) setPending(null);
+    else onMoveFailed?.(result.error);
+    return result;
   }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
       <PipelineFilterBar
         accounts={accounts}
         filters={filters}
@@ -192,16 +188,16 @@ export function PipelineBoard({
         onItemClick={onOpenAccount ? (item) => onOpenAccount(item.id) : undefined}
         className="min-h-0 flex-1"
       />
-      <ConfirmDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open && !isSaving) setPending(null);
-        }}
-        title={pending ? `¿Mover ${pending.accountName} a «${boardColumnTitle(pending.to)}»?` : ""}
-        description="El cambio de etapa queda anotado en el historial de la empresa."
-        confirmLabel="Mover"
-        loading={isSaving}
+      <StageMoveDialog
+        accountName={pending?.accountName ?? null}
+        toStatus={pending?.to ?? null}
         onConfirm={confirmMove}
+        onCancel={() => {
+          // Cancelar devuelve la tarjeta a su columna.
+          if (!isSaving) setPending(null);
+        }}
+        canUseAi={canUseAi}
+        canUploadContacts={canUploadContacts}
       />
     </div>
   );

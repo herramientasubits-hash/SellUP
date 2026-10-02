@@ -17,6 +17,7 @@ import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildJourney, buildProspectOnlyJourney } from './pipeline-fixtures';
+import { chooseMoveWithoutAction, findMoveDialog, moveOption, movePrimary } from './stage-move-helpers';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -33,7 +34,7 @@ let usePipelineRailAtBottom: (typeof import('../pipeline-screen-actions'))['useP
 let ARCHIVED_AGENT_REASON: string;
 
 type Props = React.ComponentProps<(typeof import('../pipeline-screen-actions'))['PipelineScreenActions']>;
-type Call = [string, string];
+type Call = [string, string, string];
 
 const h = React.createElement;
 
@@ -74,8 +75,8 @@ function renderActions(props: Partial<Props> = {}) {
           React.Fragment,
           null,
           h(PipelineScreenActions, {
-            onChangeStage: async (id: string, status: string) => {
-              calls.push([id, status]);
+            onChangeStage: async (id: string, status: string, context: { kind: string }) => {
+              calls.push([id, status, context.kind]);
               return { success: true as const };
             },
             onSearchContacts: () => (log.search += 1),
@@ -160,7 +161,9 @@ describe('Pipeline · cambiar de etapa desde la barra', () => {
   const option = (label: string) =>
     screen.findByText(label, { selector: '[data-slot="rail-create-option"] *, button *, button' });
 
-  it('ofrece los otros estados (el actual no) y elegir uno NO escribe: pide confirmación', async () => {
+  const rtl = () => ({ render, screen, within, fireEvent, waitFor, cleanup }) as unknown as typeof import('@testing-library/react');
+
+  it('ofrece los otros estados (el actual no) y elegir uno NO escribe: abre el flujo «Mover de etapa»', async () => {
     const { calls } = renderActions();
 
     openOptions();
@@ -170,20 +173,35 @@ describe('Pipeline · cambiar de etapa desde la barra', () => {
     assert.ok(screen.queryByText('Lista para investigar') === null, 'el estado actual no es un destino');
 
     fireEvent.click(screen.getByText('Lista para contacto'));
-    const dialog = await screen.findByRole('alertdialog');
-    assert.ok(within(dialog).getByText('¿Mover a «Lista para contacto»?'));
-    assert.ok(within(dialog).getByText(/Globex cambiará de etapa/));
+    const dialog = await findMoveDialog(rtl());
+    assert.ok(within(dialog).getByText('Mover Globex a «Lista para contacto»'));
     assert.deepEqual(calls, []);
   });
 
-  it('al aceptar llama UNA vez con la empresa y el estado elegido, y cierra', async () => {
+  it('al confirmar llama UNA vez con la empresa, el estado elegido y el contexto, y cierra', async () => {
     const { calls } = renderActions();
 
     openOptions();
     fireEvent.click(await option('Lista para contacto'));
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
-    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
-    assert.deepEqual(calls, [['globex', 'ready_for_outreach']]);
+    fireEvent.click(chooseMoveWithoutAction(rtl(), await findMoveDialog(rtl())));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
+    assert.deepEqual(calls, [['globex', 'ready_for_outreach', 'none']]);
+  });
+
+  it('volver a «Nueva» ofrece que lo haga la IA (la etapa de enriquecimiento ya tiene agente)', async () => {
+    const { calls } = renderActions();
+
+    openOptions();
+    fireEvent.click(await option('Nueva'));
+    const dialog = await findMoveDialog(rtl());
+    const ai = moveOption(rtl(), dialog, 'Que lo haga la IA');
+    assert.equal(ai.disabled, false);
+    assert.match(ai.textContent ?? '', /Recomendada/);
+    fireEvent.click(ai);
+    assert.equal(movePrimary(dialog).textContent, 'Mover y abrir el agente');
+    fireEvent.click(movePrimary(dialog));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
+    assert.deepEqual(calls, [['globex', 'new', 'ai']]);
   });
 
   it('cancelar no escribe', async () => {
@@ -191,8 +209,8 @@ describe('Pipeline · cambiar de etapa desde la barra', () => {
 
     openOptions();
     fireEvent.click(await option('Nueva'));
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancelar' }));
-    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
+    fireEvent.click(within(await findMoveDialog(rtl())).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
     assert.deepEqual(calls, []);
   });
 
@@ -201,9 +219,10 @@ describe('Pipeline · cambiar de etapa desde la barra', () => {
 
     openOptions();
     fireEvent.click(await option('Nueva'));
-    const dialog = await screen.findByRole('alertdialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Mover' }));
+    const dialog = await findMoveDialog(rtl());
+    fireEvent.click(chooseMoveWithoutAction(rtl(), dialog));
     assert.ok(await within(dialog).findByText('Cuenta no encontrada'));
+    assert.ok(screen.getByRole('dialog'));
   });
 
   it('sin acción de mover no se ofrece «Cambiar etapa»', () => {
@@ -259,9 +278,10 @@ describe('Pipeline · acciones «En la pantalla»', () => {
     fireEvent.click(screen.getByRole('button', { name: /Cambiar etapa/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Investigación en curso' }));
     assert.deepEqual(calls, []);
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
-    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
-    assert.deepEqual(calls, [['globex', 'research_in_progress']]);
+    const rtlApi = { render, screen, within, fireEvent, waitFor, cleanup } as unknown as typeof import('@testing-library/react');
+    fireEvent.click(chooseMoveWithoutAction(rtlApi, await findMoveDialog(rtlApi)));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
+    assert.deepEqual(calls, [['globex', 'research_in_progress', 'none']]);
   });
 
   it('archivada: el agente sale apagado', () => {

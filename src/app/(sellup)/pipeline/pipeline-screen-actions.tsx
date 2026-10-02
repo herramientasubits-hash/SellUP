@@ -2,8 +2,6 @@
 
 import * as React from "react";
 import { ArrowRightCircle, ExternalLink, GitBranch, Sparkles } from "@/icons";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
   RailScreenActions,
   useActionRailReserveSide,
@@ -12,7 +10,7 @@ import {
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
 import type { AccountJourney } from "@/modules/pipeline/types";
 import { BOARD_COLUMNS } from "./pipeline-copy";
-import type { ChangeStageAction } from "./pipeline-journey";
+import { StageMoveDialog, type ChangeStageAction, type StageMoveContext } from "./pipeline-stage-move";
 
 /** Por qué el agente no se puede usar en una empresa archivada. */
 export const ARCHIVED_AGENT_REASON = "La empresa está archivada: ya no se buscan sus contactos.";
@@ -28,6 +26,8 @@ interface PipelineScreenActionsProps {
   onViewAccount?: (accountId: string) => void;
   /** Un panel de la pantalla (el buscador de contactos) está abierto: la barra se recoge. */
   isBlocked?: boolean;
+  /** Quien monta las acciones puede abrir el alta de contactos de la empresa tras mover. */
+  canUploadContacts?: boolean;
 }
 
 /**
@@ -37,8 +37,9 @@ interface PipelineScreenActionsProps {
  * empresa». No pinta botones propios: se las entrega a la barra flotante de la
  * pantalla o, con la preferencia «En la pantalla», a la cabecera.
  *
- * El cambio de etapa siempre lo decide la persona: elegir un estado abre el
- * `ConfirmDialog` y solo al aceptar se llama a `onChangeStage`.
+ * El cambio de etapa siempre lo decide la persona y nunca a ciegas: elegir un
+ * estado abre el flujo «Mover de etapa» (`StageMoveDialog`), que pide el
+ * contexto de la etapa, y solo al confirmar se llama a `onChangeStage`.
  */
 export function PipelineScreenActions({
   journey,
@@ -46,10 +47,9 @@ export function PipelineScreenActions({
   onSearchContacts,
   onViewAccount,
   isBlocked = false,
+  canUploadContacts = false,
 }: PipelineScreenActionsProps) {
   const [target, setTarget] = React.useState<PipelineStatus | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
 
   const accountId = journey?.account.id ?? null;
   const accountName = journey?.account.name ?? "";
@@ -82,10 +82,7 @@ export function PipelineScreenActions({
           title: PIPELINE_STATUS_LABELS[column.status],
           description: column.description,
           icon: <ArrowRightCircle aria-hidden="true" />,
-          onSelect: () => {
-            setError(null);
-            setTarget(column.status);
-          },
+          onSelect: () => setTarget(column.status),
         })),
       });
     }
@@ -108,41 +105,24 @@ export function PipelineScreenActions({
   // Sin empresa elegida no hay nada que declarar: ni barra ni fila vacía en la cabecera.
   if (!journey || !accountId) return null;
 
-  async function confirmChange() {
-    if (!target || !onChangeStage || !accountId || isSaving) return;
-    setIsSaving(true);
-    setError(null);
-    try {
-      const result = await onChangeStage(accountId, target);
-      if (result.success) setTarget(null);
-      else setError(result.error);
-    } catch {
-      setError("No se pudo mover la empresa. Inténtalo de nuevo.");
-    } finally {
-      setIsSaving(false);
-    }
+  async function confirmMove(context: StageMoveContext) {
+    if (!target || !onChangeStage || !accountId) return { success: false as const, error: "No se pudo mover la empresa." };
+    const result = await onChangeStage(accountId, target, context);
+    if (result.success) setTarget(null);
+    return result;
   }
 
   return (
     <>
       <RailScreenActions actions={actions} agent={agent} isBlocked={isBlocked || target !== null} />
-      <ConfirmDialog
-        open={target !== null}
-        onOpenChange={(open) => {
-          if (!open && !isSaving) setTarget(null);
-        }}
-        title={target ? `¿Mover a «${PIPELINE_STATUS_LABELS[target]}»?` : ""}
-        description={`${accountName} cambiará de etapa en el pipeline. Queda anotado en su historial.`}
-        confirmLabel="Mover"
-        loading={isSaving}
-        onConfirm={confirmChange}
-      >
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-      </ConfirmDialog>
+      <StageMoveDialog
+        accountName={target ? accountName : null}
+        toStatus={target}
+        onConfirm={confirmMove}
+        onCancel={() => setTarget(null)}
+        canUseAi={Boolean(onSearchContacts) && !isArchived}
+        canUploadContacts={canUploadContacts}
+      />
     </>
   );
 }

@@ -12,6 +12,7 @@ import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildOverview } from './pipeline-fixtures';
+import { chooseMoveWithoutAction, findMoveDialog } from './stage-move-helpers';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -23,7 +24,7 @@ let PipelineBoard: (typeof import('../pipeline-board'))['PipelineBoard'];
 let PIPELINE_BOARD_COLUMNS: (typeof import('../pipeline-board'))['PIPELINE_BOARD_COLUMNS'];
 
 type Props = React.ComponentProps<(typeof import('../pipeline-board'))['PipelineBoard']>;
-type Call = [string, string];
+type Call = [string, string, string];
 
 const h = React.createElement;
 
@@ -37,6 +38,7 @@ afterEach(() => {
 });
 
 // `hidden`: con el diálogo de confirmación abierto, el tablero queda fuera del árbol accesible.
+// `hidden`: con el diálogo abierto, el tablero queda fuera del árbol accesible.
 const column = (name: string) => screen.getByRole('region', { name, hidden: true });
 const card = (title: string) =>
   document.querySelector(`[data-slot="kanban-card"][aria-label="${title}"]`) as HTMLElement;
@@ -48,8 +50,8 @@ function renderBoard(props: Partial<Props> = {}) {
   const utils = render(
     h(PipelineBoard, {
       accounts: buildOverview().accounts,
-      onMoveAccount: async (id: string, status: string) => {
-        calls.push([id, status]);
+      onMoveAccount: async (id: string, status: string, context: { kind: string }) => {
+        calls.push([id, status, context.kind]);
         return { success: true as const };
       },
       ...props,
@@ -133,39 +135,43 @@ describe('PipelineBoard — con empresas', () => {
 });
 
 describe('PipelineBoard — mover de etapa', () => {
-  it('mover pide confirmación y no escribe hasta aceptar', async () => {
+  const rtl = () => ({ render, screen, within, fireEvent, waitFor, cleanup }) as unknown as typeof import('@testing-library/react');
+
+  it('mover NO escribe: abre el flujo «Mover de etapa», que pide el contexto', async () => {
     const { calls } = renderBoard();
 
     moveRight('Acme');
-    const dialog = await screen.findByRole('alertdialog');
-    assert.ok(within(dialog).getByText('¿Mover Acme a «Listas para investigar»?'));
+    const dialog = await findMoveDialog(rtl());
+    assert.ok(within(dialog).getByText('Mover Acme a «Lista para investigar»'));
+    assert.ok(within(dialog).getByText('¿Cómo le damos a SellUp el contexto de esta etapa?'));
     assert.deepEqual(calls, []);
   });
 
-  it('al aceptar llama UNA vez con la empresa y el estado elegido', async () => {
+  it('al confirmar llama UNA vez con la empresa, el estado elegido y el contexto', async () => {
     const { calls } = renderBoard();
 
     moveRight('Acme');
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
-    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
-    assert.deepEqual(calls, [['acme', 'ready_for_research']]);
+    const dialog = await findMoveDialog(rtl());
+    fireEvent.click(chooseMoveWithoutAction(rtl(), dialog));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
+    assert.deepEqual(calls, [['acme', 'ready_for_research', 'none']]);
   });
 
   it('si se cancela no escribe y la tarjeta vuelve a su columna', async () => {
     const { calls } = renderBoard();
 
     moveRight('Acme');
-    await screen.findByRole('alertdialog');
+    const dialog = await findMoveDialog(rtl());
     assert.deepEqual(cardsIn('Listas para investigar'), ['Acme', 'Globex']);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    await waitFor(() => assert.ok(screen.queryByRole('alertdialog') === null));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
     assert.deepEqual(calls, []);
     assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
     assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
   });
 
-  it('si falla, avisa del motivo y la tarjeta vuelve a su columna', async () => {
+  it('si falla, avisa del motivo, el diálogo sigue abierto y al cancelar la tarjeta vuelve', async () => {
     const failures: string[] = [];
     renderBoard({
       onMoveAccount: async () => ({ success: false, error: 'Cuenta no encontrada' }),
@@ -173,10 +179,15 @@ describe('PipelineBoard — mover de etapa', () => {
     });
 
     moveRight('Acme');
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Mover' }));
+    const dialog = await findMoveDialog(rtl());
+    fireEvent.click(chooseMoveWithoutAction(rtl(), dialog));
     await waitFor(() => assert.deepEqual(failures, ['Cuenta no encontrada']));
+    assert.equal(within(dialog).getByRole('alert').textContent, 'Cuenta no encontrada');
+    assert.ok(screen.getByRole('dialog'));
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
     assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
-    await waitFor(() => assert.equal(screen.getByRole('alert').textContent, 'Cuenta no encontrada'));
   });
 
   it('reordenar dentro de la misma columna no es un cambio de etapa', () => {
@@ -185,7 +196,7 @@ describe('PipelineBoard — mover de etapa', () => {
     const node = card('Acme');
     fireEvent.keyDown(node, { key: ' ' });
     fireEvent.keyDown(card('Acme'), { key: 'ArrowDown' });
-    assert.ok(screen.queryByRole('alertdialog') === null);
+    assert.ok(screen.queryByRole('dialog') === null);
     assert.deepEqual(calls, []);
   });
 });

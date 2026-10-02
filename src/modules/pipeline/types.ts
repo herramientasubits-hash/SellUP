@@ -187,6 +187,8 @@ export interface AccountJourney {
     /** El tono del chip de HubSpot (el vocabulario de `StatusBadge`). */
     hubspotStatus: HubSpotCompanyPresentationStatus;
     hubspotSynced: boolean;
+    /** La última nota de etapa (el contexto que dejó alguien al mover de etapa), si hay. */
+    lastStageNote: { header: string; body: string } | null;
   };
   currentStageId: PipelineStageId | null;
   substatusLabel: string;

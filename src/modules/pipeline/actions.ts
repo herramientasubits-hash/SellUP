@@ -1,8 +1,9 @@
 'use server';
 
-// Pipeline — «Recorrido de la empresa». SOLO LECTURA: todo lo que sale de aquí es
-// un SELECT. No hay escrituras nuevas: el único cambio que la pantalla hace
-// (mover de etapa) pasa por `updateAccount` de `@/modules/accounts/actions`.
+// Pipeline — «Recorrido de la empresa». Las lecturas son SELECT. La ÚNICA
+// escritura de la pantalla —mover de etapa, con el contexto que dejó la persona—
+// pasa por `updateAccount` de `@/modules/accounts/actions` (`moveAccountStage`):
+// el estado y las notas anexadas viajan en UNA sola llamada.
 //
 // Alcance comercial: la lista y el detalle salen de `getAccountsList` /
 // `getAccountById`, que ya lo aplican. Las lecturas por lotes de abajo solo
@@ -15,7 +16,15 @@ import {
   getAccountById,
   getAccountsList,
   getAccountsSummary,
+  updateAccount,
 } from '@/modules/accounts/actions';
+import { PIPELINE_STATUS_LABELS, type PipelineStatus } from '@/modules/accounts/types';
+import { getPipelineStage, resolveCurrentStage } from './stages';
+import {
+  appendStageNote,
+  isStageNoteTextValid,
+  type StageNoteKind,
+} from './stage-notes';
 import { getContactsByAccount } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
 import {
@@ -275,4 +284,74 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
     archivedTotal: summary.archived,
     now: new Date(),
   });
+}
+
+// ============================================================
+// Mover de etapa, con contexto
+// ============================================================
+
+/** Los estados a los que una persona puede mover una empresa (archivar es otra acción). */
+const MOVABLE_STATUSES: readonly PipelineStatus[] = [
+  'new',
+  'ready_for_research',
+  'research_in_progress',
+  'ready_for_outreach',
+];
+
+export interface StageMoveNoteInput {
+  kind: StageNoteKind;
+  text: string;
+}
+
+export type MoveAccountStageResult = { success: true } | { success: false; error: string };
+
+async function currentUserName(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await supabase
+    .from('internal_users')
+    .select('full_name, email')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+  return (data?.full_name as string | null) ?? (data?.email as string | null) ?? null;
+}
+
+/**
+ * Mueve la empresa de etapa y, si la persona dejó contexto (lo que pegó, o el
+ * motivo de mover sin acción), lo ANEXA a `accounts.notes` con su cabecera. Una
+ * sola `updateAccount` con el estado y las notas: si falla, no se mueve nada.
+ * Respeta el alcance comercial (`getAccountById`).
+ */
+export async function moveAccountStage(
+  accountId: string,
+  status: PipelineStatus,
+  note?: StageMoveNoteInput | null,
+): Promise<MoveAccountStageResult> {
+  await requireActiveUser();
+  if (!MOVABLE_STATUSES.includes(status)) return { success: false, error: 'Etapa no válida.' };
+  if (note && !isStageNoteTextValid(note.text)) {
+    return { success: false, error: 'Escribe al menos 10 caracteres para dejar el contexto.' };
+  }
+
+  const account = await getAccountById(accountId);
+  if (!account) return { success: false, error: 'No encontramos esa empresa.' };
+  if (account.archived_at || account.pipeline_status === 'archived') {
+    return { success: false, error: 'La empresa está archivada.' };
+  }
+
+  if (!note) return updateAccount(accountId, { pipeline_status: status });
+
+  const { stageId } = resolveCurrentStage(status);
+  const notes = appendStageNote(account.notes, {
+    kind: note.kind,
+    text: note.text,
+    stageName: stageId ? getPipelineStage(stageId).name : PIPELINE_STATUS_LABELS[status],
+    statusLabel: PIPELINE_STATUS_LABELS[status],
+    at: new Date(),
+    author: await currentUserName(),
+  });
+  return updateAccount(accountId, { pipeline_status: status, notes });
 }

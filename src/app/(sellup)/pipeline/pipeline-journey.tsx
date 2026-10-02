@@ -13,7 +13,6 @@ import { SurfaceCard } from "@/components/shared/surface-card";
 import { CountryCell, countryFlag, countryName } from "@/components/shared/table-cells";
 import { Stepper, type StepperStep } from "@/components/navigation/stepper";
 import { ListItem, ListItemGroup, StatusBadge } from "@/components/data-display";
-import type { PipelineStatus } from "@/modules/accounts/types";
 import {
   EMPTY_PIPELINE_FILTERS,
   applyPipelineFilters,
@@ -41,9 +40,7 @@ import { PipelineHistory, PipelineStageCards, type StageFocusRequest } from "./p
 import { PipelineStageDrawer } from "./pipeline-stage-drawer";
 import { PipelineJourneySkeleton } from "./pipeline-skeleton";
 
-/** Lo que devuelve mover una empresa de etapa (la forma de `updateAccount`). */
-export type ChangeStageResult = { success: true } | { success: false; error: string };
-export type ChangeStageAction = (accountId: string, status: PipelineStatus) => Promise<ChangeStageResult>;
+export type { ChangeStageAction, ChangeStageResult, StageMoveContext } from "./pipeline-stage-move";
 
 // ── Panel izquierdo: el resumen y la lista de empresas ──────────
 
@@ -220,6 +217,13 @@ function JourneyHeader({ journey }: { journey: AccountJourney }) {
             </Badge>
           ))}
         </div>
+        {account.lastStageNote && (
+          // El contexto que dejó alguien al mover de etapa: lo último que sabe SellUp de la empresa.
+          <p data-slot="last-stage-note" className="mt-1 line-clamp-2 border-t border-border/50 pt-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Última nota · {account.lastStageNote.header}:</span>{" "}
+            {account.lastStageNote.body}
+          </p>
+        )}
       </div>
     </SurfaceCard>
   );

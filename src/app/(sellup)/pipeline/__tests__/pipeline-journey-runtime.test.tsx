@@ -349,6 +349,23 @@ describe('Pipeline · recorrido de una empresa', () => {
     assert.equal(track.querySelectorAll('li')[1].getAttribute('data-status'), 'error');
   });
 
+  it('la cabecera enseña la última nota de etapa (el contexto que dejó alguien al mover)', () => {
+    renderJourney({
+      selectedAccountId: 'globex',
+      journey: buildJourney({
+        notes: '[Inteligencia de cuenta · Lista para investigar · 2 de oct de 2026, 9:05 a. m. · Ana Pérez]\nMovida sin acción. Motivo: Ya no responde correos',
+      }),
+    });
+    const note = document.querySelector('[data-slot="last-stage-note"]');
+    assert.ok(note);
+    assert.match(note.textContent ?? '', /^Última nota · Inteligencia de cuenta · Lista para investigar · .* · Ana Pérez: Movida sin acción\. Motivo: Ya no responde correos$/);
+  });
+
+  it('sin notas de etapa, la cabecera no inventa ninguna', () => {
+    renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
+    assert.ok(document.querySelector('[data-slot="last-stage-note"]') === null);
+  });
+
   it('la cabecera dice país, industria, responsable y etapa, sin botones (las acciones van en la barra)', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     assert.ok(screen.getByRole('heading', { level: 2, name: 'Globex' }));
