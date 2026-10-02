@@ -34,6 +34,13 @@ export interface SnapshotNameRow {
   taxId: string | null;
   legalName: string | null;
   normalizedLegalName: string | null;
+  /**
+   * SOURCES-BO-BRAND-SIGNAL-1 — fila cuyo núcleo NO es el del candidato pero que la
+   * fuente propone porque la marca aparece dentro de su razón social («Mersur» →
+   * AGENCIA DESPACHANTE DE ADUANA MERSUR S.R.L.). Nunca da un número fiscal fuerte:
+   * sólo una pista (`low_confidence_match`), y sólo si no hubo coincidencia exacta.
+   */
+  brandSignal?: boolean;
 }
 
 /** Injected read-only query: rows whose stored core equals `core`. Fail-soft. */
@@ -105,7 +112,31 @@ export function createSnapshotNameOfficialSourceResolver(
         if (!byId.has(taxId)) byId.set(taxId, { ...row, taxId });
       }
       const distinct = [...byId.values()];
-      if (distinct.length === 0) return notFound(core);
+      if (distinct.length === 0) {
+        // Sin coincidencia exacta: una marca dentro de UNA sola razón social es,
+        // como mucho, una pista para revisar. Nunca llena las columnas fiscales.
+        const brandIds = new Map<string, SnapshotNameRow>();
+        for (const row of rows) {
+          const taxId = row.taxId?.trim() ?? '';
+          if (row.brandSignal !== true || !config.validTaxId.test(taxId)) continue;
+          if (!brandIds.has(taxId)) brandIds.set(taxId, { ...row, taxId });
+        }
+        const brand = [...brandIds.values()];
+        if (brand.length !== 1) return notFound(core);
+        return {
+          status: 'low_confidence_match',
+          countryCode: country,
+          sourceKey: config.sourceKey,
+          confidence: SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
+          matchMethod: 'normalized_name',
+          taxIdentifier: brand[0].taxId,
+          taxIdentifierType: config.taxIdentifierType,
+          legalName: brand[0].legalName || null,
+          warnings: [],
+          issues: [],
+          safeMetadata: { normalizedSearchName: core, brandInLegalName: true },
+        };
+      }
 
       const best = distinct[0];
       const base = {

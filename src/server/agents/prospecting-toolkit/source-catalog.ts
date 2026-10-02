@@ -1508,7 +1508,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Es la búsqueda que usa el portal público del SEPREC, no un servicio documentado para terceros: puede cambiar sin aviso.',
       'Lenta y con límite de ritmo: el SEPREC responde 429 a 4-5 peticiones seguidas, así que se espacian 2,5 s (ante un 429 se espera 5 s y se reintenta una vez). Con 45 s por corrida alcanza para unas 8-10 empresas; tras 3 fallos seguidos se apaga en esa corrida.',
       'Excluye empresas unipersonales (personas) y matrículas no activas.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente. Muchas empresas usan una marca distinta de su razón social (Mersur → AGENCIA DESPACHANTE DE ADUANA MERSUR S.R.L.) y quedan sin NIT.',
+      'NIT seguro sólo con el núcleo del nombre exacto. Si la marca aparece dentro de la razón social de UNA sola sociedad activa (búsqueda con 5 resultados o menos: Logibol → OPERADOR LOGISTICO DE CARGAS LOGIBOL S.R.L.), su NIT queda como PISTA para revisar, nunca en el campo fiscal.',
     ],
     riskNotes: [
       'Si el SEPREC cambia o cae, las empresas bolivianas simplemente quedan sin NIT; la corrida sigue.',
