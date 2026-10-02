@@ -163,6 +163,31 @@ export function sectorNameVariant(wanted: string): string | null {
   return [...words.slice(0, -1), variant.legalPhrase].join(' ');
 }
 
+/**
+ * SOURCES-BO-COUNTRY-SUFFIX-VARIANT-1 — Tavily y Apollo a veces guardan la marca
+ * con el país o el dominio pegados (medido el 02-10, lote 0d4b77fb): «Get Server
+ * Bolivia» (SEPREC: GET SERVER S.R.L.), «Cognos.com.bo». Colas que se quitan, de la
+ * más larga a la más corta.
+ */
+export const BO_SEPREC_TRAILING_NOISE: readonly string[][] = [
+  ['COM', 'BO'],
+  ['ORG', 'BO'],
+  ['NET', 'BO'],
+  ['BOLIVIA'],
+  ['BO'],
+];
+
+/** Nombre sin el país ni el dominio pegados al final, o `null` si no aplica. */
+export function withoutTrailingCountry(wanted: string): string | null {
+  const words = wanted.split(' ').filter((word) => word.length > 0);
+  for (const tail of BO_SEPREC_TRAILING_NOISE) {
+    if (words.length <= tail.length) continue;
+    const end = words.slice(-tail.length);
+    if (end.every((word, i) => word === tail[i])) return words.slice(0, -tail.length).join(' ');
+  }
+  return null;
+}
+
 /** Ficha de detalle → NIT (sólo dígitos), o `null`. Nada más se lee. */
 export function parseSeprecDetailNit(body: unknown): string | null {
   const nit = text((body as { datos?: { nit?: unknown } } | null)?.datos?.nit);
@@ -264,7 +289,9 @@ export function buildSeprecNameLiveQuery(
 
     // SOURCES-BO-SECTOR-NAME-VARIANT-1 — sin marca: si el nombre es «X SAFI» o
     // «X Seguros», UNA búsqueda más con la forma larga. También es sólo pista.
-    const variant = brand === null && hits.length === 0 ? sectorNameVariant(wanted) : null;
+    // Como mucho UNA búsqueda más por empresa (el SEPREC es lento): primero sin el
+    // país o el dominio pegados; si no aplica, la forma larga del sector.
+    const variant = brand === null && hits.length === 0 ? (withoutTrailingCountry(wanted) ?? sectorNameVariant(wanted)) : null;
     if (variant !== null) {
       const variantSearch = await getJson(buildSeprecSearchUrl(variant));
       brand = findBrandInLegalName(variant, parseSeprecSearch(variantSearch), searchTotal(variantSearch));
