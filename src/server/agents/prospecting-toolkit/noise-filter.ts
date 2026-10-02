@@ -149,9 +149,26 @@ export const JOB_BOARD_BRAND_LABELS: readonly string[] = Object.freeze([
 
 /** `true` si el dominio es `<marca>.<terminación de país>` (o un subdominio suyo). */
 export function isJobBoardBrandDomain(domain: string): boolean {
+  return isBrandOnAnyCountryDomain(domain, JOB_BOARD_BRAND_LABELS);
+}
+
+/**
+ * AGENT1-TAVILY-HOMEPAGE-2 — directorios de software con un dominio por país
+ * (Prod 02-10, BO 8c3b2db5: `comparasoftware.com.bo` entró como empresa).
+ */
+export const SOFTWARE_DIRECTORY_BRAND_LABELS: readonly string[] = Object.freeze([
+  'comparasoftware',
+  'capterra',
+  'getapp',
+  'softwareadvice',
+  'appvizer',
+]);
+
+/** `<marca>.<terminación de país>` o un subdominio suyo, para una lista de marcas. */
+function isBrandOnAnyCountryDomain(domain: string, brands: readonly string[]): boolean {
   const labels = domain.toLowerCase().split('.');
   for (let i = 0; i < labels.length - 1; i++) {
-    if (!JOB_BOARD_BRAND_LABELS.includes(labels[i])) continue;
+    if (!brands.includes(labels[i])) continue;
     // Detrás de la marca sólo puede venir la terminación (`com`, `pe`, `com.pe`…).
     if (labels.slice(i + 1).every((label) => label.length >= 2 && label.length <= 3)) return true;
   }
@@ -915,7 +932,10 @@ export function isProspectableCompanyResult(result: {
   }
 
   // 7. Directorios de software
-  if (domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS)) {
+  if (
+    domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS) ||
+    isBrandOnAnyCountryDomain(domain, SOFTWARE_DIRECTORY_BRAND_LABELS)
+  ) {
     return {
       isProspectable: false,
       reason: `Directorio de software (${domain}) — no empresa prospectable`,
@@ -1147,7 +1167,10 @@ export function classifySearchResult(result: {
   }
 
   // 5. Directorios de software
-  if (domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS)) {
+  if (
+    domainMatchesSet(domain, SOFTWARE_DIRECTORY_DOMAINS) ||
+    isBrandOnAnyCountryDomain(domain, SOFTWARE_DIRECTORY_BRAND_LABELS)
+  ) {
     return {
       resultType: 'software_directory',
       shouldKeep: false,

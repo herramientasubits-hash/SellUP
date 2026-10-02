@@ -38,17 +38,8 @@ import {
 } from './wizard-conversation-summary';
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
 import { useWizardMessageSound } from './use-wizard-message-sound';
-// A1-APOLLO-WIZARD-1 — indicador del proveedor de búsqueda. La resolución es del
-// backend (prop `discoveryProvider` + ruta Lusha + omisión reportada por la
-// acción); aquí sólo se reduce y se pinta.
-import { WizardProviderIndicatorRow } from './wizard-provider-indicator';
 // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — la continuación, conectada.
 import { WizardApolloContinuationPanel } from './wizard-apollo-continuation-panel';
-import { resolveWizardProviderIndicator } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
-import type {
-  WizardIndicatorLushaRoute,
-  WizardIndicatorProviderKey,
-} from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
@@ -313,12 +304,6 @@ export function ProspectChatWizard({
     ],
   );
 
-  // ── Proveedor de búsqueda omitido por el backend ────────────────────────────
-  // Sólo se llena con lo que reporta la acción (`providerSkipped`). Se limpia al
-  // iniciar cada ejecución: una omisión pasada no describe el intento actual.
-  const [skippedProvider, setSkippedProvider] =
-    React.useState<WizardIndicatorProviderKey | null>(null);
-
   // ── § 3 · proveedor pedido para ESTA corrida ────────────────────────────────
   // `undefined` = el administrador no tocó el selector. Ese es el valor inicial a
   // propósito: sin petición, la acción no consulta el rol y la corrida resuelve al
@@ -329,13 +314,6 @@ export function ProspectChatWizard({
   const [requestedProvider, setRequestedProvider] = React.useState<
     WizardRunSelectableProvider | undefined
   >(undefined);
-
-  // ── § 10 · proveedor que el SERVIDOR resolvió para esta corrida ─────────────
-  // Se llena sólo con lo que devuelve la acción. Si el administrador pidió Apollo
-  // y el servidor resolvió Tavily, aquí queda Tavily: el indicador nunca refleja
-  // la selección local.
-  const [runResolvedProvider, setRunResolvedProvider] =
-    React.useState<WizardDiscoveryProviderKey | null>(null);
 
   // ── § 11 · cifras reales de la modalidad de dos rondas ──────────────────────
   const [twoRoundOutcome, setTwoRoundOutcome] = React.useState<{
@@ -356,31 +334,6 @@ export function ProspectChatWizard({
   const [persistenceOutcome, setPersistenceOutcome] =
     React.useState<WizardPersistenceOutcome | null>(null);
 
-  // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
-  // Reducción pura de las señales del backend: el proveedor resuelto POR CORRIDA
-  // (que manda cuando existe), el predeterminado global resuelto en el servidor,
-  // la ruta efectiva de Lusha y el proveedor que la acción reportó como omitido.
-  const providerIndicator = React.useMemo(
-    () =>
-      resolveWizardProviderIndicator({
-        serverDiscoveryProvider: discoveryProvider,
-        // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático Lusha es el
-        // respaldo, no el proveedor de la corrida: el indicador nombra al
-        // principal que resolvió el servidor.
-        lushaRoute: autoProviderCascade
-          ? 'default_ai'
-          : (lushaCriteria.provider as WizardIndicatorLushaRoute),
-        skippedProvider,
-        runResolvedProvider,
-      }),
-    [
-      autoProviderCascade,
-      discoveryProvider,
-      lushaCriteria.provider,
-      skippedProvider,
-      runResolvedProvider,
-    ],
-  );
 
 
   // ── Catalog options derived for UI ────────────────────────────────────────
@@ -598,7 +551,6 @@ export function ProspectChatWizard({
           // wizard. «Editar búsqueda» conserva el clientRequestId y por tanto la
           // elección — es la misma corrida (§ 9).
           setRequestedProvider(undefined);
-          setRunResolvedProvider(null);
           setTwoRoundOutcome(null);
         }
         dispatch({ type: 'VALIDATION_SUCCEEDED' });
@@ -678,9 +630,6 @@ export function ProspectChatWizard({
 
     setRunningRequestId(clientRequestIdRef.current);
     dispatch({ type: 'BEGIN_EXECUTION' });
-    // Un intento nuevo empieza sin omisión previa: el indicador vuelve al
-    // proveedor resuelto hasta que el backend diga otra cosa.
-    setSkippedProvider(null);
 
     try {
       const result = await executeProspectWizardGenerationAction({
@@ -703,14 +652,6 @@ export function ProspectChatWizard({
           : {}),
       });
 
-      // § 10 — la fuente del indicador es el servidor, en éxito y en fallo.
-      if (result.runProvider) {
-        setRunResolvedProvider(
-          result.runProvider.resolved === 'lusha_companies'
-            ? null
-            : result.runProvider.resolved,
-        );
-      }
       if (result.ok && result.twoRoundOutcome) {
         setTwoRoundOutcome(result.twoRoundOutcome);
       }
@@ -769,11 +710,6 @@ export function ProspectChatWizard({
               : result.code === 'BUDGET_EXCEEDED'
                 ? mapBudgetExceeded(result.budgetExceeded)
                 : mapExecutionError(result.code);
-        // El nombre del proveedor omitido se conserva visible; el motivo técnico
-        // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
-        if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
-          setSkippedProvider(result.providerSkipped.provider);
-        }
         // 🔴 AGENT1-LOCAL-CUT6B-PARTIAL-UI-PROPAGATION §§ 1, 3 — el fallo se
         // despacha igual que siempre y ADEMÁS lleva el aporte durable que el
         // servidor declaró. Antes de este corte esta rama descartaba
@@ -909,8 +845,6 @@ export function ProspectChatWizard({
                 data-testid="wizard-stepper"
               />
             )}
-
-            <WizardProviderIndicatorRow indicator={providerIndicator} />
           </div>
 
           {/* AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — una corrida a medias.
