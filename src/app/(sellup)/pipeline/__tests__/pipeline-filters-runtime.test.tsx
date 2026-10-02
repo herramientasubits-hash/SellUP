@@ -324,13 +324,13 @@ describe('Pipeline · el tablero aplica los mismos filtros', () => {
       });
     }
     render(h(Board));
-    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
-    assert.deepEqual(cardsIn('Listas para contacto'), ['Umbrella']);
+    assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
+    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
 
     await openPanel();
     fireEvent.click(group('Etapa').getByRole('checkbox', { name: 'Preparación' }));
-    assert.deepEqual(cardsIn('Nuevas'), []);
-    assert.deepEqual(cardsIn('Listas para contacto'), ['Umbrella']);
+    assert.deepEqual(cardsIn('Enriquecimiento'), []);
+    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
     assert.equal(document.querySelector('[data-slot="pipeline-filter-count"]')?.textContent, '1 de 4 empresas');
     assert.deepEqual(changes.at(-1)?.stages, ['preparacion']);
   });
@@ -345,8 +345,7 @@ describe('Pipeline · el tablero aplica los mismos filtros', () => {
         now: NOW,
       }),
     );
-    assert.deepEqual(cardsIn('Nuevas'), []);
-    assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
-    assert.deepEqual(cardsIn('Investigación en curso'), ['Initech']);
+    assert.deepEqual(cardsIn('Enriquecimiento'), []);
+    assert.deepEqual(cardsIn('Inteligencia'), ['Initech', 'Globex']);
   });
 });

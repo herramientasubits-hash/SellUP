@@ -173,6 +173,7 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
       {view === "tablero" ? (
         <PipelineBoard
           accounts={overview.accounts}
+          archivedTotal={overview.archivedTotal}
           onMoveAccount={changeStage}
           onOpenAccount={(accountId) => navigate("recorrido", accountId)}
           canUseAi

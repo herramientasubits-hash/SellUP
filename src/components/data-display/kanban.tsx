@@ -63,6 +63,16 @@ export interface KanbanColumn {
   tone?: KanbanTone;
   /** Aviso cuando la columna supera este número de tarjetas (WIP). */
   limit?: number;
+  /** Sustituye al punto de tono en la cabecera (p. ej. un `IconTile`). */
+  icon?: React.ReactNode;
+  /**
+   * Una etapa a la que no se puede mover nada (ya superada, o sin estado
+   * todavía): sin zona de soltar ni tarjetas (solo su cabecera, apagada), sin
+   * contador, y el teclado la salta. Sus tarjetas, si las hubiera, no se pintan.
+   */
+  disabled?: boolean;
+  /** Ancho propio de la columna en píxeles; por defecto, `columnWidth`. */
+  width?: number;
 }
 
 export interface KanbanItem {
@@ -325,6 +335,7 @@ export function Kanban({
     const overId = String(over.id);
     if (overId.startsWith(COLUMN_TARGET)) {
       const toColumnId = overId.slice(COLUMN_TARGET.length);
+      if (columns.find((column) => column.id === toColumnId)?.disabled) return;
       moveTo(item, toColumnId, byColumn.get(toColumnId)?.length ?? 0);
       return;
     }
@@ -390,7 +401,11 @@ export function Kanban({
 
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
-      const target = columns[columnIndex + (event.key === "ArrowRight" ? 1 : -1)];
+      // Las columnas apagadas no reciben tarjetas: se salta a la siguiente que sí.
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      let targetIndex = columnIndex + step;
+      while (columns[targetIndex]?.disabled) targetIndex += step;
+      const target = columns[targetIndex];
       if (target) moveTo(item, target.id, index);
     }
   };
@@ -460,16 +475,23 @@ export function Kanban({
             <section
               key={column.id}
               aria-label={column.title}
-              style={{ width: columnWidth }}
-              className="flex shrink-0 flex-col rounded-2xl border border-border/60 bg-surface-subtle"
+              data-disabled={column.disabled || undefined}
+              style={{ width: column.width ?? columnWidth }}
+              className={cn(
+                "flex shrink-0 flex-col rounded-2xl border",
+                column.disabled ? "border-dashed border-border/60 bg-transparent" : "border-border/60 bg-surface-subtle",
+              )}
             >
               <header className="flex flex-col gap-1 border-b border-border/60 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <span aria-hidden className={cn("size-2 shrink-0 rounded-full", tone.dot)} />
+                  {column.icon ?? <span aria-hidden className={cn("size-2 shrink-0 rounded-full", tone.dot)} />}
                   <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{column.title}</h3>
-                  <Badge variant="neutral" className={cn("shrink-0 tabular-nums", tone.count)}>
-                    {hasLimit ? `${list.length}/${column.limit}` : list.length}
-                  </Badge>
+                  {/* Una columna apagada no tiene tarjetas: un «0» ahí sería ruido. */}
+                  {!column.disabled && (
+                    <Badge variant="neutral" className={cn("shrink-0 tabular-nums", tone.count)}>
+                      {hasLimit ? `${list.length}/${column.limit}` : list.length}
+                    </Badge>
+                  )}
                 </div>
                 {column.description && <p className="text-xs text-text-muted">{column.description}</p>}
                 {isOverLimit && (
@@ -479,7 +501,7 @@ export function Kanban({
                 )}
               </header>
 
-              {isMovable ? (
+              {column.disabled ? null : isMovable ? (
                 <DroppableList columnId={column.id} isDragActive={Boolean(draggingId)}>
                   {cards}
                 </DroppableList>

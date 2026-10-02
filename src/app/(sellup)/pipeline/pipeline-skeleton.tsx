@@ -35,19 +35,26 @@ export function PipelineJourneySkeleton() {
   );
 }
 
-const BOARD_COLUMNS_SKELETON = 4;
+/** Las 8 columnas del tablero: llenas las que admiten mover, estrechas las demás (como el tablero). */
+const BOARD_SKELETON_COLUMNS: readonly boolean[] = [false, true, true, true, false, false, false, false];
 
-/** El tablero mientras llega: cuatro columnas con sus tarjetas. */
+/** El tablero mientras llega: sus 8 etapas, con tarjetas fantasma en las que admiten mover. */
 function BoardSkeleton() {
   return (
     <div role="status" aria-label="Cargando el tablero" aria-busy="true" className="flex min-w-0 gap-4 overflow-hidden">
-      {Array.from({ length: BOARD_COLUMNS_SKELETON }, (_, index) => (
-        <div key={index} className="flex w-72 shrink-0 flex-col gap-2 rounded-2xl border border-border/60 bg-surface-subtle p-2">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-        </div>
-      ))}
+      {BOARD_SKELETON_COLUMNS.map((isFull, index) =>
+        isFull ? (
+          <div key={index} className="flex w-72 shrink-0 flex-col gap-2 rounded-2xl border border-border/60 bg-surface-subtle p-2">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : (
+          <div key={index} className="flex w-42 shrink-0 flex-col gap-2 rounded-2xl border border-dashed border-border/60 p-2">
+            <Skeleton className="h-5 w-24" />
+          </div>
+        ),
+      )}
     </div>
   );
 }

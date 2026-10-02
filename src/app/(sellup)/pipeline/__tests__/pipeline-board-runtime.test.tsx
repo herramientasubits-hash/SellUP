@@ -21,7 +21,7 @@ let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
 let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 let PipelineBoard: (typeof import('../pipeline-board'))['PipelineBoard'];
-let PIPELINE_BOARD_COLUMNS: (typeof import('../pipeline-board'))['PIPELINE_BOARD_COLUMNS'];
+let BOARD_STAGE_STATUS: (typeof import('../pipeline-board'))['BOARD_STAGE_STATUS'];
 
 type Props = React.ComponentProps<(typeof import('../pipeline-board'))['PipelineBoard']>;
 type Call = [string, string, string];
@@ -30,7 +30,7 @@ const h = React.createElement;
 
 before(async () => {
   ({ render, screen, within, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
-  ({ PipelineBoard, PIPELINE_BOARD_COLUMNS } = await import('../pipeline-board'));
+  ({ PipelineBoard, BOARD_STAGE_STATUS } = await import('../pipeline-board'));
 });
 
 afterEach(() => {
@@ -78,44 +78,75 @@ describe('PipelineBoard — sin empresas', () => {
   });
 });
 
-describe('PipelineBoard — con empresas', () => {
-  it('son los cuatro estados, en orden, cada uno con su descripción', () => {
+describe('PipelineBoard — columnas = las 8 etapas del proceso', () => {
+  const columns = () => Array.from(document.querySelectorAll<HTMLElement>('[data-slot="kanban"] section'));
+
+  it('son las 8 etapas, en orden, con el vocabulario y el icono del resumen', () => {
     renderBoard();
 
     assert.deepEqual(
-      PIPELINE_BOARD_COLUMNS.map((stage) => [stage.id, stage.title]),
-      [
-        ['new', 'Nuevas'],
-        ['ready_for_research', 'Listas para investigar'],
-        ['research_in_progress', 'Investigación en curso'],
-        ['ready_for_outreach', 'Listas para contacto'],
-      ],
+      columns().map((section) => section.getAttribute('aria-label')),
+      ['Prospección', 'Enriquecimiento', 'Inteligencia', 'Preparación', 'Reunión', 'Cotización', 'Venta interna', 'Cierre'],
     );
-    for (const stage of PIPELINE_BOARD_COLUMNS) {
-      assert.ok(column(stage.title));
-      assert.ok(screen.getByText(stage.description as string));
-    }
+    // Cada columna lleva la baldosa de icono de su etapa (no el punto de tono).
+    for (const section of columns()) assert.ok(section.querySelector('header [data-slot="icon-tile"]'), section.getAttribute('aria-label') ?? '');
   });
 
-  it('pinta una tarjeta por empresa en la columna de su estado', () => {
+  it('solo admiten mover las etapas con estado; las demás van estrechas, apagadas y sin contador', () => {
     renderBoard();
 
-    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
-    assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
-    assert.deepEqual(cardsIn('Investigación en curso'), ['Initech']);
-    assert.deepEqual(cardsIn('Listas para contacto'), ['Umbrella']);
-    assert.ok(screen.queryByText('Todavía no hay empresas en el tablero') === null);
+    const byName = Object.fromEntries(columns().map((section) => [section.getAttribute('aria-label'), section]));
+    for (const name of ['Prospección', 'Reunión', 'Cotización', 'Venta interna', 'Cierre']) {
+      const section = byName[name];
+      assert.equal(section.getAttribute('data-disabled'), 'true', name);
+      assert.equal(section.style.width, '176px', name);
+      assert.ok(section.querySelector('ul') === null, `${name} no tiene zona de soltar`);
+      assert.ok(section.querySelector('[data-slot="badge"]') === null, `${name} no lleva contador`);
+    }
+    assert.ok(within(byName['Prospección']).getByText('Ya superada'));
+    assert.ok(within(byName['Reunión']).getByText('Próximamente'));
+    for (const name of ['Enriquecimiento', 'Inteligencia', 'Preparación']) {
+      assert.equal(byName[name].hasAttribute('data-disabled'), false, name);
+      assert.equal(byName[name].style.width, '288px', name);
+    }
+    // Inteligencia y Preparación: el agente llega pronto, pero se puede mover a ellas.
+    assert.ok(within(byName['Inteligencia']).getByText(/Agente próximamente/));
+    assert.ok(within(byName['Enriquecimiento']).getByText('El Agente 2A busca sus contactos.'));
+    assert.deepEqual(BOARD_STAGE_STATUS, { enriquecimiento: 'new', inteligencia: 'ready_for_research', preparacion: 'ready_for_outreach' });
   });
 
-  it('la tarjeta dice país · industria, el último movimiento y sus señales', () => {
+  it('cada empresa va en la columna de su etapa actual; Inteligencia agrupa sus dos estados', () => {
+    renderBoard();
+
+    assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
+    assert.deepEqual(cardsIn('Inteligencia'), ['Initech', 'Globex']);
+    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
+    assert.ok(screen.queryByText('Todavía no hay empresas en el tablero') === null);
+  });
+});
+
+describe('PipelineBoard — la tarjeta es la fila de la lista', () => {
+  it('nombre, bandera + país, «hace N días» y el subestado', () => {
     renderBoard();
 
     const acme = within(card('Acme'));
-    assert.ok(acme.getByText('Colombia · Tecnología'));
-    assert.ok(acme.getByText('Último movimiento: hace 30 días'));
-    assert.ok(acme.getByText('Sin movimiento 30 días'));
-    assert.ok(acme.getByText('Sin contactos'));
-    assert.ok(within(card('Globex')).queryByText('Sin contactos') === null);
+    assert.ok(acme.getByText('🇨🇴 Colombia · hace 30 días'));
+    assert.equal(acme.getByText('Nueva').getAttribute('data-status'), 'info');
+    // En Inteligencia, el subestado distingue sus dos estados.
+    assert.ok(within(card('Globex')).getByText('Lista para investigar'));
+    assert.ok(within(card('Initech')).getByText('Investigación en curso'));
+  });
+
+  it('el punto de aviso lleva el color de la severidad y nombra las señales', () => {
+    renderBoard();
+
+    const acmeDot = card('Acme').querySelector('[data-slot="board-signal-dot"]') as HTMLElement;
+    assert.equal(acmeDot.getAttribute('data-severity'), 'critical');
+    assert.match(acmeDot.className, /bg-destructive/);
+    assert.equal(acmeDot.getAttribute('aria-label'), 'Requiere atención: Sin movimiento 30 días, Sin contactos');
+    const initechDot = card('Initech').querySelector('[data-slot="board-signal-dot"]') as HTMLElement;
+    assert.match(initechDot.className, /bg-warning/);
+    assert.ok(card('Globex').querySelector('[data-slot="board-signal-dot"]') === null);
   });
 
   it('pulsar una tarjeta abre el recorrido de esa empresa', () => {
@@ -130,7 +161,28 @@ describe('PipelineBoard — con empresas', () => {
     render(h(PipelineBoard, { accounts: buildOverview().accounts }));
 
     assert.ok(document.querySelector('[data-slot="kanban-card"]') === null);
-    assert.ok(within(column('Nuevas')).getByText('Acme'));
+    assert.ok(within(column('Enriquecimiento')).getByText('Acme'));
+  });
+});
+
+describe('PipelineBoard — alertas y archivadas', () => {
+  it('arriba, los motivos de atención del resumen: pulsar uno filtra el tablero', () => {
+    renderBoard();
+
+    const strip = within(screen.getByRole('group', { name: 'Empresas que requieren atención' }));
+    assert.ok(strip.getByText('2 empresas requieren atención'));
+    fireEvent.click(strip.getByRole('button', { name: /Sin responsable/ }));
+    assert.deepEqual(cardsIn('Enriquecimiento'), []);
+    assert.deepEqual(cardsIn('Inteligencia'), ['Initech']);
+    assert.ok(within(screen.getByRole('group', { name: 'Filtros activos' })).getByText('Señal: Sin responsable'));
+  });
+
+  it('las archivadas no están en el tablero: su total va aparte', () => {
+    renderBoard({ archivedTotal: 3 });
+    assert.equal(
+      document.querySelector('[data-slot="board-archived"]')?.textContent,
+      'Archivadas: 3 · fuera del tablero, no cuentan en las etapas.',
+    );
   });
 });
 
@@ -162,13 +214,13 @@ describe('PipelineBoard — mover de etapa', () => {
 
     moveRight('Acme');
     const dialog = await findMoveDialog(rtl());
-    assert.deepEqual(cardsIn('Listas para investigar'), ['Acme', 'Globex']);
+    assert.deepEqual(cardsIn('Inteligencia'), ['Acme', 'Initech', 'Globex']);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
     await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
     assert.deepEqual(calls, []);
-    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
-    assert.deepEqual(cardsIn('Listas para investigar'), ['Globex']);
+    assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
+    assert.deepEqual(cardsIn('Inteligencia'), ['Initech', 'Globex']);
   });
 
   it('si falla, avisa del motivo, el diálogo sigue abierto y al cancelar la tarjeta vuelve', async () => {
@@ -187,7 +239,29 @@ describe('PipelineBoard — mover de etapa', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
     await waitFor(() => assert.ok(screen.queryByRole('dialog') === null));
-    assert.deepEqual(cardsIn('Nuevas'), ['Acme']);
+    assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
+  });
+
+  it('las columnas sin estado no reciben tarjetas: con teclado se saltan', async () => {
+    const { calls } = renderBoard();
+
+    // De Enriquecimiento a la izquierda está Prospección (ya superada): no hay a dónde ir.
+    const node = card('Acme');
+    node.focus();
+    fireEvent.keyDown(node, { key: ' ' });
+    fireEvent.keyDown(card('Acme'), { key: 'ArrowLeft' });
+    assert.ok(screen.queryByRole('dialog') === null);
+    assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
+
+    // De Preparación a la derecha están Reunión a Cierre (próximamente): tampoco.
+    fireEvent.keyDown(card('Acme'), { key: ' ' });
+    const umbrella = card('Umbrella');
+    umbrella.focus();
+    fireEvent.keyDown(umbrella, { key: ' ' });
+    fireEvent.keyDown(card('Umbrella'), { key: 'ArrowRight' });
+    assert.ok(screen.queryByRole('dialog') === null);
+    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
+    assert.deepEqual(calls, []);
   });
 
   it('reordenar dentro de la misma columna no es un cambio de etapa', () => {

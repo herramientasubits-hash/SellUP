@@ -45,7 +45,7 @@ import {
 } from "./pipeline-copy";
 
 /** Las etapas que aún no tienen agente en SellUp: todas menos las ya construidas (Agente 1 y 2A). */
-const FUTURE_STAGE_IDS: readonly PipelineStageId[] = PIPELINE_STAGES.filter((stage) => stage.phase !== "hecho").map(
+export const FUTURE_STAGE_IDS: readonly PipelineStageId[] = PIPELINE_STAGES.filter((stage) => stage.phase !== "hecho").map(
   (stage) => stage.id,
 );
 
@@ -53,14 +53,14 @@ const FUTURE_STAGE_IDS: readonly PipelineStageId[] = PIPELINE_STAGES.filter((sta
 const ALERTS_PREVIEW = 4;
 
 const SEVERITY_ORDER: Record<PipelineSignalSeverity, number> = { critical: 0, alert: 1, notice: 2 };
-const SEVERITY_TILE: Record<PipelineSignalSeverity, IconTileTone> = {
+export const SEVERITY_TILE: Record<PipelineSignalSeverity, IconTileTone> = {
   critical: "negative",
   alert: "warning",
   notice: "neutral",
 };
 
 /** El tono de la baldosa de cada etapa: el mismo que su tramo en la barra de reparto. */
-const STAGE_TILE_TONE: Record<ChartTone, IconTileTone> = {
+export const STAGE_TILE_TONE: Record<ChartTone, IconTileTone> = {
   brand: "primary",
   positive: "positive",
   warning: "warning",
@@ -69,7 +69,7 @@ const STAGE_TILE_TONE: Record<ChartTone, IconTileTone> = {
   neutral: "neutral",
 };
 
-const SIGNAL_ICONS: Record<PipelineSignalId, LucideIcon> = {
+export const SIGNAL_ICONS: Record<PipelineSignalId, LucideIcon> = {
   sin_movimiento: Clock,
   sin_contactos: Users,
   sin_responsable: User,
@@ -104,6 +104,41 @@ function buildAlerts(accounts: readonly PipelineOverviewAccount[]): PipelineAler
         SEVERITY_ORDER[a.signal.severity] - SEVERITY_ORDER[b.signal.severity] ||
         b.account.daysSinceMovement - a.account.daysSinceMovement,
     );
+}
+
+/** El tono de un motivo: el mismo en el resumen y en el tablero. */
+export function signalMotiveTone(id: PipelineSignalId): "negative" | "warning" {
+  return id === "sin_movimiento" || id === "corrida_fallida" ? "negative" : "warning";
+}
+
+interface SignalMotivesProps {
+  /** Cuántas empresas tienen cada señal; solo se pintan los motivos con alguna. */
+  counts: Record<PipelineSignalId, number>;
+  isSignalFiltered: (signal: PipelineSignalId) => boolean;
+  onToggleSignal: (signal: PipelineSignalId) => void;
+}
+
+/**
+ * Los motivos de atención como botones que filtran (`AttentionAction`): el panel
+ * de alertas del resumen y la franja del tablero comparten esta misma pieza y el
+ * mismo estado de filtros.
+ */
+export function SignalMotives({ counts, isSignalFiltered, onToggleSignal }: SignalMotivesProps) {
+  return (
+    <>
+      {SIGNAL_IDS.filter((id) => counts[id] > 0).map((id) => (
+        <AttentionAction
+          key={id}
+          icon={SIGNAL_ICONS[id]}
+          label={SIGNAL_FILTER_LABELS[id]}
+          value={counts[id]}
+          tone={signalMotiveTone(id)}
+          active={isSignalFiltered(id)}
+          onClick={() => onToggleSignal(id)}
+        />
+      ))}
+    </>
+  );
 }
 
 interface AlertsPanelProps {
@@ -148,17 +183,11 @@ function AlertsPanel({ overview, activeSignals, isSignalFiltered, onToggleSignal
           </Badge>
         </div>
         <div className="flex flex-wrap gap-2">
-          {activeSignals.map((id) => (
-            <AttentionAction
-              key={id}
-              icon={SIGNAL_ICONS[id]}
-              label={SIGNAL_FILTER_LABELS[id]}
-              value={overview.countsBySignal[id]}
-              tone={id === "sin_movimiento" || id === "corrida_fallida" ? "negative" : "warning"}
-              active={isSignalFiltered(id)}
-              onClick={() => onToggleSignal(id)}
-            />
-          ))}
+          <SignalMotives
+            counts={overview.countsBySignal}
+            isSignalFiltered={isSignalFiltered}
+            onToggleSignal={onToggleSignal}
+          />
         </div>
       </div>
 
@@ -194,7 +223,7 @@ function AlertsPanel({ overview, activeSignals, isSignalFiltered, onToggleSignal
 }
 
 /** Qué dice cada tarjeta bajo su cifra: cuántas hay o, si no hay ninguna, por qué. */
-function stageCountNote(stageId: PipelineStageId, count: number): string {
+export function stageCountNote(stageId: PipelineStageId, count: number): string {
   if (count > 0) return count === 1 ? "empresa" : "empresas";
   // Toda empresa del pipeline ya fue aprobada como prospecto: nadie «está» en la primera etapa.
   if (stageId === "prospeccion") return "Ya superada";
