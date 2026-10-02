@@ -214,3 +214,17 @@ describe('AGENT1-TAVILY-FIRST-5 — fichas de terceros y portales del Estado (Pr
     it(`pasa: ${url}`, () => assert.equal(kept(url), true));
   }
 });
+
+describe('AGENT1-TAVILY-HOMEPAGE-2 — directorios de software en cualquier país (BO 8c3b2db5)', () => {
+  for (const url of [
+    'https://www.comparasoftware.com.bo/software-para-seguros',
+    'https://www.comparasoftware.com.pe/crm',
+    'https://www.capterra.com.mx/directory',
+    'https://www.getapp.es/software',
+  ]) {
+    it(`fuera: ${url}`, () => assert.equal(kept(url), false));
+  }
+  it('pasa: una empresa cuyo nombre contiene la marca no es el directorio', () => {
+    assert.equal(kept('https://comparasoftwarebolivia-consultores.com.bo/'), true);
+  });
+});
