@@ -21,6 +21,7 @@ export { ChatUserMessage, type ChatUserMessageProps } from "./chat-user-message"
 export { ChatAgentMessage, type ChatAgentMessageProps } from "./chat-agent-message";
 export { ChatThinking, type ChatThinkingProps } from "./chat-thinking";
 export { ChatQuestionCard, type ChatQuestionCardProps } from "./chat-question-card";
+export { ChatQuestionPanel, type ChatQuestionPanelProps } from "./chat-question-panel";
 export { ChatCardView, type ChatCardViewProps } from "./chat-card-view";
 export { ChatFeedbackForm, type ChatFeedbackFormProps, type ChatFeedbackPayload } from "./chat-feedback-form";
 export { ChatMarkdown, type ChatMarkdownProps } from "./chat-markdown";

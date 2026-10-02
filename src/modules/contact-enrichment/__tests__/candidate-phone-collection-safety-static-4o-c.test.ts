@@ -316,8 +316,12 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // `agent1_company_bank` y sus funciones, sólo service_role). No es tabla ni función de la
       // cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO
       // APLICADA.
-      '142_agent1_company_bank.sql',
-      'el techo conocido es la 142: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF) y la 142 (el banco de empresas) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // AGENT1-RUN-LIVE-PROGRESS-1 mueve el techo a la 143: el progreso en vivo de una corrida del
+      // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+      // usuario autenticado lee sólo su propia fila). No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '143_agent1_run_progress.sql',
+      'el techo conocido es la 143: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas) y la 143 (el progreso en vivo de la corrida) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -356,15 +360,18 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT1-COMPANY-BANK declara la 142 (el banco de empresas: tabla aparte, sólo
       // service_role). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
       // prohibida sube a la 143 y superiores.
+      // AGENT1-RUN-LIVE-PROGRESS-1 declara la 143 (el progreso en vivo de la corrida: tabla aparte,
+      // escribe service_role). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 144 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      files.some((file) => /^14[3-9]/.test(file) || /^1[5-9]\d/.test(file)),
+      files.some((file) => /^14[4-9]/.test(file) || /^1[5-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 143 o superior',
+      'ninguna migración 144 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

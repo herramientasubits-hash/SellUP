@@ -1184,7 +1184,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // 🔴 AGENT1-COMPANY-BANK movió el techo a la 142: el banco de empresas (tabla aparte
     // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 142, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 movió el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 143, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

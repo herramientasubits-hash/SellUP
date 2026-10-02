@@ -560,7 +560,11 @@ describe('4O-G — alcance', () => {
     // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4, y no toca ninguna columna de teléfono de estas cadenas. AUTORADA y NO
     // APLICADA.
-    assert.equal(numbered[numbered.length - 1], 142);
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 movió el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4, y no toca ninguna columna de teléfono de estas cadenas. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 143);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -586,7 +590,8 @@ describe('4O-G — alcance', () => {
     // 140 archivos para los números 001-140: la 139 y la 140 tampoco dejan hueco.
     // 141 archivos para los números 001-141: la 141 tampoco deja hueco.
     // 142 archivos para los números 001-142: la 142 tampoco deja hueco.
-    assert.equal(numbered.length, 142);
+    // 143 archivos para los números 001-143: la 143 tampoco deja hueco.
+    assert.equal(numbered.length, 143);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

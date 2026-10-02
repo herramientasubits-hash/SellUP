@@ -7,6 +7,8 @@ import {
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
+import { withRunProgress } from './run-progress';
+import { openRunProgress } from './run-progress.server';
 
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import {
@@ -590,8 +592,12 @@ export async function executeProspectWizardGenerationAction(
   // Budget operations need service_role: the RPC functions grant EXECUTE only to postgres/service_role,
   // and wizard_budget_reservations has no authenticated RLS policy.
   const budgetClient = createWizardBudgetClient();
+  // AGENT1-RUN-LIVE-PROGRESS-1 — el chat cuenta en vivo en qué etapa va la
+  // corrida. Envuelve las dependencias que abren una etapa; no cambia el flujo.
+  const progress = await openRunProgress(request);
+  progress.report('starting');
 
-  const deps: WizardExecutionDeps = {
+  const deps: WizardExecutionDeps = withRunProgress({
     getActiveUserId: async () => {
       const auth = await requireActiveUser();
       return auth.internalUserId;
@@ -995,9 +1001,11 @@ export async function executeProspectWizardGenerationAction(
         },
       );
     },
-  };
+  }, progress.report);
 
-  const result = await executeProspectWizardGeneration(request, deps);
+  const result = await executeProspectWizardGeneration(request, deps).finally(() =>
+    progress.finish(),
+  );
   // AGENT1-CLAUDE-RESCUE-1 — en segundo plano, detrás de su propio flag (apagado).
   scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId, actionStartedAtMs);
   return result;

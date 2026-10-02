@@ -362,13 +362,21 @@ describe('20.R — Error path regression after Block A/B changes', () => {
 
 // ── Block A: Approved loader copy text (21.A) — Hito 16AB.43.21 ──────────────
 
-describe('21.A.1 — SubmittingPanel uses approved overlay copy (Hito 16AB.43.22)', () => {
-  it('overlay contains "Filtrando resultados y preparando candidatos para revisión"', () => {
+describe('21.A.1 — la espera dice EN VIVO lo que hace el agente (AGENT1-RUN-LIVE-PROGRESS-1)', () => {
+  it('el titular es la etapa que anota el servidor, no un texto fijo', () => {
     const src = readComponentSrc();
-    assert.ok(
-      src.includes('Filtrando resultados y preparando candidatos para revisión'),
-      'Approved overlay body text not found in WizardGenerationOverlay',
-    );
+    assert.ok(src.includes('getAgent1RunProgressAction'), 'la espera no lee la etapa de la corrida');
+    assert.ok(src.includes('title={label}'), 'el titular de la espera no es la etapa en vivo');
+  });
+
+  it('sin etapa anotada todavía dice «Preparando la búsqueda», nunca una etapa inventada', () => {
+    const src = readComponentSrc();
+    assert.ok(src.includes('RUN_PROGRESS_FALLBACK_LABEL'), 'falta el texto de partida');
+  });
+
+  it('ya no lista «Etapas de esta ejecución» como plan', () => {
+    const src = readComponentSrc();
+    assert.ok(!src.includes('WizardApolloTwoRoundPlannedSteps'), 'la lista de etapas planificadas sigue montada');
   });
 
   it('overlay does NOT contain the old "filtrando duplicados" copy', () => {
@@ -429,13 +437,6 @@ describe('21.A.2 — SubmittingPanel uses the system AI waiting state, not a bar
     );
   });
 
-  it('WizardGenerationOverlay shows "Procesando búsqueda con IA" copy', () => {
-    const src = readComponentSrc();
-    assert.ok(
-      src.includes('Procesando búsqueda con IA'),
-      '"Procesando búsqueda con IA" text not found in overlay',
-    );
-  });
 
   it('WizardGenerationOverlay does not fabricate a progress value', () => {
     // La ejecución es un único viaje al servidor: el cliente no sabe cuánto falta.

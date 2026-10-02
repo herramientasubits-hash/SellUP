@@ -368,10 +368,16 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // ni de BR, ni de CUT3B4. Referencia `prospect_candidates`/`prospect_batches` sólo como FK de su
 // PROPIA tabla —el banco, no CUT-3B23— y su autoría se policía por CONTENIDO en la prueba
 // dedicada de abajo, igual que la 140 y la 141. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '142_agent1_company_bank.sql';
+// 🔴 AGENT1-RUN-LIVE-PROGRESS-1 subió el techo a la 143: el progreso en vivo de una corrida del
+// Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada usuario
+// lee sólo su fila). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no referencia
+// `prospect_candidates`/`prospect_batches`; su autoría se policía por CONTENIDO en la prueba
+// dedicada de abajo, igual que la 140, la 141 y la 142. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '143_agent1_run_progress.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
+const RUN_PROGRESS_MIGRATION = '143_agent1_run_progress.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -486,6 +492,24 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     }
   });
 
+  it('la 143 existe, es de AGENT1-RUN-LIVE-PROGRESS-1 y NO de este corte', () => {
+    // AGENT1-RUN-LIVE-PROGRESS-1 tomó la 143 (el progreso en vivo de la corrida: tabla aparte,
+    // escribe service_role) de forma independiente. La afirmación de CUT-3B23 —«yo no aporto
+    // migración»— se conserva y se comprueba por AUTORÍA, exactamente como con la 140, la 141 y
+    // la 142: se exige que la 143 sea EXACTAMENTE la del progreso y que no nombre ningún símbolo
+    // de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('143')),
+      [RUN_PROGRESS_MIGRATION],
+      'la 143 tiene que ser la del progreso en vivo de la corrida, y sólo ella',
+    );
+    const sql = executableSql(RUN_PROGRESS_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 143 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
   it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
     // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE) de forma independiente,
     // mientras BR-SOURCE CUT A.1 seguía en revisión. La afirmación de CUT-3B23 —«yo no
@@ -534,7 +558,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 142 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 143 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -555,11 +579,14 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // AUTORÍA en las pruebas dedicadas de arriba—. SOURCES-US-EIN-BY-NAME-1 lo movió a la 141,
     // también policiada por AUTORÍA en su prueba dedicada. AGENT1-COMPANY-BANK lo movió a la
     // 142 (el banco de empresas), policiada igual por AUTORÍA en su prueba dedicada.
-    assert.ok(last.startsWith('142'), `última migración inesperada: ${last}`);
+    // AGENT1-RUN-LIVE-PROGRESS-1 lo movió a la 143 (el progreso en vivo de la corrida),
+    // policiada igual por AUTORÍA en su prueba dedicada.
+    assert.ok(last.startsWith('143'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
     assert.ok(migrations.includes(COMPANY_BANK_MIGRATION));
+    assert.ok(migrations.includes(RUN_PROGRESS_MIGRATION));
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));

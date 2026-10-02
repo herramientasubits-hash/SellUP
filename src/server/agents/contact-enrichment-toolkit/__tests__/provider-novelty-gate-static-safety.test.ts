@@ -171,7 +171,12 @@ describe('modelo de datos — sin migración nueva', () => {
     // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4, y no toca ninguna columna, función ni tabla de estas cadenas. AUTORADA y NO
     // APLICADA.
-    assert.equal(Math.max(...numbers), 142, 'el techo conocido es la 142');
+    // 🔴 AGENT1-RUN-LIVE-PROGRESS-1 movió el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4, y no toca ninguna columna, función ni tabla de estas cadenas. AUTORADA y NO
+    // APLICADA.
+    assert.equal(Math.max(...numbers), 143, 'el techo conocido es la 143');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

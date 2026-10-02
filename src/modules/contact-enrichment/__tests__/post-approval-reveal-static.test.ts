@@ -766,10 +766,14 @@ describe('la migración 128 — su contrato', () => {
     // AGENT1-COMPANY-BANK mueve el techo a la 142: el banco de empresas (tabla aparte
     // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '142_agent1_company_bank.sql');
+    // AGENT1-RUN-LIVE-PROGRESS-1 mueve el techo a la 143: el progreso en vivo de una corrida del
+    // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
+    // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '143_agent1_run_progress.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 142);
-    assert.equal(files.length, 142, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 143);
+    assert.equal(files.length, 143, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {
