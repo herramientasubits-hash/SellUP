@@ -155,15 +155,17 @@ describe('shouldSkipGenericConnectionPanels — fuente not_applicable genérica 
 // ── Regresiones ───────────────────────────────────────────────────────────────
 
 describe('regresión — fuentes existentes no afectadas (8C.6)', () => {
-  it('hn_contrataciones_abiertas sigue siendo snapshot_persisted + read_only_snapshot', () => {
+  // SOURCES-GT-HN-BY-NAME-1 (30-09): el snapshot ya da el RTN por nombre en
+  // cada corrida → connected_identity_in_run (antes snapshot_persisted).
+  it('hn_contrataciones_abiertas es connected_identity_in_run + read_only_snapshot', () => {
     const hn = CATALOG_SOURCES.find((s) => s.key === 'hn_contrataciones_abiertas');
     assert.ok(hn, 'hn_contrataciones_abiertas no encontrado');
-    assert.equal(hn?.aiFlowStatus, 'snapshot_persisted');
+    assert.equal(hn?.aiFlowStatus, 'connected_identity_in_run');
     assert.equal(hn?.connectionMode, 'read_only_snapshot');
     assert.equal(hn?.operationalStatus, 'partial_snapshot');
   });
 
-  it('hn_contrataciones_abiertas sigue omitiendo paneles de conexión (via snapshot_persisted)', () => {
+  it('hn_contrataciones_abiertas sigue omitiendo paneles de conexión (snapshot ya cargado)', () => {
     const hn = CATALOG_SOURCES.find((s) => s.key === 'hn_contrataciones_abiertas');
     if (!hn) return;
     assert.ok(shouldSkipGenericConnectionPanels(hn));

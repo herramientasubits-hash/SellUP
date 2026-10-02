@@ -118,6 +118,15 @@ export type AiFlowStatus =
   // términos y legalidad antes de considerar cualquier diseño de integración.
   // No es fuente operativa. Presentacional — no habilita ningún flujo.
   | 'requires_validation'
+  // Conectada a la identidad en cada corrida: el Agente 1 usa la carga ya
+  // hecha de esta fuente para completar el número fiscal por nombre de empresa
+  // (Apollo, Lusha e importación). Presentacional — NO entra en
+  // recommendedSources ni cambia la puntuación de candidatos.
+  | 'connected_identity_in_run'
+  // Conectada como capa gratuita por industria: propone empresas del país por
+  // industria antes de pagar a Apollo/Lusha. Presentacional — NO entra en
+  // recommendedSources ni cambia la puntuación de candidatos.
+  | 'connected_free_discovery'
   | 'paused'
   | 'not_applicable'
   | 'pending_classification';
