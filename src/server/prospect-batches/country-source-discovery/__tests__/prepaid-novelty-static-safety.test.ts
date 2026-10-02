@@ -286,8 +286,16 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // reemplaza esa restricción. La capa gratuita sigue sin necesitar esquema, que es lo único
       // que esta guarda afirma. AUTORADA y NO APLICADA.
       '141_tax_identifier_type_ein_nif.sql',
+      // 🔴 AGENT1-COMPANY-BANK añade la 142: el banco de empresas (tabla aparte
+      // `agent1_company_bank` y sus funciones, sólo service_role). No es de teléfono, ni del
+      // catálogo, ni de BR, ni de CUT3B4, ni de la capa GRATUITA de descubrimiento que esta
+      // guarda protege: no nombra `provider_seen_entities`, no altera `prospect_batches` ni
+      // `prospect_candidates`, y sólo los referencia como FK de su propia tabla nueva (igual que
+      // la 138 y la 140). La capa gratuita sigue sin necesitar esquema, que es lo único que esta
+      // guarda afirma. AUTORADA y NO APLICADA.
+      '142_agent1_company_bank.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa y la ampliación de tipos fiscales con EIN y NIF',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF y el banco de empresas',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

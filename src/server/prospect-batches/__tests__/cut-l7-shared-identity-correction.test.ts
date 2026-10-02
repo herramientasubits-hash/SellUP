@@ -953,9 +953,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 141 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 142 o superior, se llame como se llame.
+    // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank` y sus funciones, sólo service_role; no es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4). Misma exigencia por AUTORÍA que con la 137–141: se
+    // EXIGE que la 142 sea exactamente esa migración y que su cuerpo no mencione CUT-L7 ni la
+    // identidad compartida que este corte toca. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^142_/.test(f)),
+      ['142_agent1_company_bank.sql'],
+      'la 142 tiene que ser el banco de empresas, y sólo ella',
+    );
+    const companyBank = read('supabase/migrations/142_agent1_company_bank.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        companyBank.includes(foreign),
+        false,
+        `la 142 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 143 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[2-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[3-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

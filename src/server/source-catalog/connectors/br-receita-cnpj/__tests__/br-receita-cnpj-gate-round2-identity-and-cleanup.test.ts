@@ -651,7 +651,11 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // `tax_identifier_type` CHECK on `accounts` and `prospect_candidates` with 'EIN' and 'NIF'.
     // Not a BR migration; because the widened list legitimately re-states the existing 'CNPJ'
     // value, it gets its own authorship check further down. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 141, 'the repository ceiling is 141 — SOURCES-US-EIN-BY-NAME-1, not CUT A');
+    // 🔴 AGENT1-COMPANY-BANK then moved the ceiling to 142 with the banco de empresas (a separate
+    // table `agent1_company_bank`, service_role only; not phone, not catalog, not BR, not
+    // CUT3B4). Not a BR migration; the authorship sweep further down is WIDENED to include it.
+    // AUTHORED and NOT APPLIED.
+    assert.equal(highest, 142, 'the repository ceiling is 142 — AGENT1-COMPANY-BANK, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -688,7 +692,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('141')),
       ['141_tax_identifier_type_ein_nif.sql'],
-      'SOURCES-US-EIN-BY-NAME-1 owns exactly one migration, and it is the ceiling',
+      'SOURCES-US-EIN-BY-NAME-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('142')),
+      ['142_agent1_company_bank.sql'],
+      'AGENT1-COMPANY-BANK owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -728,7 +737,9 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       // none of them may be authored by a BR round. Asserting it is cheaper than trusting the
       // comment above, and the sweep GROWS with each new ceiling instead of moving off the
       // previous one.
-      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140'].some(
+      // The 142 (AGENT1-COMPANY-BANK) joins too: it names no CNPJ at all, so unlike the 141 it
+      // needs no carve-out.
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140', '142'].some(
         (n) => f.startsWith(n),
       ),
     )) {

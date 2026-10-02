@@ -556,7 +556,11 @@ describe('4O-G — alcance', () => {
     // 🔴 SOURCES-US-EIN-BY-NAME-1 movió el techo a la 141: sólo amplía el CHECK de
     // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
     // teléfono ni toca ninguna columna de teléfono de estas cadenas. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 141);
+    // 🔴 AGENT1-COMPANY-BANK movió el techo a la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4, y no toca ninguna columna de teléfono de estas cadenas. AUTORADA y NO
+    // APLICADA.
+    assert.equal(numbered[numbered.length - 1], 142);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -581,7 +585,8 @@ describe('4O-G — alcance', () => {
     // Prospectos tampoco deja hueco. Esa coincidencia ES la guarda.
     // 140 archivos para los números 001-140: la 139 y la 140 tampoco dejan hueco.
     // 141 archivos para los números 001-141: la 141 tampoco deja hueco.
-    assert.equal(numbered.length, 141);
+    // 142 archivos para los números 001-142: la 142 tampoco deja hueco.
+    assert.equal(numbered.length, 142);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

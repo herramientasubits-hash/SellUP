@@ -167,7 +167,11 @@ describe('modelo de datos — sin migración nueva', () => {
     // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. No es de
     // teléfono ni toca ninguna columna, función ni tabla nueva de estas cadenas. AUTORADA y NO
     // APLICADA.
-    assert.equal(Math.max(...numbers), 141, 'el techo conocido es la 141');
+    // 🔴 AGENT1-COMPANY-BANK movió el techo a la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank`, sólo service_role). No es de teléfono, ni del catálogo, ni de BR,
+    // ni de CUT3B4, y no toca ninguna columna, función ni tabla de estas cadenas. AUTORADA y NO
+    // APLICADA.
+    assert.equal(Math.max(...numbers), 142, 'el techo conocido es la 142');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,
