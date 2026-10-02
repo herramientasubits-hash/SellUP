@@ -495,6 +495,14 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
     assert.equal(needsCandidateRescue({ ...lushaRow, source_primary: 'apollo' }, NOW), false);
   });
 
+  it('lote del piloto de Claude: sin completitud y sin tamaño ⇒ se revisa; con tamaño estimado, no', () => {
+    const pilot = { ...candidate(), source_primary: 'web_ai', metadata: { icp_size_gate: { size_status: 'unknown' } } };
+    assert.equal(needsCandidateRescue(pilot, NOW), false);
+    assert.equal(needsCandidateRescue(pilot, NOW, { includeUnassessed: true }), true);
+    const sized = { ...pilot, metadata: { icp_size_gate: { size_status: 'estimated_above_threshold' } } };
+    assert.equal(needsCandidateRescue(sized, NOW, { includeUnassessed: true }), false);
+  });
+
   it('se compara contra la industria PEDIDA, no contra la etiqueta de Lusha', async () => {
     const seen: Array<{ currentIndustryId: string | null; currentIndustryName: string | null }> = [];
     const f = fakeDeps({
