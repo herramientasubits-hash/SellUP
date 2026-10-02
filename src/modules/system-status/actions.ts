@@ -525,7 +525,7 @@ export async function deriveAdministrativeRisks(
       id: 'apollo_error',
       severity: 'attention',
       message: 'La conexión con Apollo.io falló. Verifica la API Key.',
-      action_href: '/settings/prospecting',
+      action_href: '/settings/providers',
     });
   } else if (
     health.apollo.credentials_status === 'stored' &&
@@ -535,7 +535,7 @@ export async function deriveAdministrativeRisks(
       id: 'apollo_not_tested',
       severity: 'pending',
       message: 'Apollo.io tiene credencial guardada pero aún no se ha probado la conexión.',
-      action_href: '/settings/prospecting',
+      action_href: '/settings/providers',
     });
   }
 
@@ -545,7 +545,7 @@ export async function deriveAdministrativeRisks(
       id: 'lusha_error',
       severity: 'attention',
       message: 'La conexión con Lusha falló. Verifica la API Key.',
-      action_href: '/settings/prospecting',
+      action_href: '/settings/providers',
     });
   } else if (
     health.lusha.credentials_status === 'stored' &&
@@ -555,7 +555,7 @@ export async function deriveAdministrativeRisks(
       id: 'lusha_not_tested',
       severity: 'pending',
       message: 'Lusha tiene credencial guardada pero aún no se ha probado la conexión.',
-      action_href: '/settings/prospecting',
+      action_href: '/settings/providers',
     });
   }
 
@@ -586,16 +586,6 @@ export async function deriveAdministrativeRisks(
       severity: 'attention',
       message: `${pendingUsers} solicitud${pendingUsers > 1 ? 'es' : ''} de acceso ${pendingUsers > 1 ? 'esperan' : 'espera'} aprobación.`,
       action_href: '/settings/users',
-    });
-  }
-
-  // Automatizaciones
-  if (health.automations.automatic === 0 && health.automations.total > 0) {
-    risks.push({
-      id: 'no_automatic_automations',
-      severity: 'pending',
-      message: 'Ninguna automatización está configurada en modo automático.',
-      action_href: '/settings/automations',
     });
   }
 

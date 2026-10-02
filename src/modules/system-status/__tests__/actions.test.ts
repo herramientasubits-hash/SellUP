@@ -91,10 +91,10 @@ describe('deriveAdministrativeRisks — behavior unchanged by admin-client swap'
     assert.match(risk.message, /3 solicitudes/);
   });
 
-  it('no automatic automations (but some exist) produces a pending risk', async () => {
+  it('Automatizaciones ya no es una sección de Configuración: no hay riesgo que mande a ella', async () => {
     const health = baseHealth();
     health.automations = { total: 3, manual: 3, suggested: 0, automatic: 0 };
     const risks = await deriveAdministrativeRisks(health, 0);
-    assert.ok(risks.some((r) => r.id === 'no_automatic_automations' && r.severity === 'pending'));
+    assert.equal(risks.some((r) => r.action_href === '/settings/automations'), false);
   });
 });

@@ -125,13 +125,13 @@ export default async function SystemStatusPage() {
     {
       name: 'Apollo',
       purpose: 'Búsqueda de empresas y contactos',
-      href: '/settings/prospecting',
+      href: '/settings/providers',
       ...health.apollo,
     },
     {
       name: 'Lusha',
       purpose: 'Búsqueda de empresas y contactos',
-      href: '/settings/prospecting',
+      href: '/settings/providers',
       ...health.lusha,
     },
     {
@@ -250,7 +250,6 @@ export default async function SystemStatusPage() {
           <SurfaceCardHeader
             title="Automatizaciones"
             description={`${health.automations.total} en total: cuántas actúan solas, cuántas sugieren y cuántas esperan a que las hagas tú.`}
-            actions={<SectionLink href="/settings/automations" label="Ir a Automatizaciones" />}
           />
 
           <DistributionBar
