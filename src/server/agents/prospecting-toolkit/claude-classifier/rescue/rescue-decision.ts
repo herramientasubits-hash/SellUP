@@ -138,15 +138,64 @@ function sectorVerdict(result: CompanyClassificationResult, ctx: RescueContext):
   return 'unknown';
 }
 
+/**
+ * Confianza mínima para DESCARTAR por tamaño (decisión de la dueña 02-10). Casi todos los
+ * tamaños vienen de LinkedIn («De 11 a 50 empleados»), que Claude ve en la búsqueda pero
+ * no puede citar textual (`source_listed`): con la regla anterior (sólo `quote_verified`
+ * ≥ 0,8) quedaban en revisión ~25 empresas de 2 a 150 empleados (Prod 02-10).
+ */
+export const MIN_SIZE_DISCARD_CONFIDENCE_QUOTE = 0.6;
+export const MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE = 0.85;
+
+/** ¿Este rango demuestra, con suficiente confianza, que la empresa está bajo el umbral? */
+export function rangeProvesBelowThreshold(
+  range: { max: number | null; verification: string; confidence: number },
+  threshold: number,
+): boolean {
+  if (range.max === null || range.max <= 0 || range.max >= threshold) return false;
+  if (range.verification === 'quote_verified') return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_QUOTE;
+  if (range.verification === 'source_listed') return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE;
+  return false;
+}
+
 function sizeVerdict(result: CompanyClassificationResult, ctx: RescueContext): 'pass' | 'fail' | 'unknown' {
   if (ctx.sizeAlreadyConfirmed) return 'unknown';
   const range = result.employeeRange;
   if (!range) return 'unknown';
   if (range.min >= ctx.icpMinEmployees) return 'pass';
-  if (range.max !== null && range.max < ctx.icpMinEmployees) {
-    return range.verification === 'quote_verified' && range.confidence >= MIN_DISCARD_CONFIDENCE ? 'fail' : 'unknown';
-  }
-  return 'unknown';
+  // Otro proveedor ya lo dejó pasar por tamaño: Claude no lo contradice para descartar.
+  if (ctx.sizePassedIcpGate) return 'unknown';
+  return rangeProvesBelowThreshold(range, ctx.icpMinEmployees) ? 'fail' : 'unknown';
+}
+
+/**
+ * Filas YA clasificadas (con otra regla): si lo guardado demuestra que está bajo el umbral,
+ * se descarta sin volver a llamar a Claude. Sólo filas sin tamaño de otro proveedor.
+ */
+export function storedSmallSizeDiscard(
+  metadata: Record<string, unknown> | null,
+  threshold: number,
+): Extract<RescueDecision, { kind: 'discard' }> | null {
+  const gate = metadata?.icp_size_gate as { size_status?: unknown; decision?: unknown } | undefined;
+  const status = typeof gate?.size_status === 'string' ? gate.size_status : 'unknown';
+  if (status.startsWith('confirmed') || status.startsWith('estimated') || gate?.decision === 'pass') return null;
+  const range = (metadata?.claude_classification as { employee_range?: unknown } | undefined)?.employee_range as
+    | { min?: unknown; max?: unknown; verification?: unknown; confidence?: unknown; quote?: unknown; source_url?: unknown }
+    | null
+    | undefined;
+  if (!range || typeof range.quote !== 'string' || typeof range.source_url !== 'string') return null;
+  const parsed = {
+    max: typeof range.max === 'number' ? range.max : null,
+    verification: typeof range.verification === 'string' ? range.verification : 'rejected',
+    confidence: typeof range.confidence === 'number' ? range.confidence : 0,
+  };
+  if (!rangeProvesBelowThreshold(parsed, threshold)) return null;
+  return {
+    kind: 'discard',
+    reason: 'claude_size_below_min',
+    detail: `Según Claude tiene menos de ${threshold} empleados: «${range.quote.slice(0, 160)}»`,
+    sourceUrl: range.source_url,
+  };
 }
 
 /**

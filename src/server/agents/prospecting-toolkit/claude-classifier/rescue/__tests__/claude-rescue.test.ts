@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideRescue, quoteNamesIndustry } from '../rescue-decision';
+import { decideRescue, quoteNamesIndustry, rangeProvesBelowThreshold, storedSmallSizeDiscard } from '../rescue-decision';
 import { buildCandidateRescuePatch, buildLinkedInEnrichmentFromClaude, resolveCompletenessConditions, rescueStillPending } from '../rescue-patch';
 import {
   buildDispositionAdmissionOrigin,
@@ -675,5 +675,117 @@ describe('I. descarte con cita de búsqueda y confianza ≥ 0,95', () => {
       ctx,
     );
     assert.equal(d.kind, 'discard');
+  });
+});
+
+// ─── J. Descarte por tamaño (decisión de la dueña 02-10) ─────────────────────
+
+const LINKEDIN_SMALL = {
+  min: 11,
+  max: 50,
+  quote: 'De 11 a 50 empleados',
+  sourceUrl: 'https://pe.linkedin.com/company/pequena',
+  confidence: 0.9,
+  verification: 'source_listed' as const,
+  status: 'estimated' as const,
+};
+
+function storedSmall(overrides: Record<string, unknown> = {}, gate: Record<string, unknown> = { threshold: 200, size_status: 'unknown' }) {
+  return {
+    icp_size_gate: gate,
+    claude_classification: {
+      employee_range: {
+        min: 11,
+        max: 50,
+        quote: 'De 11 a 50 empleados',
+        source_url: 'https://pe.linkedin.com/company/pequena',
+        confidence: 0.9,
+        verification: 'source_listed',
+        ...overrides,
+      },
+    },
+  };
+}
+
+describe('J. descarte por tamaño bajo el umbral', () => {
+  it('tamaño de LinkedIn (fuente listada) con confianza ≥ 0,85 → descartar por tamaño', () => {
+    const d = decideRescue(result({ employeeRange: LINKEDIN_SMALL }), CTX);
+    assert.equal(d.kind === 'discard' && d.reason, 'claude_size_below_min');
+    assert.equal(d.kind === 'discard' && d.sourceUrl, LINKEDIN_SMALL.sourceUrl);
+    assert.match(d.kind === 'discard' ? d.detail : '', /menos de 200 empleados.*De 11 a 50/);
+  });
+
+  it('fuente listada con confianza baja → NO se descarta', () => {
+    const d = decideRescue(result({ employeeRange: { ...LINKEDIN_SMALL, confidence: 0.8 } }), CTX);
+    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false, linkedinConfirmed: false });
+  });
+
+  it('sólo se descarta si el MÁXIMO está bajo el umbral: 150–300, 51–200 y sin máximo se quedan', () => {
+    for (const range of [{ min: 150, max: 300 }, { min: 51, max: 200 }, { min: 51, max: null }]) {
+      const d = decideRescue(
+        result({ employeeRange: { ...LINKEDIN_SMALL, ...range, verification: 'quote_verified', confidence: 1 } }),
+        CTX,
+      );
+      assert.equal(d.kind, 'admit', JSON.stringify(range));
+    }
+    assert.equal(rangeProvesBelowThreshold({ max: 199, verification: 'quote_verified', confidence: 0.6 }, 200), true);
+    assert.equal(rangeProvesBelowThreshold({ max: 199, verification: 'quote_verified', confidence: 0.5 }, 200), false);
+    assert.equal(rangeProvesBelowThreshold({ max: 199, verification: 'rejected', confidence: 1 }, 200), false);
+  });
+
+  it('si otro proveedor ya confirmó o dejó pasar el tamaño, Claude no lo contradice', () => {
+    const small = result({ employeeRange: LINKEDIN_SMALL });
+    assert.equal(decideRescue(small, { ...CTX, sizeAlreadyConfirmed: true }).kind, 'admit');
+    assert.equal(decideRescue(small, { ...CTX, sizePassedIcpGate: true }).kind, 'admit');
+  });
+
+  it('el descarte por tamaño deja icp_size_gate bloqueado con la cita', () => {
+    const r = result({ employeeRange: LINKEDIN_SMALL });
+    const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: r, decision: decideRescue(r, CTX), minEmployees: 200, decidedAt: AT })!;
+    assert.equal(p.status, 'discarded');
+    const gate = p.metadata.icp_size_gate as Record<string, unknown>;
+    assert.equal(gate.decision, 'block');
+    assert.equal(gate.size_status, 'estimated_below_threshold');
+    assert.equal(gate.normalized_max_employees, 50);
+    assert.equal(gate.threshold, 200);
+  });
+
+  it('clasificación guardada: descarta sólo con máximo < umbral, fuente y sin tamaño de otro proveedor', () => {
+    assert.equal(storedSmallSizeDiscard(storedSmall(), 200)?.reason, 'claude_size_below_min');
+    assert.equal(storedSmallSizeDiscard(storedSmall({ max: 300 }), 200), null);
+    assert.equal(storedSmallSizeDiscard(storedSmall({ max: null }), 200), null);
+    assert.equal(storedSmallSizeDiscard(storedSmall({ confidence: 0.7 }), 200), null);
+    assert.equal(storedSmallSizeDiscard(storedSmall({ source_url: null }), 200), null);
+    assert.equal(storedSmallSizeDiscard(storedSmall({}, { size_status: 'confirmed_above_threshold' }), 200), null);
+    assert.equal(storedSmallSizeDiscard(storedSmall({}, { size_status: 'unknown', decision: 'pass' }), 200), null);
+    assert.equal(storedSmallSizeDiscard({ icp_size_gate: { size_status: 'unknown' } }, 200), null);
+    assert.equal(storedSmallSizeDiscard(null, 200), null);
+  });
+
+  it('lote: la fila ya clasificada como pequeña pasa a Descartadas SIN volver a llamar a Claude', async () => {
+    let classifyCalls = 0;
+    const row = candidate({ id: 'small', metadata: storedSmall() });
+    const { deps, writes } = fakeDeps({
+      loadReviewCandidates: async () => [row],
+      loadDispositions: async () => [],
+      classify: async (company) => (classifyCalls++, result({ candidateId: company.candidateId })),
+      patchCandidate: async (id, build) => {
+        const patch = build(row.metadata);
+        if (!patch) return false;
+        writes.push({ id, patch });
+        return true;
+      },
+    });
+    const summary = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: null }, deps);
+    assert.equal(classifyCalls, 0);
+    assert.equal(summary.ok && summary.candidatesDiscarded, 1);
+    assert.equal(summary.ok && summary.estimatedCostUsd, 0);
+    assert.equal(writes.length, 1);
+    const patch = writes[0].patch as { status: string; review_notes: string; metadata: Record<string, Record<string, unknown>> };
+    assert.equal(patch.status, 'discarded');
+    assert.match(patch.review_notes, /menos de 200 empleados/);
+    assert.equal(patch.metadata.icp_size_gate.decision, 'block');
+    assert.equal(patch.metadata.claude_rescue.from_stored_classification, true);
+    assert.equal(patch.metadata.claude_rescue.discard_reason, 'claude_size_below_min');
   });
 });
