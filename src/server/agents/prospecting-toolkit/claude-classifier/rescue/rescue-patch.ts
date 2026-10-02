@@ -68,6 +68,11 @@ export type ClaudeRescueMetadata = {
   discard_reason: string | null;
   discard_detail: string | null;
   discard_source_url: string | null;
+  /** `reassign`: la macroindustria real (la fila sigue en revisión, sin contar para la meta). */
+  reassigned_industry_id?: string;
+  reassigned_industry_name?: string;
+  reassigned_detail?: string;
+  reassigned_source_url?: string;
   resolved_conditions: string[];
 };
 
@@ -91,12 +96,51 @@ export function buildRescueMetadata(
     decided_at: decidedAt,
     decision: decision.kind === 'admit' && !decision.sectorConfirmed ? 'data_completed' : decision.kind,
     sector_warning:
-      decision.kind !== 'discard' && decision.sectorMismatchUnconfirmed ? 'claude_sector_mismatch_unconfirmed' : null,
+      (decision.kind === 'admit' || decision.kind === 'unchanged') && decision.sectorMismatchUnconfirmed ? 'claude_sector_mismatch_unconfirmed' : null,
     discard_reason: decision.kind === 'discard' ? decision.reason : null,
     discard_detail: decision.kind === 'discard' ? decision.detail : null,
     discard_source_url: decision.kind === 'discard' ? decision.sourceUrl : null,
+    ...(decision.kind === 'reassign'
+      ? {
+          reassigned_industry_id: decision.industryId,
+          reassigned_industry_name: decision.industryName,
+          reassigned_detail: decision.detail,
+          reassigned_source_url: decision.sourceUrl,
+        }
+      : {}),
     resolved_conditions: [...resolved],
   };
+}
+
+/** Motivo en `target_completeness` de una fila con la industria corregida. */
+export const INDUSTRY_REASSIGNED_CONDITION = 'industry_reassigned_by_claude';
+
+/**
+ * Una empresa de OTRA industria nunca cuenta para la meta de esta búsqueda: se
+ * declara en `target_completeness` (la misma forma que lee el resto de SellUp).
+ */
+export function buildReassignedCompleteness(completeness: Metadata | null): Metadata {
+  const add = (list: unknown) => [...stringList(list).filter((c) => c !== INDUSTRY_REASSIGNED_CONDITION), INDUSTRY_REASSIGNED_CONDITION];
+  return {
+    ...(completeness ?? {}),
+    failed_conditions: add(completeness?.failed_conditions),
+    review_only_reasons: add(completeness?.review_only_reasons),
+    complete_valid: false,
+    counts_toward_target: false,
+    review_only: true,
+  };
+}
+
+/** Columnas de la industria corregida (texto + id del catálogo). */
+export function reassignedIndustryColumns(decision: Extract<RescueDecision, { kind: 'reassign' }>): {
+  industry: string;
+  industry_id: string;
+} {
+  return { industry: decision.industryName, industry_id: decision.industryId };
+}
+
+export function buildReassignReviewNote(decision: Extract<RescueDecision, { kind: 'reassign' }>): string {
+  return `Industria corregida por Claude (no cuenta para la meta). ${decision.detail}`;
 }
 
 /**
@@ -183,8 +227,10 @@ export function buildLinkedInEnrichmentFromClaude(
 }
 
 export type CandidateRescuePatch = {
-  status?: 'discarded';
+  status?: 'discarded' | 'needs_review';
   review_notes?: string;
+  industry?: string;
+  industry_id?: string;
   employee_count?: number;
   employee_count_status?: 'estimated_100_plus';
   employee_count_source?: string;
@@ -213,6 +259,7 @@ export function buildCandidateRescuePatch(params: {
       metadata: { ...base, [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt) },
     };
   }
+  if (decision.kind === 'reassign') return buildReassignPatch(base, result, decision, minEmployees, decidedAt);
   if (decision.kind === 'unchanged') {
     const rescue = RETRYABLE_OUTCOMES.has(result.outcome)
       ? { ...buildRescueMetadata(decision, [], decidedAt), decision: 'retryable' }
@@ -243,5 +290,43 @@ export function buildCandidateRescuePatch(params: {
           employee_count_confidence: Math.round(range.confidence * 100),
         }
       : {}),
+  };
+}
+
+function sizeColumns(range: CompanyClassificationResult['employeeRange'] | null) {
+  return range
+    ? {
+        employee_count: range.min,
+        employee_count_status: 'estimated_100_plus' as const,
+        employee_count_source: CLAUDE_EMPLOYEE_COUNT_SOURCE,
+        employee_count_confidence: Math.round(range.confidence * 100),
+      }
+    : {};
+}
+
+/** Sigue en revisión con la industria real; nunca cuenta para la meta. */
+function buildReassignPatch(
+  base: Metadata,
+  result: CompanyClassificationResult,
+  decision: Extract<RescueDecision, { kind: 'reassign' }>,
+  minEmployees: number,
+  decidedAt: string,
+): CandidateRescuePatch {
+  const metadata: Metadata = {
+    ...base,
+    target_completeness: buildReassignedCompleteness(asObject(base.target_completeness)),
+    ...(decision.sizeConfirmed
+      ? { icp_size_gate: buildIcpSizeGatePass(asObject(base.icp_size_gate), result, minEmployees) }
+      : {}),
+    ...(decision.linkedinConfirmed
+      ? { linkedin_enrichment: buildLinkedInEnrichmentFromClaude(asObject(base.linkedin_enrichment), result, decidedAt) }
+      : {}),
+    [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt),
+  };
+  return {
+    review_notes: buildReassignReviewNote(decision),
+    ...reassignedIndustryColumns(decision),
+    ...sizeColumns(decision.sizeConfirmed ? result.employeeRange : null),
+    metadata,
   };
 }

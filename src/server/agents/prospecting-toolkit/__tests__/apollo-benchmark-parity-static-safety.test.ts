@@ -435,7 +435,11 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // `tax_identifier_type` en `accounts` y `prospect_candidates` con 'EIN' y 'NIF'. AUTORADA y
     // NO APLICADA. El proxy se mueve de la 141 a la 142, y el barrido de AUTORÍA se ENSANCHA
     // para incluir la 141.
-      migrations.filter((f) => f.startsWith('142')).length,
+    // 🔴 AGENT1-COMPANY-BANK reclamó después la 142: el banco de empresas (tabla aparte
+    // `agent1_company_bank`, sólo service_role; no es de teléfono, ni del catálogo, ni de BR, ni
+    // de CUT3B4). AUTORADA y NO APLICADA. El proxy se mueve de la 142 a la 143, y el barrido de
+    // AUTORÍA se ENSANCHA para incluir la 142.
+      migrations.filter((f) => f.startsWith('143')).length,
       0,
       'este corte no añade migración',
     );
@@ -458,7 +462,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('138') ||
         f.startsWith('139') ||
         f.startsWith('140') ||
-        f.startsWith('141'),
+        f.startsWith('141') ||
+        f.startsWith('142'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

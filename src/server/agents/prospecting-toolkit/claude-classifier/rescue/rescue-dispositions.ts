@@ -20,9 +20,12 @@ import {
   buildLinkedInEnrichmentFromClaude,
   buildIcpSizeGatePass,
   buildRescueInProgress,
+  buildReassignedCompleteness,
+  buildReassignReviewNote,
   buildRescueMetadata,
   CLAUDE_EMPLOYEE_COUNT_SOURCE,
   CLAUDE_RESCUE_METADATA_KEY,
+  reassignedIndustryColumns,
   RETRYABLE_OUTCOMES,
   rescueStillPending,
 } from './rescue-patch';
@@ -124,6 +127,45 @@ export function buildDispositionAdmissionOrigin(
     },
     columns: {
       ...(result.sector ? { industry: result.sector.industryName } : {}),
+      ...(result.sector?.sourceUrl && result.pageFinalUrl ? { website: result.pageFinalUrl } : {}),
+      ...(range
+        ? {
+            employee_count: range.min,
+            employee_count_status: 'estimated_100_plus',
+            employee_count_source: CLAUDE_EMPLOYEE_COUNT_SOURCE,
+            employee_count_confidence: Math.round(range.confidence * 100),
+          }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Origen para `sendDispositionToReviewCore` cuando la empresa es de OTRA industria
+ * UBITS: vuelve a revisión del mismo vendedor con la industria corregida y una
+ * completitud que la deja FUERA de la meta.
+ */
+export function buildDispositionReassignOrigin(
+  result: CompanyClassificationResult,
+  decision: Extract<RescueDecision, { kind: 'reassign' }>,
+  minEmployees: number,
+  decidedAt: string,
+): SendToReviewOrigin {
+  const range = decision.sizeConfirmed ? result.employeeRange : null;
+  return {
+    kind: 'claude_rescue',
+    reviewNote: buildReassignReviewNote(decision),
+    metadata: {
+      claude_classification: buildClassificationMetadata(result, decidedAt),
+      [CLAUDE_RESCUE_METADATA_KEY]: buildRescueMetadata(decision, [], decidedAt),
+      target_completeness: buildReassignedCompleteness(null),
+      ...(range ? { icp_size_gate: buildIcpSizeGatePass(null, result, minEmployees) } : {}),
+      ...(decision.linkedinConfirmed
+        ? { linkedin_enrichment: buildLinkedInEnrichmentFromClaude(null, result, decidedAt) }
+        : {}),
+    },
+    columns: {
+      ...reassignedIndustryColumns(decision),
       ...(result.sector?.sourceUrl && result.pageFinalUrl ? { website: result.pageFinalUrl } : {}),
       ...(range
         ? {

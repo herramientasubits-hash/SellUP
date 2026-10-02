@@ -72,6 +72,7 @@ export type SubindustryReviewReasonKey =
   | 'linkedin_missing'
   | 'employee_count_missing'
   | 'size_outside_icp'
+  | 'industry_reassigned'
   | 'other';
 
 /**
@@ -93,6 +94,7 @@ export const SUBINDUSTRY_REVIEW_REASON_LABELS: Record<SubindustryReviewReasonKey
   linkedin_missing: 'LinkedIn ausente',
   employee_count_missing: 'Número de empleados ausente',
   size_outside_icp: 'Tamaño fuera de ICP',
+  industry_reassigned: 'Es de otra industria (corregida por Claude): no cuenta para la meta',
   other: 'Otro',
 };
 
@@ -111,6 +113,8 @@ export const SUBINDUSTRY_REVIEW_REASON_LABELS: Record<SubindustryReviewReasonKey
 const FAILED_CONDITION_REASONS: Record<string, SubindustryReviewReasonKey> = {
   linkedin_status: 'linkedin_missing',
   employee_count_status: 'employee_count_missing',
+  // AGENT1-CLAUDE-RESCUE-REASSIGN-INDUSTRY-1 (`INDUSTRY_REASSIGNED_CONDITION` del rescate).
+  industry_reassigned_by_claude: 'industry_reassigned',
 };
 
 /** Orden estable de presentación. No depende del orden de `failed_conditions`. */
@@ -122,6 +126,7 @@ const REASON_ORDER: readonly SubindustryReviewReasonKey[] = [
   'linkedin_missing',
   'employee_count_missing',
   'size_outside_icp',
+  'industry_reassigned',
   'other',
 ];
 
