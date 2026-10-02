@@ -89,8 +89,12 @@ export async function rescueBatchWithClaudeAction(batchId: string): Promise<Clau
     import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
     import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
   ]);
+  // Lotes del piloto «Claude busca empresas»: sus candidatos no traen completitud.
+  const supabase = await createClient();
+  const { data: batchRow } = await supabase.from('prospect_batches').select('metadata').eq('id', batchId).maybeSingle();
+  const includeUnassessed = !!(batchRow as { metadata?: Record<string, unknown> | null } | null)?.metadata?.claude_company_search;
   const summary = await rescueBatchWithClaude(
-    { batchId, triggeredBy: internalUserId },
+    { batchId, triggeredBy: internalUserId, includeUnassessed },
     buildLiveRescueBatchDeps(internalUserId),
   );
   if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
@@ -127,7 +131,9 @@ export async function searchCompaniesWithClaudeAction(batchId: string): Promise<
   // Lote creado pero sin empresas (todas cayeron en las compuertas): nada que completar.
   if (summary.ok && summary.batchId && summary.candidatesCreated > 0) {
     // Las de Claude llegan sin tamaño confirmado: el rescate lo completa (o descarta) con fuente.
-    scheduleClaudeRescueAfterWizardRun({ ok: true, batchId: summary.batchId }, async () => internalUserId, startedAtMs);
+    scheduleClaudeRescueAfterWizardRun({ ok: true, batchId: summary.batchId }, async () => internalUserId, startedAtMs, {
+      includeUnassessed: true,
+    });
     revalidatePath('/prospect-batches');
   }
   return summary;
