@@ -35,7 +35,7 @@ export const PIPELINE_DESCRIPTION =
 export const PIPELINE_CRUMB_LABEL = "Pipeline SellUp";
 
 /** Lo que dice la nota del resumen mientras las etapas de la derecha no tengan empresas. */
-export const FUTURE_STAGES_NOTE = "Las etapas de Reunión a Cierre se activarán cuando existan sus agentes.";
+export const FUTURE_STAGES_NOTE = "Las etapas de Inteligencia a Cierre se activarán cuando existan sus agentes.";
 
 /** A dónde va quien todavía no tiene empresas en el pipeline. */
 export const PROSPECTS_HREF = "/accounts?tab=prospectos";

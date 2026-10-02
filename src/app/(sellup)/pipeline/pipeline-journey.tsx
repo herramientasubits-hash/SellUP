@@ -381,6 +381,7 @@ export function PipelineJourney({
         isSignalFiltered={(signal) => isSignalFiltered(filters, signal)}
         onToggleSignal={(signal) => setFilters(toggleSignalFilter(filters, signal))}
         hasFilters={countActiveFilters(filters) > 0}
+        onSelectAccount={onSelectAccount}
       />
     );
   }

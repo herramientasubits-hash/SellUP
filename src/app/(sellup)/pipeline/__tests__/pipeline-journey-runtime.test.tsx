@@ -208,10 +208,10 @@ describe('Pipeline · resumen sin empresa elegida', () => {
     assert.deepEqual(
       cards.map((card) => card.textContent),
       [
-        '1. Prospección0Etapa de entrada, ya superada',
-        '2. Enriquecimiento1empresa en esta etapa',
-        '3. Inteligencia2empresas en esta etapa',
-        '4. Preparación1empresa en esta etapa',
+        '1. Prospección0Ya superada',
+        '2. Enriquecimiento1empresa',
+        '3. Inteligencia2empresas',
+        '4. Preparación1empresa',
         '5. Reunión0Próximamente',
         '6. Cotización0Próximamente',
         '7. Venta interna0Próximamente',
@@ -232,7 +232,7 @@ describe('Pipeline · resumen sin empresa elegida', () => {
     const summary = within(screen.getByRole('region', { name: 'Resumen del pipeline' }));
     assert.equal(summary.queryByText('Archivadas', { selector: 'p' }), null);
     assert.ok(summary.getByText(/fuera del pipeline, no cuentan en las etapas/));
-    assert.ok(summary.getByText('Las etapas de Reunión a Cierre se activarán cuando existan sus agentes.'));
+    assert.ok(summary.getByText('Las etapas de Inteligencia a Cierre se activarán cuando existan sus agentes.'));
   });
 
   it('dice cuántas requieren atención y cada motivo filtra la lista', () => {
@@ -250,6 +250,26 @@ describe('Pipeline · resumen sin empresa elegida', () => {
     fireEvent.click(chips.getByRole('button', { name: 'Eliminar Señal: Sin responsable' }));
     assert.equal(listNames().length, 4);
     assert.equal(screen.queryByRole('group', { name: 'Filtros activos' }), null);
+  });
+
+  it('las alertas salen como avisos, uno por empresa y motivo; pulsar uno abre la empresa', () => {
+    const { selections } = renderJourney();
+    const panel = screen.getByRole('list', { name: 'Alertas del pipeline' });
+    const rows = panel.querySelectorAll('[data-slot="list-item"]');
+    assert.ok(rows.length > 0 && rows.length <= 4, 'enseña como mucho 4 antes de «Ver todas»');
+    const first = rows[0].querySelector('[data-slot="list-item-trigger"]') as HTMLElement;
+    fireEvent.click(first);
+    assert.equal(selections.length, 1);
+    assert.ok(typeof selections[0] === 'string');
+  });
+
+  it('un motivo pulsado deja en el panel solo sus avisos', () => {
+    renderJourney();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Empresas que requieren atención' })).getByRole('button', { name: /Sin responsable/ }));
+    const alerts = screen.getByRole('list', { name: 'Alertas del pipeline' });
+    const descriptions = Array.from(alerts.querySelectorAll('[data-slot="list-item"]'), (row) => row.textContent ?? '');
+    assert.ok(descriptions.length > 0);
+    assert.ok(descriptions.every((text) => /Sin responsable|responsable/i.test(text)));
   });
 
   it('el filtro por señal convive con el de etapa', async () => {

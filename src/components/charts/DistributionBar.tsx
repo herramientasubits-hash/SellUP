@@ -25,6 +25,8 @@ export interface DistributionBarProps {
   unit?: string;
   /** Controles a la derecha del título. */
   actions?: React.ReactNode;
+  /** Sin leyenda es solo la barra: para cuando las cifras ya se leen al lado. */
+  hideLegend?: boolean;
   emptyLabel?: string;
   ariaLabel?: string;
   className?: string;
@@ -63,6 +65,7 @@ export function DistributionBar({
   formatValue = defaultFormatValue,
   unit,
   actions,
+  hideLegend = false,
   emptyLabel = "Sin datos en este periodo",
   ariaLabel,
   className,
@@ -99,6 +102,7 @@ export function DistributionBar({
 
       {/* Una fila por tramo, en el orden de la barra. La barra ya lleva el
           resumen en su `aria-label`; la leyenda es su versión visible. */}
+      {!hideLegend && (
       <ul className="flex flex-col gap-2" aria-hidden="true">
         {segments.map((segment, index) => (
           <li
@@ -120,6 +124,7 @@ export function DistributionBar({
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 
