@@ -106,6 +106,7 @@ import {
   Move02Icon,
   Notification03Icon,
   PackageOpenIcon,
+  PaintBoardIcon,
   PauseCircleIcon,
   PauseIcon,
   PencilEdit01Icon,
@@ -309,6 +310,7 @@ export const Move = createIcon(Move02Icon, "Move");
 export const Network = createIcon(Structure03Icon, "Network");
 export const OctagonX = createIcon(CancelCircleIcon, "OctagonX");
 export const PackageOpen = createIcon(PackageOpenIcon, "PackageOpen");
+export const Palette = createIcon(PaintBoardIcon, "Palette");
 export const PanelBottom = createIcon(LayoutBottomIcon, "PanelBottom");
 export const PanelLeft = createIcon(SidebarLeft01Icon, "PanelLeft");
 export const PanelLeftClose = createIcon(SidebarLeft01Icon, "PanelLeftClose");

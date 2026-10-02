@@ -13,9 +13,10 @@
 //   3. The legacy "Por revisar" render (`<ProspectsDataTableClient ... />`)
 //      is still present, unedited in its own call.
 //
-// AGENT1-DISCARDED-TAB-PARITY-1 — se añade una cuarta garantía: "Descartadas"
-// dejó de ser una sub-pestaña y ya no puede volver a serlo. El panel renderiza
-// UNA sola fila de pills (<ModuleTabsNav>) y ningún componente de sub-tabs.
+// AGENT1-DISCARDED-TAB-PARITY-1 — "Descartadas" dejó de ser una sub-pestaña y
+// no puede volver a serlo. Desde que la navegación entre vistas vive en el
+// menú lateral, ningún panel pinta pestañas de módulo: el título dice la vista
+// y las migas, el módulo.
 //
 // Run: node --import tsx --test <this file>
 
@@ -60,34 +61,41 @@ describe('ProspectsModulePanel — "Por revisar" regression guard (Test O)', () 
   });
 });
 
-describe('ProspectsModulePanel — una sola fila de pestañas (sin tabs dentro de tabs)', () => {
+describe('Módulo Empresas — sin pestañas de página (la navegación vive en el menú lateral)', () => {
   const content = readFileSync(PANEL_PATH, 'utf8');
   const discardedPanel = readFileSync(
     path.join(__dirname, '..', 'discarded-prospects-panel.tsx'),
     'utf8',
   );
+  const accountsPage = readFileSync(
+    path.join(__dirname, '..', '..', '..', 'app', '(sellup)', 'accounts', 'page.tsx'),
+    'utf8',
+  );
 
-  it('renderiza <ModuleTabsNav> como la única fila de pestañas del panel', () => {
-    // UX-EMPRESAS-CONTACTOS: la pestaña activa lleva ahora su contador
-    // (`counts=…`), así que la guarda admite props tras `active`. Lo que protege
-    // no cambia: UNA fila de pestañas, la del módulo, con «prospectos» activa.
-    assert.match(content, /tabs=\{<ModuleTabsNav active="prospectos"[^>]*\/>\}/);
-    assert.equal((content.match(/<ModuleTabsNav\b/g) ?? []).length, 1);
-  });
-
-  it('el panel de Descartadas usa la MISMA fila de pestañas, marcada activa', () => {
-    assert.match(discardedPanel, /<ModuleTabsNav active="descartadas"/);
-  });
-
-  it('ningún panel reintroduce un componente de sub-pestañas', () => {
+  it('ningún panel del módulo pinta pestañas de módulo ni sub-pestañas', () => {
     for (const [name, source] of [
       ['prospects-module-panel', content],
       ['discarded-prospects-panel', discardedPanel],
+      ['accounts/page', accountsPage],
     ] as const) {
-      assert.ok(
-        !/SubTabsNav/.test(source),
-        `${name} no debe renderizar pestañas dentro de pestañas`,
-      );
+      assert.ok(!/<ModuleTabsNav\b/.test(source), `${name} no debe pintar pestañas de módulo`);
+      assert.ok(!/SubTabsNav/.test(source), `${name} no debe pintar pestañas dentro de pestañas`);
+      assert.ok(!/\btabs=\{/.test(source), `${name} no pasa pestañas a la cabecera`);
     }
+  });
+
+  it('el título dice la vista y las migas el módulo: «Empresas › Por revisar»', () => {
+    assert.match(content, /title=\{EMPRESAS_VIEW_TITLES\.prospectos\}/);
+    assert.match(content, /empresasViewCrumbs\('prospectos'\)/);
+  });
+
+  it('Descartadas, igual: su título y sus migas', () => {
+    assert.match(discardedPanel, /title=\{EMPRESAS_VIEW_TITLES\.descartadas\}/);
+    assert.match(discardedPanel, /empresasViewCrumbs\('descartadas'\)/);
+  });
+
+  it('las rutas no cambian: la página sigue resolviendo la vista por los mismos parámetros', () => {
+    assert.match(accountsPage, /tab !== 'prospectos'/);
+    assert.match(accountsPage, /prospectsParams\.view === 'descartadas'/);
   });
 });

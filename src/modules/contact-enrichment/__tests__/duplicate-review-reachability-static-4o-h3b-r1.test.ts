@@ -284,14 +284,18 @@ describe('6 — § 16 superficie de duplicados', () => {
     assert.ok(nav.includes('tab=duplicates'));
   });
 
-  it('6b la pill de duplicados está separada de «Candidatos por revisar»', () => {
-    const tabs = readFileSync(
-      join(process.cwd(), 'src', 'components', 'navigation', 'contacts-module-tabs-nav.tsx'),
+  it('6b la vista de duplicados está separada de «Candidatos por revisar»', () => {
+    // Las pestañas de página se retiraron (la navegación vive en el menú
+    // lateral): la separación de las dos colas la fijan ahora los títulos de
+    // vista del módulo.
+    const views = readFileSync(
+      join(process.cwd(), 'src', 'components', 'contacts', 'contacts-module-copy.ts'),
       'utf8',
     );
-    assert.ok(tabs.includes('"duplicates"'));
-    assert.ok(tabs.includes('Duplicados'));
-    assert.ok(tabs.includes('Candidatos por revisar'), 'la cola histórica no desaparece');
+    assert.ok(views.includes("'duplicates'"));
+    assert.ok(views.includes("duplicates: 'Duplicados'"));
+    assert.ok(views.includes("candidates: 'Por revisar'"));
+    assert.ok(views.includes('Candidatos por revisar'), 'la cola histórica no desaparece');
   });
 
   it('6c la página resuelve la cola de duplicados a su propio panel', () => {

@@ -52,8 +52,19 @@ export type {
   RailMenuItemSpec,
 } from "./rail-actions";
 export {
+  ActionRailReserve,
   ListActionRailProvider,
   RailScreenActions,
   useRailSelectionReporter,
 } from "./list-action-rail";
 export type { RailSelectionReport } from "./list-action-rail";
+export {
+  ACTIONS_PLACEMENT_KEY,
+  DEFAULT_ACTIONS_PLACEMENT,
+  setActionsPlacement,
+  useActionsPlacement,
+} from "./actions-placement";
+export type { ActionsPlacement } from "./actions-placement";
+export { ScreenHeaderActions } from "./screen-header-actions";
+export type { ScreenHeaderActionsProps } from "./screen-header-actions";
+export { RailAgentProvider, useRailAgentAction, useRailVisible } from "./rail-agent";

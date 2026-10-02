@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Copy, ExternalLink, ArrowRight } from "@/icons";
+import { Copy, ExternalLink, ArrowRight, RotateCcw } from "@/icons";
 import { DataTable, DataTableColumnHeader, TruncatedCell, type DataTableContextMenuItem } from '@/components/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,7 @@ import {
 import { filterTab, type TabId } from '@/modules/source-catalog/filter-tab';
 import { getSourceActionPresentation } from '@/modules/source-catalog/action-presentation';
 import { SourceDetailDrawer } from './source-detail-drawer';
+import { applySourceOrder, mergeVisibleOrder, useSourceCatalogOrder } from './source-catalog-order';
 
 type Props = {
   viewModel: SourceCatalogViewModel;
@@ -85,7 +86,7 @@ function StatusBadge({ status }: { status: SourceViewModel['operationalStatus'] 
   );
 }
 
-function SourceTable({ data, title, description, hasQuickFilter, columns, openDetail, onRowClick }: {
+function SourceTable({ data, title, description, hasQuickFilter, columns, openDetail, onRowClick, onRowReorder, onResetOrder }: {
   data: Row[];
   title: string;
   description: string;
@@ -94,6 +95,10 @@ function SourceTable({ data, title, description, hasQuickFilter, columns, openDe
   columns: ColumnDef<Row, unknown>[];
   openDetail: (source: SourceViewModel) => void;
   onRowClick: (row: Row) => void;
+  /** El nuevo orden de las filas de esta vista tras soltar una. */
+  onRowReorder: (next: Row[]) => void;
+  /** Vuelve al orden de fábrica; `null` si nadie lo ha cambiado. */
+  onResetOrder: (() => void) | null;
 }) {
   const contextMenu = React.useMemo(
     () => ({
@@ -146,6 +151,18 @@ function SourceTable({ data, title, description, hasQuickFilter, columns, openDe
       count={data.length}
       contextMenu={contextMenu}
       enableColumnReorder
+      // Las filas se arrastran por su asa y el orden se recuerda (en este
+      // navegador). Ordenar por una columna manda mientras esté puesto.
+      enableRowReorder
+      onRowReorder={onRowReorder}
+      actions={
+        onResetOrder ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onResetOrder}>
+            <RotateCcw aria-hidden="true" />
+            Orden original
+          </Button>
+        ) : undefined
+      }
       rowClickable
       onRowClick={onRowClick}
       initialPageSize={10}
@@ -172,7 +189,9 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
   const [activeTab, setActiveTab] = React.useState<TabId>('operativas');
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>(ALL_STATUSES);
 
-  const serverData = React.useMemo(
+  const { order, hasCustomOrder, saveOrder, resetOrder } = useSourceCatalogOrder();
+
+  const unorderedData = React.useMemo(
     () => sources.map((s) => {
       const override = statusOverrides[s.key];
       return {
@@ -185,13 +204,14 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
     }),
     [sources, latestTests, statusOverrides],
   );
+  // El orden que dejó quien mira al arrastrar las filas (guardado en este
+  // navegador); sin él, el de fábrica del catálogo.
+  const serverData = React.useMemo(() => applySourceOrder(unorderedData, order), [unorderedData, order]);
   // Lo que hay en la vista elegida, antes del filtro rápido: de aquí salen los
   // contadores de los chips, que no deben cambiar al pulsar el propio chip.
   const scopedData = React.useMemo(() => filterTab(serverData, activeTab), [serverData, activeTab]);
 
   // Las filas de la tabla: la vista, más el filtro rápido si hay uno puesto.
-  // (Antes las filas se podían arrastrar, pero ese orden no se guardaba y se
-  // perdía al recargar; ahora la lista se ordena desde sus columnas.)
   const data = React.useMemo(
     () =>
       statusFilter === ALL_STATUSES
@@ -217,6 +237,20 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
       })),
     ];
   }, [scopedData]);
+
+  // Soltar una fila reordena las de la vista (pestaña + filtro) entre sí,
+  // dentro de los huecos que ocupaban en el catálogo completo, y se guarda.
+  const handleRowReorder = React.useCallback(
+    (next: Row[]) => {
+      saveOrder(
+        mergeVisibleOrder(
+          serverData.map((row) => row.key),
+          next.map((row) => row.key),
+        ),
+      );
+    },
+    [serverData, saveOrder],
+  );
 
   const handleTabChange = React.useCallback((value: unknown) => {
     setActiveTab(value as TabId);
@@ -480,6 +514,8 @@ export function SourceCatalogClient({ viewModel, latestTests, socrataBatches, st
           columns={columns}
           openDetail={openDetail}
           onRowClick={(row) => openDetail(row)}
+          onRowReorder={handleRowReorder}
+          onResetOrder={hasCustomOrder ? resetOrder : null}
         />
       </DataTablePage>
 

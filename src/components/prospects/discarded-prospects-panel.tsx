@@ -1,5 +1,6 @@
+import { ListActionRailProvider } from '@/components/action-rail';
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { DiscardedProspectsDataTableClient } from '@/components/prospects/discarded-prospects-data-table-client';
 import { getDiscardedProspectsList } from '@/modules/prospect-discards/queries';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -8,13 +9,23 @@ import {
   resolveScopeOwnerFilter,
 } from '@/modules/access/commercial-scope-filter-options';
 import {
-  EMPRESAS_MODULE_TITLE,
   EMPRESAS_TAB_DESCRIPTIONS,
+  EMPRESAS_VIEW_TITLES,
+  empresasViewCrumbs,
 } from '@/components/prospects/empresas-module-copy';
 import type { ProspectsPanelSearchParams } from '@/components/prospects/prospects-module-panel';
+import {
+  GenerateProspectsAgentActions,
+  type GenerateProspectsAgent,
+} from '@/components/prospects/generate-prospects-agent';
 
 interface DiscardedProspectsPanelProps {
   params: ProspectsPanelSearchParams;
+  /**
+   * El agente «Generar con IA» del módulo, ya en marcha (lo resuelve
+   * `loadGenerateProspectsAgent` en el servidor). `null` = sin agente.
+   */
+  generateAgent?: Promise<GenerateProspectsAgent | null>;
 }
 
 /**
@@ -26,11 +37,15 @@ interface DiscardedProspectsPanelProps {
  *
  * AGENT1-DISCARDED-TAB-PARITY-1 — la pestaña dejó de ser una sub-pestaña
  * dentro de Prospectos y ahora es hermana de las otras dos en una sola fila
- * (<ModuleTabsNav active="descartadas">). La superficie replica la de
+ * (hoy, una vista del menú lateral: Empresas → Descartadas). La superficie replica la de
  * "Candidatos por revisar": mismos indicadores que filtran, misma <DataTable>
  * con selección, barra de acciones masivas y filtros de alcance.
+ *
+ * La barra de la pantalla lleva el agente de IA del módulo («Generar con IA»),
+ * el mismo asistente de las otras dos pestañas: aquí es donde más sentido
+ * tiene volver a buscar tras revisar lo descartado.
  */
-export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPanelProps) {
+export async function DiscardedProspectsPanel({ params, generateAgent }: DiscardedProspectsPanelProps) {
   await requireActiveUser();
 
   const [scopeFilterOptions, ownerUserIds] = await Promise.all([
@@ -38,25 +53,30 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
     resolveScopeOwnerFilter(params.userId, params.groupId),
   ]);
 
-  const { items, total } = await getDiscardedProspectsList({
-    search: params.search,
-    country: params.country,
-    industry: params.industry,
-    batchId: params.sourceId,
-    ...(ownerUserIds !== null ? { ownerUserIds } : {}),
-    limit: 2000,
-  });
+  const [{ items }, agent] = await Promise.all([
+    getDiscardedProspectsList({
+      search: params.search,
+      country: params.country,
+      industry: params.industry,
+      batchId: params.sourceId,
+      ...(ownerUserIds !== null ? { ownerUserIds } : {}),
+      limit: 2000,
+    }),
+    generateAgent ?? null,
+  ]);
 
   // Los indicadores de cabecera (nuevas hoy, descartadas por el pipeline,
   // descartes manuales) los calcula la tabla sobre estas mismas filas y los
   // ofrece como filtros de un toque — cero queries adicionales, cero llamadas a
   // proveedor.
   return (
+    <ListActionRailProvider label="Acciones de empresas descartadas" gender="f">
     <DataTablePage
       compact
-      title={EMPRESAS_MODULE_TITLE}
+      title={EMPRESAS_VIEW_TITLES.descartadas}
       description={EMPRESAS_TAB_DESCRIPTIONS.descartadas}
-      tabs={<ModuleTabsNav active="descartadas" discardedCount={total} />}
+      breadcrumbs={<Breadcrumbs items={empresasViewCrumbs('descartadas') ?? []} />}
+      actions={agent ? <GenerateProspectsAgentActions {...agent} /> : undefined}
     >
       <DiscardedProspectsDataTableClient
         items={items}
@@ -70,5 +90,6 @@ export async function DiscardedProspectsPanel({ params }: DiscardedProspectsPane
         )}
       />
     </DataTablePage>
+    </ListActionRailProvider>
   );
 }

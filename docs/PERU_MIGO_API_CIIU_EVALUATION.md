@@ -577,7 +577,7 @@ Migo NO debe quedarse hardcodeada en `.env.local` como mecanismo final.
 | Vault secret name | `sellup_source_pe_migo_api_api_key` |
 | auth_type | `api_key` |
 | Patrón de referencia | `tavily-connection.ts`, `denue_mexico` source catalog pattern |
-| UI | `/settings/source-catalog/pe_migo_api` (rendered by generic SourceCredentialPanel) |
+| UI | `/source-catalog/pe_migo_api` (rendered by generic SourceCredentialPanel) |
 | Migración | `066_migo_api_source.sql` |
 | Servicio | `src/server/services/migo-connection.ts` |
 

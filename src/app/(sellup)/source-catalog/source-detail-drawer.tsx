@@ -311,7 +311,7 @@ export function SourceDetailDrawer({
               tone="neutral"
               action={
                 <Button asChild variant="outline" size="sm">
-                  <Link href="/settings/source-catalog/socrata-batches">Ver lotes Socrata</Link>
+                  <Link href="/source-catalog/socrata-batches">Ver lotes Socrata</Link>
                 </Button>
               }
             >
@@ -363,7 +363,7 @@ export function SourceDetailDrawer({
               </Button>
             )}
             <Button variant="default" size="sm" asChild>
-              <Link href={`/settings/source-catalog/${source.key}`}>
+              <Link href={`/source-catalog/${source.key}`}>
                 Ver página completa
                 <ExternalLink aria-hidden="true" />
               </Link>

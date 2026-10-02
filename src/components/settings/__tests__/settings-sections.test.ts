@@ -13,10 +13,10 @@ import {
 } from '../settings-sections';
 
 describe('getVisibleSettingsSections — permisos', () => {
-  it('un administrador ve las ocho secciones', () => {
+  it('un administrador ve las siete secciones', () => {
     const sections = getVisibleSettingsSections({ isAdmin: true, isActive: true });
 
-    assert.equal(sections.length, 8);
+    assert.equal(sections.length, 7);
     assert.deepEqual(sections, [...SETTINGS_SECTIONS]);
   });
 
@@ -39,7 +39,6 @@ describe('getVisibleSettingsSections — permisos', () => {
       'automations',
       'integrations',
       'prospecting',
-      'source-catalog',
     ]);
   });
 });
@@ -48,7 +47,7 @@ describe('resolveSettingsSectionId — en qué sección está una ruta', () => {
   it('la ruta de la sección y sus subrutas son de esa sección', () => {
     assert.equal(resolveSettingsSectionId('/settings/users'), 'users');
     assert.equal(resolveSettingsSectionId('/settings/integrations/hubspot'), 'integrations');
-    assert.equal(resolveSettingsSectionId('/settings/source-catalog/socrata-batches/abc'), 'source-catalog');
+    assert.equal(resolveSettingsSectionId('/settings/providers/apollo/abc'), 'providers');
   });
 
   it('las vistas antiguas de presupuesto y uso pertenecen a Proveedores y consumo', () => {
@@ -60,6 +59,13 @@ describe('resolveSettingsSectionId — en qué sección está una ruta', () => {
   it('el resumen y una ruta sin sección no marcan ninguna', () => {
     assert.equal(resolveSettingsSectionId('/settings'), null);
     assert.equal(resolveSettingsSectionId('/settings/system-status'), null);
+  });
+
+  it('el Catálogo de fuentes ya no es una sección de Configuración: es un módulo', () => {
+    assert.equal(SETTINGS_SECTIONS.some((s) => s.id === 'source-catalog'), false);
+    assert.equal(SETTINGS_SECTIONS.some((s) => s.href.includes('source-catalog')), false);
+    // La ruta antigua solo redirige: no marca ninguna sección.
+    assert.equal(resolveSettingsSectionId('/settings/source-catalog'), null);
   });
 
   it('un prefijo parecido no cuenta como la sección', () => {

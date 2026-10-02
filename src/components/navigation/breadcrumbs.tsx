@@ -36,8 +36,7 @@ const LINK_CLASSES =
  * @example
  * <Breadcrumbs
  *   items={[
- *     { label: "Configuración", href: "/settings" },
- *     { label: "Catálogo de fuentes", href: "/settings/source-catalog" },
+ *     { label: "Catálogo de fuentes", href: "/source-catalog" },
  *     source.name,
  *   ]}
  * />

@@ -15,10 +15,12 @@ interface ContactsScreenActionsProps {
 }
 
 /**
- * Lo que se puede hacer en «Contactos» sin nada marcado: buscar contactos con
- * IA (la acción primaria, con el degradado de marca) y crear uno a mano. No
- * pinta botones: le entrega las acciones a la barra flotante de la pantalla y
- * monta los paneles que abren, controlados desde aquí.
+ * Lo que se puede hacer en «Contactos» y en «Por revisar» sin nada marcado:
+ * crear un contacto a mano (la acción primaria) y buscar contactos con IA (el
+ * agente de la barra, con el degradado de IA, a un clic). No pinta botones
+ * propios: le entrega las acciones a la barra flotante de la pantalla (o a la
+ * cabecera, con las acciones «En la pantalla») y monta los paneles que abren,
+ * controlados desde aquí.
  */
 export function ContactsScreenActions({ accounts }: ContactsScreenActionsProps) {
   const [isSearching, setIsSearching] = React.useState(false);
@@ -31,24 +33,28 @@ export function ContactsScreenActions({ accounts }: ContactsScreenActionsProps) 
         label: 'Crear contacto',
         icon: <UserPlus aria-hidden="true" />,
         scope: ['screen'],
-        onSelect: () => setIsCreating(true),
-      },
-      {
-        id: 'search-contacts-ai',
-        label: 'Buscar contactos con IA',
-        icon: <Sparkles aria-hidden="true" />,
-        scope: ['screen'],
         primary: true,
-        variant: 'ai',
-        onSelect: () => setIsSearching(true),
+        onSelect: () => setIsCreating(true),
       },
     ],
     [],
   );
 
+  const agent = React.useMemo<RailActionSpec>(
+    () => ({
+      id: 'search-contacts-ai',
+      label: 'Buscar contactos con IA',
+      icon: <Sparkles aria-hidden="true" />,
+      scope: ['screen'],
+      variant: 'ai',
+      onSelect: () => setIsSearching(true),
+    }),
+    [],
+  );
+
   return (
     <>
-      <RailScreenActions actions={actions} isBlocked={isSearching || isCreating} />
+      <RailScreenActions actions={actions} agent={agent} isBlocked={isSearching || isCreating} />
       <ContactsEnrichmentCTA open={isSearching} onOpenChange={setIsSearching} />
       <CreateContactDrawer accounts={accounts} open={isCreating} onOpenChange={setIsCreating} />
     </>

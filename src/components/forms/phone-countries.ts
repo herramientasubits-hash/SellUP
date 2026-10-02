@@ -1,32 +1,22 @@
+import { LATAM_COUNTRIES } from "@/modules/accounts/types"
+
 /**
- * Lista corta y editable de países para `PhoneInput`: LATAM + España + EE. UU.
+ * Los países de `PhoneInput`: los que SellUp ya maneja.
  *
- * No es un catálogo mundial a propósito. Son los mercados donde operamos; si
- * hace falta otro país, se añade aquí (y solo aquí) con su prefijo, la longitud
- * del número nacional y cómo se agrupa al escribirlo.
+ * La lista NO se escribe aquí: sale del catálogo de países de la aplicación
+ * (`LATAM_COUNTRIES` de `modules/accounts/types`, las mismas opciones de país
+ * de los formularios de empresa), con su código ISO, su nombre y su orden. Un
+ * país que entre a ese catálogo aparece en el teléfono en cuanto tenga su
+ * fila en `DIALING` (la prueba de runtime exige que ninguno se quede sin
+ * ella).
+ *
+ * El catálogo no trae prefijos telefónicos, así que aquí vive solo esa tabla
+ * ISO → prefijo, longitud del número nacional y cómo se agrupa al escribirlo.
+ * La bandera se deriva del propio código ISO.
  */
 
-export type CountryCode =
-  | "CO"
-  | "MX"
-  | "AR"
-  | "BR"
-  | "CL"
-  | "PE"
-  | "EC"
-  | "VE"
-  | "BO"
-  | "PY"
-  | "UY"
-  | "CR"
-  | "PA"
-  | "GT"
-  | "SV"
-  | "HN"
-  | "NI"
-  | "DO"
-  | "ES"
-  | "US"
+/** ISO 3166-1 alfa-2 de un país del catálogo de SellUp. */
+export type CountryCode = string
 
 export interface Country {
   /** ISO 3166-1 alfa-2. */
@@ -43,28 +33,52 @@ export interface Country {
   groups: number[]
 }
 
-export const PHONE_COUNTRIES: readonly Country[] = [
-  { code: "CO", name: "Colombia", dialCode: "+57", flag: "🇨🇴", length: 10, groups: [3, 3, 4] },
-  { code: "MX", name: "México", dialCode: "+52", flag: "🇲🇽", length: 10, groups: [2, 4, 4] },
-  { code: "AR", name: "Argentina", dialCode: "+54", flag: "🇦🇷", length: 10, groups: [2, 4, 4] },
-  { code: "BO", name: "Bolivia", dialCode: "+591", flag: "🇧🇴", length: 8, groups: [4, 4] },
-  { code: "BR", name: "Brasil", dialCode: "+55", flag: "🇧🇷", length: 11, groups: [2, 5, 4] },
-  { code: "CL", name: "Chile", dialCode: "+56", flag: "🇨🇱", length: 9, groups: [1, 4, 4] },
-  { code: "CR", name: "Costa Rica", dialCode: "+506", flag: "🇨🇷", length: 8, groups: [4, 4] },
-  { code: "EC", name: "Ecuador", dialCode: "+593", flag: "🇪🇨", length: 9, groups: [2, 3, 4] },
-  { code: "SV", name: "El Salvador", dialCode: "+503", flag: "🇸🇻", length: 8, groups: [4, 4] },
-  { code: "GT", name: "Guatemala", dialCode: "+502", flag: "🇬🇹", length: 8, groups: [4, 4] },
-  { code: "HN", name: "Honduras", dialCode: "+504", flag: "🇭🇳", length: 8, groups: [4, 4] },
-  { code: "NI", name: "Nicaragua", dialCode: "+505", flag: "🇳🇮", length: 8, groups: [4, 4] },
-  { code: "PA", name: "Panamá", dialCode: "+507", flag: "🇵🇦", length: 8, groups: [4, 4] },
-  { code: "PY", name: "Paraguay", dialCode: "+595", flag: "🇵🇾", length: 9, groups: [3, 3, 3] },
-  { code: "PE", name: "Perú", dialCode: "+51", flag: "🇵🇪", length: 9, groups: [3, 3, 3] },
-  { code: "DO", name: "República Dominicana", dialCode: "+1", flag: "🇩🇴", length: 10, groups: [3, 3, 4] },
-  { code: "UY", name: "Uruguay", dialCode: "+598", flag: "🇺🇾", length: 8, groups: [4, 4] },
-  { code: "VE", name: "Venezuela", dialCode: "+58", flag: "🇻🇪", length: 10, groups: [3, 3, 4] },
-  { code: "ES", name: "España", dialCode: "+34", flag: "🇪🇸", length: 9, groups: [3, 3, 3] },
-  { code: "US", name: "Estados Unidos", dialCode: "+1", flag: "🇺🇸", length: 10, groups: [3, 3, 4] },
-]
+interface Dialing {
+  dialCode: string
+  length: number
+  groups: number[]
+}
+
+/** ISO → cómo se marca. Solo para los países del catálogo de SellUp. */
+export const DIALING: Readonly<Record<string, Dialing>> = {
+  CO: { dialCode: "+57", length: 10, groups: [3, 3, 4] },
+  MX: { dialCode: "+52", length: 10, groups: [2, 4, 4] },
+  CL: { dialCode: "+56", length: 9, groups: [1, 4, 4] },
+  AR: { dialCode: "+54", length: 10, groups: [2, 4, 4] },
+  BR: { dialCode: "+55", length: 11, groups: [2, 5, 4] },
+  PE: { dialCode: "+51", length: 9, groups: [3, 3, 3] },
+  UY: { dialCode: "+598", length: 8, groups: [4, 4] },
+  EC: { dialCode: "+593", length: 9, groups: [2, 3, 4] },
+  PY: { dialCode: "+595", length: 9, groups: [3, 3, 3] },
+  BO: { dialCode: "+591", length: 8, groups: [4, 4] },
+  VE: { dialCode: "+58", length: 10, groups: [3, 3, 4] },
+  GT: { dialCode: "+502", length: 8, groups: [4, 4] },
+  HN: { dialCode: "+504", length: 8, groups: [4, 4] },
+  SV: { dialCode: "+503", length: 8, groups: [4, 4] },
+  NI: { dialCode: "+505", length: 8, groups: [4, 4] },
+  CR: { dialCode: "+506", length: 8, groups: [4, 4] },
+  PA: { dialCode: "+507", length: 8, groups: [4, 4] },
+  DO: { dialCode: "+1", length: 10, groups: [3, 3, 4] },
+  US: { dialCode: "+1", length: 10, groups: [3, 3, 4] },
+  ES: { dialCode: "+34", length: 9, groups: [3, 3, 3] },
+}
+
+/** La bandera de un país a partir de su código ISO (indicadores regionales). */
+function flagOf(code: string): string {
+  return [...code.toUpperCase()]
+    .map((letter) => String.fromCodePoint(letter.charCodeAt(0) + 0x1f1e6 - 65))
+    .join("")
+}
+
+/**
+ * Los países del catálogo de SellUp, en su orden, con cómo se marca cada uno.
+ * Un país del catálogo sin fila en `DIALING` no se ofrece (no se inventa un
+ * prefijo).
+ */
+export const PHONE_COUNTRIES: readonly Country[] = LATAM_COUNTRIES.flatMap((country) => {
+  const dialing = DIALING[country.code]
+  return dialing ? [{ code: country.code, name: country.name, flag: flagOf(country.code), ...dialing }] : []
+})
 
 export const DEFAULT_PHONE_COUNTRY: CountryCode = "CO"
 
@@ -80,7 +94,8 @@ export function findCountry(
  *
  * `+1` lo comparten EE. UU. y República Dominicana, así que si el país actual
  * ya casa con el prefijo se respeta esa elección en vez de reasignarlo; para el
- * resto gana el prefijo más largo que coincida.
+ * resto gana el prefijo más largo que coincida (y, a igualdad, el primero del
+ * catálogo).
  */
 export function parseE164(
   value: string,

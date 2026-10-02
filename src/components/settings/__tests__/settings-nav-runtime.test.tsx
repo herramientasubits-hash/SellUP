@@ -47,7 +47,7 @@ afterEach(() => {
 });
 
 describe('SettingsNav — secciones', () => {
-  it('a un administrador le lista el resumen y las ocho secciones', () => {
+  it('a un administrador le lista el resumen y las siete secciones (el Catálogo de fuentes es un módulo aparte)', () => {
     render(h(SettingsNav, { isAdmin: true, isActive: true }));
 
     assert.deepEqual(linkNames(), [
@@ -58,7 +58,6 @@ describe('SettingsNav — secciones', () => {
       '/settings/integrations',
       '/settings/prospecting',
       '/settings/activity',
-      '/settings/source-catalog',
       '/settings/my-drive',
     ]);
   });
@@ -113,7 +112,6 @@ describe('SettingsNav — avisos', () => {
         isActive: true,
         badges: {
           users: { label: '5 pendientes', tone: 'warning' },
-          'source-catalog': { label: '53 fuentes', tone: 'brand' },
           'my-drive': { label: 'Conectado', tone: 'positive' },
         },
       }),
@@ -121,7 +119,6 @@ describe('SettingsNav — avisos', () => {
 
     const nav = sideNav();
     assert.ok(within(nav).getByText('5 pendientes'));
-    assert.ok(within(nav).getByText('53 fuentes'));
     assert.ok(within(nav).getByText('Conectado'));
   });
 

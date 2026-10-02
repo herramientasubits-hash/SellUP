@@ -30,8 +30,9 @@ export interface RailActionSpec {
   blockedReason?: string | null
   onSelect?: () => void
   /**
-   * Solo para la primaria. `ai` le conserva el degradado de marca de las
-   * acciones de IA («Buscar contactos con IA»).
+   * Para la primaria y para el agente de la pantalla. `ai` les da el degradado
+   * de marca de las acciones de IA («Generar con IA», «Buscar contactos con
+   * IA»).
    */
   variant?: "default" | "ai"
   /**

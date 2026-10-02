@@ -1,10 +1,11 @@
 import { type LucideIcon } from "@/icons";
 import {
-  LayoutDashboard,
-  Building2,
-  Users,
   BrainCircuit,
+  Building2,
+  Database,
+  LayoutDashboard,
   Settings,
+  Users,
 } from "@/icons";
 
 /**
@@ -79,6 +80,29 @@ export const CONTACTS_CANDIDATES_ROUTE = "/contacts?tab=candidates";
  */
 export const CONTACTS_DUPLICATES_ROUTE = "/contacts?tab=duplicates";
 
+/**
+ * «Catálogo de fuentes» es un MÓDULO con ruta propia. Antes era una sección de
+ * Configuración (`/settings/source-catalog/**`); esas rutas siguen vivas solo
+ * como redirección.
+ */
+export const SOURCE_CATALOG_ROUTE = "/source-catalog";
+export const SOURCE_CATALOG_BATCHES_ROUTE = "/source-catalog/socrata-batches";
+
+/** A dónde va un enlace antiguo `/settings/source-catalog/<…>`, con sus parámetros. */
+export function legacySourceCatalogRedirect(
+  path: readonly string[] | undefined,
+  query: Readonly<Record<string, string | string[] | undefined>> = {},
+): string {
+  const rest = (path ?? []).map((segment) => encodeURIComponent(segment)).join("/");
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, item);
+  }
+  const search = params.toString();
+  return `${SOURCE_CATALOG_ROUTE}${rest ? `/${rest}` : ""}${search ? `?${search}` : ""}`;
+}
+
 export const mainNavItems: NavItem[] = [
   {
     title: "Pipeline SellUp",
@@ -108,6 +132,14 @@ export const mainNavItems: NavItem[] = [
     // when ENABLE_COMMERCIAL_SCOPE is off — the production default). Showing it
     // to non-admins leads straight to the "requiere permisos de administrador"
     // banner, so it is hidden from the sidebar for them.
+    access: "adminOnly",
+  },
+  {
+    title: "Catálogo de fuentes",
+    href: SOURCE_CATALOG_ROUTE,
+    icon: Database,
+    // Lo ve quien ya lo veía como sección de Configuración: solo quien
+    // administra. La guarda de cada panel sensible sigue en la propia página.
     access: "adminOnly",
   },
   {

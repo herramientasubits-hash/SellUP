@@ -2,16 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useTheme } from "next-themes";
-import { ArrowRight, Monitor, Moon, Sun, type LucideIcon } from "@/icons";
+import { ArrowRight } from "@/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -19,38 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { WorkspaceSettingsGroup } from "@/components/layout/sidebar-nav";
-
-const THEME_OPTIONS: readonly { value: string; label: string; icon: LucideIcon }[] = [
-  { value: "light", label: "Claro", icon: Sun },
-  { value: "dark", label: "Oscuro", icon: Moon },
-  { value: "system", label: "Como el sistema", icon: Monitor },
-];
-
-/**
- * El tema de la plataforma, dentro del menú de la marca. No es de la cuenta ni
- * de la pantalla: se elige una vez, así que no ocupa un botón de la cabecera.
- */
-export function ThemeMenuItems() {
-  const { theme, setTheme } = useTheme();
-
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuLabel>Apariencia</DropdownMenuLabel>
-      <DropdownMenuRadioGroup
-        aria-label="Tema"
-        value={theme ?? "system"}
-        onValueChange={(value) => setTheme(String(value))}
-      >
-        {THEME_OPTIONS.map((option) => (
-          <DropdownMenuRadioItem key={option.value} value={option.value} closeOnClick={false}>
-            <option.icon className="size-4 shrink-0 text-text-muted" />
-            {option.label}
-          </DropdownMenuRadioItem>
-        ))}
-      </DropdownMenuRadioGroup>
-    </DropdownMenuGroup>
-  );
-}
+import { CloseWorkspaceMenuContext } from "@/components/layout/workspace-menu-context";
 
 export interface WorkspaceMenuProps {
   /** El elemento que lo abre: la fila de marca del panel, o su icono en el riel. */
@@ -62,7 +27,7 @@ export interface WorkspaceMenuProps {
   groups: readonly WorkspaceSettingsGroup[];
   /** La puerta a toda la configuración, al pie. */
   all?: { label: string; href: string };
-  /** Controles de la plataforma —el tema— entre la identidad y los ajustes. */
+  /** Lo que añade la app entre la identidad y los ajustes: «Personalización». */
   extra?: React.ReactNode;
   side?: "bottom" | "right";
   align?: "start" | "end";
@@ -73,11 +38,16 @@ export interface WorkspaceMenuProps {
 /**
  * WorkspaceMenu — port de Thema `app-shell/WorkspaceMenu.tsx`.
  *
- * El menú que cuelga de la marca del producto. Antes el tema era un botón
- * suelto en la cabecera y la configuración un ítem del menú de la cuenta;
- * aquí es una sola puerta: la identidad, cómo se ve la plataforma (`extra`) y
- * los ajustes agrupados. Cada grupo guarda sus secciones en un submenú hasta
- * que se sabe por dónde se va.
+ * El menú que cuelga de la marca del producto, y la ÚNICA puerta a la
+ * configuración (ya no es un módulo del menú lateral). De arriba abajo:
+ *
+ * 1. la identidad del producto;
+ * 2. `extra`: cómo se ve y se usa la plataforma (`PersonalizationMenu`);
+ * 3. los ajustes agrupados —un grupo, una fila que abre su submenú—;
+ * 4. «Toda la configuración», al pie.
+ *
+ * El shell no sabe qué hay dentro de `extra`; solo le da un sitio y la manera
+ * de cerrar el menú (`useCloseWorkspaceMenu`).
  */
 export function WorkspaceMenu({
   trigger,
@@ -90,8 +60,11 @@ export function WorkspaceMenu({
   align = "start",
   onNavigate,
 }: WorkspaceMenuProps) {
+  const [open, setOpen] = React.useState(false);
+  const close = React.useCallback(() => setOpen(false), []);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger render={trigger} />
       <DropdownMenuContent
         side={side}
@@ -107,15 +80,18 @@ export function WorkspaceMenu({
         {extra && (
           <>
             <DropdownMenuSeparator />
-            {extra}
+            <div data-slot="workspace-menu-extra" className="flex flex-col gap-0.5">
+              <CloseWorkspaceMenuContext.Provider value={close}>{extra}</CloseWorkspaceMenuContext.Provider>
+            </div>
           </>
         )}
 
         {groups.length > 0 && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Configuración</DropdownMenuLabel>
+            {/* Un grupo, una fila: desplegar las ocho secciones de golpe daba
+                una lista que había que recorrer con la vista. */}
+            <DropdownMenuGroup aria-label="Configuración">
               {groups.map((group) => (
                 <DropdownMenuSub key={group.id}>
                   <DropdownMenuSubTrigger>

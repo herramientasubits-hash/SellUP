@@ -6,7 +6,7 @@ import { type Row, flexRender } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { DataTableContextMenu } from "./data-table-context-menu";
-import { RowDragHandle } from "./data-table-row-reorder";
+import { RowDragHandle, type SortableRowProps } from "./data-table-row-reorder";
 import type { DataTableContextMenuConfig } from "./data-table-types";
 
 /** Un clic que nace en un control de la fila es suyo: no abre el detalle ni marca la fila. */
@@ -27,12 +27,18 @@ interface DataTableRowProps<TData> {
   /**
    * When row reorder is enabled, the parent `DataTableRowReorder` passes
    * the dnd-kit handle props here so the grip cell is rendered as the
-   * first cell. The row is already wrapped in a `<SortableTableRow>` in
-   * that case, so we don't render the `<TableRow>` ourselves.
+   * first cell.
    */
   reorderHandleProps?: React.HTMLAttributes<HTMLButtonElement> & {
     isDragging: boolean;
   };
+  /**
+   * La ref y el desplazamiento de dnd-kit para el `<tr>` de una fila
+   * arrastrable. La fila la pinta SIEMPRE este componente: así el menú
+   * contextual se engancha al propio `<tr>` también con arrastre, y no queda
+   * un `<div>` entre `<tr>` y `<td>`.
+   */
+  sortableRowProps?: SortableRowProps;
 }
 
 export function DataTableRow<TData>({
@@ -44,6 +50,7 @@ export function DataTableRow<TData>({
   stickyOffsets,
   lastStickyId,
   reorderHandleProps,
+  sortableRowProps,
 }: DataTableRowProps<TData>) {
   const isSelected = row.getIsSelected();
   const opensDetail = rowClickable && Boolean(onRowClick);
@@ -93,15 +100,18 @@ export function DataTableRow<TData>({
     </>
   );
 
-  const cellContent = reorderHandleProps ? (
-    cells
-  ) : (
+  const isDragging = Boolean(sortableRowProps?.isDragging);
+
+  const cellContent = (
     <TableRow
-      data-state={isSelected ? "selected" : undefined}
+      ref={sortableRowProps?.ref}
+      style={sortableRowProps?.style}
+      data-state={isDragging ? "dragging" : isSelected ? "selected" : undefined}
       className={cn(
         "border-border/60 group",
         handleClick && "cursor-pointer",
         isSelected && "bg-primary/[0.07]",
+        isDragging && "opacity-60 shadow-card",
       )}
       onClick={handleClick}
     >

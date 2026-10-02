@@ -40,8 +40,9 @@ export function DataTableContextMenu({ items, children }: DataTableContextMenuPr
       <ContextMenuTrigger asChild>
         {/* El disparador es la propia fila: un <div> entre <tbody> y <tr> es
             HTML inválido y el navegador lo saca de la tabla al leer la página
-            del servidor (error de hidratación). Solo cuando no llega una fila
-            única (filas reordenables: llegan las celdas sueltas) se envuelve. */}
+            del servidor (error de hidratación). `DataTableRow` entrega siempre
+            un único <tr>, también con filas reordenables; el envoltorio queda
+            solo para un uso fuera de tabla con varios hijos. */}
         {isSingleElement(children) ? children : <div className="contents">{children}</div>}
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-[220px]">

@@ -124,7 +124,7 @@ export default async function SourceDetailPage({ params }: Props) {
         breadcrumbs={
           <Breadcrumbs
             items={[
-              { label: 'Catálogo de fuentes', href: '/settings/source-catalog' },
+              { label: 'Catálogo de fuentes', href: '/source-catalog' },
               source.name,
             ]}
           />
@@ -420,7 +420,7 @@ export default async function SourceDetailPage({ params }: Props) {
             </div>
           </div>
           <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link href="/settings/source-catalog/socrata-batches">Ver lotes</Link>
+            <Link href="/source-catalog/socrata-batches">Ver lotes</Link>
           </Button>
         </SurfaceCard>
       )}

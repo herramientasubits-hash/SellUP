@@ -168,7 +168,7 @@ interface DataTableInlineBulkActionsProps<TData> {
 }
 
 /**
- * Las acciones masivas dentro de la cabecera de la lista («En el layout»): las
+ * Las acciones masivas dentro de la cabecera de la lista («En la pantalla»): las
  * mismas que lleva la barra flotante, con las mismas reglas de bloqueo y
  * confirmación, como botones del propio marco.
  */

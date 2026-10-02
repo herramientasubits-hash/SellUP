@@ -4,8 +4,11 @@ import * as React from "react";
 
 /**
  * El estado de «cómo quiero ver esta tabla» (Thema · `useTableConfig`): qué
- * columnas, en qué orden, cuáles quedan fijadas, cómo llegan las filas y dónde
- * van las acciones.
+ * columnas, en qué orden, cuáles quedan fijadas y cómo llegan las filas.
+ *
+ * «Dónde van las acciones» NO vive aquí: es una preferencia de la persona,
+ * la misma en todas las tablas (`action-rail/actions-placement.ts`). Un valor
+ * `actions` guardado por tabla en versiones anteriores se ignora sin romper.
  *
  * Vive en `localStorage` por tabla y no en la URL: es una preferencia de quien
  * mira, no parte de lo que se comparte.
@@ -20,14 +23,11 @@ import * as React from "react";
 export type TableRowsMode = "lazy" | "paged";
 /** Rejilla con todas las columnas, o una fila-tarjeta por registro. */
 export type TableView = "table" | "list";
-/** Las acciones sobre lo marcado: en la barra flotante o en la cabecera de la lista. */
-export type TableActionsPlacement = "rail" | "inline";
 /** Casillas y lote, o un menú de acciones en cada fila. */
 export type TableRowControl = "checkbox" | "menu";
 
 export const DEFAULT_ROWS_MODE: TableRowsMode = "lazy";
 export const DEFAULT_TABLE_VIEW: TableView = "table";
-export const DEFAULT_ACTIONS_PLACEMENT: TableActionsPlacement = "rail";
 export const DEFAULT_ROW_CONTROL: TableRowControl = "checkbox";
 
 export interface TableColumnSpec {
@@ -55,7 +55,6 @@ export interface StoredTableConfig {
   pinned: string[];
   mode: TableRowsMode;
   view: TableView;
-  actions: TableActionsPlacement;
   rowControl: TableRowControl;
   /** Filas por página cuando se pagina. `null` = el tamaño de fábrica. */
   pageSize: number | null;
@@ -93,7 +92,6 @@ function parse(raw: string | null): Partial<StoredTableConfig> | null {
       pinned: strings(parsed.pinned),
       mode: parsed.mode === "paged" || parsed.mode === "lazy" ? parsed.mode : undefined,
       view: parsed.view === "list" || parsed.view === "table" ? parsed.view : undefined,
-      actions: parsed.actions === "inline" || parsed.actions === "rail" ? parsed.actions : undefined,
       rowControl:
         parsed.rowControl === "menu" || parsed.rowControl === "checkbox" ? parsed.rowControl : undefined,
       pageSize:
@@ -175,14 +173,12 @@ export interface TableConfig {
   mode: TableRowsMode;
   isLazy: boolean;
   view: TableView;
-  actions: TableActionsPlacement;
   rowControl: TableRowControl;
   pageSize: number;
   /** Cierto cuando algo se salió de fábrica: enciende el punto del botón. */
   isDirty: boolean;
   setMode: (mode: TableRowsMode) => void;
   setView: (view: TableView) => void;
-  setActions: (actions: TableActionsPlacement) => void;
   setRowControl: (rowControl: TableRowControl) => void;
   setPageSize: (pageSize: number) => void;
   toggleVisibility: (id: string) => void;
@@ -254,7 +250,6 @@ export function useTableConfig(
       pinned: (saved?.pinned ?? []).filter((id) => specById.has(id) && !hidden.includes(id)),
       mode: saved?.mode ?? defaultMode,
       view: saved?.view ?? DEFAULT_TABLE_VIEW,
-      actions: saved?.actions ?? DEFAULT_ACTIONS_PLACEMENT,
       rowControl: saved?.rowControl ?? DEFAULT_ROW_CONTROL,
       pageSize: saved?.pageSize ?? null,
     };
@@ -294,7 +289,6 @@ export function useTableConfig(
     state.pinned.length > 0 ||
     !state.order.every((id, index) => id === specIds[index]) ||
     state.view !== DEFAULT_TABLE_VIEW ||
-    state.actions !== DEFAULT_ACTIONS_PLACEMENT ||
     state.rowControl !== DEFAULT_ROW_CONTROL ||
     (state.pageSize !== null && state.pageSize !== defaultPageSize);
 
@@ -310,13 +304,11 @@ export function useTableConfig(
     mode: state.mode,
     isLazy: state.mode === "lazy",
     view: state.view,
-    actions: state.actions,
     rowControl: state.rowControl,
     pageSize: state.pageSize ?? defaultPageSize,
     isDirty,
     setMode: (mode) => commit({ ...state, mode }),
     setView: (view) => commit({ ...state, view }),
-    setActions: (actions) => commit({ ...state, actions }),
     setRowControl: (rowControl) => commit({ ...state, rowControl }),
     setPageSize: (pageSize) => commit({ ...state, pageSize }),
     toggleVisibility: (id) => {

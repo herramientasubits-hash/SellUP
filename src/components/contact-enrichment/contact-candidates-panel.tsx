@@ -1,11 +1,12 @@
 import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import {
-  CONTACTOS_MODULE_TITLE,
   CONTACTOS_TAB_DESCRIPTIONS,
+  CONTACTOS_VIEW_TITLES,
+  contactosViewCrumbs,
 } from '@/components/contacts/contacts-module-copy';
 import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
-import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
+import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
 import {
   getDuplicateContactCandidates,
@@ -41,7 +42,7 @@ interface ContactCandidatesPanelProps {
  * Renderiza `contact_enrichment_candidates` en `pending_review` con el contexto
  * de empresa del run. Es un listado de solo lectura: aprobar/rechazar y crear
  * contactos finales llegan en 17A.4B — aquí NO hay acciones de mutación. Mantiene
- * el header, los CTAs y el switcher de pills del módulo para no perder el wizard
+ * el header y los CTAs del módulo para no perder el wizard
  * conversacional ni "Crear contacto".
  */
 export async function ContactCandidatesPanel({
@@ -96,17 +97,11 @@ export async function ContactCandidatesPanel({
     <ListActionRailProvider label="Acciones de contactos" gender="m">
     <DataTablePage
       compact
-      title={CONTACTOS_MODULE_TITLE}
+      title={CONTACTOS_VIEW_TITLES[isDuplicateQueue ? 'duplicates' : 'candidates']}
       description={CONTACTOS_TAB_DESCRIPTIONS[isDuplicateQueue ? 'duplicates' : 'candidates']}
-      tabs={
-        // 4O-H3-B-R1 (§ 11): el contador de «Por revisar» sólo cuenta `pending_review`. En la
-        // cola de duplicados no se pinta: esos candidatos se cuentan en su propia tabla y
-        // nunca se suman al mismo número.
-        <ContactsModuleTabsNav
-          active={isDuplicateQueue ? 'duplicates' : 'candidates'}
-          counts={isDuplicateQueue ? undefined : { candidates: candidates.length }}
-        />
-      }
+      // 4O-H3-B-R1 (§ 11): cada cola cuenta lo suyo en el título de su tabla;
+      // los duplicados nunca se suman a «Por revisar».
+      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(isDuplicateQueue ? 'duplicates' : 'candidates') ?? []} />}
       actions={<ContactsScreenActions accounts={accounts} />}
     >
       <ContactCandidatesDataTableClient

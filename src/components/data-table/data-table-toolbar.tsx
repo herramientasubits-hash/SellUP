@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 
-/** La cabecera cuando la selección la toma («En el layout»). */
+/** La cabecera cuando la selección la toma («En la pantalla»). */
 export interface DataTableToolbarTakeOver {
   /** «3 seleccionadas». */
   label: string;
@@ -34,7 +34,7 @@ interface DataTableToolbarProps<TData> {
   /** Sustantivo en plural, para nombrar el buscador. */
   noun?: string;
   /**
-   * Con filas marcadas y las acciones «en el layout», la barra de título deja
+   * Con filas marcadas y las acciones «En la pantalla», la barra de título deja
    * paso: el recuento y lo que se puede hacer con ello ocupan su sitio, y
    * vuelve sola al soltar la selección.
    */

@@ -32,7 +32,7 @@ function batchKind(batch: SocrataPreviewBatchListItem): BatchKind {
 }
 
 const detailHref = (batch: SocrataPreviewBatchListItem) =>
-  `/settings/source-catalog/socrata-batches/${batch.id}`;
+  `/source-catalog/socrata-batches/${batch.id}`;
 
 interface SocrataBatchesTableProps {
   batches: SocrataPreviewBatchListItem[];

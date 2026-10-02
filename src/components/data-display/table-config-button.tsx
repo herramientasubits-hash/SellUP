@@ -8,10 +8,8 @@ import {
   EyeOff,
   GripVertical,
   Layers,
-  LayoutDashboard,
   LayoutList,
   Lock,
-  MousePointerClick,
   Pin,
   PinOff,
   ScrollText,
@@ -25,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useColumnDrag } from "./use-column-drag";
 import type {
-  TableActionsPlacement,
   TableConfig,
   TableRowControl,
   TableRowsMode,
@@ -79,21 +76,6 @@ const ROW_CONTROLS: Choice<TableRowControl>[] = [
     label: "Menú en cada fila",
     hint: () => "Sin casillas: cada fila lleva su botón de acciones.",
     icon: Ellipsis,
-  },
-];
-
-const ACTIONS: Choice<TableActionsPlacement>[] = [
-  {
-    id: "rail",
-    label: "En la barra flotante",
-    hint: () => "Abajo, al centro: aparecen en cuanto marcas algo.",
-    icon: MousePointerClick,
-  },
-  {
-    id: "inline",
-    label: "En el layout",
-    hint: () => "En la cabecera de la lista, que se transforma mientras hay algo marcado.",
-    icon: LayoutDashboard,
   },
 ];
 
@@ -168,8 +150,6 @@ export interface TableConfigButtonProps {
   showRowsMode?: boolean;
   /** Cierto donde las filas se pueden operar marcándolas o con un menú propio. */
   showRowControl?: boolean;
-  /** Cierto donde hay acciones sobre lo marcado que colocar. */
-  showActionsPlacement?: boolean;
   /** Secciones propias de la pantalla (p. ej. filtros de alcance), sobre las columnas. */
   extraSections?: React.ReactNode;
   className?: string;
@@ -180,7 +160,10 @@ export interface TableConfigButtonProps {
  *
  * @example
  * const config = useTableConfig("accounts", specs);
- * <TableConfigButton config={config} noun="empresas" showActionsPlacement />
+ * <TableConfigButton config={config} noun="empresas" showRowControl />
+ *
+ * «Dónde van las acciones» ya no se ofrece aquí: se elige una vez para toda la
+ * app, en «Personalización» (menú de la marca) o en los ajustes de la barra.
  */
 export function TableConfigButton({
   config,
@@ -188,7 +171,6 @@ export function TableConfigButton({
   showView = false,
   showRowsMode = true,
   showRowControl = false,
-  showActionsPlacement = false,
   extraSections,
   className,
 }: TableConfigButtonProps) {
@@ -393,15 +375,6 @@ export function TableConfigButton({
             choices={ROW_CONTROLS}
             value={config.rowControl}
             onChange={config.setRowControl}
-            noun={noun}
-          />
-        )}
-        {showActionsPlacement && (
-          <ChoiceGroup
-            title="Dónde van las acciones"
-            choices={ACTIONS}
-            value={config.actions}
-            onChange={config.setActions}
             noun={noun}
           />
         )}
