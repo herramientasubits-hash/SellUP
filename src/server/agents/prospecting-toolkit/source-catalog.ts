@@ -113,6 +113,11 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'El RUC se guarda con dígito verificador (por ejemplo 80002201-7).',
     'Un nombre repetido no da un RUC seguro; queda como señal.',
   ],
+  CR: [
+    'Costa Rica no publica un padrón completo de sociedades: la cédula por nombre cubre PYMES activas del MEIC (enero de 2025) y proveedores del Estado de SICOP con nombre.',
+    'Las empresas grandes casi no aparecen (la lista del MEIC es de micro, pequeñas y medianas).',
+    'Nombres repetidos o genéricos no dan una cédula segura.',
+  ],
   UY: [
     'El RUT por nombre sólo cubre empresas que alguna vez fueron proveedoras del Estado (RUPE).',
     'Empresas que nunca vendieron al Estado no aparecen.',
@@ -1610,6 +1615,34 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   },
 
   // ── Costa Rica ──────────────────────────────────────────────────────────────
+  {
+    key: 'cr_company_registry',
+    name: 'PYMES activas MEIC + proveedores SICOP — cédula jurídica por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      '18.216 sociedades con cédula jurídica cargadas (16.491 PYMES activas del MEIC + 1.725 proveedores de SICOP con nombre). El Agente 1 completa la cédula jurídica por nombre en cada corrida.',
+    countryCodes: ['CR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://datos.go.cr/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Combinación de tres archivos oficiales y gratuitos de datos.go.cr (CC-BY): la lista de PYMES activas del MEIC (enero de 2025) y los archivos de recursos y aclaraciones de SICOP 2022-2024 (Hacienda), que sí traen el nombre del proveedor. 18.216 sociedades (cédula 3…). En cada corrida del Agente 1 completa la cédula jurídica por nombre de empresa. El 99,8 % de los nombres es único. Cédula segura sólo cuando exactamente una cédula tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+    limitations: [
+      'Sólo PYMES activas (micro, pequeñas y medianas) y proveedores del Estado: las empresas grandes casi no aparecen.',
+      'La lista del MEIC es de enero de 2025; requiere recarga para reflejar altas y bajas.',
+      'Sólo cédulas jurídicas de sociedades (3…): no incluye personas físicas, DIMEX ni entes estatales.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'La cédula jurídica no tiene dígito verificador documentado: sólo se valida la forma (10 dígitos).',
+      'El snapshot cr_sicop anterior se cargó sin nombres y no sirve para buscar por nombre; ésta es la fuente que se usa.',
+    ],
+  },
   {
     key: 'cr_sicop',
     name: 'SICOP Costa Rica (datos.go.cr)',
