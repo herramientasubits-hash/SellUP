@@ -25,7 +25,12 @@ import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batc
 import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
 import { ClaudeClassifyBatchButton } from '@/components/prospect-batches/claude-classify-batch-button';
 import { ClaudeRescueBatchButton } from '@/components/prospect-batches/claude-rescue-batch-button';
-import { isAgent1ClaudeClassifierEnabled, isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
+import { ClaudeCompanySearchButton } from '@/components/prospect-batches/claude-company-search-button';
+import {
+  isAgent1ClaudeClassifierEnabled,
+  isAgent1ClaudeCompanySearchEnabled,
+  isAgent1ClaudeRescueEnabled,
+} from '@/lib/feature-flags.server';
 import { countClaudeClassificationEligible } from '@/server/agents/prospecting-toolkit/claude-classifier/classification-metadata';
 import {
   getProspectBatchById,
@@ -219,6 +224,9 @@ export default async function BatchDetailPage({ params }: Props) {
                 <RehydrateBatchButton batchId={batch.id} />
               )}
             {isAdmin && isAgent1ClaudeRescueEnabled() && <ClaudeRescueBatchButton batchId={batch.id} />}
+            {isAdmin && isAgent1ClaudeCompanySearchEnabled() && batch.source === 'agent_1' && (
+              <ClaudeCompanySearchButton batchId={batch.id} />
+            )}
             {isAdmin && !isAgent1ClaudeRescueEnabled() && claudeEligibleCount > 0 && (
               <ClaudeClassifyBatchButton batchId={batch.id} eligibleCount={claudeEligibleCount} />
             )}

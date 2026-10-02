@@ -231,7 +231,9 @@ export type WebSearchProviderKey =
   | "serpapi"
   | "exa"
   | "firecrawl"
-  | "apollo_organizations";
+  | "apollo_organizations"
+  // Agente 1 · Fase B paso 2 — Claude con búsqueda web (piloto, flag apagado).
+  | "claude";
 
 export type WebSearchIntent =
   | "company_discovery"

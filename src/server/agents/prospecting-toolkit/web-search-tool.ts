@@ -27,6 +27,7 @@ import type {
 } from './types';
 import { runMockWebSearch } from './web-search-providers/mock-web-search-provider';
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
+import { runClaudeWebSearch } from './web-search-providers/claude-web-search-provider';
 import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
 import {
   runApolloOrganizationsSearch,
@@ -145,6 +146,9 @@ async function dispatchToProvider(
       return runTavilyWebSearch(input, maxResults);
     case 'google_cse':
       return runGoogleCseWebSearch(input, maxResults);
+    case 'claude':
+      // Sin el contexto del piloto (`withClaudeSearchContext`) devuelve `skipped`.
+      return runClaudeWebSearch(input, maxResults);
     case 'apollo_organizations':
       return runApolloOrganizationsSearch(
         input,
@@ -534,9 +538,10 @@ export async function runMultiQueryWebSearch(
   const { kept, filteredCount: noiseFilteredCount } = filterNoiseResults(dedupedResults);
 
   // ── Paso 3b: AGENT1-TAVILY-V2-2 — dominio claramente de otro país ─────────
-  // Sólo Tavily: Apollo y Lusha ya filtran por país en el proveedor. Corre antes
-  // de ordenar y recortar, para que el cupo no lo ocupen empresas de otro país.
-  const applyForeignCctldGuard = provider === 'tavily' && !!input.countryCode;
+  // Sólo búsqueda web abierta (Tavily y el piloto de Claude): Apollo y Lusha ya
+  // filtran por país en el proveedor. Corre antes de ordenar y recortar, para que
+  // el cupo no lo ocupen empresas de otro país.
+  const applyForeignCctldGuard = (provider === 'tavily' || provider === 'claude') && !!input.countryCode;
   const countryKept = applyForeignCctldGuard
     ? kept.filter((r) => findForeignCctld(r.url, input.countryCode) === null)
     : kept;
