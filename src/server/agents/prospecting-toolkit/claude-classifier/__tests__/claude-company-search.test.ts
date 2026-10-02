@@ -260,6 +260,7 @@ const SOURCE: SourceBatch = {
   countryCode: 'CO',
   industry: 'Tecnología',
   industryId: 'tec-id',
+  macroIndustryKey: 'technology',
   subindustries: [],
   additionalCriteria: null,
 };
@@ -325,6 +326,7 @@ describe('C. runClaudeCompanySearch', () => {
     assert.equal(meta.claude_company_search.source_batch_id, 'b1');
     assert.equal(meta.claude_company_search.pilot, true);
     assert.equal(meta.claude_company_search.run_id, 'run-1');
+    assert.equal((meta.claude_company_search as { macro_industry_key?: string }).macro_industry_key, 'technology');
     assert.deepEqual(
       f.logs.map((l) => [l.operation_key, l.batch_id, l.metadata?.run_id, l.metadata?.source_batch_id]),
       [

@@ -33,6 +33,8 @@ export type SourceBatch = {
   industry: string;
   /** `metadata.industry_id`: lo usa el rescate para saber la macroindustria pedida. */
   industryId: string | null;
+  /** Clave canónica de la macro (p. ej. 'technology'): para leer el banco de empresas. */
+  macroIndustryKey: string | null;
   subindustries: string[];
   additionalCriteria: string | null;
 };
@@ -41,8 +43,11 @@ export type CompanySearchCall = CompanySearchOutcome & { query: string; duration
 
 export type ClaudeCompanySearchDeps = {
   loadSourceBatch: (batchId: string) => Promise<SourceBatch | null>;
-  /** Dominios ya vistos en SellUp para este país × industria (candidatos y descartadas). */
-  loadExcludedDomains: (countryCode: string, industry: string) => Promise<string[]>;
+  /**
+   * Dominios ya vistos en SellUp para este país × industria (candidatos, descartadas y,
+   * si está disponible, el banco de empresas).
+   */
+  loadExcludedDomains: (source: SourceBatch) => Promise<string[]>;
   /** Corridas anteriores del piloto para este país × industria (para rotar regiones). */
   countPreviousRuns: (countryCode: string, industry: string) => Promise<number>;
   /** Regiones del país (las mismas que usa Tavily); vacío ⇒ sólo consultas nacionales. */
@@ -181,7 +186,7 @@ export async function runClaudeCompanySearch(
   // Sin la lista de ya conocidas, Claude traería repetidas (y se pagarían): no se busca.
   let excludeDomains: string[];
   try {
-    excludeDomains = await deps.loadExcludedDomains(source.countryCode, source.industry);
+    excludeDomains = await deps.loadExcludedDomains(source);
   } catch (err) {
     return { ok: false, error: 'exclusions_unavailable', detail: err instanceof Error ? err.message : String(err) };
   }
@@ -232,6 +237,7 @@ export async function runClaudeCompanySearch(
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
               pilot: true,
               run_id: runId,
+              ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               source_batch_id: source.id,
               queries,
               previous_runs: previousRuns,
