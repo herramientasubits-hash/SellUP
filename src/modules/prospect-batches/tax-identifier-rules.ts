@@ -475,6 +475,24 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: 'A58710740',
     ruleVersion: 'ES-NIF-v1',
   },
+  CR: {
+    countryCode: 'CR',
+    label: 'Cédula jurídica',
+    placeholder: 'Ej. 3-101-052623',
+    helpText: 'Ingrese la cédula jurídica de 10 dígitos (con o sin guiones).',
+    minLength: 10,
+    maxLength: 12,
+    inputMode: 'text',
+    acceptedCharacters: /^[\d\s-]*$/,
+    formatPattern: /^\d{10}$/,
+    // SOURCES-CR-CEDULA-BY-NAME-1: no hay dígito verificador documentado para la
+    // cédula jurídica; sólo se valida la forma.
+    validationLevel: 'format_only',
+    normalize: (val) => val.replace(/[\s-]/g, ''),
+    validateFormat: (val) => /^[234]\d{9}$/.test(val.replace(/[\s-]/g, '')),
+    canonicalExample: '3101052623',
+    ruleVersion: 'CR-CEDJUR-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {

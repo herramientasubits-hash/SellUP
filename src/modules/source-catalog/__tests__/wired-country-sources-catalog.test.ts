@@ -36,6 +36,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'us_irs_eo_registry', country: 'US', status: 'connected_identity_in_run' },
   { key: 'es_placsp_registry', country: 'ES', status: 'connected_identity_in_run' },
   { key: 'cl_res_registry', country: 'CL', status: 'connected_identity_in_run' },
+  { key: 'cr_company_registry', country: 'CR', status: 'connected_identity_in_run' },
 ];
 
 const INDUSTRIES = ['technology', 'health_pharma', 'government', 'retail', 'Tecnología'];

@@ -13,8 +13,8 @@
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
- * España (es_placsp_registry, adjudicatarias) name→NIF and Chile
- * (cl_res_registry) name→RUT. No promise of MX/… enrichment
+ * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
+ * (cl_res_registry) name→RUT and Costa Rica (cr_company_registry) name→cédula jurídica. No promise of MX/… enrichment
  * is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -62,6 +62,7 @@ import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
+import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -197,6 +198,15 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^\d{7,8}-[\dK]$/,
       normalizeCore: normalizeChileCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cl_res_registry', 'CL'),
+    }),
+    // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'CR',
+      sourceKey: 'cr_company_registry',
+      taxIdentifierType: 'cedula_juridica',
+      validTaxId: /^3\d{9}$/,
+      normalizeCore: normalizeCostaRicaCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cr_company_registry', 'CR'),
     }),
   ];
 }
