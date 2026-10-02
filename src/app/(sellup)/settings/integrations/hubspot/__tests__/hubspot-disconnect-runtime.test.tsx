@@ -157,6 +157,11 @@ describe('HubSpot — Desconectar cuando la acción falla', () => {
     // La acción de servidor real nunca se tocó: se usó la inyectada.
     assert.deepEqual(calls, []);
 
+    // El motivo se pinta antes de que la transición termine: mientras dura, el
+    // botón sigue apagado y un clic se pierde. Se reintenta cuando ya responde.
+    await waitFor(() =>
+      assert.equal((buttonIn(dialog()!, 'Desconectar') as HTMLButtonElement).disabled, false),
+    );
     fireEvent.click(buttonIn(dialog()!, 'Desconectar'));
     await waitFor(() => assert.deepEqual(attempts, [1, 2]));
   });
