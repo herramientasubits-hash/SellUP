@@ -210,6 +210,14 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       };
     },
     reopenDiscardedCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch, 'discarded'),
+    loadBatchHasClaudeCompanySearch: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      return !!(data as { metadata?: Record<string, unknown> | null } | null)?.metadata?.claude_company_search;
+    },
     classify: classifyCompanyLive,
     logUsage: logProviderUsage,
     patchCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch),

@@ -41,6 +41,15 @@ export type SourceBatch = {
 
 export type CompanySearchCall = CompanySearchOutcome & { query: string; durationMs: number };
 
+export type WrittenCandidates = {
+  batchId: string | null;
+  candidatesCreated: number;
+  /** La verdad del escritor (aceptadas para la meta); null = no medido. */
+  completeValidCandidates?: number | null;
+  acceptedCandidateIds?: readonly string[];
+  errors: string[];
+};
+
 export type ClaudeCompanySearchDeps = {
   loadSourceBatch: (batchId: string) => Promise<SourceBatch | null>;
   /**
@@ -64,11 +73,15 @@ export type ClaudeCompanySearchDeps = {
     /** Se llama al terminar CADA llamada a Claude: registra lo pagado al instante. */
     onCall: (call: CompanySearchCall) => Promise<void>;
   }) => Promise<{ pipelineOutput: unknown; calls: CompanySearchCall[] }>;
-  /** Escribe en un lote NUEVO; null si el escritor falló. */
+  /**
+   * Escribe con el escritor de siempre: en un lote NUEVO (botón) o en el lote de la
+   * corrida del asistente (`existingBatchId`, sin sellar su estado). batchId null = falló.
+   */
   writeCandidates: (params: {
     pipelineOutput: unknown;
     metadata: Record<string, unknown>;
-  }) => Promise<{ batchId: string | null; candidatesCreated: number; errors: string[] }>;
+    existingBatchId?: string;
+  }) => Promise<WrittenCandidates>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   newRunId: () => string;
   nowIso: () => string;
@@ -80,6 +93,8 @@ export type ClaudeCompanySearchSummary =
       ok: true;
       batchId: string | null;
       candidatesCreated: number;
+      completeValidCandidates: number | null;
+      acceptedCandidateIds: readonly string[];
       proposed: number;
       passedPreFilter: number;
       rejected: Record<string, number>;
@@ -142,11 +157,13 @@ function addCounts(target: Record<string, number>, extra: Partial<Record<string,
  */
 export function buildCompanySearchUsageLog(
   call: CompanySearchCall,
-  context: { runId: string; sourceBatchId: string; triggeredBy: string; index: number },
+  context: { runId: string; sourceBatchId: string; triggeredBy: string; index: number; batchId?: string | null },
 ): LogProviderUsageInput | null {
   if (!call.usage) return null;
   const isError = call.errorCode !== null;
   return {
+    // En la corrida del asistente el lote ya existe: el uso queda asociado a él.
+    ...(context.batchId ? { batch_id: context.batchId } : {}),
     usage_key: `${CLAUDE_COMPANY_SEARCH_OPERATION_KEY}:${context.runId}:${context.index}`,
     provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
     operation_key: CLAUDE_COMPANY_SEARCH_OPERATION_KEY,
@@ -174,9 +191,20 @@ export function buildCompanySearchUsageLog(
 }
 
 export async function runClaudeCompanySearch(
-  params: { sourceBatchId: string; triggeredBy: string },
+  params: {
+    sourceBatchId: string;
+    triggeredBy: string;
+    /**
+     * Paso automático del asistente: escribe en ESTE lote (el de la corrida) y cuenta
+     * para su meta. Ausente (botón) ⇒ lote nuevo.
+     */
+    writeIntoSourceBatch?: boolean;
+    /** Tiempo para EMPEZAR consultas; por defecto CLAUDE_COMPANY_SEARCH_PHASE_MS. */
+    phaseMs?: number;
+  },
   deps: ClaudeCompanySearchDeps,
 ): Promise<ClaudeCompanySearchSummary> {
+  const intoBatchId = params.writeIntoSourceBatch ? params.sourceBatchId : null;
   const source = await deps.loadSourceBatch(params.sourceBatchId);
   if (!source) return { ok: false, error: 'source_batch_not_found' };
   const active = await deps.resolveActiveModel();
@@ -200,6 +228,7 @@ export async function runClaudeCompanySearch(
       sourceBatchId: source.id,
       triggeredBy: params.triggeredBy,
       index: callIndex++,
+      batchId: intoBatchId,
     });
     if (log) await deps.logUsage(log);
   };
@@ -211,7 +240,7 @@ export async function runClaudeCompanySearch(
       queries,
       excludeDomains,
       active,
-      deadlineAtMs: deps.nowMs() + CLAUDE_COMPANY_SEARCH_PHASE_MS,
+      deadlineAtMs: deps.nowMs() + (params.phaseMs ?? CLAUDE_COMPANY_SEARCH_PHASE_MS),
       onCall,
     });
   } catch (err) {
@@ -230,12 +259,15 @@ export async function runClaudeCompanySearch(
     passedPreFilter > 0
       ? await deps.writeCandidates({
           pipelineOutput: search.pipelineOutput,
+          ...(intoBatchId ? { existingBatchId: intoBatchId } : {}),
           metadata: {
-            ...(source.industryId ? { industry_id: source.industryId } : {}),
-            ...(source.additionalCriteria ? { additional_criteria: source.additionalCriteria } : {}),
+            // En el lote del asistente estas claves ya existen: no se tocan.
+            ...(!intoBatchId && source.industryId ? { industry_id: source.industryId } : {}),
+            ...(!intoBatchId && source.additionalCriteria ? { additional_criteria: source.additionalCriteria } : {}),
             [CLAUDE_COMPANY_SEARCH_METADATA_KEY]: {
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
-              pilot: true,
+              pilot: !intoBatchId,
+              mode: intoBatchId ? 'wizard_leg' : 'button',
               run_id: runId,
               ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               source_batch_id: source.id,
@@ -250,7 +282,7 @@ export async function runClaudeCompanySearch(
             },
           },
         })
-      : { batchId: null, candidatesCreated: 0, errors: [] };
+      : ({ batchId: null, candidatesCreated: 0, errors: [] } as WrittenCandidates);
 
   if (passedPreFilter > 0 && !written.batchId) {
     return { ok: false, error: 'write_failed', detail: written.errors.join('; ') };
@@ -259,6 +291,8 @@ export async function runClaudeCompanySearch(
     ok: true,
     batchId: written.batchId,
     candidatesCreated: written.candidatesCreated,
+    completeValidCandidates: written.completeValidCandidates ?? null,
+    acceptedCandidateIds: written.acceptedCandidateIds ?? [],
     proposed,
     passedPreFilter,
     rejected,
