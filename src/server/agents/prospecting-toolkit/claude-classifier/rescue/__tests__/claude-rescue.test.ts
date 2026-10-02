@@ -511,7 +511,7 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
     assert.equal(s.ok && s.candidatesDiscarded, 0);
   });
 
-  it('un medio en un lote de Tecnología con otra macro y tamaño de Lusha → industria corregida, no cuenta como Tecnología', async () => {
+  it('un medio en un lote de Tecnología (cita comprobada, confianza alta) se descarta — aunque tenga otra macro y tamaño (02-10)', async () => {
     const f = fakeDeps({
       loadReviewCandidates: async () => [lushaRow],
       loadDispositions: async () => [],
@@ -528,8 +528,8 @@ describe('F2. Lusha entra al rescate para revisar el sector', () => {
         }),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
-    assert.equal(s.ok && s.candidatesDiscarded, 0);
-    assert.equal(s.ok && s.reassigned, 1);
+    assert.equal(s.ok && s.candidatesDiscarded, 1);
+    assert.equal(s.ok && s.reassigned, 0);
   });
 });
 
