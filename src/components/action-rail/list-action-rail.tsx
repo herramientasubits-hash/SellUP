@@ -131,6 +131,28 @@ export function ListActionRailProvider({ children, label, gender = "m" }: ListAc
 }
 
 /**
+ * Por dónde hay que dejarle sitio a la barra flotante: abajo cuando va tendida
+ * (y en estrecho, donde es un botón en la esquina), a la derecha cuando va de
+ * pie, y por ningún lado cuando quien mira la arrastró a otro sitio o cuando
+ * las acciones van «En la pantalla» (no hay barra).
+ *
+ * `ActionRailReserve` ya lo aplica en las pantallas de alto fijo. Una pantalla
+ * que se desplaza entera (`DataTablePage pageScroll`) lo usa para dejar el
+ * hueco al FINAL de su contenido, que es donde la barra lo taparía.
+ */
+export function useActionRailReserveSide(): "bottom" | "right" | null {
+  const [placement] = useActionsPlacement();
+  const [orientation] = useRailOrientation();
+  const [position] = useRailPosition();
+  const isCompact = useCompactViewport();
+
+  if (placement === "inline") return null;
+  if (isCompact) return "bottom";
+  if (position !== null) return null;
+  return orientation === "vertical" ? "right" : "bottom";
+}
+
+/**
  * ActionRailReserve
  *
  * El hueco que la barra flotante necesita para no tapar el pie de la tabla:
@@ -146,22 +168,8 @@ export function ListActionRailProvider({ children, label, gender = "m" }: ListAc
  * <ActionRailReserve><ListPageSkeleton … /></ActionRailReserve>
  */
 export function ActionRailReserve({ children }: { children: React.ReactNode }) {
-  const [placement] = useActionsPlacement();
-  const [orientation] = useRailOrientation();
-  const [position] = useRailPosition();
-  const isCompact = useCompactViewport();
-
-  const isDocked = position === null;
-  const reserve =
-    placement === "inline"
-      ? ""
-      : isCompact
-        ? "pb-20"
-        : !isDocked
-          ? ""
-          : orientation === "vertical"
-            ? "pr-20"
-            : "pb-20";
+  const side = useActionRailReserveSide();
+  const reserve = side === "bottom" ? "pb-20" : side === "right" ? "pr-20" : "";
 
   return (
     <div data-slot="action-rail-reserve" className={cn("flex min-h-0 flex-1 flex-col", reserve)}>

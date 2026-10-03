@@ -55,6 +55,7 @@ export {
   ActionRailReserve,
   ListActionRailProvider,
   RailScreenActions,
+  useActionRailReserveSide,
   useRailSelectionReporter,
 } from "./list-action-rail";
 export type { RailSelectionReport } from "./list-action-rail";

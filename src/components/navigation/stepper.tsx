@@ -23,6 +23,11 @@ export interface StepperProps extends Omit<React.HTMLAttributes<HTMLOListElement
   /** Si se pasa, los pasos completados, actuales o con error se vuelven botones. Los pendientes quedan deshabilitados. */
   onStepClick?: (index: number) => void;
   size?: "sm" | "default";
+  /**
+   * Deja pulsar también los pasos pendientes. Para una pista que NAVEGA (lleva
+   * a la sección de cada paso) en vez de avanzar un flujo. Por defecto, no.
+   */
+  clickableUpcoming?: boolean;
 }
 
 type StepperSize = NonNullable<StepperProps["size"]>;
@@ -101,6 +106,7 @@ export function Stepper({
   orientation = "horizontal",
   onStepClick,
   size = "default",
+  clickableUpcoming = false,
   className,
   ...props
 }: StepperProps) {
@@ -119,7 +125,7 @@ export function Stepper({
         const status = resolveStatus(step, index, current);
         const isLast = index === steps.length - 1;
         const isConnectorDone = status === "complete";
-        const isClickable = Boolean(onStepClick) && status !== "upcoming";
+        const isClickable = Boolean(onStepClick) && (clickableUpcoming || status !== "upcoming");
 
         const stepClasses = cn(
           "relative flex min-w-0 text-left",

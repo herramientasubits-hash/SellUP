@@ -123,3 +123,22 @@ describe('DataTablePage — compact', () => {
     assert.ok(screen.getByText('métricas'));
   });
 });
+
+describe('DataTablePage — pageScroll', () => {
+  it('por defecto es su propia caja con scroll', () => {
+    render(page({ title: 'Empresas' }));
+
+    const box = screen.getByRole('heading', { level: 1 }).closest('div[class*="overflow-y-auto"]');
+    assert.ok(box, 'la página es una caja con scroll propio');
+  });
+
+  it('con pageScroll no crea una caja con scroll: se desplaza la página del shell', () => {
+    const { container } = render(page({ compact: true, pageScroll: true, title: 'Pipeline' }));
+
+    assert.equal(container.querySelector('[class*="overflow-y-auto"]'), null);
+    const root = screen.getByRole('heading', { level: 1 }).closest('header')?.parentElement as HTMLElement;
+    assert.match(root.className, /\bshrink-0\b/);
+    assert.doesNotMatch(root.className, /min-h-0/);
+    assert.ok(screen.getByText('tabla') || true);
+  });
+});

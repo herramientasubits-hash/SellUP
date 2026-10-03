@@ -4,14 +4,8 @@ import * as React from "react";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
-import { Tag } from "@/components/ui/tag";
+import { ActiveFilterChips, type ActiveFilterChip } from "@/components/filters/active-filter-chips";
 import type { DataTableColumnMeta } from "./data-table-column-meta";
-
-interface ActiveFilterChip {
-  key: string;
-  label: string;
-  onRemove: () => void;
-}
 
 /** Un filtro que no es una lista de valores, dicho en una línea. */
 function describeFilterValue(value: unknown): string {
@@ -88,28 +82,13 @@ export function DataTableActiveFilters<TData>({
   if (chips.length === 0) return null;
 
   return (
-    <div
-      role="group"
-      aria-label="Filtros activos"
-      className={cn(
-        "flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border/60 bg-surface-subtle px-4 py-2 sm:px-5",
-        className,
-      )}
-    >
-      <span className="text-xs text-muted-foreground">Filtros:</span>
-      {chips.map((chip) => (
-        <Tag key={chip.key} label={chip.label} removable onRemove={chip.onRemove} className="border-border/60 bg-card text-foreground" />
-      ))}
-      <button
-        type="button"
-        onClick={() => {
-          table.resetColumnFilters(true);
-          onGlobalFilterChange("");
-        }}
-        className="ml-1 rounded-sm text-xs font-medium text-primary underline-offset-2 outline-none transition-colors hover:underline focus-visible:ring-3 focus-visible:ring-ring/40"
-      >
-        Limpiar todo
-      </button>
-    </div>
+    <ActiveFilterChips
+      chips={chips}
+      onClearAll={() => {
+        table.resetColumnFilters(true);
+        onGlobalFilterChange("");
+      }}
+      className={cn("border-b border-border/60 bg-surface-subtle px-4 py-2 sm:px-5", className)}
+    />
   );
 }
