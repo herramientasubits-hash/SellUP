@@ -49,6 +49,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-CL-RUT-BY-NAME-1 — un RUT, una fila (sociedades del Registro de Empresas y Sociedades).
   cl_res_registry: 'TAX_GRAIN',
   cl_sii_registry: 'TAX_GRAIN',
+  // SOURCES-EC-FREE-DISCOVERY-1 — un RUC, una fila (compañías activas de 200+ empleados de la SCVS).
+  ec_scvs_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
