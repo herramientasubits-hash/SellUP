@@ -1,6 +1,7 @@
 import { isValidElement, type ReactNode } from "react";
 import { Info } from "@/icons";
 import { cn } from "@/lib/utils";
+import { TONE_CHIP as TONE_CHIP_SISTEMA, TONE_FILL, TONE_TEXT } from "@/lib/tone";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -42,32 +43,9 @@ interface MetricCardProps {
   compact?: boolean;
 }
 
-const TONE_BAR: Record<MetricTone, string> = {
-  brand: "bg-primary",
-  positive: "bg-success",
-  warning: "bg-warning",
-  negative: "bg-destructive",
-  info: "bg-info",
-  neutral: "bg-border-strong",
-};
-
-const TONE_CHIP: Record<MetricTone, string> = {
-  brand: "bg-primary/10 text-primary",
-  positive: "bg-success/10 text-success",
-  warning: "bg-warning/15 text-warning",
-  negative: "bg-destructive/10 text-destructive",
-  info: "bg-info/10 text-info",
-  neutral: "bg-surface-muted text-muted-foreground",
-};
-
-const TONE_TEXT: Record<MetricTone, string> = {
-  brand: "text-primary",
-  positive: "text-success",
-  warning: "text-warning",
-  negative: "text-destructive",
-  info: "text-info",
-  neutral: "text-muted-foreground",
-};
+/** Los mapas de tono son los del sistema (`@/lib/tone`): aquí solo se nombran por su uso. */
+const TONE_BAR: Readonly<Record<MetricTone, string>> = TONE_FILL;
+const TONE_CHIP: Readonly<Record<MetricTone, string>> = TONE_CHIP_SISTEMA;
 
 const CARD =
   "relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card";

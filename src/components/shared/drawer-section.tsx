@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "@/icons";
 import { cn } from "@/lib/utils";
+import { TONE_CHIP } from "@/lib/tone";
 
 export type DrawerSectionTone =
   | "brand"
@@ -9,14 +10,8 @@ export type DrawerSectionTone =
   | "negative"
   | "neutral";
 
-/** El tinte del chip del icono por tono. Lo comparte la sección plegable. */
-export const DRAWER_SECTION_TONE_CHIP: Record<DrawerSectionTone, string> = {
-  brand: "bg-primary/10 text-primary",
-  positive: "bg-success/10 text-success",
-  warning: "bg-warning/15 text-warning",
-  negative: "bg-destructive/10 text-destructive",
-  neutral: "bg-surface-muted text-muted-foreground",
-};
+/** El tinte del chip del icono por tono (el del sistema, `@/lib/tone`). Lo comparte la sección plegable. */
+export const DRAWER_SECTION_TONE_CHIP: Readonly<Record<DrawerSectionTone, string>> = TONE_CHIP;
 
 interface DrawerSectionProps {
   title: string;

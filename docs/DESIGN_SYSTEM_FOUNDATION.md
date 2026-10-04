@@ -296,11 +296,55 @@ Usado temporalmente en todas las páginas placeholder. Debe reemplazarse por el 
 
 ---
 
+### Tonos — `@/lib/tone`
+
+Un solo mapa de tonos para toda la interfaz: `brand`, `positive`, `warning`, `negative`, `info`, `violet` y `neutral`. Cada pieza lo traduce a su uso, sin copiar el mapa:
+
+| Mapa | Uso | Ejemplo (`warning`) |
+|------|-----|---------------------|
+| `TONE_CHIP` | Caja o disco de un icono | `bg-warning/15 text-warning` |
+| `TONE_TEXT` | Texto o icono suelto | `text-warning` |
+| `TONE_FILL` | Barra, filete, punto de leyenda | `bg-warning` |
+| `TONE_SOFT` | Velo de una tarjeta de acento | `bg-warning/5 border-warning/25` |
+| `TONE_BADGE` | Variante de `Badge` | `warning` |
+
+Criterio de color de un estado: **rojo** vencido, alto o error; **ámbar** pendiente o medio; **azul** activo o en curso; **verde** completado; **gris** borrador o sin dato. `violet` (= `chart-2`) es para distinguir categorías, nunca un estado.
+
+### IconChip
+
+**Ubicación:** `src/components/shared/icon-chip.tsx`
+
+El icono en su caja tintada (`rounded-xl`, tamaños `sm` · `md` · `lg`, tono de `@/lib/tone`). Es el gesto de color de la interfaz: junto al título de una sección, en una fila de pendientes, en una tarjeta de acción. No se escribe a mano `bg-primary/10 text-primary` alrededor de un icono.
+
+### Frame — marco y panel
+
+**Ubicación:** `src/components/shared/frame.tsx`
+
+Un marco tenue (`rounded-2xl border border-border/60 bg-surface-muted/60 p-1`) que envuelve uno o varios paneles blancos (`FramePanel`: `rounded-xl border border-border/60 bg-card shadow-card`). Se usa cuando varias partes se leen como UNA pieza: una tira de métricas, una tabla con su barra de herramientas, el detalle de un registro.
+
+```tsx
+<Frame>
+  <FrameHeader title="Tareas" description="12 tareas" actions={<SearchInput />} />
+  <FramePanel noPadding>{tabla}</FramePanel>
+  <FrameFooter>Actualizado hace 2 min</FrameFooter>
+</Frame>
+```
+
+- La cabecera y el pie van sobre la franja gris, **fuera** del panel.
+- La sombra va solo en el panel. El marco no tiene sombra.
+- `className` en `Frame` y `FramePanel` es solo layout (`flex-1 min-h-0`…), nunca color ni borde.
+
+### Movimiento — entradas y pestañas
+
+- Solo utilidades `animate-su-*` de `globals.css`; sin framer-motion.
+- El contenido de una pestaña entra con `animate-su-tab-in` (fundido + 4 px, 220 ms, `--ease-spring`).
+- Con `prefers-reduced-motion: reduce` todas las `animate-su-*` se apagan: el contenido aparece en su sitio.
+
 ### MetricCard
 
 **Ubicación:** `src/components/shared/metric-card.tsx`
 
-Card especializada para KPIs / métricas operativas. Sin borde visible — la separación contra el fondo se logra con un shadow muy sutil (`0 1px 2px 0 rgb(0 0 0 / 0.04)` en light, mismo peso invertido en dark). Esto replica el estilo "elevación sin contorno" del template UBITS para survey analytics.
+Card especializada para KPIs / métricas operativas. Misma superficie que el resto de tarjetas de página: `rounded-2xl border border-border/60 bg-card shadow-card`. Sus tonos salen de `@/lib/tone` (§ 6 · Tonos).
 
 ```tsx
 <MetricCard
@@ -317,7 +361,7 @@ Card especializada para KPIs / métricas operativas. Sin borde visible — la se
 
 Anatomía:
 
-- **Contenedor** — `rounded-2xl bg-card` + shadow sutil de 1px. Sin `border` (la sombra hace la separación).
+- **Contenedor** — `rounded-2xl border border-border/60 bg-card shadow-card`.
 - **Título** — `text-sm font-semibold text-foreground/80` (title-case, no uppercase)
 - **Descripción** — `text-xs text-muted-foreground/70 line-clamp-1` (gris más claro que el título, indica "qué mide")
 - **Value** — `text-3xl font-bold tracking-tight tabular-nums` (lo dominante visualmente)
@@ -434,7 +478,7 @@ Next-themes aplica la clase `.dark` al `<html>` cuando el usuario selecciona dar
 4. **No hardcodear colores** salvo en componentes de marca con justificación explícita (ej: panel izquierdo del login).
 5. **No introducir nuevas familias tipográficas** sin decisión de sistema.
 6. **No agregar sombras fuertes** (`shadow-xl` o superiores) en la app interna.
-7. **Usar `rounded-xl`** para cards y paneles. `rounded-md` para inputs y botones. `rounded-full` para badges y avatares.
+7. **Radios según § 5:** `rounded-2xl` para tarjetas de página, marcos (`Frame`) y drawers; `rounded-xl` para lo anidado (`FramePanel`, `IconChip`, tarjetas dentro de un panel). `rounded-md` para inputs, botones y badges. `rounded-full` para avatares y puntos.
 
 ### Recomendado
 
@@ -1277,7 +1321,7 @@ Receta para combinar todos los patrones. Aplica a cualquier página operativa de
 **Drawer (siguiendo § 11):**
 
 - [ ] Usar `DrawerShell` con `className="!w-[80vw] ..."`.
-- [ ] Si el detalle tiene > 1 área, envolver en `<Tabs variant="line">`.
+- [ ] Si el detalle tiene > 1 área, envolver en `<Tabs>` con `<TabsList variant="segmented">` (§ 11.4: en un drawer las pestañas son siempre `segmented`).
 - [ ] Footer: `Copiar [key]` + `Abrir URL` (si aplica). NUNCA "Abrir página completa".
 
 **Ajustes (auto via § 10.5):**
