@@ -214,9 +214,10 @@ export function FormularioProyeccion() {
         </div>
       </FormSection>
 
-      {/* Franja fija: el efecto de lo que se escribe, sin cambiar de pestaña. */}
+      {/* Franja fija: el efecto de lo que se escribe, sin cambiar de pestaña.
+          Flota separada del borde (bottom-4/6): pegada a él parecía cortada. */}
       {tieneDatos && (
-        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card px-5 py-3 shadow-drawer">
+        <div className="sticky bottom-4 z-10 mt-2 flex lg:bottom-6 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card px-5 py-3 shadow-drawer">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
             <Metrica etiqueta="Valor de mercado" valor={fmtUSD(resultado.totales.instalado)} />
             <Metrica
