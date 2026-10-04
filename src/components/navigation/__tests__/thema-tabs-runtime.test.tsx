@@ -180,3 +180,41 @@ describe('ThemaTabs — navega (misma anatomía, otra semántica)', () => {
     assert.equal(trigger.hasAttribute('data-active'), true);
   });
 });
+
+describe('cambio suave entre pestañas', () => {
+  it('la tira de paneles tiene UN indicador que se desliza, no una marca por pestaña', () => {
+    render(h(ThemaTabs, { fitContent: true, tabs: TABS, activeTabId: 'resumen', onTabChange: () => {} }));
+    const indicadores = list().querySelectorAll('[data-slot="tabs-indicator"]');
+    assert.equal(indicadores.length, 1);
+    assert.match((indicadores[0] as HTMLElement).className, /transition-\[left,top,width,height\]/);
+    assert.match((indicadores[0] as HTMLElement).className, /motion-reduce:transition-none/);
+    // La pestaña activa ya no pinta su propio fondo: lo pone el indicador.
+    const activa = document.querySelector('[data-slot="tabs-trigger"][data-active]') as HTMLElement;
+    assert.match(activa.className, /data-active:bg-transparent/);
+  });
+
+  it('el panel entra con el fundido de pestaña', () => {
+    render(
+      h(
+        Tabs,
+        { defaultValue: 'a' },
+        h(TabsList, null, h(TabsTrigger, { value: 'a' }, 'A'), h(TabsTrigger, { value: 'b' }, 'B')),
+        h(TabsContent, { value: 'a' }, 'Panel A'),
+        h(TabsContent, { value: 'b' }, 'Panel B'),
+      ),
+    );
+    assert.match(screen.getByText('Panel A').className, /animate-su-tab-in/);
+    fireEvent.click(screen.getByRole('tab', { name: 'B' }));
+    assert.match(screen.getByText('Panel B').className, /animate-su-tab-in/);
+  });
+
+  it('la tira que navega mueve la marca al pulsar, sin esperar a la nueva ruta', () => {
+    render(h(TabsNav, { tabs: TABS, activeTabId: 'resumen', onTabChange: () => {} }));
+    assert.equal(list().querySelectorAll('[data-slot="tabs-indicator"]').length, 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Listos' }));
+    const actual = Array.from(list().querySelectorAll('button'))
+      .filter((b) => b.hasAttribute('data-active'))
+      .map((b) => b.textContent);
+    assert.deepEqual(actual, ['Listos']);
+  });
+});

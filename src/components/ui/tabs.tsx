@@ -24,7 +24,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit max-w-full items-center justify-start overflow-x-auto rounded-lg p-1 [scrollbar-width:none] text-muted-foreground group-data-horizontal/tabs:h-9 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list relative inline-flex w-fit max-w-full items-center justify-start overflow-x-auto rounded-lg p-1 [scrollbar-width:none] text-muted-foreground group-data-horizontal/tabs:h-9 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
@@ -66,9 +66,27 @@ export function resolveTabsVariant(variant: TabsVariant | null | undefined): Tab
   return variant;
 }
 
+/**
+ * La marca de la pestaña activa: una sola pieza que se DESLIZA hasta la nueva
+ * en vez de que una se apague y otra se encienda. Lee la posición de las
+ * variables `--active-tab-*` (las escribe `Tabs.Indicator` de Base UI, o
+ * `useNavIndicator` en una tira que navega) y toma su forma de la variante de
+ * la lista: superficie elevada en `view`, pastilla primaria en `page`, filete
+ * en `line`. Va por debajo de las pestañas (`z-0`); su texto queda encima.
+ */
+export const tabsIndicatorClassName = cn(
+  "pointer-events-none absolute z-0 transition-[left,top,width,height] duration-250 ease-(--ease-spring) motion-reduce:transition-none",
+  // view y page: una caja con el tamaño de la pestaña activa.
+  "group-data-[variant=default]/tabs-list:top-(--active-tab-top) group-data-[variant=default]/tabs-list:left-(--active-tab-left) group-data-[variant=default]/tabs-list:h-(--active-tab-height) group-data-[variant=default]/tabs-list:w-(--active-tab-width) group-data-[variant=default]/tabs-list:rounded-md group-data-[variant=default]/tabs-list:bg-card group-data-[variant=default]/tabs-list:shadow-card dark:group-data-[variant=default]/tabs-list:bg-secondary",
+  "group-data-[variant=segmented]/tabs-list:top-(--active-tab-top) group-data-[variant=segmented]/tabs-list:left-(--active-tab-left) group-data-[variant=segmented]/tabs-list:h-(--active-tab-height) group-data-[variant=segmented]/tabs-list:w-(--active-tab-width) group-data-[variant=segmented]/tabs-list:rounded-sm group-data-[variant=segmented]/tabs-list:bg-primary",
+  // line: un filete de 2 px bajo la pestaña (o a su derecha, en vertical).
+  "group-data-[variant=line]/tabs-list:bg-primary group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:bottom-0 group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:left-(--active-tab-left) group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:h-0.5 group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:w-(--active-tab-width) group-data-vertical/tabs:group-data-[variant=line]/tabs-list:right-0 group-data-vertical/tabs:group-data-[variant=line]/tabs-list:top-(--active-tab-top) group-data-vertical/tabs:group-data-[variant=line]/tabs-list:h-(--active-tab-height) group-data-vertical/tabs:group-data-[variant=line]/tabs-list:w-0.5",
+);
+
 function TabsList({
   className,
   variant = "view",
+  children,
   ...props
 }: TabsPrimitive.List.Props & { variant?: TabsVariant | null }) {
   const style = resolveTabsVariant(variant);
@@ -78,7 +96,16 @@ function TabsList({
       data-variant={style}
       className={cn(tabsListVariants({ variant: style }), className)}
       {...props}
-    />
+    >
+      {children}
+      {/* `renderBeforeHydration`: se coloca antes de hidratar, así la pestaña
+          activa no sale un instante sin marca al cargar la página. */}
+      <TabsPrimitive.Indicator
+        data-slot="tabs-indicator"
+        renderBeforeHydration
+        className={tabsIndicatorClassName}
+      />
+    </TabsPrimitive.List>
   );
 }
 
@@ -89,14 +116,14 @@ function TabsList({
  * de `data-active` en la pestaña, no de la primitiva.
  */
 export const tabsTriggerClassName = cn(
-        "group/tabs-trigger relative inline-flex h-[calc(100%-1px)] flex-1 shrink-0 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-0.5 text-[0.8125rem] font-medium whitespace-nowrap text-muted-foreground transition-all data-active:font-semibold group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-card group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group/tabs-trigger relative z-10 inline-flex h-[calc(100%-1px)] flex-1 shrink-0 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-0.5 text-[0.8125rem] font-medium whitespace-nowrap text-muted-foreground transition-colors data-active:font-semibold group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
-        // Estado activo del variant 'default' — scopeado para que NO pise el
-        // relleno su-brand del variant 'segmented' en dark mode (antes el tab
-        // activo segmented salía como caja delineada en vez de azul).
-        "group-data-[variant=default]/tabs-list:data-active:bg-card group-data-[variant=default]/tabs-list:data-active:text-primary dark:group-data-[variant=default]/tabs-list:data-active:bg-secondary dark:group-data-[variant=default]/tabs-list:data-active:text-foreground",
-        "after:absolute after:bg-primary after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
-        "group-data-[variant=segmented]/tabs-list:h-full group-data-[variant=segmented]/tabs-list:rounded-sm group-data-[variant=segmented]/tabs-list:px-4 group-data-[variant=segmented]/tabs-list:gap-2 group-data-[variant=segmented]/tabs-list:data-active:bg-primary group-data-[variant=segmented]/tabs-list:data-active:text-primary-foreground group-data-[variant=segmented]/tabs-list:data-active:shadow-none group-data-[variant=segmented]/tabs-list:data-active:border-transparent group-data-[variant=segmented]/tabs-list:data-active:hover:text-primary-foreground group-data-[variant=segmented]/tabs-list:hover:text-foreground",
+        // El fondo y el filete de la activa los pone el indicador que se
+        // desliza (`tabsIndicatorClassName`); la pestaña solo cambia su texto.
+        "data-active:bg-transparent",
+        "group-data-[variant=default]/tabs-list:data-active:text-primary dark:group-data-[variant=default]/tabs-list:data-active:text-foreground",
+        "group-data-[variant=line]/tabs-list:data-active:text-foreground",
+        "group-data-[variant=segmented]/tabs-list:h-full group-data-[variant=segmented]/tabs-list:rounded-sm group-data-[variant=segmented]/tabs-list:px-4 group-data-[variant=segmented]/tabs-list:gap-2 group-data-[variant=segmented]/tabs-list:data-active:text-primary-foreground group-data-[variant=segmented]/tabs-list:data-active:shadow-none group-data-[variant=segmented]/tabs-list:data-active:border-transparent group-data-[variant=segmented]/tabs-list:data-active:hover:text-primary-foreground group-data-[variant=segmented]/tabs-list:hover:text-foreground",
 );
 
 function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
@@ -157,11 +184,16 @@ function TabsBadge({
   );
 }
 
+/**
+ * El panel de una pestaña. Se monta de nuevo en cada cambio, así que entra con
+ * `animate-su-tab-in` (fundido corto) sin estado ni JavaScript; con «menos
+ * movimiento» aparece directamente.
+ */
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      className={cn("flex-1 text-sm outline-none animate-su-tab-in", className)}
       {...props}
     />
   );
