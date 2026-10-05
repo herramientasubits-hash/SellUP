@@ -11,6 +11,8 @@ import { join } from 'node:path';
 
 import {
   buildClSiiRegistryRow,
+  canonicalizeChilePublicEntityCore,
+  normalizeChileSiiCore,
   CL_SII_EXCLUDED_SUBTYPES,
   parseClSiiActivityLine,
   parseClSiiCompanyLine,
@@ -242,5 +244,41 @@ describe('trabajadores en la corrida (sólo con RUT fuerte)', () => {
     assert.ok(i > 0 && j > i);
     assert.match(wiring.slice(i - 400, i), /createFallbackOfficialSourceResolver\(/);
     assert.match(wiring.slice(i, j), /withWorkforce: true/);
+  });
+});
+
+describe('organismos públicos con la forma del SII (SOURCES-CL-PUBLIC-ENTITY-ALIASES-1)', () => {
+  it('municipalidades: sin «I» ni «ILUSTRE» delante, en los dos lados', () => {
+    assert.equal(normalizeChileSiiCore('I MUNICIPALIDAD DE CURICO'), 'MUNICIPALIDAD DE CURICO');
+    assert.equal(normalizeChileSiiCore('ILUSTRE MUNICIPALIDAD COCHAMO'), 'MUNICIPALIDAD COCHAMO');
+    assert.equal(normalizeChileSiiCore('Municipalidad de Curicó'), 'MUNICIPALIDAD DE CURICO');
+    assert.equal(normalizeChileSiiCore('I. Municipalidad de San Ramón'), 'MUNICIPALIDAD DE SAN RAMON');
+  });
+
+  it('hospitales bajo un «SERVICIO … SALUD»: desde HOSPITAL', () => {
+    assert.equal(normalizeChileSiiCore('SERVICIO NACIONAL DE SALUD HOSPITAL CARLOS VAN BUREN'), 'HOSPITAL CARLOS VAN BUREN');
+    assert.equal(normalizeChileSiiCore('SERVICIO SALUD ARAUCANIA HOSPITAL DE COLLIPULLI'), 'HOSPITAL DE COLLIPULLI');
+    assert.equal(normalizeChileSiiCore('Hospital Carlos Van Buren'), 'HOSPITAL CARLOS VAN BUREN');
+  });
+
+  it('lo demás no cambia', () => {
+    for (const core of ['ENTEL PCS TELECOMUNICACIONES', 'CORPORACION DE DEPORTES DE LA MUNICIPALIDAD DE CURICO', 'INVERSIONES I MUNICIPALIDAD', 'SERVICIO DE ADUANAS ADMINISTRACION DE ARICA', 'HOSPITAL CLINICO SAN BORJA', 'IMPORTADORA ILUSTRE']) {
+      assert.equal(canonicalizeChilePublicEntityCore(core), core, core);
+    }
+    assert.equal(normalizeChileSiiCore('Asociación de Funcionarios del Hospital Carlos Van Buren'), 'ASOCIACION DE FUNCIONARIOS DEL HOSPITAL CARLOS VAN BUREN');
+  });
+
+  it('la fila del SII guarda el núcleo común; el RES no cambia', () => {
+    const row = buildClSiiRegistryRow(parseClSiiNamesLine(nameLine('69253900', '1', '611', 'I MUNICIPALIDAD DE SAN RAMON'))!, null, null, params);
+    assert.equal(row?.normalized_legal_name, 'MUNICIPALIDAD DE SAN RAMON');
+    assert.equal(normalizeChileCompanyCore('I MUNICIPALIDAD DE CURICO'), 'I MUNICIPALIDAD DE CURICO');
+  });
+
+  it('cableado: el resolvedor del SII usa el mismo núcleo que la carga', () => {
+    const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
+    const i = wiring.indexOf('sourceKey: CL_SII_REGISTRY_SOURCE_KEY');
+    assert.match(wiring.slice(i, i + 300), /normalizeCore: normalizeChileSiiCore,/);
+    const j = wiring.indexOf("sourceKey: 'cl_res_registry'");
+    assert.match(wiring.slice(j, j + 300), /normalizeCore: normalizeChileCompanyCore,/);
   });
 });

@@ -27,6 +27,30 @@ import { deriveTaxRecordIdentity, type RecordIdentityKey } from '../../record-id
 import { normalizeChileCompanyCore, normalizeChileRut } from '../res-chile/cl-res-registry-row';
 
 export const CL_SII_REGISTRY_SOURCE_KEY = 'cl_sii_registry' as const;
+
+/**
+ * SOURCES-CL-PUBLIC-ENTITY-ALIASES-1 — el SII escribe distinto a los organismos
+ * públicos que Apollo y Tavily (medido en la corrida de Chile del 05-10):
+ *   «I MUNICIPALIDAD DE CURICO»  ↔ «Municipalidad de Curicó»  (I / ILUSTRE)
+ *   «SERVICIO NACIONAL DE SALUD HOSPITAL CARLOS VAN BUREN» ↔ «Hospital Carlos Van Buren»
+ *   «SERVICIO SALUD ARAUCANIA HOSPITAL DE COLLIPULLI»      ↔ «Hospital de Collipulli»
+ * El mismo núcleo para los dos lados: sin «I»/«ILUSTRE» delante de MUNICIPALIDAD
+ * y, si un nombre que empieza por SERVICIO contiene HOSPITAL, desde HOSPITAL.
+ */
+export function canonicalizeChilePublicEntityCore(core: string): string {
+  const municipality = /^(?:I|ILUSTRE) (MUNICIPALIDAD\b.*)$/.exec(core);
+  if (municipality) return municipality[1];
+  if (core.startsWith('SERVICIO ')) {
+    const at = core.indexOf(' HOSPITAL ');
+    if (at > 0) return core.slice(at + 1);
+  }
+  return core;
+}
+
+/** Núcleo del SII: el de Chile + los organismos públicos con su forma común. */
+export function normalizeChileSiiCore(name: string | null | undefined): string {
+  return canonicalizeChilePublicEntityCore(normalizeChileCompanyCore(name));
+}
 export const CL_SII_REGISTRY_COUNTRY_CODE = 'CL' as const;
 
 /**
@@ -109,7 +133,7 @@ export function buildClSiiRegistryRow(
   params: { sourceYear: number; importedAt: string },
 ): ClSiiRegistryRow | null {
   if (record.terminated || CL_SII_EXCLUDED_SUBTYPES.has(record.subtype)) return null;
-  const core = normalizeChileCompanyCore(record.legalName);
+  const core = normalizeChileSiiCore(record.legalName);
   if (core.length < 2) return null;
 
   // raw_data mínimo: sólo los campos presentes (la tabla ya pesa ~250 B por fila).

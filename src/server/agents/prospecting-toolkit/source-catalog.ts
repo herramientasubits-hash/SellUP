@@ -979,6 +979,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       '«Trabajadores dependientes informados» no es el tamaño total de la empresa: es un estimado oficial con su año (2024), nunca un dato confirmado.',
       'El número de trabajadores sólo viaja con un RUT seguro (mismo RUT), nunca con homónimos.',
+      'Organismos públicos con la forma común: «I/Ilustre Municipalidad de X» = «Municipalidad de X» y «Servicio … Salud … Hospital X» = «Hospital X» (corrida de Chile del 05-10).',
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
       'Actividad: texto del SII y código de 6 dígitos (el que coincide con la actividad del año; si no, el primero publicado).',
     ],

@@ -78,7 +78,10 @@ import {
   normalizeHondurasCompanyCore,
 } from '@/server/source-catalog/connectors/hn-contrataciones-abiertas/hn-ocds-rtn-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
-import { CL_SII_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
+import {
+  CL_SII_REGISTRY_SOURCE_KEY,
+  normalizeChileSiiCore,
+} from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
 import {
   BO_SEPREC_LIVE_SOURCE_KEY,
@@ -233,7 +236,7 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         sourceKey: CL_SII_REGISTRY_SOURCE_KEY,
         taxIdentifierType: 'RUT',
         validTaxId: /^\d{7,8}-[\dK]$/,
-        normalizeCore: normalizeChileCompanyCore,
+        normalizeCore: normalizeChileSiiCore,
         querySnapshots: buildSnapshotNameQuery(snapshotClient, CL_SII_REGISTRY_SOURCE_KEY, 'CL', {
           withWorkforce: true,
         }),
