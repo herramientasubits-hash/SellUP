@@ -1,4 +1,5 @@
 import type { TavilyFirstOutcome } from './wizard-tavily-first';
+import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
@@ -309,6 +310,8 @@ export type WizardExecutionActionResult =
        * de Apollo. Ausente con la bandera apagada (estado por defecto).
        */
       tavilyFirst?: TavilyFirstOutcome;
+      /** AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — el paso de Claude: qué aportó o por qué no corrió. */
+      claudeSearchLeg?: ClaudeSearchLegOutcome;
       /**
        * AGENT1-APOLLO-LUSHA-WATERFALL · CORTE 4 — qué pasó con la pierna Lusha.
        *

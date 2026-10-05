@@ -180,13 +180,28 @@ describe('Claude como último paso de la corrida', () => {
     assert.ok(result.ok, JSON.stringify(result));
     assert.equal(calls.length, 0);
     assert.equal(result.ok && result.candidateCount, 4);
+    assert.deepEqual(
+      (result as { claudeSearchLeg?: unknown }).claudeSearchLeg,
+      { executed: false, reason: 'flag_disabled' },
+      'el motivo de no correr queda registrado',
+    );
   });
 
   it('la meta ya está cubierta ⇒ Claude no se paga', async () => {
     const calls: Array<{ batchId: string; phaseMs: number }> = [];
-    const result = await executeProspectWizardGeneration(VALID_REQUEST, legDeps({ apolloCreated: 12, apolloComplete: 12, calls }));
+    const published: Array<Record<string, unknown>> = [];
+    const result = await executeProspectWizardGeneration(
+      VALID_REQUEST,
+      legDeps({
+        apolloCreated: 12,
+        apolloComplete: 12,
+        calls,
+        overrides: { publishWaterfallLegTrace: async ({ published: p }) => (published.push(p), { status: 'published' }) as never },
+      }),
+    );
     assert.ok(result.ok, JSON.stringify(result));
     assert.equal(calls.length, 0);
+    assert.deepEqual(published[0]?.claude_search_leg, { executed: false, reason: 'target_met' }, 'también en el lote');
   });
 
   it('no queda tiempo ⇒ Claude no empieza', async () => {
