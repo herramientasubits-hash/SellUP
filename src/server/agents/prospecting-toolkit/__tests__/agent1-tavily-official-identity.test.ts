@@ -18,6 +18,7 @@ import {
 } from '../tavily-official-identity';
 import { runIncrementalProspectingSearch } from '../incremental-search';
 import { toHomepageUrl } from '../prospecting-pipeline';
+import { normalizeProspectCompanyName, stripDomainSuffix } from '../company-name-normalizer';
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake/source-enrichment';
 import type { DuplicateCheckResult, ProspectingPipelineCandidate } from '../types';
 
@@ -201,5 +202,28 @@ describe('el segundo constructor de candidatas también guarda la portada (AGENT
   });
   it('la página encontrada sigue como fuente', () => {
     assert.match(body, /sourceUrl: result\.url,/);
+  });
+});
+
+// ── AGENT1-TAVILY-DOMAIN-NAME-1 — el nombre inferido del dominio, sin terminación ──
+//
+// Prod 02-10: 26/190 nombres de Tavily eran el dominio entero («Cognos.com.bo»,
+// «Volcan.com.pe», «Minsal.cl») porque sólo se quitaban terminaciones de Colombia
+// y genéricas; los registros oficiales no los encontraban (SEPREC Bolivia).
+
+describe('nombre desde el dominio en cualquier país (AGENT1-TAVILY-DOMAIN-NAME-1)', () => {
+  it('stripDomainSuffix quita segundo nivel + ccTLD de cualquier país', () => {
+    assert.equal(stripDomainSuffix('cognos.com.bo'), 'cognos');
+    assert.equal(stripDomainSuffix('www.volcan.com.pe'), 'volcan');
+    assert.equal(stripDomainSuffix('esan.edu.pe'), 'esan');
+    assert.equal(stripDomainSuffix('transparencia.gob.pe'), 'transparencia');
+    assert.equal(stripDomainSuffix('minsal.cl'), 'minsal');
+    assert.equal(stripDomainSuffix('kio.tech'), 'kio');
+    assert.equal(stripDomainSuffix('empresa.com.co'), 'empresa');
+    assert.equal(stripDomainSuffix('peru.isaenergia.com'), 'peru.isaenergia', 'un subdominio no se toca');
+  });
+  it('el nombre de respaldo desde el dominio ya no lleva la terminación', () => {
+    const r = normalizeProspectCompanyName('Empresas de software en Bolivia', 'cognos.com.bo');
+    assert.equal(r.name, 'Cognos');
   });
 });

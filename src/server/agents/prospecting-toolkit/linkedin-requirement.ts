@@ -15,7 +15,7 @@
  *     dominio; las ambiguas («corporación», «colegio de»…) sólo con `.org`.
  */
 
-export type LinkedinRequirementReason = 'public_or_education_domain' | 'ngo_or_guild';
+export type LinkedinRequirementReason = 'public_or_education_domain' | 'ngo_or_guild' | 'public_health_by_name';
 
 export type LinkedinRequirement = {
   required: boolean;
@@ -28,6 +28,14 @@ const ORG_DOMAIN = /(^|\.)org(\.[a-z]{2})?$/;
 
 const UNAMBIGUOUS_NGO_OR_GUILD = /\b(camara de comercio|camaras de comercio|federacion|confederacion|asociacion|gremio|fundacion|ong)\b/;
 const AMBIGUOUS_NGO_OR_GUILD = /\b(corporacion|colegio de|consejo|sociedad|instituto|red de)\b/;
+/**
+ * AGENT1-TAVILY-HOSPITAL-LINKEDIN-1 — salud pública por el nombre (Prod 05-10,
+ * CL×Salud a5227f3f: «Hospital Clínico San Borja Arriarán», 5.000 empleados,
+ * dominio `hcsba.cl` y sin LinkedIn ⇒ no contaba). En LatAm los hospitales y los
+ * servicios de salud del Estado rara vez usan dominio `.gob`. Sólo quita LinkedIn:
+ * el tamaño se sigue exigiendo, así que un hospital privado pequeño no pasa.
+ */
+const PUBLIC_HEALTH_BY_NAME = /\b(hospital|servicio de salud|servicios de salud|cesfam|centro de salud familiar|red de salud|ministerio de salud|secretaria de salud|caja de salud|caja nacional de salud|essalud|seguro social)\b/;
 
 function normalize(value: string): string {
   return value
@@ -53,6 +61,9 @@ export function resolveLinkedinRequirement(input: {
 
   if (domain && PUBLIC_OR_EDUCATION_DOMAIN.test(domain)) {
     return { required: false, reason: 'public_or_education_domain' };
+  }
+  if (name && PUBLIC_HEALTH_BY_NAME.test(name)) {
+    return { required: false, reason: 'public_health_by_name' };
   }
   if (name && UNAMBIGUOUS_NGO_OR_GUILD.test(name)) {
     return { required: false, reason: 'ngo_or_guild' };

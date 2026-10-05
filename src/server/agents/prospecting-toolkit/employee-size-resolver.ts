@@ -70,6 +70,15 @@ export type OfficialRegistryWorkforce = {
  */
 export const OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS = 3;
 
+/**
+ * AGENT1-SIZE-OFFICIAL-REGISTRY-SMALL-1 — por debajo de esto el registro DESCARTA.
+ * Prod 05-10 (CL×Salud a5227f3f): el SII informó 9 trabajadores (Clinical Plus) y
+ * la empresa quedó «para revisar» con tamaño desconocido. Los trabajadores
+ * informados son un piso (sin honorarios), así que el corte va muy por debajo del
+ * umbral ICP de 200: con menos de 50 informados, la empresa es pequeña.
+ */
+export const OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF = 50;
+
 export type EmployeeSizeResolverOutput = {
   /** Input listo para pasar a evaluateIcpSizeGate() */
   icpInput: IcpSizeGateInput;
@@ -354,9 +363,9 @@ export function resolveEmployeeSizeForIcpGate(
 
   // ── Fuente 4: trabajadores del registro oficial ───────────────────────────
   // «Trabajadores dependientes informados» es un PISO del tamaño real (no cuenta
-  // honorarios ni contratistas). Por eso esta fuente sólo puede APROBAR: con el
-  // piso en el umbral o encima, el rango `N+` pasa como ESTIMADO; por debajo no
-  // dice nada sobre el tamaño total y cae a unknown (revisión), nunca a bloqueo.
+  // honorarios ni contratistas). Con el piso en el umbral o encima, el rango `N+`
+  // pasa como ESTIMADO; muy por debajo (< SMALL_CUTOFF) la empresa es pequeña y el
+  // gate la bloquea; en medio no dice nada sobre el tamaño total ⇒ unknown.
   const registry = input.officialRegistryWorkforce ?? null;
   if (registry !== null) {
     const floor = threshold ?? ICP_SIZE_GATE_DEFAULT_THRESHOLD;
@@ -381,6 +390,30 @@ export function resolveEmployeeSizeForIcpGate(
         selectedValue: range,
         confidence: 'medium',
         reason: `Used ${registry.source} workers=${registry.workers} (year ${registry.year}) as a lower bound`,
+        attemptedSources,
+      };
+    }
+    // 0 informados no es «pequeña»: en grupos grandes la planilla suele estar en otra razón social.
+    if (isRecent && registry.workers >= 1 && registry.workers < OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF) {
+      // Rango estimado bajo el umbral ⇒ el gate bloquea (como un tamaño pequeño de Apollo).
+      const range = `${registry.workers}-${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF - 1}`;
+      attemptedSources.push({
+        source: 'official_registry_workers',
+        value: registry.workers,
+        usable: true,
+        reason: `${registry.source} informó ${registry.workers} trabajadores en ${registry.year}: empresa pequeña`,
+      });
+      return {
+        icpInput: {
+          sizeRange: range,
+          sizeStatus: 'estimated',
+          source: `${registry.source}:${registry.year}`,
+          threshold,
+        },
+        selectedSource: 'official_registry_workers',
+        selectedValue: range,
+        confidence: 'medium',
+        reason: `Used ${registry.source} workers=${registry.workers} (year ${registry.year}): below small cutoff ${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF}`,
         attemptedSources,
       };
     }
