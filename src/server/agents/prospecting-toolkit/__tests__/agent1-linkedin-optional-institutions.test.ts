@@ -102,3 +102,21 @@ describe('contrato de completitud', () => {
     assert.equal(e.countsTowardTarget, false);
   });
 });
+
+describe('AGENT1-TAVILY-HOSPITAL-LINKEDIN-1 — salud pública por el nombre (CL×Salud a5227f3f)', () => {
+  for (const [name, domain] of [
+    ['Hospital Clínico San Borja Arriarán', 'hcsba.cl'],
+    ['Servicio de Salud Metropolitano Sur', 'redsalud.cl'],
+    ['CESFAM Lo Barnechea', 'cesfamlobarnechea.cl'],
+    ['Caja Nacional de Salud', 'cns.com.bo'],
+  ] as const) {
+    it(`no exige LinkedIn: ${name}`, () => {
+      const r = resolveLinkedinRequirement({ domain, name });
+      assert.equal(r.required, false);
+      assert.equal(r.reason, 'public_health_by_name');
+    });
+  }
+  it('una clínica privada sigue exigiendo LinkedIn', () => {
+    assert.equal(resolveLinkedinRequirement({ domain: 'clinicalplus.cl', name: 'Clinical Plus' }).required, true);
+  });
+});
