@@ -39,6 +39,7 @@ import type {
   ProspectingPipelineOutput,
 } from '@/server/agents/prospecting-toolkit/types';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
+import { isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import {
   APOLLO_BANK_DRAW_PER_RUN,
   APOLLO_BANK_RESERVE_SECONDS,
@@ -52,6 +53,13 @@ import { readBankPipelineCandidate } from './pipeline-candidate-bank-payload';
 
 /** Clave de la metadata del lote donde el banco deja constancia. */
 export const COMPANY_BANK_FIRST_METADATA_KEY = 'company_bank_first';
+
+/**
+ * AGENT1-BANK-FIRST-CLAUDE-INLINE-1 — ventana para que Claude revise lo que el
+ * banco acaba de escribir, ANTES de decidir si pagar Tavily/Apollo/Lusha. La
+ * misma que usa Tavily-primero.
+ */
+export const BANK_FIRST_CLAUDE_WINDOW_MS = 60_000;
 
 export type BankFirstDrawInput = {
   countryCode: string;
@@ -92,6 +100,14 @@ export type BankFirstDeps = {
   write: (input: BankFirstWriteInput) => Promise<CandidateWriterOutput>;
   resolveCap: () => number | null;
   newDrawId: () => string;
+  /**
+   * AGENT1-BANK-FIRST-CLAUDE-INLINE-1 — revisión de Claude del lote, en línea.
+   * Lo del banco casi nunca cuenta al escribirse: el sector y el tamaño los
+   * confirma Claude. Sin esto la búsqueda decidía pagar antes de esa revisión
+   * (medido 05-10, Chile × Salud, 0f60a313: 3 del banco contaron 2 min después,
+   * con Apollo + Tavily + Claude ya pagados). `true` ⇒ revisó.
+   */
+  reviewInline?: (input: { batchId: string; triggeredBy: string; windowMs: number }) => Promise<boolean>;
 };
 
 const nothing = (telemetry: Record<string, unknown>): BankFirstContribution => ({
@@ -256,12 +272,30 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
   });
 
   const persistedCount = Math.max(0, written.candidatesCreated ?? 0);
-  const acceptedCount = Math.min(
+  let acceptedCount = Math.min(
     Math.max(0, written.persistence?.completeValidCandidates ?? 0),
     persistedCount,
   );
 
   const drawn: DrawnBankCompany[] = usable.map((entry) => ({ bankId: entry.id, domain: entry.domain }));
+
+  // Claude revisa ANTES de que la búsqueda decida pagar, sólo si el banco
+  // escribió algo y todavía no cierra la meta. Se vuelve a contar en la base.
+  let claudeReviewed = false;
+  let acceptedAfterClaude: number | null = null;
+  if (persistedCount > 0 && acceptedCount < input.requestedTarget && deps.reviewInline) {
+    claudeReviewed = await deps
+      .reviewInline({ batchId, triggeredBy: input.requestedByUserId, windowMs: BANK_FIRST_CLAUDE_WINDOW_MS })
+      .catch(() => false);
+    if (claudeReviewed) {
+      acceptedAfterClaude = await port
+        .countAcceptedByDomain(batchId, drawn.map((entry) => entry.domain))
+        .catch(() => null);
+      if (acceptedAfterClaude !== null) {
+        acceptedCount = Math.max(acceptedCount, Math.min(acceptedAfterClaude, persistedCount));
+      }
+    }
+  }
   const persistedByDomain = await port.readPersistedCandidateIdsByDomain(
     batchId,
     drawn.map((entry) => entry.domain),
@@ -291,6 +325,8 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
       ...baseTelemetry,
       delivered: persistedCount,
       accepted_for_target: acceptedCount,
+      claude_reviewed: claudeReviewed,
+      accepted_after_claude: acceptedAfterClaude,
       settle: settled?.status === 'ok'
         ? { assigned: settled.assigned, released: settled.released, invalidated: settled.invalidated, ignored: settled.ignored }
         : settled === null
@@ -310,6 +346,19 @@ export function resolveProductionBankFirstDrawer(industryName: string): BankFirs
     checkDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
     resolveCap: () => resolveMaxDeliveredCandidates(),
     newDrawId: () => randomUUID(),
+    // El MISMO rescate de Claude que corre después de la búsqueda, con su bandera.
+    reviewInline: async ({ batchId, triggeredBy, windowMs }) => {
+      if (!isAgent1ClaudeRescueEnabled()) return false;
+      const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
+      ]);
+      const summary = await rescueBatchWithClaude(
+        { batchId, triggeredBy, deadlineMs: windowMs },
+        buildLiveRescueBatchDeps(triggeredBy),
+      );
+      return summary.ok;
+    },
     write: (writeInput) =>
       writeProspectingCandidates({
         pipelineOutput: buildBankPipelineOutput({

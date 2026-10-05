@@ -332,6 +332,9 @@ function fakeBank(options: {
         return { status: 'ok', assigned: 0, invalidated: 0, released: 0, ignored: 0 };
       },
     },
+    async countAcceptedByDomain() {
+      return 0;
+    },
     async readPersistedCandidateIdsByDomain(batchId, domains) {
       recorder.persistedReads.push({ batchId, domains: [...domains] });
       return new Map(Object.entries(options.persistedByDomain ?? {}));
