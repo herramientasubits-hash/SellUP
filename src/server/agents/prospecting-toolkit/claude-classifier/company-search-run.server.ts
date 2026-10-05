@@ -14,6 +14,7 @@ import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
 import { runProspectingPipeline } from '../prospecting-pipeline';
 import { resolveTavilyCountryRegions } from '../tavily-country-regions';
+import { buildTavilyOfficialIdentityEnricher } from '../tavily-official-identity.server';
 import type { ProspectingPipelineOutput } from '../types';
 import { withClaudeSearchContext, type ClaudeSearchRunContext } from '../web-search-providers/claude-web-search-provider';
 import { resolveActiveAnthropicModel } from './classify-batch-candidates.server';
@@ -160,6 +161,26 @@ async function countPreviousRuns(countryCode: string, industry: string): Promise
   return count ?? 0;
 }
 
+/**
+ * El MISMO paso de número fiscal oficial que Tavily (RUT/NIT, trabajadores del SII y
+ * re-chequeo de duplicado por número fiscal), antes de escribir. Prod 05-10 (lote
+ * 0f60a313): las 5 empresas de Claude llegaron sin `official_source_enrichment` y las
+ * de Tavily sí. Fail-open: un tropiezo escribe las empresas como venían.
+ */
+async function withOfficialIdentity(output: ProspectingPipelineOutput): Promise<ProspectingPipelineOutput> {
+  if (output.candidates.length === 0) return output;
+  const enrich = buildTavilyOfficialIdentityEnricher({
+    country: output.input.country,
+    countryCode: output.input.countryCode,
+    sector: output.input.industry,
+  });
+  const candidates = await enrich(output.candidates).catch((err) => {
+    console.warn('[claude-company-search] official identity skipped:', err instanceof Error ? err.message : err);
+    return output.candidates;
+  });
+  return { ...output, candidates };
+}
+
 export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanySearchDeps {
   return {
     loadSourceBatch,
@@ -202,10 +223,11 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       // (`ready_for_review`) y el escritor no admite lotes cerrados (Prod 02-10, lote
       // ab11727e: 2 llamadas pagadas, 0 escritas). Se reabre JUSTO antes de escribir, y
       // el escritor —el último de la corrida— vuelve a decidir el estado como siempre.
+      const enrichedOutput = await withOfficialIdentity(pipelineOutput as ProspectingPipelineOutput);
       const reopened = existingBatchId ? await reopenClosedBatch(existingBatchId) : false;
       try {
         const output = await writeProspectingCandidates({
-          pipelineOutput: pipelineOutput as ProspectingPipelineOutput,
+          pipelineOutput: enrichedOutput,
           triggeredByUserId: userId,
           ownerId: userId,
           source: 'agent_1',

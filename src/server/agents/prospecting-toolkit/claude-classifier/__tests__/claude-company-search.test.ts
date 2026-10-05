@@ -6,6 +6,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import type { AnthropicConversationResult, AnthropicRequestBody } from '../anthropic-messages-client';
 import {
@@ -428,5 +430,26 @@ describe('C. runClaudeCompanySearch', () => {
       'empresas de Tecnología en Colombia',
       'empresas de Software en Colombia',
     ]);
+  });
+});
+
+describe('Claude busca empresas — número fiscal oficial antes de escribir (Prod 05-10, lote 0f60a313)', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'company-search-run.server.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it('usa el mismo enriquecedor que Tavily', () => {
+    assert.match(source, /buildTavilyOfficialIdentityEnricher\(/);
+  });
+
+  it('el escritor recibe las empresas YA enriquecidas', () => {
+    const enrichAt = source.indexOf('withOfficialIdentity(pipelineOutput');
+    const writeAt = source.indexOf('writeProspectingCandidates({');
+    assert.ok(enrichAt > 0 && writeAt > enrichAt, 'el enriquecimiento va antes del escritor');
+    assert.match(source, /pipelineOutput: enrichedOutput/);
+  });
+
+  it('un tropiezo del enriquecedor no impide escribir (fail-open)', () => {
+    assert.match(source, /enrich\(output\.candidates\)\.catch\(/);
   });
 });
