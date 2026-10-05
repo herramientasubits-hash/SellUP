@@ -88,8 +88,8 @@ const hrContactNoChannel = contact({ title: 'HR Manager', email: null, linkedinU
 // ── Constantes ──────────────────────────────────────────────────
 
 describe('Constantes de guardrail', () => {
-  it('MAX_COMPLETION_CANDIDATES = 3', () => {
-    assert.equal(MAX_COMPLETION_CANDIDATES, 3);
+  it('MAX_COMPLETION_CANDIDATES = 5 (AGENT2A-COVERAGE-DECISION-MAKERS-1)', () => {
+    assert.equal(MAX_COMPLETION_CANDIDATES, 5);
   });
 
   it('COMPLETION_CREDIT_EMAIL = 1', () => {

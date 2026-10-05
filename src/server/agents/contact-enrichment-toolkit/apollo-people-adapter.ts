@@ -103,6 +103,29 @@ export const HR_PERSON_TITLES: string[] = [
   'Gestión Humana',
 ];
 
+/**
+ * Títulos de decisores fuera de RR. HH. (ES + EN).
+ * AGENT2A-COVERAGE-DECISION-MAKERS-1 — decisión del 2026-10-05: el Agente 2A
+ * también busca CEO y gerente general. El clasificador ya los acepta como
+ * relevancia media (`executive_sponsor`); antes la búsqueda casi nunca los traía.
+ */
+export const DECISION_MAKER_TITLES: string[] = [
+  'CEO',
+  'Chief Executive Officer',
+  'Gerente General',
+  'General Manager',
+  'Director General',
+  'Managing Director',
+  'Country Manager',
+];
+
+/**
+ * Títulos que se envían en los intentos por títulos: RR. HH. + decisores.
+ * Apollo combina `person_titles` con OR. El intento por departamento de RR. HH.
+ * va primero y no cambia, así que RR. HH. conserva la prioridad.
+ */
+export const TARGET_PERSON_TITLES: string[] = [...HR_PERSON_TITLES, ...DECISION_MAKER_TITLES];
+
 /** Seniorities objetivo según vocabulario de Apollo. */
 export const TARGET_SENIORITIES: string[] = [
   'owner',
@@ -372,10 +395,10 @@ function buildAttemptPlansWithOrgId(
     },
     {
       name: 'org_id_hr_titles',
-      filters: `org(${orgDesc}); titles=HR; seniorities; sin department${locationSuffix}`,
+      filters: `org(${orgDesc}); titles=HR+decisores; seniorities; sin department${locationSuffix}`,
       params: {
         ...byOrgId,
-        person_titles: HR_PERSON_TITLES,
+        person_titles: TARGET_PERSON_TITLES,
         person_seniorities: TARGET_SENIORITIES,
       },
     },
@@ -386,10 +409,10 @@ function buildAttemptPlansWithOrgId(
   if (name) {
     plans.push({
       name: 'org_name_hr_titles_fallback',
-      filters: `org(nombre=${name}); titles=HR; seniorities; sin department${locationSuffix}`,
+      filters: `org(nombre=${name}); titles=HR+decisores; seniorities; sin department${locationSuffix}`,
       params: {
         ...byName,
-        person_titles: HR_PERSON_TITLES,
+        person_titles: TARGET_PERSON_TITLES,
         person_seniorities: TARGET_SENIORITIES,
       },
     });
@@ -425,10 +448,10 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
     },
     {
       name: 'hr_titles_without_department',
-      filters: `org(${desc}); titles=HR; seniorities; sin department${locationSuffix}`,
+      filters: `org(${desc}); titles=HR+decisores; seniorities; sin department${locationSuffix}`,
       params: {
         ...base,
-        person_titles: HR_PERSON_TITLES,
+        person_titles: TARGET_PERSON_TITLES,
         person_seniorities: TARGET_SENIORITIES,
       },
     },
@@ -459,19 +482,19 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
       },
       {
         name: 'org_name_hr_titles',
-        filters: `org(nombre=${name}); titles=HR; seniorities; sin department${locationSuffix}`,
+        filters: `org(nombre=${name}); titles=HR+decisores; seniorities; sin department${locationSuffix}`,
         params: {
           ...byName,
-          person_titles: HR_PERSON_TITLES,
+          person_titles: TARGET_PERSON_TITLES,
           person_seniorities: TARGET_SENIORITIES,
         },
       },
       {
         name: 'org_name_hr_titles_no_seniority',
-        filters: `org(nombre=${name}); titles=HR; sin seniorities; sin department${locationSuffix}`,
+        filters: `org(nombre=${name}); titles=HR+decisores; sin seniorities; sin department${locationSuffix}`,
         params: {
           ...byName,
-          person_titles: HR_PERSON_TITLES,
+          person_titles: TARGET_PERSON_TITLES,
         },
       },
       {

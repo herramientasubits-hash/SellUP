@@ -33,6 +33,7 @@ import {
   resolveLushaMaxCandidatesPerRun,
   resolveLushaSearchTimeoutMs,
 } from '@/lib/feature-flags.server';
+import { rankContactsBySeniority } from './contact-seniority-ranking';
 import { normalizeDomain } from './company-consistency-checker';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
 import { buildLushaPersonIdentityEvidence } from './lusha-person-identity-evidence';
@@ -1716,7 +1717,15 @@ export async function executeContactEnrichmentLushaRun(
     const lushaNovelty = lushaNoveltyGate.observability;
 
     // 4. Limit before enrich (solo identidades NOVEDOSAS)
-    const selectedForEnrich = novelForEnrich.slice(0, maxCandidates);
+    //    AGENT2A-COVERAGE-DECISION-MAKERS-1 — antes de cortar se ordena por
+    //    seniority (jobTitle.seniority, con el título de respaldo) para que el
+    //    tope de enrich pagado vaya primero a C-level, VP y directores. Solo
+    //    reordena: el conjunto sigue derivando del resultado del novelty gate.
+    const selectedForEnrich = rankContactsBySeniority(
+      novelForEnrich,
+      (c) => c.seniority,
+      (c) => c.jobTitle,
+    ).slice(0, maxCandidates);
 
     let prospectCandidatesCreated = 0;
     let prospectDuplicatesSkipped = 0;
@@ -2316,7 +2325,12 @@ export async function executeContactEnrichmentLushaRun(
     loadKnownIdentities: loadKnownProviderIdentities,
   });
   const searchNovelty = searchNoveltyGate.observability;
-  const candidates = searchNoveltyGate.novel.slice(0, maxCandidates);
+  // AGENT2A-COVERAGE-DECISION-MAKERS-1 — mismo orden por seniority (aquí solo hay título).
+  const candidates = rankContactsBySeniority(
+    searchNoveltyGate.novel,
+    () => null,
+    (c) => c.title,
+  ).slice(0, maxCandidates);
   let candidatesCreated = 0;
   let duplicatesSkipped = 0;
   let totalCreditsUsed: number | null = null;

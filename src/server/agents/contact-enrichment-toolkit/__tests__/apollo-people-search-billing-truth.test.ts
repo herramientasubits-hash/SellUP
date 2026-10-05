@@ -293,7 +293,8 @@ describe('searchApolloPeopleForCompany — People Search cuesta 0 créditos', ()
       'el volumen acumulado de los intentos ejecutados se conserva',
     );
     assert.equal(result.searchGuardrail?.estimated_search_credits, 0);
-    assert.equal(result.searchGuardrail?.max_results_per_run, 15, 'el tope de VOLUMEN sigue vivo');
+    // AGENT2A-COVERAGE-DECISION-MAKERS-1: el tope de volumen sube a 30 (3 × 10), sigue gratis.
+    assert.equal(result.searchGuardrail?.max_results_per_run, 30, 'el tope de VOLUMEN sigue vivo');
     assert.equal(result.searchGuardrail?.max_search_attempts, 3);
   });
 
