@@ -1185,7 +1185,13 @@ export async function runIncrementalProspectingSearch(
     lastPipelineOutput = pipelineOutput;
 
     // ── Criterio de parada: 0 resultados en ronda 1 ─────────────────────────
-    if (round === 1 && rawCount === 0) {
+    // AGENT1-TAVILY-EMPTY-ROUND1-1 — con el plan de macro industria la ronda
+    // siguiente busca OTROS términos y regiones: una ronda vacía no dice nada de
+    // ellas (Prod 05-10, CL×Salud cf324660: 2 búsquedas vacías cortaron el tramo
+    // entero de Tavily y la corrida pasó a Apollo sin usar las otras 6).
+    const planContinuesAfterEmptyRound =
+      tavilyMacroQueryPlan !== null && tavilyMacroQueryPlan.rounds.length > round;
+    if (round === 1 && rawCount === 0 && !planContinuesAfterEmptyRound) {
       stoppedReason = 'no_results_round_1';
       break;
     }
