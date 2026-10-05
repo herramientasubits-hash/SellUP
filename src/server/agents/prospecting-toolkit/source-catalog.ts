@@ -43,6 +43,7 @@ export const FISCAL_IDENTIFIERS: Record<string, string> = {
   UY: 'RUT',
   US: 'EIN',
   ES: 'NIF',
+  VE: 'RIF',
 };
 
 // ─── Riesgos conocidos por país ───────────────────────────────────────────────
@@ -58,12 +59,12 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   MX: [
     'DENUE API tiene límite de registros por consulta; paginar correctamente.',
     'SIEM puede tener datos con 1-2 años de antigüedad para PYMES.',
-    'DENUE nunca publica el RFC: el RFC no se obtiene de DENUE.',
+    'DENUE nunca publica el RFC. El RFC por nombre sale de los contratos de CompraNet: sólo personas morales que le vendieron al Estado (2023-2025).',
     'Empresas del sector informal no aparecen en registros oficiales.',
     'CANAIVE/AMIA solo cubren sus sectores específicos.',
   ],
   CL: [
-    'El Registro de Empresas y Sociedades solo cubre sociedades constituidas desde 2013 por la Ley 20.659; no incluye grandes empresas antiguas ni dice si siguen activas.',
+    'El RUT por nombre sale primero de la Nómina de personas jurídicas del SII (desde 1993, sin término de giro, con trabajadores informados) y, de respaldo, del Registro de Empresas y Sociedades (sólo constituidas desde 2013).',
     'ChileCompra (Mercado Público) solo cubre proveedores y compras del Estado chileno.',
     'Datos de contacto en fuentes públicas chilenas son escasos.',
     'No confundir RUT de persona natural con RUT de empresa.',
@@ -109,9 +110,23 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un NIT seguro.',
   ],
   HN: [
-    'El RTN por nombre sólo cubre 72 proveedores del piloto 2024 de Contrataciones Abiertas: cobertura muy baja.',
-    'Pueden aparecer personas naturales mezcladas con empresas.',
+    'El RTN por nombre sólo cubre personas jurídicas que participaron en compras públicas (ONCAE y SEFIN, 2018-2026).',
+    'Las personas naturales nunca se guardan: su RTN lleva el año de nacimiento.',
     'Nombres repetidos o genéricos no dan un RTN seguro.',
+  ],
+  PA: [
+    'Panamá no publica un padrón de RUC abierto: el RUC por nombre sólo cubre personas jurídicas proveedoras del Estado (PanamaCompraEnCifras).',
+    'Las cédulas de personas naturales nunca se guardan.',
+    'Nombres repetidos o genéricos no dan un RUC seguro.',
+  ],
+  SV: [
+    'Sin número fiscal por nombre: El Salvador no publica una fuente gratuita con razón social + NIT (COMPRASAL sólo da el nombre; el NIT de los contribuyentes es confidencial).',
+  ],
+  NI: [
+    'Sin número fiscal por nombre: Nicaragua no publica una fuente gratuita y accesible con razón social + RUC (DGI y SISCAE no responden desde fuera del país).',
+  ],
+  VE: [
+    'Sin número fiscal por nombre: el SENIAT exige captcha y busca por RIF, no por nombre; el RNC sólo cubre contratistas del Estado y no tiene descarga masiva.',
   ],
   PY: [
     'El padrón público de RUC (SET/DNIT) sólo trae sociedades activas con RUC 80…; no indica sector ni tamaño.',
