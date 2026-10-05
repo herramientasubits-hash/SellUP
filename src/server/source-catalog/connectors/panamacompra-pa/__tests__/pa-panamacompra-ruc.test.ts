@@ -41,7 +41,7 @@ describe('RUC de persona jurídica', () => {
   });
 
   it('fuera: cédulas de personas naturales y formas rotas', () => {
-    for (const id of ['8-123-456', 'E-8-96362', 'N-738-2017', 'PE-9-1606', '8NT2763992', '9--95-113', '263837-1-404979-1-404979']) {
+    for (const id of ['000-2-2015', '8-123-456', 'E-8-96362', 'N-738-2017', 'PE-9-1606', '8NT2763992', '9--95-113', '263837-1-404979-1-404979']) {
       assert.equal(normalizePanamaJuridicalRuc(id), null, id);
     }
   });
@@ -134,12 +134,13 @@ describe('RUC por nombre dentro de la corrida', () => {
 });
 
 describe('catálogo', () => {
-  it('conectada en código, carga pendiente, fuera de las recomendaciones', () => {
+  it('cargada y verificada, fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'pa_panamacompra_ruc_registry');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['PA']);
     assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
-    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.equal(s.operationalStatus, 'operational_verified');
+    assert.match(s.nextAction ?? '', /6\.700 .*cargadas/);
     for (const depth of ['basic', 'standard', 'deep'] as const) {
       const ctx = getCatalogContext({ country: 'Panamá', countryCode: 'PA', industry: 'technology', searchDepth: depth });
       assert.equal(ctx.recommendedSources.some((r) => r.key === 'pa_panamacompra_ruc_registry'), false, depth);

@@ -150,13 +150,13 @@ describe('RFC por nombre dentro de la corrida', () => {
 });
 
 describe('catálogo', () => {
-  it('conectada en código, carga pendiente, fuera de las recomendaciones', () => {
+  it('cargada y verificada, fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'mx_compranet_rfc_registry');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['MX']);
     assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
-    assert.equal(s.operationalStatus, 'pending_validation');
-    assert.match(s.nextAction ?? '', /espera la autorización/);
+    assert.equal(s.operationalStatus, 'operational_verified');
+    assert.match(s.nextAction ?? '', /26\.393 .*cargadas/);
     for (const depth of ['basic', 'standard', 'deep'] as const) {
       const ctx = getCatalogContext({ country: 'México', countryCode: 'MX', industry: 'technology', searchDepth: depth });
       assert.equal(ctx.recommendedSources.some((r) => r.key === 'mx_compranet_rfc_registry'), false, depth);

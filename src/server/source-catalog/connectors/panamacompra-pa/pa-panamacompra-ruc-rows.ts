@@ -61,7 +61,8 @@ export function normalizePanamaJuridicalRuc(raw: string | null | undefined): { r
   if (typeof raw !== 'string') return null;
   const compact = raw.toUpperCase().replace(/D\.?\s*V\.?/g, 'DV').replace(/\s+/g, '');
   const match = JURIDICAL_RUC.exec(compact);
-  if (match === null) return null;
+  // Un tomo de sólo ceros es un RUC de relleno (visto en la carga del 05-10: «000-2-2015»).
+  if (match === null || /^0+$/.test(match[1])) return null;
   return { ruc: `${match[1]}-${match[2]}-${match[3]}`, dv: match[4] ?? null };
 }
 
