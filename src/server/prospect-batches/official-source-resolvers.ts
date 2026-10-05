@@ -14,9 +14,12 @@
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
- * (cl_res_registry) name→RUT, Costa Rica (cr_company_registry) name→cédula jurídica
- * and Bolivia (SEPREC, live) name→NIT. No promise of MX/… enrichment
- * is made here;
+ * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
+ * name→cédula jurídica, Bolivia (SEPREC, live) name→NIT and México
+ * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
+ * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC; Honduras uses
+ * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
+ * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
  *
@@ -62,6 +65,18 @@ import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
+import {
+  MX_COMPRANET_RFC_SOURCE_KEY,
+  normalizeMexicoCompanyCore,
+} from '@/server/source-catalog/connectors/compranet-mexico/mx-compranet-rfc-rows';
+import {
+  normalizePanamaCompanyCore,
+  PA_PANAMACOMPRA_RUC_SOURCE_KEY,
+} from '@/server/source-catalog/connectors/panamacompra-pa/pa-panamacompra-ruc-rows';
+import {
+  HN_OCDS_RTN_SOURCE_KEY,
+  normalizeHondurasCompanyCore,
+} from '@/server/source-catalog/connectors/hn-contrataciones-abiertas/hn-ocds-rtn-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { CL_SII_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
@@ -131,14 +146,26 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       normalizeCore: normalizeCentralAmericaCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'gt_rgae_proveedores', 'GT'),
     }),
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'HN',
-      sourceKey: 'hn_contrataciones_abiertas',
-      taxIdentifierType: 'RTN',
-      validTaxId: /^\d{14}$/,
-      normalizeCore: normalizeCentralAmericaCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
-    }),
+    // SOURCES-HN-RTN-BY-NAME-1 — personas jurídicas de ONCAE + SEFIN (OCDS, 2018-2026);
+    // si no da RTN fuerte, el snapshot piloto de Contrataciones Abiertas (72 filas).
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'HN',
+        sourceKey: HN_OCDS_RTN_SOURCE_KEY,
+        taxIdentifierType: 'RTN',
+        validTaxId: /^\d{4}9\d{9}$/,
+        normalizeCore: normalizeHondurasCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, HN_OCDS_RTN_SOURCE_KEY, 'HN'),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'HN',
+        sourceKey: 'hn_contrataciones_abiertas',
+        taxIdentifierType: 'RTN',
+        validTaxId: /^\d{14}$/,
+        normalizeCore: normalizeCentralAmericaCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
+      }),
+    ),
     // SOURCES-PE-RUC-BY-NAME-1 — sociedades activas y habidas del padrón de SUNAT.
     createSnapshotNameOfficialSourceResolver({
       countryCode: 'PE',
@@ -220,6 +247,29 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cl_res_registry', 'CL'),
       }),
     ),
+    // SOURCES-MX-RFC-BY-NAME-1 — personas morales con contratos en CompraNet
+    // (sólo quienes le vendieron al Estado). Un nombre de una sola palabra sin
+    // forma societaria («Softtek») queda como pista: una marca suelta puede ser otra.
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'MX',
+      sourceKey: MX_COMPRANET_RFC_SOURCE_KEY,
+      taxIdentifierType: 'RFC',
+      validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
+      normalizeCore: normalizeMexicoCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'),
+      singleWordIsSignalOnly: true,
+    }),
+    // SOURCES-PA-RUC-BY-NAME-1 — personas jurídicas del buscador de proveedores de
+    // PanamaCompraEnCifras (sólo quienes participan en compras públicas).
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'PA',
+      sourceKey: PA_PANAMACOMPRA_RUC_SOURCE_KEY,
+      taxIdentifierType: 'RUC',
+      validTaxId: /^\d{3,}-\d{1,4}-\d{1,7}$/,
+      normalizeCore: normalizePanamaCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, PA_PANAMACOMPRA_RUC_SOURCE_KEY, 'PA'),
+      singleWordIsSignalOnly: true,
+    }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
     createSnapshotNameOfficialSourceResolver({
       countryCode: 'CR',

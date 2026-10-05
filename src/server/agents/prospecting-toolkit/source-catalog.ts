@@ -43,6 +43,7 @@ export const FISCAL_IDENTIFIERS: Record<string, string> = {
   UY: 'RUT',
   US: 'EIN',
   ES: 'NIF',
+  VE: 'RIF',
 };
 
 // ─── Riesgos conocidos por país ───────────────────────────────────────────────
@@ -58,12 +59,12 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   MX: [
     'DENUE API tiene límite de registros por consulta; paginar correctamente.',
     'SIEM puede tener datos con 1-2 años de antigüedad para PYMES.',
-    'DENUE nunca publica el RFC: el RFC no se obtiene de DENUE.',
+    'DENUE nunca publica el RFC. El RFC por nombre sale de los contratos de CompraNet: sólo personas morales que le vendieron al Estado (2023-2025).',
     'Empresas del sector informal no aparecen en registros oficiales.',
     'CANAIVE/AMIA solo cubren sus sectores específicos.',
   ],
   CL: [
-    'El Registro de Empresas y Sociedades solo cubre sociedades constituidas desde 2013 por la Ley 20.659; no incluye grandes empresas antiguas ni dice si siguen activas.',
+    'El RUT por nombre sale primero de la Nómina de personas jurídicas del SII (desde 1993, sin término de giro, con trabajadores informados) y, de respaldo, del Registro de Empresas y Sociedades (sólo constituidas desde 2013).',
     'ChileCompra (Mercado Público) solo cubre proveedores y compras del Estado chileno.',
     'Datos de contacto en fuentes públicas chilenas son escasos.',
     'No confundir RUT de persona natural con RUT de empresa.',
@@ -109,9 +110,23 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un NIT seguro.',
   ],
   HN: [
-    'El RTN por nombre sólo cubre 72 proveedores del piloto 2024 de Contrataciones Abiertas: cobertura muy baja.',
-    'Pueden aparecer personas naturales mezcladas con empresas.',
+    'El RTN por nombre sólo cubre personas jurídicas que participaron en compras públicas (ONCAE y SEFIN, 2018-2026).',
+    'Las personas naturales nunca se guardan: su RTN lleva el año de nacimiento.',
     'Nombres repetidos o genéricos no dan un RTN seguro.',
+  ],
+  PA: [
+    'Panamá no publica un padrón de RUC abierto: el RUC por nombre sólo cubre personas jurídicas proveedoras del Estado (PanamaCompraEnCifras).',
+    'Las cédulas de personas naturales nunca se guardan.',
+    'Nombres repetidos o genéricos no dan un RUC seguro.',
+  ],
+  SV: [
+    'Sin número fiscal por nombre: El Salvador no publica una fuente gratuita con razón social + NIT (COMPRASAL sólo da el nombre; el NIT de los contribuyentes es confidencial).',
+  ],
+  NI: [
+    'Sin número fiscal por nombre: Nicaragua no publica una fuente gratuita y accesible con razón social + RUC (DGI y SISCAE no responden desde fuera del país).',
+  ],
+  VE: [
+    'Sin número fiscal por nombre: el SENIAT exige captcha y busca por RIF, no por nombre; el RNC sólo cubre contratistas del Estado y no tiene descarga masiva.',
   ],
   PY: [
     'El padrón público de RUC (SET/DNIT) sólo trae sociedades activas con RUC 80…; no indica sector ni tamaño.',
@@ -666,7 +681,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC requiere revisión humana.',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC por nombre lo completa «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) cuando la empresa le vendió al Estado.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -802,12 +817,39 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── México — Compras Públicas y Asociaciones Sectoriales ───────────────────
   {
+    key: 'mx_compranet_rfc_registry',
+    name: 'CompraNet — RFC por nombre (personas morales con contratos del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: el Agente 1 completa el RFC por nombre en cada corrida de México. La carga de 26.393 personas morales (contratos 2023-2025) espera la autorización de la dueña: hasta entonces México sigue sin RFC.',
+    countryCodes: ['MX'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://upcp-compranet.buengobierno.gob.mx/cnetassets/datos_abiertos_contratos_expedientes/',
+    automationLevel: 'high',
+    recommendedUse:
+      'México no publica un padrón de RFC y DENUE no lo trae. Los contratos anuales de CompraNet (datos abiertos, CSV) sí traen el RFC y la razón social de cada proveedor. Se carga una fila por RFC de PERSONA MORAL (12 caracteres) de los contratos 2023-2025: 26.393 empresas, el 100 % con nombre único, 1.873 con estratificación GRANDE o NO MIPYME. RFC seguro sólo cuando exactamente un RFC tiene ese mismo núcleo de nombre; un nombre de una sola palabra sin forma societaria queda como pista.',
+    limitations: [
+      'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
+      'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
+      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…).',
+      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'mx_compranet',
     name: 'CompraNet (Compras Gubernamentales México)',
     sellupUse: 'commercial_signal',
     aiFlowStatus: 'manual_only',
     connectionMode: 'not_connected',
-    nextAction: 'Investigar https://comprasmx.buengobierno.gob.mx/datos-abiertos para confirmar nuevo endpoint post-migración antes de conectar.',
+    nextAction: 'Señal manual. Los contratos de CompraNet SÍ se usan para el RFC por nombre: ver «CompraNet — RFC por nombre» (mx_compranet_rfc_registry), carga de los CSV anuales de datos abiertos.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
@@ -1455,6 +1497,32 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo empresas afiliadas CCIT', 'Zona geográfica limitada (Tegucigalpa)', 'Cobertura fragmentada — no equivale a registro fiscal RTN', 'Sin API pública ni bulk estructurado confirmado'],
   },
   {
+    key: 'hn_ocds_rtn_registry',
+    name: 'ONCAE + SEFIN (OCDS) — RTN por nombre (personas jurídicas proveedoras del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como primera fuente de RTN de Honduras (si no da RTN seguro, sigue el snapshot piloto hn_contrataciones_abiertas, 72 filas). La carga de 6.195 personas jurídicas espera la autorización de la dueña.',
+    countryCodes: ['HN'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://data.open-contracting.org/en/publication/122',
+    automationLevel: 'high',
+    recommendedUse:
+      'Publicaciones OCDS de Honduras en el registro de Open Contracting (CC BY 4.0): ONCAE / HonduCompras y SEFIN. Cada versión nombra a sus proveedores con RTN. Se carga una fila por RTN de PERSONA JURÍDICA (2018-2026): 6.195 empresas, el 98,3 % con nombre único. RTN seguro sólo cuando exactamente un RTN tiene ese mismo núcleo de nombre.',
+    limitations: [
+      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista.',
+      'Persona jurídica = 14 dígitos con un 9 en la quinta posición; el RTN de una persona natural lleva ahí su año de nacimiento y nunca se guarda (tampoco cédulas ni pasaportes).',
+      'Se quitan las colas que HonduCompras pega al nombre («*MIPYME*», «* Compra Menor», «*CM»).',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'hn_contrataciones_abiertas',
     name: 'Portal de Contrataciones Abiertas Honduras',
     sellupUse: 'commercial_signal',
@@ -1465,7 +1533,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '72 proveedores con RTN cargados en el snapshot piloto 2024. El Agente 1 completa el RTN por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana. Cobertura muy baja: hace falta una fuente más grande para Honduras.',
+      '72 proveedores con RTN cargados en el snapshot piloto 2024. Ahora es el respaldo: el RTN por nombre en cada corrida usa primero «ONCAE + SEFIN (OCDS) — RTN por nombre» (hn_ocds_rtn_registry); los nombres repetidos quedan como señal para revisión humana.',
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P2',
@@ -1775,13 +1843,41 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── Panamá ──────────────────────────────────────────────────────────────────
   {
+    key: 'pa_panamacompra_ruc_registry',
+    name: 'PanamaCompraEnCifras — RUC por nombre (personas jurídicas proveedoras del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: el Agente 1 completa el RUC por nombre en cada corrida de Panamá. La carga de 6.700 personas jurídicas espera la autorización de la dueña: hasta entonces Panamá sigue sin RUC.',
+    countryCodes: ['PA'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://v2.panamacompraencifras.gob.pa/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Panamá no publica un padrón de RUC abierto (el Registro Público pide usuario). El buscador público de proveedores de PanamaCompraEnCifras (Dirección General de Contrataciones Públicas) trae RUC y razón social de quienes participan en compras públicas. Se carga una fila por RUC de PERSONA JURÍDICA (tomo-folio-asiento): 6.700 empresas, el 98,1 % con nombre único. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; un nombre de una sola palabra sin forma societaria queda como pista.',
+    limitations: [
+      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista.',
+      'Nunca cédulas de personas naturales (E-…, N-…, PE-…, «8-123-456»).',
+      'El buscador devuelve como mucho 10.000 resultados por consulta: se completa con consultas por forma societaria (S.A, INC, CORP, CONSORCIO, LTD, S. DE R).',
+      'El servidor no envía su certificado intermedio: la carga le pasa a Node el oficial de DigiCert (nunca se desactiva la verificación).',
+      'Se guarda el RUC sin el DV; el DV, cuando viene, queda aparte.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'pa_panamacompra_convenio',
     name: 'PanamaCompra Convenio Marco',
     sellupUse: 'commercial_signal',
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. No cubre toda la contratación pública panameña.',
+      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. El RUC por nombre en cada corrida usa otra carga más amplia: «PanamaCompraEnCifras — RUC por nombre» (pa_panamacompra_ruc_registry).',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P2',

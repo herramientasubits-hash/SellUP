@@ -138,11 +138,10 @@ describe('Perú.4D — SUNAT como validación legal offline', () => {
     const entry = mod.CATALOG_SOURCES.find(
       (s: { key: string }) => s.key === 'pe_sunat_bulk',
     )!;
-    assert.equal(
-      entry.connectionMode,
-      'not_connected',
-      'SUNAT bulk debe estar como not_connected (snapshot/worker offline)',
-    );
+    // Lo que fija esta prueba es su nombre: SUNAT bulk nunca es discovery. Su modo
+    // real (offline_signal, sin botón «Conectar») lo fija peru-ui1-source-catalog-status.
+    assert.notEqual(entry.connectionMode, 'wizard_discovery');
+    assert.equal(entry.connectionMode, 'offline_signal');
   });
 
   it('pe_sunat_bulk NO está en SOURCE_DISCOVERY_REGISTRY', async () => {
