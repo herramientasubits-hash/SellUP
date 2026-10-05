@@ -16,7 +16,8 @@
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
  * name→cédula jurídica, Bolivia (SEPREC, live) name→NIT and México
- * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC. No promise for
+ * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
+ * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -67,6 +68,10 @@ import {
   MX_COMPRANET_RFC_SOURCE_KEY,
   normalizeMexicoCompanyCore,
 } from '@/server/source-catalog/connectors/compranet-mexico/mx-compranet-rfc-rows';
+import {
+  normalizePanamaCompanyCore,
+  PA_PANAMACOMPRA_RUC_SOURCE_KEY,
+} from '@/server/source-catalog/connectors/panamacompra-pa/pa-panamacompra-ruc-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { CL_SII_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
@@ -235,6 +240,17 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
       normalizeCore: normalizeMexicoCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'),
+      singleWordIsSignalOnly: true,
+    }),
+    // SOURCES-PA-RUC-BY-NAME-1 — personas jurídicas del buscador de proveedores de
+    // PanamaCompraEnCifras (sólo quienes participan en compras públicas).
+    createSnapshotNameOfficialSourceResolver({
+      countryCode: 'PA',
+      sourceKey: PA_PANAMACOMPRA_RUC_SOURCE_KEY,
+      taxIdentifierType: 'RUC',
+      validTaxId: /^\d{3,}-\d{1,4}-\d{1,7}$/,
+      normalizeCore: normalizePanamaCompanyCore,
+      querySnapshots: buildSnapshotNameQuery(snapshotClient, PA_PANAMACOMPRA_RUC_SOURCE_KEY, 'PA'),
       singleWordIsSignalOnly: true,
     }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.

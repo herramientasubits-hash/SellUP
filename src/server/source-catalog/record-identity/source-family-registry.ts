@@ -47,6 +47,7 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-ES-NIF-BY-NAME-1 — un NIF, una fila (sociedades adjudicatarias en España).
   es_placsp_registry: 'TAX_GRAIN',
   mx_compranet_rfc_registry: 'TAX_GRAIN',
+  pa_panamacompra_ruc_registry: 'TAX_GRAIN',
   // SOURCES-CL-RUT-BY-NAME-1 — un RUT, una fila (sociedades del Registro de Empresas y Sociedades).
   cl_res_registry: 'TAX_GRAIN',
   cl_sii_registry: 'TAX_GRAIN',

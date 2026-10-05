@@ -1802,13 +1802,41 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── Panamá ──────────────────────────────────────────────────────────────────
   {
+    key: 'pa_panamacompra_ruc_registry',
+    name: 'PanamaCompraEnCifras — RUC por nombre (personas jurídicas proveedoras del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: el Agente 1 completa el RUC por nombre en cada corrida de Panamá. La carga de 6.700 personas jurídicas espera la autorización de la dueña: hasta entonces Panamá sigue sin RUC.',
+    countryCodes: ['PA'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://v2.panamacompraencifras.gob.pa/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Panamá no publica un padrón de RUC abierto (el Registro Público pide usuario). El buscador público de proveedores de PanamaCompraEnCifras (Dirección General de Contrataciones Públicas) trae RUC y razón social de quienes participan en compras públicas. Se carga una fila por RUC de PERSONA JURÍDICA (tomo-folio-asiento): 6.700 empresas, el 98,1 % con nombre único. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; un nombre de una sola palabra sin forma societaria queda como pista.',
+    limitations: [
+      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista.',
+      'Nunca cédulas de personas naturales (E-…, N-…, PE-…, «8-123-456»).',
+      'El buscador devuelve como mucho 10.000 resultados por consulta: se completa con consultas por forma societaria (S.A, INC, CORP, CONSORCIO, LTD, S. DE R).',
+      'El servidor no envía su certificado intermedio: la carga le pasa a Node el oficial de DigiCert (nunca se desactiva la verificación).',
+      'Se guarda el RUC sin el DV; el DV, cuando viene, queda aparte.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'pa_panamacompra_convenio',
     name: 'PanamaCompra Convenio Marco',
     sellupUse: 'commercial_signal',
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. No cubre toda la contratación pública panameña.',
+      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. El RUC por nombre en cada corrida usa otra carga más amplia: «PanamaCompraEnCifras — RUC por nombre» (pa_panamacompra_ruc_registry).',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P2',
