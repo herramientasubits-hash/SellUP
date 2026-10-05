@@ -156,14 +156,16 @@ describe('SCVS sigue como única fuente operativa de enrichment de Ecuador', () 
     assert.equal(scvs().connectionMode, 'backend_connected');
   });
 
-  it('SCVS es la única fuente EC en el tab "Operativas IA"', () => {
+  it('en «Operativas IA» de Ecuador sólo están SCVS y su capa gratuita (SERCOP y EKOS no)', () => {
     const { sources } = getSourceCatalogViewModel();
     const operativasEc = filterTab(sources, 'operativas').filter((s) =>
       s.countryCodes.includes('EC'),
     );
+    // SOURCES-EC-FREE-DISCOVERY-1 sumó ec_scvs_directory (directorio × ranking de la
+    // misma Superintendencia); la prueba fijaba el estado anterior a esa carga.
     assert.deepEqual(
-      operativasEc.map((s) => s.key),
-      ['ec_scvs'],
+      operativasEc.map((s) => s.key).sort(),
+      ['ec_scvs', 'ec_scvs_directory'],
     );
   });
 });
