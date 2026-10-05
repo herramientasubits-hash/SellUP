@@ -380,6 +380,13 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* El contenido de una pestaña al entrar: corto y bajo, para que cambiar de
+   pestaña se sienta continuo sin hacer esperar a nadie. */
+@keyframes su-tab-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes su-slide-in-left {
   from { opacity: 0; transform: translateX(-8px); }
   to { opacity: 1; transform: translateX(0); }
@@ -460,6 +467,9 @@
   }
   .animate-su-slide-in {
     animation: su-slide-in-left 0.35s var(--ease-spring) both;
+  }
+  .animate-su-tab-in {
+    animation: su-tab-in 0.22s var(--ease-spring) both;
   }
   .animate-su-scale-in {
     animation: su-scale-in 0.3s var(--ease-spring) both;
@@ -1227,5 +1237,24 @@
     .su-border-beam {
       display: none;
     }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Menos movimiento: quien lo pide en su sistema no ve ninguna entrada animada.
+   Las animaciones `su-*` de entrada y de pulso se apagan; el contenido aparece
+   directamente en su sitio. Las transiciones de color se mantienen.
+───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-su-fade-in,
+  .animate-su-slide-in,
+  .animate-su-scale-in,
+  .animate-su-tab-in,
+  .animate-su-shimmer,
+  .animate-su-pulse,
+  .animate-su-glow,
+  .animate-su-accordion-down,
+  .animate-su-accordion-up {
+    animation: none;
   }
 }
