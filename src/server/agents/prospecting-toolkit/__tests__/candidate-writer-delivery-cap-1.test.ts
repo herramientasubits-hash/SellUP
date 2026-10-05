@@ -37,6 +37,12 @@ import { assessApolloSubindustryPrecisionForRequest } from '../apollo-subindustr
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
 import type { CandidateWriterInput, CatalogContextResult, DeliveryCappedCompany, WebSearchResult } from '../types';
 import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
+import { buildBankPipelineOutput } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
+import {
+  PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND,
+  projectCandidateForBank,
+  readBankPipelineCandidate,
+} from '@/server/prospect-batches/company-bank/pipeline-candidate-bank-payload';
 
 const REQUESTED_SUBINDUSTRY = 'Tiendas por Departamento, Moda y Calzado';
 const USER_ID = 'aaaaaaaa-0000-0000-0000-0000000000dc';
@@ -393,6 +399,52 @@ describe('AGENT1-DELIVERY-CAP-1 — writer Apollo/Tavily: tope de entrega por ve
     assert.deepEqual(deliveryCappedCompanies.map((c) => c.name), NAMES.slice(10));
     const none = await runWriter(buildCandidates(), { maxDeliveredCandidates: null });
     assert.deepEqual(none.deliveryCappedCompanies, []);
+  });
+
+  it('🔴 BANK-FIRST-MEASURES-TARGET-1: lo que vuelve del banco se MIDE y una completa cuenta para la meta', async () => {
+    // Medido 05-10 (Chile × Salud, lote d92a12ec): 10 filas del banco sin
+    // `target_completeness` ⇒ el banco aportaba 0 y la corrida pagaba igual.
+    const complete = new Set(NAMES.map((_n, i) => i));
+    const fromBank = buildCandidates(complete)
+      .slice(0, 3)
+      .map((candidate) =>
+        readBankPipelineCandidate({
+          kind: PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND,
+          candidate: projectCandidateForBank(candidate as never),
+          requestedSubindustries: [],
+        }),
+      );
+    assert.ok(fromBank.every((c) => c !== null));
+    const stats = { candidateInserts: [] as Record<string, unknown>[], batchUpdates: [] as Record<string, unknown>[] };
+    const pipelineOutput = buildBankPipelineOutput({
+      industryName: 'Retail y Consumo',
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      requestedTarget: TARGET,
+      candidates: fromBank as never,
+    });
+    const result = await writeProspectingCandidates(
+      {
+        pipelineOutput,
+        triggeredByUserId: USER_ID,
+        ownerId: USER_ID,
+        source: 'agent_1',
+        dryRun: false,
+        targetPersistibleCandidates: TARGET,
+        maxDeliveredCandidates: 10,
+        holdBatchStatus: true,
+        candidateProvenance: 'apollo',
+      } as unknown as CandidateWriterInput,
+      makeFakeAdmin(stats),
+    );
+    assert.equal(stats.candidateInserts.length, 3);
+    for (const row of stats.candidateInserts) {
+      const tc = (row.metadata as Record<string, unknown>).target_completeness as Record<string, unknown> | undefined;
+      assert.ok(tc, `${String(row.name)} queda medida (target_completeness)`);
+      assert.equal(row.source_primary, 'apollo');
+    }
+    assert.ok(stats.candidateInserts.some((row) => countsTowardTarget(row) === true), 'una completa del banco cuenta');
+    assert.ok((result.persistence?.completeValidCandidates ?? 0) > 0, 'el escritor declara completas medidas');
   });
 
   it('🔴 BANK-FIRST-1: lo recortado trae el candidato COMPLETO para el banco', async () => {
