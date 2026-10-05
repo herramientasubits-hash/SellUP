@@ -132,15 +132,6 @@ export type CompanyNameNormalizationResult = {
 const DISPLAY_LEGAL_SUFFIX_RE =
   /[\s,]+(?:S\.A\.S\.?|SAS|S\.A\.?|Ltda\.?|E\.U\.?|Corp\.?|Inc\.?|LLC|S\.R\.L\.?|LTDA|S\.L\.)[\s.,]*$/i;
 
-const KNOWN_TLDS = [
-  // Colombia / LatAm — más específicos primero para evitar match parcial
-  '.com.co', '.net.co', '.org.co', '.edu.co', '.gov.co', '.mil.co',
-  '.com.br', '.co.uk', '.com.mx', '.com.ar', '.com.pe', '.com.cl',
-  // Genéricos
-  '.com', '.co', '.net', '.org', '.io', '.biz', '.info',
-  // ccTLDs europeos y regionales frecuentes en candidatos internacionales
-  '.eu', '.de', '.fr', '.es', '.it', '.nl', '.be', '.pt', '.se', '.ch',
-];
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
@@ -243,6 +234,29 @@ function isSEOPhrase(name: string): boolean {
   return genericCount / words.length >= 0.5;
 }
 
+/** Segundos niveles que los países ponen antes de su ccTLD (`com.bo`, `gob.pe`, `org.ar`…). */
+const COUNTRY_SECOND_LEVEL_LABELS: ReadonlySet<string> = new Set([
+  'com', 'net', 'org', 'edu', 'gob', 'gov', 'mil', 'ac', 'co', 'nom', 'info', 'int', 'web', 'sld', 'gub',
+]);
+
+/**
+ * AGENT1-TAVILY-DOMAIN-NAME-1 — quita la terminación de un dominio en CUALQUIER
+ * país (`cognos.com.bo` → `cognos`, `minsal.cl` → `minsal`, `esan.edu.pe` →
+ * `esan`). Antes sólo se conocían las de Colombia y las genéricas: Prod 02-10,
+ * 26/190 nombres de Tavily quedaban como «Cognos.com.bo» y los registros
+ * oficiales no los encontraban.
+ */
+export function stripDomainSuffix(host: string): string {
+  const labels = host.toLowerCase().replace(/^www\./, '').split('.').filter(Boolean);
+  if (labels.length < 2) return labels.join('.');
+  const last = labels[labels.length - 1];
+  const second = labels[labels.length - 2];
+  if (labels.length >= 3 && last.length === 2 && COUNTRY_SECOND_LEVEL_LABELS.has(second)) {
+    return labels.slice(0, -2).join('.');
+  }
+  return labels.slice(0, -1).join('.');
+}
+
 /**
  * Infiere nombre de marca desde un dominio o URL.
  * Sin llamadas externas. Retorna null si no puede inferir un nombre limpio.
@@ -254,12 +268,7 @@ function inferNameFromDomain(domainOrUrl: string): string | null {
     );
     let host = parsed.hostname.replace(/^www\./, '');
 
-    for (const tld of KNOWN_TLDS) {
-      if (host.endsWith(tld)) {
-        host = host.slice(0, -tld.length);
-        break;
-      }
-    }
+    host = stripDomainSuffix(host);
 
     if (!host || host.length < 2) return null;
 

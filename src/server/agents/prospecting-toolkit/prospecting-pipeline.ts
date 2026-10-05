@@ -40,6 +40,7 @@ import {
 import {
   normalizeProspectCompanyName,
   SEO_GENERIC_KEYWORDS,
+  stripDomainSuffix,
 } from './company-name-normalizer';
 import {
   evaluateTavilyResultsWithLLM,
@@ -91,10 +92,6 @@ const GLOBAL_VENDOR_NAMES = new Set([
 const LEGAL_SUFFIX_RE = /\b(S\.A\.S\.?|SAS|S\.A\.?|Ltda\.?|E\.U\.?|Corp\.?|Inc\.?|LLC|S\.R\.L\.?)\b/i;
 
 // TLDs ordenados de más específico a más genérico (evita match parcial)
-const KNOWN_TLDS = [
-  '.com.co', '.net.co', '.org.co', '.edu.co', '.gov.co', '.mil.co',
-  '.com', '.co', '.net', '.org', '.io', '.biz', '.info',
-];
 
 function normalizeForKeywords(s: string): string {
   return s
@@ -173,9 +170,7 @@ function inferNameFromDomain(url: string): string | null {
     const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
     let host = parsed.hostname.replace(/^www\./, '');
 
-    for (const tld of KNOWN_TLDS) {
-      if (host.endsWith(tld)) { host = host.slice(0, -tld.length); break; }
-    }
+    host = stripDomainSuffix(host);
     if (!host || host.length < 2) return null;
 
     // Guiones → palabras separadas

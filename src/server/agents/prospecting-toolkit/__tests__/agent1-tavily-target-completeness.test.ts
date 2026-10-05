@@ -311,11 +311,17 @@ describe('AGENT1-SIZE-OFFICIAL-REGISTRY-WORKERS-1 — los trabajadores del regis
     assert.equal(gate?.size_status, 'estimated_above_threshold');
   });
 
-  it('< 200 trabajadores informados: ni bloquea ni cuenta (queda como hoy)', async () => {
-    const { result, inserted } = await writeWithProvider('tavily', undefined, withWorkforce(12));
+  it('entre 50 y 199 trabajadores informados: ni bloquea ni cuenta (queda como hoy)', async () => {
+    const { result, inserted } = await writeWithProvider('tavily', undefined, withWorkforce(120));
     assert.equal(result.candidatesCreated, 1);
     const completeness = (inserted[0]?.metadata as Record<string, unknown>)?.target_completeness as Completeness;
     assert.ok(completeness.failed_conditions?.includes('employee_count_status'));
+  });
+
+  it('AGENT1-SIZE-OFFICIAL-REGISTRY-SMALL-1 — menos de 50 informados: el writer no la guarda (pequeña)', async () => {
+    const { result } = await writeWithProvider('tavily', undefined, withWorkforce(12));
+    assert.equal(result.candidatesCreated, 0);
+    assert.ok(result.skipped.some((entry) => /icp_size_below_threshold/.test(JSON.stringify(entry))));
   });
 
   it('sin identidad fuerte el dato no se usa', async () => {
