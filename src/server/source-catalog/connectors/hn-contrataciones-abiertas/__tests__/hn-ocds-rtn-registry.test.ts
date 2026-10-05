@@ -95,12 +95,13 @@ describe('cableado y catálogo', () => {
     assert.match(wiring.slice(i, j), /validTaxId: \/\^\\d\{4\}9\\d\{9\}\$\//);
   });
 
-  it('catálogo: conectada en código, carga pendiente, fuera de las recomendaciones', () => {
+  it('catálogo: cargada y verificada, fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'hn_ocds_rtn_registry');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['HN']);
     assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
-    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.equal(s.operationalStatus, 'operational_verified');
+    assert.match(s.nextAction ?? '', /6\.195 .*cargadas/);
     for (const depth of ['basic', 'standard', 'deep'] as const) {
       const ctx = getCatalogContext({ country: 'Honduras', countryCode: 'HN', industry: 'technology', searchDepth: depth });
       assert.equal(ctx.recommendedSources.some((r) => r.key === 'hn_ocds_rtn_registry'), false, depth);
