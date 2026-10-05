@@ -758,7 +758,11 @@ export async function executeProspectWizardGenerationAction(
         resolveBatchId: input.resolveBatchId,
         // AGENT1-COMPANY-BANK-FIRST-1 — el banco es la PRIMERA fuente: corre antes
         // de la capa gratuita, en el mismo lote. Banco apagado ⇒ ausente.
-        drawCompanyBank: resolveProductionBankFirstDrawer(input.industryName ?? '') ?? undefined,
+        drawCompanyBank:
+          resolveProductionBankFirstDrawer(input.industryName ?? '', {
+            // Con Tavily-primero, su revisión de Claude ya cubre lo del banco: una sola pasada.
+            reviewInline: !isAgent1TavilyFirstEffective(),
+          }) ?? undefined,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
