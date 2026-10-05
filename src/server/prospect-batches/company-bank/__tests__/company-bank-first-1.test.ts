@@ -271,6 +271,8 @@ function drawerHarness(opts: {
   writeThrows?: boolean;
   persistedByDomain?: Record<string, string>;
   noPort?: boolean;
+  acceptedAfterClaude?: number | null;
+  review?: 'ok' | 'fails' | 'absent';
 }) {
   const rec: Recorder = { draws: [], settles: [], writes: [], batchResolutions: 0 };
   const port: ApolloCompanyBankPort = {
@@ -291,7 +293,11 @@ function drawerHarness(opts: {
     async readPersistedCandidateIdsByDomain() {
       return new Map(Object.entries(opts.persistedByDomain ?? {}));
     },
+    async countAcceptedByDomain() {
+      return opts.acceptedAfterClaude ?? null;
+    },
   };
+  const reviews: Array<{ batchId: string; triggeredBy: string; windowMs: number }> = [];
   const deps: BankFirstDeps = {
     port: opts.noPort ? null : port,
     industryName: 'Industria / Manufactura / Químicos / Automotor',
@@ -315,6 +321,14 @@ function drawerHarness(opts: {
     },
     resolveCap: () => 10,
     newDrawId: () => 'draw-1',
+    ...(opts.review === 'absent'
+      ? {}
+      : {
+          reviewInline: async (input: { batchId: string; triggeredBy: string; windowMs: number }) => {
+            reviews.push(input);
+            return opts.review !== 'fails';
+          },
+        }),
   };
   const input = {
     countryCode: 'CO',
@@ -327,7 +341,7 @@ function drawerHarness(opts: {
       return 'batch-1';
     },
   };
-  return { rec, drawer: createBankFirstDrawer(deps), input };
+  return { rec, reviews, drawer: createBankFirstDrawer(deps), input };
 }
 
 describe('§ 4 — sacar del banco antes que todo', () => {
@@ -393,6 +407,70 @@ describe('§ 4 — sacar del banco antes que todo', () => {
       { id: 'r2', outcome: 'released' },
       { id: 'r3', outcome: 'invalidated', reason: 'not_admitted_on_redraw' },
     ]);
+  });
+
+  it('🔴 CLAUDE-INLINE-1: Claude revisa lo del banco ANTES de decidir pagar y se vuelve a contar', async () => {
+    // Medido 05-10 (Chile × Salud, 0f60a313): 3 del banco contaron 2 min después,
+    // ya con Apollo + Tavily + Claude pagados.
+    const h = drawerHarness({
+      rows: [bankRow('r1', pipelinePayload('Alfa', 'alfa.co')), bankRow('r2', pipelinePayload('Beta', 'beta.co'))],
+      writer: { candidatesCreated: 2, persistence: { completeValidCandidates: 0 } as never },
+      persistedByDomain: { 'alfa.co': 'c-1', 'beta.co': 'c-2' },
+      acceptedAfterClaude: 2,
+      review: 'ok',
+    });
+    const out = await h.drawer(h.input);
+    assert.deepEqual(h.reviews, [{ batchId: 'batch-1', triggeredBy: 'u-1', windowMs: 60_000 }]);
+    assert.equal(out.acceptedCount, 2, 'lo que Claude confirmó cuenta para la meta de ESTA búsqueda');
+    assert.equal(out.telemetry.claude_reviewed, true);
+    assert.equal(out.telemetry.accepted_after_claude, 2);
+  });
+
+  it('CLAUDE-INLINE-1: nunca cuenta más de lo que el banco escribió', async () => {
+    const h = drawerHarness({
+      rows: [bankRow('r1', pipelinePayload('Alfa', 'alfa.co'))],
+      writer: { candidatesCreated: 1, persistence: { completeValidCandidates: 0 } as never },
+      acceptedAfterClaude: 7,
+      review: 'ok',
+    });
+    assert.equal((await h.drawer(h.input)).acceptedCount, 1);
+  });
+
+  it('CLAUDE-INLINE-1: si ya cierra la meta, no se paga a Claude', async () => {
+    const rows = ['a', 'b', 'c', 'd', 'e'].map((n) => bankRow(n, pipelinePayload(n.toUpperCase() + 'x', `${n}.co`), 'ready'));
+    const h = drawerHarness({ rows, writer: { candidatesCreated: 5, persistence: { completeValidCandidates: 5 } as never }, review: 'ok' });
+    const out = await h.drawer(h.input);
+    assert.equal(h.reviews.length, 0);
+    assert.equal(out.acceptedCount, 5);
+  });
+
+  it('CLAUDE-INLINE-1: Claude falla o está apagado ⇒ se queda la medición del escritor', async () => {
+    for (const review of ['fails', 'absent'] as const) {
+      const h = drawerHarness({
+        rows: [bankRow('r1', pipelinePayload('Alfa', 'alfa.co'))],
+        writer: { candidatesCreated: 1, persistence: { completeValidCandidates: 0 } as never },
+        acceptedAfterClaude: 1,
+        review,
+      });
+      const out = await h.drawer(h.input);
+      assert.equal(out.acceptedCount, 0, review);
+      assert.equal(out.telemetry.claude_reviewed, false, review);
+    }
+  });
+
+  it('CLAUDE-INLINE-1: en Producción la revisión obedece a la bandera del rescate de Claude', () => {
+    const drawer = readFileSync(
+      path.join(REPO_ROOT, 'src/server/prospect-batches/company-bank/prepaid-bank-draw.server.ts'),
+      'utf8',
+    );
+    assert.match(drawer, /reviewInline: options\.reviewInline === false \? undefined : async[\s\S]{0,120}if \(!isAgent1ClaudeRescueEnabled\(\)\) return false;/);
+    // Con Tavily-primero la revisión es la suya (una sola pasada sobre el lote).
+    const wizard = readFileSync(
+      path.join(REPO_ROOT, 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
+      'utf8',
+    );
+    assert.match(wizard, /reviewInline: !isAgent1TavilyFirstEffective\(\)/);
+    assert.match(drawer, /rescueBatchWithClaude\(\s*\{ batchId, triggeredBy, deadlineMs: windowMs \}/);
   });
 
   it('banco apagado, caído o sin macro ⇒ no aporta y no lanza', async () => {
@@ -569,7 +647,7 @@ describe('§ 6 — el cableado', () => {
       path.join(REPO_ROOT, 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
       'utf8',
     );
-    assert.match(wizard, /drawCompanyBank:\s*resolveProductionBankFirstDrawer\(input\.industryName \?\? ''\) \?\? undefined/);
+    assert.match(wizard, /drawCompanyBank:\s*resolveProductionBankFirstDrawer\(input\.industryName \?\? '', \{/);
     assert.match(wizard, /industryName:\s*catalogResolution\.industry\.name/);
   });
 

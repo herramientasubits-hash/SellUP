@@ -314,9 +314,15 @@ export function normalizeProspectCompanyName(
 ): CompanyNameNormalizationResult {
   const originalName = rawName;
 
+  // AGENT1-TAVILY-NAME-EDGE-PUNCT-1 — guiones, barras y viñetas sueltos en los
+  // bordes (Prod 05-10, CL×Salud 0f60a313: «-Hospital las Higueras-»). El punto
+  // final se conserva («S.A.»).
+  const trimmedName = rawName.replace(/^[\s\-–—|·•:,]+/, '').replace(/[\s\-–—|·•:,]+$/, '') || rawName;
+  const nameWasTrimmed = trimmedName !== rawName;
+
   // Step 1: strip legal suffix for display
-  const withoutSuffix = stripLegalSuffixForDisplay(rawName);
-  const hadLegalSuffix = withoutSuffix !== rawName;
+  const withoutSuffix = stripLegalSuffixForDisplay(trimmedName);
+  const hadLegalSuffix = withoutSuffix !== trimmedName;
 
   // Step 2a: names with a legal suffix are registered entities — never SEO phrases.
   // Short-circuit here to preserve the entity name and avoid false-positive SEO detection
@@ -348,7 +354,8 @@ export function normalizeProspectCompanyName(
     return {
       name: withoutSuffix,
       originalName,
-      wasNormalized: false,
+      wasNormalized: nameWasTrimmed,
+      ...(nameWasTrimmed ? { normalizationReason: 'edge_punctuation_trimmed' as const } : {}),
     };
   }
 

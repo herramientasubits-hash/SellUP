@@ -64,18 +64,18 @@ export type TavilyFirstSkipReason =
 
 export type TavilyFirstOutcome =
   /** Tavily dejó suficientes para revisar (tras Claude, si alcanzó a revisar): Apollo y Lusha no corrieron. */
-  | { outcome: 'satisfied'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
+  | { outcome: 'satisfied'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily dejó pocas: Apollo completó en la misma corrida. */
-  | { outcome: 'apollo_completed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
+  | { outcome: 'apollo_completed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tras Claude quedaron pocas y ya no había tiempo para Apollo: se entrega lo que hay. */
-  | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number; acceptedAfterClaude?: number | null }
+  | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily no corrió; la corrida fue Apollo como siempre. */
   | { outcome: 'skipped'; skipReason: TavilyFirstSkipReason }
   /**
    * AGENT1-TAVILY-FIRST-4 — Tavily dejó pocas pero el lote no se pudo reabrir
    * para Apollo: se entrega lo de Tavily (Apollo no corre ni gasta).
    */
-  | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null }
+  | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily falló a mitad; la corrida siguió con Apollo. */
   | { outcome: 'failed' };
 
@@ -119,11 +119,43 @@ export function isTavilyFirstClosing(input: {
   acceptedAfterClaude: number | null;
   claudeReviewed: boolean;
   target: number;
+  /**
+   * AGENT1-TAVILY-FIRST-6 — aceptadas del LOTE ENTERO (banco, capa gratuita y
+   * Tavily) recontadas tras Claude, contra el objetivo PEDIDO. Prod 05-10
+   * (CL×Salud 0f60a313): 3 del banco + 3 de Tavily cerraban la meta, pero el banco
+   * aún no contaba al decidir y la corrida pagó Apollo y «Claude busca empresas».
+   */
+  acceptedInLot?: number | null;
+  requestedTarget?: number;
 }): boolean {
+  if (
+    input.claudeReviewed &&
+    input.acceptedInLot != null &&
+    input.requestedTarget !== undefined &&
+    input.acceptedInLot >= input.requestedTarget
+  ) {
+    return true;
+  }
   if (input.claudeReviewed && input.acceptedAfterClaude !== null) {
     return input.acceptedAfterClaude >= input.target;
   }
   return isTavilyFirstSatisfied(input.reviewable, input.target);
+}
+
+/**
+ * AGENT1-TAVILY-FIRST-6 — ¿revisar con Claude dentro de la corrida? Si lo de
+ * Tavily basta para el hueco, o si el LOTE entero (banco + capa gratuita + Tavily)
+ * tiene revisables suficientes para el objetivo pedido: la misma pasada revisa
+ * las del banco, que de otro modo sólo contaban después de la corrida.
+ */
+export function shouldReviewTavilyFirstInline(input: {
+  tavilyOwnReviewable: number | null;
+  target: number;
+  lotReviewable: number | null;
+  requestedTarget: number;
+}): boolean {
+  if (isTavilyFirstSatisfied(input.tavilyOwnReviewable, input.target)) return true;
+  return input.lotReviewable !== null && input.lotReviewable >= input.requestedTarget;
 }
 
 export type WriterTruthLike = {

@@ -26,6 +26,11 @@ export type ApolloCompanyBankPort = {
     batchId: string,
     domains: readonly string[],
   ): Promise<Map<string, string> | null>;
+  /**
+   * AGENT1-BANK-FIRST-CLAUDE-INLINE-1 — cuántas de esas empresas cuentan HOY para
+   * la meta en el lote (vivas y `counts_toward_target`). `null` si la lectura falla.
+   */
+  countAcceptedByDomain(batchId: string, domains: readonly string[]): Promise<number | null>;
 };
 
 export function resolveApolloCompanyBankPort(
@@ -56,6 +61,22 @@ export function resolveApolloCompanyBankPort(
           if (domain && !byDomain.has(domain)) byDomain.set(domain, row.id);
         }
         return byDomain;
+      } catch {
+        return null;
+      }
+    },
+    async countAcceptedByDomain(batchId, domains) {
+      const wanted = [...new Set(domains)];
+      if (wanted.length === 0) return 0;
+      try {
+        const { count, error } = await client
+          .from('prospect_candidates')
+          .select('id', { count: 'exact', head: true })
+          .eq('batch_id', batchId)
+          .in('domain', wanted)
+          .not('status', 'in', '(duplicate,discarded)')
+          .eq('metadata->target_completeness->>counts_toward_target', 'true');
+        return error || count === null ? null : count;
       } catch {
         return null;
       }
