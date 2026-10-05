@@ -35,6 +35,8 @@ import { approveContactCandidateWithPhones } from './official-contact-approval-p
 import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
 import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
+import { resolveAccountForEnrichmentRequest } from './request-account-resolution-core';
+import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import type {
   Agent2AInput,
@@ -840,79 +842,10 @@ export async function approveContactCandidate(
         });
       },
       resolveOrCreateAccount: async (args) => {
-        return resolveOrCreateAccountForHubSpotCandidate(args, {
-          findByHubspotId: async (hid) => {
-            const { data } = await admin
-              .from('accounts')
-              .select('id')
-              .eq('hubspot_company_id', hid)
-              .is('archived_at', null)
-              .maybeSingle();
-            return data ? { id: data.id as string } : null;
-          },
-          findByDomain: async (domain) => {
-            const { data } = await admin
-              .from('accounts')
-              .select('id, hubspot_company_id')
-              .eq('domain', domain)
-              .is('archived_at', null)
-              .maybeSingle();
-            return data
-              ? { id: data.id as string, hubspot_company_id: (data.hubspot_company_id as string | null) ?? null }
-              : null;
-          },
-          createAccount: async (input) => {
-            const normalizedName = input.name
-              .toLowerCase()
-              .normalize('NFD')
-              .replace(/\p{Diacritic}/gu, '')
-              .replace(/[^a-z0-9\s]/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            const { data, error } = await admin
-              .from('accounts')
-              .insert({
-                name: input.name,
-                normalized_name: normalizedName,
-                domain: input.domain,
-                website: input.website,
-                hubspot_company_id: input.hubspot_company_id,
-                country_code: input.country_code ?? null,
-                source: 'hubspot',
-                pipeline_status: 'new',
-                metadata: {
-                  created_from: 'contact_enrichment_approval',
-                  source_hubspot_company_id: input.hubspot_company_id,
-                  source_contact_enrichment_run_id: input.run_id ?? null,
-                  created_from_candidate_approval: true,
-                  country_resolution: {
-                    source: input.country_code ? 'contact_enrichment_run' : 'unknown',
-                    resolved_country_code: input.country_code ?? null,
-                    applied_on_candidate_approval: true,
-                  },
-                },
-                created_by: internalUserId,
-                updated_by: internalUserId,
-              })
-              .select('id')
-              .single();
-            if (error) return { error: error.message };
-            return { id: data.id as string };
-          },
-          linkHubspotId: async (accountId, hubspotId) => {
-            await admin
-              .from('accounts')
-              .update({ hubspot_company_id: hubspotId, updated_by: internalUserId })
-              .eq('id', accountId);
-          },
-          updateAccountCountryCode: async (accountId, countryCode) => {
-            await admin
-              .from('accounts')
-              .update({ country_code: countryCode, updated_by: internalUserId })
-              .eq('id', accountId)
-              .is('country_code', null);
-          },
-        });
+        return resolveOrCreateAccountForHubSpotCandidate(
+          args,
+          buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_enrichment_approval'),
+        );
       },
       updateRunAccountId: async (runId, accountId, outcome, countryCodeApplied, countryResolutionSource) => {
         const { data: runRow } = await admin
@@ -1612,8 +1545,35 @@ export async function createContactEnrichmentRequestAction(
       throw new Error('La empresa confirmada no tiene nombre');
     }
 
+    // AGENT2A-HUBSPOT-ID-RESOLUTION — si la empresa viene de HubSpot (tiene Company ID)
+    // y aún no tiene cuenta SellUp, se resuelve/crea AQUÍ, antes de buscar contactos:
+    // la cuenta aparece en Empresas desde el primer momento, Lusha puede ejecutarse y
+    // aprobar candidatos ya no tropieza con «sin cuenta». Nunca bloquea: si falla, la
+    // request se crea igual que antes (sin cuenta) y la aprobación lo reintentará.
+    const accountResolution = await resolveAccountForEnrichmentRequest(
+      {
+        source: confirmedCompany.source,
+        sellupAccountId: confirmedCompany.sellupAccountId ?? null,
+        hubspotCompanyId: confirmedCompany.hubspotCompanyId ?? null,
+        name: confirmedCompany.name,
+        domain: confirmedCompany.domain ?? null,
+        countryCode: confirmedCompany.countryCode ?? null,
+      },
+      buildHubSpotAccountResolutionDeps(
+        getServiceRoleClient(),
+        internalUserId,
+        'contact_enrichment_request',
+      ),
+    );
+    if (accountResolution.outcome === 'failed') {
+      console.warn('[contact-enrichment] cuenta HubSpot no resuelta al crear la request', {
+        hubspotCompanyId: confirmedCompany.hubspotCompanyId ?? null,
+        reason: accountResolution.reason,
+      });
+    }
+
     const result = await createContactEnrichmentRequest({
-      accountId: confirmedCompany.sellupAccountId ?? null,
+      accountId: accountResolution.accountId ?? confirmedCompany.sellupAccountId ?? null,
       companyName: confirmedCompany.name,
       companyDomain: confirmedCompany.domain ?? null,
       companyCountryCode: confirmedCompany.countryCode ?? null,

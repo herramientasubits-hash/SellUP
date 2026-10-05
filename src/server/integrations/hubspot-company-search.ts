@@ -11,7 +11,7 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 // AGENT2A-PROD-INCIDENT: las dos búsquedas salen por este helper, que es el que
 // pone el techo de espera. Antes cada una llamaba a `fetch` sin `signal`.
-import { postHubSpotCompanySearch } from './hubspot-company-search-request';
+import { postHubSpotCompanySearch, getHubSpotCompanyById } from './hubspot-company-search-request';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -294,5 +294,70 @@ export async function searchHubSpotCompaniesForResolver(opts: {
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : 'Error desconocido';
     return { found: false, companies: [], skipped: false, error };
+  }
+}
+
+// ============================================================
+// Lectura por Company ID para el wizard de enriquecimiento
+// (AGENT2A-HUBSPOT-ID-RESOLUTION)
+// ============================================================
+
+export interface HubSpotCompanyByIdResult {
+  /** La empresa, o `null` si HubSpot contestó que ese ID no existe (404). */
+  company: HubSpotCompany | null;
+  /** true si HubSpot no está disponible — no es error fatal. */
+  skipped: boolean;
+  skipReason?: HubSpotCompanySearchSkipReason;
+  error?: string;
+}
+
+/**
+ * Lee UNA empresa de HubSpot por su Company ID. Solo lectura.
+ *
+ * - 404 ⇒ `company: null` sin error (el ID no existe: respuesta real).
+ * - Cualquier otro estado no-OK, red caída o techo vencido ⇒ `error` (no consultable).
+ *   Nunca se confunde «no se pudo consultar» con «no existe».
+ */
+export async function getHubSpotCompanyByIdForResolver(
+  companyId: string,
+): Promise<HubSpotCompanyByIdResult> {
+  const id = companyId.trim();
+  if (!/^\d+$/.test(id)) {
+    return { company: null, skipped: true, skipReason: 'no_search_terms' };
+  }
+
+  const connected = await isHubSpotConnected();
+  if (!connected) {
+    return { company: null, skipped: true, skipReason: 'not_connected' };
+  }
+
+  const token = await getHubSpotToken();
+  if (!token) {
+    return { company: null, skipped: true, skipReason: 'no_token' };
+  }
+
+  try {
+    const response = await getHubSpotCompanyById(token, id, COMPANY_PROPERTIES);
+    if (response.status === 404) {
+      return { company: null, skipped: false };
+    }
+    if (!response.ok) {
+      return { company: null, skipped: false, error: `HubSpot respondió ${response.status}` };
+    }
+    const r = (await response.json()) as { id: string; properties: Record<string, string | null> };
+    return {
+      company: {
+        id: String(r.id),
+        name: r.properties?.name ?? null,
+        domain: r.properties?.domain ?? null,
+        website: r.properties?.website ?? null,
+        country: r.properties?.country ?? null,
+        city: r.properties?.city ?? null,
+      },
+      skipped: false,
+    };
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error desconocido';
+    return { company: null, skipped: false, error };
   }
 }

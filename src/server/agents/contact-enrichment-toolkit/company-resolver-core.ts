@@ -4,7 +4,10 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { Agent2AInput, CompanyCandidate, CompanyResolutionResult } from '@/modules/contact-enrichment/types';
 import type { CompanyResolverDeps, SellUpAccountMatch, HubSpotCompanyMatch } from './types';
-import { searchHubSpotCompaniesForResolver } from '@/server/integrations/hubspot-company-search';
+import {
+  searchHubSpotCompaniesForResolver,
+  getHubSpotCompanyByIdForResolver,
+} from '@/server/integrations/hubspot-company-search';
 
 // ── Admin Supabase (service_role) ─────────────────────────────
 
@@ -151,6 +154,23 @@ async function defaultSearchHubSpot(opts: {
   );
 }
 
+/**
+ * AGENT2A-HUBSPOT-ID-RESOLUTION — adaptador por defecto de la lectura por ID.
+ * `null` ⇒ no consultable (desconectado, sin token, error o techo vencido).
+ */
+export function mapHubSpotCompanyByIdResultToMatches(result: {
+  company: HubSpotCompanyMatch | null;
+  skipped: boolean;
+  error?: string;
+}): HubSpotCompanyMatch[] | null {
+  if (result.skipped || result.error) return null;
+  return result.company ? [result.company] : [];
+}
+
+async function defaultGetHubSpotCompanyById(companyId: string): Promise<HubSpotCompanyMatch[] | null> {
+  return mapHubSpotCompanyByIdResultToMatches(await getHubSpotCompanyByIdForResolver(companyId));
+}
+
 // ── Helpers de conversión ────────────────────────────────────
 
 function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): CompanyCandidate {
@@ -167,7 +187,7 @@ function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): 
   };
 }
 
-function hubspotMatchToCandidate(match: HubSpotCompanyMatch): CompanyCandidate {
+function hubspotMatchToCandidate(match: HubSpotCompanyMatch, confidence = 0.8): CompanyCandidate {
   const country = match.country ?? null;
   const countryCode = mapCountryToCode(country);
   return {
@@ -178,7 +198,7 @@ function hubspotMatchToCandidate(match: HubSpotCompanyMatch): CompanyCandidate {
     country,
     countryCode,
     linkedinUrl: null,
-    matchConfidence: 0.8,
+    matchConfidence: confidence,
   };
 }
 
@@ -192,6 +212,8 @@ function hubspotMatchToCandidate(match: HubSpotCompanyMatch): CompanyCandidate {
  * 2. SellUp por hubspot_company_id (exacto → confianza 1.0)
  * 3. SellUp por dominio (parcial → confianza 0.9)
  * 4. SellUp por nombre (ilike → confianza 0.7)
+ * 2b. HubSpot por Company ID (exacto → confianza 1.0) cuando no hay cuenta SellUp
+ *     con ese hubspot_company_id — solo lectura (AGENT2A-HUBSPOT-ID-RESOLUTION)
  * 5. HubSpot (dominio o nombre) — solo lectura, no obligatorio
  *
  * Si HubSpot no está disponible, devuelve skippedHubSpot: true sin error fatal.
@@ -206,6 +228,7 @@ export async function resolveCompanyForContactEnrichment(
     searchSellUpByDomain = defaultSearchByDomain,
     searchSellUpByName = defaultSearchByName,
     searchHubSpot = defaultSearchHubSpot,
+    getHubSpotCompanyById = defaultGetHubSpotCompanyById,
   } = deps;
 
   const sellupCandidates: CompanyCandidate[] = [];
@@ -236,6 +259,34 @@ export async function resolveCompanyForContactEnrichment(
     }
   }
 
+  // 2b. Por Company ID exacto en HubSpot (AGENT2A-HUBSPOT-ID-RESOLUTION).
+  // Antes, una búsqueda solo con el ID y sin cuenta SellUp vinculada no consultaba
+  // HubSpot (no había dominio ni nombre que buscar): el wizard acababa en «manual» con
+  // el número como nombre de empresa, sin dominio ni país, y los proveedores buscaban
+  // contactos de una empresa llamada «52817179673». Ahora se lee la empresa por su ID y
+  // el candidato llega con nombre, dominio y país reales.
+  const hubspotByIdCandidates: CompanyCandidate[] = [];
+  let hubspotIdLookupDone = false;
+  if (input.hubspotCompanyId && sellupCandidates.length > 0) {
+    // La cuenta SellUp ya está vinculada a ese ID: no hace falta preguntar a HubSpot.
+    hubspotIdLookupDone = true;
+  } else if (input.hubspotCompanyId) {
+    try {
+      const byId = await getHubSpotCompanyById(input.hubspotCompanyId);
+      if (byId === null) {
+        skippedHubSpot = true;
+      } else {
+        hubspotIdLookupDone = true;
+        for (const m of byId) hubspotByIdCandidates.push(hubspotMatchToCandidate(m, 1.0));
+      }
+    } catch (err) {
+      skippedHubSpot = true;
+      if (!resolverError) {
+        resolverError = err instanceof Error ? err.message : 'HubSpot no disponible';
+      }
+    }
+  }
+
   // 3. Por dominio en SellUp
   if (input.companyDomain && sellupCandidates.length === 0) {
     try {
@@ -261,8 +312,11 @@ export async function resolveCompanyForContactEnrichment(
   }
 
   // 5. HubSpot — opcional, solo lectura
-  const hubspotCandidates: CompanyCandidate[] = [];
-  if (input.companyDomain || input.companyName) {
+  const hubspotCandidates: CompanyCandidate[] = [...hubspotByIdCandidates];
+  if (hubspotByIdCandidates.length > 0) {
+    // El ID ya identificó la empresa en HubSpot: una búsqueda adicional por
+    // nombre/dominio solo añadiría ruido (y una llamada más).
+  } else if (input.companyDomain || input.companyName) {
     try {
       const hsMatches = await searchHubSpot({
         domain: input.companyDomain,
@@ -289,7 +343,7 @@ export async function resolveCompanyForContactEnrichment(
         resolverError = err instanceof Error ? err.message : 'HubSpot no disponible';
       }
     }
-  } else {
+  } else if (!hubspotIdLookupDone) {
     skippedHubSpot = true;
   }
 
