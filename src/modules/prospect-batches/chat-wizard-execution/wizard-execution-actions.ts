@@ -80,7 +80,6 @@ import {
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
   isTavilyFirstClosing,
-  isTavilyFirstSatisfied,
   shouldReviewTavilyFirstInline,
   resolveInlineRescueWindowMs,
   reopenBatchForApolloAfterTavilyFirst,
