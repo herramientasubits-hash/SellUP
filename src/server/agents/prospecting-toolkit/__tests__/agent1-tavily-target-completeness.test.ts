@@ -217,6 +217,17 @@ describe('resolveWebDiscoveryCompanyFieldStatuses', () => {
       'not_returned',
     );
   });
+
+  it('Claude con búsqueda web es el mismo caso que Tavily (Prod 05-10: lote sin medir)', () => {
+    assert.deepEqual(resolveWebDiscoveryCompanyFieldStatuses({ provider: 'claude', writerLinkedinVerified: false }), {
+      employeeCountStatus: 'not_returned',
+      linkedinStatus: 'not_returned',
+    });
+    assert.equal(
+      resolveWebDiscoveryCompanyFieldStatuses({ provider: 'claude', writerLinkedinVerified: true })?.linkedinStatus,
+      'confirmed',
+    );
+  });
 });
 
 describe('writer — filas de Tavily con target_completeness', () => {

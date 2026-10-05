@@ -16,6 +16,17 @@
 import type { CompanyFieldMappingStatus } from './apollo-company-fields-mapping';
 
 export const TAVILY_WEB_DISCOVERY_PROVIDER = 'tavily';
+/**
+ * AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — Claude con búsqueda web es el mismo caso que
+ * Tavily: no trae tamaño confirmado ni LinkedIn verificado. Sin esto, sus filas no
+ * llevaban `target_completeness` y el lote entero quedaba «no medido» (Prod 05-10,
+ * CL×Salud d92a12ec: Grifols Chile, Axon Pharma).
+ */
+export const CLAUDE_WEB_DISCOVERY_PROVIDER = 'claude';
+const WEB_DISCOVERY_PROVIDERS: ReadonlySet<string> = new Set([
+  TAVILY_WEB_DISCOVERY_PROVIDER,
+  CLAUDE_WEB_DISCOVERY_PROVIDER,
+]);
 
 export type WebDiscoveryCompanyFieldStatuses = {
   employeeCountStatus: CompanyFieldMappingStatus;
@@ -23,14 +34,14 @@ export type WebDiscoveryCompanyFieldStatuses = {
 };
 
 /**
- * `null` = no es una corrida de Tavily: el writer sigue como antes (Apollo con sus
+ * `null` = no es una corrida de búsqueda web (Tavily o Claude): el writer sigue como antes (Apollo con sus
  * campos, el resto sin bloque de completitud).
  */
 export function resolveWebDiscoveryCompanyFieldStatuses(input: {
   provider: string | null | undefined;
   writerLinkedinVerified: boolean;
 }): WebDiscoveryCompanyFieldStatuses | null {
-  if (input.provider !== TAVILY_WEB_DISCOVERY_PROVIDER) return null;
+  if (!input.provider || !WEB_DISCOVERY_PROVIDERS.has(input.provider)) return null;
   return {
     employeeCountStatus: 'not_returned',
     linkedinStatus: input.writerLinkedinVerified ? 'confirmed' : 'not_returned',
