@@ -19,6 +19,11 @@
  * SELLUP_CONFIRMED_SOURCE_KEY=cl_sii_registry):
  *   npx tsx scripts/source-catalog/run-cl-sii-registry-etl.ts --dir=… --apply
  *
+ * Recarga parcial (SOURCES-CL-PUBLIC-ENTITY-ALIASES-1): con
+ * `--only-public-entity-aliases` sólo se escriben las filas cuyo núcleo cambia con
+ * la forma común de los organismos públicos (municipalidades con «I»/«ILUSTRE»,
+ * hospitales bajo «SERVICIO … SALUD»): unas 700 en vez de 1,7 M.
+ *
  * Guardrails: dry-run por defecto; `--apply` escribe SÓLO source_key=
  * 'cl_sii_registry'; `assertLargeImportAllowed` antes de escribir; sólo lee
  * archivos locales. Reanudable con --offset.
@@ -36,6 +41,7 @@ import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim'
 
 import {
   buildClSiiRegistryRow,
+  canonicalizeChilePublicEntityCore,
   CL_SII_REGISTRY_SOURCE_KEY,
   parseClSiiActivityLine,
   parseClSiiCompanyLine,
@@ -43,12 +49,13 @@ import {
   type ClSiiMetrics,
   type ClSiiRegistryRow,
 } from '../../src/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
+import { normalizeChileCompanyCore } from '../../src/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
 const UPSERT_CHUNK = 1000;
 
-type Config = { dir: string; apply: boolean; metricsYear: number; offset: number };
+type Config = { dir: string; apply: boolean; metricsYear: number; offset: number; onlyAliases: boolean };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -62,7 +69,13 @@ function parseArgs(argv: readonly string[]): Config {
   if (!Number.isInteger(metricsYear) || !Number.isInteger(offset) || offset < 0) {
     throw new Error('config_invalid: --metrics-year y --offset deben ser enteros (offset ≥ 0)');
   }
-  return { dir, apply: argv.includes('--apply'), metricsYear, offset };
+  return {
+    dir,
+    apply: argv.includes('--apply'),
+    metricsYear,
+    offset,
+    onlyAliases: argv.includes('--only-public-entity-aliases'),
+  };
 }
 
 async function* lines(path: string): AsyncGenerator<string> {
@@ -117,8 +130,13 @@ async function main(): Promise<void> {
       sourceYear: config.metricsYear,
       importedAt,
     });
-    if (row !== null && row.record_identity_key !== null) rows.push(row);
+    if (row === null || row.record_identity_key === null) continue;
+    if (config.onlyAliases && canonicalizeChilePublicEntityCore(normalizeChileCompanyCore(row.legal_name)) === normalizeChileCompanyCore(row.legal_name)) {
+      continue;
+    }
+    rows.push(row);
   }
+  if (config.onlyAliases) console.log('  Sólo organismos públicos cuyo núcleo cambia (--only-public-entity-aliases).');
 
   const cores = new Map<string, number>();
   for (const row of rows) cores.set(row.normalized_legal_name, (cores.get(row.normalized_legal_name) ?? 0) + 1);
