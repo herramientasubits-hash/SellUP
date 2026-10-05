@@ -53,3 +53,33 @@ export async function postHubSpotCompanySearch(
     signal: AbortSignal.timeout(timeoutMs),
   });
 }
+
+/**
+ * AGENT2A-HUBSPOT-ID-RESOLUTION — lectura directa de UNA empresa de HubSpot por su
+ * Company ID, con el mismo techo de espera que la búsqueda.
+ *
+ * Cuando la operadora pega el Company ID (p. ej. `52817179673`), buscar por nombre o
+ * dominio no tiene sentido: el ID ya identifica la empresa. Esta lectura trae nombre,
+ * dominio y país para que el enriquecimiento arranque con datos reales en lugar de
+ * usar el número como nombre de empresa.
+ *
+ * Solo lectura: nunca escribe en HubSpot. Igual que la búsqueda, un techo vencido
+ * RECHAZA con `TimeoutError` y el llamador lo trata como «HubSpot no disponible».
+ */
+export function buildHubSpotCompanyByIdUrl(companyId: string, properties: string[]): string {
+  const params = new URLSearchParams({ properties: properties.join(',') });
+  return `https://api.hubapi.com/crm/v3/objects/companies/${encodeURIComponent(companyId)}?${params.toString()}`;
+}
+
+export async function getHubSpotCompanyById(
+  token: string,
+  companyId: string,
+  properties: string[],
+  timeoutMs: number = HUBSPOT_COMPANY_SEARCH_TIMEOUT_MS,
+): Promise<Response> {
+  return await fetch(buildHubSpotCompanyByIdUrl(companyId, properties), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}

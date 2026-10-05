@@ -53,4 +53,10 @@ export interface CompanyResolverDeps {
     domain?: string;
     name?: string;
   }) => Promise<HubSpotCompanyMatch[] | null>;
+  /**
+   * AGENT2A-HUBSPOT-ID-RESOLUTION — lee UNA empresa de HubSpot por Company ID.
+   * Mismo contrato que `searchHubSpot`: `null` ⇒ no se pudo consultar;
+   * `[]` ⇒ HubSpot contestó que ese ID no existe; `[empresa]` ⇒ encontrada.
+   */
+  getHubSpotCompanyById?: (companyId: string) => Promise<HubSpotCompanyMatch[] | null>;
 }

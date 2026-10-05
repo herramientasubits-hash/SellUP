@@ -1642,6 +1642,13 @@ jobs:
       - name: Run prod incident contact read/search regression tests
         run: npm run test:agent2a:prod-incident-contact-read-search
 
+      # AGENT2A-HUBSPOT-ID-RESOLUTION — buscar por Company ID de HubSpot lee la empresa
+      # real (nombre, dominio, país) y la cuenta SellUp se resuelve/crea al crear la
+      # request, no al aprobar el primer candidato. Determinista y offline: dobles
+      # inyectados, sin red, sin Supabase, sin HubSpot, 0 créditos.
+      - name: Run HubSpot Company ID resolution tests
+        run: npm run test:agent2a:hubspot-id-resolution
+
       # AGENT2A-P0-R2 — incidente cross-flow de QA (2026-08-13).
       #
       # Cubre las DOS regresiones de producto que la QA de la dueña dejó a la vista y que
