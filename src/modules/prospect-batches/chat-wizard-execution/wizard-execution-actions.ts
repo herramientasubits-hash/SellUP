@@ -80,7 +80,7 @@ import {
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
   isTavilyFirstClosing,
-  isTavilyFirstSatisfied,
+  shouldReviewTavilyFirstInline,
   resolveInlineRescueWindowMs,
   reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
@@ -325,6 +325,11 @@ export type WizardExecutionDeps = {
    * se pudo y Apollo no corre. Sin dep ⇒ no se reabre (comportamiento previo).
    */
   reopenBatchForApollo?: (batchId: string) => Promise<boolean>;
+  /**
+   * AGENT1-TAVILY-FIRST-6 — filas del lote (cualquier fuente) que cuentan para la
+   * meta, leídas DESPUÉS de la revisión de Claude. `null` = no se pudo.
+   */
+  countAcceptedInBatch?: (batchId: string) => Promise<number | null>;
   /** AGENT1-TAVILY-FIRST-2 — inicio de la acción, para medir los 300 s de Vercel. */
   actionStartedAtMs?: number;
   /** Reloj inyectable (pruebas). Por defecto `Date.now`. */
@@ -647,6 +652,15 @@ export async function executeProspectWizardGenerationAction(
         .not('status', 'in', '(duplicate,discarded)')
         .eq('metadata->target_completeness->>counts_toward_target', 'true');
       return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
+    },
+    countAcceptedInBatch: async (batchId) => {
+      const { count, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', batchId)
+        .not('status', 'in', '(duplicate,discarded)')
+        .eq('metadata->target_completeness->>counts_toward_target', 'true');
+      return error || count === null ? null : count;
     },
     // Mismo cliente de sesión que `markBatchFailed`: la RLS acota la fila.
     reopenBatchForApollo: (batchId) =>
@@ -2230,20 +2244,29 @@ export async function executeProspectWizardGeneration(
         // AGENT1-TAVILY-FIRST-4 — Tavily responde por el HUECO que dejaron la capa
         // gratuita y el banco (mismo lote), y sólo cuentan las filas que él aportó.
         const target = apolloResultDemand.remainingTarget;
+        const requestedTarget = apolloResultDemand.requestedTarget;
         const preExistingReviewable = prePaidContributed ? prePaidNovelty.persistedCount : 0;
-        const countReviewable = async (): Promise<number | null> =>
-          tavilyOwnReviewable(
-            deps.countReviewableCandidates
-              ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
-              : null,
-            preExistingReviewable,
-          );
-        const before = await countReviewable();
+        const countLotReviewable = async (): Promise<number | null> =>
+          deps.countReviewableCandidates
+            ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+            : null;
+        const lotReviewableBefore = await countLotReviewable();
+        const before = tavilyOwnReviewable(lotReviewableBefore, preExistingReviewable);
         let after = before;
         let claudeReviewed = false;
-        // AGENT1-TAVILY-FIRST-2 — sólo vale la pena revisar si Tavily «basta»:
-        // con menos, Apollo corre igual y la revisión se queda para después.
-        if (before !== null && isTavilyFirstSatisfied(before, target) && deps.rescueBatchInline) {
+        let acceptedInLot: number | null = null;
+        // AGENT1-TAVILY-FIRST-2/6 — se revisa si Tavily «basta» para el hueco, o si
+        // el LOTE (banco + Tavily) tiene revisables para el objetivo pedido: una sola
+        // pasada de Claude cubre también lo del banco (acordado con su chat, 05-10).
+        if (
+          shouldReviewTavilyFirstInline({
+            tavilyOwnReviewable: before,
+            target,
+            lotReviewable: lotReviewableBefore,
+            requestedTarget,
+          }) &&
+          deps.rescueBatchInline
+        ) {
           const windowMs = resolveInlineRescueWindowMs(elapsedSinceActionStartMs());
           if (windowMs !== null) {
             const reviewed = await deps
@@ -2251,7 +2274,10 @@ export async function executeProspectWizardGeneration(
               .catch(() => false);
             if (reviewed) {
               claudeReviewed = true;
-              after = await countReviewable();
+              after = tavilyOwnReviewable(await countLotReviewable(), preExistingReviewable);
+              acceptedInLot = deps.countAcceptedInBatch
+                ? await deps.countAcceptedInBatch(reservedBatchId).catch(() => null)
+                : null;
               tavilyFirstAcceptedIds = deps.listAcceptedCandidateIds
                 ? await deps.listAcceptedCandidateIds(reservedBatchId).catch(() => null)
                 : null;
@@ -2260,14 +2286,24 @@ export async function executeProspectWizardGeneration(
         }
         // AGENT1-TAVILY-FIRST-5 — tras Claude decide lo que CUENTA, no lo revisable.
         const acceptedAfterClaude = claudeReviewed ? (tavilyFirstAcceptedIds?.length ?? null) : null;
-        if (isTavilyFirstClosing({ reviewable: after, acceptedAfterClaude, claudeReviewed, target })) {
+        if (
+          isTavilyFirstClosing({
+            reviewable: after,
+            acceptedAfterClaude,
+            claudeReviewed,
+            target,
+            acceptedInLot,
+            requestedTarget,
+          })
+        ) {
           tavilyFirstOutcome = {
             outcome: 'satisfied',
-            reviewable: after as number,
-            reviewableBeforeClaude: before as number,
+            reviewable: (after ?? 0) as number,
+            reviewableBeforeClaude: (before ?? 0) as number,
             claudeReviewed,
             target,
             acceptedAfterClaude,
+            acceptedInLot,
           };
         } else if (
           claudeReviewed &&
@@ -2283,6 +2319,7 @@ export async function executeProspectWizardGeneration(
             claudeReviewed: true,
             target,
             acceptedAfterClaude,
+            acceptedInLot,
           };
         } else {
           tavilyFirstOutcome = {
@@ -2292,6 +2329,7 @@ export async function executeProspectWizardGeneration(
             claudeReviewed,
             target,
             acceptedAfterClaude,
+            acceptedInLot,
           };
         }
       }

@@ -227,3 +227,16 @@ describe('nombre desde el dominio en cualquier país (AGENT1-TAVILY-DOMAIN-NAME-
     assert.equal(r.name, 'Cognos');
   });
 });
+
+describe('nombre sin guiones ni barras sueltos en los bordes (AGENT1-TAVILY-NAME-EDGE-PUNCT-1)', () => {
+  it('«-Hospital las Higueras-» → «Hospital las Higueras» (CL×Salud 0f60a313)', () => {
+    const r = normalizeProspectCompanyName('-Hospital las Higueras-');
+    assert.equal(r.name, 'Hospital las Higueras');
+    assert.equal(r.wasNormalized, true);
+  });
+  it('conserva el punto final y los nombres limpios', () => {
+    assert.equal(normalizeProspectCompanyName('Clínica Alemana').name, 'Clínica Alemana');
+    assert.equal(normalizeProspectCompanyName('Clínica Alemana').wasNormalized, false);
+    assert.equal(normalizeProspectCompanyName('| Banmédica •').name, 'Banmédica');
+  });
+});

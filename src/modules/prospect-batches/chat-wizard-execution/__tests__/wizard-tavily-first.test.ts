@@ -20,6 +20,7 @@ import type { ResolvedWizardExecution } from '../wizard-execution-types';
 import {
   isTavilyFirstClosing,
   reopenBatchForApolloAfterTavilyFirst,
+  shouldReviewTavilyFirstInline,
   tavilyOwnReviewable,
   type ReopenBatchClient,
 } from '../wizard-tavily-first';
@@ -312,7 +313,7 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
     assert.equal(calls.apollo, 0);
     assert.deepEqual(result.ok && result.tavilyFirst, {
       outcome: 'satisfied', reviewable: 6, reviewableBeforeClaude: 9, claudeReviewed: true, target: 5,
-      acceptedAfterClaude: 5,
+      acceptedAfterClaude: 5, acceptedInLot: null,
     });
   });
 
@@ -831,5 +832,77 @@ describe('Tavily-primero decide por las que cuentan tras Claude (AGENT1-TAVILY-F
     assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: null, claudeReviewed: true, target: 5 }), true);
     assert.equal(isTavilyFirstClosing({ reviewable: 5, acceptedAfterClaude: null, claudeReviewed: false, target: 5 }), true);
     assert.equal(isTavilyFirstClosing({ reviewable: 4, acceptedAfterClaude: null, claudeReviewed: false, target: 5 }), false);
+  });
+});
+
+// ── AGENT1-TAVILY-FIRST-6 — una sola revisión de Claude cubre banco + Tavily ──
+//
+// Prod 05-10 (CL×Salud 0f60a313): el banco escribió 10 filas (3 terminaron
+// contando) y Tavily 4. Tavily sola (4) no llegaba al hueco (5) ⇒ no se revisó
+// dentro de la corrida y se pagó Apollo y «Claude busca empresas»; 3 de Tavily
+// también acabaron contando. Acordado con el chat del banco: una sola pasada.
+
+describe('Tavily-primero revisa y decide por el lote entero (AGENT1-TAVILY-FIRST-6)', () => {
+  const START = 4_000_000;
+
+  it('banco 10 + Tavily 4: el lote cubre el objetivo ⇒ Claude revisa; 6 aceptadas en el lote ⇒ cierra sin Apollo', async () => {
+    const calls = newCalls();
+    let rescued = 0;
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        // Lote: 10 del banco + 4 de Tavily = 14 revisables; tras Claude, 12.
+        countReviewableCandidates: sequence([14, 12]),
+        rescueBatchInline: async () => { rescued++; return true; },
+        listAcceptedCandidateIds: async () => ['t1', 't2', 't3'],
+        countAcceptedInBatch: async () => 6,
+        actionStartedAtMs: START, nowMs: () => START + 60_000,
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(rescued, 1, 'una sola pasada de Claude');
+    assert.equal(calls.apollo, 0, 'el lote ya cubría la meta: Apollo no se paga');
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'satisfied' && result.tavilyFirst.acceptedInLot === 6);
+  });
+
+  it('el lote revisado no llega a la meta ⇒ Apollo completa como siempre', async () => {
+    const calls = newCalls();
+    const result = await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([14, 12]),
+        rescueBatchInline: async () => true,
+        listAcceptedCandidateIds: async () => ['t1'],
+        countAcceptedInBatch: async () => 2,
+        actionStartedAtMs: START, nowMs: () => START + 60_000,
+      },
+    }));
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.equal(calls.apollo, 1);
+    assert.ok(result.ok && result.tavilyFirst?.outcome === 'apollo_completed' && result.tavilyFirst.acceptedInLot === 2);
+  });
+
+  it('el lote no tiene revisables suficientes ⇒ no se revisa (ni se gasta Claude)', async () => {
+    let rescued = 0;
+    const calls = newCalls();
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 0, calls,
+      overrides: {
+        countReviewableCandidates: sequence([3]),
+        rescueBatchInline: async () => { rescued++; return true; },
+        actionStartedAtMs: START, nowMs: () => START + 60_000,
+      },
+    }));
+    assert.equal(rescued, 0);
+    assert.equal(calls.apollo, 1);
+  });
+
+  it('shouldReviewTavilyFirstInline y isTavilyFirstClosing con el lote', () => {
+    assert.equal(shouldReviewTavilyFirstInline({ tavilyOwnReviewable: 4, target: 5, lotReviewable: 14, requestedTarget: 5 }), true);
+    assert.equal(shouldReviewTavilyFirstInline({ tavilyOwnReviewable: 4, target: 5, lotReviewable: 4, requestedTarget: 5 }), false);
+    assert.equal(shouldReviewTavilyFirstInline({ tavilyOwnReviewable: 5, target: 5, lotReviewable: null, requestedTarget: 5 }), true);
+    assert.equal(isTavilyFirstClosing({ reviewable: 4, acceptedAfterClaude: 3, claudeReviewed: true, target: 5, acceptedInLot: 6, requestedTarget: 5 }), true);
+    assert.equal(isTavilyFirstClosing({ reviewable: 4, acceptedAfterClaude: 3, claudeReviewed: true, target: 5, acceptedInLot: 4, requestedTarget: 5 }), false);
+    assert.equal(isTavilyFirstClosing({ reviewable: 4, acceptedAfterClaude: null, claudeReviewed: false, target: 5, acceptedInLot: 9, requestedTarget: 5 }), false, 'sin revisión no se usa el lote');
   });
 });
