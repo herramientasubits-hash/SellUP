@@ -262,3 +262,51 @@ describe('AGENT1-TAVILY-QUERY-SPACE-1 — el lote publica lo que leerá la próx
     assert.equal(plan.query_space?.history_status, 'skipped');
   });
 });
+
+// ── AGENT1-TAVILY-EMPTY-ROUND1-1 — una ronda 1 vacía no corta el plan ─────────
+//
+// Prod 05-10 (CL×Salud cf324660): «empresa red hospitalaria Valparaíso Chile» y
+// «empresa dispositivos medicos Región Metropolitana Chile» volvieron vacías; la
+// regla «0 resultados en ronda 1 ⇒ parar» cortó el tramo sin probar las otras 6.
+
+function pipelineWithRawCounts(counts: number[], captured: string[][]): PipelineFn {
+  const fn = async (pipelineInput: { queryOverrides?: string[] }): Promise<ProspectingPipelineOutput> => {
+    const resultsCount = counts[Math.min(captured.length, counts.length - 1)];
+    captured.push([...(pipelineInput.queryOverrides ?? [])]);
+    return {
+      input: { country: 'Chile', countryCode: 'CL', industry: 'Salud & Farmacéuticos', webSearchProvider: 'tavily', mode: 'multi_query' },
+      catalogContext: { ...CATALOG_CONTEXT, country: 'Chile', countryCode: 'CL' },
+      searchQuery: 'test',
+      webSearch: { provider: 'tavily', query: 'test', results: [], resultsCount, skipped: false, estimatedCostUsd: null, metadata: {} },
+      candidates: [],
+      summary: { requested: 10, searched: resultsCount, returned: 0, highQualityNew: 0, needsReview: 0, duplicates: 0, insufficientData: 0, discarded: 0, unchecked: 0 },
+      warnings: [],
+      metadata: {},
+    };
+  };
+  return fn as unknown as PipelineFn;
+}
+
+describe('una ronda 1 vacía no corta el plan de Tavily (AGENT1-TAVILY-EMPTY-ROUND1-1)', () => {
+  it('con plan: tras una ronda 1 vacía se prueban las rondas siguientes', async () => {
+    const captured: string[][] = [];
+    const result = await runIncrementalProspectingSearch(
+      baseInput({ country: 'Chile', countryCode: 'CL', industry: 'Salud & Farmacéuticos' }),
+      undefined,
+      pipelineWithRawCounts([0, 5, 5, 5], captured),
+    );
+    assert.ok(captured.length > 1, `se probaron ${captured.length} rondas`);
+    assert.notEqual(result.metadata.stopped_reason, 'no_results_round_1');
+  });
+
+  it('sin plan (otro proveedor): la ronda 1 vacía sigue cortando como antes', async () => {
+    const captured: string[][] = [];
+    const result = await runIncrementalProspectingSearch(
+      baseInput({ webSearchProvider: 'mock' }),
+      undefined,
+      pipelineWithRawCounts([0, 5], captured),
+    );
+    assert.equal(captured.length, 1);
+    assert.equal(result.metadata.stopped_reason, 'no_results_round_1');
+  });
+});
