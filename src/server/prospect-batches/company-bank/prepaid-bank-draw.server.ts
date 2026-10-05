@@ -337,7 +337,18 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
 }
 
 /** El banco primero tal como corre en Producción. `null` ⇒ banco apagado o sin cliente. */
-export function resolveProductionBankFirstDrawer(industryName: string): BankFirstDrawer | null {
+export function resolveProductionBankFirstDrawer(
+  industryName: string,
+  options: {
+    /**
+     * `false` ⇒ el banco NO hace su propia revisión de Claude. Se usa cuando
+     * Tavily-primero va a correr: su revisión en línea ya cubre todo el lote
+     * (banco incluido) y una segunda pasada gastaría tiempo del límite de la
+     * búsqueda y dejaría a Apollo sin margen (acuerdo con la sesión Tavily, 05-10).
+     */
+    reviewInline?: boolean;
+  } = {},
+): BankFirstDrawer | null {
   const port = resolveApolloCompanyBankPort();
   if (!port) return null;
   return createBankFirstDrawer({
@@ -347,7 +358,7 @@ export function resolveProductionBankFirstDrawer(industryName: string): BankFirs
     resolveCap: () => resolveMaxDeliveredCandidates(),
     newDrawId: () => randomUUID(),
     // El MISMO rescate de Claude que corre después de la búsqueda, con su bandera.
-    reviewInline: async ({ batchId, triggeredBy, windowMs }) => {
+    reviewInline: options.reviewInline === false ? undefined : async ({ batchId, triggeredBy, windowMs }) => {
       if (!isAgent1ClaudeRescueEnabled()) return false;
       const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
         import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),

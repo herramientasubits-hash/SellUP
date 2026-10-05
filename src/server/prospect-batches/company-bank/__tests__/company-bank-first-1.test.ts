@@ -463,7 +463,13 @@ describe('§ 4 — sacar del banco antes que todo', () => {
       path.join(REPO_ROOT, 'src/server/prospect-batches/company-bank/prepaid-bank-draw.server.ts'),
       'utf8',
     );
-    assert.match(drawer, /reviewInline: async[\s\S]{0,120}if \(!isAgent1ClaudeRescueEnabled\(\)\) return false;/);
+    assert.match(drawer, /reviewInline: options\.reviewInline === false \? undefined : async[\s\S]{0,120}if \(!isAgent1ClaudeRescueEnabled\(\)\) return false;/);
+    // Con Tavily-primero la revisión es la suya (una sola pasada sobre el lote).
+    const wizard = readFileSync(
+      path.join(REPO_ROOT, 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
+      'utf8',
+    );
+    assert.match(wizard, /reviewInline: !isAgent1TavilyFirstEffective\(\)/);
     assert.match(drawer, /rescueBatchWithClaude\(\s*\{ batchId, triggeredBy, deadlineMs: windowMs \}/);
   });
 
@@ -641,7 +647,7 @@ describe('§ 6 — el cableado', () => {
       path.join(REPO_ROOT, 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
       'utf8',
     );
-    assert.match(wizard, /drawCompanyBank:\s*resolveProductionBankFirstDrawer\(input\.industryName \?\? ''\) \?\? undefined/);
+    assert.match(wizard, /drawCompanyBank:\s*resolveProductionBankFirstDrawer\(input\.industryName \?\? '', \{/);
     assert.match(wizard, /industryName:\s*catalogResolution\.industry\.name/);
   });
 
