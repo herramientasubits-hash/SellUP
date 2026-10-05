@@ -17,7 +17,8 @@
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
  * name→cédula jurídica, Bolivia (SEPREC, live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
- * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC. No promise for
+ * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC; Honduras uses
+ * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
  * warning) automatically.
@@ -72,6 +73,10 @@ import {
   normalizePanamaCompanyCore,
   PA_PANAMACOMPRA_RUC_SOURCE_KEY,
 } from '@/server/source-catalog/connectors/panamacompra-pa/pa-panamacompra-ruc-rows';
+import {
+  HN_OCDS_RTN_SOURCE_KEY,
+  normalizeHondurasCompanyCore,
+} from '@/server/source-catalog/connectors/hn-contrataciones-abiertas/hn-ocds-rtn-registry-rows';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { CL_SII_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
 import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
@@ -141,14 +146,26 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       normalizeCore: normalizeCentralAmericaCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'gt_rgae_proveedores', 'GT'),
     }),
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'HN',
-      sourceKey: 'hn_contrataciones_abiertas',
-      taxIdentifierType: 'RTN',
-      validTaxId: /^\d{14}$/,
-      normalizeCore: normalizeCentralAmericaCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
-    }),
+    // SOURCES-HN-RTN-BY-NAME-1 — personas jurídicas de ONCAE + SEFIN (OCDS, 2018-2026);
+    // si no da RTN fuerte, el snapshot piloto de Contrataciones Abiertas (72 filas).
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'HN',
+        sourceKey: HN_OCDS_RTN_SOURCE_KEY,
+        taxIdentifierType: 'RTN',
+        validTaxId: /^\d{4}9\d{9}$/,
+        normalizeCore: normalizeHondurasCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, HN_OCDS_RTN_SOURCE_KEY, 'HN'),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'HN',
+        sourceKey: 'hn_contrataciones_abiertas',
+        taxIdentifierType: 'RTN',
+        validTaxId: /^\d{14}$/,
+        normalizeCore: normalizeCentralAmericaCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'hn_contrataciones_abiertas', 'HN'),
+      }),
+    ),
     // SOURCES-PE-RUC-BY-NAME-1 — sociedades activas y habidas del padrón de SUNAT.
     createSnapshotNameOfficialSourceResolver({
       countryCode: 'PE',

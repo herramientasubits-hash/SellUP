@@ -1482,6 +1482,32 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Solo empresas afiliadas CCIT', 'Zona geográfica limitada (Tegucigalpa)', 'Cobertura fragmentada — no equivale a registro fiscal RTN', 'Sin API pública ni bulk estructurado confirmado'],
   },
   {
+    key: 'hn_ocds_rtn_registry',
+    name: 'ONCAE + SEFIN (OCDS) — RTN por nombre (personas jurídicas proveedoras del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como primera fuente de RTN de Honduras (si no da RTN seguro, sigue el snapshot piloto hn_contrataciones_abiertas, 72 filas). La carga de 6.195 personas jurídicas espera la autorización de la dueña.',
+    countryCodes: ['HN'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://data.open-contracting.org/en/publication/122',
+    automationLevel: 'high',
+    recommendedUse:
+      'Publicaciones OCDS de Honduras en el registro de Open Contracting (CC BY 4.0): ONCAE / HonduCompras y SEFIN. Cada versión nombra a sus proveedores con RTN. Se carga una fila por RTN de PERSONA JURÍDICA (2018-2026): 6.195 empresas, el 98,3 % con nombre único. RTN seguro sólo cuando exactamente un RTN tiene ese mismo núcleo de nombre.',
+    limitations: [
+      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista.',
+      'Persona jurídica = 14 dígitos con un 9 en la quinta posición; el RTN de una persona natural lleva ahí su año de nacimiento y nunca se guarda (tampoco cédulas ni pasaportes).',
+      'Se quitan las colas que HonduCompras pega al nombre («*MIPYME*», «* Compra Menor», «*CM»).',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'hn_contrataciones_abiertas',
     name: 'Portal de Contrataciones Abiertas Honduras',
     sellupUse: 'commercial_signal',
@@ -1492,7 +1518,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '72 proveedores con RTN cargados en el snapshot piloto 2024. El Agente 1 completa el RTN por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana. Cobertura muy baja: hace falta una fuente más grande para Honduras.',
+      '72 proveedores con RTN cargados en el snapshot piloto 2024. Ahora es el respaldo: el RTN por nombre en cada corrida usa primero «ONCAE + SEFIN (OCDS) — RTN por nombre» (hn_ocds_rtn_registry); los nombres repetidos quedan como señal para revisión humana.',
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P2',
