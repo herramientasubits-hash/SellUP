@@ -29,6 +29,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
   'es_placsp_registry',
+  'mx_compranet_rfc_registry',
   'cl_res_registry',
   'cl_sii_registry',
   'ec_scvs_directory',

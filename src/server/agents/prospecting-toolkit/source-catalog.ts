@@ -666,7 +666,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC requiere revisión humana.',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC por nombre lo completa «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) cuando la empresa le vendió al Estado.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -802,12 +802,39 @@ export const CATALOG_SOURCES: CatalogSource[] = [
 
   // ── México — Compras Públicas y Asociaciones Sectoriales ───────────────────
   {
+    key: 'mx_compranet_rfc_registry',
+    name: 'CompraNet — RFC por nombre (personas morales con contratos del Estado)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: el Agente 1 completa el RFC por nombre en cada corrida de México. La carga de 26.393 personas morales (contratos 2023-2025) espera la autorización de la dueña: hasta entonces México sigue sin RFC.',
+    countryCodes: ['MX'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://upcp-compranet.buengobierno.gob.mx/cnetassets/datos_abiertos_contratos_expedientes/',
+    automationLevel: 'high',
+    recommendedUse:
+      'México no publica un padrón de RFC y DENUE no lo trae. Los contratos anuales de CompraNet (datos abiertos, CSV) sí traen el RFC y la razón social de cada proveedor. Se carga una fila por RFC de PERSONA MORAL (12 caracteres) de los contratos 2023-2025: 26.393 empresas, el 100 % con nombre único, 1.873 con estratificación GRANDE o NO MIPYME. RFC seguro sólo cuando exactamente un RFC tiene ese mismo núcleo de nombre; un nombre de una sola palabra sin forma societaria queda como pista.',
+    limitations: [
+      'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
+      'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
+      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…).',
+      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
     key: 'mx_compranet',
     name: 'CompraNet (Compras Gubernamentales México)',
     sellupUse: 'commercial_signal',
     aiFlowStatus: 'manual_only',
     connectionMode: 'not_connected',
-    nextAction: 'Investigar https://comprasmx.buengobierno.gob.mx/datos-abiertos para confirmar nuevo endpoint post-migración antes de conectar.',
+    nextAction: 'Señal manual. Los contratos de CompraNet SÍ se usan para el RFC por nombre: ver «CompraNet — RFC por nombre» (mx_compranet_rfc_registry), carga de los CSV anuales de datos abiertos.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
