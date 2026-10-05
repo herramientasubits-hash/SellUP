@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 
 import {
   OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS,
+  OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF,
   extractOfficialRegistryWorkforce,
   resolveEmployeeSizeForIcpGate,
 } from '../employee-size-resolver';
@@ -54,17 +55,32 @@ describe('resolver — fuente official_registry_workers', () => {
     assert.equal(action, 'pass');
   });
 
-  it('por debajo del umbral NO bloquea: queda en revisión como unknown', () => {
-    const { resolved, action } = decide({ officialRegistryWorkforce: { ...SII, workers: 12 } });
+  it('entre el corte de pequeña y el umbral NO bloquea: queda en revisión como unknown', () => {
+    const { resolved, action } = decide({ officialRegistryWorkforce: { ...SII, workers: 120 } });
     assert.equal(resolved.selectedSource, 'unknown');
     assert.equal(action, 'needs_review');
     const attempt = resolved.attemptedSources.find((a) => a.source === 'official_registry_workers');
     assert.equal(attempt?.usable, false);
-    assert.equal(attempt?.value, 12);
+    assert.equal(attempt?.value, 120);
   });
 
-  it('cero trabajadores informados tampoco bloquea', () => {
+  it('AGENT1-SIZE-OFFICIAL-REGISTRY-SMALL-1 — menos de 50 informados ⇒ pequeña, el gate bloquea (Clinical Plus, 9)', () => {
+    const { resolved, gate, action } = decide({ officialRegistryWorkforce: { ...SII, workers: 9 } });
+    assert.equal(resolved.selectedSource, 'official_registry_workers');
+    assert.equal(resolved.selectedValue, `9-${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF - 1}`);
+    assert.equal(gate.size_status, 'estimated_below_threshold');
+    assert.equal(action, 'skip');
+    const at = decide({ officialRegistryWorkforce: { ...SII, workers: OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF } });
+    assert.equal(at.action, 'needs_review', 'el corte no es inclusivo');
+  });
+
+  it('cero trabajadores informados NO bloquea (la planilla puede estar en otra razón social)', () => {
     const { action } = decide({ officialRegistryWorkforce: { ...SII, workers: 0 } });
+    assert.equal(action, 'needs_review');
+  });
+
+  it('un dato pequeño pero viejo tampoco bloquea', () => {
+    const { action } = decide({ officialRegistryWorkforce: { ...SII, workers: 9, year: 2026 - OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS - 1 } });
     assert.equal(action, 'needs_review');
   });
 
