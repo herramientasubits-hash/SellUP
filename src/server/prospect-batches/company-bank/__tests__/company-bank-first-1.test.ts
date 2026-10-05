@@ -195,6 +195,32 @@ describe('§ 3 — el tope es por vendedor y por búsqueda', () => {
     assert.equal(resolveEffectiveDeliveryCap({ cap: null, alreadyDelivered: 8, floor: 5 }), null);
   });
 
+  it('🔴 MEASURES-TARGET-1: Apollo entra con el lote lleno y aun así puede escribir lo que FALTA', () => {
+    // Medido 05-10 (Chile × Salud, d92a12ec): banco 10 + Tavily 6 ⇒ tope 0 para
+    // Apollo, que pagó 6 créditos y no escribió nada.
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 16, floor: 5 }), 5);
+    const writer = readFileSync(path.join(REPO_ROOT, 'src/server/agents/prospecting-toolkit/candidate-writer.ts'), 'utf8');
+    assert.match(writer, /floor: input\.deliveryCapFloor \?\? targetCap/);
+    const runner = readFileSync(
+      path.join(REPO_ROOT, 'src/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server.ts'),
+      'utf8',
+    );
+    assert.match(runner, /deliveryCapFloor: input\.resultDemand\?\.remainingTarget \?\? config\.targetEligibleCompanies/);
+  });
+
+  it('🔴 MEASURES-TARGET-1: las filas del banco se escriben por la ruta de Apollo (se miden)', async () => {
+    const { buildBankPipelineOutput } = await import('../prepaid-bank-draw.server');
+    const out = buildBankPipelineOutput({
+      industryName: 'Salud & Farmacéuticos',
+      countryCode: 'CL',
+      countryName: 'Chile',
+      requestedTarget: 5,
+      candidates: [],
+    });
+    assert.equal(out.metadata?.provider, 'apollo_organizations');
+    assert.equal(out.metadata?.search_mode, 'company_bank_first');
+  });
+
   it('el escritor lee el lote ANTES de recortar', () => {
     const writer = readFileSync(
       path.join(REPO_ROOT, 'src/server/agents/prospecting-toolkit/candidate-writer.ts'),
