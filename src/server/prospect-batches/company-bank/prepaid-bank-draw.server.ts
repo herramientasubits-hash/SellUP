@@ -150,7 +150,13 @@ export function buildBankPipelineOutput(input: {
     warnings: [],
     metadata: {
       pipelineVersion: 'company-bank-first-1',
-      provider: 'company_bank',
+      // 🔴 AGENT1-BANK-FIRST-MEASURES-TARGET-1 — las filas del banco SON de Apollo.
+      // El escritor sólo captura los campos de empresa y mide «cuenta para la
+      // meta» (`target_completeness`) en la ruta de Apollo
+      // (`isApolloCompanyDiscoveryPath`). Con 'company_bank' las filas quedaban
+      // sin medir, el banco aportaba 0 aceptadas y la corrida pagaba Apollo,
+      // Tavily y Claude igual (medido 05-10, Chile × Salud, lote d92a12ec).
+      provider: 'apollo_organizations',
       search_mode: 'company_bank_first',
     },
   } as ProspectingPipelineOutput;
