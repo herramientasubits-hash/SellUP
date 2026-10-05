@@ -2954,7 +2954,9 @@ export async function executeProspectWizardGeneration(
           // publicó sólo su mitad: se republica el bloque combinado.
           // AGENT1-TAVILY-FIRST-3 — y también cuando Claude revisó dentro: el
           // writer publicó lo medido ANTES de la revisión.
-          ...(claudeLegDecision.run || claudeLeg.executed ? { claude_search_leg: claudeLeg } : {}),
+          // Siempre: también cuando NO corrió, con el motivo (bandera apagada, meta cubierta,
+          // sin tiempo…). Prod 05-10: CL×Salud quedó 3/5 y no se podía saber por qué no corrió.
+          claude_search_leg: claudeLeg,
           ...(lushaWaterfall.executed || claudeLeg.executed || tavilyFirstTruth !== null || tavilyFirstAcceptedIds !== null
             ? {
                 [ACCEPTED_FOR_TARGET_METADATA_KEY]:
@@ -3020,7 +3022,7 @@ export async function executeProspectWizardGeneration(
     // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
     runProvider: runProviderOutcome,
     ...(tavilyFirstOutcome ? { tavilyFirst: tavilyFirstOutcome } : {}),
-    ...(claudeLeg.executed ? { claudeSearchLeg: claudeLeg } : {}),
+    claudeSearchLeg: claudeLeg,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
     // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 4 — la pausa, cuando la hubo.
