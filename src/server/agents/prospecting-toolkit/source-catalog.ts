@@ -1320,11 +1320,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código como capa gratuita de Ecuador. La carga de 1.083 compañías activas con 200 o más empleados (directorio de compañías × ranking empresarial de la Superintendencia de Compañías) espera la autorización de la dueña: hasta entonces Ecuador no tiene capa gratuita y va directo a proveedores.',
+      '1.082 compañías activas con 200 o más empleados cargadas (directorio de compañías × ranking empresarial de la Superintendencia de Compañías, archivos del 05-10, carga autorizada). Capa gratuita de Ecuador: el Agente 1 propone de aquí antes de pagar a proveedores.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',

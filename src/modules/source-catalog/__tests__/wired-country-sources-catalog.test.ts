@@ -143,16 +143,16 @@ describe('Catálogo — identificadores y nombres de país', () => {
   });
 });
 
-describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): conectada en código, carga pendiente', () => {
-  it('existe, EC, capa gratuita, sin carga verificada todavía y fuera de las recomendaciones', () => {
+describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): cargada y verificada', () => {
+  it('existe, EC, capa gratuita, carga verificada y fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'ec_scvs_directory');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['EC']);
     assert.equal(s.aiFlowStatus, 'connected_free_discovery');
     assert.equal(s.connectionMode, 'read_only_snapshot');
-    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.equal(s.operationalStatus, 'operational_verified');
     assert.deepEqual(s.sectors, []);
-    assert.match(s.nextAction ?? '', /espera la autorización/);
+    assert.match(s.nextAction ?? '', /1\.082 compañías activas/);
     for (const industry of INDUSTRIES) {
       for (const depth of DEPTHS) {
         const ctx = getCatalogContext({ country: 'Ecuador', countryCode: 'EC', industry, searchDepth: depth });
