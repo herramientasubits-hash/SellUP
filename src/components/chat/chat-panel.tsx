@@ -25,6 +25,12 @@ export interface ChatPanelProps {
   onHistory?: () => void;
   /** El historial está a la vista (el botón queda marcado). */
   historyActive?: boolean;
+  /**
+   * Botones propios del asistente que monta el panel (sólo icono, con tooltip),
+   * pintados justo antes de «Nueva conversación». Ej.: el modo «Búsqueda por
+   * lotes con ID de HubSpot» del Agente 2A.
+   */
+  headerActions?: React.ReactNode;
   /** «Nueva conversación». Sin esto no hay botón. */
   onNewConversation?: () => void;
   /** Nombre del botón de empezar de nuevo. Por defecto «Nueva conversación». */
@@ -57,6 +63,7 @@ export function ChatPanel({
   markMotion = "breathing",
   onHistory,
   historyActive = false,
+  headerActions,
   onNewConversation,
   newConversationLabel,
   newConversationDisabled = false,
@@ -103,6 +110,7 @@ export function ChatPanel({
                 data-testid="chat-panel-history"
               />
             )}
+            {headerActions}
             {onNewConversation && (
               <TooltipIconButton
                 icon={<Plus aria-hidden />}

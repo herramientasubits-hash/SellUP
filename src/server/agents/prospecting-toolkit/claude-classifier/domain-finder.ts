@@ -61,9 +61,12 @@ export type DomainFinderInput = {
  *  - `linkedin_cross_link`: la página (descargada por nosotros) enlaza al MISMO LinkedIn;
  *  - `name_match`: el título/descripción de la página coincide con el nombre;
  *  - `search_result_match`: no pudimos descargarla (o no lo dice), pero el resultado de
- *    búsqueda de ESE dominio trae un título que coincide con el nombre.
+ *    búsqueda de ESE dominio trae un título que coincide con el nombre;
+ *  - `acronym_match`: el dominio es la SIGLA del nombre («meds.cl» para «Medicina
+ *    Ejercicio Deporte y Salud»), la página dice esa sigla en su título o descripción y
+ *    su texto trae las palabras del nombre.
  */
-export type DomainVerification = 'linkedin_cross_link' | 'name_match' | 'search_result_match';
+export type DomainVerification = 'linkedin_cross_link' | 'name_match' | 'search_result_match' | 'acronym_match';
 
 export type DomainFinderOutcome =
   | {
@@ -178,10 +181,39 @@ function withoutLocationWords(name: string): string | null {
 }
 
 /** Nombres a comparar: el principal, sus variantes y cada uno sin el país. Gana el mejor. */
-function bestNameScore(input: DomainFinderInput, domain: string | null, title: string | null, meta: string | null): number {
+function bestNameScore(
+  input: DomainFinderInput,
+  domain: string | null,
+  title: string | null,
+  meta: string | null,
+  options: { titleAloneCounts?: boolean } = {},
+): number {
   const base = [input.name, ...(input.alternateNames ?? [])].filter((n) => n && n.trim());
   const names = [...base, ...base.map(withoutLocationWords).filter((n): n is string => !!n)];
-  return Math.max(0, ...names.map((n) => scoreCompanyNameAgainstPage(n, domain, title, meta).score));
+  const titleAlone = options.titleAloneCounts === true && !!(title || meta);
+  const score = (n: string): number =>
+    Math.max(
+      scoreCompanyNameAgainstPage(n, domain, title, meta).score,
+      titleAlone ? scoreCompanyNameAgainstPage(n, null, title, meta).score : 0,
+    );
+  return Math.max(0, ...names.map(score));
+}
+
+const HOMEPAGE_MAX_SEGMENTS = 1;
+const HOMEPAGE_MAX_SEGMENT_LENGTH = 12;
+
+/**
+ * d9 — ¿la URL final es la portada del sitio? («/», «/es/», «/web2/», «/portal/»). Un
+ * artículo de prensa vive en una ruta larga y nunca es portada.
+ */
+export function isHomepageLike(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const segments = new URL(url.startsWith('http') ? url : `https://${url}`).pathname.split('/').filter(Boolean);
+    return segments.length <= HOMEPAGE_MAX_SEGMENTS && segments.every((s) => s.length <= HOMEPAGE_MAX_SEGMENT_LENGTH);
+  } catch {
+    return false;
+  }
 }
 
 function bestSearchResultMatch(
@@ -212,6 +244,69 @@ export function domainCarriesName(domain: string, names: readonly string[]): boo
     const core = compact(name);
     if (core.length < 3) return false;
     return core.length >= 5 ? label.includes(core) : label.startsWith(core);
+  });
+}
+
+/** Palabras que no dan letra a la sigla: conectores y formas societarias. */
+const ACRONYM_SKIP_WORDS = new Set([
+  'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'para', 'por', 's', 'a', 'sa', 'spa', 'sas',
+  'ltda', 'limitada', 'cia', 'compania', 'sociedad', 'anonima', 'eirl', 'srl', 'cv', 'inc', 'corp', 'llc', 'sl',
+]);
+const ACRONYM_MIN_LETTERS = 3;
+const ACRONYM_MIN_PAGE_WORDS = 2;
+const ACRONYM_PAGE_WORD_MIN_LENGTH = 4;
+
+function acronymWords(name: string): string[] {
+  return stripAccents(name)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !ACRONYM_SKIP_WORDS.has(w));
+}
+
+/** ¿La etiqueta propia del dominio es la sigla (sola o con el país: «ucmchile»)? */
+function labelIsAcronym(label: string, acronym: string): boolean {
+  if (label === acronym) return true;
+  return label.startsWith(acronym) && LOCATION_WORDS.has(label.slice(acronym.length));
+}
+
+/**
+ * d8 — el dominio es la SIGLA del nombre. Prod 06-10 (CL×Salud, e4fec102): «meds.cl»
+ * (Medicina Ejercicio Deporte y Salud) y «ucmchile.cl» (Unidad Coronaria Móvil) quedaron
+ * como «identidad no confirmada» porque la página usa la sigla, no la razón social.
+ */
+export function domainIsNameAcronym(domain: string, names: readonly string[]): boolean {
+  if (!isRegistrableDomain(domain)) return false;
+  const label = compact(ownDomainLabel(domain) ?? '');
+  return names.some((name) => {
+    const words = acronymWords(name);
+    if (words.length < ACRONYM_MIN_LETTERS) return false;
+    return labelIsAcronym(label, words.map((w) => w[0]).join(''));
+  });
+}
+
+/**
+ * Una sigla de 3-4 letras la comparten muchas organizaciones (UCM también es una
+ * universidad). La página confirma cuando dice la sigla en su título o descripción Y su
+ * texto trae al menos la mitad (mínimo 2) de las palabras largas del nombre.
+ */
+export function pageConfirmsAcronym(
+  domain: string,
+  names: readonly string[],
+  page: { title: string | null; metaDescription: string | null; visibleText: string },
+): boolean {
+  if (!isRegistrableDomain(domain)) return false;
+  const label = compact(ownDomainLabel(domain) ?? '');
+  const heading = ` ${stripAccents(`${page.title ?? ''} ${page.metaDescription ?? ''}`).toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  const text = ` ${stripAccents(page.visibleText).toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  return names.some((name) => {
+    const words = acronymWords(name);
+    if (words.length < ACRONYM_MIN_LETTERS) return false;
+    const acronym = words.map((w) => w[0]).join('');
+    if (!labelIsAcronym(label, acronym) || !heading.includes(` ${acronym} `)) return false;
+    const longWords = [...new Set(words.filter((w) => w.length >= ACRONYM_PAGE_WORD_MIN_LENGTH))];
+    if (longWords.length < ACRONYM_MIN_PAGE_WORDS) return false;
+    const present = longWords.filter((w) => text.includes(` ${w} `)).length;
+    return present >= Math.max(ACRONYM_MIN_PAGE_WORDS, Math.ceil(longWords.length / 2));
   });
 }
 
@@ -344,19 +439,37 @@ export async function verifyProposedWebsite(
   // salvo que la política permita confirmarla por el nombre de la página que bajamos.
   // d5: o el dominio lleva el nombre de la empresa («entel.cl» para «ENTEL PCS…»); igual
   // tiene que pasar la comprobación del nombre en la página que bajamos.
-  const nameInDomain = domainCarriesName(finalDomain, inputNames(input));
+  // d8: o el dominio es la sigla del nombre (la página igual tiene que confirmarlo).
+  const nameInDomain =
+    domainCarriesName(finalDomain, inputNames(input)) || domainIsNameAcronym(finalDomain, inputNames(input));
   if (!finalInSearch && !input.allowNameMatchOutsideSearch && !nameInDomain) {
     return { found: false, reason: 'not_in_search_results' };
   }
 
   const signals = extractPageSignals(html);
-  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription);
+  // d9: en la PORTADA también vale el título sin el dominio. Un dominio de palabras
+  // pegadas («hrrio.cl», «hospitalsanfernando.cl») no se parte y hundía la nota aunque
+  // el título dijera el nombre completo (Prod 06-10, CL×Salud e4fec102). El dominio ya
+  // se filtró arriba: salió de la búsqueda o lleva el nombre.
+  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription, {
+    titleAloneCounts: isHomepageLike(fetched.finalUrl ?? input.claimedUrl),
+  });
   if (score >= FINDER_MIN_NAME_SCORE) {
     return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults: finalInSearch };
   }
   // La página no lo dice en el título, pero el resultado de búsqueda de ese dominio sí.
   if (finalInSearch && bestSearchResultMatch(input, finalDomain, input.searchResults)) {
     return { found: true, website, domain: finalDomain, verification: 'search_result_match', inSearchResults: true };
+  }
+  // d8: el dominio es la sigla y la página la confirma.
+  if (
+    pageConfirmsAcronym(finalDomain, inputNames(input), {
+      title: signals.title,
+      metaDescription: signals.metaDescription,
+      visibleText: extractVisibleText(html),
+    })
+  ) {
+    return { found: true, website, domain: finalDomain, verification: 'acronym_match', inSearchResults: finalInSearch };
   }
   return { found: false, reason: finalInSearch ? 'identity_not_confirmed' : 'not_in_search_results' };
 }

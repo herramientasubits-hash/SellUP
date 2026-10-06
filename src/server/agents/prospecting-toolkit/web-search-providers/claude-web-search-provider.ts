@@ -12,6 +12,7 @@ import { runAnthropicConversation } from '../claude-classifier/anthropic-message
 import { searchCompaniesWithClaude, type CompanySearchOutcome } from '../claude-classifier/company-search';
 import type { WebSearchInput, WebSearchOutput } from '../types';
 import { fetchSafePageHtml } from '../website-verifier';
+import { CLAUDE_PAGE_MAX_HTML_BYTES } from '../claude-classifier/page-text';
 
 /** Tope por petición HTTP: con 5 búsquedas web, Claude tarda 20–45 s. */
 const CLAUDE_COMPANY_SEARCH_REQUEST_TIMEOUT_MS = 45_000;
@@ -98,7 +99,7 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       runConversation:
         ctx.runConversation ??
         ((body) => runAnthropicConversation({ apiKey: ctx.apiKey, body, timeoutMs })),
-      fetchPage: ctx.fetchPage ?? ((url) => fetchSafePageHtml(url, OUTSIDE_SEARCH_PAGE_TIMEOUT_MS)),
+      fetchPage: ctx.fetchPage ?? ((url) => fetchSafePageHtml(url, OUTSIDE_SEARCH_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES)),
     },
   );
   const call = { ...outcome, query: input.query, durationMs: now() - startedMs };

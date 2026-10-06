@@ -11,7 +11,10 @@ import assert from 'node:assert/strict';
 import {
   buildDomainFinderRequestBody,
   domainCarriesName,
+  domainIsNameAcronym,
   findOfficialWebsite,
+  isHomepageLike,
+  pageConfirmsAcronym,
   FIND_WEBSITE_TOOL_NAME,
   type DomainFinderDeps,
 } from '../../domain-finder';
@@ -32,6 +35,9 @@ import {
   unverifiedWebsiteHint,
   UNVERIFIED_HINT_VERIFICATION,
 } from '../domain-search';
+import { readFileSync } from 'node:fs';
+import { CLAUDE_PAGE_MAX_HTML_BYTES, extractVisibleText } from '../../page-text';
+import { buildDomainFinderInput as buildInputD9, healthFacilityName } from '../domain-search';
 import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
 import { RESCUE_CONCURRENCY, rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
@@ -637,7 +643,7 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
   });
 
   it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd7');
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd9');
   });
 });
 
@@ -907,5 +913,133 @@ describe('cuenta de Anthropic caída (Prod 06-10 13:07Z, 194 × http_400)', () =
       [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'model_error', error_code: 'http_529', attempts: 3, search_version: DOMAIN_SEARCH_VERSION },
     };
     assert.equal(needsDispositionRescue({ ...disposition(), evidence: transient }, NOW, true), false);
+  });
+});
+
+describe('d8 — el dominio es la sigla del nombre (Prod 06-10, CL×Salud e4fec102)', () => {
+  const MEDS = 'MEDICINA EJERCICIO DEPORTE Y SALUD S A';
+  const UCM = 'UNIDAD CORONARIA MOVIL S A';
+  const medsText = 'Clínica MEDS: medicina del deporte, ejercicio y salud para deportistas. Agenda tu hora.';
+  const ucmText = 'Unidad Coronaria Móvil: rescate y traslado de pacientes, servicio coronario de urgencia.';
+
+  it('reconoce la sigla, sola o con el país', () => {
+    assert.equal(domainIsNameAcronym('www.meds.cl', [MEDS]), true);
+    assert.equal(domainIsNameAcronym('ucmchile.cl', [UCM]), true);
+    assert.equal(domainIsNameAcronym('ucm.cl', [UCM]), true);
+    // Menos de 3 letras, otra sigla, o alojamiento compartido ⇒ no.
+    assert.equal(domainIsNameAcronym('ab.cl', ['Alfa Beta S A']), false);
+    assert.equal(domainIsNameAcronym('umc.cl', [UCM]), false);
+    assert.equal(domainIsNameAcronym('meds.blogspot.com', [MEDS]), false);
+  });
+
+  it('la página confirma con la sigla en el título y las palabras del nombre en el texto', () => {
+    assert.equal(
+      pageConfirmsAcronym('meds.cl', [MEDS], { title: 'MEDS | Clínica', metaDescription: null, visibleText: medsText }),
+      true,
+    );
+    assert.equal(
+      pageConfirmsAcronym('ucmchile.cl', [UCM], { title: 'UCM Chile', metaDescription: null, visibleText: ucmText }),
+      true,
+    );
+  });
+
+  it('otra organización con la misma sigla NO pasa (UCM = universidad)', () => {
+    const university = 'Universidad Católica del Maule: admisión, carreras de pregrado y postgrado.';
+    assert.equal(
+      pageConfirmsAcronym('ucm.cl', [UCM], { title: 'UCM - Universidad', metaDescription: null, visibleText: university }),
+      false,
+    );
+  });
+
+  it('sin la sigla en el título/descripción no confirma', () => {
+    assert.equal(
+      pageConfirmsAcronym('meds.cl', [MEDS], { title: 'Inicio', metaDescription: null, visibleText: medsText }),
+      false,
+    );
+  });
+
+  it('findOfficialWebsite acepta meds.cl como «acronym_match»', async () => {
+    const html = `<html><head><title>MEDS | Clínica</title></head><body><p>${medsText}${FILLER}</p></body></html>`;
+    const deps = finderDeps(conversation('https://www.meds.cl', ['https://www.meds.cl']), page(html, 'https://www.meds.cl/'));
+    const out = await findOfficialWebsite({ name: MEDS, countryName: 'Chile', countryCode: 'CL', linkedinUrl: null }, MODEL, deps);
+    assert.equal(out.found, true);
+    if (!out.found) return;
+    assert.equal(out.domain, 'meds.cl');
+    assert.equal(out.verification, 'acronym_match');
+  });
+
+  it('findOfficialWebsite rechaza ucm.cl de la universidad', async () => {
+    const html = `<html><head><title>UCM - Universidad</title></head><body><p>Universidad Católica del Maule.${FILLER}</p></body></html>`;
+    const deps = finderDeps(conversation('https://www.ucm.cl', ['https://www.ucm.cl']), page(html, 'https://www.ucm.cl/'));
+    const out = await findOfficialWebsite({ name: UCM, countryName: 'Chile', countryCode: 'CL', linkedinUrl: null }, MODEL, deps);
+    assert.equal(out.found, false);
+  });
+});
+
+describe('d9 — páginas WordPress, hospitales dentro de un Servicio de Salud y portada (Prod 06-10, e4fec102)', () => {
+  it('los lectores de Claude bajan hasta 400 KB (el resto del sistema sigue con 50 KB)', () => {
+    assert.equal(CLAUDE_PAGE_MAX_HTML_BYTES, 400_000);
+    for (const file of [
+      'src/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server.ts',
+      'src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts',
+      'src/server/agents/prospecting-toolkit/web-search-providers/claude-web-search-provider.ts',
+    ]) {
+      const src = readFileSync(file, 'utf8');
+      assert.match(src, /fetchSafePageHtml\([^)]*CLAUDE_PAGE_MAX_HTML_BYTES\)/, file);
+    }
+  });
+
+  it('un estilo o un <head> cortado por el tope de bytes no se lee como texto', () => {
+    assert.equal(extractVisibleText('<html><head><title>X</title><style>:root{--a:1}body{color:red'), '');
+    assert.equal(extractVisibleText('<body><p>Hola mundo</p><script>var a = 1;'), 'Hola mundo');
+  });
+
+  it('el hospital dentro de la razón social del Servicio de Salud', () => {
+    assert.equal(healthFacilityName('SERVICIO DE SALUD HOSPITAL DE SAN FERNANDO'), 'hospital de san fernando');
+    assert.equal(healthFacilityName('SERVICIO DE SALUD NORTE HOSPITAL ROBERTO DEL RIO'), 'hospital roberto del rio');
+    assert.equal(
+      healthFacilityName('SERVICIO DE SALUD NUBLE HOSPITAL DE SAN CARLOS DR BENICIO ARZOLA MEDINA'),
+      'hospital de san carlos',
+    );
+    // Ya empieza por el establecimiento, o no lo trae: nada nuevo.
+    assert.equal(healthFacilityName('HOSPITAL PARROQUIAL DE SAN BERNARDO'), null);
+    assert.equal(healthFacilityName('LABORATORIOS SAVAL S A'), null);
+    assert.equal(healthFacilityName('SERVICIO DE SALUD HOSPITAL'), null);
+    const input = buildInputD9(
+      { id: 'h', name: 'SERVICIO DE SALUD HOSPITAL DE SAN FERNANDO', domain: null, country_code: 'CL', reason_code: 'missing_domain_final', evidence: null },
+      'Chile',
+    );
+    assert.ok(input.alternateNames?.includes('hospital de san fernando'));
+  });
+
+  it('portada: la raíz o un solo tramo corto; un artículo nunca', () => {
+    assert.equal(isHomepageLike('https://www.hrrio.cl/web2/'), true);
+    assert.equal(isHomepageLike('https://www.savalcorp.com/es/'), true);
+    assert.equal(isHomepageLike('https://hospitalsanfernando.cl'), true);
+    assert.equal(isHomepageLike('https://diario.cl/noticias/2024/07/10/hospital-de-san-fernando'), false);
+    assert.equal(isHomepageLike('https://diario.cl/hospital-de-san-fernando-suma-equipos'), false);
+    assert.equal(isHomepageLike(null), false);
+  });
+
+  const HOSPITAL = 'SERVICIO DE SALUD NORTE HOSPITAL ROBERTO DEL RIO';
+  const hospitalPage = (url: string) =>
+    page(`<html><head><title>Hospital Roberto del Rio | Pagina WEB del hospital de niños</title></head><body><p>${FILLER}</p></body></html>`, url);
+  const hospitalInput = () =>
+    buildInputD9({ id: 'r', name: HOSPITAL, domain: null, country_code: 'CL', reason_code: 'missing_domain_final', evidence: null }, 'Chile');
+
+  it('en la portada vale el título aunque el dominio sea de letras pegadas (hrrio.cl)', async () => {
+    const deps = finderDeps(conversation('https://www.hrrio.cl', ['https://www.hrrio.cl']), hospitalPage('https://www.hrrio.cl/web2/'));
+    const out = await findOfficialWebsite(hospitalInput(), MODEL, deps);
+    assert.equal(out.found, true);
+    if (!out.found) return;
+    assert.equal(out.domain, 'hrrio.cl');
+    assert.equal(out.verification, 'name_match');
+  });
+
+  it('en una página interna el dominio sigue contando (sin portada no basta el título)', async () => {
+    const url = 'https://www.hrrio.cl/noticias/2024/07/hospital-roberto-del-rio-inaugura';
+    const deps = finderDeps(conversation(url, [url]), hospitalPage(url));
+    const out = await findOfficialWebsite(hospitalInput(), MODEL, deps);
+    assert.equal(out.found, false);
   });
 });
