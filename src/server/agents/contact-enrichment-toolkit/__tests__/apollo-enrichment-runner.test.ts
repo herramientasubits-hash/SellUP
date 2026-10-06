@@ -861,7 +861,7 @@ describe('executeContactEnrichmentApolloRun', () => {
     assert.equal(completion.eligible_count, 1);
     assert.equal(completion.completed_count, 1);
     assert.equal(completion.actionable_after_completion_count, 1);
-    assert.equal(completion.max_completion_candidates, 3);
+    assert.equal(completion.max_completion_candidates, 5);
     const fields = completion.completed_fields_count as Record<string, number>;
     assert.equal(fields.email, 1);
   });
@@ -976,10 +976,11 @@ describe('executeContactEnrichmentApolloRun', () => {
   });
 
   // Test 2 — Máximo 3 perfiles entran a completion
-  it('completeContact se llama como máximo 3 veces aunque haya más perfiles elegibles', async () => {
+  it('completeContact se llama como máximo 5 veces aunque haya más perfiles elegibles', async () => {
     let completionCalls = 0;
-    // 5 perfiles HR relevantes — solo 3 deben pasar a completion (MAX_COMPLETION_CANDIDATES=3)
-    const people = Array.from({ length: 5 }, (_, i) => personNoChannel(`m${i}`));
+    // 7 perfiles HR relevantes — solo 5 deben pasar a completion (MAX_COMPLETION_CANDIDATES=5,
+    // AGENT2A-COVERAGE-DECISION-MAKERS-1)
+    const people = Array.from({ length: 7 }, (_, i) => personNoChannel(`m${i}`));
     const h = makeHarness(makeRun(), apolloWith(people));
     h.deps.completeContact = async ({ candidate }) => {
       completionCalls += 1;
@@ -995,7 +996,7 @@ describe('executeContactEnrichmentApolloRun', () => {
 
     await executeContactEnrichmentApolloRun('run-1', 'user-1', h.deps);
 
-    assert.equal(completionCalls, 3, 'máximo 3 perfiles deben entrar a completion (MAX_COMPLETION_CANDIDATES)');
+    assert.equal(completionCalls, 5, 'máximo 5 perfiles deben entrar a completion (MAX_COMPLETION_CANDIDATES)');
   });
 
   // Test 3 — Si search budget excedido → guardrail_blocked=true y completeContact NO se llama

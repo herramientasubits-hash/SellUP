@@ -23,6 +23,8 @@ import {
   searchApolloPeopleForCompany,
   mapCountryCodeToApolloLocation,
   HR_PERSON_TITLES,
+  DECISION_MAKER_TITLES,
+  TARGET_PERSON_TITLES,
   TARGET_SENIORITIES,
   HR_DEPARTMENTS,
 } from '../apollo-people-adapter';
@@ -45,6 +47,17 @@ function person(id: string): ApolloPerson {
     phone_numbers: [],
     organization: null,
   };
+}
+
+/**
+ * AGENT2A-COVERAGE-DECISION-MAKERS-1 — tantos perfiles revisables como el objetivo
+ * de stop-early (5). Antes bastaban 2; los fixtures que prueban el corte usan esto.
+ */
+function enoughToStop(prefix = 'p'): ApolloPerson[] {
+  return Array.from(
+    { length: APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts },
+    (_, i) => person(`${prefix}-${i}`),
+  );
 }
 
 function ok(data: ApolloPerson[]): ApolloSearchResult<ApolloPerson> {
@@ -144,8 +157,8 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
     assert.equal(result.status, 'success');
     // Stop early en attempt 1: una sola llamada.
     assert.equal(captured.length, 1);
-    // Respeta maxCandidates.
-    assert.equal(result.people.length, 5);
+    // per_page = maxResultsPerSearchAttempt (10): llegan los 8 perfiles.
+    assert.equal(result.people.length, 8);
     // Prioriza dominio: NO envía el nombre libre (evita AND que excluye empresas grandes).
     assert.equal(captured[0].q_organization_name, undefined);
     assert.deepEqual(captured[0].q_organization_domains, ['bancolombia.com']);
@@ -186,17 +199,17 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
         resolveOrganization: noOrg,
         searchPeople: async (params) => {
           captured.push(params);
-          // attempt 1 → 0, attempt 2 → 4
-          return ok(captured.length === 1 ? [] : Array.from({ length: 4 }, (_, i) => person(`p-${i}`)));
+          // attempt 1 → 0, attempt 2 → 5 (objetivo de revisables)
+          return ok(captured.length === 1 ? [] : enoughToStop());
         },
       },
     );
 
     assert.equal(result.status, 'success');
     assert.equal(captured.length, 2);
-    assert.equal(result.people.length, 4);
+    assert.equal(result.people.length, 5);
     // attempt 2: títulos HR + seniorities, sin department.
-    assert.deepEqual(captured[1].person_titles, HR_PERSON_TITLES);
+    assert.deepEqual(captured[1].person_titles, TARGET_PERSON_TITLES);
     assert.deepEqual(captured[1].person_seniorities, TARGET_SENIORITIES);
     assert.equal(captured[1].person_department_or_subdepartments, undefined);
     assert.deepEqual(
@@ -205,7 +218,7 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
     );
     assert.deepEqual(
       result.attempts.map((a) => a.rawResultsCount),
-      [0, 4],
+      [0, 5],
     );
   });
 
@@ -218,7 +231,7 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
         resolveOrganization: noOrg,
         searchPeople: async (params) => {
           captured.push(params);
-          return ok(captured.length === 1 ? [] : [person('p-0'), person('p-1')]);
+          return ok(captured.length === 1 ? [] : enoughToStop());
         },
       },
     );
@@ -287,7 +300,7 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
         resolveOrganization: noOrg,
         searchPeople: async (params) => {
           captured.push(params);
-          return ok([person('p-0'), person('p-1'), person('p-2')]);
+          return ok(enoughToStop());
         },
       },
     );
@@ -363,7 +376,7 @@ describe('searchApolloPeopleForCompany — con organization_id resuelto (17A.8A)
         searchPeople: async (params) => {
           captured.push(params);
           // Primer intento trae resultados suficientes → stop early.
-          return ok([person('p-0'), person('p-1'), person('p-2')]);
+          return ok(enoughToStop());
         },
       },
     );
@@ -390,7 +403,7 @@ describe('searchApolloPeopleForCompany — con organization_id resuelto (17A.8A)
         searchPeople: async (params) => {
           captured.push(params);
           // intento 1 → vacío, intento 2 → resultados
-          return ok(captured.length === 1 ? [] : [person('p-0'), person('p-1')]);
+          return ok(captured.length === 1 ? [] : enoughToStop());
         },
       },
     );
@@ -398,7 +411,7 @@ describe('searchApolloPeopleForCompany — con organization_id resuelto (17A.8A)
     assert.equal(captured.length, 2);
     assert.deepEqual(captured[0].organization_ids, ['apollo-siesa-123']);
     assert.deepEqual(captured[1].organization_ids, ['apollo-siesa-123']);
-    assert.deepEqual(captured[1].person_titles, HR_PERSON_TITLES);
+    assert.deepEqual(captured[1].person_titles, TARGET_PERSON_TITLES);
     assert.equal(result2.attempts[1]?.attempt, 'org_id_hr_titles');
   });
 
@@ -714,5 +727,34 @@ describe('searchApolloPeopleForCompany — filtro de país (17A.9B.2)', () => {
 
     assert.equal(result.countryFilter?.country_filter_applied, false);
     assert.equal(result.countryFilter?.country_code_received, null);
+  });
+});
+
+// ── AGENT2A-COVERAGE-DECISION-MAKERS-1 ─────────────────────────
+
+describe('Apollo — decisores fuera de RR. HH. (AGENT2A-COVERAGE-DECISION-MAKERS-1)', () => {
+  it('TARGET_PERSON_TITLES = RR. HH. primero + CEO / gerente general', () => {
+    assert.deepEqual(TARGET_PERSON_TITLES.slice(0, HR_PERSON_TITLES.length), HR_PERSON_TITLES);
+    for (const t of ['CEO', 'Gerente General', 'General Manager']) {
+      assert.ok(DECISION_MAKER_TITLES.includes(t), `falta ${t}`);
+      assert.ok(TARGET_PERSON_TITLES.includes(t), `falta ${t} en los títulos enviados`);
+    }
+  });
+
+  it('con 2 revisables en el intento 1 sigue buscando (antes paraba en 2) y pide 10 por intento', async () => {
+    const captured: SearchPeopleParams[] = [];
+    await searchApolloPeopleForCompany(
+      { runId: 'run-1', companyName: 'Corp', companyDomain: 'corp.com' },
+      {
+        isConnected: async () => true,
+        resolveOrganization: async () => null,
+        searchPeople: async (params) => {
+          captured.push(params);
+          return ok(captured.length === 1 ? [person('p-a'), person('p-b')] : []);
+        },
+      },
+    );
+    assert.ok(captured.length > 1, 'con 2 revisables ya no se detiene en el intento 1');
+    assert.equal(captured[0].per_page, 10);
   });
 });

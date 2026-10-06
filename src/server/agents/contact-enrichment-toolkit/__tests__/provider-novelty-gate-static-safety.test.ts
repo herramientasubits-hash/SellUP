@@ -77,11 +77,13 @@ describe('punto de inserción — antes de la pata PAGADA', () => {
 
   it('Lusha: los conjuntos que van al enrich derivan del resultado del gate', () => {
     assert.ok(
-      LUSHA_SOURCE.includes('const selectedForEnrich = novelForEnrich.slice(0, maxCandidates);'),
+      // AGENT2A-COVERAGE-DECISION-MAKERS-1: se reordena por seniority antes del corte,
+      // pero el conjunto sigue saliendo del gate (novelForEnrich).
+      /const selectedForEnrich = rankContactsBySeniority\(\s*novelForEnrich,[\s\S]*?\)\.slice\(0, maxCandidates\);/.test(LUSHA_SOURCE),
       'prospecting debe enriquecer solo identidades novedosas',
     );
     assert.ok(
-      LUSHA_SOURCE.includes('const candidates = searchNoveltyGate.novel.slice(0, maxCandidates);'),
+      /const candidates = rankContactsBySeniority\(\s*searchNoveltyGate\.novel,[\s\S]*?\)\.slice\(0, maxCandidates\);/.test(LUSHA_SOURCE),
       'la búsqueda por empresa debe enriquecer solo identidades novedosas',
     );
   });

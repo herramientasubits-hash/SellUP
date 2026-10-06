@@ -245,3 +245,13 @@ es cierto que un `full_waterfall` resuelva `budget_not_configured` por falta de 
 `budget_not_configured` sigue siendo el veredicto correcto —y sigue **bloqueando**— si alguien
 desactiva una regla, si la regla del proveedor exigido desaparece, o si sólo tiene `limit_usd`. Su
 diagnóstico está en [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) § E.
+
+## 9. Topes de la búsqueda de contactos (AGENT2A-COVERAGE-DECISION-MAKERS-1, 2026-10-05)
+
+Decisión del 2026-10-05: **máximo 5 contactos por fuente**, sin otro cambio de presupuesto.
+
+| Proveedor | Tope | Gasto por run |
+|---|---|---|
+| Apollo People Search | 3 intentos × 10 resultados (30) | 0 — la búsqueda no cobra |
+| Apollo people/match (completion) | 5 candidatos (antes 3) | ≤ 5 créditos de email; `maxCompletionCreditsPerRun` = 10 |
+| Lusha enrich | 5 (`LUSHA_MAX_CANDIDATES_PER_RUN`, sin cambios) | Igual que antes; ahora va primero a los perfiles de mayor seniority |

@@ -141,6 +141,10 @@ export const MEDIUM_RELEVANCE_KEYWORDS: string[] = [
   'coo',
   'gerente general',
   'director general',
+  // AGENT2A-COVERAGE-DECISION-MAKERS-1 — equivalentes en inglés que ahora trae la búsqueda.
+  'general manager',
+  'managing director',
+  'country manager',
   'presidente',
   'vicepresidente corporativo',
   'vp corporativo',
