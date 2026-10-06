@@ -133,15 +133,24 @@ function resetServer(): void {
   server.pending = null;
 }
 
-mock.module('@/modules/prospect-batches/apollo-continuation-actions', {
+// AGENT1-PARALLEL-RUNS-TRAY-1 — el panel ya no llama a la server action: llama a
+// la RUTA (para no hacer cola detrás de una corrida). El doble se pone en esa
+// frontera, con el mismo contrato.
+mock.module('@/modules/prospect-batches/agent-runs/agent-runs-client', {
   namedExports: {
-    continueApolloRound: async (batchId: string) => {
+    executeWizardRunViaRoute: async () => {
+      throw new Error('ninguna prueba de continuación puede lanzar una corrida');
+    },
+    getAgentRunsStore: () => null,
+    useAgentRuns: () => [],
+    fetchAgentRunsStatus: async () => [],
+    continueApolloRoundViaRoute: async (batchId: string) => {
       server.continueCalls.push(batchId);
       const next = server.continueQueue.shift() ?? server.continueDefault;
       if (next instanceof Error) throw next;
       return next ?? { status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null };
     },
-    findPendingApolloContinuation: async () => {
+    findPendingApolloContinuationViaRoute: async () => {
       server.findCalls += 1;
       return server.pending;
     },
