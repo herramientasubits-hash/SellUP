@@ -25,9 +25,11 @@ import {
   buildDomainSearchUsageLog,
   buildFoundEvidence,
   buildFoundWebsiteColumns,
+  buildUnverifiedHintWebsiteVerification,
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   dispositionDisplayName,
   readFoundWebsite,
+  unverifiedWebsiteHint,
   type DomainDuplicateCheck,
   type FoundWebsite,
 } from './domain-search';
@@ -314,13 +316,19 @@ async function resolveDispositionWebsite(
     });
     if (log) await deps.logUsage(log);
     cost = outcome.usage?.estimatedCostUsd ?? 0;
-    if (!outcome.found) {
+    // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
+    // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
+    const hint = unverifiedWebsiteHint(row, outcome);
+    if (hint) {
+      found = hint;
+    } else if (!outcome.found) {
       const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
         buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt),
       );
       return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
+    } else {
+      found = { website: outcome.website, domain: outcome.domain, verification: outcome.verification };
     }
-    found = { website: outcome.website, domain: outcome.domain, verification: outcome.verification };
   }
 
   let duplicate: DomainDuplicateCheck;
@@ -431,6 +439,9 @@ async function rescueDisposition(
               [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: buildFoundEvidence(null, found, decidedAt)[
                 CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY
               ],
+              ...(buildUnverifiedHintWebsiteVerification(found)
+                ? { website_verification: buildUnverifiedHintWebsiteVerification(found) }
+                : {}),
             },
             columns: { ...buildFoundWebsiteColumns(row, found), ...(origin.columns ?? {}) },
           }
