@@ -33,13 +33,18 @@ interface PopoverContentProps extends React.ComponentPropsWithoutRef<typeof Popo
    * en `z-[70]` y quedaría tapado.
    */
   positionerClassName?: string;
+  /**
+   * Deja el contenido montado (oculto) con el popover cerrado. Para lo que tiene
+   * que seguir trabajando aunque no se vea, como el Centro de procesos.
+   */
+  keepMounted?: boolean;
 }
 
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Popup>,
   PopoverContentProps
->(({ className, positionerClassName, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+>(({ className, positionerClassName, keepMounted, align = "center", side = "bottom", sideOffset = 4, ...props }, ref) => (
+  <PopoverPrimitive.Portal keepMounted={keepMounted}>
     <PopoverPrimitive.Positioner side={side} sideOffset={sideOffset} align={align} positionMethod="fixed" className={cn("z-[9999]", positionerClassName)}>
       <PopoverPrimitive.Popup
         ref={ref}

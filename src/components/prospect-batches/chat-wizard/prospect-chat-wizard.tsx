@@ -39,7 +39,6 @@ import {
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
 import { useWizardMessageSound } from './use-wizard-message-sound';
 // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — la continuación, conectada.
-import { WizardApolloContinuationPanel } from './wizard-apollo-continuation-panel';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
@@ -86,6 +85,8 @@ const STEP_LABELS: Record<string, string> = {
   industry: 'Industria',
   subindustries: 'Enfoque',
   additional_criteria: 'Criterios',
+  // Prod 06-10: el indicador decía «summary» (la clave sin traducir).
+  summary: 'Resumen',
 };
 
 /** Pasos a los que se puede volver tocando el indicador. */
@@ -115,6 +116,12 @@ type ProspectChatWizardProps = {
    * generación está en vuelo, que tampoco ofrecía ese botón.
    */
   onRestartAvailabilityChange?: (available: boolean) => void;
+  /**
+   * Avisa de la corrida que este chat tiene en vuelo (su id) o `null`. Con una en
+   * vuelo, el «+» del panel no la cancela: la deja en el Centro de procesos y
+   * empieza una conversación nueva.
+   */
+  onRunningChange?: (clientRequestId: string | null) => void;
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
   executionEnabled?: boolean;
@@ -178,6 +185,7 @@ export function ProspectChatWizard({
   budgetPreflight = null,
   ref,
   onRestartAvailabilityChange,
+  onRunningChange,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -203,6 +211,10 @@ export function ProspectChatWizard({
   // AGENT1-RUN-LIVE-PROGRESS-1 — el id de la corrida en vuelo, para que la espera
   // lea su etapa. Estado (no la ref) porque se pinta.
   const [runningRequestId, setRunningRequestId] = React.useState<string | null>(null);
+  const inFlightRequestId = state.currentStep === 'submitting' ? runningRequestId : null;
+  React.useEffect(() => {
+    onRunningChange?.(inFlightRequestId);
+  }, [inFlightRequestId, onRunningChange]);
 
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
@@ -632,15 +644,22 @@ export function ProspectChatWizard({
     dispatch({ type: 'BEGIN_EXECUTION' });
 
     // AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida la lleva el almacén del shell (por
-    // ruta, no server action): sobrevive si se cierra el chat, aparece en la
-    // bandeja flotante y no deja en cola el resto del navegador.
+    // ruta, no server action): sobrevive si se cierra el chat, aparece en el
+    // Centro de procesos y no deja en cola el resto del navegador.
     const runsStore = getAgentRunsStore();
     const countryName =
       LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
     const runTitle = [countryName, industryName].filter(Boolean).join(' · ');
     const execute = (payload: Parameters<typeof executeWizardRunViaRoute>[0]) =>
-      runsStore ? runsStore.startRun({ title: runTitle, payload }) : executeWizardRunViaRoute(payload);
+      runsStore
+        ? runsStore.startRun({
+            title: runTitle,
+            // Mismo país × industria = mismas empresas: nunca corren juntas.
+            concurrencyKey: `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
+            payload,
+          })
+        : executeWizardRunViaRoute(payload);
 
     try {
       const result = await execute({
@@ -858,16 +877,10 @@ export function ProspectChatWizard({
             )}
           </div>
 
-          {/* AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — una corrida a medias.
-
-              Vive AQUÍ, en la raíz del mago, y no dentro de un paso: mientras el
-              panel esté abierto hay que poder ver —y seguir— el trabajo
-              pendiente, tanto justo después de la pausa como al reabrir en el
-              primer paso. Colgarlo del panel de éxito lo habría atado a una
-              superficie que se cierra sola y que al reabrir ni siquiera existe.
-
-              No pinta nada cuando no hay trabajo pendiente. */}
-          <WizardApolloContinuationPanel pausedRunSignal={state.executionContinuationPending} />
+          {/* AGENT1-PARALLEL-RUNS-PHASE2-1 — la corrida a medias ya NO vive aquí: la
+              conduce el Centro de procesos del shell (`AgentRunsProcessCenter`), que no se
+              desmonta al cerrar el chat. Ocupaba la cabecera del asistente y sólo
+              avanzaba con el chat abierto. */}
 
           {/* AGENT1-RUN-LIVE-PROGRESS-1 — mientras corre, la espera ocupa el cuerpo
               del panel (el bloque grande de «la IA está trabajando») y su titular

@@ -1422,7 +1422,11 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // Agente 1 (tabla aparte `agent1_run_progress`; escribe service_role, cada usuario lee sólo su
     // fila). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4: tampoco es autoría de
     // BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '143_agent1_run_progress.sql');
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por usuario
+    // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
+    // `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del catálogo,
+    // ni de BR, ni de CUT3B4: tampoco es autoría de BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '144_wizard_budget_concurrent_executions.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

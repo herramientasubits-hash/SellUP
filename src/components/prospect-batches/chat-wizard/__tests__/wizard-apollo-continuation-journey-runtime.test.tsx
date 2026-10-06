@@ -193,6 +193,7 @@ let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 let ProspectChatWizard: (typeof import('../prospect-chat-wizard'))['ProspectChatWizard'];
 let WizardConversationSummary: (typeof import('../wizard-conversation-summary'))['WizardConversationSummary'];
 let WizardApolloContinuationPanel: (typeof import('../wizard-apollo-continuation-panel'))['WizardApolloContinuationPanel'];
+let AgentRunsProcessCenter: (typeof import('../../agent-runs-tray/agent-runs-tray'))['AgentRunsProcessCenter'];
 let prospectWizardReducer: (typeof import('@/modules/prospect-batches/chat-wizard'))['prospectWizardReducer'];
 let createInitialProspectWizardState: (typeof import('@/modules/prospect-batches/chat-wizard'))['createInitialProspectWizardState'];
 let STATUS_COPY: (typeof import('@/modules/prospect-batches/apollo-continuation-status'))['APOLLO_CONTINUATION_STATUS_COPY'];
@@ -214,10 +215,20 @@ const NO_LUSHA: WizardLushaCriteriaDecision = {
   input: null,
 } as unknown as WizardLushaCriteriaDecision;
 
-/** El cajón REAL, recién abierto: primer paso, sin corrida en el estado. */
-function renderWizard(onClose: () => void = () => {}) {
-  return render(<ProspectChatWizard catalog={CATALOG} onClose={onClose} executionEnabled />);
+/**
+ * AGENT1-PARALLEL-RUNS-PHASE2-1 — la corrida a medias la conduce la BANDEJA del
+ * shell (`AgentRunsProcessCenter`), no el mago: el shell real monta las dos cosas. El mago
+ * se renderiza al lado para comprobar que abrirlo no estorba ni duplica nada.
+ */
+function renderShell(onClose: () => void = () => {}) {
+  return render(
+    <>
+      <ProspectChatWizard catalog={CATALOG} onClose={onClose} executionEnabled />
+      <AgentRunsProcessCenter />
+    </>,
+  );
 }
+const renderWizard = renderShell;
 
 /**
  * El estado REAL que deja una respuesta PARCIAL.
@@ -294,6 +305,7 @@ before(async () => {
   ({ ProspectChatWizard } = await import('../prospect-chat-wizard'));
   ({ WizardConversationSummary } = await import('../wizard-conversation-summary'));
   ({ WizardApolloContinuationPanel } = await import('../wizard-apollo-continuation-panel'));
+  ({ AgentRunsProcessCenter } = await import('../../agent-runs-tray/agent-runs-tray'));
   ({ prospectWizardReducer, createInitialProspectWizardState } = await import(
     '@/modules/prospect-batches/chat-wizard'
   ));
@@ -400,44 +412,24 @@ describe('§ 2 · caso 2 — se respeta `retryAfterMs`', () => {
 
 // ── Caso 3 ────────────────────────────────────────────────────────────────────
 
-describe('§ 3 · caso 3 — cerrar y reabrir', () => {
-  it('cerrar detiene la conducción; reabrir la RECUPERA sin crear otra corrida', async () => {
+describe('§ 3 · caso 3 — cerrar el chat NO detiene la continuación', () => {
+  it('con el chat cerrado la bandeja sigue conduciendo el MISMO lote hasta terminar', async () => {
     server.pending = { batchId: BATCH_ID, status: 'pending_continuation', pendingOrganizationCount: 7 };
-    server.continueDefault = {
-      status: 'pending_continuation',
-      pendingOrganizationCount: 1,
-      retryAfterMs: 5_000,
-    };
+    server.continueQueue = [
+      { status: 'pending_continuation', pendingOrganizationCount: 1, retryAfterMs: 30 },
+      { status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null },
+    ];
 
-    renderWizard();
+    // El shell con el chat abierto…
+    const tray = render(<AgentRunsProcessCenter />);
+    const chat = render(<ProspectChatWizard catalog={CATALOG} onClose={() => {}} executionEnabled />);
     await waitFor(() => assert.equal(server.continueCalls.length, 1));
 
-    // Se cierra la ventana.
-    cleanup();
-    document.body.innerHTML = '';
-    const callsAtClose = server.continueCalls.length;
-    await sleep(60);
-    assert.equal(
-      server.continueCalls.length,
-      callsAtClose,
-      'una pantalla desmontada no sigue llamando al servidor',
-    );
-
-    // Se REABRE: el mago vuelve a su primer paso y no recuerda ningún lote. El
-    // trabajo pendiente se recupera del servidor.
-    server.continueQueue = [{ status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null }];
-    server.continueDefault = null;
-
-    renderWizard();
-
-    await waitFor(() => assert.equal(server.findCalls, 2));
+    // …se CIERRA el chat. La bandeja (el shell) sigue montada.
+    chat.unmount();
     await waitFor(() => assert.equal(panelStatus(), 'finished'));
-
-    assert.deepEqual(
-      server.continueCalls.slice(callsAtClose),
-      [BATCH_ID],
-      'la reapertura continúa el MISMO lote',
-    );
+    assert.deepEqual(server.continueCalls, [BATCH_ID, BATCH_ID], 'el MISMO lote, sin crear otra corrida');
+    tray.unmount();
   });
 
   it('sin trabajo pendiente, abrir no pinta nada y no llama a continuar', async () => {
@@ -588,20 +580,26 @@ describe('§ 4 · caso 8 — el cableado de la señal', () => {
    * sí se puede exigir —y es donde el defecto viviría— es que la prop que une
    * el estado con el panel siga ahí.
    */
-  it('la raíz pasa `executionContinuationPending` al panel', () => {
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', 'prospect-chat-wizard.tsx'),
+  it('la bandeja del shell conduce la continuación con la señal de las corridas en pausa', () => {
+    const traySource = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'agent-runs-tray', 'agent-runs-tray.tsx'),
       'utf8',
     );
     assert.match(
-      source,
-      /<WizardApolloContinuationPanel\s+pausedRunSignal=\{state\.executionContinuationPending\}\s*\/>/,
-      'el panel tiene que recibir la señal de pausa del estado de la corrida',
+      traySource,
+      /<WizardApolloContinuationPanel\s+variant="tray"\s+pausedRunSignal=\{pausedRunSignal\}/,
+      'la bandeja tiene que montar el panel con la señal de pausa',
+    );
+    const storeSource = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', '..', 'modules', 'prospect-batches', 'agent-runs', 'agent-runs-store.ts'),
+      'utf8',
     );
     assert.match(
-      source,
+      storeSource,
       /continuationPending: result\.apolloContinuation !== undefined/,
       'y esa señal tiene que venir de lo que el servidor declaró',
     );
+    const wizardSource = fs.readFileSync(path.join(__dirname, '..', 'prospect-chat-wizard.tsx'), 'utf8');
+    assert.doesNotMatch(wizardSource, /<WizardApolloContinuationPanel/, 'el chat ya no la pinta en su cabecera');
   });
 });

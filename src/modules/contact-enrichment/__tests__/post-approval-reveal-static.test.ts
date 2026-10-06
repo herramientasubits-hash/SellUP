@@ -770,10 +770,14 @@ describe('la migración 128 — su contrato', () => {
     // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
     // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '143_agent1_run_progress.sql');
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por usuario
+    // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
+    // `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del catálogo,
+    // ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '144_wizard_budget_concurrent_executions.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 143);
-    assert.equal(files.length, 143, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 144);
+    assert.equal(files.length, 144, 'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

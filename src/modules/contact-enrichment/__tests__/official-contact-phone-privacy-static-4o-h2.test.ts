@@ -211,7 +211,12 @@ describe('115 — numeración', () => {
     // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4, y no toca ninguna columna, función ni tabla de estas cadenas. AUTORADA y NO
     // APLICADA.
-    assert.equal(Math.max(...numbers), 143);
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 movió el techo a la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4, y no toca ninguna columna, función ni tabla de estas
+    // cadenas. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 144);
   });
 
   it('declara NO estar aplicada en Producción', () => {

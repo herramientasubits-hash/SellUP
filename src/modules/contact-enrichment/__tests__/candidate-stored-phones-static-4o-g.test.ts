@@ -564,7 +564,12 @@ describe('4O-G — alcance', () => {
     // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
     // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4, y no toca ninguna columna de teléfono de estas cadenas. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 143);
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 movió el techo a la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4, y no toca ninguna columna de teléfono de estas cadenas.
+    // AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 144);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -591,7 +596,8 @@ describe('4O-G — alcance', () => {
     // 141 archivos para los números 001-141: la 141 tampoco deja hueco.
     // 142 archivos para los números 001-142: la 142 tampoco deja hueco.
     // 143 archivos para los números 001-143: la 143 tampoco deja hueco.
-    assert.equal(numbered.length, 143);
+    // 144 archivos para los números 001-144: la 144 tampoco deja hueco.
+    assert.equal(numbered.length, 144);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

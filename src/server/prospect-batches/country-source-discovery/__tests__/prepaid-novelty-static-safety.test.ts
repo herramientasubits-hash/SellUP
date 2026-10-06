@@ -302,8 +302,19 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // ni los referencia como FK. La capa gratuita sigue sin necesitar esquema, que es lo único
       // que esta guarda afirma. AUTORADA y NO APLICADA.
       '143_agent1_run_progress.sql',
+      // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 añade la 144: varias ejecuciones activas por usuario en la
+      // reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
+      // `max_active_executions_per_user`; ninguna fila de datos). A diferencia de la 137, SÍ
+      // redefine una de las tres RPC de reserva (`try_reserve_wizard_credits`, igual que en la 064
+      // salvo el paso 9) y cambia un índice de `wizard_budget_reservations`; es de Agente 1 y de la
+      // reserva PAGADA del piloto, no de la capa GRATUITA de descubrimiento que esta guarda
+      // protege: no nombra `provider_seen_entities`, no toca `prospect_batches` ni
+      // `prospect_candidates`, y la capa gratuita sigue sin reservar (§ 15 arriba). La capa
+      // gratuita sigue sin necesitar esquema, que es lo único que esta guarda afirma. AUTORADA y NO
+      // APLICADA.
+      '144_wizard_budget_concurrent_executions.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas y el progreso en vivo de la corrida',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida y varias ejecuciones activas por usuario en la reserva del piloto',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

@@ -5,12 +5,13 @@
  * Antes la corrida vivía dentro del asistente: al cerrar el panel se desmontaba y
  * con él la promesa, el lote y el resultado. La corrida seguía en el servidor,
  * pero nadie la miraba. Aquí vive en un almacén del navegador que monta el shell
- * de la app, así que sobrevive al chat, y la bandeja flotante la pinta.
+ * de la app, así que sobrevive al chat, y el Centro de procesos de la cabecera la pinta.
  *
- * Fase 1 = UNA corrida a la vez: la base de datos sólo admite una reserva de
- * créditos activa por usuario (migración 064). Las siguientes quedan EN ESPERA y
- * arrancan solas al terminar la anterior; nunca se mandan dos a la vez a chocar
- * contra «Ya tienes una generación en curso».
+ * Fase 2 (AGENT1-PARALLEL-RUNS-PHASE2-1): hasta `AGENT_RUNS_MAX_CONCURRENT` a la
+ * vez. Apollo y Tavily no reservan del pool del piloto (cuota del proveedor), así
+ * que la base no las limita; Lusha sí, con `max_active_executions_per_user`
+ * (migración 144). Dos corridas del MISMO país × industria nunca corren juntas:
+ * pelearían por las mismas empresas. Las demás quedan EN ESPERA y arrancan solas.
  *
  * Puro respecto al framework: sin React, sin fetch propio, sin reloj global. La
  * ejecución y el almacenamiento se inyectan (pruebas sin red).
@@ -24,6 +25,11 @@ export type AgentRun = {
   clientRequestId: string;
   /** «México · Retail». */
   title: string;
+  /**
+   * Corridas con la misma clave no corren juntas (país × industria). Ausente en
+   * filas guardadas antes de la fase 2: se usa el título.
+   */
+  concurrencyKey?: string;
   status: AgentRunStatus;
   createdAtMs: number;
   startedAtMs: number | null;
@@ -33,6 +39,8 @@ export type AgentRun = {
   candidateCount: number | null;
   /** Texto corto para la bandeja cuando falla o termina sin empresas nuevas. */
   message: string | null;
+  /** La corrida terminó EN PAUSA con trabajo de Apollo encolado (lo declara el servidor). */
+  continuationPending?: boolean;
   /**
    * La corrida se lanzó en una carga ANTERIOR de la página: su respuesta ya no
    * llega aquí y su estado se sigue consultando por su identificador.
@@ -53,8 +61,8 @@ export type AgentRunsStoreDeps = {
   nowMs?: () => number;
 };
 
-/** Cuántas corridas a la vez (fase 1: una; ver migración 064). */
-export const AGENT_RUNS_MAX_CONCURRENT = 1;
+/** Cuántas corridas a la vez desde este navegador. */
+export const AGENT_RUNS_MAX_CONCURRENT = 3;
 /** Cuántas filas recuerda la bandeja. */
 export const AGENT_RUNS_MAX_KEPT = 12;
 export const AGENT_RUNS_STORAGE_KEY = 'sellup:agent-runs:v1';
@@ -65,7 +73,7 @@ const NOT_STARTED_AFTER_RELOAD =
 export type AgentRunsStore = {
   getSnapshot(): readonly AgentRun[];
   subscribe(listener: () => void): () => void;
-  startRun(input: { title: string; payload: AgentRunPayload }): Promise<WizardExecutionActionResult>;
+  startRun(input: { title: string; concurrencyKey?: string; payload: AgentRunPayload }): Promise<WizardExecutionActionResult>;
   /** Cierra una corrida lanzada en otra carga de la página (la bandeja la consultó). */
   settleDetached(clientRequestId: string, outcome: { status: 'succeeded' | 'failed'; batchId?: string | null; message?: string | null }): void;
   dismiss(clientRequestId: string): void;
@@ -76,10 +84,13 @@ function isFinished(run: AgentRun): boolean {
   return run.status === 'succeeded' || run.status === 'failed';
 }
 
-function summarize(result: WizardExecutionActionResult): Pick<AgentRun, 'status' | 'batchId' | 'redirectPath' | 'candidateCount' | 'message'> {
+function summarize(
+  result: WizardExecutionActionResult,
+): Pick<AgentRun, 'status' | 'batchId' | 'redirectPath' | 'candidateCount' | 'message' | 'continuationPending'> {
   if (result.ok) {
     return {
       status: 'succeeded',
+      continuationPending: result.apolloContinuation !== undefined,
       batchId: result.batchId ?? null,
       redirectPath: result.redirectPath ?? null,
       candidateCount: typeof result.candidateCount === 'number' ? result.candidateCount : null,
@@ -157,11 +168,13 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
   };
 
   const runningCount = () => runs.filter((run) => run.status === 'running').length;
+  const keyOf = (run: AgentRun) => run.concurrencyKey ?? run.title;
 
   const pump = () => {
     while (runningCount() < AGENT_RUNS_MAX_CONCURRENT) {
-      // La más antigua en espera primero.
-      const next = [...runs].reverse().find((run) => run.status === 'queued');
+      // La más antigua en espera cuya clave no esté corriendo ya.
+      const busy = new Set(runs.filter((run) => run.status === 'running').map(keyOf));
+      const next = [...runs].reverse().find((run) => run.status === 'queued' && !busy.has(keyOf(run)));
       if (!next) return;
       const job = pending.get(next.clientRequestId);
       if (!job) {
@@ -197,7 +210,7 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    startRun({ title, payload }) {
+    startRun({ title, concurrencyKey, payload }) {
       const id = payload.clientRequestId;
       // El mismo id dos veces (doble clic) = la misma corrida.
       const existing = inFlight.get(id);
@@ -209,6 +222,7 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
       const run: AgentRun = {
         clientRequestId: id,
         title,
+        ...(concurrencyKey ? { concurrencyKey } : {}),
         status: 'queued',
         createdAtMs: now(),
         startedAtMs: null,

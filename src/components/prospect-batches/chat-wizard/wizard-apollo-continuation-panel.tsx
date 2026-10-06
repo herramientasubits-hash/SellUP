@@ -54,6 +54,10 @@ import {
   type ApolloContinuationUiStatus,
 } from '@/modules/prospect-batches/apollo-continuation-status';
 
+/** En la bandeja: sigue mientras SellUp esté abierto, no sólo el chat. */
+const APOLLO_CONTINUATION_TRAY_NOTE =
+  'Sigue mientras SellUp esté abierto. Si lo cierras no se pierde nada: un proceso diario lo retoma.';
+
 /** Espera por defecto cuando el servidor no indica ninguna. */
 const FALLBACK_RETRY_MS = 2_000;
 
@@ -92,13 +96,27 @@ export type WizardApolloContinuationPanelProps = {
    * Al cambiar de `false` a `true`, la pantalla vuelve a preguntar. En cualquier
    * otro momento —abrir el mago, reabrirlo— basta con la pregunta de montaje.
    */
-  pausedRunSignal?: boolean;
+  pausedRunSignal?: boolean | number;
+  /**
+   * AGENT1-PARALLEL-RUNS-PHASE2-1 — `tray`: fila compacta dentro de la bandeja
+   * flotante del shell (vive fuera del chat, así que cerrar el chat ya no detiene
+   * la continuación). `card`: el cartel de siempre.
+   */
+  variant?: 'card' | 'tray';
+  /** Avisa si hay algo que pintar, para que la bandeja se muestre u oculte. */
+  onActiveChange?: (active: boolean) => void;
 };
 
 export function WizardApolloContinuationPanel({
   pausedRunSignal = false,
+  variant = 'card',
+  onActiveChange,
 }: WizardApolloContinuationPanelProps) {
   const [view, setView] = React.useState<ContinuationView>({ kind: 'unknown' });
+  const isActive = view.kind === 'active';
+  React.useEffect(() => {
+    onActiveChange?.(isActive);
+  }, [isActive, onActiveChange]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -182,6 +200,37 @@ export function WizardApolloContinuationPanel({
   const body = view.transportError
     ? APOLLO_CONTINUATION_TRANSPORT_ERROR_COPY
     : APOLLO_CONTINUATION_STATUS_COPY[view.status];
+
+  if (variant === 'tray') {
+    return (
+      <li
+        className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+        data-testid="wizard-apollo-continuation"
+        data-continuation-status={view.status}
+        data-continuation-batch-id={view.batchId}
+        role="status"
+        aria-live="polite"
+      >
+        <ContinuationIcon status={view.status} />
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            {isFinished ? 'Corrida completada' : APOLLO_CONTINUATION_PANEL_TITLE}
+          </p>
+          <p className="break-words text-xs leading-relaxed text-muted-foreground" data-testid="wizard-apollo-continuation-body">
+            {body}
+          </p>
+          {!isFinished && (
+            <p className="text-xs leading-snug text-muted-foreground" data-testid="wizard-apollo-continuation-browser-note">
+              {APOLLO_CONTINUATION_TRAY_NOTE}
+            </p>
+          )}
+          <a className="text-xs font-medium text-primary hover:underline" href={`/prospect-batches/${view.batchId}`}>
+            Ver lote
+          </a>
+        </div>
+      </li>
+    );
+  }
 
   const tone = isFailure
     ? 'border-warning/25 bg-warning/15'

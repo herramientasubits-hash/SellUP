@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AGENT_RUNS_MAX_CONCURRENT,
   AGENT_RUNS_STORAGE_KEY,
   createAgentRunsStore,
   restoreAgentRuns,
@@ -17,12 +18,16 @@ import {
 import type { WizardExecutionActionResult } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import {
   AGENT_RUNS_TRAY_COPY,
+  agentRunProcessState,
   describeAgentRun,
   isDetachedRunFinished,
+  processCenterSummary,
 } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
 
 const ID_A = '11111111-1111-4111-8111-111111111111';
 const ID_B = '22222222-2222-4222-8222-222222222222';
+const ID_C = '33333333-3333-4333-8333-333333333333';
+const ID_D = '44444444-4444-4444-8444-444444444444';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = { ...initial };
@@ -47,7 +52,7 @@ const payload = (clientRequestId: string): AgentRunPayload => ({ clientRequestId
 const tick = () => new Promise((r) => setImmediate(r));
 
 describe('almacén de corridas', () => {
-  it('una a la vez: la segunda queda en espera y arranca sola al terminar la primera', async () => {
+  it('distinto país × industria corren juntas; el mismo país × industria espera', async () => {
     const calls: string[] = [];
     const jobs = new Map<string, ReturnType<typeof deferred>>();
     const store = createAgentRunsStore({
@@ -60,27 +65,36 @@ describe('almacén de corridas', () => {
       storage: memoryStorage(),
     });
 
-    const first = store.startRun({ title: 'México · Retail', payload: payload(ID_A) });
-    const second = store.startRun({ title: 'Chile · Salud', payload: payload(ID_B) });
-    assert.deepEqual(calls, [ID_A]);
-    assert.deepEqual(store.getSnapshot().map((r) => [r.title, r.status]), [
-      ['Chile · Salud', 'queued'],
-      ['México · Retail', 'running'],
-    ]);
+    const first = store.startRun({ title: 'México · Retail', concurrencyKey: 'MX:retail', payload: payload(ID_A) });
+    store.startRun({ title: 'Chile · Salud', concurrencyKey: 'CL:salud', payload: payload(ID_B) });
+    store.startRun({ title: 'México · Retail', concurrencyKey: 'MX:retail', payload: payload(ID_C) });
+    assert.deepEqual(calls, [ID_A, ID_B]);
+    assert.equal(store.getSnapshot().find((r) => r.clientRequestId === ID_C)!.status, 'queued');
 
     jobs.get(ID_A)!.resolve(ok('batch-a', 6));
     assert.equal((await first).ok, true);
     await tick();
-    assert.deepEqual(calls, [ID_A, ID_B]);
+    assert.deepEqual(calls, [ID_A, ID_B, ID_C]);
     const a = store.getSnapshot().find((r) => r.clientRequestId === ID_A)!;
     assert.equal(a.status, 'succeeded');
     assert.equal(a.batchId, 'batch-a');
     assert.equal(a.candidateCount, 6);
 
     jobs.get(ID_B)!.resolve({ ok: false, code: 'GENERATION_FAILED', message: 'falló' } as unknown as WizardExecutionActionResult);
-    await second;
     await tick();
     assert.equal(store.getSnapshot().find((r) => r.clientRequestId === ID_B)!.status, 'failed');
+  });
+
+  it(`nunca más de ${AGENT_RUNS_MAX_CONCURRENT} a la vez`, async () => {
+    const calls: string[] = [];
+    const store = createAgentRunsStore({
+      execute: (p) => (calls.push(p.clientRequestId), deferred().promise),
+      storage: null,
+    });
+    const ids = [ID_A, ID_B, ID_C, ID_D];
+    ids.forEach((id, i) => store.startRun({ title: `País ${i}`, concurrencyKey: `K${i}`, payload: payload(id) }));
+    assert.equal(calls.length, AGENT_RUNS_MAX_CONCURRENT);
+    assert.equal(store.getSnapshot().filter((r) => r.status === 'queued').length, ids.length - AGENT_RUNS_MAX_CONCURRENT);
   });
 
   it('el mismo id dos veces (doble clic) es la MISMA corrida', async () => {
@@ -160,14 +174,45 @@ describe('textos de la bandeja', () => {
     assert.equal(failed.showLink, true);
   });
 
-  it('título según cuántas siguen en curso', () => {
-    assert.equal(AGENT_RUNS_TRAY_COPY.title(2, 3), '2 búsquedas en curso');
-    assert.equal(AGENT_RUNS_TRAY_COPY.title(0, 1), '1 búsqueda terminada');
+  it('Centro de procesos: cada corrida cae en uno de los cuatro estados de Thema', () => {
+    assert.equal(agentRunProcessState(run({ status: 'running' })), 'running');
+    assert.equal(agentRunProcessState(run({ status: 'queued' })), 'waiting');
+    assert.equal(agentRunProcessState(run({ status: 'succeeded' })), 'done');
+    assert.equal(agentRunProcessState(run({ status: 'failed' })), 'failed');
+  });
+
+  it('el resumen sólo nombra lo terminado y lo fallido si los hay', () => {
+    assert.equal(processCenterSummary({ running: 0, waiting: 0, done: 0, failed: 0 }), 'Nada en proceso');
+    assert.equal(processCenterSummary({ running: 2, waiting: 1, done: 0, failed: 0 }), '2 en curso · 1 en espera');
+    assert.equal(
+      processCenterSummary({ running: 0, waiting: 0, done: 1, failed: 2 }),
+      '0 en curso · 0 en espera · 1 terminada · 2 con error',
+    );
   });
 
   it('una desligada termina cuando su lote deja de generar', () => {
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: null }), false);
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: { id: 'b', status: 'generating', candidateCount: 0 } }), false);
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: { id: 'b', status: 'ready_for_review', candidateCount: 4 } }), true);
+  });
+});
+
+describe('abrir el chat en «Búsquedas» desde el Centro de procesos', async () => {
+  const events = await import('../agent-chat-events');
+
+  it('sin un chat montado nadie lo atiende y hay ruta de respaldo a Empresas', () => {
+    const target = new EventTarget();
+    const original = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = target;
+    try {
+      assert.equal(events.requestOpenAgentRunsInChat(), false);
+      target.addEventListener(events.AGENT_CHAT_OPEN_RUNS_EVENT, (event) => {
+        (event as CustomEvent<{ handled: boolean }>).detail.handled = true;
+      });
+      assert.equal(events.requestOpenAgentRunsInChat(), true, 'con el cajón montado, lo atiende él');
+    } finally {
+      (globalThis as { window?: unknown }).window = original;
+    }
+    assert.equal(events.agentRunsFallbackHref(), '/accounts?agentView=runs');
   });
 });
