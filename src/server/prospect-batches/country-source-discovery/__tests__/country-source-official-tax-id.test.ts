@@ -51,6 +51,9 @@ const REGISTRY = [
   // Dos RFC con el mismo núcleo: ambiguo, nunca fuerte.
   { taxId: 'CLA010101AA1', legalName: 'CLINICA AMBIGUA SA DE CV' },
   { taxId: 'CLA020202BB2', legalName: 'CLINICA AMBIGUA SC' },
+  { taxId: 'AXS940727FP8', legalName: 'AXTELSINT SAB DE CV' },
+  { taxId: 'DOB010101AA1', legalName: 'DOBLESINT SA DE CV' },
+  { taxId: 'DOB020202BB2', legalName: 'DOBLESINT SC' },
 ].map((row) => ({ ...row, normalizedLegalName: normalizeMexicoCompanyCore(row.legalName) }));
 
 const mxResolver = createSnapshotNameOfficialSourceResolver({
@@ -83,11 +86,21 @@ describe('lookup oficial por nombre (mismos resolutores que Apollo/Tavily/Claude
     assert.equal(match?.taxId, 'USA060201AB2');
   });
 
-  it('ambiguo (dos RFC), una sola palabra o sin coincidencia → null', async () => {
+  it('ambiguo (dos RFC) o sin coincidencia → null', async () => {
     assert.equal(await lookUp(denue('3', 'CLINICA AMBIGUA SA DE CV')), null);
-    assert.equal(await lookUp(denue('4', 'Sintetica')), null);
     assert.equal(await lookUp(denue('5', 'EMPRESA QUE NO EXISTE SA DE CV')), null);
     assert.equal(await lookUp(denue('6', null)), null);
+  });
+
+  it('nombre oficial de una sola palabra con UN solo RFC → se acepta (decisión 06-10, sólo esta capa)', async () => {
+    const match = await lookUp(denue('8', 'AXTELSINT'));
+    assert.equal(match?.taxId, 'AXS940727FP8');
+    assert.equal(match?.sourceKey, 'mx_compranet_rfc_registry');
+    assert.ok((match?.confidence ?? 1) < 0.85, 'la traza deja ver que fue la regla de una palabra');
+  });
+
+  it('una sola palabra con DOS RFC sigue fuera', async () => {
+    assert.equal(await lookUp(denue('9', 'DOBLESINT')), null);
   });
 
   it('sin resolutor para el país → null (no inventa)', async () => {
