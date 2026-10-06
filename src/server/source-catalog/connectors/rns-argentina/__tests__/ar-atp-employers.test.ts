@@ -56,7 +56,7 @@ describe('pickAtpEmployer', () => {
 
   it('nunca mezcla dos CUIT', () => {
     const previous = pickAtpEmployer(null, atpRow());
-    assert.equal(pickAtpEmployer(previous, atpRow({ cuit: '30500041681', cantidad_perceptores: '999' })), previous);
+    assert.equal(pickAtpEmployer(previous, atpRow({ cuit: '30704464076', cantidad_perceptores: '999' })), previous);
   });
 });
 

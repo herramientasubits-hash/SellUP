@@ -229,6 +229,54 @@ describe('dos orígenes intercalados (SOURCES-AR-E2E-1)', () => {
   });
 });
 
+describe('dominio del SIPRO histórico (SOURCES-AR-SIPRO-DOMAIN-1)', () => {
+  it('la empresa llega con el dominio que guardó la carga, normalizado', async () => {
+    const result = await buildArRnsDiscoveryAdapter(
+      fakeReads([row(1, { website_domain: ' Telecom.COM.ar ' }), row(2)]).reads,
+    )({ countryCode: 'AR', macroIndustryKey: 'technology', limit: 5 });
+    assert.equal(result.companies[0]?.domain, 'telecom.com.ar');
+    assert.equal(result.companies[1]?.domain, null, 'sin dominio en la carga, no se fabrica');
+  });
+
+  it('un valor con forma imposible no se usa como dominio', async () => {
+    for (const bad of ['telecom', 'http://telecom.com.ar', 'a b.com', '']) {
+      const result = await buildArRnsDiscoveryAdapter(fakeReads([row(1, { website_domain: bad })]).reads)({
+        countryCode: 'AR',
+        macroIndustryKey: 'technology',
+        limit: 5,
+      });
+      assert.equal(result.companies[0]?.domain, null, bad);
+    }
+  });
+
+  it('la lectura toma raw_data.website_domain', async () => {
+    const builder: Record<string, unknown> = {};
+    for (const m of ['from', 'select', 'eq', 'order']) builder[m] = () => builder;
+    builder.limit = () =>
+      Promise.resolve({
+        data: [
+          {
+            record_identity_key: 'tax:1',
+            normalized_tax_id: '30639453738',
+            legal_name: 'TELECOM ARGENTINA SOCIEDAD ANONIMA',
+            normalized_legal_name: 'TELECOM ARGENTINA SOCIEDAD ANONIMA',
+            sector: null,
+            city: null,
+            region: null,
+            priority_score: 99,
+            raw_data: { actividad_codigo: '611090', website_domain: 'telecom.com.ar' },
+          },
+        ],
+        error: null,
+      });
+    const rows = await buildArRnsDiscoveryReads(builder as unknown as SupabaseClient).readCompaniesByMacro({
+      macroIndustryKey: 'technology',
+      limit: 5,
+    });
+    assert.equal(rows[0]?.website_domain, 'telecom.com.ar');
+  });
+});
+
 describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
   type Call = { method: string; args: unknown[] };
 
@@ -285,6 +333,7 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       region: 'CABA',
       activity_code: '620100',
       priority_score: 99.5,
+      website_domain: null,
     };
     assert.deepEqual(rows, [
       { origin: 'procurement', ...expected },

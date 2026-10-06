@@ -1699,6 +1699,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado argentino.',
       'El RNS no publica tamaño: más allá de las primeras 50-100 por industria (por importe adjudicado) puede proponer empresas chicas.',
+      'El RNS no publica sitio web: el dominio sale del correo que la sociedad declaró en el SIPRO histórico (anterior a 2016), sólo si se parece a su razón social de entonces y a la de hoy (1.657 de 6.350 en la prueba en seco del 06-10). Sin dominio, la empresa va a Descartadas y el buscador de sitio de Claude intenta rescatarla.',
       'La industria sale de la tabla aprobada por la dueña: actividades fuera de la tabla no se proponen.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
@@ -1728,6 +1729,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Los trabajadores son los que cobraron ATP en ese mes: un piso, no la plantilla total.',
       'Sólo sociedades todavía activas en el Registro Nacional de Sociedades y con actividad dentro de la tabla aprobada.',
       'Tecnología casi no aparece (59 empresas): para esa industria la capa gratuita sigue dependiendo de las proveedoras del Estado.',
+      'ATP no publica sitio web: el dominio sale del correo del SIPRO histórico cuando la empresa fue proveedora del Estado (348 de 2.851 en la prueba en seco del 06-10); el resto va a Descartadas y depende del rescate con Claude.',
       'Snapshot estático — no se actualiza.',
     ],
     riskNotes: [
