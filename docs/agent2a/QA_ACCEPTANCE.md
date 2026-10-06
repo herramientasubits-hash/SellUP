@@ -159,3 +159,23 @@ operativa vigente tiene regla **activa** para Apollo (`global`, mensual) y para 
 
 **0.** No hay ninguna corrida atascada, ni ninguna reserva de crédito activa (4 `confirmed`,
 1 `released`). El subsistema está en reposo limpio.
+
+---
+
+## 7. Casos de aceptación de los cambios de octubre 2026
+
+> **Estado:** casos definidos, **sin evidencia de Producción registrada** al 2026-10-06. Cada fila
+> se marca como verificada sólo con la fecha y la consulta o captura que la prueba. Detalle y
+> orden de trabajo en [BACKLOG.md](BACKLOG.md).
+
+| Caso | PR | Pasos | Esperado | Estado |
+|---|---|---|---|---|
+| Company ID existente (BANCO ACTINVER) | #587 | Escribir el ID de la empresa en Enriquecer contactos | Trae nombre, dominio y owner de HubSpot; no crea empresa manual | Pendiente |
+| Company ID inexistente | #587 | Escribir `999999999999` | Mensaje «no encontramos este ID»; no crea empresa ni gasta créditos | Pendiente (hoy cae en el mensaje genérico, BACKLOG A2) |
+| Búsqueda sin candidatos | #608 | Enriquecer una empresa sin resultados | Mensaje «No se encontraron contactos», no «candidatos listos» | Pendiente |
+| Candidato sin cuenta (Pizza Pizza) | #602 | Reasignar empresa en Trazabilidad y aprobar | Aprueba contra la cuenta reasignada sin volver a cobrar | Pendiente |
+| Empresa creada en HubSpot después de la búsqueda (Tostadas Charras) | #602 | Reasignar a la empresa ya creada y aprobar | Aprueba y sincroniza con la empresa correcta | Pendiente |
+| Contacto que ya existía en HubSpot | #612 | Aprobar un candidato cuyo email ya está en HubSpot | `linked_existing` y sólo se llenan las propiedades vacías | Pendiente |
+| Lote de Company IDs | #616 | Pegar 3 IDs (uno inexistente) en el panel del agente | Reporte con 2 empresas procesadas y 1 en «Empresas no encontradas en HubSpot» | Pendiente |
+| Contactos enviados a revisión que no aparecen (2026-10-01) | — | Revisar el run en Supabase | Explicado por #587 o #608; si no, abrir fix | Pendiente (BACKLOG A4) |
+
