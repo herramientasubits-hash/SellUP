@@ -13,6 +13,7 @@
  * mismos toasts, mismo `router.refresh()`, mismo cierre automático.
  */
 
+import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil } from "@/icons";
@@ -129,8 +130,17 @@ function useRunProgress(clientRequestId: string | null): { label: string; percen
  * servidor anota que empezó una etapa nueva, nunca por tiempo, y no retrocede.
  * Si una etapa tarda, la barra espera con ella. Los segundos también son reales.
  */
+/** AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida vive en el shell, no en este panel. */
+export const WIZARD_RUN_BACKGROUND_NOTE =
+  'Puedes cerrar o minimizar esta ventana: la búsqueda sigue y la ves en el panel de búsquedas, abajo a la derecha.';
+export const WIZARD_RUN_QUEUED_TITLE = 'En espera: empieza cuando termine la búsqueda en curso';
+
 function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayProps) {
-  const { label, percent } = useRunProgress(clientRequestId);
+  const progress = useRunProgress(clientRequestId);
+  const runs = useAgentRuns();
+  const queued = runs.some((run) => run.clientRequestId === clientRequestId && run.status === 'queued');
+  const label = queued ? WIZARD_RUN_QUEUED_TITLE : progress.label;
+  const percent = queued ? 0 : progress.percent;
   const [startedAt] = React.useState(() => Date.now());
   const [seconds, setSeconds] = React.useState(0);
   React.useEffect(() => {
@@ -151,6 +161,9 @@ function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayPro
             : 'Generando empresas candidatas'
         }
       />
+      <p className="px-6 pb-4 text-center text-xs text-muted-foreground" data-testid="wizard-run-background-note">
+        {WIZARD_RUN_BACKGROUND_NOTE}
+      </p>
     </div>
   );
 }
