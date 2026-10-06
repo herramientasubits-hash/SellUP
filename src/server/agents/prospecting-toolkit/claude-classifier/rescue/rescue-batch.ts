@@ -28,6 +28,7 @@ import {
   buildUnverifiedHintWebsiteVerification,
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   dispositionDisplayName,
+  isAccountLevelModelError,
   readFoundWebsite,
   unverifiedWebsiteHint,
   type DomainDuplicateCheck,
@@ -212,6 +213,11 @@ type RescueRunContext = {
   active: ActiveAnthropicModel;
   /** Macroindustria pedida: autoridad para «coincide con el lote» (no el `industry` del proveedor). */
   requestedIndustry: { id: string; name: string } | null;
+  /**
+   * Se enciende al primer error de la CUENTA de Anthropic (saldo, credenciales):
+   * no se empieza ninguna empresa más en esta corrida.
+   */
+  halt: { accountError: boolean };
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -251,6 +257,7 @@ async function rescueCandidate(
   ctx: RescueRunContext,
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
+  if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
     rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification)
       ? { metadata: { ...(metadata ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: buildRescueInProgress(deps.nowIso()) } }
@@ -316,6 +323,7 @@ async function resolveDispositionWebsite(
     });
     if (log) await deps.logUsage(log);
     cost = outcome.usage?.estimatedCostUsd ?? 0;
+    if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
     const hint = unverifiedWebsiteHint(row, outcome);
@@ -367,6 +375,8 @@ async function rescueDisposition(
   deps: RescueBatchDeps,
   admittedIds: string[],
 ): Promise<ItemOutcome> {
+  // Cuenta de Anthropic caída: ni se marca «en proceso» (quedaría colgada 15 min).
+  if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchDispositionEvidence(row.id, (evidence) =>
     needsDispositionRescue({ ...row, evidence }, deps.nowMs(), !!deps.domainSearch)
       ? buildDispositionInProgressEvidence(evidence, deps.nowIso())
@@ -626,6 +636,7 @@ export async function rescueBatchWithClaude(
     requestedIndustry: requestedCatalogIndustry
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
+    halt: { accountError: false },
   };
   const admittedIds: string[] = [];
   const storedReassigned = await reassignStoredSectorMismatches(
@@ -638,7 +649,7 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => deps.nowMs() - startedMs >= deadlineMs,
+    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
       item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
   );

@@ -27,6 +27,7 @@ import {
   buildDomainFinderInput,
   buildUnverifiedHintWebsiteVerification,
   countryNameFromCode,
+  isAccountLevelModelError,
   registryNameCore,
   unverifiedWebsiteHint,
   UNVERIFIED_HINT_VERIFICATION,
@@ -832,6 +833,54 @@ describe('pista con formas societarias con puntos (AR 17da92cf)', () => {
       usage: null,
     });
     assert.equal(hint?.domain, 'hexacta.com');
+  });
+});
+
+describe('cuenta de Anthropic caída (Prod 06-10 13:07Z, 194 × http_400)', () => {
+  const accountDown = { found: false, reason: 'model_error', errorCode: 'http_400', usage: null } as const;
+
+  it('un error de la cuenta se reconoce; uno pasajero o de página no', () => {
+    assert.equal(isAccountLevelModelError(accountDown), true);
+    for (const code of ['http_401', 'http_402', 'http_403']) {
+      assert.equal(isAccountLevelModelError({ ...accountDown, errorCode: code }), true, code);
+    }
+    assert.equal(isAccountLevelModelError({ ...accountDown, errorCode: 'http_529' }), false);
+    assert.equal(isAccountLevelModelError({ ...accountDown, errorCode: 'unexpected_error' }), false);
+    assert.equal(isAccountLevelModelError({ found: false, reason: 'page_unreachable', errorCode: 'http_403', usage: null }), false);
+    assert.equal(isAccountLevelModelError(FOUND), false);
+  });
+
+  it('no gasta intentos: tras muchos errores de la cuenta la fila sigue siendo reintentable', async () => {
+    let ev: Record<string, unknown> | null = disposition().evidence;
+    for (let run = 0; run < 5; run++) {
+      const f = fakeDeps({
+        loadDispositions: async () => [disposition({ evidence: ev })],
+        patchDispositionEvidence: async (_id, build) => ((ev = build(ev)), true),
+        domainSearch: {
+          findWebsite: async () => accountDown,
+          checkDuplicate: async () => ({ status: 'new_candidate', summary: '' }),
+        },
+      });
+      await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    }
+    assert.equal((ev!.claude_rescue as { decision: string }).decision, 'retryable');
+    assert.equal((ev![CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts: number }).attempts, 0);
+  });
+
+  it('al primer error de la cuenta no se empieza ninguna empresa más', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => disposition({ id: `d${i}` }));
+    let searches = 0;
+    const f = fakeDeps({
+      loadDispositions: async () => rows,
+      domainSearch: {
+        findWebsite: async () => (searches++, accountDown),
+        checkDuplicate: async () => ({ status: 'new_candidate', summary: '' }),
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    // Sólo las que ya estaban en curso (una por hilo) llegan a llamar.
+    assert.ok(searches <= 4, `búsquedas: ${searches}`);
+    assert.ok(s.ok);
   });
 });
 
