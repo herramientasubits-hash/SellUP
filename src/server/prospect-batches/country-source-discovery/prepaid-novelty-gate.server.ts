@@ -39,6 +39,7 @@ import {
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import { buildCountrySourceAdapter } from './country-source-capability';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import type { FindAlreadyInSellup } from './country-source-already-in-sellup';
 import {
   buildCountrySourceOfficialTaxIdLookup,
   type LookUpCountrySourceOfficialTaxId,
@@ -78,6 +79,74 @@ function buildKnownExclusionDomainsReader(
     } catch {
       return [];
     }
+  };
+}
+
+/** Estados de candidata que NO bloquean volver a proponerla (§ 9: reconsideración). */
+const NON_BLOCKING_CANDIDATE_STATUSES = ['discarded', 'rejected', 'archived', 'duplicate', 'qa_cleanup'];
+/** Trozos para `in (...)`: la lista sale de la lectura de la fuente (cientos como mucho). */
+const IN_CHUNK = 100;
+
+function chunks<T>(values: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += IN_CHUNK) out.push(values.slice(i, i + IN_CHUNK));
+  return out;
+}
+
+/**
+ * SOURCES-FREE-LAYER-ALREADY-SEEN-1 — lector de lo que SellUp ya tiene, con el
+ * cliente de servicio (sólo SELECT). Ver `country-source-already-in-sellup.ts`.
+ * Cualquier error ⇒ conjunto vacío (no se salta nada).
+ */
+export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabaseAdminClient>): FindAlreadyInSellup {
+  return async ({ taxIds, recordIdentityKeys }) => {
+    const seen = new Set<string>();
+    const unlessDomain = new Set<string>();
+    try {
+      for (const ids of chunks(taxIds)) {
+        const { data } = await client
+          .from('prospect_candidates')
+          .select('tax_identifier')
+          .in('tax_identifier', ids)
+          .not('status', 'in', `(${NON_BLOCKING_CANDIDATE_STATUSES.join(',')})`);
+        for (const row of (data ?? []) as Array<{ tax_identifier: string | null }>) {
+          if (row.tax_identifier) seen.add(`tax:${row.tax_identifier}`);
+        }
+      }
+      for (const keys of chunks(recordIdentityKeys)) {
+        const { data } = await client
+          .from('prospect_candidates')
+          .select('record_key:source_trace->>sourceRecordId')
+          .in('source_trace->>sourceRecordId', keys)
+          .not('status', 'in', `(${NON_BLOCKING_CANDIDATE_STATUSES.join(',')})`);
+        for (const row of (data ?? []) as Array<{ record_key: string | null }>) {
+          if (row.record_key) seen.add(row.record_key);
+        }
+      }
+      const identifiers = [...taxIds.map((id) => `tax:${id}`), ...recordIdentityKeys];
+      for (const ids of chunks(identifiers)) {
+        const { data } = await client
+          .from('prospect_discarded_dispositions')
+          .select('provider_identifier, status, reason_code, rescue_decision:evidence->claude_rescue->>decision')
+          .eq('source_primary', 'public_source')
+          .in('status', ['discarded', 'sent_to_review'])
+          .in('provider_identifier', ids);
+        type Row = { provider_identifier: string | null; status: string; reason_code: string | null; rescue_decision: string | null };
+        for (const row of (data ?? []) as Row[]) {
+          if (!row.provider_identifier) continue;
+          // Descartada SÓLO por falta de web y sin cierre: vuelve si ahora trae dominio.
+          const openMissingDomain =
+            row.status === 'discarded' &&
+            row.reason_code === 'missing_domain_final' &&
+            row.rescue_decision !== 'discard' &&
+            row.rescue_decision !== 'duplicate';
+          (openMissingDomain ? unlessDomain : seen).add(row.provider_identifier);
+        }
+      }
+    } catch {
+      return { blocked: new Set(), blockedUnlessDomain: new Set() };
+    }
+    return { blocked: seen, blockedUnlessDomain: unlessDomain };
   };
 }
 
@@ -126,6 +195,9 @@ export async function runProductionPrePaidNoveltyGate(
     // SOURCES-MX-FREE-LAYER-RFC-1 — las MISMAS fuentes oficiales por nombre que
     // Apollo, Tavily y Claude (sólo lectura de snapshots). DENUE no trae RFC.
     lookUpOfficialTaxId: buildOfficialTaxIdLookupOrNull(),
+    // SOURCES-FREE-LAYER-ALREADY-SEEN-1 — no volver a proponer lo que SellUp ya
+    // tiene en revisión o en Descartadas (sólo lectura).
+    findAlreadyInSellup: adminClient ? buildFindAlreadyInSellup(adminClient) : null,
     listKnownExclusionDomains: adminClient
       ? buildKnownExclusionDomainsReader(adminClient)
       : null,

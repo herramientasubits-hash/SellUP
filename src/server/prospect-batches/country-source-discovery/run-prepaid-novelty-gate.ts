@@ -27,6 +27,7 @@
  */
 
 import type { LookUpCountrySourceOfficialTaxId } from './country-source-official-tax-id';
+import type { FindAlreadyInSellup } from './country-source-already-in-sellup';
 import {
   buildPrePaidNoveltyContext,
   providerOnlyPrePaidNoveltyContext,
@@ -100,6 +101,8 @@ export type PrePaidNoveltyGateDeps = {
   checkCompanyDuplicate?: CheckCountrySourceCompanyDuplicate | null;
   /** SOURCES-MX-FREE-LAYER-RFC-1 — número fiscal oficial por nombre. Sólo lee. */
   lookUpOfficialTaxId?: LookUpCountrySourceOfficialTaxId | null;
+  /** SOURCES-FREE-LAYER-ALREADY-SEEN-1 — lo que SellUp ya tiene. Sólo lee. */
+  findAlreadyInSellup?: FindAlreadyInSellup | null;
   listKnownExclusionDomains?: ListKnownExclusionDomains | null;
   /**
    * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró
@@ -394,6 +397,7 @@ export async function runPrePaidNoveltyGate(
       adapter: deps.countrySourceAdapter,
       checkCompanyDuplicate: deps.checkCompanyDuplicate,
       lookUpOfficialTaxId: deps.lookUpOfficialTaxId ?? null,
+      findAlreadyInSellup: deps.findAlreadyInSellup ?? null,
     },
   );
 
