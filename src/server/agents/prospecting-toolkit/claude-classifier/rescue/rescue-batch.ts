@@ -36,6 +36,11 @@ import {
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
 import {
+  lookUpRescueOfficialIdentity,
+  withRescueOfficialIdentity,
+  type RescueOfficialIdentityResolver,
+} from './rescue-official-identity';
+import {
   buildCandidateRescuePatch,
   buildRescueInProgress,
   buildStoredSmallSizeDiscardPatch,
@@ -88,6 +93,11 @@ export type RescueBatchDeps = {
    * Escribe sólo si el candidato sigue «para revisión» y nadie más escribió en
    * medio. `buildPatch` recibe la metadata RELEÍDA. false = no se escribió.
    */
+  /**
+   * SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal oficial (SII, RES…) de lo
+   * que el rescate admite sin él. Opcional: sin esto, como antes.
+   */
+  resolveOfficialIdentity?: RescueOfficialIdentityResolver;
   patchCandidate: (
     candidateId: string,
     buildPatch: (metadata: Record<string, unknown> | null) => CandidateRescuePatch | null,
@@ -277,8 +287,19 @@ async function rescueCandidate(
     sizePassedIcpGate: icpGatePassed(row.metadata),
   });
   const decidedAt = deps.nowIso();
+  const identity =
+    decision.kind === 'admit'
+      ? await lookUpRescueOfficialIdentity(deps.resolveOfficialIdentity, {
+          name: row.name ?? '',
+          website: row.website,
+          domain: row.domain,
+          countryCode: row.country_code,
+          country: row.country,
+          existingTaxIdentifier: row.tax_identifier ?? null,
+        })
+      : null;
   const saved = await deps.patchCandidate(row.id, (metadata) =>
-    buildCandidateRescuePatch({ metadata, result, decision, minEmployees, decidedAt }),
+    withRescueOfficialIdentity(buildCandidateRescuePatch({ metadata, result, decision, minEmployees, decidedAt }), identity),
   );
   const cost = result.usage?.estimatedCostUsd ?? 0;
   if (!saved) return { tag: 'failed', cost };
@@ -435,10 +456,29 @@ async function rescueDisposition(
   // o si es de OTRA industria UBITS (vuelve con la industria corregida, sin contar para la meta).
   const goesBack = decision.kind === 'reassign' || (decision.kind === 'admit' && decision.sectorConfirmed);
   if (goesBack) {
-    const origin =
+    const baseOrigin =
       decision.kind === 'reassign'
         ? buildDispositionReassignOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt)
         : buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
+    // Las del buscador gratuito ya traen su número fiscal (send-to-review-core);
+    // el resto lo busca en las fuentes oficiales con el sitio encontrado.
+    const identity =
+      row.evidence?.tax_identifier_present === true
+        ? null
+        : await lookUpRescueOfficialIdentity(deps.resolveOfficialIdentity, {
+            name: found ? dispositionDisplayName(row) : row.name,
+            website: found?.website ?? null,
+            domain: found?.domain ?? row.domain,
+            countryCode: row.country_code,
+            country: null,
+          });
+    const origin = identity
+      ? {
+          ...baseOrigin,
+          metadata: { ...baseOrigin.metadata, official_source_enrichment: identity.metadata },
+          columns: { ...(baseOrigin.columns ?? {}), ...identity.columns },
+        }
+      : baseOrigin;
     const candidateId = await deps.admitDisposition(
       row.id,
       found
