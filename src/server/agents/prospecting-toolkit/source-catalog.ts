@@ -845,12 +845,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   },
   {
     key: 'mx_rfc_public_lists_registry',
-    name: 'SAT y Nuevo León — RFC por nombre (importadores, donatarias, proveedores)',
+    name: 'SAT, Nuevo León y CDMX — RFC por nombre (importadores, donatarias, proveedores)',
     sellupUse: 'legal_validation',
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada), 9.947 donatarias y 2.944 con estratificación de Nuevo León.',
+      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada); con los padrones de proveedores de la Ciudad de México (SAF 2021–2026 y datos abiertos) pasan a 90.954, 8.203 con estratificación (Nuevo León y CDMX). La estratificación llega al gate ICP de tamaño.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
@@ -859,12 +859,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sat.gob.mx/minisitio/PadronImportadoresExportadores/',
     automationLevel: 'medium',
     recommendedUse:
-      'Listas oficiales públicas con RFC y razón social: SAT Padrón de Importadores y sus sectoriales (~70.000 empresas privadas medianas y grandes), SAT Directorio de Donatarias Autorizadas sólo activas (~9.900: universidades privadas, colegios, ONG) y padrón de proveedores de Nuevo León (~2.900, con estratificación MICRO/PEQUEÑA/MEDIANA/GRANDE). Se usa sólo cuando CompraNet no da un RFC seguro, con la misma regla: RFC seguro sólo si exactamente un RFC tiene ese núcleo de nombre. Medido con 177 nombres reales de México: CompraNet sola 11 RFC seguros, con estas listas 26.',
+      'Listas oficiales públicas con RFC y razón social: SAT Padrón de Importadores y sus sectoriales (~70.000 empresas privadas medianas y grandes), SAT Directorio de Donatarias Autorizadas sólo activas (~9.900: universidades privadas, colegios, ONG) padrón de proveedores de Nuevo León (~2.900) y padrones de proveedores de la Ciudad de México (SAF art. 121 fr. XXXIV 2021–2026 y datos abiertos, ~8.400 RFC más), los dos con estratificación MICRO/PEQUEÑA/MEDIANA/GRANDE. Jalisco y Estado de México no se pudieron descargar (captcha / sin respuesta); Veracruz 2019 y Chihuahua 2017 descartados por viejos. Se usa sólo cuando CompraNet no da un RFC seguro, con la misma regla: RFC seguro sólo si exactamente un RFC tiene ese núcleo de nombre. Medido con 177 nombres reales de México: CompraNet sola 11 RFC seguros, con estas listas 26.',
     limitations: [
       'Sólo empresas que importan/exportan, donatarias autorizadas o proveedoras de Nuevo León: una empresa que no aparece no significa que no exista.',
       'El padrón de importadores se publica en PDF (2.130 páginas): la carga lo extrae con scripts/source-catalog/extract-mx-rfc-public-lists.py.',
       'Nunca personas físicas (RFC de 13 caracteres). No se guardan teléfonos, correos, domicilios ni representantes.',
-      'La estratificación sólo existe para proveedores de Nuevo León y es la que declaró la empresa: pista de tamaño, no dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC (MICRO y PEQUEÑA descartan por pequeña).',
+      'La estratificación sólo existe para proveedores de Nuevo León y de la Ciudad de México y es la que declaró la empresa: pista de tamaño, no dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC (MICRO y PEQUEÑA descartan por pequeña).',
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
