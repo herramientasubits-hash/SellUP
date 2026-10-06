@@ -33,6 +33,10 @@ import { writeStructuredSourceCandidatesPreview } from '@/server/agents/prospect
 import { COUNTRY_SOURCE_PREPAID_DISCOVERY_LAYER } from '@/server/agents/prospecting-toolkit/structured-discovery-provenance';
 import type { SourceDiscoveryCandidate } from '@/server/source-catalog/source-discovery-types';
 import type { CountrySourceCompany } from './country-source-types';
+import {
+  claimGlobalIdentitiesForPersistedCandidates,
+  type PersistedGlobalIdentityClaimOutcome,
+} from '@/server/prospect-batches/global-identity-claims-store';
 import { resolveCountrySourceCapability } from './country-source-capability';
 import {
   CO_SIIS_DISCOVERY_BATCH_SOURCE,
@@ -60,6 +64,15 @@ export type PersistCountrySourceCandidatesInput = {
   batchId?: string | null;
   /** Telemetría previa al pago, para que el lote la conserve. */
   metadata?: Record<string, unknown>;
+  /**
+   * SOURCES-FREE-LAYER-IDENTITY-CLAIMS-1 — reclama las identidades (número fiscal,
+   * dominio) de lo recién escrito. Por defecto, el reclamo global de siempre.
+   */
+  claimIdentities?: (
+    client: SupabaseClient,
+    batchId: string,
+    candidateIds: readonly string[],
+  ) => Promise<PersistedGlobalIdentityClaimOutcome>;
 };
 
 export type PersistCountrySourceCandidatesResult = {
@@ -172,13 +185,52 @@ export async function persistCountrySourceCandidates(
       ),
     });
 
+    // SOURCES-FREE-LAYER-IDENTITY-CLAIMS-1 — Prod 06-10 (RD): SADOTEL SAS (RNC
+    // 131233686) entró por la capa gratuita en cf765b47 SIN reclamar su identidad,
+    // y la misma empresa volvió a entrar por el rescate en 8c1dcf78 sin chocar con
+    // nada. Lo que escribe la capa gratuita reclama como todo lo demás; si otro
+    // candidato vivo ya la tiene, queda «duplicado» y no cuenta para la meta.
+    const duplicatedElsewhere = await claimFreeLayerIdentities(
+      client,
+      report.batch.id,
+      input.claimIdentities ?? claimGlobalIdentitiesForPersistedCandidates,
+    );
     return {
       batchId: report.batch.id,
-      writtenCount: report.batch.totalCandidatesWritten,
-      skippedCount: report.batch.totalCandidatesSkipped,
+      writtenCount: Math.max(0, report.batch.totalCandidatesWritten - duplicatedElsewhere),
+      skippedCount: report.batch.totalCandidatesSkipped + duplicatedElsewhere,
       failed: false,
     };
   } catch {
     return { batchId: input.batchId ?? null, writtenCount: 0, skippedCount: 0, failed: true };
+  }
+}
+
+/**
+ * Reclama las identidades de las filas de la capa gratuita del lote y devuelve
+ * cuántas chocaron con otro candidato vivo (ya quedaron `duplicate`). Nunca
+ * lanza: un fallo deja todo como estaba (degradación cerrada del reclamo).
+ */
+async function claimFreeLayerIdentities(
+  client: SupabaseClient,
+  batchId: string | null,
+  claim: NonNullable<PersistCountrySourceCandidatesInput['claimIdentities']>,
+): Promise<number> {
+  if (!batchId) return 0;
+  try {
+    const { data, error } = await client
+      .from('prospect_candidates')
+      .select('id')
+      .eq('batch_id', batchId)
+      .eq('source_primary', CO_SIIS_DISCOVERY_SOURCE_PRIMARY);
+    if (error || !Array.isArray(data) || data.length === 0) return 0;
+    const ids = (data as Array<{ id?: unknown }>)
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === 'string');
+    if (ids.length === 0) return 0;
+    const outcome = await claim(client, batchId, ids);
+    return outcome.degraded ? 0 : outcome.claimedElsewhere.length;
+  } catch {
+    return 0;
   }
 }
