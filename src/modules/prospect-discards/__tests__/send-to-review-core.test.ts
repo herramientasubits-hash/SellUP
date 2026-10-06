@@ -207,6 +207,52 @@ describe('sendDispositionToReviewCore — happy path (Test G/H/I)', () => {
   });
 });
 
+describe('sendDispositionToReviewCore — buscador gratuito conserva su número fiscal (SOURCES-FREE-DISCARDS-KEEP-CUIT-1)', () => {
+  beforeEach(resetFakeState);
+
+  it('una fila public_source con identidad tax: crea el candidato con CUIT y razón social', async () => {
+    seedBatch();
+    seedDisposition({
+      provider_identifier: 'tax:30685856715',
+      source_key: 'free:tax:30685856715',
+      name: 'CAPGEMINI ARGENTINA S. A.',
+      domain: null,
+      country_code: 'AR',
+      source_primary: 'public_source',
+      round_origin: 'free_source',
+      disposition: 'final_validation_rejected',
+      reason_code: 'missing_domain_final',
+      evidence: { provider_raw_name: 'CAPGEMINI ARGENTINA S. A.', tax_identifier_present: true, tax_identifier_type: 'CUIT' },
+    });
+
+    const outcome = await sendDispositionToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'user-1', isBatchInScope: alwaysInScope },
+      'disp-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    if (outcome.outcome !== 'sent') return;
+    const candidate = db.prospect_candidates.get(outcome.candidateId)!;
+    assert.equal(candidate.tax_identifier, '30685856715');
+    assert.equal(candidate.tax_id, '30685856715');
+    assert.equal(candidate.tax_identifier_type, 'CUIT');
+    assert.equal(candidate.legal_name, 'CAPGEMINI ARGENTINA S. A.');
+  });
+
+  it('una fila de Apollo sigue sin número fiscal', async () => {
+    seedBatch();
+    seedDisposition();
+    const outcome = await sendDispositionToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'user-1', isBatchInScope: alwaysInScope },
+      'disp-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    if (outcome.outcome !== 'sent') return;
+    const candidate = db.prospect_candidates.get(outcome.candidateId)!;
+    assert.equal(candidate.tax_identifier, undefined);
+    assert.equal(candidate.legal_name, undefined);
+  });
+});
+
 describe('sendDispositionToReviewCore — idempotency (Test M)', () => {
   beforeEach(resetFakeState);
 
