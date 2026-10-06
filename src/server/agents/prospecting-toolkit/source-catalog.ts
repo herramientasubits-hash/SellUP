@@ -1406,7 +1406,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
+      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Las municipalidades llevan su web oficial del RENAMU del INEI (datos abiertos, ODbL; dominio que nombra al distrito o la provincia, nunca gob.pe genérico ni correo gratuito): 169 de las 655 entidades de Gobierno en el dry-run (pendiente de recarga autorizada). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory --renamu=<Base-Datos_AAAA.csv del RENAMU>, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1420,7 +1420,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Sólo sociedades y entidades con 200 o más trabajadores informados: SUNAT no informa trabajadores en el 59 % de las sociedades activas, que no aparecen.',
       'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
       'Los mayoristas de medicamentos no se distinguen en la CIIU internacional y quedan en Retail.',
-      'SUNAT no publica sitio web: las empresas llegan sin dominio.',
+      'SUNAT no publica sitio web: sólo las municipalidades llegan con dominio (RENAMU); hospitales, empresas y demás entidades llegan sin él y dependen del rescate.',
       'Snapshot estático — el padrón se publica cada mes y requiere recarga.',
     ],
     riskNotes: [

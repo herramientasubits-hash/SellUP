@@ -40,6 +40,14 @@ import {
 } from '../pe-sunat-source-rows';
 import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
 import { decidePeSunatPrune, PE_PRUNE_DEFAULT_MAX_FRACTION } from '../pe-sunat-prune';
+import {
+  buildPeRenamuDomainMap,
+  peDomainFromText,
+  peMunicipalDomainFromRenamu,
+  peMunicipalityTypeFromLegalName,
+  peRegistrableDomain,
+  peRenamuKey,
+} from '../pe-renamu-domain';
 import { getSourceFamily } from '../../../record-identity';
 
 function openCells(overrides: Partial<Record<(typeof PE_SUNAT_OPEN_PADRON_HEADER)[number], string>> = {}): string[] {
@@ -379,5 +387,64 @@ describe('limpieza tras recargar (SOURCES-PE-PRUNE-1)', () => {
     assert.match(deletes[0], /\.eq\('source_key', sourceKey\)\s*\.eq\('country_code', 'PE'\)\s*\.lt\('imported_at', importedAt\)/);
     assert.match(code, /if \(!config\.prune\) return;/);
     assert.match(code, /--prune sólo con --apply/);
+  });
+});
+
+describe('web de las municipalidades desde el RENAMU (SOURCES-PE-MUNICIPAL-DOMAIN-1)', () => {
+  const muni = (over: Record<string, string>) => ({ Ubigeo: '230101', Tipomuni: '1', Provincia: 'TACNA', Distrito: 'TACNA', P08: '', P09: '', ...over });
+
+  it('limpia la web declarada y se queda con el dominio registrable', () => {
+    assert.equal(peDomainFromText('https://www.MuniTacna.gob.pe/inicio'), 'munitacna.gob.pe');
+    assert.equal(peDomainFromText('mesadepartes@munitacna.gob.pe'), 'munitacna.gob.pe');
+    assert.equal(peDomainFromText('no tiene'), null);
+    assert.equal(peRegistrableDomain('enlinea.munivinchos.gob.pe'), 'munivinchos.gob.pe');
+    assert.equal(peRegistrableDomain('www.municipalidaddistritaldecalapuja.com'), 'municipalidaddistritaldecalapuja.com');
+  });
+
+  it('el dominio vale si nombra al distrito (o a la provincia o su capital, si es provincial)', () => {
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P09: 'www.munitacna.gob.pe' })), 'munitacna.gob.pe');
+    assert.equal(
+      peMunicipalDomainFromRenamu(muni({ Tipomuni: '1', Provincia: 'MORROPON', Distrito: 'CHULUCANAS', P09: 'munichulucanas.gob.pe' })),
+      'munichulucanas.gob.pe',
+    );
+    assert.equal(peMunicipalDomainFromRenamu(muni({ Tipomuni: '2', Distrito: 'CERRO COLORADO', P09: 'mdcc.gob.pe' })), null); // siglas
+    assert.equal(peMunicipalDomainFromRenamu(muni({ Tipomuni: '2', Distrito: 'VISTA ALEGRE', P09: 'munipucatambo.gob.pe' })), null);
+  });
+
+  it('nunca la página genérica gob.pe, redes, correo gratuito, alojamientos gratuitos ni erratas; el correo institucional sí', () => {
+    for (const web of ['https://www.gob.pe/munitacna', 'facebook.com/munitacna', 'munitacna.blogspot.com', 'munitacna-gob.pe']) {
+      assert.equal(peMunicipalDomainFromRenamu(muni({ P09: web })), null, web);
+    }
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P08: 'munitacna@gmail.com' })), null);
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P09: 'facebook.com/x', P08: 'alcaldia@munitacna.gob.pe' })), 'munitacna.gob.pe');
+  });
+
+  it('un dominio en dos municipalidades no es de ninguna', () => {
+    const map = buildPeRenamuDomainMap([
+      muni({ Ubigeo: '230101', P09: 'munitacna.gob.pe' }),
+      muni({ Ubigeo: '230110', Tipomuni: '2', Distrito: 'TACNA NUEVA', P09: 'munitacna.gob.pe' }),
+      muni({ Ubigeo: '010101', Provincia: 'CHACHAPOYAS', Distrito: 'CHACHAPOYAS', P09: 'munichachapoyas.gob.pe' }),
+    ]);
+    assert.deepEqual([...map.entries()], [['010101|provincial', 'munichachapoyas.gob.pe']]);
+  });
+
+  it('tipo de municipalidad por su razón social; las de centro poblado no están en el RENAMU', () => {
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD PROVINCIAL DE TACNA'), 'provincial');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD METROPOLITANA DE LIMA'), 'provincial');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD  DISTRITAL DE SAN JUAN DE TANTARANCHE'), 'distrital');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD DEL CENTRO POBLADO DE YARABAMBA'), null);
+    assert.equal(peMunicipalityTypeFromLegalName('HOSPITAL REGIONAL CUSCO'), null);
+    assert.equal(peRenamuKey('230101', 'provincial'), '230101|provincial');
+    assert.equal(peRenamuKey('2301', 'provincial'), null);
+  });
+
+  it('la fila del buscador gratuito lleva el dominio y su fuente; sin dominio, ninguno', () => {
+    const base = { open: open({ ruc: '20147797100', taxpayerType: 'GOBIERNO REGIONAL LOCAL', ciiu4Code: '8411', workers: 1354 }), legalName: 'MUNICIPALIDAD PROVINCIAL DE TACNA', importedAt: P.importedAt };
+    const withWeb = buildPeSunatDirectoryRow({ ...base, websiteDomain: 'MuniTacna.gob.pe' })!;
+    assert.equal(withWeb.raw_data['website_domain'], 'munitacna.gob.pe');
+    assert.equal(withWeb.raw_data['website_domain_source'], 'inei_renamu_2025');
+    const without = buildPeSunatDirectoryRow(base)!;
+    assert.equal(without.raw_data['website_domain'], null);
+    assert.equal(without.raw_data['website_domain_source'], null);
   });
 });

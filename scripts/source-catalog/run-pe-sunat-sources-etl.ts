@@ -19,6 +19,7 @@
  *   --padron=<txt>       padron_reducido_ruc.txt (https://www2.sunat.gob.pe/padron_reducido_ruc.zip)
  *   --open-padron=<csv>  PadronRUC_AAAAMM.csv (datosabiertos.gob.pe, Padrón RUC SUNAT)
  *   --oece=<csv>         entidades_contratantes.csv (conosce.osce.gob.pe, «|», UTF-8 o Latin-1)
+ *   --renamu=<csv>       Base-Datos_AAAA.csv del RENAMU (INEI, datos abiertos, «;»): web de las municipalidades
  *   --only=registry,alias,directory   (por defecto, las tres)
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
@@ -80,6 +81,12 @@ import {
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 import { decidePeSunatPrune } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-prune';
+import {
+  buildPeRenamuDomainMap,
+  peMunicipalityTypeFromLegalName,
+  peRenamuKey,
+  type PeRenamuRow,
+} from '../../src/server/source-catalog/connectors/sunat-peru/pe-renamu-domain';
 
 const UPSERT_CHUNK = 1000;
 const TARGETS = ['registry', 'alias', 'directory'] as const;
@@ -96,6 +103,8 @@ type Config = {
   /** SOURCES-PE-PRUNE-1 — tras cargar, borrar las filas de esa fuente que el archivo ya no trae. */
   prune: boolean;
   pruneMaxFraction: number | undefined;
+  /** SOURCES-PE-MUNICIPAL-DOMAIN-1 — RENAMU del INEI (CSV «;»), para la web de las municipalidades. */
+  renamu: string | null;
 };
 
 function parseArgs(argv: readonly string[]): Config {
@@ -123,7 +132,7 @@ function parseArgs(argv: readonly string[]): Config {
   if (pruneMaxFraction !== undefined && !(pruneMaxFraction > 0 && pruneMaxFraction <= 1)) {
     throw new Error('config_invalid: --prune-max-fraction debe estar entre 0 y 1');
   }
-  return { padron, openPadron, oece: value('oece'), only, apply, year, offset, prune, pruneMaxFraction };
+  return { padron, openPadron, oece: value('oece'), only, apply, year, offset, prune, pruneMaxFraction, renamu: value('renamu') };
 }
 
 async function readOpenPadron(path: string): Promise<Map<string, PeSunatOpenPadronRecord>> {
@@ -287,11 +296,37 @@ async function main(): Promise<void> {
   }
   console.log(`  pe_sunat_name_alias: ${aliasRows.length} filas (${new Set(aliasRows.map((r) => r.normalized_tax_id)).size} RUC) · ${droppedOwned} claves descartadas por ser el nombre propio de otra sociedad`);
 
+  // SOURCES-PE-MUNICIPAL-DOMAIN-1 — web de las municipalidades (RENAMU) por ubigeo +
+  // tipo, sólo si esa clave identifica a UNA sola municipalidad del padrón.
+  const municipalDomainByRuc = new Map<string, string>();
+  if (config.renamu) {
+    const renamuRows: PeRenamuRow[] = [];
+    for await (const record of readCsvFile(config.renamu, { delimiter: ';' })) renamuRows.push(record as PeRenamuRow);
+    const domainByKey = buildPeRenamuDomainMap(renamuRows);
+    const rucsByKey = new Map<string, string[]>();
+    for (const row of registryRows) {
+      const type = peMunicipalityTypeFromLegalName(row.legal_name);
+      const ubigeo = row.raw_data['ubigeo'];
+      const key = type === null || typeof ubigeo !== 'string' ? null : peRenamuKey(ubigeo, type);
+      if (key !== null) rucsByKey.set(key, [...(rucsByKey.get(key) ?? []), row.normalized_tax_id]);
+    }
+    for (const [key, domain] of domainByKey) {
+      const rucs = rucsByKey.get(key) ?? [];
+      if (rucs.length === 1) municipalDomainByRuc.set(rucs[0], domain);
+    }
+    console.log(`  RENAMU: ${renamuRows.length} municipalidades · ${domainByKey.size} con dominio · ${municipalDomainByRuc.size} con UN RUC del padrón`);
+  }
+
   const directoryRows: PeSunatDirectoryRow[] = [];
   for (const info of open.values()) {
     const main = registry.get(info.ruc);
     if (!main) continue;
-    const row = buildPeSunatDirectoryRow({ open: info, legalName: main.legal_name, importedAt });
+    const row = buildPeSunatDirectoryRow({
+      open: info,
+      legalName: main.legal_name,
+      importedAt,
+      websiteDomain: municipalDomainByRuc.get(info.ruc) ?? null,
+    });
     if (row !== null) directoryRows.push(row);
   }
   directoryRows.sort((a, b) => b.priority_score - a.priority_score || a.normalized_tax_id.localeCompare(b.normalized_tax_id));
@@ -300,7 +335,7 @@ async function main(): Promise<void> {
     const macro = String(row.raw_data['macro_industry_key']);
     byMacro.set(macro, (byMacro.get(macro) ?? 0) + 1);
   }
-  console.log(`  pe_sunat_directory: ${directoryRows.length} filas`);
+  console.log(`  pe_sunat_directory: ${directoryRows.length} filas · ${directoryRows.filter((r) => r.raw_data['website_domain']).length} con web (RENAMU)`);
   for (const [macro, n] of [...byMacro.entries()].sort((a, b) => b[1] - a[1])) console.log(`    ${macro}: ${n}`);
 
   if (!config.apply) {
