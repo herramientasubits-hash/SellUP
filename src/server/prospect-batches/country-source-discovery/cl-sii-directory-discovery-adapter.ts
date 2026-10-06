@@ -61,6 +61,12 @@ export type ClSiiDirectorySnapshotReadRow = {
   workers: number | null;
   metrics_year: number | null;
   priority_score: number | null;
+  /**
+   * SOURCES-CL-NO-RECYCLE-1 — SellUp ya tiene este RUT como candidato (en
+   * cualquier lote) o como descartado del buscador gratuito. `undefined`/`false`
+   * ⇒ nueva.
+   */
+  already_seen?: boolean;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -72,6 +78,9 @@ export type ClSiiDirectoryDiscoveryReads = {
 };
 
 function toCompany(row: ClSiiDirectorySnapshotReadRow, macroIndustryKey: string): CountrySourceCompany | null {
+  // Ya vista: el SII nunca trae web, así que volver a ofrecerla sólo la mandaría
+  // otra vez a Descartadas (o la duplicaría en revisión).
+  if (row.already_seen === true) return null;
   const legalName = row.legal_name?.trim() || null;
   const rut = normalizeChileRut(row.rut);
   if (legalName === null || rut === null) return null;
@@ -131,6 +140,8 @@ export function buildClSiiDirectoryDiscoveryAdapter(reads: ClSiiDirectoryDiscove
     const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
     for (const row of rows) {
+      // La lectura trae de más (para saltar lo ya visto): se corta en el tope pedido.
+      if (companies.length >= limit) break;
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
       seen.add(company.taxId);

@@ -28,12 +28,19 @@ import {
   buildUnverifiedHintWebsiteVerification,
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   dispositionDisplayName,
+  isAccountLevelModelError,
   readFoundWebsite,
   unverifiedWebsiteHint,
   type DomainDuplicateCheck,
   type FoundWebsite,
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
+import { officialSizeSignal } from './official-size-signal';
+import {
+  lookUpRescueOfficialIdentity,
+  withRescueOfficialIdentity,
+  type RescueOfficialIdentityResolver,
+} from './rescue-official-identity';
 import {
   buildCandidateRescuePatch,
   buildRescueInProgress,
@@ -87,6 +94,11 @@ export type RescueBatchDeps = {
    * Escribe sólo si el candidato sigue «para revisión» y nadie más escribió en
    * medio. `buildPatch` recibe la metadata RELEÍDA. false = no se escribió.
    */
+  /**
+   * SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal oficial (SII, RES…) de lo
+   * que el rescate admite sin él. Opcional: sin esto, como antes.
+   */
+  resolveOfficialIdentity?: RescueOfficialIdentityResolver;
   patchCandidate: (
     candidateId: string,
     buildPatch: (metadata: Record<string, unknown> | null) => CandidateRescuePatch | null,
@@ -212,6 +224,11 @@ type RescueRunContext = {
   active: ActiveAnthropicModel;
   /** Macroindustria pedida: autoridad para «coincide con el lote» (no el `industry` del proveedor). */
   requestedIndustry: { id: string; name: string } | null;
+  /**
+   * Se enciende al primer error de la CUENTA de Anthropic (saldo, credenciales):
+   * no se empieza ninguna empresa más en esta corrida.
+   */
+  halt: { accountError: boolean };
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -251,6 +268,7 @@ async function rescueCandidate(
   ctx: RescueRunContext,
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
+  if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
     rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification)
       ? { metadata: { ...(metadata ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: buildRescueInProgress(deps.nowIso()) } }
@@ -262,16 +280,32 @@ async function rescueCandidate(
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
-  const minEmployees = readIcpThreshold(row.metadata);
+  // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
+  const official = officialSizeSignal({
+    countryCode: row.country_code,
+    fromFreeLayer: row.source_primary === 'public_source',
+  });
+  const minEmployees = official.measured ? official.minEmployees : readIcpThreshold(row.metadata);
   const decision = decideRescue(result, {
     icpMinEmployees: minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
-    sizeAlreadyConfirmed: sizeAlreadyConfirmed(row.metadata),
+    sizeAlreadyConfirmed: official.measured || sizeAlreadyConfirmed(row.metadata),
     sizePassedIcpGate: icpGatePassed(row.metadata),
   });
   const decidedAt = deps.nowIso();
+  const identity =
+    decision.kind === 'admit'
+      ? await lookUpRescueOfficialIdentity(deps.resolveOfficialIdentity, {
+          name: row.name ?? '',
+          website: row.website,
+          domain: row.domain,
+          countryCode: row.country_code,
+          country: row.country,
+          existingTaxIdentifier: row.tax_identifier ?? null,
+        })
+      : null;
   const saved = await deps.patchCandidate(row.id, (metadata) =>
-    buildCandidateRescuePatch({ metadata, result, decision, minEmployees, decidedAt }),
+    withRescueOfficialIdentity(buildCandidateRescuePatch({ metadata, result, decision, minEmployees, decidedAt }), identity),
   );
   const cost = result.usage?.estimatedCostUsd ?? 0;
   if (!saved) return { tag: 'failed', cost };
@@ -316,6 +350,7 @@ async function resolveDispositionWebsite(
     });
     if (log) await deps.logUsage(log);
     cost = outcome.usage?.estimatedCostUsd ?? 0;
+    if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
     const hint = unverifiedWebsiteHint(row, outcome);
@@ -367,6 +402,8 @@ async function rescueDisposition(
   deps: RescueBatchDeps,
   admittedIds: string[],
 ): Promise<ItemOutcome> {
+  // Cuenta de Anthropic caída: ni se marca «en proceso» (quedaría colgada 15 min).
+  if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchDispositionEvidence(row.id, (evidence) =>
     needsDispositionRescue({ ...row, evidence }, deps.nowMs(), !!deps.domainSearch)
       ? buildDispositionInProgressEvidence(evidence, deps.nowIso())
@@ -416,19 +453,44 @@ async function rescueDisposition(
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
   const cost = searchCost + (result.usage?.estimatedCostUsd ?? 0);
 
+  // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
+  const official = officialSizeSignal({
+    countryCode: row.country_code,
+    fromFreeLayer: row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true,
+  });
   const decision = decideRescue(result, {
-    icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES,
+    icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+    ...(official.measured ? { sizeAlreadyConfirmed: true } : {}),
   });
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso),
   // o si es de OTRA industria UBITS (vuelve con la industria corregida, sin contar para la meta).
   const goesBack = decision.kind === 'reassign' || (decision.kind === 'admit' && decision.sectorConfirmed);
   if (goesBack) {
-    const origin =
+    const baseOrigin =
       decision.kind === 'reassign'
-        ? buildDispositionReassignOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt)
-        : buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
+        ? buildDispositionReassignOrigin(result, decision, official.minEmployees, decidedAt)
+        : buildDispositionAdmissionOrigin(result, decision, official.minEmployees, decidedAt);
+    // Las del buscador gratuito ya traen su número fiscal (send-to-review-core);
+    // el resto lo busca en las fuentes oficiales con el sitio encontrado.
+    const identity =
+      row.evidence?.tax_identifier_present === true
+        ? null
+        : await lookUpRescueOfficialIdentity(deps.resolveOfficialIdentity, {
+            name: found ? dispositionDisplayName(row) : row.name,
+            website: found?.website ?? null,
+            domain: found?.domain ?? row.domain,
+            countryCode: row.country_code,
+            country: null,
+          });
+    const origin = identity
+      ? {
+          ...baseOrigin,
+          metadata: { ...baseOrigin.metadata, official_source_enrichment: identity.metadata },
+          columns: { ...(baseOrigin.columns ?? {}), ...identity.columns },
+        }
+      : baseOrigin;
     const candidateId = await deps.admitDisposition(
       row.id,
       found
@@ -541,6 +603,10 @@ async function discardStoredSmallSizes(
   const discardedIds = new Set<string>();
   const decidedAt = deps.nowIso();
   for (const row of candidates) {
+    // Tamaño medido por la fuente oficial: una cifra guardada de Claude no la descarta.
+    if (officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: row.source_primary === 'public_source' }).measured) {
+      continue;
+    }
     if (!storedSmallSizeDiscard(row.metadata, readIcpThreshold(row.metadata))) continue;
     const saved = await deps.patchCandidate(row.id, (metadata) => {
       const threshold = readIcpThreshold(metadata);
@@ -626,6 +692,7 @@ export async function rescueBatchWithClaude(
     requestedIndustry: requestedCatalogIndustry
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
+    halt: { accountError: false },
   };
   const admittedIds: string[] = [];
   const storedReassigned = await reassignStoredSectorMismatches(
@@ -638,7 +705,7 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => deps.nowMs() - startedMs >= deadlineMs,
+    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
       item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
   );

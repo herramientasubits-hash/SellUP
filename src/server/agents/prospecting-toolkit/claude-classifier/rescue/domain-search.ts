@@ -68,6 +68,19 @@ const VERIFICATIONS: readonly FoundVerification[] = [
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
 const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error', 'page_unreachable']);
 
+/**
+ * Errores de la CUENTA de Anthropic, no de la empresa: saldo agotado o petición
+ * rechazada (400), credenciales (401), pago (402), permisos (403). Prod 06-10
+ * 13:07Z: 194 llamadas seguidas con http_400 en 5 lotes; cada una gastaba un
+ * intento y, tras 3, la fila quedaba «sitio no encontrado» para siempre.
+ */
+const ACCOUNT_ERROR_CODES: ReadonlySet<string> = new Set(['http_400', 'http_401', 'http_402', 'http_403']);
+
+/** ¿Falló la CUENTA de Anthropic (no la búsqueda de esta empresa)? */
+export function isAccountLevelModelError(outcome: DomainFinderOutcome): boolean {
+  return !outcome.found && outcome.reason === 'model_error' && ACCOUNT_ERROR_CODES.has(outcome.errorCode ?? '');
+}
+
 function previousAttempts(evidence: Evidence | null): number {
   const attempts = (evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts?: unknown } | undefined)?.attempts;
   return typeof attempts === 'number' && attempts > 0 ? attempts : 0;
@@ -147,6 +160,18 @@ export function websiteNotFoundWithOlderSearch(evidence: Evidence | null): boole
   if (rescue?.decision !== 'website_not_found') return false;
   const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { search_version?: unknown } | undefined;
   return search?.search_version !== DOMAIN_SEARCH_VERSION;
+}
+
+/**
+ * «Sitio no encontrado» que en realidad fue la CUENTA de Anthropic caída (saldo,
+ * credenciales): no es un veredicto sobre la empresa y se vuelve a intentar.
+ * Prod 06-10: 8 filas de Chile × Salud (5bbae7eb) agotaron sus 3 intentos así.
+ */
+export function websiteNotFoundByAccountError(evidence: Evidence | null): boolean {
+  const rescue = evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
+  if (rescue?.decision !== 'website_not_found') return false;
+  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { reason?: unknown; error_code?: unknown } | undefined;
+  return search?.reason === 'model_error' && ACCOUNT_ERROR_CODES.has(String(search?.error_code ?? ''));
 }
 
 export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'reason_code'>): boolean {
@@ -290,7 +315,9 @@ export function buildDomainSearchStaysEvidence(
     | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck },
   decidedAt: string,
 ): Evidence {
-  const attempts = previousAttempts(evidence) + (params.kind === 'not_found' ? 1 : 0);
+  // Un error de la cuenta no es un intento de buscar ESTA empresa: no se cuenta.
+  const accountError = params.kind === 'not_found' && isAccountLevelModelError(params.outcome);
+  const attempts = previousAttempts(evidence) + (params.kind === 'not_found' && !accountError ? 1 : 0);
   const base = params.kind === 'duplicate' ? buildFoundEvidence(evidence, params.found, decidedAt) : { ...(evidence ?? {}) };
   const search =
     params.kind === 'not_found'
@@ -310,7 +337,8 @@ export function buildDomainSearchStaysEvidence(
           duplicate_summary: params.duplicate.summary,
         };
   const retryable =
-    params.kind === 'not_found' && TRANSIENT_REASONS.has(params.outcome.reason) && attempts < DOMAIN_SEARCH_MAX_ATTEMPTS;
+    accountError ||
+    (params.kind === 'not_found' && TRANSIENT_REASONS.has(params.outcome.reason) && attempts < DOMAIN_SEARCH_MAX_ATTEMPTS);
   return {
     ...base,
     [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: search,

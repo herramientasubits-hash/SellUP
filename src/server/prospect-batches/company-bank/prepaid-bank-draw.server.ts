@@ -31,6 +31,7 @@ import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/dupli
 import { getCatalogContext } from '@/server/agents/prospecting-toolkit/catalog-context-retriever';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import { writeProspectingCandidates } from '@/server/agents/prospecting-toolkit/candidate-writer';
+import { buildTavilyOfficialIdentityEnricher } from '@/server/agents/prospecting-toolkit/tavily-official-identity.server';
 import type {
   CandidateWriterOutput,
   DuplicateCheckInput,
@@ -108,7 +109,59 @@ export type BankFirstDeps = {
    * con Apollo + Tavily + Claude ya pagados). `true` ⇒ revisó.
    */
   reviewInline?: (input: { batchId: string; triggeredBy: string; windowMs: number }) => Promise<boolean>;
+  /**
+   * SOURCES-CL-BANK-OFFICIAL-IDENTITY-1 — vuelve a buscar el número fiscal oficial
+   * de lo que sale del banco SIN identidad fuerte. Lo guardado lleva la búsqueda
+   * del día en que entró al banco: Prod 06-10 (Chile × Salud, 5bbae7eb), 10
+   * empresas guardadas el 05-10 a las 14:28 salieron sin RUT aunque el SII ya
+   * tenía «MUNICIPALIDAD DE CERRO NAVIA» o «MUNICIPALIDAD DE CASABLANCA»
+   * (los alias de organismos públicos entraron a las 18:02). Fail-open.
+   */
+  refreshOfficialIdentity?: (
+    candidates: ProspectingPipelineCandidate[],
+    context: { countryCode: string; countryName: string },
+  ) => Promise<ProspectingPipelineCandidate[]>;
 };
+
+/**
+ * ¿Hay que volver a buscar el número fiscal? Sólo si lo guardado NO trae una
+ * identidad fuerte. Devuelve el candidato sin la búsqueda vieja (para que el
+ * paso de identidad oficial lo vuelva a mirar), o `null` si no hace falta.
+ */
+export function withoutStaleOfficialIdentity(
+  candidate: ProspectingPipelineCandidate,
+): ProspectingPipelineCandidate | null {
+  if (candidate.officialSourceIdentity?.strongIdentityAvailable === true) return null;
+  return { ...candidate, officialSourceIdentity: undefined };
+}
+
+/** Vuelve a buscar la identidad de lo que no la trae fuerte; el resto queda igual. */
+async function refreshBankOfficialIdentity(
+  deps: BankFirstDeps,
+  candidates: ProspectingPipelineCandidate[],
+  context: { countryCode: string; countryName: string },
+): Promise<ProspectingPipelineCandidate[]> {
+  if (!deps.refreshOfficialIdentity) return candidates;
+  const stale = candidates
+    .map((candidate, index) => ({ index, fresh: withoutStaleOfficialIdentity(candidate) }))
+    .filter((entry): entry is { index: number; fresh: ProspectingPipelineCandidate } => entry.fresh !== null);
+  if (stale.length === 0) return candidates;
+  try {
+    const refreshed = await deps.refreshOfficialIdentity(
+      stale.map((entry) => entry.fresh),
+      context,
+    );
+    const out = [...candidates];
+    stale.forEach((entry, i) => {
+      const next = refreshed[i];
+      // Sin nada nuevo, se queda lo que traía (incluida su búsqueda vieja).
+      if (next?.officialSourceIdentity) out[entry.index] = next;
+    });
+    return out;
+  } catch {
+    return candidates;
+  }
+}
 
 const nothing = (telemetry: Record<string, unknown>): BankFirstContribution => ({
   batchId: null,
@@ -249,6 +302,10 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
       return { ...entry.candidate, duplicateCheck } as ProspectingPipelineCandidate;
     }),
   );
+  const withIdentity = await refreshBankOfficialIdentity(deps, refreshed, {
+    countryCode: input.countryCode,
+    countryName: input.countryName,
+  });
 
   let batchId: string;
   try {
@@ -263,7 +320,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
 
   const written = await deps.write({
     batchId,
-    candidates: refreshed,
+    candidates: withIdentity,
     countryCode: input.countryCode,
     countryName: input.countryName,
     requestedTarget: input.requestedTarget,
@@ -357,6 +414,13 @@ export function resolveProductionBankFirstDrawer(
     checkDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
     resolveCap: () => resolveMaxDeliveredCandidates(),
     newDrawId: () => randomUUID(),
+    // El MISMO paso de número fiscal oficial que Tavily y Claude (SII, RES, …).
+    refreshOfficialIdentity: (candidates, context) =>
+      buildTavilyOfficialIdentityEnricher({
+        country: context.countryName,
+        countryCode: context.countryCode,
+        sector: industryName,
+      })(candidates),
     // El MISMO rescate de Claude que corre después de la búsqueda, con su bandera.
     reviewInline: options.reviewInline === false ? undefined : async ({ batchId, triggeredBy, windowMs }) => {
       if (!isAgent1ClaudeRescueEnabled()) return false;

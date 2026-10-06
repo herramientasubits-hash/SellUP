@@ -4,6 +4,7 @@
  * Sin red ni base de datos: Claude, Supabase y los reclamos son dobles.
  */
 
+import { officialSizeSignal } from '../official-size-signal';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -789,3 +790,131 @@ describe('J. descarte por tamaño bajo el umbral', () => {
     assert.equal(patch.metadata.claude_rescue.discard_reason, 'claude_size_below_min');
   });
 });
+
+describe('E. SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal de lo que Claude admite', () => {
+  const identity = {
+    columns: { tax_identifier: '96582310-7', tax_identifier_type: 'RUT', legal_name: 'GRIFOLS CHILE S A', legal_status: null },
+    metadata: { status: 'matched', sourceKey: 'cl_sii_registry' },
+  };
+
+  it('candidato admitido sin número fiscal ⇒ se busca y se guarda en el candidato', async () => {
+    const asked: string[] = [];
+    const f = fakeDeps({
+      loadDispositions: async () => [],
+      resolveOfficialIdentity: async (input) => (asked.push(input.name), identity),
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.deepEqual(asked, ['Clínica']);
+    const patch = f.writes.at(-1)!.patch as Record<string, unknown>;
+    assert.equal(patch.tax_identifier, '96582310-7');
+    assert.equal(patch.tax_identifier_type, 'RUT');
+    assert.deepEqual((patch.metadata as Record<string, unknown>).official_source_enrichment, identity.metadata);
+  });
+
+  it('candidato que ya trae número fiscal ⇒ no se busca', async () => {
+    let calls = 0;
+    const f = fakeDeps({
+      loadDispositions: async () => [],
+      loadReviewCandidates: async () => [candidate({ tax_identifier: '20123456789' })],
+      resolveOfficialIdentity: async () => (calls++, identity),
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(calls, 0);
+  });
+
+  it('descartada que vuelve a revisión ⇒ el candidato nuevo trae el número fiscal en sus columnas', async () => {
+    const origins: Array<{ columns?: Record<string, unknown>; metadata: Record<string, unknown> }> = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      resolveOfficialIdentity: async () => identity,
+      admitDisposition: async (id, origin) => (origins.push(origin), `new-${id}`),
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(origins[0].columns?.tax_identifier, '96582310-7');
+    assert.deepEqual(origins[0].metadata.official_source_enrichment, identity.metadata);
+  });
+
+  it('descartada del buscador gratuito (ya con número fiscal) ⇒ no se busca', async () => {
+    let calls = 0;
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition({ evidence: { tax_identifier_present: true } })],
+      resolveOfficialIdentity: async () => (calls++, identity),
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(calls, 0);
+  });
+});
+
+const NO_SIZE_GATE = { ...REVIEW_METADATA, icp_size_gate: { threshold: 200, decision: 'review', size_status: 'unknown' } };
+
+describe('F. SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño medido por la fuente oficial (dueña 06-10)', () => {
+  const small = (max: number, quote: string, verification: 'quote_verified' | 'source_listed' = 'quote_verified') =>
+    result({
+      employeeRange: { min: max, max, quote, sourceUrl: 'https://x.example/', confidence: 0.9, verification, status: 'estimated' },
+    });
+
+  it('tabla: CL 100, EC y DO 200 si viene del buscador gratuito; el resto no mide', () => {
+    assert.deepEqual(officialSizeSignal({ countryCode: 'cl', fromFreeLayer: true }), { measured: true, minEmployees: 100 });
+    assert.deepEqual(officialSizeSignal({ countryCode: 'EC', fromFreeLayer: true }), { measured: true, minEmployees: 200 });
+    assert.deepEqual(officialSizeSignal({ countryCode: 'DO', fromFreeLayer: true }), { measured: true, minEmployees: 200 });
+    for (const code of ['AR', 'CO', 'MX', null]) {
+      assert.deepEqual(officialSizeSignal({ countryCode: code, fromFreeLayer: true }), { measured: false, minEmployees: 200 }, String(code));
+    }
+    assert.equal(officialSizeSignal({ countryCode: 'CL', fromFreeLayer: false }).measured, false);
+  });
+
+  it('descartada del buscador gratuito de RD: «170 empleados» de una nota vieja ya NO la descarta (Equifax)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [
+        disposition({ country_code: 'DO', round_origin: 'free_source', evidence: { tax_identifier_present: true } }),
+      ],
+      classify: async () => small(170, 'la empresa cuenta con un experimentado equipo local de 170 empleados'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+  });
+
+  it('descartada del buscador gratuito de Chile con 150 según Claude ⇒ no se descarta (umbral 100)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition({ country_code: 'CL', round_origin: 'free_source' })],
+      classify: async () => small(150, '150 colaboradores'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+  });
+
+  it('Argentina (sin tamaño oficial): «11-50» sigue descartando como siempre', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition({ country_code: 'AR', round_origin: 'free_source' })],
+      classify: async () => small(50, 'Tamaño de la empresa: De 11 a 50 empleados'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 0);
+    assert.equal(s.ok && s.dispositionsKept, 1);
+  });
+
+  it('candidato del buscador gratuito de Chile en revisión: Claude no lo descarta por tamaño', async () => {
+    const f = fakeDeps({
+      loadDispositions: async () => [],
+      loadReviewCandidates: async () => [candidate({ country_code: 'CL', source_primary: 'public_source', metadata: NO_SIZE_GATE })],
+      classify: async () => small(80, '80 colaboradores'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.candidatesDiscarded, 0);
+  });
+
+  it('el mismo candidato de Apollo (no oficial) sí se descarta', async () => {
+    const f = fakeDeps({
+      loadDispositions: async () => [],
+      loadReviewCandidates: async () => [candidate({ country_code: 'CL', source_primary: 'apollo', metadata: NO_SIZE_GATE })],
+      classify: async () => small(80, '80 colaboradores'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.candidatesDiscarded, 1);
+  });
+});
+
