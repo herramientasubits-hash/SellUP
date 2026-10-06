@@ -181,10 +181,39 @@ function withoutLocationWords(name: string): string | null {
 }
 
 /** Nombres a comparar: el principal, sus variantes y cada uno sin el país. Gana el mejor. */
-function bestNameScore(input: DomainFinderInput, domain: string | null, title: string | null, meta: string | null): number {
+function bestNameScore(
+  input: DomainFinderInput,
+  domain: string | null,
+  title: string | null,
+  meta: string | null,
+  options: { titleAloneCounts?: boolean } = {},
+): number {
   const base = [input.name, ...(input.alternateNames ?? [])].filter((n) => n && n.trim());
   const names = [...base, ...base.map(withoutLocationWords).filter((n): n is string => !!n)];
-  return Math.max(0, ...names.map((n) => scoreCompanyNameAgainstPage(n, domain, title, meta).score));
+  const titleAlone = options.titleAloneCounts === true && !!(title || meta);
+  const score = (n: string): number =>
+    Math.max(
+      scoreCompanyNameAgainstPage(n, domain, title, meta).score,
+      titleAlone ? scoreCompanyNameAgainstPage(n, null, title, meta).score : 0,
+    );
+  return Math.max(0, ...names.map(score));
+}
+
+const HOMEPAGE_MAX_SEGMENTS = 1;
+const HOMEPAGE_MAX_SEGMENT_LENGTH = 12;
+
+/**
+ * d9 — ¿la URL final es la portada del sitio? («/», «/es/», «/web2/», «/portal/»). Un
+ * artículo de prensa vive en una ruta larga y nunca es portada.
+ */
+export function isHomepageLike(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const segments = new URL(url.startsWith('http') ? url : `https://${url}`).pathname.split('/').filter(Boolean);
+    return segments.length <= HOMEPAGE_MAX_SEGMENTS && segments.every((s) => s.length <= HOMEPAGE_MAX_SEGMENT_LENGTH);
+  } catch {
+    return false;
+  }
 }
 
 function bestSearchResultMatch(
@@ -418,7 +447,13 @@ export async function verifyProposedWebsite(
   }
 
   const signals = extractPageSignals(html);
-  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription);
+  // d9: en la PORTADA también vale el título sin el dominio. Un dominio de palabras
+  // pegadas («hrrio.cl», «hospitalsanfernando.cl») no se parte y hundía la nota aunque
+  // el título dijera el nombre completo (Prod 06-10, CL×Salud e4fec102). El dominio ya
+  // se filtró arriba: salió de la búsqueda o lleva el nombre.
+  const score = bestNameScore(input, finalDomain, signals.title, signals.metaDescription, {
+    titleAloneCounts: isHomepageLike(fetched.finalUrl ?? input.claimedUrl),
+  });
   if (score >= FINDER_MIN_NAME_SCORE) {
     return { found: true, website, domain: finalDomain, verification: 'name_match', inSearchResults: finalInSearch };
   }

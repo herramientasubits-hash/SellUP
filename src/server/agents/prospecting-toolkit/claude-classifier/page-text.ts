@@ -8,6 +8,15 @@
 /** Tope de caracteres que se envían al modelo (~3k tokens). */
 export const MAX_PAGE_TEXT_CHARS = 12_000;
 
+/**
+ * Cuánto HTML bajan los lectores de Claude (clasificador, rescate, buscador de
+ * empresas). Prod 06-10 (CL×Salud, e4fec102): en sitios WordPress/Elementor
+ * (meds.cl, ucmchile.cl) los primeros 50 KB son sólo estilos; el texto con el
+ * nombre de la empresa venía después y nunca se leía. El texto que se usa sigue
+ * acotado a MAX_PAGE_TEXT_CHARS.
+ */
+export const CLAUDE_PAGE_MAX_HTML_BYTES = 400_000;
+
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
   lt: '<',
@@ -48,7 +57,10 @@ export function extractVisibleText(html: string, maxChars: number = MAX_PAGE_TEX
   const withoutInvisible = html
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<(script|style|noscript|svg|template|iframe)\b[\s\S]*?<\/\1\s*>/gi, ' ')
-    .replace(/<head\b[\s\S]*?<\/head\s*>/gi, ' ');
+    .replace(/<head\b[\s\S]*?<\/head\s*>/gi, ' ')
+    // HTML cortado por el tope de bytes: un bloque invisible o un <head> sin cerrar
+    // llega hasta el final; nunca es texto de la página.
+    .replace(/<(script|style|noscript|svg|template|iframe|head)\b[\s\S]*$/i, ' ');
   const text = decodeEntities(
     withoutInvisible
       .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article)\b[^>]*>/gi, '\n')

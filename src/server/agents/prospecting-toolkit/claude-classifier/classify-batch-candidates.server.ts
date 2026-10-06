@@ -12,6 +12,7 @@ import { loadActiveDiscoveryCatalog } from '@/modules/industry-catalog/discovery
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { getAiProviderCredential } from '@/server/services/ai-connection';
 import { fetchSafePageHtml } from '../website-verifier';
+import { CLAUDE_PAGE_MAX_HTML_BYTES } from './page-text';
 import {
   IN_PROGRESS_STALE_AFTER_MS,
   mergeClassificationIntoMetadata,
@@ -143,7 +144,7 @@ export function classifyCompanyLive(
 ) {
   return classifyCompany(
     { company, catalog, model: active.model },
-    buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS)),
+    buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES)),
   );
 }
 
