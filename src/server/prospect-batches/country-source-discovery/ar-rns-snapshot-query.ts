@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   ArRnsDiscoveryOrigin,
   ArRnsDiscoveryReads,
+  ArRnsPriorSighting,
   ArRnsSnapshotReadRow,
 } from './ar-rns-discovery-adapter';
 
@@ -73,6 +74,79 @@ function toRow(row: SnapshotSelectRow, origin: ArRnsDiscoveryOrigin): ArRnsSnaps
   };
 }
 
+/**
+ * SOURCES-AR-NO-RECYCLE-1 — cuántas filas se leen por cada una que se pide. El
+ * adapter salta las que SellUp ya vio (candidatas, descartadas), así que se lee
+ * de más para que el tope siga llenándose con empresas nuevas.
+ */
+export const AR_DISCOVERY_READ_OVERSAMPLE = 3;
+/** Techo de filas leídas por fuente y consulta. */
+export const AR_DISCOVERY_READ_CAP = 600;
+/** CUIT por consulta al marcar lo ya visto (la URL de PostgREST tiene límite). */
+const SIGHTING_CHUNK = 150;
+
+/** Decisiones del rescate de Claude que cierran el caso de una empresa descartada. */
+const DEFINITIVE_RESCUE_DECISIONS: ReadonlySet<string> = new Set(['discard', 'duplicate']);
+
+const SIGHTING_RANK: Record<ArRnsPriorSighting, number> = {
+  candidate: 3,
+  definitive_discard: 2,
+  discard: 1,
+};
+
+function strongest(a: ArRnsPriorSighting | undefined, b: ArRnsPriorSighting): ArRnsPriorSighting {
+  return a !== undefined && SIGHTING_RANK[a] >= SIGHTING_RANK[b] ? a : b;
+}
+
+/**
+ * CUIT → lo que SellUp ya sabe de ella: candidata en algún lote, descartada de
+ * forma definitiva (Claude dijo otra industria, otro tamaño o duplicada) o
+ * descartada sin cierre (p. ej. sin web). Sólo lectura. Si una consulta falla,
+ * esa parte no marca nada: la fila se ofrece como antes (fail-open, igual que el
+ * resto de la capa gratuita).
+ */
+async function readPriorSightings(
+  client: SupabaseClient,
+  cuits: readonly string[],
+): Promise<Map<string, ArRnsPriorSighting>> {
+  const out = new Map<string, ArRnsPriorSighting>();
+  for (let i = 0; i < cuits.length; i += SIGHTING_CHUNK) {
+    const chunk = cuits.slice(i, i + SIGHTING_CHUNK);
+    try {
+      const { data, error } = await client
+        .from('prospect_candidates')
+        .select('tax_identifier')
+        .in('tax_identifier', chunk);
+      if (!error && Array.isArray(data)) {
+        for (const row of data as Array<{ tax_identifier: string | null }>) {
+          if (row.tax_identifier) out.set(row.tax_identifier, strongest(out.get(row.tax_identifier), 'candidate'));
+        }
+      }
+    } catch {
+      /* fail-open */
+    }
+    try {
+      const { data, error } = await client
+        .from('prospect_discarded_dispositions')
+        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .eq('source_primary', 'public_source')
+        .in('provider_identifier', chunk.map((cuit) => `tax:${cuit}`));
+      if (!error && Array.isArray(data)) {
+        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+          const cuit = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
+          if (!cuit) continue;
+          const sighting: ArRnsPriorSighting =
+            row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
+          out.set(cuit, strongest(out.get(cuit), sighting));
+        }
+      }
+    } catch {
+      /* fail-open */
+    }
+  }
+  return out;
+}
+
 /** Adapta un cliente (de `service_role`) a la lectura de descubrimiento de Argentina. */
 export function buildArRnsDiscoveryReads(client: SupabaseClient): ArRnsDiscoveryReads {
   async function readOne(
@@ -101,12 +175,16 @@ export function buildArRnsDiscoveryReads(client: SupabaseClient): ArRnsDiscovery
   return {
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
+      const readLimit = Math.min(limit * AR_DISCOVERY_READ_OVERSAMPLE, AR_DISCOVERY_READ_CAP);
       const perSource = await Promise.all(
         AR_DISCOVERY_SOURCES.map(({ sourceKey, origin }) =>
-          readOne(sourceKey, origin, macroIndustryKey, limit),
+          readOne(sourceKey, origin, macroIndustryKey, readLimit),
         ),
       );
-      return perSource.flat();
+      const rows = perSource.flat();
+      const cuits = [...new Set(rows.map((row) => row.cuit).filter((c): c is string => Boolean(c)))];
+      const sightings = cuits.length > 0 ? await readPriorSightings(client, cuits) : new Map();
+      return rows.map((row) => ({ ...row, prior_sighting: (row.cuit && sightings.get(row.cuit)) || null }));
     },
   };
 }

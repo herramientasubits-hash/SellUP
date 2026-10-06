@@ -1699,6 +1699,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado argentino.',
       'El RNS no publica tamaño: más allá de las primeras 50-100 por industria (por importe adjudicado) puede proponer empresas chicas.',
+      'No se recicla: una CUIT que ya es candidata en SellUp, cuyo descarte quedó cerrado (otra industria, otro tamaño, duplicada) o que fue descartada y sigue sin web no se vuelve a proponer; se lee el triple para llenar el tope con empresas nuevas.',
       'El RNS no publica sitio web: el dominio sale del correo que la sociedad declaró en el SIPRO histórico (anterior a 2016), sólo si se parece a su razón social de entonces y a la de hoy (1.657 de 6.350 en la prueba en seco del 06-10). Sin dominio, la empresa va a Descartadas y el buscador de sitio de Claude intenta rescatarla.',
       'La industria sale de la tabla aprobada por la dueña: actividades fuera de la tabla no se proponen.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
