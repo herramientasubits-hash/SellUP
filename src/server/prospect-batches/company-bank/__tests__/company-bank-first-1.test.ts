@@ -29,6 +29,7 @@ import { APOLLO_BANK_PAYLOAD_KIND, planApolloBankDeposit, readApolloBankEvidence
 import {
   COMPANY_BANK_FIRST_METADATA_KEY,
   createBankFirstDrawer,
+  withoutStaleOfficialIdentity,
   type BankFirstDeps,
   type BankFirstWriteInput,
 } from '../prepaid-bank-draw.server';
@@ -273,6 +274,7 @@ function drawerHarness(opts: {
   noPort?: boolean;
   acceptedAfterClaude?: number | null;
   review?: 'ok' | 'fails' | 'absent';
+  refresh?: BankFirstDeps['refreshOfficialIdentity'];
 }) {
   const rec: Recorder = { draws: [], settles: [], writes: [], batchResolutions: 0 };
   const port: ApolloCompanyBankPort = {
@@ -321,6 +323,7 @@ function drawerHarness(opts: {
     },
     resolveCap: () => 10,
     newDrawId: () => 'draw-1',
+    ...(opts.refresh ? { refreshOfficialIdentity: opts.refresh } : {}),
     ...(opts.review === 'absent'
       ? {}
       : {
@@ -661,3 +664,61 @@ describe('§ 6 — el cableado', () => {
     assert.match(drawer, /existingBatchId:\s*writeInput\.batchId/);
   });
 });
+
+describe('§ 6 — SOURCES-CL-BANK-OFFICIAL-IDENTITY-1: el número fiscal se vuelve a buscar al salir del banco', () => {
+  const identity = (strong: boolean, taxId: string | null) =>
+    ({
+      officialSourceMetadata: { status: strong ? 'matched' : 'not_found' } as never,
+      typedColumns: { tax_identifier: taxId } as never,
+      strongIdentityAvailable: strong,
+    }) as NonNullable<ProspectingPipelineCandidate['officialSourceIdentity']>;
+
+  it('sin identidad fuerte ⇒ se vuelve a buscar y se escribe la nueva', async () => {
+    const seen: string[] = [];
+    const h = drawerHarness({
+      rows: [bankRow('r1', pipelinePayload('Municipalidad de Cerro Navia', 'cerronavia.cl'))],
+      persistedByDomain: { 'cerronavia.cl': 'c-1' },
+      review: 'absent',
+      refresh: async (candidates, context) => {
+        seen.push(...candidates.map((c) => `${c.name}|${context.countryCode}|${c.officialSourceIdentity ? 'vieja' : 'limpia'}`));
+        return candidates.map((c) => ({ ...c, officialSourceIdentity: identity(true, '69254200-2') }));
+      },
+    });
+    await h.drawer(h.input);
+    assert.deepEqual(seen, ['Municipalidad de Cerro Navia|CO|limpia']);
+    assert.equal(h.rec.writes[0].candidates[0].officialSourceIdentity?.strongIdentityAvailable, true);
+  });
+
+  it('con identidad fuerte guardada ⇒ no se vuelve a buscar', () => {
+    const strong = { ...candidate('Alfa', 'alfa.co'), officialSourceIdentity: identity(true, '900123456') };
+    assert.equal(withoutStaleOfficialIdentity(strong), null);
+    const weak = { ...candidate('Beta', 'beta.co'), officialSourceIdentity: identity(false, null) };
+    assert.equal(withoutStaleOfficialIdentity(weak)?.officialSourceIdentity, undefined);
+    assert.ok(withoutStaleOfficialIdentity(candidate('Gama', 'gama.co')));
+  });
+
+  it('si la búsqueda falla o no trae nada, se escribe lo que venía del banco', async () => {
+    for (const refresh of [
+      async () => {
+        throw new Error('caído');
+      },
+      async (candidates: ProspectingPipelineCandidate[]) => candidates,
+    ] as Array<NonNullable<BankFirstDeps['refreshOfficialIdentity']>>) {
+      const h = drawerHarness({
+        rows: [bankRow('r1', pipelinePayload('Delta', 'delta.co'))],
+        persistedByDomain: { 'delta.co': 'c-1' },
+        review: 'absent',
+        refresh,
+      });
+      await h.drawer(h.input);
+      assert.equal(h.rec.writes.length, 1);
+      assert.equal(h.rec.writes[0].candidates[0].name, 'Delta');
+    }
+  });
+
+  it('en Producción el banco usa el mismo paso de identidad oficial que Tavily y Claude', () => {
+    const code = readFileSync(path.join(REPO_ROOT, 'src/server/prospect-batches/company-bank/prepaid-bank-draw.server.ts'), 'utf8');
+    assert.match(code, /refreshOfficialIdentity: \(candidates, context\) =>\s*buildTavilyOfficialIdentityEnricher\(/);
+  });
+});
+
