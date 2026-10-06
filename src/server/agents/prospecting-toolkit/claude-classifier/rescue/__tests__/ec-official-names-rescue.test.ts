@@ -20,6 +20,8 @@ import {
   OFFICIAL_TRADE_NAME_VERIFICATION,
   officialTradeNameWebsite,
   previousClaimedUrl,
+  REGISTRY_FIRST_WORD_VERIFICATION,
+  registryFirstWordWebsite,
   websiteNotFoundBeforeOfficialNames,
 } from '../domain-search';
 import {
@@ -280,5 +282,44 @@ describe('rescate completo (Megadatos → netlife.ec)', () => {
     await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(f.asked.length, 0);
     assert.equal(f.origins.length, 0);
+  });
+});
+
+describe('la web propuesta es la primera palabra propia de la razón social', () => {
+  it('Huawei, Thoughtworks y Devsu (Prod 0ef658fd) ⇒ «Inferido», nunca «Verificado»', () => {
+    for (const [name, url, domain] of [
+      ['HUAWEI TECHNOLOGIES ECUADOR CIA. LTDA.', 'https://www.huawei.com', 'huawei.com'],
+      ['THOUGHTWORKS SOFTWARE ECUADOR S.A.', 'https://www.thoughtworks.com', 'thoughtworks.com'],
+      ['DEVSUSOFTWARE CIA. LTDA.', 'http://www.devsu.com', 'devsu.com'],
+    ] as const) {
+      const found = registryFirstWordWebsite(url, name);
+      assert.deepEqual(found, { website: `https://${domain}`, domain, verification: REGISTRY_FIRST_WORD_VERIFICATION }, name);
+      assert.equal(buildUnverifiedHintWebsiteVerification(found!)?.status, 'inferred');
+    }
+  });
+
+  it('nunca un descriptor del giro, una palabra corta, otra web, gobierno ni plataformas', () => {
+    assert.equal(registryFirstWordWebsite('https://distribuidora.com', 'DISTRIBUIDORA FARMACEUTICA ECUATORIANA S.A.'), null);
+    assert.equal(registryFirstWordWebsite('https://www.netlife.ec', 'MEGADATOS S.A.'), null);
+    assert.equal(registryFirstWordWebsite('https://www.teuno.com', 'GRUPO BRAVCO S.A.'), null);
+    assert.equal(registryFirstWordWebsite('https://kfc.com', 'KFC S.A.'), null);
+    assert.equal(registryFirstWordWebsite('https://huawei.gob.ec', 'HUAWEI TECHNOLOGIES ECUADOR'), null);
+    assert.equal(registryFirstWordWebsite('https://www.facebook.com/huawei', 'HUAWEI TECHNOLOGIES ECUADOR'), null);
+  });
+
+  it('en el rescate sólo se usa con los nombres oficiales de Ecuador, y llega a revisión «Inferido»', async () => {
+    const huawei = megadatos({
+      name: 'HUAWEI TECHNOLOGIES ECUADOR CIA. LTDA.',
+      provider_identifier: 'tax:1792457157001',
+      evidence: { provider_raw_name: 'HUAWEI TECHNOLOGIES ECUADOR CIA. LTDA.', tax_identifier_present: true },
+    });
+    const f = fakeDeps(huawei, {
+      findWebsite: async () => notConfirmed('https://www.huawei.com'),
+      officialNames: async () => [],
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+    assert.equal(f.origins[0].columns?.domain, 'huawei.com');
+    assert.equal((f.origins[0].metadata.website_verification as { status: string }).status, 'inferred');
   });
 });

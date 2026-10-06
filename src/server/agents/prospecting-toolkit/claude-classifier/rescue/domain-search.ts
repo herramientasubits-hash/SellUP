@@ -67,10 +67,18 @@ export const UNVERIFIED_HINT_VERIFICATION = 'unverified_hint' as const;
  * la página no abra, redirija o no diga la razón social.
  */
 export const OFFICIAL_TRADE_NAME_VERIFICATION = 'official_trade_name' as const;
+/**
+ * SOURCES-EC-CLOSE-2 — la web que Claude propuso es la PRIMERA palabra propia de la
+ * razón social oficial (huawei.com ← «HUAWEI TECHNOLOGIES ECUADOR CIA. LTDA.»,
+ * devsu.com ← «DEVSUSOFTWARE CIA. LTDA.»). Más débil que la marca oficial: llega a
+ * revisión como «Inferido».
+ */
+export const REGISTRY_FIRST_WORD_VERIFICATION = 'registry_first_word' as const;
 export type FoundVerification =
   | DomainVerification
   | typeof UNVERIFIED_HINT_VERIFICATION
-  | typeof OFFICIAL_TRADE_NAME_VERIFICATION;
+  | typeof OFFICIAL_TRADE_NAME_VERIFICATION
+  | typeof REGISTRY_FIRST_WORD_VERIFICATION;
 const VERIFICATIONS: readonly FoundVerification[] = [
   'linkedin_cross_link',
   'name_match',
@@ -78,6 +86,7 @@ const VERIFICATIONS: readonly FoundVerification[] = [
   'acronym_match',
   UNVERIFIED_HINT_VERIFICATION,
   OFFICIAL_TRADE_NAME_VERIFICATION,
+  REGISTRY_FIRST_WORD_VERIFICATION,
 ];
 
 /**
@@ -376,6 +385,48 @@ export function officialTradeNameWebsite(
   return { website: `https://${host}`, domain: host, verification: OFFICIAL_TRADE_NAME_VERIFICATION };
 }
 
+/** Primeras palabras de razón social que describen el giro, no a la empresa. */
+const REGISTRY_DESCRIPTOR_WORDS: ReadonlySet<string> = new Set([
+  'distribuidora', 'importadora', 'exportadora', 'constructora', 'industrial', 'industrias', 'industria',
+  'laboratorios', 'laboratorio', 'farmaceutica', 'transportes', 'transporte', 'agricola', 'hospital', 'clinica',
+  'banco', 'cooperativa', 'universidad', 'colegio', 'unidad', 'instituto', 'centro', 'consorcio', 'compania',
+  'fabrica', 'productora', 'procesadora', 'tecnologia', 'tecnologias', 'technologies', 'technology', 'software',
+  'electronica', 'electrica', 'seguridad', 'telecomunicaciones', 'comercializadora', 'operadora', 'administradora',
+]);
+/** Lo que una marca suele pegar a su nombre en la razón social («DEVSU» + «SOFTWARE»). */
+const REGISTRY_WORD_SUFFIXES = ['software', 'soft', 'solutions', 'tech', 'technologies', 'group', 'ecuador', 'ec', 'corp', 'consulting', 'systems', 'sistemas', 'digital', 'labs'] as const;
+
+/**
+ * SOURCES-EC-CLOSE-2 — la web propuesta es la primera palabra propia de la razón social
+ * (5+ letras, no un descriptor del giro): la etiqueta del dominio es esa palabra, esa
+ * palabra + «ecuador»/«ec», o la palabra sin un sufijo de marca («devsu» ←
+ * «devsusoftware»). Nunca gobierno ni plataformas.
+ */
+export function registryFirstWordWebsite(
+  claimedUrl: string | null | undefined,
+  legalName: string,
+): FoundWebsite | null {
+  if (!claimedUrl) return null;
+  const core = registryNameCore(legalName) ?? legalName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const first = compactName(core.split(/\s+/)[0] ?? '');
+  if (first.length < 5 || REGISTRY_DESCRIPTOR_WORDS.has(first)) return null;
+  const domain = normalizeDomain(claimedUrl);
+  if (!domain || GOVERNMENT_HOST.test(domain)) return null;
+  if (!evaluateExternalPlatformGate(claimedUrl, legalName).allowed) return null;
+  const parts = domain.split('.');
+  const registrable =
+    parts.length >= 3 && parts[parts.length - 1].length === 2 && ['com', 'net', 'org', 'edu', 'co', 'info'].includes(parts[parts.length - 2])
+      ? parts.slice(-3)
+      : parts.slice(-2);
+  const label = compactName(registrable[0] ?? '');
+  const matches =
+    COUNTRY_LABEL_SUFFIXES.some((suffix) => label === `${first}${suffix}`) ||
+    (label.length >= 5 && REGISTRY_WORD_SUFFIXES.some((suffix) => first === `${label}${suffix}`));
+  if (!matches) return null;
+  const host = registrable.join('.');
+  return { website: `https://${host}`, domain: host, verification: REGISTRY_FIRST_WORD_VERIFICATION };
+}
+
 /** La web que Claude propuso en una búsqueda anterior que no pasó la comprobación. */
 export function previousClaimedUrl(evidence: Evidence | null): string | null {
   const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { found?: unknown; claimed_url?: unknown } | undefined;
@@ -412,6 +463,15 @@ export function buildUnverifiedHintWebsiteVerification(found: FoundWebsite): Rec
       confidence: 80,
       source: CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
       reason: 'El registro oficial (SRI / Superintendencia) lista esta marca para el mismo RUC.',
+    };
+  }
+  if (found.verification === REGISTRY_FIRST_WORD_VERIFICATION) {
+    return {
+      status: 'inferred',
+      domain: found.domain,
+      confidence: 50,
+      source: CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+      reason: 'Inferido: el dominio es el nombre de la razón social oficial, pero la página no lo confirmó. Verifícalo antes de aprobar.',
     };
   }
   if (found.verification !== UNVERIFIED_HINT_VERIFICATION) return null;

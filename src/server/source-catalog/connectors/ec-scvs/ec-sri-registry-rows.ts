@@ -23,8 +23,9 @@
  * Dos fuentes:
  *   - `ec_sri_registry`: razón social limpia (`normalizeEcEntityCore`: los gobiernos
  *     locales en forma canónica «GAD MUNICIPAL CELICA»).
- *   - `ec_sri_trade_name_registry`: el nombre comercial del establecimiento
- *     principal, si es distinto de la razón social. Por sí solo es una PISTA (como
+ *   - `ec_sri_trade_name_registry`: hasta 3 marcas por RUC, las que más
+ *     establecimientos usan (SOURCES-EC-CLOSE-2: Favorita → SUPERMAXI, AKI…;
+ *     El Rosado → MI COMISARIATO…). Por sí solo es una PISTA (como
  *     el nombre comercial de la DGII en RD); sólo da RUC seguro si la empresa es
  *     grande según la Superintendencia (`largeCompanyStrongMinWorkers`).
  *
@@ -34,7 +35,7 @@
  * 🔴 No se guarda dirección, teléfono, correo ni representante.
  */
 
-import { deriveTaxRecordIdentity } from '../../record-identity';
+import { buildRecordIdentityKey, deriveTaxRecordIdentity } from '../../record-identity';
 import type { RecordIdentityKey } from '../../record-identity';
 import { normalizeEcEntityCore } from './ec-entity-name-core';
 import type { EcRankingMetrics } from './ec-scvs-directory-rows';
@@ -46,6 +47,9 @@ const EC = 'EC' as const;
 
 /** RUC de sociedad privada (9) o pública (6): provincia válida + 8 dígitos + 001. */
 const SOCIETY_RUC = /^(0[1-9]|1[0-9]|2[0-4]|30)[69]\d{7}001$/;
+
+/** Espacio de la clave de la 2.ª y 3.ª marca de un RUC (`sri_trade:<RUC>-<n>`). */
+const EC_SRI_TRADE_NAME_NAMESPACE = 'sri_trade';
 
 /** Nombre comercial más corto que esto no identifica a nadie. */
 const MIN_TRADE_NAME_CORE = 3;
@@ -66,6 +70,8 @@ export type EcSriRecord = {
   status: string;
   establishment: number | null;
   tradeName: string;
+  /** El establecimiento está abierto (`ABI`); `CER` = cerrado. */
+  establishmentOpen: boolean;
   province: string;
   canton: string;
   ciiuCode: string | null;
@@ -87,6 +93,7 @@ export function readEcSriLine(row: Readonly<Record<string, unknown>>): EcSriReco
     status: text(row['ESTADO_CONTRIBUYENTE']).toUpperCase(),
     establishment: Number.isInteger(establishment) && establishment > 0 ? establishment : null,
     tradeName: text(row['NOMBRE_FANTASIA_COMERCIAL']),
+    establishmentOpen: text(row['ESTADO_ESTABLECIMIENTO']).toUpperCase() === 'ABI',
     province: text(row['DESCRIPCION_PROVINCIA_EST']),
     canton: text(row['DESCRIPCION_CANTON_EST']),
     ciiuCode: /^[A-U]\d{4,6}$/.test(ciiu) ? ciiu : null,
@@ -98,25 +105,82 @@ export function admitEcSriRecord(record: EcSriRecord): boolean {
   return record.status === 'ACTIVO' && SOCIETY_RUC.test(record.ruc);
 }
 
+/** Cuántas marcas por RUC se guardan (SOURCES-EC-CLOSE-2). */
+export const EC_SRI_MAX_TRADE_NAMES = 3;
+
+/** Conectores: pueden ir DENTRO de una marca («MI COMISARIATO»), nunca solos ni al final. */
+const BRAND_CONNECTOR_WORDS: ReadonlySet<string> = new Set(['MI', 'LA', 'EL', 'LOS', 'LAS', 'DE', 'DEL', 'Y', 'TU', 'SU', 'AL', 'P', 'S']);
+
 /**
- * Lo que se guarda de un RUC: su razón social y el establecimiento principal (el
- * de número más bajo que trae nombre comercial). Acumula fila a fila. Puro.
+ * Palabras que describen el local, no la marca («ALMACEN AGROPECUARIO INDIA»,
+ * «FARMACIAS CRUZ AZUL», «CENTRO DE …»): nunca abren una marca corta ni son una marca.
  */
-export type EcSriEntry = { main: EcSriRecord; tradeName: string | null; tradeEstablishment: number | null };
+const BRAND_DESCRIPTOR_WORDS: ReadonlySet<string> = new Set([
+  'SUPER', 'MINI', 'MEGA', 'GRAN', 'PLAZA', 'CENTRO', 'FARMACIA', 'FARMACIAS', 'ALMACEN', 'ALMACENES', 'TIENDA',
+  'TIENDAS', 'COMERCIAL', 'BODEGA', 'LOCAL', 'OFICINA', 'SUCURSAL', 'AGENCIA', 'PUNTO', 'ISLA', 'KIOSKO',
+  'DISTRIBUIDORA', 'MATRIZ', 'COMPANIA', 'CIA', 'EMPRESA', 'GRUPO', 'CORPORACION', 'CONSORCIO', 'SOCIEDAD',
+  'SERVICIOS', 'RESTAURANTE', 'HOTEL', 'PANADERIA', 'FERRETERIA', 'PLANTA', 'GALPON', 'HACIENDA', 'FINCA',
+]);
+
+/**
+ * Lo que se guarda de un RUC: su razón social (del establecimiento de número más
+ * bajo) y, para las marcas, cuántos establecimientos usan cada una. Cada nombre
+ * comercial suma su forma completa y sus 1-2 primeras palabras («SUPERMAXI CUMBAYA»
+ * suma «SUPERMAXI CUMBAYA» y «SUPERMAXI»; nunca un trozo que empieza por una palabra
+ * descriptiva ni termina en conector): así la marca que se
+ * repite en muchas tiendas («SUPERMAXI», «MI COMISARIATO», «TIA», «CLARO») gana.
+ * Un establecimiento abierto pesa 2; uno cerrado, 1. Puro.
+ */
+export type EcSriEntry = { main: EcSriRecord; tradeScores: ReadonlyMap<string, number> };
+
+/** Formas de un nombre comercial que pueden ser la marca. */
+export function ecTradeNameKeys(tradeName: string): string[] {
+  const core = normalizeEcEntityCore(tradeName);
+  if (core.length < MIN_TRADE_NAME_CORE) return [];
+  const words = core.split(' ').filter((w) => w.length > 0);
+  const keys = new Set<string>([core]);
+  const [first, second] = words;
+  const opensBrand = !BRAND_DESCRIPTOR_WORDS.has(first);
+  if (words.length > 1 && opensBrand && !BRAND_CONNECTOR_WORDS.has(first) && first.length >= MIN_TRADE_NAME_CORE) {
+    keys.add(first);
+  }
+  if (words.length > 2 && opensBrand && !BRAND_CONNECTOR_WORDS.has(second) && second.length >= MIN_TRADE_NAME_CORE) {
+    keys.add(`${first} ${second}`);
+  }
+  return [...keys].filter(
+    (k) => k.length >= MIN_TRADE_NAME_CORE && !GENERIC_TRADE_NAMES.has(k) && !BRAND_DESCRIPTOR_WORDS.has(k),
+  );
+}
 
 export function accumulateEcSriEntry(previous: EcSriEntry | undefined, next: EcSriRecord): EcSriEntry {
-  const nextTrade = next.tradeName !== '' ? next.tradeName : null;
   const nextNumber = next.establishment ?? Number.MAX_SAFE_INTEGER;
-  if (previous === undefined) {
-    return { main: next, tradeName: nextTrade, tradeEstablishment: nextTrade ? nextNumber : null };
+  const main =
+    previous === undefined || nextNumber < (previous.main.establishment ?? Number.MAX_SAFE_INTEGER) ? next : previous.main;
+  const scores = new Map(previous?.tradeScores ?? []);
+  if (next.tradeName !== '') {
+    const weight = next.establishmentOpen ? 2 : 1;
+    for (const key of ecTradeNameKeys(next.tradeName)) scores.set(key, (scores.get(key) ?? 0) + weight);
   }
-  const main = nextNumber < (previous.main.establishment ?? Number.MAX_SAFE_INTEGER) ? next : previous.main;
-  const better = nextTrade !== null && (previous.tradeEstablishment === null || nextNumber < previous.tradeEstablishment);
-  return {
-    main,
-    tradeName: better ? nextTrade : previous.tradeName,
-    tradeEstablishment: better ? nextNumber : previous.tradeEstablishment,
-  };
+  return { main, tradeScores: scores };
+}
+
+/**
+ * Las marcas de un RUC, de la más usada a la menos (empate: la más larga, que es la
+ * marca completa: «FARMACIAS CRUZ AZUL» antes que un trozo suyo). Nunca la razón social; nunca una forma que sólo amplía una
+ * marca ya elegida con el nombre de la tienda («SUPERMAXI EL INCA» tras «SUPERMAXI»).
+ */
+export function pickEcTradeNames(entry: EcSriEntry, legalCore: string): string[] {
+  // Ni la razón social ni un trozo de ella («CORPORACION» de «CORPORACION FAVORITA»).
+  const ranked = [...entry.tradeScores]
+    .filter(([key]) => key !== legalCore && !legalCore.startsWith(`${key} `))
+    .sort(([a, sa], [b, sb]) => sb - sa || b.length - a.length || a.localeCompare(b));
+  const picked: string[] = [];
+  for (const [key] of ranked) {
+    if (picked.length >= EC_SRI_MAX_TRADE_NAMES) break;
+    if (picked.some((p) => key.startsWith(`${p} `) || p.startsWith(`${key} `))) continue;
+    picked.push(key);
+  }
+  return picked;
 }
 
 export type EcSriRegistryRow = {
@@ -175,14 +239,17 @@ export function buildEcSriRegistryRows(params: {
   const rows: EcSriRegistryRow[] = [
     { ...base, source_key: EC_SRI_REGISTRY_SOURCE_KEY, normalized_legal_name: core, raw_data: raw },
   ];
-  const tradeCore = entry.tradeName ? normalizeEcEntityCore(entry.tradeName) : '';
-  if (tradeCore.length >= MIN_TRADE_NAME_CORE && tradeCore !== core && !GENERIC_TRADE_NAMES.has(tradeCore)) {
+  // La 1.ª marca conserva la identidad por RUC (una recarga actualiza la fila que ya
+  // existe); la 2.ª y la 3.ª llevan su propia clave.
+  pickEcTradeNames(entry, core).forEach((tradeCore, index) => {
+    const key = index === 0 ? identity : buildRecordIdentityKey(EC_SRI_TRADE_NAME_NAMESPACE, `${main.ruc}-${index + 1}`);
     rows.push({
       ...base,
       source_key: EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY,
       normalized_legal_name: tradeCore,
-      raw_data: { ...raw, trade_name: entry.tradeName, source_type: 'sri_trade_name' },
+      raw_data: { ...raw, trade_name: tradeCore, trade_name_rank: index + 1, source_type: 'sri_trade_name' },
+      record_identity_key: key.status === 'resolved' ? key.recordIdentityKey : null,
     });
-  }
+  });
   return rows;
 }

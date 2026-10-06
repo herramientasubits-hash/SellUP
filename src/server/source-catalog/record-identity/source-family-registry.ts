@@ -63,7 +63,6 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   ec_scvs_registry: 'TAX_GRAIN',
   ec_scvs_alias_registry: 'TAX_GRAIN',
   ec_sri_registry: 'TAX_GRAIN',
-  ec_sri_trade_name_registry: 'TAX_GRAIN',
   // SOURCES-CL-SII-FREE-DISCOVERY-1 — un RUT, una fila (personas jurídicas del SII con 100+ trabajadores).
   cl_sii_directory: 'TAX_GRAIN',
   // SOURCES-PE-FREE-DISCOVERY-1 — un RUC, una fila (sociedades y entidades de SUNAT con 200+ trabajadores).
@@ -79,6 +78,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   pe_sunat_name_alias: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC: la 1.ª con clave tax:<RUC>, las demás
+  // sri_trade:<RUC>-<n>. Un RUC puede tener varias filas.
+  ec_sri_trade_name_registry: 'NATIVE_RECORD_GRAIN',
 };
 
 export function getSourceFamily(sourceKey: string): SourceFamily {

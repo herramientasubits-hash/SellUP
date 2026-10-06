@@ -35,6 +35,7 @@ import {
   OFFICIAL_NAME_COUNTRIES,
   officialTradeNameWebsite,
   previousClaimedUrl,
+  registryFirstWordWebsite,
   DOMAIN_SEARCH_REASON_CODE,
   type DomainDuplicateCheck,
   type FoundWebsite,
@@ -361,7 +362,10 @@ async function resolveDispositionWebsite(
     }
   }
   // La web que Claude ya había propuesto antes: si es la marca oficial, vale sin volver a pagar.
-  if (!found) found = officialTradeNameWebsite(previousClaimedUrl(row.evidence), officialNames, dispositionDisplayName(row));
+  const officialFallback = (claimedUrl: string | null | undefined): FoundWebsite | null =>
+    officialTradeNameWebsite(claimedUrl, officialNames, dispositionDisplayName(row)) ??
+    (usesOfficialNames ? registryFirstWordWebsite(claimedUrl, dispositionDisplayName(row)) : null);
+  if (!found) found = officialFallback(previousClaimedUrl(row.evidence));
   if (!found) {
     const startedMs = deps.nowMs();
     let outcome: DomainFinderOutcome;
@@ -384,9 +388,7 @@ async function resolveDispositionWebsite(
     if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
-    const official = outcome.found
-      ? null
-      : officialTradeNameWebsite(outcome.claimedUrl, officialNames, dispositionDisplayName(row));
+    const official = outcome.found ? null : officialFallback(outcome.claimedUrl);
     const hint = official ?? unverifiedWebsiteHint(row, outcome);
     if (hint) {
       found = hint;
