@@ -203,7 +203,7 @@ describe('buildDoSizeRegistryRows', () => {
     assert.equal(alfa.country_code, 'DO');
     assert.equal(alfa.sector, HEALTH);
     assert.equal(alfa.legal_name, 'EMPRESA 101000001 SRL');
-    assert.equal(alfa.normalized_legal_name, 'EMPRESA 101000001');
+    assert.equal(alfa.normalized_legal_name, 'EMPRESA 101000001 SRL', 'como el padrón: mayúsculas y forma societaria');
     assert.equal(alfa.priority_score, doSizePriorityScore(1, 0));
     assert.equal(alfa.raw_data.macro_industry_key, 'health_pharma');
     assert.equal(alfa.raw_data.macro_table_version, DO_DGII_MACRO_TABLE_VERSION);
@@ -337,7 +337,7 @@ describe('RNC por nombre comercial (sólo pista)', () => {
     assert.deepEqual(tradeCalls, []);
   });
 
-  it('dos empresas con el mismo nombre comercial: pista ambigua', async () => {
+  it('dos empresas con el mismo nombre comercial: ninguna pista (sería un RNC al azar)', async () => {
     const { resolver } = doResolver(
       [],
       [
@@ -346,8 +346,8 @@ describe('RNC por nombre comercial (sólo pista)', () => {
       ],
     );
     const result = await resolver.resolve({ candidate: candidate('La Sirena'), criteria: { countryCode: 'DO' }, policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY });
-    assert.equal(result.status, 'low_confidence_match');
-    assert.equal((result.safeMetadata as Record<string, unknown>).ambiguous, true);
+    assert.equal(result.status, 'not_found');
+    assert.equal(result.taxIdentifier, undefined);
   });
 
   it('sin razón social ni nombre comercial: no encontrado', async () => {
@@ -406,6 +406,10 @@ describe('guardas estáticas', () => {
     assert.match(etl, /assertLargeImportAllowed\(/);
     const upserts = etl.match(/\.upsert\(/g) ?? [];
     assert.equal(upserts.length, 1, 'un único punto de escritura');
-    assert.doesNotMatch(etl, /\.(delete|update|insert|rpc)\s*\(/);
+    const deletes = etl.match(/\.delete\(\)[^;]*;/g) ?? [];
+    assert.equal(deletes.length, 1, 'un único borrado');
+    assert.match(deletes[0], /\.eq\('source_key', sourceKey\)/, 'el borrado sólo alcanza a la fuente que se reemplaza');
+    assert.match(etl, /if \(!WRITABLE_SOURCE_KEYS\.has\(sourceKey\)/);
+    assert.doesNotMatch(etl, /\.(update|insert|rpc)\s*\(/);
   });
 });

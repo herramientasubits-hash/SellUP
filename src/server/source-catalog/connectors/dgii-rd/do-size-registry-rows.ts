@@ -162,7 +162,6 @@ export function buildDoSizeRegistryRows(params: {
     if (tier === null) continue;
 
     const awarded = procurement?.awardedTotalDop ?? 0;
-    const core = normalizeDominicanCompanyCore(legalName);
     byRnc.set(rnc, {
       source_key: DO_DGII_SIZE_REGISTRY_SOURCE_KEY,
       country_code: DO_COUNTRY_CODE,
@@ -170,7 +169,9 @@ export function buildDoSizeRegistryRows(params: {
       tax_id: rnc,
       normalized_tax_id: rnc,
       legal_name: legalName,
-      normalized_legal_name: core.length > 0 ? core : legalName.toUpperCase(),
+      // Igual que el padrón (mayúsculas, con forma societaria): el candidato llega
+      // al detector de duplicados con el mismo nombre que antes de esta carga.
+      normalized_legal_name: legalName.toUpperCase(),
       sector: row.sector,
       priority_score: doSizePriorityScore(tier, awarded),
       signals: { size_tier: tier, awarded_total_dop: awarded },

@@ -21,10 +21,11 @@
  *
  * Escritura REAL (sólo con autorización explícita de la dueña): añadir --apply.
  *
- * Guardrails: dry-run por defecto; `--apply` escribe SÓLO las dos source_key de
- * arriba (upsert por identidad de registro, reversible con DELETE … WHERE
- * source_key = …); `assertLargeImportAllowed` antes de escribir cada una; nunca
- * personas físicas (sólo RNC de 9 dígitos).
+ * Guardrails: dry-run por defecto; `--apply` REEMPLAZA sólo las dos source_key de
+ * arriba (borra sus filas y sube las nuevas, para que no queden empresas que
+ * pasaron a inactivas; reversible con DELETE … WHERE source_key = …);
+ * `assertLargeImportAllowed` de las dos antes de escribir nada; nunca personas
+ * físicas (sólo RNC de 9 dígitos).
  */
 
 import { loadEnvConfig } from '@next/env';
@@ -50,6 +51,8 @@ import {
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
+type Plan = { sourceKey: string; rows: readonly { source_key: string }[] };
+
 const PAGE = 1000;
 const UPSERT_CHUNK = 1000;
 const WRITABLE_SOURCE_KEYS: ReadonlySet<string> = new Set([
@@ -66,69 +69,103 @@ function text(v: unknown): string | null {
   return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
 }
 
-/** Recorre una fuente entera por RNC (índice source_key + normalized_tax_id), sólo lectura. */
-async function readAll(
-  client: SupabaseClient,
-  sourceKey: string,
-  columns: string,
-): Promise<Record<string, unknown>[]> {
-  const out: Record<string, unknown>[] = [];
+/**
+ * Recorre el padrón DGII entero por RNC (índice source_key + normalized_tax_id),
+ * sólo lectura. El padrón tiene UNA fila por RNC; si apareciera otra (otro
+ * `source_year`), la página por clave podría saltársela, así que se aborta.
+ */
+async function readPadron(client: SupabaseClient): Promise<DoPadronRow[]> {
+  const out: DoPadronRow[] = [];
+  const seen = new Set<string>();
   let last = '';
   for (;;) {
     const { data, error } = await client
       .from('source_company_snapshots')
-      .select(columns)
-      .eq('source_key', sourceKey)
+      .select('normalized_tax_id, legal_name, sector, trade_name:raw_data->>trade_name, active:raw_data->>is_active_taxpayer')
+      .eq('source_key', 'rd_dgii_bulk')
       .eq('country_code', 'DO')
       .gt('normalized_tax_id', last)
       .order('normalized_tax_id', { ascending: true })
       .limit(PAGE);
-    if (error) throw new Error(`read_failed_${sourceKey}: ${error.message}`);
+    if (error) throw new Error(`read_failed_rd_dgii_bulk: ${error.message}`);
     const rows = (data ?? []) as unknown as Record<string, unknown>[];
-    out.push(...rows);
+    for (const row of rows) {
+      const rnc = text(row['normalized_tax_id']);
+      if (rnc !== null && seen.has(rnc)) throw new Error(`padron_rnc_repetido: ${rnc} (¿dos años cargados?)`);
+      if (rnc !== null) seen.add(rnc);
+      out.push({
+        rnc,
+        legalName: text(row['legal_name']),
+        tradeName: text(row['trade_name']),
+        sector: text(row['sector']),
+        isActive: row['active'] === 'true' || row['active'] === true,
+      });
+    }
     if (rows.length < PAGE) return out;
     last = String(rows[rows.length - 1]['normalized_tax_id']);
   }
 }
 
-async function readPadron(client: SupabaseClient): Promise<DoPadronRow[]> {
-  const rows = await readAll(
-    client,
-    'rd_dgii_bulk',
-    'normalized_tax_id, legal_name, sector, trade_name:raw_data->>trade_name, active:raw_data->>is_active_taxpayer',
-  );
-  return rows.map((row) => ({
-    rnc: text(row['normalized_tax_id']),
-    legalName: text(row['legal_name']),
-    tradeName: text(row['trade_name']),
-    sector: text(row['sector']),
-    isActive: row['active'] === 'true' || row['active'] === true,
-  }));
+/**
+ * Compras públicas por RNC: importe sumado en todos los años y la clase MIPYME
+ * más reciente que NO esté vacía (desempate por año). `do_dgcp` tiene una fila
+ * por RNC y año, así que se pagina por posición con un orden total
+ * (RNC, año, id): nunca se salta ni se repite una fila.
+ */
+async function readProcurement(client: SupabaseClient): Promise<Map<string, DoProcurementSummary>> {
+  type Acc = { total: number; mipymeClass: string | null; classKey: string };
+  const acc = new Map<string, Acc>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from('source_company_snapshots')
+      .select(
+        'normalized_tax_id, source_year, awarded:signals->>total_awarded_amount_dop, last:signals->>last_award_date, mipyme:raw_data->provider->>clasificacion',
+      )
+      .eq('source_key', 'do_dgcp')
+      .eq('country_code', 'DO')
+      .order('normalized_tax_id', { ascending: true })
+      .order('source_year', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`read_failed_do_dgcp: ${error.message}`);
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    for (const row of rows) {
+      const rnc = text(row['normalized_tax_id']);
+      if (rnc === null) continue;
+      const amount = Number(row['awarded']);
+      const previous = acc.get(rnc) ?? { total: 0, mipymeClass: null, classKey: '' };
+      const total = previous.total + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+      const mipyme = text(row['mipyme']);
+      // Clave de recencia: fecha de la última adjudicación y, si empata, el año.
+      const classKey = `${text(row['last']) ?? ''}|${String(row['source_year'] ?? '').padStart(4, '0')}`;
+      const newer = mipyme !== null && (previous.mipymeClass === null || classKey > previous.classKey);
+      acc.set(rnc, {
+        total,
+        mipymeClass: newer ? mipyme : previous.mipymeClass,
+        classKey: newer ? classKey : previous.classKey,
+      });
+    }
+    if (rows.length < PAGE) break;
+  }
+  return new Map([...acc].map(([rnc, { total, mipymeClass }]) => [rnc, { awardedTotalDop: total, mipymeClass }]));
 }
 
-/** Compras públicas por RNC: importe sumado en todos los años y la clase del año más reciente. */
-async function readProcurement(client: SupabaseClient): Promise<Map<string, DoProcurementSummary>> {
-  const rows = await readAll(
-    client,
-    'do_dgcp',
-    'normalized_tax_id, awarded:signals->>total_awarded_amount_dop, last:signals->>last_award_date, mipyme:raw_data->provider->>clasificacion',
-  );
-  const out = new Map<string, DoProcurementSummary & { last: string }>();
-  for (const row of rows) {
-    const rnc = text(row['normalized_tax_id']);
-    if (rnc === null) continue;
-    const amount = Number(row['awarded']);
-    const last = text(row['last']) ?? '';
-    const previous = out.get(rnc);
-    const total = (previous?.awardedTotalDop ?? 0) + (Number.isFinite(amount) && amount > 0 ? amount : 0);
-    const newer = previous === undefined || last > previous.last;
-    out.set(rnc, {
-      awardedTotalDop: total,
-      mipymeClass: newer ? text(row['mipyme']) : previous.mipymeClass,
-      last: newer ? last : previous.last,
-    });
+/**
+ * Reemplaza la carga de UNA de las dos fuentes: borra sus filas y sube las
+ * nuevas, para que una empresa que pasó a inactiva o salió de las listas deje de
+ * ofrecerse. Nunca toca otra `source_key`.
+ */
+async function replaceSource(
+  client: SupabaseClient,
+  sourceKey: string,
+  rows: readonly { source_key: string }[],
+): Promise<number> {
+  if (!WRITABLE_SOURCE_KEYS.has(sourceKey) || rows.some((row) => row.source_key !== sourceKey)) {
+    throw new Error('refused: una fila no pertenece a la fuente que se reemplaza');
   }
-  return new Map([...out].map(([rnc, { awardedTotalDop, mipymeClass }]) => [rnc, { awardedTotalDop, mipymeClass }]));
+  const { error } = await client.from('source_company_snapshots').delete().eq('source_key', sourceKey).eq('country_code', 'DO');
+  if (error) throw new Error(`clear_failed_${sourceKey}: ${error.message}`);
+  return upsertAll(client, rows);
 }
 
 async function upsertAll(client: SupabaseClient, rows: readonly { source_key: string }[]): Promise<number> {
@@ -179,6 +216,7 @@ async function main(): Promise<void> {
   const sourceYear = Number(value(argv, 'year') ?? new Date().getUTCFullYear());
   const padron = await readPadron(client);
   console.log(`  Padrón DGII leído: ${padron.length} RNC (${padron.filter((r) => r.isActive).length} activos)`);
+  const plans: Plan[] = [];
 
   if (wantSize) {
     const nacionales = parseDgiiLargeTaxpayerListHtml(readFileSync(nacionalesPath as string, 'utf8'), 'nacionales');
@@ -196,10 +234,7 @@ async function main(): Promise<void> {
     console.log(`  ${DO_DGII_SIZE_REGISTRY_SOURCE_KEY}: ${rows.length} filas`);
     console.log(`    por nivel ${JSON.stringify(countBy(rows, (r) => String(r.signals.size_tier)))}`);
     console.log(`    por macro ${JSON.stringify(countBy(rows, (r) => String(r.raw_data.macro_industry_key)))}`);
-    if (apply) {
-      assertLargeImportAllowed({ sourceKey: DO_DGII_SIZE_REGISTRY_SOURCE_KEY, countryCode: 'DO', estimatedRows: rows.length, isDryRun: false });
-      console.log(`    rowsUpserted = ${await upsertAll(client, rows)}`);
-    }
+    plans.push({ sourceKey: DO_DGII_SIZE_REGISTRY_SOURCE_KEY, rows });
   }
 
   if (wantTrade) {
@@ -209,9 +244,16 @@ async function main(): Promise<void> {
     const cores = countBy(rows, (r) => r.normalized_legal_name);
     const unique = rows.filter((r) => cores[r.normalized_legal_name] === 1).length;
     console.log(`  ${DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY}: ${rows.length} filas · nombre comercial único ${unique} (${((100 * unique) / Math.max(rows.length, 1)).toFixed(1)} %)`);
-    if (apply) {
-      assertLargeImportAllowed({ sourceKey: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, countryCode: 'DO', estimatedRows: rows.length, isDryRun: false });
-      console.log(`    rowsUpserted = ${await upsertAll(client, rows)}`);
+    plans.push({ sourceKey: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, rows });
+  }
+
+  if (apply) {
+    // Los topes se comprueban TODOS antes de escribir nada: nunca media carga.
+    for (const plan of plans) {
+      assertLargeImportAllowed({ sourceKey: plan.sourceKey, countryCode: 'DO', estimatedRows: plan.rows.length, isDryRun: false });
+    }
+    for (const plan of plans) {
+      console.log(`  ${plan.sourceKey}: rowsUpserted = ${await replaceSource(client, plan.sourceKey, plan.rows)}`);
     }
   }
 

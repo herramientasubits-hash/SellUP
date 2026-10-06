@@ -72,6 +72,7 @@ export interface SnapshotNameResolverConfig {
    * a unique exact core is kept as a signal (`low_confidence_match`). For sources
    * keyed by something weaker than the legal name, e.g. the DGII trade name
    * («CODETEL»): many companies trade under a name that is not theirs alone.
+   * Several companies with that core give `not_found`: no arbitrary number.
    */
   signalOnly?: boolean;
 }
@@ -147,6 +148,10 @@ export function createSnapshotNameOfficialSourceResolver(
           safeMetadata: { normalizedSearchName: core, brandInLegalName: true },
         };
       }
+
+      // Una fuente sólo-pista con varias empresas posibles no apunta a ninguna:
+      // el primer RNC de la lista sería arbitrario.
+      if (config.signalOnly === true && distinct.length > 1) return notFound(core);
 
       const best = distinct[0];
       const base = {
