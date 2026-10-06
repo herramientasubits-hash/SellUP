@@ -24,7 +24,7 @@ import type { SearchableSelectOption } from '@/components/forms/searchable-selec
 import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
-import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
+import { executeWizardRunViaRoute, getAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { ChatComposer } from '@/components/chat';
 import { Stepper, type StepperStep } from '@/components/navigation/stepper';
@@ -631,8 +631,19 @@ export function ProspectChatWizard({
     setRunningRequestId(clientRequestIdRef.current);
     dispatch({ type: 'BEGIN_EXECUTION' });
 
+    // AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida la lleva el almacén del shell (por
+    // ruta, no server action): sobrevive si se cierra el chat, aparece en la
+    // bandeja flotante y no deja en cola el resto del navegador.
+    const runsStore = getAgentRunsStore();
+    const countryName =
+      LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
+    const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
+    const runTitle = [countryName, industryName].filter(Boolean).join(' · ');
+    const execute = (payload: Parameters<typeof executeWizardRunViaRoute>[0]) =>
+      runsStore ? runsStore.startRun({ title: runTitle, payload }) : executeWizardRunViaRoute(payload);
+
     try {
-      const result = await executeProspectWizardGenerationAction({
+      const result = await execute({
         countryCode: state.countryCode!,
         industryId: state.industryId!,
         subindustryIds: state.subindustryIds,

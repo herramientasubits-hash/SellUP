@@ -37,10 +37,13 @@ import * as React from 'react';
 import { AlertCircle, CheckCircle2, PauseCircle } from "@/icons";
 import { ChatMark } from '@/components/chat';
 
+// AGENT1-PARALLEL-RUNS-TRAY-1 — por RUTA y no server action: cada vuelta dura hasta
+// 300 s y el cliente despacha las server actions de una en una, así que el resto
+// del chat esperaba detrás (Prod 06-10, «Validando la configuración…» congelado).
 import {
-  continueApolloRound,
-  findPendingApolloContinuation,
-} from '@/modules/prospect-batches/apollo-continuation-actions';
+  continueApolloRoundViaRoute as continueApolloRound,
+  findPendingApolloContinuationViaRoute as findPendingApolloContinuation,
+} from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import {
   APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE,
   APOLLO_CONTINUATION_IN_SESSION_NOTE,

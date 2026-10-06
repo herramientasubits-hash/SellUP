@@ -76,7 +76,9 @@ describe('§ 6 · caso 7 — el cliente sólo puede enviar la PETICIÓN', () => 
       'overrideAllowed:',
     ];
     const actionCall = WIZARD_SOURCE.slice(
-      WIZARD_SOURCE.indexOf('executeProspectWizardGenerationAction({'),
+      // AGENT1-PARALLEL-RUNS-TRAY-1 — la solicitud ya no va directo a la server
+      // action: pasa por el almacén de corridas (ruta). Es la MISMA solicitud.
+      WIZARD_SOURCE.indexOf('await execute({'),
       WIZARD_SOURCE.indexOf('// § 10 — la fuente del indicador es el servidor'),
     );
     assert.ok(actionCall.length > 0, 'no se localizó la llamada a la acción');
