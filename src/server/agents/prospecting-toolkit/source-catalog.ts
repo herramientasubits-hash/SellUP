@@ -1017,6 +1017,37 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'cl_sii_directory',
+    name: 'SII — capa gratuita por industria (100+ trabajadores)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Chile. La carga (≈11.000 personas jurídicas del SII con 100 o más trabajadores, armada desde cl_sii_registry sin descargar nada) espera la autorización de la dueña: hasta entonces Chile no tiene capa gratuita y va directo a proveedores.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita chilena por industria: personas jurídicas del SII con 100 o más trabajadores dependientes informados (2024) cuyo código de actividad (6 dígitos) y texto de actividad coinciden. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga, de más a menos trabajadores, según la tabla de actividades → industria aprobada por la dueña (05-10-2026): la misma por división que Argentina y Ecuador, más el cobre (división 04) en Energía y minería, mayoristas de medicamentos e instrumental médico, farmacias y ortopedias en Salud, mayoristas y tiendas de informática y telecomunicaciones en Tecnología, y los «fondos y sociedades de inversión» sin industria salvo 25 holdings revisados a mano (Falabella y Cencosud en Comercio, Enel en Energía, Red Salud en Salud…). Cada empresa llega con su RUT; los trabajadores quedan en la fuente como estimado con su año.',
+    limitations: [
+      'Sólo empresas con 100 o más trabajadores dependientes informados al SII en 2024; las que no informaron trabajadores no aparecen.',
+      '«Trabajadores dependientes informados» es un estimado oficial con su año, no el tamaño confirmado.',
+      'La industria sale del código de actividad del SII: un holding puede estar registrado con el giro de inversión y no con el de su grupo.',
+      'Actividades fuera de la tabla no se proponen: hoteles, restaurantes, medios, investigación, educación (el asistente no tiene industria «Educación»), cultura, deporte y asociaciones.',
+      'El SII no publica sitio web ni dirección: las empresas llegan sin dominio.',
+      'Empresas del mismo grupo con RUT distinto aparecen por separado (decisión de la dueña).',
+      'Snapshot estático — se rearma desde cl_sii_registry cuando éste se recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan representantes, teléfonos ni direcciones.',
+    ],
+  },
+  {
     key: 'cl_res_registry',
     name: 'Registro de Empresas y Sociedades — RUT por nombre',
     sellupUse: 'legal_validation',
