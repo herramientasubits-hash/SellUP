@@ -48,6 +48,10 @@ import {
 } from './country-source-macro-precision';
 import type { CountrySourceAdapter, CountrySourceCompany } from './country-source-types';
 import {
+  fillMissingOfficialTaxIds,
+  type LookUpCountrySourceOfficialTaxId,
+} from './country-source-official-tax-id';
+import {
   failedFreeSourceOutcome,
   notAttemptedFreeSourceOutcome,
   type PrePaidFreeSourceOutcome,
@@ -80,6 +84,11 @@ export type CountrySourcePrePaidDiscoveryInput = {
 export type CountrySourcePrePaidDiscoveryDeps = {
   adapter: CountrySourceAdapter;
   checkCompanyDuplicate: CheckCountrySourceCompanyDuplicate;
+  /**
+   * READ-ONLY. Número fiscal oficial por nombre para empresas que la fuente
+   * publica sin él (hoy DENUE México). Ausente ⇒ las empresas quedan como vienen.
+   */
+  lookUpOfficialTaxId?: LookUpCountrySourceOfficialTaxId | null;
 };
 
 export type CountrySourcePrePaidDiscoveryResult = {
@@ -206,6 +215,7 @@ export async function runCountrySourcePrePaidDiscovery(
   // cerraría el hueco con una sola empresa.
   const seenIdentities = new Set<string>();
 
+  const admitted: CountrySourceCompany[] = [];
   for (const company of companies) {
     const precision = assessCountrySourceMacroPrecision({
       macroIndustryKey: input.macroIndustryKey,
@@ -218,7 +228,18 @@ export async function runCountrySourcePrePaidDiscovery(
       continue;
     }
     macroConfirmed++;
+    admitted.push(company);
+  }
 
+  // SOURCES-MX-FREE-LAYER-RFC-1 — la fuente que no publica número fiscal (DENUE)
+  // lo busca en el registro oficial ANTES del dedupe y del chequeo de duplicado:
+  // con el número, ambos usan identidad fiscal en vez de sólo el nombre. Sólo lo
+  // admitido por la macro: no se gasta tiempo en lo que ya se descartó.
+  const withTaxIds = deps.lookUpOfficialTaxId
+    ? await fillMissingOfficialTaxIds(admitted, deps.lookUpOfficialTaxId).catch(() => admitted)
+    : admitted;
+
+  for (const company of withTaxIds) {
     const identity = (company.taxId ?? company.normalizedLegalName ?? company.recordIdentityKey)
       .toLowerCase();
     if (seenIdentities.has(identity)) continue;

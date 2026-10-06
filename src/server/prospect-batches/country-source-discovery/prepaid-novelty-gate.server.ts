@@ -38,6 +38,11 @@ import {
 } from './run-prepaid-novelty-gate';
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import { buildCountrySourceAdapter } from './country-source-capability';
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import {
+  buildCountrySourceOfficialTaxIdLookup,
+  type LookUpCountrySourceOfficialTaxId,
+} from './country-source-official-tax-id';
 import { buildCoSiisDiscoverySnapshotQuery } from './co-siis-snapshot-query';
 import { buildDoDgiiDiscoveryReads } from './do-dgii-snapshot-query';
 import { buildArRnsDiscoveryReads } from './ar-rns-snapshot-query';
@@ -75,6 +80,14 @@ function buildKnownExclusionDomainsReader(
   };
 }
 
+function buildOfficialTaxIdLookupOrNull(): LookUpCountrySourceOfficialTaxId | null {
+  try {
+    return buildCountrySourceOfficialTaxIdLookup(buildColombiaOfficialSourceResolvers());
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resuelve el plan previo al pago con las deps reales.
  *
@@ -108,6 +121,9 @@ export async function runProductionPrePaidNoveltyGate(
         })
       : null,
     checkCompanyDuplicate: adminClient ? (dupInput) => checkCompanyDuplicate(dupInput) : null,
+    // SOURCES-MX-FREE-LAYER-RFC-1 — las MISMAS fuentes oficiales por nombre que
+    // Apollo, Tavily y Claude (sólo lectura de snapshots). DENUE no trae RFC.
+    lookUpOfficialTaxId: buildOfficialTaxIdLookupOrNull(),
     listKnownExclusionDomains: adminClient
       ? buildKnownExclusionDomainsReader(adminClient)
       : null,
