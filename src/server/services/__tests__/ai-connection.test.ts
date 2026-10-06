@@ -488,6 +488,64 @@ describe('ai-connection (offline — fake Vault via fetch, mocked fetch, no real
     assert.equal(result.error, 'INVALID_API_KEY');
   });
 
+  // ── AI-CONNECTION-TEST-REAL-REASON-1 — el motivo real de Anthropic ─────────
+
+  it('testClaudeConnection: saldo agotado ⇒ ACCOUNT_NOT_USABLE con el motivo, sin culpar al modelo ni probar otros', async () => {
+    let posts = 0;
+    installFetch({
+      anthropic: (c) => {
+        if (c.init?.method === 'POST') {
+          posts += 1;
+          return jsonResponse(
+            {
+              type: 'error',
+              error: {
+                type: 'invalid_request_error',
+                message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
+              },
+            },
+            400,
+          );
+        }
+        return jsonResponse({ data: [{ id: 'claude-x' }, { id: 'claude-y' }] });
+      },
+    });
+    const result = await testClaudeConnection(FAKE_ANTHROPIC_KEY, 'claude-x');
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'ACCOUNT_NOT_USABLE');
+    assert.match(result.message ?? '', /credit balance is too low/);
+    assert.match(result.message ?? '', /console\.anthropic\.com/);
+    assert.doesNotMatch(result.message ?? '', /no está disponible/);
+    assert.equal(posts, 1, 'un bloqueo de cuenta no se reintenta con otros modelos');
+    assert.equal(JSON.stringify(result).includes(FAKE_ANTHROPIC_KEY), false);
+  });
+
+  it('testClaudeConnection: modelo inexistente ⇒ MODEL_NOT_EXECUTABLE con el motivo y la pista de cambiar de modelo', async () => {
+    installFetch({
+      anthropic: (c) => {
+        if (c.init?.method === 'POST') {
+          return jsonResponse({ type: 'error', error: { type: 'not_found_error', message: 'model: claude-x' } }, 404);
+        }
+        return jsonResponse({ data: [{ id: 'claude-x' }] });
+      },
+    });
+    const result = await testClaudeConnection(FAKE_ANTHROPIC_KEY, 'claude-x');
+    assert.equal(result.error, 'MODEL_NOT_EXECUTABLE');
+    assert.match(result.message ?? '', /HTTP 404: model: claude-x/);
+    assert.match(result.message ?? '', /Selecciona otro modelo/);
+  });
+
+  it('describeAnthropicExecutionFailure clasifica cuenta, modelo y otros', async () => {
+    const { describeAnthropicExecutionFailure } = await import('../ai-connection');
+    const base = { ok: false as const, model_id: 'm' };
+    assert.equal(describeAnthropicExecutionFailure({ ...base, status: 400, error_message: 'You have reached your specified API usage limits.' }).kind, 'account');
+    assert.equal(describeAnthropicExecutionFailure({ ...base, status: 402, error_message: '' }).kind, 'account');
+    assert.equal(describeAnthropicExecutionFailure({ ...base, status: 404, error_code: 'not_found_error' }).kind, 'model');
+    const other = describeAnthropicExecutionFailure({ ...base, status: 529, error_message: 'Overloaded' });
+    assert.equal(other.kind, 'other');
+    assert.equal(other.reason, 'HTTP 529: Overloaded');
+  });
+
   // ── Fail-closed: unsafe env throws UnsafeSupabaseEnvironmentError ───────────
 
   it('Vault/admin functions fail closed (throw UnsafeSupabaseEnvironmentError) when the Supabase URL is missing', async () => {
