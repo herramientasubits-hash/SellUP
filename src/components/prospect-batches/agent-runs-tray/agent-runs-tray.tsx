@@ -32,8 +32,12 @@ import {
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { WizardApolloContinuationPanel } from '@/components/prospect-batches/chat-wizard/wizard-apollo-continuation-panel';
 import { useDraggableTray } from './use-draggable-tray';
+import { useRouter } from 'next/navigation';
 import {
-  AGENT_RUNS_PAGE_PATH,
+  agentRunsFallbackHref,
+  requestOpenAgentRunsInChat,
+} from '@/modules/prospect-batches/agent-runs/agent-chat-events';
+import {
   AGENT_RUNS_TRAY_COPY,
   describeAgentRun,
   isDetachedRunFinished,
@@ -172,6 +176,14 @@ export function AgentRunsTray() {
     return () => window.removeEventListener(AGENT_RUNS_TRAY_EXPAND_EVENT, expand);
   }, []);
 
+  // AGENT1-RUNS-INSIDE-CHAT-1 — «ver todas» abre el CHAT en su pestaña
+  // «Búsquedas» (no una pantalla aparte). Si esta pantalla no tiene el asistente,
+  // lleva a Empresas y el cajón se abre ahí en esa pestaña.
+  const router = useRouter();
+  const openRunsInChat = React.useCallback(() => {
+    if (!requestOpenAgentRunsInChat()) router.push(agentRunsFallbackHref());
+  }, [router]);
+
   // Una corrida que termina EN PAUSA hace que la continuación vuelva a preguntar.
   const pausedRunSignal = runs.filter((run) => run.continuationPending).length;
 
@@ -215,10 +227,16 @@ export function AgentRunsTray() {
           </h2>
           {!minimized && <p className="text-xs text-muted-foreground">{AGENT_RUNS_TRAY_COPY.subtitle}</p>}
         </div>
-        <Button asChild size="icon" variant="ghost" className="h-8 w-8">
-          <Link href={AGENT_RUNS_PAGE_PATH} aria-label={AGENT_RUNS_TRAY_COPY.openPage} title={AGENT_RUNS_TRAY_COPY.openPage}>
-            <ExternalLink className="h-4 w-4" />
-          </Link>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8"
+          aria-label={AGENT_RUNS_TRAY_COPY.openPage}
+          title={AGENT_RUNS_TRAY_COPY.openPage}
+          onClick={openRunsInChat}
+          data-testid="agent-runs-tray-open-chat"
+        >
+          <ExternalLink className="h-4 w-4" />
         </Button>
         <Button
           size="icon"
