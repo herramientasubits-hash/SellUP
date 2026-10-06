@@ -22,7 +22,9 @@ import {
 } from '../pe-sunat-open-padron';
 import { buildPeSunatRegistryRow, normalizePeruCompanyCore } from '../pe-sunat-registry-row';
 import {
+  dropAliasKeysOwnedByOthers,
   endsWithPeruLegalForm,
+  peruOwnNameKeys,
   peruCandidateNameVariants,
   peruPublicEntityKey,
   peruPublicEntityNameKeys,
@@ -307,5 +309,30 @@ describe('filas de pe_sunat_directory (capa gratuita)', () => {
       importedAt: P.importedAt,
     })!;
     assert.equal(row.raw_data['macro_industry_key'], 'government');
+  });
+});
+
+describe('un alias nunca usa el nombre propio de otra sociedad (SOURCES-PE-ALIAS-OWNERSHIP-1)', () => {
+  it('nombres propios: el núcleo y, en entidades públicas, su clave pública', () => {
+    assert.deepEqual(peruOwnNameKeys('GOBIERNO REGIONAL DE LORETO'), ['GOBIERNO REGIONAL DE LORETO', 'GOBIERNO REGIONAL LORETO']);
+    assert.deepEqual(peruOwnNameKeys('LECHE GLORIA SOCIEDAD ANONIMA GLORIA'), ['LECHE GLORIA SOCIEDAD ANONIMA GLORIA']);
+    assert.deepEqual(peruOwnNameKeys('X'), []);
+  });
+
+  it('la subunidad del OECE no se queda con el nombre del Gobierno Regional; su propio alias sí vale', () => {
+    const owners = new Map<string, Set<string>>([
+      ['GOBIERNO REGIONAL DE LORETO', new Set(['20493196902'])],
+      ['GOBIERNO REGIONAL LORETO', new Set(['20493196902'])],
+      ['LIMA', new Set(['20614437180'])],
+    ]);
+    const subunit = '20408560137';
+    assert.deepEqual(
+      dropAliasKeysOwnedByOthers(['GOBIERNO REGIONAL DE LORETO', 'GOBIERNO REGIONAL LORETO', 'GERENCIA SUB REGIONAL ALTO AMAZONAS YURIMAGUAS', 'LIMA'], subunit, owners),
+      ['GERENCIA SUB REGIONAL ALTO AMAZONAS YURIMAGUAS'],
+    );
+    // El dueño del nombre conserva sus claves.
+    assert.deepEqual(dropAliasKeysOwnedByOthers(['GOBIERNO REGIONAL LORETO'], '20493196902', owners), ['GOBIERNO REGIONAL LORETO']);
+    // Una clave que no es el nombre de nadie se conserva (GLORIA).
+    assert.deepEqual(dropAliasKeysOwnedByOthers(['GLORIA'], '20100190797', owners), ['GLORIA']);
   });
 });

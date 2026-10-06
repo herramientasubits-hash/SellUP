@@ -60,6 +60,8 @@ import {
   type PeSunatRegistryRow,
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
 import {
+  dropAliasKeysOwnedByOthers,
+  peruOwnNameKeys,
   peruPublicEntityNameKeys,
   peruRegistryAliasKeys,
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-name-keys';
@@ -196,9 +198,25 @@ async function main(): Promise<void> {
       aliasRows.push(row);
     }
   };
+  // Un alias nunca usa el nombre PROPIO de otra sociedad (SOURCES-PE-ALIAS-OWNERSHIP-1).
+  const owners = new Map<string, Set<string>>();
+  for (const row of registryRows) {
+    for (const key of peruOwnNameKeys(row.normalized_legal_name)) {
+      owners.set(key, (owners.get(key) ?? new Set<string>()).add(row.normalized_tax_id));
+    }
+  }
+  let droppedOwned = 0;
+  const ownedFilter = (keys: string[], ruc: string): string[] => {
+    const kept = dropAliasKeysOwnedByOthers(keys, ruc, owners);
+    droppedOwned += keys.length - kept.length;
+    return kept;
+  };
   for (const row of registryRows) {
     const info = open.get(row.normalized_tax_id) ?? null;
-    const keys = peruRegistryAliasKeys(row.legal_name, { taxpayerType: info?.taxpayerType ?? null, workers: info?.workers ?? null });
+    const keys = ownedFilter(
+      peruRegistryAliasKeys(row.legal_name, { taxpayerType: info?.taxpayerType ?? null, workers: info?.workers ?? null }),
+      row.normalized_tax_id,
+    );
     pushAliases(buildPeSunatNameAliasRows({ ruc: row.normalized_tax_id, legalName: row.legal_name, keys, origin: 'sunat_legal_name', open: info, sourceYear: config.year, importedAt }));
   }
   let oeceMatched = 0;
@@ -208,12 +226,12 @@ async function main(): Promise<void> {
       const main = registry.get(ruc);
       if (!main) continue; // sólo entidades activas y habidas del padrón
       oeceMatched++;
-      const keys = peruPublicEntityNameKeys(name).filter((k) => k !== main.normalized_legal_name);
+      const keys = ownedFilter(peruPublicEntityNameKeys(name).filter((k) => k !== main.normalized_legal_name), ruc);
       pushAliases(buildPeSunatNameAliasRows({ ruc, legalName: main.legal_name, keys, origin: 'oece_entity', open: open.get(ruc) ?? null, sourceYear: config.year, importedAt }));
     }
     console.log(`  OECE: ${entities.size} entidades activas · ${oeceMatched} en el padrón`);
   }
-  console.log(`  pe_sunat_name_alias: ${aliasRows.length} filas (${new Set(aliasRows.map((r) => r.normalized_tax_id)).size} RUC)`);
+  console.log(`  pe_sunat_name_alias: ${aliasRows.length} filas (${new Set(aliasRows.map((r) => r.normalized_tax_id)).size} RUC) · ${droppedOwned} claves descartadas por ser el nombre propio de otra sociedad`);
 
   const directoryRows: PeSunatDirectoryRow[] = [];
   for (const info of open.values()) {

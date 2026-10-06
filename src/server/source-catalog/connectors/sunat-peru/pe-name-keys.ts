@@ -225,3 +225,34 @@ export function peruCandidateNameVariants(name: string | null | undefined): Peru
   }
   return ordered;
 }
+
+/**
+ * SOURCES-PE-ALIAS-OWNERSHIP-1 — los nombres PROPIOS de una sociedad del padrón:
+ * su núcleo y, si es una entidad pública, su clave pública.
+ */
+export function peruOwnNameKeys(mainCore: string): string[] {
+  const keys = mainCore.length >= 2 ? [mainCore] : [];
+  const publicKey = peruPublicEntityKey(mainCore);
+  if (publicKey !== null) keys.push(publicKey);
+  return keys;
+}
+
+/**
+ * SOURCES-PE-ALIAS-OWNERSHIP-1 — un alias nunca puede ser el nombre PROPIO de
+ * otra sociedad. Medido en Prod el 06-10-2026 (corrida Perú × Salud): 1.387 de
+ * 74.016 claves eran el núcleo de otra sociedad («PERU», «LIMA», o «GOBIERNO
+ * REGIONAL DE LORETO» como primera parte de cada subunidad del OECE). No daban un
+ * RUC equivocado (dos RUC ⇒ pista), pero le quitaban el RUC seguro a la sociedad
+ * que se llama así. `owners`: nombre propio → RUC que lo llevan
+ * (`peruOwnNameKeys` de cada fila del padrón).
+ */
+export function dropAliasKeysOwnedByOthers(
+  keys: readonly string[],
+  ruc: string,
+  owners: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] {
+  return keys.filter((key) => {
+    const ownedBy = owners.get(key);
+    return ownedBy === undefined || ownedBy.has(ruc);
+  });
+}
