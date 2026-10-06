@@ -116,6 +116,12 @@ type ProspectChatWizardProps = {
    * generación está en vuelo, que tampoco ofrecía ese botón.
    */
   onRestartAvailabilityChange?: (available: boolean) => void;
+  /**
+   * Avisa de la corrida que este chat tiene en vuelo (su id) o `null`. Con una en
+   * vuelo, el «+» del panel no la cancela: la deja en el Centro de procesos y
+   * empieza una conversación nueva.
+   */
+  onRunningChange?: (clientRequestId: string | null) => void;
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
   executionEnabled?: boolean;
@@ -179,6 +185,7 @@ export function ProspectChatWizard({
   budgetPreflight = null,
   ref,
   onRestartAvailabilityChange,
+  onRunningChange,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -204,6 +211,10 @@ export function ProspectChatWizard({
   // AGENT1-RUN-LIVE-PROGRESS-1 — el id de la corrida en vuelo, para que la espera
   // lea su etapa. Estado (no la ref) porque se pinta.
   const [runningRequestId, setRunningRequestId] = React.useState<string | null>(null);
+  const inFlightRequestId = state.currentStep === 'submitting' ? runningRequestId : null;
+  React.useEffect(() => {
+    onRunningChange?.(inFlightRequestId);
+  }, [inFlightRequestId, onRunningChange]);
 
   // Criteria text draft for the composer — reset on submit or skip
   const [criteriaText, setCriteriaText] = React.useState('');
@@ -633,8 +644,8 @@ export function ProspectChatWizard({
     dispatch({ type: 'BEGIN_EXECUTION' });
 
     // AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida la lleva el almacén del shell (por
-    // ruta, no server action): sobrevive si se cierra el chat, aparece en la
-    // bandeja flotante y no deja en cola el resto del navegador.
+    // ruta, no server action): sobrevive si se cierra el chat, aparece en el
+    // Centro de procesos y no deja en cola el resto del navegador.
     const runsStore = getAgentRunsStore();
     const countryName =
       LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
@@ -867,7 +878,7 @@ export function ProspectChatWizard({
           </div>
 
           {/* AGENT1-PARALLEL-RUNS-PHASE2-1 — la corrida a medias ya NO vive aquí: la
-              conduce la bandeja flotante del shell (`AgentRunsTray`), que no se
+              conduce el Centro de procesos del shell (`AgentRunsProcessCenter`), que no se
               desmonta al cerrar el chat. Ocupaba la cabecera del asistente y sólo
               avanzaba con el chat abierto. */}
 

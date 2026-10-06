@@ -17,6 +17,7 @@ import type {
 } from '@/modules/prospect-batches/apollo-continuation-actions';
 import { createAgentRunsStore, type AgentRun, type AgentRunPayload, type AgentRunsStore } from './agent-runs-store';
 import type { AgentRunStatusSnapshot } from './agent-runs-status.server';
+import type { AgentRunsHistory } from './agent-runs-history.server';
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -40,6 +41,13 @@ export async function fetchAgentRunsStatus(ids: readonly string[]): Promise<Agen
   });
   if (!response.ok) throw new Error(`http_${response.status}`);
   return ((await response.json()) as { runs: AgentRunStatusSnapshot[] }).runs;
+}
+
+/** Historial de 7 días de la persona (pestaña «Búsquedas» del chat). */
+export async function fetchAgentRunsHistory(): Promise<AgentRunsHistory> {
+  const response = await fetch('/api/prospect-batches/wizard-runs/history', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`http_${response.status}`);
+  return (await response.json()) as AgentRunsHistory;
 }
 
 /** Mismo contrato que la server action, por ruta. */
