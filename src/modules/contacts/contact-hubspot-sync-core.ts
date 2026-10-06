@@ -101,6 +101,99 @@ export function buildHubSpotContactUpdateProperties(
 
 export type CompanyAssociationStatus = 'associated' | 'failed';
 
+// ── Completar vacíos al vincular un contacto que YA existía en HubSpot ──
+// (AGENT2A-HUBSPOT-FILL-EMPTY-ON-APPROVAL)
+//
+// Hasta este corte, `linked_existing` sólo guardaba el id y asociaba la empresa: ningún dato de
+// SellUp viajaba, así que un teléfono encontrado por SellUp nunca llegaba a un contacto que el
+// cliente ya tenía en su CRM —y el portero del autosync lo daba por `synced` para siempre—.
+//
+// La regla es UNA y es conservadora: se escribe una propiedad SÓLO si en HubSpot está VACÍA y
+// SellUp tiene un valor. Nunca se sobrescribe un dato que ya vive en el CRM del cliente (puede
+// haberlo corregido a mano) y nunca se envía una cadena vacía (que en HubSpot BORRA).
+
+/** Propiedades de HubSpot que se pueden completar si están vacías. Nombres REALES de HubSpot. */
+export const HUBSPOT_FILL_EMPTY_PROPERTY_NAMES = [
+  'firstname',
+  'lastname',
+  'jobtitle',
+  'phone',
+  'mobilephone',
+  'hs_linkedin_url',
+] as const;
+
+export type HubSpotFillEmptyPropertyName = (typeof HUBSPOT_FILL_EMPTY_PROPERTY_NAMES)[number];
+
+/** Valores que HubSpot devolvió para el contacto existente (lo que la búsqueda pudo leer). */
+export type HubSpotExistingContactProperties = Partial<
+  Record<HubSpotFillEmptyPropertyName, string | null>
+>;
+
+/**
+ * Resultado de buscar por email. `properties` es OPCIONAL a propósito: si no llegó (un
+ * adaptador que no las pidió, una respuesta incompleta), no se sabe qué está vacío y NO se
+ * completa nada — sin lectura no hay permiso para escribir.
+ */
+export interface HubSpotExistingContactMatch {
+  id: string;
+  properties?: HubSpotExistingContactProperties;
+}
+
+/** Cuerpo del PATCH de completado: sólo claves con valor no vacío. */
+export type HubSpotContactFillProperties = Partial<Record<HubSpotFillEmptyPropertyName, string>>;
+
+/** Qué pasó con el completado de vacíos en esta vinculación. */
+export type HubSpotFillEmptyOutcome =
+  /** Se escribieron una o más propiedades vacías. */
+  | 'filled'
+  /** HubSpot ya tenía todo lo que SellUp podía aportar. Cero escrituras. */
+  | 'nothing_to_fill'
+  /** No se pudieron leer las propiedades del contacto existente. Cero escrituras. */
+  | 'existing_unreadable'
+  /** El PATCH de completado falló. El vínculo sigue siendo válido. */
+  | 'failed';
+
+export interface HubSpotFillEmptyReport {
+  outcome: HubSpotFillEmptyOutcome;
+  /** Propiedades que HubSpot aceptó. Vacío salvo en `filled`. */
+  properties: HubSpotFillEmptyPropertyName[];
+  /** Código mecánico del fallo (sin payload: el cuerpo citaría el teléfono). */
+  error: string | null;
+}
+
+/**
+ * LA regla de completado, pura: qué propiedades viajarían para este contacto.
+ *
+ * Devuelve `null` cuando NO se pudo leer el contacto existente — distinto de `{}`, que significa
+ * «leído y no falta nada». Confundirlos haría que una lectura fallida se viera como «completo».
+ */
+export function buildHubSpotFillEmptyProperties(
+  contact: ContactForSync,
+  existing: HubSpotExistingContactProperties | null | undefined,
+): HubSpotContactFillProperties | null {
+  if (!existing || typeof existing !== 'object') return null;
+
+  const { firstname, lastname } = splitContactName(contact);
+  const local: Record<HubSpotFillEmptyPropertyName, string | null> = {
+    firstname,
+    lastname,
+    jobtitle: cleanString(contact.job_title),
+    phone: cleanString(contact.phone),
+    mobilephone: cleanString(contact.mobile_phone),
+    hs_linkedin_url: cleanString(contact.linkedin_url),
+  };
+
+  const fill: HubSpotContactFillProperties = {};
+  for (const name of HUBSPOT_FILL_EMPTY_PROPERTY_NAMES) {
+    const value = local[name];
+    if (!value) continue;
+    const remote = existing[name];
+    const remoteIsEmpty = typeof remote !== 'string' || remote.trim().length === 0;
+    if (remoteIsEmpty) fill[name] = value;
+  }
+  return fill;
+}
+
 /**
  * Patch que se persiste localmente tras un intento de sincronización.
  *
@@ -150,6 +243,8 @@ export const SYNC_MESSAGES = {
     'El contacto se sincronizó en HubSpot pero no se pudo guardar el vínculo en SellUp.',
   created: 'Contacto creado en HubSpot y vinculado a SellUp.',
   linkedExisting: 'Contacto existente en HubSpot vinculado a SellUp.',
+  linkedExistingFilled:
+    'Contacto existente en HubSpot vinculado a SellUp; se completaron sus datos vacíos.',
   alreadySynced: 'Este contacto ya estaba sincronizado con HubSpot.',
   updated: 'Teléfono actualizado en HubSpot.',
   // CUT-3A: borrar tiene su propio mensaje. «Actualizado» sobre un borrado le diría a la
@@ -236,6 +331,8 @@ export function buildSyncMetadata(args: {
   nowIso: string;
   /** CUT-3B — procedencia del intento. Se EXIGE: adivinarla la falsificaría. */
   method: HubSpotSyncMethod;
+  /** Sólo en `linked_existing`: qué datos vacíos de HubSpot se completaron. */
+  fillEmpty?: HubSpotFillEmptyReport | null;
 }): Record<string, unknown> {
   const {
     existing,
@@ -246,6 +343,7 @@ export function buildSyncMetadata(args: {
     actorId,
     nowIso,
     method,
+    fillEmpty,
   } = args;
   return writeHubSpotSyncState(
     existing,
@@ -272,6 +370,7 @@ export function buildSyncMetadata(args: {
       mode,
       hubspot_company_id: hubspotCompanyId,
       company_association: companyAssociation,
+      ...(fillEmpty ? { fill_empty: fillEmpty } : {}),
       // BACKFILL LEGACY — este intento SÍ ocurrió: hubo petición y hubo respuesta. La
       // anotación de línea base advertía de lo contrario, así que se borra. No se borra en el
       // camino fallido: un rechazo de HubSpot no observó nada.
@@ -389,7 +488,7 @@ export interface SyncContactDeps {
   loadContact: (id: string) => Promise<ContactForSync | null>;
   loadAccount: (accountId: string) => Promise<AccountForSync | null>;
   checkConnection: () => Promise<HubSpotSyncConnection>;
-  findHubSpotContactByEmail: (email: string) => Promise<{ id: string } | null>;
+  findHubSpotContactByEmail: (email: string) => Promise<HubSpotExistingContactMatch | null>;
   createHubSpotContact: (
     input: HubSpotContactCreateInput,
   ) => Promise<{ id: string } | { error: string }>;
@@ -405,6 +504,18 @@ export interface SyncContactDeps {
     hubspotContactId: string,
     hubspotCompanyId: string,
   ) => Promise<{ ok: true } | { error: string }>;
+  /**
+   * AGENT2A-HUBSPOT-FILL-EMPTY-ON-APPROVAL — PATCH que SÓLO completa propiedades vacías de un
+   * contacto que ya existía en HubSpot. Dependencia separada de `updateHubSpotContact` a
+   * propósito: aquél escribe el teléfono local tal cual (y puede BORRAR); éste nunca recibe
+   * una propiedad que HubSpot ya tenga, ni una cadena vacía. Devuelve lo que HubSpot aceptó.
+   *
+   * Opcional: sin ella, la vinculación se comporta exactamente como antes (sólo id + empresa).
+   */
+  fillEmptyHubSpotContactProperties?: (
+    hubspotContactId: string,
+    properties: HubSpotContactFillProperties,
+  ) => Promise<{ ok: true; written: HubSpotFillEmptyPropertyName[] } | { error: string }>;
   persistSync: (
     contactId: string,
     patch: ContactHubSpotSyncPatch,
@@ -657,7 +768,7 @@ export async function runSyncContactToHubSpot(
   // el `catch` de la server action, que devolvía el error a la persona que estaba mirando: con
   // alguien delante bastaba. El autosync no tiene a nadie delante, así que un fallo que no deja
   // rastro es un contacto que dice «Nunca sincronizado» sin que nadie sepa que sí se intentó.
-  let existing: { id: string } | null;
+  let existing: HubSpotExistingContactMatch | null;
   try {
     existing = await deps.findHubSpotContactByEmail(email);
   } catch {
@@ -689,6 +800,13 @@ export async function runSyncContactToHubSpot(
   const companyAssociation: CompanyAssociationStatus =
     'ok' in assocResult ? 'associated' : 'failed';
 
+  // Completar vacíos (sólo si el contacto YA existía). Best-effort: el vínculo es válido pase lo
+  // que pase aquí, igual que con la asociación de empresa.
+  let fillEmpty: HubSpotFillEmptyReport | null = null;
+  if (mode === 'linked_existing' && existing) {
+    fillEmpty = await fillEmptyOnExistingContact(contact, existing, deps);
+  }
+
   // Persistir vínculo local + trazabilidad.
   const metadata = buildSyncMetadata({
     existing: contact.metadata,
@@ -699,6 +817,7 @@ export async function runSyncContactToHubSpot(
     actorId: deps.actorId,
     nowIso: deps.nowIso,
     method: deps.method,
+    fillEmpty,
   });
   const persistResult = await deps.persistSync(contact.id, { hubspot_contact_id: hubspotContactId, metadata });
   if (persistResult.error) {
@@ -723,6 +842,45 @@ export async function runSyncContactToHubSpot(
     ok: true,
     status: mode,
     hubspotContactId,
-    message: mode === 'created' ? SYNC_MESSAGES.created : SYNC_MESSAGES.linkedExisting,
+    message:
+      mode === 'created'
+        ? SYNC_MESSAGES.created
+        : fillEmpty?.outcome === 'filled'
+          ? SYNC_MESSAGES.linkedExistingFilled
+          : SYNC_MESSAGES.linkedExisting,
   };
+}
+
+/**
+ * Ejecuta el completado de vacíos sobre un contacto existente. NUNCA lanza.
+ *
+ * Sin escritor cableado devuelve `null`: no se escribe nada ni se anota nada (comportamiento
+ * anterior a este corte).
+ */
+async function fillEmptyOnExistingContact(
+  contact: ContactForSync,
+  existing: HubSpotExistingContactMatch,
+  deps: SyncContactDeps,
+): Promise<HubSpotFillEmptyReport | null> {
+  if (!deps.fillEmptyHubSpotContactProperties) return null;
+
+  const fill = buildHubSpotFillEmptyProperties(contact, existing.properties);
+  if (fill === null) return { outcome: 'existing_unreadable', properties: [], error: null };
+  if (Object.keys(fill).length === 0) {
+    return { outcome: 'nothing_to_fill', properties: [], error: null };
+  }
+
+  try {
+    const result = await deps.fillEmptyHubSpotContactProperties(existing.id, fill);
+    if ('error' in result) return { outcome: 'failed', properties: [], error: result.error };
+    return result.written.length > 0
+      ? { outcome: 'filled', properties: result.written, error: null }
+      : { outcome: 'nothing_to_fill', properties: [], error: null };
+  } catch (err) {
+    return {
+      outcome: 'failed',
+      properties: [],
+      error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_FILL_ERROR',
+    };
+  }
 }

@@ -38,6 +38,7 @@ import {
   createHubSpotContact,
   updateHubSpotContact,
   associateHubSpotContactWithCompany,
+  fillEmptyHubSpotContactProperties,
 } from '@/server/integrations/hubspot-contact-sync';
 
 /** Columnas del contacto que el motor necesita. Una sola definición para ambos llamadores. */
@@ -101,6 +102,9 @@ export async function buildContactHubSpotSyncDeps(
     // CUT-2 — PATCH sobre el id durable. Dependencia separada de la creación a propósito.
     updateHubSpotContact,
     associateContactWithCompany: associateHubSpotContactWithCompany,
+    // Completa SÓLO los vacíos de un contacto que ya existía en HubSpot (al aprobar o al
+    // sincronizar a mano). Nunca sobrescribe lo que el CRM ya tiene.
+    fillEmptyHubSpotContactProperties,
 
     persistSync: async (id, patch) => {
       // `hubspot_contact_id` sólo viaja cuando el intento produjo vínculo. En los intentos
