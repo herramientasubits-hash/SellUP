@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { MACRO_INDUSTRIES } from '@/modules/macro-industry-catalog/macro-industries';
 import {
   AR_RNS_CLASS_MACRO,
+  AR_RNS_CODE_MACRO,
   AR_RNS_DIVISION_MACRO,
   macroHasArCoverage,
   normalizeArActivityCode,
@@ -36,6 +37,20 @@ const APPROVED: Record<string, string[]> = {
   government: ['84'],
 };
 
+describe('tabla v2: informática y equipo médico salen de Retail (SOURCES-AR-E2E-1)', () => {
+  it('código > clase > división', () => {
+    assert.equal(resolveArActivityMacro('465100'), 'technology');
+    assert.equal(resolveArActivityMacro('465210'), 'technology');
+    assert.equal(resolveArActivityMacro('474010'), 'technology');
+    assert.equal(resolveArActivityMacro('465350'), 'health_pharma');
+    // Vecinos que siguen en Retail.
+    assert.equal(resolveArActivityMacro('465310'), 'retail');
+    assert.equal(resolveArActivityMacro('474020'), 'retail');
+    assert.equal(resolveArActivityMacro('465930'), 'retail');
+    assert.equal(resolveArActivityMacro('469090'), 'retail');
+  });
+});
+
 describe('tabla aprobada división → macro (Argentina)', () => {
   it('coincide exactamente con la tabla aprobada por la dueña', () => {
     const actual: Record<string, string[]> = {};
@@ -45,7 +60,11 @@ describe('tabla aprobada división → macro (Argentina)', () => {
     for (const list of Object.values(actual)) list.sort();
     const expected = Object.fromEntries(Object.entries(APPROVED).map(([k, v]) => [k, [...v].sort()]));
     assert.deepEqual(actual, expected);
-    assert.deepEqual({ ...AR_RNS_CLASS_MACRO }, { '4643': 'health_pharma', '4773': 'health_pharma' });
+    assert.deepEqual(
+      { ...AR_RNS_CLASS_MACRO },
+      { '4643': 'health_pharma', '4773': 'health_pharma', '4651': 'technology', '4652': 'technology' },
+    );
+    assert.deepEqual({ ...AR_RNS_CODE_MACRO }, { '465350': 'health_pharma', '474010': 'technology' });
   });
 
   it('sólo usa macros que existen en el catálogo y cubre las 12', () => {

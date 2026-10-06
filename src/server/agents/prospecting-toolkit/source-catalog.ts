@@ -1578,14 +1578,44 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://datos.jus.gob.ar/',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita argentina por industria: 6.350 sociedades del Registro Nacional de Sociedades cruzadas con los proveedores del Estado de COMPR.AR. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla actividad → industria aprobada por la dueña.',
+      'Capa gratuita argentina por industria: 6.350 sociedades del Registro Nacional de Sociedades cruzadas con los proveedores del Estado de COMPR.AR, ordenadas por importe adjudicado. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla actividad → industria aprobada por la dueña (v2: mayoristas de informática en Tecnología y de equipo médico en Salud), intercaladas una a una con los empleadores ATP (`ar_atp_employers`).',
     limitations: [
       'Sólo sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado argentino.',
+      'El RNS no publica tamaño: más allá de las primeras 50-100 por industria (por importe adjudicado) puede proponer empresas chicas.',
       'La industria sale de la tabla aprobada por la dueña: actividades fuera de la tabla no se proponen.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
       'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
+  {
+    key: 'ar_atp_employers',
+    name: 'Empleadores ATP 2020 × RNS — capa gratuita por industria con tamaño',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Carga PENDIENTE de autorización: 2.851 sociedades activas con 100 o más trabajadores en ATP 2020 (prueba en seco del 05-10 contra el registro cargado). Tras cargar, pasar a operational_verified con la cifra real.',
+    countryCodes: ['AR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://datos.gob.ar/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita argentina por industria con señal de tamaño: sociedades que en 2020 declararon 100 o más trabajadores en el programa ATP (datos.gob.ar, CC-BY 4.0), con razón social y actividad del Registro Nacional de Sociedades ya cargado. Es el único padrón público con CUIT y trabajadores por empresa. El Agente 1 las propone intercaladas con las proveedoras del Estado (`ar_rns`), de más a menos trabajadores, según la misma tabla actividad → industria.',
+    limitations: [
+      'Foto de 2020: empresas creadas después no aparecen.',
+      'Los trabajadores son los que cobraron ATP en ese mes: un piso, no la plantilla total.',
+      'Sólo sociedades todavía activas en el Registro Nacional de Sociedades y con actividad dentro de la tabla aprobada.',
+      'Tecnología casi no aparece (59 empresas): para esa industria la capa gratuita sigue dependiendo de las proveedoras del Estado.',
+      'Snapshot estático — no se actualiza.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'Los trabajadores se usan sólo para ordenar y filtrar; no llegan al candidato como tamaño confirmado.',
     ],
   },
   {
@@ -1604,11 +1634,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://datos.jus.gob.ar/',
     automationLevel: 'high',
     recommendedUse:
-      'Carga del Registro Nacional de Sociedades (datos.jus.gob.ar) con 1.194.956 sociedades activas. En cada corrida del Agente 1 completa el CUIT por nombre de empresa. CUIT seguro sólo cuando exactamente un CUIT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Carga del Registro Nacional de Sociedades (datos.jus.gob.ar) con 1.194.956 sociedades activas. En cada corrida del Agente 1 completa el CUIT por nombre de empresa. CUIT seguro sólo cuando exactamente un CUIT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan. Si el núcleo exacto no aparece, prueba en orden (siempre nombres exactos): con forma societaria compuesta («ARCOR» → «ARCOR S A I C», asociaciones civiles), con o sin «Argentina» al final y con las palabras juntas («MERCADO LIBRE» → «MERCADOLIBRE»). Medido 05-10 sobre 79 marcas argentinas: 38 con CUIT seguro (antes 30).',
     limitations: [
       'Sólo sociedades activas del registro: no incluye personas humanas con actividad comercial.',
       'No trae sector ni tamaño de la empresa.',
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Las marcas con otra razón social (Coto, La Anónima, Edenor, Naranja X) y las cooperativas no se encuentran por nombre.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [

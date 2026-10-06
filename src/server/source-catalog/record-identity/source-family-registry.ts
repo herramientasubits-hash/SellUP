@@ -35,6 +35,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   ar_rns: 'TAX_GRAIN',
   // SOURCES-AR-CUIT-BY-NAME-1 — un CUIT, una fila (todas las sociedades activas del RNS).
   ar_rns_registry: 'TAX_GRAIN',
+  // SOURCES-AR-E2E-1 — un CUIT, una fila (sociedades activas con ≥100 trabajadores en ATP 2020).
+  ar_atp_employers: 'TAX_GRAIN',
   // SOURCES-PE-RUC-BY-NAME-1 — un RUC, una fila (sociedades activas y habidas de SUNAT).
   pe_sunat_registry: 'TAX_GRAIN',
   // SOURCES-PY-RUC-BY-NAME-1 — un RUC, una fila (sociedades activas del padrón de la SET).
