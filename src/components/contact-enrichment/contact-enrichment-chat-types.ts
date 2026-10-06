@@ -46,6 +46,12 @@ export interface AutomaticRoutingUiResult {
   attempt1AttemptId: string | null;
   attempt2AttemptId: string | null;
   blockedReason: string | null;
+  /** Already-pending candidates reused instead of calling the fallback. */
+  reusedExistingCandidates: number;
+  /** Candidates created per provider in this call; null = provider did not run. */
+  providerCandidatesCreated: { apollo: number | null; lusha: number | null };
+  /** Sources that failed in this call (named at the end of the message). */
+  failedProviders: Array<'Apollo' | 'Lusha'>;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────

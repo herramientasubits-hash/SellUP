@@ -20,6 +20,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildAutomaticRoutingMessage,
   contactEnrichmentChatReducer,
   createInitialContactEnrichmentChatState,
 } from '../contact-enrichment-chat-reducer';
@@ -103,6 +104,9 @@ function automaticResult(overrides: Partial<AutomaticRoutingUiResult>): Automati
     attempt1AttemptId: 'attempt-1',
     attempt2AttemptId: null,
     blockedReason: null,
+    reusedExistingCandidates: 0,
+    providerCandidatesCreated: { apollo: 3, lusha: null },
+    failedProviders: [],
     ...overrides,
   };
 }
@@ -133,7 +137,7 @@ describe('AUTOMATIC_ROUTING_SETTLED', () => {
     assert.equal(next.step, 'done');
     assert.deepEqual(next.automaticResult, result);
     const last = next.messages.at(-1);
-    assert.match(last?.content ?? '', /listos para tu revisión/);
+    assert.match(last?.content ?? '', /^Encontré 3 contactos para revisar\. No creé contactos finales/);
     assert.match(last?.content ?? '', /requieren tu aprobación/);
     assert.equal(last?.tone, undefined);
   });
@@ -167,6 +171,107 @@ describe('AUTOMATIC_ROUTING_SETTLED', () => {
     const next = contactEnrichmentChatReducer(searching, { type: 'AUTOMATIC_ROUTING_SETTLED', result });
     assert.equal(next.step, 'done');
     assert.match(next.messages.at(-1)?.content ?? '', /No fue posible completar/);
+    assert.equal(next.messages.at(-1)?.tone, 'warning');
+  });
+});
+
+// ── AGENT2A-ZERO-CANDIDATES-MESSAGE (backlog A3/A6) ──────────────────────────
+
+describe('buildAutomaticRoutingMessage — total count only, sources named only when they fail', () => {
+  it('candidates from Apollo + Lusha → one total, no source names', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({ status: 'fallback_executed', providerCandidatesCreated: { apollo: 1, lusha: 2 } }),
+    );
+    assert.equal(
+      msg.content,
+      'Encontré 3 contactos para revisar. No creé contactos finales: requieren tu aprobación.',
+    );
+    assert.doesNotMatch(msg.content, /Apollo|Lusha/);
+    assert.equal(msg.tone, undefined);
+  });
+
+  it('singular when exactly one contact', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({ status: 'no_fallback_needed', providerCandidatesCreated: { apollo: 1, lusha: null } }),
+    );
+    assert.match(msg.content, /^Encontré 1 contacto para revisar\./);
+  });
+
+  it('candidates found but one source failed → count + "Fuente X falló."', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({
+        status: 'fallback_executed',
+        providerCandidatesCreated: { apollo: 2, lusha: 0 },
+        failedProviders: ['Lusha'],
+      }),
+    );
+    assert.match(msg.content, /^Encontré 2 contactos para revisar\./);
+    assert.match(msg.content, /Fuente Lusha falló\.$/);
+  });
+
+  it('0 candidates and nothing pending → "No se encontraron contactos.", warning', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({ status: 'fallback_executed', providerCandidatesCreated: { apollo: 0, lusha: 0 } }),
+    );
+    assert.equal(msg.content, 'No se encontraron contactos.');
+    assert.equal(msg.tone, 'warning');
+  });
+
+  it('0 candidates and Lusha unavailable → names the failed source at the end', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({
+        status: 'fallback_provider_unavailable',
+        providerCandidatesCreated: { apollo: 0, lusha: null },
+        failedProviders: ['Lusha'],
+      }),
+    );
+    assert.equal(msg.content, 'No se encontraron contactos. Fuente Lusha falló.');
+    assert.equal(msg.tone, 'warning');
+  });
+
+  it('both sources failed → plural note', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({
+        providerCandidatesCreated: { apollo: 0, lusha: 0 },
+        failedProviders: ['Apollo', 'Lusha'],
+      }),
+    );
+    assert.equal(msg.content, 'No se encontraron contactos. Fuentes Apollo y Lusha fallaron.');
+  });
+
+  it('0 new but pending candidates reused → tells how many are already waiting', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({
+        status: 'fallback_skipped_local_reuse',
+        reusedExistingCandidates: 2,
+        providerCandidatesCreated: { apollo: 0, lusha: null },
+      }),
+    );
+    assert.equal(
+      msg.content,
+      'Esta búsqueda no trajo contactos nuevos, pero ya tienes 2 contactos pendientes de revisión para esta empresa.',
+    );
+    assert.equal(msg.tone, undefined);
+  });
+
+  it('attempt exists but Apollo was never called → could-not-complete notice', () => {
+    const msg = buildAutomaticRoutingMessage(
+      automaticResult({
+        status: 'attempt1_provider_not_called',
+        providerCandidatesCreated: { apollo: null, lusha: null },
+      }),
+    );
+    assert.match(msg.content, /No fue posible completar/);
+    assert.equal(msg.tone, 'warning');
+  });
+
+  it('the reducer uses the same message on AUTOMATIC_ROUTING_SETTLED', () => {
+    const searching = contactEnrichmentChatReducer(doneStateWithRequest(), {
+      type: 'AUTOMATIC_ROUTING_START',
+    });
+    const result = automaticResult({ providerCandidatesCreated: { apollo: 0, lusha: 0 } });
+    const next = contactEnrichmentChatReducer(searching, { type: 'AUTOMATIC_ROUTING_SETTLED', result });
+    assert.equal(next.messages.at(-1)?.content, 'No se encontraron contactos.');
     assert.equal(next.messages.at(-1)?.tone, 'warning');
   });
 });
