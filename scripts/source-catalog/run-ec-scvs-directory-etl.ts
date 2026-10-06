@@ -2,11 +2,15 @@
  * EC SCVS — ETL de la capa gratuita de Ecuador (SOURCES-EC-FREE-DISCOVERY-1)
  *
  * Carga en `source_company_snapshots` (source_key='ec_scvs_directory') las
- * compañías ecuatorianas ACTIVAS con 200 o más empleados, cruzando dos archivos
+ * compañías ecuatorianas ACTIVAS con 100 o más empleados, cruzando dos archivos
  * públicos de la Superintendencia de Compañías por `expediente`:
  *
  *   --directory=<ruta>  https://mercadodevalores.supercias.gob.ec/reportes/excel/directorio_companias.xlsx
  *   --ranking=<ruta>    https://appscvsmovil.supercias.gob.ec/ranking/recursos/bi_ranking.csv
+ *   --sercop=<a,b>      (opcional, SOURCES-EC-CLOSE-1) entregas OCDS de SERCOP
+ *                       (`<año>.jsonl.gz` de data.open-contracting.org/en/publication/110):
+ *                       el dominio que la compañía declaró, si se parece a su nombre.
+ *                       Sin él, las filas quedan sin web (y un aviso lo dice).
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-ec-scvs-directory-etl.ts --directory=… --ranking=…
@@ -24,7 +28,6 @@ import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
 import { existsSync } from 'node:fs';
-import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
@@ -32,75 +35,43 @@ import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim'
 import {
   admitEcDirectoryCompany,
   buildEcScvsDirectoryRow,
+  EC_SCVS_DIRECTORY_MIN_EMPLOYEES,
   EC_SCVS_DIRECTORY_SOURCE_KEY,
-  latestRanking,
-  readEcDirectoryRecord,
-  readEcRankingLine,
   type EcDirectoryRecord,
   type EcRankingMetrics,
   type EcScvsDirectoryRow,
 } from '../../src/server/source-catalog/connectors/ec-scvs/ec-scvs-directory-rows';
+import { buildEcSercopDomainMap } from '../../src/server/source-catalog/connectors/ec-scvs/ec-sercop-domain';
 import { percentileScores } from '../../src/server/source-catalog/connectors/rns-argentina/ar-rns-snapshot-builder';
-import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
+import { argValue, existingFiles, readEcDirectory, readEcRanking, readSercopParties } from './ec-local-files';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
 const UPSERT_CHUNK = 500;
 
-type Config = { directory: string; ranking: string; apply: boolean };
+type Config = { directory: string; ranking: string; sercop: string[]; apply: boolean };
 
 function parseArgs(argv: readonly string[]): Config {
-  const value = (name: string): string | null => {
-    const hit = argv.find((arg) => arg.startsWith(`--${name}=`));
-    return hit ? hit.slice(name.length + 3) : null;
-  };
-  const directory = value('directory');
-  const ranking = value('ranking');
+  const directory = argValue(argv, 'directory');
+  const ranking = argValue(argv, 'ranking');
   if (!directory || !ranking) throw new Error('config_invalid: faltan --directory=<xlsx> y --ranking=<csv>');
   for (const path of [directory, ranking]) {
     if (!existsSync(path)) throw new Error(`config_invalid: falta ${path}`);
   }
-  return { directory, ranking, apply: argv.includes('--apply') };
-}
-
-/** El directorio trae filas de título antes de la cabecera: se busca la fila con «RUC». */
-function readDirectory(path: string): EcDirectoryRecord[] {
-  const workbook = XLSX.readFile(path, { dense: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false });
-  const headerIndex = matrix.findIndex((cells) => Array.isArray(cells) && cells.includes('RUC'));
-  if (headerIndex < 0) throw new Error('config_invalid: el directorio no tiene la cabecera con «RUC»');
-  const header = (matrix[headerIndex] as unknown[]).map((cell) => String(cell).trim());
-
-  const records: EcDirectoryRecord[] = [];
-  for (const cells of matrix.slice(headerIndex + 1)) {
-    const row: Record<string, unknown> = {};
-    header.forEach((name, i) => {
-      row[name] = (cells as unknown[])[i];
-    });
-    const record = readEcDirectoryRecord(row);
-    if (record !== null) records.push(record);
-  }
-  return records;
-}
-
-async function readRanking(path: string): Promise<Map<string, EcRankingMetrics>> {
-  const latest = new Map<string, EcRankingMetrics>();
-  for await (const row of readCsvFile(path)) {
-    const parsed = readEcRankingLine(row);
-    if (parsed === null) continue;
-    const [expediente, metrics] = parsed;
-    latest.set(expediente, latestRanking(latest.get(expediente), metrics));
-  }
-  return latest;
+  return {
+    directory,
+    ranking,
+    sercop: existingFiles(argValue(argv, 'sercop'), 'sercop'),
+    apply: argv.includes('--apply'),
+  };
 }
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
   console.log(`EC SCVS DIRECTORY ETL — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
-  const directory = readDirectory(config.directory);
-  const ranking = await readRanking(config.ranking);
+  const directory = readEcDirectory(config.directory);
+  const ranking = await readEcRanking(config.ranking);
   console.log(`  Directorio: ${directory.length} compañías · ranking: ${ranking.size} expedientes`);
 
   // Un RUC, una fila: si dos expedientes comparten RUC gana el de más empleados.
@@ -118,8 +89,26 @@ async function main(): Promise<void> {
   const ordered = [...admitted].sort(([a], [b]) => a.localeCompare(b));
   const scores = percentileScores(ordered.map(([, entry]) => entry.metrics.employees ?? 0));
   const importedAt = new Date().toISOString();
+
+  // SOURCES-EC-CLOSE-1 — dominio declarado en SERCOP, comparado con la razón social VIGENTE.
+  let domains = new Map<string, string>();
+  if (config.sercop.length > 0) {
+    const parties = await readSercopParties(config.sercop);
+    domains = buildEcSercopDomainMap(parties, (ruc) => admitted.get(ruc)?.record.legalName ?? null);
+    console.log(`  SERCOP: ${parties.length} partes leídas · ${domains.size} dominios aceptados`);
+  } else {
+    console.log('  ⚠️ Sin --sercop: las filas quedan sin web (irían a Descartadas por falta de dominio).');
+  }
+
   const rows: EcScvsDirectoryRow[] = ordered.map(([ruc, entry], index) =>
-    buildEcScvsDirectoryRow({ record: entry.record, ruc, metrics: entry.metrics, priorityScore: scores[index], importedAt }),
+    buildEcScvsDirectoryRow({
+      record: entry.record,
+      ruc,
+      metrics: entry.metrics,
+      priorityScore: scores[index],
+      importedAt,
+      websiteDomain: domains.get(ruc) ?? null,
+    }),
   );
 
   const perMacro = new Map<string, number>();
@@ -127,7 +116,8 @@ async function main(): Promise<void> {
     const macro = (row.raw_data.macro_industry_key as string | null) ?? '(sin macro)';
     perMacro.set(macro, (perMacro.get(macro) ?? 0) + 1);
   }
-  console.log(`  Activas con 200 o más empleados: ${rows.length}`);
+  console.log(`  Activas con ${EC_SCVS_DIRECTORY_MIN_EMPLOYEES} o más empleados: ${rows.length}`);
+  console.log(`  Con dominio: ${rows.filter((row) => typeof row.raw_data.website_domain === 'string').length}`);
   console.log('  Por macro industria:');
   for (const [macro, count] of [...perMacro].sort((a, b) => b[1] - a[1])) {
     console.log(`    ${macro.padEnd(46)} ${count}`);

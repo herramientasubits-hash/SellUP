@@ -58,6 +58,12 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   cl_sii_registry: 'TAX_GRAIN',
   // SOURCES-EC-FREE-DISCOVERY-1 — un RUC, una fila (compañías activas de 200+ empleados de la SCVS).
   ec_scvs_directory: 'TAX_GRAIN',
+  // SOURCES-EC-CLOSE-1 — un RUC, una fila: compañías activas de la SCVS con empleados,
+  // su sigla, y el catastro del SRI (entidades públicas y nombre comercial).
+  ec_scvs_registry: 'TAX_GRAIN',
+  ec_scvs_alias_registry: 'TAX_GRAIN',
+  ec_sri_registry: 'TAX_GRAIN',
+  ec_sri_trade_name_registry: 'TAX_GRAIN',
   // SOURCES-CL-SII-FREE-DISCOVERY-1 — un RUT, una fila (personas jurídicas del SII con 100+ trabajadores).
   cl_sii_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).

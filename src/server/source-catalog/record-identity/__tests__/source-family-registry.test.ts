@@ -37,6 +37,11 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'cl_res_registry',
   'cl_sii_registry',
   'ec_scvs_directory',
+  // SOURCES-EC-CLOSE-1
+  'ec_scvs_registry',
+  'ec_scvs_alias_registry',
+  'ec_sri_registry',
+  'ec_sri_trade_name_registry',
   'cl_sii_directory',
   'cr_company_registry',
   'do_dgii_size_registry',

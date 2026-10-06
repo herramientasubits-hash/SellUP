@@ -16,7 +16,8 @@
  * no se edita sin el visto bueno de la dueña.
  *
  * Reglas:
- *   - La subclase (`4649.22`) manda sobre su división.
+ *   - La subclase (`4649.22`) manda sobre su clase (`4651`), y la clase sobre su
+ *     división.
  *   - Una división que no aparece NO tiene macro: la fuente gratuita nunca ofrece
  *     esas empresas (hoteles, restaurantes, medios, investigación, educación,
  *     cultura y asociaciones), igual que en Argentina.
@@ -28,7 +29,7 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 import { AR_RNS_DIVISION_MACRO } from './ar-rns-macro-table';
 
 /** Versión de la tabla. */
-export const EC_SCVS_MACRO_TABLE_VERSION = 'ec-ciiu4-inec-macro-v1' as const;
+export const EC_SCVS_MACRO_TABLE_VERSION = 'ec-ciiu4-inec-macro-v2' as const;
 
 /** Subclase CIIU 4.0 del INEC (`GGGG.SS`) → macro. Manda sobre la división. */
 export const EC_SCVS_SUBCLASS_MACRO: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
@@ -36,6 +37,22 @@ export const EC_SCVS_SUBCLASS_MACRO: Readonly<Record<string, MacroIndustryKey>> 
   '4649.24': 'health_pharma', // venta al por mayor de instrumentos y equipo médico, quirúrgico y dental
   '4772.01': 'health_pharma', // farmacias
   '4772.03': 'health_pharma', // venta al por menor de artículos médicos y ortopédicos
+  // v2 (SOURCES-EC-CLOSE-1, dueña 06-10-2026 «sí, mover»): tiendas de computadoras,
+  // equipo periférico y programas informáticos (Megadatos/Netlife, Seidor…). Las
+  // tiendas de celulares (4741.13) siguen en Comercio.
+  '4741.11': 'technology',
+  '4741.12': 'technology',
+});
+
+/**
+ * v2 (SOURCES-EC-CLOSE-1) — clase CIIU 4.0 (`GGGG`) → macro. Manda sobre la
+ * división; la subclase manda sobre ella. Mayoristas de computadoras, programas
+ * informáticos y equipo de telecomunicaciones a Tecnología, igual que Argentina
+ * (`AR_RNS_CLASS_MACRO`) y Chile: Kruger, Huawei, Diebold, Devsu, SoftwareOne…
+ */
+export const EC_SCVS_CLASS_MACRO: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
+  '4651': 'technology', // venta al por mayor de computadoras, equipo periférico y programas informáticos
+  '4652': 'technology', // venta al por mayor de equipo y partes electrónicos y de telecomunicaciones
 });
 
 /** Código CIIU 4.0 del INEC: letra + 4 dígitos + punto + 2 dígitos. */
@@ -56,7 +73,10 @@ export function resolveEcActivityMacro(raw: string | null | undefined): MacroInd
   if (match === null) return null;
   const [, , division, group, subclass] = match;
   return (
-    EC_SCVS_SUBCLASS_MACRO[`${division}${group}.${subclass}`] ?? AR_RNS_DIVISION_MACRO[division] ?? null
+    EC_SCVS_SUBCLASS_MACRO[`${division}${group}.${subclass}`] ??
+    EC_SCVS_CLASS_MACRO[`${division}${group}`] ??
+    AR_RNS_DIVISION_MACRO[division] ??
+    null
   );
 }
 
@@ -65,6 +85,7 @@ export function macroHasEcCoverage(macroIndustryKey: string | null | undefined):
   if (typeof macroIndustryKey !== 'string') return false;
   return (
     Object.values(AR_RNS_DIVISION_MACRO).includes(macroIndustryKey as MacroIndustryKey) ||
-    Object.values(EC_SCVS_SUBCLASS_MACRO).includes(macroIndustryKey as MacroIndustryKey)
+    Object.values(EC_SCVS_SUBCLASS_MACRO).includes(macroIndustryKey as MacroIndustryKey) ||
+    Object.values(EC_SCVS_CLASS_MACRO).includes(macroIndustryKey as MacroIndustryKey)
   );
 }

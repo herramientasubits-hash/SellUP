@@ -9,6 +9,9 @@
  * (`priority_score`, percentil 0-100) y, en los empates, por RUC para que dos
  * corridas idénticas lean las mismas filas.
  *
+ * Además marca, por RUC, lo que SellUp ya vio (candidatas y descartes) para que
+ * el adapter no lo vuelva a proponer (`country-source-prior-sightings.ts`).
+ *
  * Nunca inserta, actualiza ni borra. Cualquier error degrada a vacío (fail-soft).
  *
  * Este módulo NO construye el cliente: recibe uno de `service_role` creado por la
@@ -20,6 +23,7 @@ import type {
   EcScvsDirectoryDiscoveryReads,
   EcScvsDirectorySnapshotReadRow,
 } from './ec-scvs-directory-discovery-adapter';
+import { readCountrySourcePriorSightings } from './country-source-prior-sightings';
 
 type SnapshotSelectRow = {
   record_identity_key: string;
@@ -58,8 +62,18 @@ function toRow(row: SnapshotSelectRow): EcScvsDirectorySnapshotReadRow {
     employees: toInteger(row.raw_data?.['workers']),
     metrics_year: toInteger(row.raw_data?.['metrics_year']),
     priority_score: toNumber(row.priority_score),
+    website_domain: typeof row.raw_data?.['website_domain'] === 'string' ? row.raw_data['website_domain'] : null,
   };
 }
+
+/**
+ * SOURCES-EC-CLOSE-1 — cuántas filas se leen por cada una que se pide: el adapter
+ * salta lo que SellUp ya vio, así que se lee de más para seguir llenando el tope
+ * con empresas nuevas (mismo criterio que Argentina).
+ */
+export const EC_DISCOVERY_READ_OVERSAMPLE = 3;
+/** Techo de filas leídas por consulta. */
+export const EC_DISCOVERY_READ_CAP = 600;
 
 /** Adapta un cliente (de `service_role`) a la lectura de descubrimiento de Ecuador. */
 export function buildEcScvsDirectoryDiscoveryReads(client: SupabaseClient): EcScvsDirectoryDiscoveryReads {
@@ -75,9 +89,12 @@ export function buildEcScvsDirectoryDiscoveryReads(client: SupabaseClient): EcSc
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })
           .order('normalized_tax_id', { ascending: true })
-          .limit(limit);
+          .limit(Math.min(limit * EC_DISCOVERY_READ_OVERSAMPLE, EC_DISCOVERY_READ_CAP));
         if (error || !Array.isArray(data)) return [];
-        return (data as unknown as SnapshotSelectRow[]).map(toRow);
+        const rows = (data as unknown as SnapshotSelectRow[]).map(toRow);
+        const rucs = [...new Set(rows.map((row) => row.ruc).filter((ruc): ruc is string => Boolean(ruc)))];
+        const sightings = rucs.length > 0 ? await readCountrySourcePriorSightings(client, rucs) : new Map();
+        return rows.map((row) => ({ ...row, prior_sighting: (row.ruc && sightings.get(row.ruc)) || null }));
       } catch {
         return [];
       }

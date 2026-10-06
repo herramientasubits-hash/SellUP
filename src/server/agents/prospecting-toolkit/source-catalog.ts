@@ -1415,7 +1415,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'limited_manual_expansion',
     connectionMode: 'backend_connected',
     nextAction:
-      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md). El RUC por nombre en cada corrida ya usa el snapshot cargado de 339.960 compañías, sin consultar SCVS en cada búsqueda.',
+      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md). Desde SOURCES-EC-CLOSE-1 el RUC por nombre de cada corrida busca primero en ec_scvs_registry (sólo activas, con empleados) y ec_sri_registry; este snapshot de julio queda como último recurso, y un nombre de una sola palabra sólo da una pista.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P0',
@@ -1429,6 +1429,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Solo empresas obligadas a reportar a Supercias',
       'Excluye microempresas',
       'El RUC por nombre sólo encuentra compañías que ya están en el snapshot cargado',
+      'Mezcla compañías activas e inactivas y no trae empleados: por eso va al final de la cadena (p. ej. «MOVISTAR S.A.» es otra compañía, inactiva, no Otecel).',
     ],
   },
   {
@@ -1438,7 +1439,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '1.082 compañías activas con 200 o más empleados cargadas (directorio de compañías × ranking empresarial de la Superintendencia de Compañías, archivos del 05-10, carga autorizada). Capa gratuita de Ecuador: el Agente 1 propone de aquí antes de pagar a proveedores.',
+      'Capa gratuita de Ecuador. Cargadas hoy: 1.082 compañías con 200+ empleados (05-10). SOURCES-EC-CLOSE-1 baja el corte a 100+ (dueña 06-10, «como Chile»: 2.041 compañías, Tecnología 53) y añade el dominio declarado en SERCOP (86 de 2.041 con los años 2025-2026): la recarga espera la autorización de la dueña.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1447,18 +1448,73 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 200 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud). Cada empresa llega con su RUC; los empleados declarados quedan en la fuente como estimado con su año y sólo sirven para no proponer compañías de menos de 200.',
+      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 100 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria v2 (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud, y mayoristas y tiendas de computadoras, programas informáticos y telecomunicaciones en Tecnología). Cada empresa llega con su RUC y, si lo declaró en SERCOP y se parece a su razón social, con su dominio. No vuelve a proponer lo que SellUp ya tiene como candidata o descartó de forma definitiva; un descarte por falta de web vuelve sólo si ahora hay dominio.',
     limitations: [
       'Sólo compañías que reportan a la Superintendencia de Compañías: no incluye bancos, aseguradoras supervisadas por otra entidad, entidades públicas ni personas naturales.',
-      'Sólo compañías con 200 o más empleados declarados en su último estado financiero: las que no presentaron balance no aparecen.',
+      'Sólo compañías con 100 o más empleados declarados en su último estado financiero: las que no presentaron balance no aparecen.',
       'Los empleados son los declarados por la compañía en su estado financiero; son un estimado con su año, no el tamaño confirmado.',
       'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
-      'El directorio no publica sitio web: las empresas llegan sin dominio.',
+      'El directorio no publica sitio web: sólo llega dominio cuando la compañía lo declaró en SERCOP (≈4 % de las 2.041); el resto llega sin web y puede terminar en Descartadas por falta de dominio.',
       'Snapshot estático — requiere recarga para reflejar altas, bajas y nuevos balances.',
     ],
     riskNotes: [
       'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
       'No se guardan representante legal, teléfono ni dirección del directorio.',
+    ],
+  },
+  {
+    key: 'ec_scvs_registry',
+    name: 'SCVS — compañías activas con empleados (RUC y tamaño por nombre)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código (SOURCES-EC-CLOSE-1) como primera fuente de RUC de Ecuador en cada corrida; la carga (182.941 compañías activas + 5.485 siglas, ≈104 MB) espera la autorización de la dueña. Hasta entonces la cadena sigue con ec_scvs.',
+    countryCodes: ['EC'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.supercias.gob.ec/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry).',
+    limitations: [
+      'Sólo compañías de la Superintendencia de Compañías: bancos, cooperativas, entidades públicas y fundaciones están en ec_sri_registry.',
+      'Los empleados son los declarados en el estado financiero: un estimado oficial con su año, nunca el tamaño confirmado; sólo viajan con un RUC seguro.',
+      'Un nombre de una sola palabra («Pronaca») sólo es RUC seguro si la única compañía que lo lleva declara 200 o más empleados; si no, queda como pista.',
+      'Sin coincidencias aproximadas: el núcleo del nombre (o la sigla) debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'No se guardan representante legal, teléfono ni dirección.',
+    ],
+  },
+  {
+    key: 'ec_sri_registry',
+    name: 'SRI — catastro de RUC (entidades públicas, bancos y nombre comercial)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código (SOURCES-EC-CLOSE-1) después de ec_scvs_registry; la carga del catastro del SRI (archivos por provincia publicados en enero de 2025) espera la autorización de la dueña.',
+    countryCodes: ['EC'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sri.gob.ec/datasets',
+    automationLevel: 'high',
+    recommendedUse:
+      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además el nombre comercial del establecimiento principal («SUPERMAXI» → Corporación Favorita) como segundo nombre (ec_sri_trade_name_registry).',
+    limitations: [
+      'El nombre comercial es una pista: sólo da RUC seguro si la empresa es grande según la Superintendencia (200+ empleados).',
+      'Nombres públicos genéricos que se repiten («GAD PARROQUIAL SAN JOSE», «CENTRO DE SALUD B») dan varios RUC y quedan como pista.',
+      'Archivos publicados en enero de 2025: altas posteriores no aparecen hasta una recarga.',
+      'Personas naturales nunca se cargan (su RUC es su cédula).',
+    ],
+    riskNotes: [
+      'Universidades, organismos públicos, municipios y fundaciones SÍ se cargan: también son clientes de UBITS.',
+      'No se guarda dirección, teléfono, correo ni representante.',
     ],
   },
   {

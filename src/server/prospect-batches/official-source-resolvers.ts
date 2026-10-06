@@ -9,7 +9,7 @@
  * per supported country: Colombia (co_siis, then the cámaras de comercio
  * registry live) name→NIT, República Dominicana
  * (rd_dgii_bulk, then the DGII trade name as a signal only) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
- * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
+ * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
@@ -56,8 +56,7 @@ import { DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
 import { createArgentinaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/argentina-official-source-resolver';
 import { buildArgentinaSnapshotQuery } from '@/server/prospect-batches/argentina-snapshot-query';
-import { createEcuadorOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/ecuador-official-source-resolver';
-import { buildEcuadorSnapshotQuery } from '@/server/prospect-batches/ecuador-snapshot-query';
+import { buildEcuadorOfficialSourceResolver } from '@/server/prospect-batches/ecuador-official-source-chain';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import { buildSnapshotNameQuery } from '@/server/prospect-batches/snapshot-name-query';
 import {
@@ -154,9 +153,9 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     createArgentinaOfficialSourceResolver({
       querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
     }),
-    createEcuadorOfficialSourceResolver({
-      querySnapshots: buildEcuadorSnapshotQuery(snapshotClient),
-    }),
+    // SOURCES-EC-CLOSE-1 — SCVS (activas, con empleados) → siglas → SRI (entidades
+    // públicas) → nombre comercial (pista) → SCVS de julio; ver el módulo.
+    buildEcuadorOfficialSourceResolver(snapshotClient),
     // SOURCES-GT-HN-BY-NAME-1 — registros ya cargados; la dueña autorizó (30-09)
     // dejar de tratarlos como sólo lectura para la identidad fiscal.
     createSnapshotNameOfficialSourceResolver({
