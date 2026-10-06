@@ -850,11 +850,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales listas para cargar (carga pendiente de autorización).',
+      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada), 9.947 donatarias y 2.944 con estratificación de Nuevo León.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.sat.gob.mx/minisitio/PadronImportadoresExportadores/',
     automationLevel: 'medium',
