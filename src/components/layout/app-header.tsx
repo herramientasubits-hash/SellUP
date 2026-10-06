@@ -250,11 +250,13 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         loadObjects={loadSearchObjects}
         objectsHint={SEARCH_OBJECTS_HINT}
         placeholder="Buscar…"
-        className="shrink-0 md:w-72 lg:w-80"
+        // Cede ancho antes que las acciones: con el panel del Agente IA abierto en
+        // una ventana estrecha, un ancho fijo las empujaba debajo del panel.
+        className="min-w-8 shrink overflow-hidden md:w-72 lg:w-80"
       />
 
       {/* Acciones transversales */}
-      <div className="flex flex-1 basis-0 items-center justify-end gap-1.5 sm:gap-3">
+      <div className="flex flex-1 basis-0 items-center justify-end gap-1.5 sm:gap-3 [&>*]:shrink-0">
         <NotificationBell initialUnreadCount={initialUnreadCount} />
         {processCenter}
         <AccountMenu

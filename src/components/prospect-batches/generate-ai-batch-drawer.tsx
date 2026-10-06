@@ -10,6 +10,7 @@ import { registerAgentRunOpener, takeAgentRunFromUrl } from '@/components/prospe
 import { AgentRunDrawerView } from '@/components/prospect-batches/chat-wizard/agent-run-drawer-view';
 import {
   AlertCircle,
+  X,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -87,6 +88,9 @@ type StructuredBatchResult = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /** El cuerpo desplazable del panel del agente, con el aire de `ChatPanel`. */
+/** Cuánto se queda el aviso de «sigue en segundo plano». */
+const BACKGROUND_NOTICE_MS = 8_000;
+
 const PANEL_BODY = 'min-h-0 flex-1 overflow-y-auto px-4 py-5';
 
 const MVP_MAX_CANDIDATES = 25;
@@ -307,7 +311,8 @@ type GenerateAIBatchDrawerProps = {
 
 export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
-  const runsInProgress = useAgentRuns().filter((run) => run.status === 'running' || run.status === 'queued').length;
+  const agentRuns = useAgentRuns();
+  const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const isControlled = controlledOpen !== undefined;
@@ -325,6 +330,13 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   const [wizardKey, setWizardKey] = React.useState(0);
   const [wizardRunId, setWizardRunId] = React.useState<string | null>(null);
   const [viewRunId, setViewRunId] = React.useState<string | null>(null);
+  // La búsqueda que quedó en segundo plano al pulsar «+»: se avisa arriba del chat nuevo.
+  const [backgroundRunTitle, setBackgroundRunTitle] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!backgroundRunTitle) return undefined;
+    const timer = setTimeout(() => setBackgroundRunTitle(null), BACKGROUND_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [backgroundRunTitle]);
   const canOpenRuns = experience === 'chat_wizard' && Boolean(catalog);
   const openRunRef = React.useRef<(clientRequestId: string) => void>(() => {});
   React.useEffect(() => {
@@ -361,6 +373,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
     onOpenChange?.(false);
     setViewRunId(null);
     setWizardRunId(null);
+    setBackgroundRunTitle(null);
     setDrawer(EMPTY_DRAWER);
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
@@ -369,6 +382,12 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
 
   /** Una conversación nueva; lo que estuviera en vuelo sigue en el Centro de procesos. */
   function startNewSearch() {
+    const leftRunning = agentRuns.find(
+      (run) =>
+        (run.clientRequestId === wizardRunId || run.clientRequestId === viewRunId) &&
+        (run.status === 'running' || run.status === 'queued'),
+    );
+    setBackgroundRunTitle(leftRunning?.title ?? null);
     setViewRunId(null);
     setWizardRunId(null);
     setWizardKey((key) => key + 1);
@@ -624,6 +643,24 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
+          {backgroundRunTitle && !viewRunId && (
+            <div className="shrink-0 px-4 pt-3" data-testid="agent-run-background-notice">
+              <Alert variant="info" className="relative pr-10">
+                <AlertDescription className="text-xs text-foreground">
+                  La búsqueda «{backgroundRunTitle}» sigue en segundo plano en el Centro de procesos.
+                </AlertDescription>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute right-2 top-2"
+                  aria-label="Cerrar aviso"
+                  onClick={() => setBackgroundRunTitle(null)}
+                >
+                  <X aria-hidden />
+                </Button>
+              </Alert>
+            </div>
+          )}
           {viewRunId && (
             <AgentRunDrawerView
               key={viewRunId}

@@ -661,6 +661,22 @@ describe('Section I — Restart', () => {
     assert.strictEqual(confirmed.catalogVersion, CATALOG_VERSION);
     assert.strictEqual(confirmed.requestedCount, EXPLORATORY_SEARCH_LIMITS.requestedCount.default);
   });
+
+  it('I5: REQUEST_RESTART sin nada elegido reinicia sin pedir confirmación', () => {
+    const started = dispatch(freshState(), { type: 'START' });
+    assert.notStrictEqual(started.currentStep, 'welcome');
+    const restarted = dispatch(started, { type: 'REQUEST_RESTART' });
+    assert.strictEqual(restarted.currentStep, 'welcome');
+    assert.ok(!restarted.restartConfirmationRequired);
+  });
+
+  it('I6: REQUEST_RESTART con algo elegido sigue pidiendo confirmación', () => {
+    const started = dispatch(freshState(), { type: 'START' });
+    const withMode = { ...started, searchMode: 'exploratory' } as ProspectWizardState;
+    const requested = dispatch(withMode, { type: 'REQUEST_RESTART' });
+    assert.ok(requested.restartConfirmationRequired);
+    assert.strictEqual(requested.searchMode, 'exploratory');
+  });
 });
 
 // ── Section J — Derived messages ──────────────────────────────────────────────
