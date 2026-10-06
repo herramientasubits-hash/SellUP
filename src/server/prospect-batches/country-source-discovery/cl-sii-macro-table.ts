@@ -93,6 +93,18 @@ export const CL_SII_HOLDING_MACRO_BY_RUT: Readonly<Record<string, MacroIndustryK
   '96781350-8': 'insurance_financial_services', // EDENRED CHILE SOCIEDAD ANONIMA
 });
 
+/**
+ * Empresas cuyo registro en el SII no refleja lo que hacen, revisadas a mano:
+ * RUT → su industria real, con CUALQUIER código de actividad. Manda sobre todo
+ * lo demás. Cada alta es decisión de la dueña.
+ *
+ * - Correos de Chile: el SII la registra como «otras actividades de
+ *   telecomunicaciones» (619090) y salía 1.ª en Tecnología (dueña, 06-10-2026).
+ */
+export const CL_SII_MACRO_OVERRIDE_BY_RUT: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
+  '60503000-9': 'transport_logistics', // EMPRESA DE CORREOS DE CHILE
+});
+
 /** Código tal como llega → 6 dígitos, o `null`. */
 export function normalizeClActivityCode(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null;
@@ -101,8 +113,8 @@ export function normalizeClActivityCode(raw: string | null | undefined): string 
 }
 
 /**
- * Macro de UNA empresa del SII por su código de actividad (y, sólo para la
- * actividad 643000, por su RUT), o `null` si no tiene.
+ * Macro de UNA empresa del SII: primero las correcciones a mano por RUT, luego
+ * su código de actividad (la 643000, sólo por RUT), o `null` si no tiene.
  */
 export function resolveClActivityMacro(
   rawCode: string | null | undefined,
@@ -110,10 +122,10 @@ export function resolveClActivityMacro(
 ): MacroIndustryKey | null {
   const code = normalizeClActivityCode(rawCode);
   if (code === null) return null;
-  if (code === CL_SII_HOLDING_ACTIVITY) {
-    const key = typeof rut === 'string' ? rut.trim().toUpperCase() : '';
-    return CL_SII_HOLDING_MACRO_BY_RUT[key] ?? null;
-  }
+  const key = typeof rut === 'string' ? rut.trim().toUpperCase() : '';
+  const override = CL_SII_MACRO_OVERRIDE_BY_RUT[key];
+  if (override !== undefined) return override;
+  if (code === CL_SII_HOLDING_ACTIVITY) return CL_SII_HOLDING_MACRO_BY_RUT[key] ?? null;
   return CL_SII_ACTIVITY_MACRO[code] ?? CL_SII_DIVISION_MACRO[code.slice(0, 2)] ?? null;
 }
 
