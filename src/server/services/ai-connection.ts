@@ -365,6 +365,31 @@ export async function testAnthropicModelExecution({
 }
 
 /**
+ * AI-CONNECTION-TEST-REAL-REASON-1 — el motivo que dio Anthropic, en una frase.
+ *
+ * Antes la prueba descartaba `error_message` y siempre decía que «el modelo no
+ * está disponible». El 06-10-2026 la cuenta se quedó sin poder usar la API (todas
+ * las llamadas devolvían 400 desde las 13:07Z) y la pantalla culpaba al modelo:
+ * cambiar de modelo no servía de nada.
+ */
+const ACCOUNT_BLOCK_PATTERN =
+  /credit balance|billing|usage limit|spend(ing)? limit|insufficient.*(credit|fund|balance)|plan does not|organization.*(disabled|suspended)/i;
+
+export function describeAnthropicExecutionFailure(result: AnthropicExecutionTestResult): {
+  kind: 'account' | 'model' | 'other';
+  reason: string;
+} {
+  const message = (result.error_message ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const status = result.status ? `HTTP ${result.status}` : (result.error_code ?? 'error');
+  const reason = message ? `${status}: ${message}` : status;
+  if (result.status === 402 || ACCOUNT_BLOCK_PATTERN.test(message) || result.error_code === 'billing_error') {
+    return { kind: 'account', reason };
+  }
+  if (result.status === 404 || result.error_code === 'not_found_error') return { kind: 'model', reason };
+  return { kind: 'other', reason };
+}
+
+/**
  * Two-level Claude connection test:
  *   Level 1 — API key valid (GET /v1/models).
  *   Level 2 — Specific model executes (POST /v1/messages).
@@ -403,6 +428,7 @@ export async function testClaudeConnection(
     .slice(0, 3)
     .forEach((id) => candidateIds.push(id));
 
+  let lastFailureReason: string | null = null;
   for (const modelId of candidateIds) {
     const execResult = await testAnthropicModelExecution({ apiKey, modelId });
     if (execResult.ok) {
@@ -412,12 +438,27 @@ export async function testClaudeConnection(
         message: `Conectado. Modelo validado correctamente${testedLabel}. Latencia: ${execResult.latency_ms}ms`,
       };
     }
+    const failure = describeAnthropicExecutionFailure(execResult);
+    lastFailureReason = failure.reason;
+    // Un bloqueo de la cuenta (saldo, límite de gasto) afecta a TODOS los modelos:
+    // probar otros no aporta nada y el aviso no debe culpar al modelo.
+    if (failure.kind === 'account') {
+      return {
+        success: false,
+        error: 'ACCOUNT_NOT_USABLE',
+        message: `API key válida, pero la cuenta de Anthropic no permite usar la API (${failure.reason}). Revisa el saldo y los límites de gasto en console.anthropic.com (Billing y Limits); cambiar de modelo no lo resuelve.`,
+      };
+    }
     // If the tested active model fails, surface that specifically
     if (modelIdToTest && modelId === modelIdToTest) {
+      const hint =
+        failure.kind === 'model'
+          ? 'Selecciona otro modelo en Configuración > Proveedores de IA.'
+          : 'Anthropic rechazó la prueba; revisa el motivo.';
       return {
         success: false,
         error: 'MODEL_NOT_EXECUTABLE',
-        message: `API key válida (${availableIds.length} modelos en lista), pero el modelo seleccionado "${modelId}" no está disponible. Selecciona otro modelo en Configuración > Proveedores de IA.`,
+        message: `API key válida (${availableIds.length} modelos en lista), pero el modelo seleccionado "${modelId}" no se pudo ejecutar (${failure.reason}). ${hint}`,
       };
     }
   }
@@ -425,7 +466,7 @@ export async function testClaudeConnection(
   return {
     success: false,
     error: 'MODEL_NOT_EXECUTABLE',
-    message: `API key válida (${availableIds.length} modelos en lista), pero ningún modelo pudo ejecutarse. Verifica los permisos de tu plan Anthropic o usa "Actualizar modelos disponibles".`,
+    message: `API key válida (${availableIds.length} modelos en lista), pero ningún modelo pudo ejecutarse${lastFailureReason ? ` (${lastFailureReason})` : ''}. Verifica los permisos de tu plan Anthropic o usa "Actualizar modelos disponibles".`,
   };
 }
 

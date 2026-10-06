@@ -211,3 +211,23 @@ describe('arrastrar la bandeja (posición dentro de la ventana)', async () => {
     assert.equal(parseStoredTrayPosition(null), null);
   });
 });
+
+describe('abrir el chat en «Búsquedas» desde la bandeja', async () => {
+  const events = await import('../agent-chat-events');
+
+  it('sin un chat montado nadie lo atiende y hay ruta de respaldo a Empresas', () => {
+    const target = new EventTarget();
+    const original = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = target;
+    try {
+      assert.equal(events.requestOpenAgentRunsInChat(), false);
+      target.addEventListener(events.AGENT_CHAT_OPEN_RUNS_EVENT, (event) => {
+        (event as CustomEvent<{ handled: boolean }>).detail.handled = true;
+      });
+      assert.equal(events.requestOpenAgentRunsInChat(), true, 'con el cajón montado, lo atiende él');
+    } finally {
+      (globalThis as { window?: unknown }).window = original;
+    }
+    assert.equal(events.agentRunsFallbackHref(), '/accounts?agentView=runs');
+  });
+});
