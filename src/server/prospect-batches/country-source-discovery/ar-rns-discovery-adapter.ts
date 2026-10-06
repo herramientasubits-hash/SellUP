@@ -56,6 +56,14 @@ export const AR_RNS_DISCOVERY_MAX_ROWS = 200;
 /** CUIT de persona jurídica ya normalizada: 11 dígitos con prefijo 30, 33 o 34. */
 const LEGAL_ENTITY_CUIT = /^(30|33|34)\d{9}$/;
 
+/**
+ * SOURCES-AR-NO-RECYCLE-1 — lo que SellUp ya sabe de una CUIT antes de esta
+ * corrida: `candidate` (está en algún lote), `definitive_discard` (descartada y
+ * el rescate cerró el caso: otra industria, otro tamaño o duplicada) o `discard`
+ * (descartada sin cierre, típicamente por falta de web).
+ */
+export type ArRnsPriorSighting = 'candidate' | 'definitive_discard' | 'discard';
+
 /** De qué carga viene una fila. */
 export type ArRnsDiscoveryOrigin = 'procurement' | 'employer';
 
@@ -74,6 +82,8 @@ export type ArRnsSnapshotReadRow = {
   priority_score: number | null;
   /** SOURCES-AR-SIPRO-DOMAIN-1 — dominio del correo del SIPRO histórico, o `null`. */
   website_domain?: string | null;
+  /** SOURCES-AR-NO-RECYCLE-1 — ausente o `null` = SellUp no la vio. */
+  prior_sighting?: ArRnsPriorSighting | null;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -123,6 +133,26 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
 }
 
 /**
+ * SOURCES-AR-NO-RECYCLE-1 — ¿proponerla otra vez sólo repetiría lo de una corrida
+ * anterior? Sí si ya es candidata en SellUp, si su descarte quedó cerrado, o si
+ * fue descartada y SIGUE sin web (volvería a Descartadas igual). Una descartada
+ * que AHORA tiene dominio vuelve a ofrecerse: ése es justo el caso que el dominio
+ * del SIPRO vino a resolver. Las cuentas y HubSpot los cubre el detector de
+ * duplicados de la capa; esto cubre lo que ese detector no mira.
+ */
+export function isRecycledArCompany(row: Pick<ArRnsSnapshotReadRow, 'prior_sighting' | 'website_domain'>): boolean {
+  switch (row.prior_sighting) {
+    case 'candidate':
+    case 'definitive_discard':
+      return true;
+    case 'discard':
+      return normalizeDomain(row.website_domain) === null;
+    default:
+      return false;
+  }
+}
+
+/**
  * Alterna las filas de cada origen (procurement, employer, procurement…)
  * conservando el orden dentro de cada uno. Puro.
  */
@@ -165,6 +195,7 @@ export function buildArRnsDiscoveryAdapter(reads: ArRnsDiscoveryReads): CountryS
     const companies: CountrySourceCompany[] = [];
     for (const row of interleaveByOrigin(rows)) {
       if (companies.length >= limit) break;
+      if (isRecycledArCompany(row)) continue;
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
       seen.add(company.taxId);

@@ -91,6 +91,13 @@ export interface OfficialWorkforce {
   year: number;
   source: string;
   salesBracket?: string | null;
+  /**
+   * SOURCES-MX-SIZE-BAND-1 — México no informa trabajadores sino un TRAMO declarado
+   * (MICRO / PEQUEÑA / MEDIANA / GRANDE). Entonces `workers` es el piso del tramo,
+   * `maxWorkers` su techo (`null` = sin techo) y `sizeBand` su nombre.
+   */
+  maxWorkers?: number | null;
+  sizeBand?: string | null;
 }
 
 export interface OfficialSourceEnrichmentResult {

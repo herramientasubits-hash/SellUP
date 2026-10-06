@@ -147,3 +147,24 @@ export function buildArSiproDomainMap(rows: Iterable<Record<string, string>>): M
   }
   return out;
 }
+
+/** Origen que se guarda junto al dominio en `raw_data.website_domain_source`. */
+export const AR_SIPRO_DOMAIN_SOURCE = 'sipro_legacy_email' as const;
+
+/**
+ * SOURCES-AR-DOMAIN-ON-RELOAD-1 — los campos de dominio de una fila del buscador
+ * gratuito, listos para `raw_data`. Una recarga de `ar_rns` o `ar_atp_employers`
+ * que reciba el mapa del SIPRO histórico escribe el dominio en el mismo paso, con
+ * la MISMA regla que el script de dominios (también contra el nombre actual).
+ * Sin dominio (o sin mapa) ⇒ `null`: nunca se fabrica uno.
+ */
+export function arWebsiteDomainFields(
+  siproDomain: string | null | undefined,
+  currentLegalName: string | null | undefined,
+): { website_domain: string | null; website_domain_source: string | null } {
+  const domain = typeof siproDomain === 'string' && siproDomain.trim() ? siproDomain.trim().toLowerCase() : null;
+  if (domain === null || !domainMatchesCurrentArName(domain, currentLegalName)) {
+    return { website_domain: null, website_domain_source: null };
+  }
+  return { website_domain: domain, website_domain_source: AR_SIPRO_DOMAIN_SOURCE };
+}

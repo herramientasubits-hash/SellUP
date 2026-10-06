@@ -21,6 +21,7 @@ import {
   AR_RNS_DISCOVERY_SOURCE_KEY,
   buildArRnsDiscoveryAdapter,
   interleaveByOrigin,
+  isRecycledArCompany,
   type ArRnsDiscoveryReads,
   type ArRnsSnapshotReadRow,
 } from '../ar-rns-discovery-adapter';
@@ -277,6 +278,94 @@ describe('dominio del SIPRO histórico (SOURCES-AR-SIPRO-DOMAIN-1)', () => {
   });
 });
 
+describe('no reciclar lo que SellUp ya vio (SOURCES-AR-NO-RECYCLE-1)', () => {
+  it('salta candidatas y descartes cerrados; un descarte sin web sólo vuelve si ahora tiene dominio', () => {
+    assert.equal(isRecycledArCompany({ prior_sighting: 'candidate', website_domain: 'x.com.ar' }), true);
+    assert.equal(isRecycledArCompany({ prior_sighting: 'definitive_discard', website_domain: 'x.com.ar' }), true);
+    assert.equal(isRecycledArCompany({ prior_sighting: 'discard', website_domain: null }), true);
+    assert.equal(isRecycledArCompany({ prior_sighting: 'discard', website_domain: 'telecom.com.ar' }), false);
+    assert.equal(isRecycledArCompany({ prior_sighting: null, website_domain: null }), false);
+    assert.equal(isRecycledArCompany({}), false);
+  });
+
+  it('el adapter llena el tope con empresas nuevas saltando las ya vistas', async () => {
+    const rows = [
+      row(1, { prior_sighting: 'candidate' }),
+      row(2, { prior_sighting: 'discard' }),
+      row(3, { prior_sighting: 'discard', website_domain: 'empresa3.com.ar' }),
+      row(4),
+      row(5),
+    ];
+    const result = await buildArRnsDiscoveryAdapter(fakeReads(rows).reads)({
+      countryCode: 'AR',
+      macroIndustryKey: 'technology',
+      limit: 2,
+    });
+    assert.deepEqual(result.companies.map((c) => c.recordIdentityKey), ['tax:3', 'tax:4']);
+    assert.equal(result.recordsRead, rows.length);
+  });
+});
+
+describe('la lectura marca lo ya visto (SOURCES-AR-NO-RECYCLE-1)', () => {
+  function tableClient(tables: Record<string, unknown[]>) {
+    const make = (table: string) => {
+      const b: Record<string, unknown> = {};
+      for (const m of ['select', 'eq', 'order']) b[m] = () => b;
+      b.limit = () => Promise.resolve({ data: tables[table] ?? [], error: null });
+      b.in = () => Promise.resolve({ data: tables[table] ?? [], error: null });
+      for (const w of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
+        b[w] = () => {
+          throw new Error(`escritura prohibida: ${w}`);
+        };
+      }
+      return b;
+    };
+    return { from: (table: string) => make(table) } as unknown as SupabaseClient;
+  }
+  const snap = (cuit: string) => ({
+    record_identity_key: `tax:${cuit}`,
+    normalized_tax_id: cuit,
+    legal_name: `EMPRESA ${cuit}`,
+    normalized_legal_name: `EMPRESA ${cuit}`,
+    sector: null,
+    city: null,
+    region: null,
+    priority_score: 50,
+    raw_data: { actividad_codigo: '620100' },
+  });
+
+  it('candidata > descarte cerrado > descarte; sin rastro = null', async () => {
+    const client = tableClient({
+      source_company_snapshots: [snap('30500001001'), snap('30500001002'), snap('30500001003'), snap('30500001004')],
+      prospect_candidates: [{ tax_identifier: '30500001001' }],
+      prospect_discarded_dispositions: [
+        { provider_identifier: 'tax:30500001001', decision: 'website_not_found' },
+        { provider_identifier: 'tax:30500001002', decision: 'discard' },
+        { provider_identifier: 'tax:30500001003', decision: null },
+      ],
+    });
+    const rows = await buildArRnsDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
+    const byCuit = new Map(rows.map((r) => [r.cuit, r.prior_sighting]));
+    assert.equal(byCuit.get('30500001001'), 'candidate');
+    assert.equal(byCuit.get('30500001002'), 'definitive_discard');
+    assert.equal(byCuit.get('30500001003'), 'discard');
+    assert.equal(byCuit.get('30500001004'), null);
+  });
+
+  it('si la consulta de «ya visto» falla, la fila se ofrece igual (fail-open)', async () => {
+    const client = tableClient({ source_company_snapshots: [snap('30500001001')] });
+    const broken = {
+      from: (table: string) => {
+        if (table === 'source_company_snapshots') return (client as unknown as { from: (t: string) => unknown }).from(table);
+        throw new Error('caída');
+      },
+    } as unknown as SupabaseClient;
+    const rows = await buildArRnsDiscoveryReads(broken).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
+    assert.ok(rows.length > 0);
+    assert.ok(rows.every((r) => r.prior_sighting === null));
+  });
+});
+
 describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
   type Call = { method: string; args: unknown[] };
 
@@ -293,6 +382,11 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       calls.push({ method: 'limit', args });
       if (result.throws) return Promise.reject(new Error('network down'));
       return Promise.resolve({ data: result.data ?? null, error: result.error ?? null });
+    };
+    // SOURCES-AR-NO-RECYCLE-1 — la consulta de «ya visto» termina en `.in(...)`.
+    builder.in = (...args: unknown[]) => {
+      calls.push({ method: 'in', args });
+      return Promise.resolve({ data: [], error: null });
     };
     for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
       builder[write] = () => {
@@ -334,13 +428,15 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       activity_code: '620100',
       priority_score: 99.5,
       website_domain: null,
+      prior_sighting: null,
     };
     assert.deepEqual(rows, [
       { origin: 'procurement', ...expected },
       { origin: 'employer', ...expected },
     ]);
     assert.deepEqual(calls[0], { method: 'from', args: ['source_company_snapshots'] });
-    const eqs = calls.filter((c) => c.method === 'eq').map((c) => c.args);
+    const snapshotCalls = calls.slice(0, calls.findIndex((c) => c.method === 'in'));
+    const eqs = snapshotCalls.filter((c) => c.method === 'eq').map((c) => c.args);
     assert.deepEqual(eqs, [
       ['source_key', 'ar_rns'],
       ['country_code', 'AR'],
@@ -353,11 +449,15 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       ['priority_score', { ascending: false }],
       ['normalized_tax_id', { ascending: true }],
     ];
-    assert.deepEqual(calls.filter((c) => c.method === 'order').map((c) => c.args), [...order, ...order]);
+    assert.deepEqual(snapshotCalls.filter((c) => c.method === 'order').map((c) => c.args), [...order, ...order]);
+    // SOURCES-AR-NO-RECYCLE-1 — se lee el triple para compensar lo ya visto.
     assert.deepEqual(
-      calls.filter((c) => c.method === 'limit').map((c) => c.args),
-      [[50], [50]],
+      snapshotCalls.filter((c) => c.method === 'limit').map((c) => c.args),
+      [[150], [150]],
     );
+    // Lo «ya visto» se pregunta a candidatas y descartadas, sólo lectura.
+    const tables = calls.filter((c) => c.method === 'from').map((c) => c.args[0]);
+    assert.deepEqual(tables.slice(2), ['prospect_candidates', 'prospect_discarded_dispositions']);
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {

@@ -34,6 +34,7 @@ import {
   resolveArActivityMacro,
 } from '@/server/prospect-batches/country-source-discovery/ar-rns-macro-table';
 import { isLegalEntityCuit, normalizeArLegalName, normalizeCuit } from './ar-rns-snapshot-builder';
+import { arWebsiteDomainFields } from './ar-sipro-domain';
 
 export const AR_ATP_EMPLOYERS_SOURCE_KEY = 'ar_atp_employers' as const;
 export const AR_ATP_COUNTRY_CODE = 'AR' as const;
@@ -117,6 +118,8 @@ export function buildArAtpEmployerRow(params: {
   priorityScore: number;
   importedAt: string;
   minWorkers?: number;
+  /** SOURCES-AR-DOMAIN-ON-RELOAD-1 — dominio del SIPRO histórico (opcional). */
+  siproDomain?: string | null;
 }): ArAtpEmployerRow | null {
   const { employer, registry, priorityScore, importedAt } = params;
   if (employer.workers < (params.minWorkers ?? AR_ATP_MIN_WORKERS)) return null;
@@ -156,6 +159,7 @@ export function buildArAtpEmployerRow(params: {
       sector_source: 'arca_ciiu4_principal_activity',
       workforce_note: 'piso: trabajadores que cobraron ATP en 2020, no la plantilla total',
       human_review_required: true,
+      ...arWebsiteDomainFields(params.siproDomain, legalName),
     },
     imported_at: importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,

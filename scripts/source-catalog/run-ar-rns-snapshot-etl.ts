@@ -16,6 +16,11 @@
  * Escritura REAL (sólo con autorización explícita de la dueña):
  *   npx tsx scripts/source-catalog/run-ar-rns-snapshot-etl.ts --rns=… --sipro=… --awards=… --apply
  *
+ * Opcional (SOURCES-AR-DOMAIN-ON-RELOAD-1):
+ *   --sipro-legacy=<csv>  SIPRO histórico (proveedores-sistema-legacy.csv): escribe el
+ *                         dominio corporativo en el mismo paso. SIN él, las filas quedan
+ *                         sin dominio y hay que volver a correr run-ar-sipro-domain-etl.ts.
+ *
  * Por defecto se cargan sólo las sociedades que HAN GANADO alguna adjudicación
  * (~6.000 filas, por debajo del umbral de la valla). `--include-sipro-only` añade
  * las inscriptas que nunca ganaron (~32.500 filas en total): la valla
@@ -53,6 +58,7 @@ import {
   type RnsPrincipalActivity,
 } from '../../src/server/source-catalog/connectors/rns-argentina/ar-rns-snapshot-builder';
 import { resolveArActivityMacro } from '../../src/server/prospect-batches/country-source-discovery/ar-rns-macro-table';
+import { buildArSiproDomainMap } from '../../src/server/source-catalog/connectors/rns-argentina/ar-sipro-domain';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
@@ -66,6 +72,8 @@ type Config = {
   year: number;
   /** Incluye a las inscriptas en SIPRO que nunca ganaron una adjudicación. */
   includeSiproOnly: boolean;
+  /** SIPRO histórico para el dominio (opcional). */
+  siproLegacy: string | null;
 };
 
 function parseArgs(argv: readonly string[]): Config {
@@ -88,6 +96,7 @@ function parseArgs(argv: readonly string[]): Config {
     apply: argv.includes('--apply'),
     year,
     includeSiproOnly: argv.includes('--include-sipro-only'),
+    siproLegacy: value('sipro-legacy'),
   };
 }
 
@@ -133,6 +142,17 @@ async function readRnsActivities(
   return { activities, rowsRead };
 }
 
+/** CUIT → dominio desde el SIPRO histórico, o `null` (con aviso) si no se indicó. */
+async function readSiproDomains(path: string | null): Promise<Map<string, string> | null> {
+  if (!path) {
+    console.warn('  ⚠️ Sin --sipro-legacy: las filas quedan SIN dominio. Corre después run-ar-sipro-domain-etl.ts.');
+    return null;
+  }
+  const rows: Record<string, string>[] = [];
+  for await (const row of readCsvFile(path)) rows.push(row);
+  return buildArSiproDomainMap(rows);
+}
+
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
   console.log(`AR RNS ETL — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
@@ -153,6 +173,8 @@ async function main(): Promise<void> {
   const { activities, rowsRead } = await readRnsActivities(config.rns, suppliers);
   console.log(`  RNS filas leídas: ${rowsRead} · proveedoras con actividad principal activa: ${activities.size}`);
 
+  const siproDomains = await readSiproDomains(config.siproLegacy);
+
   const ordered = [...activities.values()].sort((a, b) => a.cuit.localeCompare(b.cuit));
   const totals = ordered.map((activity) => awards.get(activity.cuit)?.totalArs ?? 0);
   const scores = percentileScores(totals);
@@ -166,8 +188,10 @@ async function main(): Promise<void> {
       priorityScore: scores[index],
       sourceYear: config.year,
       importedAt,
+      siproDomain: siproDomains?.get(activity.cuit) ?? null,
     }),
   );
+  console.log(`  Con dominio (SIPRO histórico): ${rows.filter((r) => r.raw_data['website_domain']).length}`);
 
   const perMacro = new Map<string, number>();
   for (const activity of ordered) {

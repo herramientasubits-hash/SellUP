@@ -62,6 +62,15 @@ export type OfficialRegistryWorkforce = {
   workers: number;
   year: number;
   source: string;
+  /**
+   * SOURCES-MX-SIZE-BAND-1 — cuando el registro no informa trabajadores sino un
+   * TRAMO declarado (México: estratificación MICRO / PEQUEÑA / MEDIANA / GRANDE de
+   * CompraNet y del padrón de Nuevo León), `workers` es el piso del tramo y esto el
+   * techo (`null` = sin techo). Ausente en el SII de Chile.
+   */
+  maxWorkers?: number | null;
+  /** Nombre del tramo declarado, para explicar la decisión. */
+  band?: string | null;
 };
 
 /**
@@ -224,7 +233,16 @@ export function extractOfficialRegistryWorkforce(candidate: unknown): OfficialRe
   if (typeof workers !== 'number' || !Number.isInteger(workers) || workers < 0) return null;
   if (typeof year !== 'number' || !Number.isInteger(year)) return null;
   if (typeof source !== 'string' || source.trim().length === 0) return null;
-  return { workers, year, source };
+  const maxWorkers = w['maxWorkers'];
+  const band = w['sizeBand'];
+  const hasMax = typeof maxWorkers === 'number' && Number.isInteger(maxWorkers) && maxWorkers >= workers;
+  return {
+    workers,
+    year,
+    source,
+    ...(hasMax ? { maxWorkers } : {}),
+    ...(typeof band === 'string' && band.trim().length > 0 ? { band: band.trim() } : {}),
+  };
 }
 
 // ─── Extractor defensivo de HubSpot employees desde raw ──────────────────────
@@ -371,6 +389,33 @@ export function resolveEmployeeSizeForIcpGate(
     const floor = threshold ?? ICP_SIZE_GATE_DEFAULT_THRESHOLD;
     const referenceYear = input.referenceYear ?? new Date().getUTCFullYear();
     const isRecent = referenceYear - registry.year <= OFFICIAL_REGISTRY_WORKERS_MAX_AGE_YEARS;
+    // SOURCES-MX-SIZE-BAND-1 — un TRAMO declarado con techo bajo el corte de
+    // pequeña (MICRO, PEQUEÑA) es una empresa pequeña: el gate la bloquea igual
+    // que unos trabajadores informados bajo el corte.
+    const bandMax = registry.maxWorkers ?? null;
+    if (isRecent && bandMax !== null && bandMax <= OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF) {
+      const range = `${registry.workers}-${bandMax}`;
+      const label = registry.band ?? range;
+      attemptedSources.push({
+        source: 'official_registry_workers',
+        value: bandMax,
+        usable: true,
+        reason: `${registry.source} declara tamaño ${label} (${range} personas) en ${registry.year}: empresa pequeña`,
+      });
+      return {
+        icpInput: {
+          sizeRange: range,
+          sizeStatus: 'estimated',
+          source: `${registry.source}:${registry.year}`,
+          threshold,
+        },
+        selectedSource: 'official_registry_workers',
+        selectedValue: range,
+        confidence: 'medium',
+        reason: `Used ${registry.source} declared band ${label} (${range}, year ${registry.year}): at or below small cutoff ${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF}`,
+        attemptedSources,
+      };
+    }
     if (isRecent && registry.workers >= floor) {
       const range = `${registry.workers}+`;
       attemptedSources.push({
@@ -394,7 +439,9 @@ export function resolveEmployeeSizeForIcpGate(
       };
     }
     // 0 informados no es «pequeña»: en grupos grandes la planilla suele estar en otra razón social.
-    if (isRecent && registry.workers >= 1 && registry.workers < OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF) {
+    // Un TRAMO con techo por encima del corte (MEDIANA 31–250) no es «pequeña»
+    // aunque su piso lo sea: sólo los trabajadores INFORMADOS deciden aquí.
+    if (isRecent && bandMax === null && registry.band == null && registry.workers >= 1 && registry.workers < OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF) {
       // Rango estimado bajo el umbral ⇒ el gate bloquea (como un tamaño pequeño de Apollo).
       const range = `${registry.workers}-${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF - 1}`;
       attemptedSources.push({
