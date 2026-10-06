@@ -38,6 +38,7 @@ import {
   describeAgentRun,
   isDetachedRunFinished,
   processCenterSummary,
+  processRowAction,
   type ProcessState,
 } from './agent-runs-tray-copy';
 import { openAgentRun } from './agent-run-opener';
@@ -152,14 +153,24 @@ const TILE_ICON: Record<ProcessState, React.ComponentType<{ className?: string }
   failed: AlertCircle,
 };
 
-function ProcessRow({ run, live, onOpen }: { run: AgentRun; live: LiveProgress | undefined; onOpen: (clientRequestId: string) => void }) {
+function ProcessRow({
+  run,
+  live,
+  onOpen,
+  onOpenBatch,
+}: {
+  run: AgentRun;
+  live: LiveProgress | undefined;
+  onOpen: (clientRequestId: string) => void;
+  onOpenBatch: (href: string) => void;
+}) {
   const state = agentRunProcessState(run);
   const view = describeAgentRun(run, live?.label ?? null);
   const meta = view.error ?? view.description;
   const percent = live?.percent ?? 5;
   const Icon = TILE_ICON[state];
-  const isActive = state === 'running' || state === 'waiting';
-  const actionLabel = isActive ? AGENT_RUNS_TRAY_COPY.openRun : AGENT_RUNS_TRAY_COPY.viewRun;
+  const action = processRowAction(run);
+  const actionLabel = AGENT_RUNS_TRAY_COPY[action.kind === 'batch' ? 'openBatch' : state === 'running' || state === 'waiting' ? 'openRun' : 'viewRun'];
 
   return (
     <li className="flex items-start gap-3 border-b border-border/60 px-4 py-3 last:border-b-0">
@@ -191,13 +202,14 @@ function ProcessRow({ run, live, onOpen }: { run: AgentRun; live: LiveProgress |
         )}
       </div>
       {/* La acción tiene columna propia: el título puede truncar sin moverla.
-          Abre la corrida en el drawer del chat: el loader si sigue, el resultado si terminó. */}
+          Terminada con lote ⇒ va DIRECTO al lote (dueña 06-10: sin pasar por el chat).
+          En curso, en espera o fallida sin lote ⇒ abre la corrida en el drawer del chat. */}
       <Button
         size="sm"
         variant="outline"
         className="shrink-0 self-center"
         aria-label={`${actionLabel} ${run.title}`}
-        onClick={() => onOpen(run.clientRequestId)}
+        onClick={() => (action.kind === 'batch' ? onOpenBatch(action.href) : onOpen(run.clientRequestId))}
       >
         {actionLabel}
       </Button>
@@ -252,6 +264,10 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const openRun = (clientRequestId: string) => {
     close();
     openAgentRun(clientRequestId, (href) => router.push(href));
+  };
+  const openBatch = (href: string) => {
+    close();
+    router.push(href);
   };
   // AGENT1-RUNS-INSIDE-CHAT-1 — «Historial» abre el CHAT en su pestaña «Búsquedas»
   // (en curso + últimos 7 días). Si esta pantalla no tiene el asistente, lleva a
@@ -347,7 +363,13 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             onActiveChange={setContinuationActive}
           />
           {runs.map((run) => (
-            <ProcessRow key={run.clientRequestId} run={run} live={live[run.clientRequestId]} onOpen={openRun} />
+            <ProcessRow
+              key={run.clientRequestId}
+              run={run}
+              live={live[run.clientRequestId]}
+              onOpen={openRun}
+              onOpenBatch={openBatch}
+            />
           ))}
         </ul>
 
