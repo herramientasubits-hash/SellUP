@@ -103,6 +103,16 @@ function toSourceDiscoveryCandidate(
       // guarda (el writer la lee de aquí y deriva el dominio) en vez de tirarla.
       website: company.domain ? `https://${company.domain}` : null,
       website_available: company.domain !== null,
+      // SOURCES-MX-FREE-LAYER-RFC-1 — el número fiscal lo puso el registro oficial
+      // por nombre (la fuente no lo publica). Ausente ⇒ venía de la fuente.
+      ...(company.officialTaxIdLookup?.sourceKey
+        ? {
+            official_tax_id_lookup: {
+              source_key: company.officialTaxIdLookup.sourceKey,
+              confidence: company.officialTaxIdLookup.confidence,
+            },
+          }
+        : {}),
     },
     reviewFlags: company.domain ? [] : ['missing_website'],
     qualityDecision: 'accepted',

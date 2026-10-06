@@ -45,6 +45,9 @@ export const MX_COMPRANET_LEGAL_FORMS: readonly string[] = [
   'SAS DE CV',
   'SAS',
   'AC',
+  // «A.C.» con puntos se normaliza a «A C»; sin esta forma «UNIVERSIDAD OLMECA A.C.»
+  // y «UNIVERSIDAD OLMECA AC» no coincidían (SOURCES-MX-FREE-LAYER-RFC-1).
+  'A C',
   'SC',
   ...MEXICO_LEGAL_FORMS,
 ];
