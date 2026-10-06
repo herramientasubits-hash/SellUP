@@ -20,6 +20,7 @@
  * depende únicamente de sus argumentos.
  */
 
+import { stripWebHostPrefix } from './normalization';
 import type { CandidateQualityLabel } from './types';
 
 // ─── Content-page gate (Hito 16AB.43.28) ──────────────────────────────────────
@@ -219,7 +220,7 @@ export function extractDomain(website: string | null): string | null {
   try {
     const url = website.startsWith("http") ? website : `https://${website}`;
     const { hostname } = new URL(url);
-    return hostname.replace(/^www\./, "");
+    return stripWebHostPrefix(hostname);
   } catch {
     return null;
   }

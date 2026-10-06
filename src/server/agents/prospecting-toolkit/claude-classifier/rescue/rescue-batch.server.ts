@@ -18,6 +18,7 @@ import { sendDispositionToReviewCore } from '@/modules/prospect-discards/send-to
 import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
 import { checkCompanyDuplicate } from '../../duplicate-checker';
 import { fetchSafePageHtml } from '../../website-verifier';
+import { CLAUDE_PAGE_MAX_HTML_BYTES } from '../page-text';
 import type { ClassifiableCandidateRow } from '../classification-metadata';
 import { buildLiveClassifyCompanyDeps } from '../classify-company';
 import { findOfficialWebsite } from '../domain-finder';
@@ -144,7 +145,7 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
     findOfficialWebsite(
       input,
       active.model,
-      buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS)),
+      buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES)),
     ),
   checkDuplicate: checkDuplicateStrict,
 };

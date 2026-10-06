@@ -292,6 +292,7 @@ type FetchResult = {
 async function fetchWithRedirectTracking(
   startUrl: URL,
   timeoutMs: number,
+  maxHtmlBytes: number = MAX_HTML_BYTES,
 ): Promise<FetchResult> {
   const redirectChain: string[] = [];
   let currentUrl = startUrl.toString();
@@ -352,7 +353,7 @@ async function fetchWithRedirectTracking(
           // Leer solo los primeros MAX_HTML_BYTES para no guardar todo el HTML
           const buffer = await response.arrayBuffer();
           const decoder = new TextDecoder('utf-8', { fatal: false });
-          html = decoder.decode(buffer.slice(0, MAX_HTML_BYTES));
+          html = decoder.decode(buffer.slice(0, maxHtmlBytes));
         }
       }
       break;
@@ -386,7 +387,7 @@ export type SafePageFetchResult = {
   finalUrl: string | null;
   httpStatus: number | null;
   redirected: boolean;
-  /** Primeros 50 KB del HTML; null si la página no respondió o no es HTML. */
+  /** Primeros 50 KB del HTML (o `maxHtmlBytes`); null si la página no respondió o no es HTML. */
   html: string | null;
   error: string | null;
 };
@@ -394,10 +395,14 @@ export type SafePageFetchResult = {
 /**
  * Descarga la página con las MISMAS protecciones que `verifyWebsite`
  * (anti-SSRF, redirects manuales ≤3, timeout, tope de 50 KB). No guarda nada.
+ *
+ * `maxHtmlBytes`: los lectores de Claude piden más (ver
+ * `CLAUDE_PAGE_MAX_HTML_BYTES`); el resto sigue con 50 KB.
  */
 export async function fetchSafePageHtml(
   websiteOrDomain: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  maxHtmlBytes: number = MAX_HTML_BYTES,
 ): Promise<SafePageFetchResult> {
   const requestedUrl = websiteOrDomain.trim();
   const safeResult = buildSafeUrl(requestedUrl);
@@ -411,7 +416,7 @@ export async function fetchSafePageHtml(
       error: `blocked_url:${safeResult.reason}`,
     };
   }
-  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs);
+  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs, maxHtmlBytes);
   return {
     requestedUrl,
     finalUrl: fetchResult.finalUrl,

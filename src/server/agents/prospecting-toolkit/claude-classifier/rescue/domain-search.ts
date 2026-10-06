@@ -46,9 +46,12 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * indragroup.com). Medido en Chile (bd751c34) y Argentina (17da92cf). d6 (06-10): PISTA
  * sin confirmar — ver `unverifiedWebsiteHint`. d7 (06-10): el nombre corto quita las letras
  * sueltas («HEXACTA S. R. L.» → «hexacta») y «company»; los «no encontrado» de d6 se
- * reintentan una vez.
+ * reintentan una vez. d8 (06-10): el dominio puede ser la SIGLA del nombre (meds.cl,
+ * ucmchile.cl) si la página la confirma — ver `pageConfirmsAcronym`. d9 (06-10): la página
+ * se lee hasta 400 KB (`CLAUDE_PAGE_MAX_HTML_BYTES`): en sitios WordPress los primeros
+ * 50 KB eran sólo estilos y la comprobación nunca veía el texto.
  */
-export const DOMAIN_SEARCH_VERSION = 'd7';
+export const DOMAIN_SEARCH_VERSION = 'd9';
 
 /**
  * PISTA (decisión de la dueña, 06-10-2026, «si pista»): la web que Claude propuso pero
@@ -61,6 +64,7 @@ const VERIFICATIONS: readonly FoundVerification[] = [
   'linkedin_cross_link',
   'name_match',
   'search_result_match',
+  'acronym_match',
   UNVERIFIED_HINT_VERIFICATION,
 ];
 
@@ -217,6 +221,32 @@ export function registryNameCore(name: string | null | undefined): string | null
   return core.replace(/\s/g, '').length >= 3 ? core : null;
 }
 
+/** Palabra con la que empieza el nombre propio de un establecimiento de salud. */
+const HEALTH_FACILITY_START_RE = /\b(hospital|instituto|clinica|consultorio|cesfam|sanatorio|centro de salud)\b/;
+
+/**
+ * d9 — el establecimiento dentro de una razón social pública. Prod 06-10 (CL×Salud,
+ * e4fec102): «SERVICIO DE SALUD HOSPITAL DE SAN FERNANDO», «SERVICIO DE SALUD NORTE
+ * HOSPITAL ROBERTO DEL RIO»: la web (hospitalsanfernando.cl, hrrio.cl) lleva el nombre
+ * del hospital, no el del Servicio de Salud que lo administra, y la comprobación no
+ * pasaba. Devuelve «hospital de san fernando»; null si el nombre ya empieza así.
+ */
+export function healthFacilityName(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+  const plain = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const match = HEALTH_FACILITY_START_RE.exec(plain);
+  if (!match || match.index === 0) return null;
+  // El nombre de la persona que lo bautiza no está en la web («… DR BENICIO ARZOLA MEDINA»).
+  const facility = plain.slice(match.index).split(/ (?:dr|dra|doctor|doctora) /)[0].trim();
+  // Sólo «hospital» (sin más) no identifica a nadie.
+  return facility.split(' ').length >= 2 && facility.length > match[0].length + 2 ? facility : null;
+}
+
 /** «CL» → «Chile». El buscador entiende mejor el nombre que el código. */
 export function countryNameFromCode(code: string | null | undefined): string | null {
   if (typeof code !== 'string' || !code.trim()) return null;
@@ -230,9 +260,10 @@ export function buildDomainFinderInput(row: DomainSearchRow, countryName: string
     (n): n is string => !!n,
   );
   const cores = [displayName, ...names].map(registryNameCore).filter((n): n is string => !!n);
+  const facilities = [displayName, ...names].map(healthFacilityName).filter((n): n is string => !!n);
   return {
     name: displayName,
-    alternateNames: [...new Set([...names, ...cores])],
+    alternateNames: [...new Set([...names, ...cores, ...facilities])],
     searchHint: cores[0] ?? null,
     countryName: countryName ?? countryNameFromCode(row.country_code),
     countryCode: row.country_code,

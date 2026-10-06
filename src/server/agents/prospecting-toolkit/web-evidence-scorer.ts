@@ -12,6 +12,8 @@
  * - LinkedIn requiere /company/ path Y name match fuerte para ser confirmado.
  */
 
+import { stripWebHostPrefix } from './normalization';
+
 // ─── Domain blacklists ────────────────────────────────────────────────────────
 
 const SOCIAL_PERSONAL = new Set([
@@ -987,7 +989,7 @@ export function extractDomainFromUrl(url: string): string | null {
   try {
     const normalized = url.startsWith('http') ? url : `https://${url}`;
     const { hostname } = new URL(normalized);
-    return hostname.replace(/^www\./, '').toLowerCase();
+    return stripWebHostPrefix(hostname.toLowerCase());
   } catch {
     return null;
   }

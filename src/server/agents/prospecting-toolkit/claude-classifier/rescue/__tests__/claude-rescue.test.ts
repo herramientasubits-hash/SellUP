@@ -16,7 +16,13 @@ import {
   needsDispositionRescue,
   type RescuableDispositionRow,
 } from '../rescue-dispositions';
-import { needsCandidateRescue, rescueBatchWithClaude, RESCUE_RUN_DEADLINE_MS, type RescueBatchDeps } from '../rescue-batch';
+import {
+  needsCandidateRescue,
+  RESCUE_CONCURRENCY,
+  rescueBatchWithClaude,
+  RESCUE_RUN_DEADLINE_MS,
+  type RescueBatchDeps,
+} from '../rescue-batch';
 import type { ClassifiableCandidateRow } from '../../classification-metadata';
 import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, type CompanyClassificationResult } from '../../types';
 
@@ -381,8 +387,9 @@ describe('D. rescueBatchWithClaude', () => {
       classify: async (company) => ((clock += RESCUE_RUN_DEADLINE_MS), result({ candidateId: company.candidateId })),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
-    assert.ok(s.ok && s.candidatesCompleted <= 4);
-    assert.ok(s.ok && s.remaining >= 8);
+    // A lo sumo una empresa por hilo llega a empezar antes del plazo.
+    assert.ok(s.ok && s.candidatesCompleted <= RESCUE_CONCURRENCY);
+    assert.ok(s.ok && s.remaining >= many.length - RESCUE_CONCURRENCY);
   });
 
   it('un candidato ya rescatado no se vuelve a procesar', () => {
