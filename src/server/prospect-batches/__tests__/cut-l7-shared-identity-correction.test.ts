@@ -990,9 +990,28 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 143 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 144 o superior, se llame como se llame.
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 reclamó después la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con la 137–143: se EXIGE
+    // que la 144 sea exactamente esa migración y que su cuerpo no mencione CUT-L7 ni la identidad
+    // compartida que este corte toca. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^144_/.test(f)),
+      ['144_wizard_budget_concurrent_executions.sql'],
+      'la 144 tiene que ser la de varias ejecuciones activas por usuario, y sólo ella',
+    );
+    const concurrentExecutions = read('supabase/migrations/144_wizard_budget_concurrent_executions.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        concurrentExecutions.includes(foreign),
+        false,
+        `la 144 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 145 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[4-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[5-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

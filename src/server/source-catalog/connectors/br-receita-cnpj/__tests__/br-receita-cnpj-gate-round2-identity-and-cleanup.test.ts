@@ -659,7 +659,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // Agent 1 run (a separate table `agent1_run_progress`; service_role writes, each user reads
     // only their own row; not phone, not catalog, not BR, not CUT3B4). Not a BR migration; the
     // authorship sweep further down is WIDENED to include it. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 143, 'the repository ceiling is 143 — AGENT1-RUN-LIVE-PROGRESS-1, not CUT A');
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 then moved the ceiling to 144 with several active executions
+    // per user in the pilot reservation (a non-unique index on `wizard_budget_reservations` + step
+    // 9 of `try_reserve_wizard_credits` reading `max_active_executions_per_user`; no data rows; not
+    // phone, not catalog, not BR, not CUT3B4). Not a BR migration; the authorship sweep further
+    // down is WIDENED to include it. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 144, 'the repository ceiling is 144 — AGENT1-PARALLEL-RUNS-PHASE2-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -706,7 +711,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('143')),
       ['143_agent1_run_progress.sql'],
-      'AGENT1-RUN-LIVE-PROGRESS-1 owns exactly one migration, and it is the ceiling',
+      'AGENT1-RUN-LIVE-PROGRESS-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('144')),
+      ['144_wizard_budget_concurrent_executions.sql'],
+      'AGENT1-PARALLEL-RUNS-PHASE2-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -749,7 +759,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       // The 142 (AGENT1-COMPANY-BANK) joins too: it names no CNPJ at all, so unlike the 141 it
       // needs no carve-out.
       // The 143 (AGENT1-RUN-LIVE-PROGRESS-1) joins as well: it names no CNPJ either.
-      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140', '142', '143'].some(
+      // The 144 (AGENT1-PARALLEL-RUNS-PHASE2-1) joins too: it names no CNPJ either.
+      ['124', '126', '128', '129', '130', '131', '132', '135', '136', '137', '138', '139', '140', '142', '143', '144'].some(
         (n) => f.startsWith(n),
       ),
     )) {

@@ -2,6 +2,9 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { AGENT_RUNS_TRAY_EXPAND_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
+import { AGENT_RUNS_PAGE_PATH } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
 import {
   AlertCircle,
   Check,
@@ -301,6 +304,7 @@ type GenerateAIBatchDrawerProps = {
 
 export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
+  const runsInProgress = useAgentRuns().filter((run) => run.status === 'running' || run.status === 'queued').length;
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const isControlled = controlledOpen !== undefined;
@@ -565,6 +569,17 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           onNewConversation={() => wizardRef.current?.requestRestart()}
           newConversationLabel="Comenzar de nuevo"
           newConversationDisabled={!wizardCanRestart}
+          // AGENT1-PARALLEL-RUNS-PHASE2-1 — las búsquedas viven en el shell: el
+          // panel puede irse (minimizar) y la página de búsquedas las muestra todas.
+          runsInProgress={runsInProgress}
+          onRuns={() => {
+            handleClose();
+            router.push(AGENT_RUNS_PAGE_PATH);
+          }}
+          onMinimize={() => {
+            handleClose();
+            window.dispatchEvent(new Event(AGENT_RUNS_TRAY_EXPAND_EVENT));
+          }}
         >
           <ProspectChatWizard
             ref={wizardRef}

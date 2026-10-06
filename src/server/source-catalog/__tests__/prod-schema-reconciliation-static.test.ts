@@ -154,6 +154,14 @@ const MIGRATION_142_COMPANY_BANK = '142_agent1_company_bank.sql';
  * proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_143_RUN_PROGRESS = '143_agent1_run_progress.sql';
+/**
+ * AGENT1-PARALLEL-RUNS-PHASE2-1 (several active executions per user in the pilot reservation). It
+ * drops the unique partial index on `wizard_budget_reservations`, creates a non-unique one, and
+ * redefines `try_reserve_wizard_credits` (step 9 reads `max_active_executions_per_user`); no data
+ * rows. Not phone, not catalog, not BR, not CUT3B4. Names no source-catalog object, which the
+ * sweep below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_144_CONCURRENT_EXECUTIONS = '144_wizard_budget_concurrent_executions.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -226,7 +234,12 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // service_role writes, each user reads only their own row; not phone, not catalog, not BR, not
     // CUT3B4). It names no source-catalog object, which the foreign sweep below proves over its
     // SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 143);
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 owns the 144 (several active executions per user in the pilot
+    // reservation (a non-unique index + step 9 of `try_reserve_wizard_credits` reading
+    // `max_active_executions_per_user`; no data rows). Not phone, not catalog, not BR, not CUT3B4).
+    // It names no source-catalog object, which the foreign sweep below proves over its SQL rather
+    // than trusting this comment. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 144);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -304,7 +317,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('143')),
       [MIGRATION_143_RUN_PROGRESS],
     );
-    assert.equal(files.some((f) => f.startsWith('144')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('144')),
+      [MIGRATION_144_CONCURRENT_EXECUTIONS],
+    );
+    assert.equal(files.some((f) => f.startsWith('145')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -320,6 +337,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_141_TAX_IDENTIFIER_EIN_NIF,
       MIGRATION_142_COMPANY_BANK,
       MIGRATION_143_RUN_PROGRESS,
+      MIGRATION_144_CONCURRENT_EXECUTIONS,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

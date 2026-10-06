@@ -650,7 +650,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
       // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
       // ni de CUT3B4; no crea contacto ni escribe `phone_source`. AUTORADA y NO APLICADA.
-      '143_agent1_run_progress.sql',
+      // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por
+      // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+      // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+      // catálogo, ni de BR, ni de CUT3B4; no crea contacto ni escribe `phone_source`. AUTORADA y NO
+      // APLICADA.
+      '144_wizard_budget_concurrent_executions.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

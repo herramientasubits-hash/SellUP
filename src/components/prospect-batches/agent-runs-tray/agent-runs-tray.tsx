@@ -15,7 +15,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, X } from '@/icons';
+import { ChevronDown, ChevronUp, ExternalLink, GripVertical, X } from '@/icons';
 import { Button } from '@/components/ui/button';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import { cn } from '@/lib/utils';
@@ -30,7 +30,10 @@ import {
   getAgentRunsStore,
   useAgentRuns,
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { WizardApolloContinuationPanel } from '@/components/prospect-batches/chat-wizard/wizard-apollo-continuation-panel';
+import { useDraggableTray } from './use-draggable-tray';
 import {
+  AGENT_RUNS_PAGE_PATH,
   AGENT_RUNS_TRAY_COPY,
   describeAgentRun,
   isDetachedRunFinished,
@@ -41,7 +44,7 @@ const POLL_MS = 2_000;
 
 type LiveProgress = { stage: RunProgressStage | null; label: string; percent: number };
 
-function useLiveProgress(runs: readonly AgentRun[]): Record<string, LiveProgress> {
+export function useLiveProgress(runs: readonly AgentRun[]): Record<string, LiveProgress> {
   const [live, setLive] = React.useState<Record<string, LiveProgress>>({});
   const activeIds = runs.filter((run) => run.status === 'running').map((run) => run.clientRequestId);
   const key = activeIds.join(',');
@@ -98,7 +101,7 @@ function useLiveProgress(runs: readonly AgentRun[]): Record<string, LiveProgress
   return live;
 }
 
-function RunRow({ run, live }: { run: AgentRun; live: LiveProgress | undefined }) {
+export function RunRow({ run, live }: { run: AgentRun; live: LiveProgress | undefined }) {
   const view = describeAgentRun(run, live?.label ?? null);
   const percent = run.status === 'running' ? (live?.percent ?? 5) : run.status === 'queued' ? 0 : 100;
   const store = getAgentRunsStore();
@@ -150,63 +153,109 @@ function useAgentPanelWidth(): number {
   return width;
 }
 
+/** Evento para que el chat («Minimizar») despliegue la bandeja. */
+export const AGENT_RUNS_TRAY_EXPAND_EVENT = 'sellup:agent-runs-tray:expand';
+
 export function AgentRunsTray() {
   const runs = useAgentRuns();
   const live = useLiveProgress(runs);
   const panelWidth = useAgentPanelWidth();
   const [minimized, setMinimized] = React.useState(false);
+  const [continuationActive, setContinuationActive] = React.useState(false);
+  const { ref: trayRef, position: dragPosition, dragging, handlers: dragHandlers } = useDraggableTray();
   // En el servidor no hay `document`: el portal sólo se pinta en el navegador.
   const mounted = React.useSyncExternalStore(subscribeNothing, () => true, () => false);
 
-  if (!mounted || runs.length === 0) return null;
+  React.useEffect(() => {
+    const expand = () => setMinimized(false);
+    window.addEventListener(AGENT_RUNS_TRAY_EXPAND_EVENT, expand);
+    return () => window.removeEventListener(AGENT_RUNS_TRAY_EXPAND_EVENT, expand);
+  }, []);
+
+  // Una corrida que termina EN PAUSA hace que la continuación vuelva a preguntar.
+  const pausedRunSignal = runs.filter((run) => run.continuationPending).length;
+
+  if (!mounted) return null;
 
   const active = runs.filter((run) => run.status === 'running' || run.status === 'queued').length;
   const allFinished = active === 0;
+  const visible = runs.length > 0 || continuationActive;
   const store = getAgentRunsStore();
+  const placement = dragPosition
+    ? { left: dragPosition.x, top: dragPosition.y, right: 'auto', bottom: 'auto' }
+    : panelWidth > 0
+      ? { right: `calc(${Math.round(panelWidth)}px + 1.5rem)` }
+      : undefined;
 
   return createPortal(
     <section
+      ref={trayRef}
       aria-label={AGENT_RUNS_TRAY_COPY.regionLabel}
-      style={panelWidth > 0 ? { right: `calc(${Math.round(panelWidth)}px + 1.5rem)` } : undefined}
+      hidden={!visible}
+      style={placement}
+      data-dragging={dragging || undefined}
       className={cn(
         'fixed bottom-24 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-rail',
         'lg:bottom-6 lg:right-6 animate-su-fade-in',
+        dragging && 'select-none',
       )}
     >
-      <header className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5">
+      <header
+        className={cn(
+          'flex touch-none items-center gap-2 border-b border-border bg-muted/40 px-3 py-2.5',
+          dragging ? 'cursor-grabbing' : 'cursor-grab',
+        )}
+        title={AGENT_RUNS_TRAY_COPY.dragHint}
+        {...dragHandlers}
+      >
+        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold">{AGENT_RUNS_TRAY_COPY.title(active, runs.length)}</h2>
+          <h2 className="truncate text-sm font-semibold">
+            {runs.length > 0 ? AGENT_RUNS_TRAY_COPY.title(active, runs.length) : AGENT_RUNS_TRAY_COPY.continuationOnlyTitle}
+          </h2>
           {!minimized && <p className="text-xs text-muted-foreground">{AGENT_RUNS_TRAY_COPY.subtitle}</p>}
         </div>
+        <Button asChild size="icon" variant="ghost" className="h-8 w-8">
+          <Link href={AGENT_RUNS_PAGE_PATH} aria-label={AGENT_RUNS_TRAY_COPY.openPage} title={AGENT_RUNS_TRAY_COPY.openPage}>
+            <ExternalLink className="h-4 w-4" />
+          </Link>
+        </Button>
         <Button
           size="icon"
           variant="ghost"
           className="h-8 w-8"
           aria-label={minimized ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.minimize}
+          title={minimized ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.minimize}
           aria-expanded={!minimized}
           onClick={() => setMinimized((value) => !value)}
         >
           {minimized ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
-        {allFinished && (
+        {allFinished && runs.length > 0 && (
           <Button
             size="icon"
             variant="ghost"
             className="h-8 w-8"
             aria-label={AGENT_RUNS_TRAY_COPY.closeAll}
+            title={AGENT_RUNS_TRAY_COPY.closeAll}
             onClick={() => store?.dismissFinished()}
           >
             <X className="h-4 w-4" />
           </Button>
         )}
       </header>
-      {!minimized && (
-        <ul className="max-h-[50vh] overflow-y-auto">
-          {runs.map((run) => (
-            <RunRow key={run.clientRequestId} run={run} live={live[run.clientRequestId]} />
-          ))}
-        </ul>
-      )}
+      {/* La continuación se CONDUCE aunque la bandeja esté minimizada u oculta:
+          por eso la lista se oculta con `hidden` y no se desmonta. */}
+      <ul className="max-h-[50vh] overflow-y-auto" hidden={minimized}>
+        <WizardApolloContinuationPanel
+          variant="tray"
+          pausedRunSignal={pausedRunSignal}
+          onActiveChange={setContinuationActive}
+        />
+        {runs.map((run) => (
+          <RunRow key={run.clientRequestId} run={run} live={live[run.clientRequestId]} />
+        ))}
+      </ul>
     </section>,
     document.body,
   );
