@@ -32,9 +32,13 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * genéricas («ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA» → «accenture»): la
  * razón social de los registros oficiales casi nunca es la marca del sitio. Medido en
  * la 1.ª corrida de Chile (lote bd751c34): Claude propuso accenture.com y sonda.com y
- * la comprobación los rechazó.
+ * la comprobación los rechazó. d5 (06-10): Claude también BUSCA con el nombre corto; si
+ * el dominio lleva el nombre de la empresa (entel.cl, clarochile.cl, vtr.com) vale aunque
+ * no saliera de la búsqueda, siempre que la página que bajamos lo confirme; y una
+ * redirección a otro dominio vale si ese dominio lleva el nombre (indracompany.com →
+ * indragroup.com). Medido en Chile (bd751c34) y Argentina (17da92cf).
  */
-export const DOMAIN_SEARCH_VERSION = 'd4';
+export const DOMAIN_SEARCH_VERSION = 'd5';
 const VERIFICATIONS: readonly DomainVerification[] = ['linkedin_cross_link', 'name_match', 'search_result_match'];
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
@@ -143,7 +147,7 @@ const REGISTRY_NAME_FILLER_WORDS: ReadonlySet<string> = new Set([
   'asesorias', 'asesoria', 'servicios', 'servicio', 'sistemas', 'consultoria', 'ingenieria', 'inversiones',
   'comercial', 'comercializadora', 'empresa', 'empresas', 'grupo', 'group', 'holding', 'holdco', 'agencia',
   'profesionales', 'soluciones', 'negocio', 'negocios', 'corporativa', 'corporativo', 'importaciones',
-  'internacional', 'chilena',
+  'internacional', 'chilena', 'comunicaciones', 'telecomunicaciones',
 ]);
 
 /**
@@ -180,6 +184,7 @@ export function buildDomainFinderInput(row: DomainSearchRow, countryName: string
   return {
     name: displayName,
     alternateNames: [...new Set([...names, ...cores])],
+    searchHint: cores[0] ?? null,
     countryName: countryName ?? countryNameFromCode(row.country_code),
     countryCode: row.country_code,
     linkedinUrl: dispositionLinkedInUrl(row),
