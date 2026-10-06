@@ -67,6 +67,15 @@ describe('núcleo del nombre mexicano', () => {
     assert.equal(normalizeMexicoCompanyCore('UNIVERSIDAD OLMECA AC'), 'UNIVERSIDAD OLMECA');
   });
 
+  it('asistencia y beneficencia privada (IAP, IBP, ABP) y producción rural (SPR) también se quitan', () => {
+    assert.equal(normalizeMexicoCompanyCore('Asociacion para Evitar la Ceguera en Mexico, IAP'), 'ASOCIACION PARA EVITAR LA CEGUERA EN MEXICO');
+    assert.equal(normalizeMexicoCompanyCore('FUNDACION SINTETICA I.A.P.'), 'FUNDACION SINTETICA');
+    assert.equal(normalizeMexicoCompanyCore('FUNDACION SINTETICA IBP'), 'FUNDACION SINTETICA');
+    assert.equal(normalizeMexicoCompanyCore('FUNDACION SINTETICA A.B.P.'), 'FUNDACION SINTETICA');
+    assert.equal(normalizeMexicoCompanyCore('AGRICOLA SINTETICA SPR DE RL'), 'AGRICOLA SINTETICA');
+    assert.equal(normalizeMexicoCompanyCore('AGRICOLA SINTETICA S.P.R. DE R.I.'), 'AGRICOLA SINTETICA');
+  });
+
   it('DENUE no cambia: MEXICO_LEGAL_FORMS sigue igual y está incluida', () => {
     assert.equal(MEXICO_LEGAL_FORMS.includes('SA DE CV'), false);
     for (const form of MEXICO_LEGAL_FORMS) assert.ok(MX_COMPRANET_LEGAL_FORMS.includes(form), form);
