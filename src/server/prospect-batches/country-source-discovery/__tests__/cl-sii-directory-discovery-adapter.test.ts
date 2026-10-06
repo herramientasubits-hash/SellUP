@@ -135,6 +135,13 @@ describe('tabla de actividades del SII → macro (tabla CL aprobada 05-10-2026)'
     assert.equal(Object.keys(CL_SII_HOLDING_MACRO_BY_RUT).length, 25);
   });
 
+  it('Correos de Chile va a Transporte aunque el SII la registre como telecomunicaciones', () => {
+    assert.equal(resolveClActivityMacro('619090', '60503000-9'), 'transport_logistics');
+    assert.equal(resolveClActivityMacro('619090'), 'technology');
+    assert.equal(resolveClActivityMacro('619090', rut(1)), 'technology');
+    assert.equal(resolveClActivityMacro(null, '60503000-9'), null);
+  });
+
   it('hoteles, restaurantes, medios, investigación, educación y asociaciones no tienen macro', () => {
     for (const code of ['551001', '561000', '601000', '602000', '721000', '850022', '853120', '949903', '931201']) {
       assert.equal(resolveClActivityMacro(code), null, code);
@@ -265,6 +272,19 @@ describe('buildClSiiDirectoryDiscoveryAdapter', () => {
     const asFinance = await adapter({ countryCode: 'CL', macroIndustryKey: 'insurance_financial_services', limit: 5 });
     assert.deepEqual(asRetail.companies.map((c) => c.taxId), ['77261280-K']);
     assert.equal(asFinance.companies.length, 0);
+  });
+
+  it('Correos de Chile ya no sale en Tecnología; sale en Transporte', async () => {
+    const correos = row(1, {
+      rut: '60503000-9',
+      activity_code: '619090',
+      activity: 'OTRAS ACTIVIDADES DE TELECOMUNICACIONES N.C.P.',
+    });
+    const adapter = buildClSiiDirectoryDiscoveryAdapter(fakeReads([correos]).reads);
+    const asTech = await adapter({ countryCode: 'CL', macroIndustryKey: 'technology', limit: 5 });
+    const asTransport = await adapter({ countryCode: 'CL', macroIndustryKey: 'transport_logistics', limit: 5 });
+    assert.equal(asTech.companies.length, 0);
+    assert.deepEqual(asTransport.companies.map((c) => c.taxId), ['60503000-9']);
   });
 
   it('descarta RUT con dígito verificador malo o mal formado, sin nombre y duplicados', async () => {
