@@ -105,6 +105,19 @@ describe('buildArAtpEmployerRow', () => {
   });
 });
 
+describe('dominio del SIPRO histórico en la recarga (SOURCES-AR-DOMAIN-ON-RELOAD-1)', () => {
+  const registry = { cuit: CUIT, legalName: 'HEXACTA S. R. L.', activityCode: '620100' };
+  it('el dominio entra si se parece al nombre actual; si no, null', () => {
+    const ok = buildArAtpEmployerRow({ employer, registry, priorityScore: 1, importedAt: 'T', siproDomain: 'hexacta.com' });
+    assert.equal(ok?.raw_data['website_domain'], 'hexacta.com');
+    assert.equal(ok?.raw_data['website_domain_source'], 'sipro_legacy_email');
+    const other = buildArAtpEmployerRow({ employer, registry, priorityScore: 1, importedAt: 'T', siproDomain: 'claro.com.ar' });
+    assert.equal(other?.raw_data['website_domain'], null);
+    const none = buildArAtpEmployerRow({ employer, registry, priorityScore: 1, importedAt: 'T' });
+    assert.equal(none?.raw_data['website_domain'], null);
+  });
+});
+
 describe('guardas', () => {
   it('la fuente es de grano fiscal (un CUIT, una fila)', () => {
     assert.equal(SOURCE_FAMILY_BY_SOURCE_KEY[AR_ATP_EMPLOYERS_SOURCE_KEY], 'TAX_GRAIN');

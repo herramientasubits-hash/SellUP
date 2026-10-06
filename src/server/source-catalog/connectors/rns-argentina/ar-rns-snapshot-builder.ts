@@ -20,6 +20,7 @@
 import { calculateArgentinaCheckDigit } from '@/modules/prospect-batches/tax-identifier-rules';
 import { deriveTaxRecordIdentity } from '../../record-identity';
 import { normalizeArCompanyCore } from './ar-company-name-core';
+import { arWebsiteDomainFields } from './ar-sipro-domain';
 import type { RecordIdentityKey } from '../../record-identity';
 import {
   AR_RNS_MACRO_TABLE_VERSION,
@@ -152,6 +153,11 @@ export function buildArRnsSnapshotRow(params: {
   priorityScore: number;
   sourceYear: number;
   importedAt: string;
+  /**
+   * SOURCES-AR-DOMAIN-ON-RELOAD-1 — dominio del SIPRO histórico para esta CUIT
+   * (`buildArSiproDomainMap`). Opcional: sin él la fila va sin web.
+   */
+  siproDomain?: string | null;
 }): ArRnsSnapshotRow {
   const { activity, procurement, inSipro, priorityScore, sourceYear, importedAt } = params;
   const identity = deriveTaxRecordIdentity(activity.cuit);
@@ -188,6 +194,7 @@ export function buildArRnsSnapshotRow(params: {
       source_type: 'company_registry_and_procurement',
       sector_source: 'arca_ciiu4_principal_activity',
       human_review_required: true,
+      ...arWebsiteDomainFields(params.siproDomain, activity.legalName),
     },
     imported_at: importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
