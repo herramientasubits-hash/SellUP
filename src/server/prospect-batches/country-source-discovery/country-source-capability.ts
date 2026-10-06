@@ -48,8 +48,14 @@ import {
   EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type EcScvsDirectoryDiscoveryReads,
 } from './ec-scvs-directory-discovery-adapter';
+import {
+  buildClSiiDirectoryDiscoveryAdapter,
+  CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type ClSiiDirectoryDiscoveryReads,
+} from './cl-sii-directory-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
+import { macroHasClCoverage } from './cl-sii-macro-table';
 import { macroHasCiiuCoverage } from './macro-ciiu-index';
 import { macroHasDgiiCoverage } from './do-dgii-macro-table';
 import { macroHasArCoverage } from './ar-rns-macro-table';
@@ -72,8 +78,12 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * SOURCES-EC-FREE-DISCOVERY-1 — Ecuador entra con el directorio de compañías de
  * la Superintendencia de Compañías cruzado con su ranking, clasificado por la
  * tabla CIIU (`ec-scvs-macro-table.ts`), sólo compañías activas de 200+ empleados.
+ *
+ * SOURCES-CL-SII-FREE-DISCOVERY-1 — Chile entra con las personas jurídicas del
+ * SII (código de actividad + trabajadores), clasificadas por la tabla aprobada
+ * (`cl-sii-macro-table.ts`), sólo empresas de 100+ trabajadores.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -86,6 +96,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   AR: { countryCode: 'AR', sourceKey: AR_RNS_DISCOVERY_SOURCE_KEY },
   MX: { countryCode: 'MX', sourceKey: MX_DENUE_DISCOVERY_SOURCE_KEY },
   EC: { countryCode: 'EC', sourceKey: EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -104,6 +115,7 @@ export function resolveCountrySourceCapability(
  * Argentina: la macro tiene actividades ARCA en la tabla aprobada.
  * México: la macro tiene filtros SCIAN en la tabla aprobada.
  * Ecuador: la macro tiene actividades CIIU del INEC en la tabla.
+ * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -116,6 +128,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'AR') return macroHasArCoverage(macroIndustryKey);
   if (capability.countryCode === 'MX') return macroHasMxCoverage(macroIndustryKey);
   if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
+  if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   return macroHasCiiuCoverage(macroIndustryKey);
 }
 
@@ -132,6 +145,7 @@ export function buildCountrySourceAdapter(
     arRnsDiscoveryReads?: ArRnsDiscoveryReads | null;
     mxDenueDiscoveryReads?: MxDenueDiscoveryReads | null;
     ecScvsDirectoryDiscoveryReads?: EcScvsDirectoryDiscoveryReads | null;
+    clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -148,6 +162,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'EC') {
     return deps.ecScvsDirectoryDiscoveryReads
       ? buildEcScvsDirectoryDiscoveryAdapter(deps.ecScvsDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'CL') {
+    return deps.clSiiDirectoryDiscoveryReads
+      ? buildClSiiDirectoryDiscoveryAdapter(deps.clSiiDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
