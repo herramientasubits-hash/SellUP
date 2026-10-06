@@ -288,3 +288,11 @@ representar más de un hecho.*
 Y la respuesta ha sido siempre la misma: **separar el vocabulario**, no añadir un caso especial.
 Es la razón por la que este subsistema tiene vocabularios cerrados tan grandes —15 motivos de
 inelegibilidad en Search More, 7 fases, 3 estados de supresión— en vez de booleanos.
+
+---
+
+## 5. Cambios posteriores al handoff
+
+| Fecha | Hito | Cambio | Motivo |
+|---|---|---|---|
+| 2026-10-05 | AGENT2A-COVERAGE-DECISION-MAKERS-1 | Apollo deja hasta 5 revisables y completa hasta 5 (antes 2 y 3); per_page 10 y tope de volumen 30 (gratis). Los intentos por títulos suman CEO y gerente general. Lusha ordena por seniority antes del enrich pagado (tope 5 sin cambios). | Revisión de septiembre 2026: pocos contactos por empresa y casi solo RR. HH. Spec: `docs/superpowers/specs/2026-10-05-agent2a-coverage-decision-makers-design.md` |

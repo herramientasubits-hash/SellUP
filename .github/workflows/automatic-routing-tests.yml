@@ -1649,6 +1649,12 @@ jobs:
       - name: Run HubSpot Company ID resolution tests
         run: npm run test:agent2a:hubspot-id-resolution
 
+      # AGENT2A-COVERAGE-DECISION-MAKERS-1 — hasta 5 contactos por fuente, CEO y
+      # gerente general en la búsqueda de Apollo, y orden por seniority antes del
+      # enrich pagado de Lusha. Offline, sin red ni créditos.
+      - name: Run Agent 2A coverage + decision-makers tests
+        run: npm run test:agent2a:coverage-decision-makers
+
       # AGENT2A-P0-R2 — incidente cross-flow de QA (2026-08-13).
       #
       # Cubre las DOS regresiones de producto que la QA de la dueña dejó a la vista y que

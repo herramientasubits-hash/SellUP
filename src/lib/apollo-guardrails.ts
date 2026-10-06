@@ -10,11 +10,15 @@ export const APOLLO_CONTACT_ENRICHMENT_GUARDRAILS = {
   /** Máximo de intentos de búsqueda por capas (fallback) por run. */
   maxSearchAttempts: 3,
 
-  /** Máximo de resultados que pedimos a Apollo por intento (per_page). */
-  maxResultsPerSearchAttempt: 5,
+  /**
+   * Máximo de resultados que pedimos a Apollo por intento (per_page).
+   * AGENT2A-COVERAGE-DECISION-MAKERS-1: 5 → 10 para que un intento pueda dejar
+   * hasta 5 revisables tras el filtro de relevancia. Sin costo: People Search no cobra.
+   */
+  maxResultsPerSearchAttempt: 10,
 
   /** Tope duro de resultados crudos acumulados por run (todos los intentos). */
-  maxSearchResultsPerRun: 15,
+  maxSearchResultsPerRun: 30,
 
   /**
    * Créditos máximos estimados de búsqueda por run: CERO.
@@ -36,11 +40,14 @@ export const APOLLO_CONTACT_ENRICHMENT_GUARDRAILS = {
    * Contactos revisables que bastan para detenerse antes de agotar intentos.
    * Evita buscar más capas cuando ya tenemos candidatos suficientes.
    */
-  targetReviewableContacts: 2,
+  targetReviewableContacts: 5, // AGENT2A-COVERAGE-DECISION-MAKERS-1: 2 → 5 (máx. 5 contactos por fuente)
 
   // ── Guardrails de completion (people/match) ──────────────────
-  /** Tope duro de candidatos a completar por run. */
-  maxCompletionCandidates: 3,
+  /**
+   * Tope duro de candidatos a completar por run.
+   * AGENT2A-COVERAGE-DECISION-MAKERS-1: 3 → 5 (máx. 5 contactos por fuente).
+   */
+  maxCompletionCandidates: 5,
 
   /** Presupuesto máximo de créditos de completion por run. */
   maxCompletionCreditsPerRun: 10,

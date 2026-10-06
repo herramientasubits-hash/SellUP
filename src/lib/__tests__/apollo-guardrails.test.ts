@@ -16,12 +16,12 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
     assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchAttempts, 3);
   });
 
-  it('maxResultsPerSearchAttempt = 5 (per_page enviado a Apollo por intento)', () => {
-    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxResultsPerSearchAttempt, 5);
+  it('maxResultsPerSearchAttempt = 10 (per_page enviado a Apollo por intento)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxResultsPerSearchAttempt, 10);
   });
 
-  it('maxSearchResultsPerRun = 15 (tope duro acumulado de resultados por run)', () => {
-    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchResultsPerRun, 15);
+  it('maxSearchResultsPerRun = 30 (tope duro acumulado de resultados por run)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchResultsPerRun, 30);
   });
 
   // AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — el aserto anterior era
@@ -36,7 +36,7 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
   it('el costo cero de la búsqueda NO relaja el tope de volumen', () => {
     const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
     assert.equal(g.maxEstimatedSearchCreditsPerRun, 0);
-    assert.equal(g.maxSearchResultsPerRun, 15);
+    assert.equal(g.maxSearchResultsPerRun, 30);
     assert.equal(g.maxSearchAttempts, 3);
   });
 
@@ -47,8 +47,8 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
     assert.ok(g.phoneRevealCredits > 0, 'el reveal de teléfono sigue costando');
   });
 
-  it('targetReviewableContacts = 2 (stop-early cuando se acumulan suficientes candidatos revisables)', () => {
-    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts, 2);
+  it('targetReviewableContacts = 5 (stop-early cuando se acumulan suficientes candidatos revisables)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts, 5);
   });
 
   it('maxSearchResultsPerRun = maxSearchAttempts × maxResultsPerSearchAttempt (presupuesto consistente)', () => {
@@ -57,8 +57,8 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
   });
 
   // ── Guardrails de completion ──────────────────────────────────
-  it('maxCompletionCandidates = 3', () => {
-    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCandidates, 3);
+  it('maxCompletionCandidates = 5', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxCompletionCandidates, 5);
   });
 
   it('maxCompletionCreditsPerRun = 10', () => {

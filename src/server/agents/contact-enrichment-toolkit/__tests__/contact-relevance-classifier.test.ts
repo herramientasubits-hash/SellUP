@@ -174,3 +174,16 @@ describe('classifyContactRelevance — calidad mínima', () => {
     assert.equal(r.shouldInsertForReview, true);
   });
 });
+
+// ── AGENT2A-COVERAGE-DECISION-MAKERS-1 ─────────────────────────
+
+describe('classifyContactRelevance — decisores (AGENT2A-COVERAGE-DECISION-MAKERS-1)', () => {
+  for (const title of ['CEO', 'Gerente General', 'General Manager', 'Managing Director', 'Country Manager Colombia']) {
+    it(`${title} → medium_relevance (executive_sponsor), insertable`, () => {
+      const r = classifyContactRelevance(base({ title }));
+      assert.equal(r.relevanceStatus, 'medium_relevance');
+      assert.equal(r.matchedCategory, 'executive_sponsor');
+      assert.equal(r.shouldInsertForReview, true);
+    });
+  }
+});
