@@ -29,11 +29,40 @@ function text(value: unknown): string | null {
  * SOURCES-CL-SII-REGISTRY-1 — `raw_data` con `workers` y `metrics_year` (cargas
  * del SII de Chile) → trabajadores del registro, o `null`.
  */
-export function workforceFromRawData(raw: unknown, source: string): OfficialWorkforce | null {
+/**
+ * SOURCES-MX-SIZE-BAND-1 — estratificación declarada en México (Ley para el
+ * Desarrollo de la Competitividad de la MIPYME): el tramo por número de personas,
+ * tomando el rango que cubre a los tres sectores (industria, comercio, servicios).
+ * «NO MIPYME» es la grande. Piso y techo; `null` = sin techo.
+ */
+export const MX_STRATIFICATION_BANDS: Readonly<Record<string, { min: number; max: number | null; label: string }>> = {
+  MICRO: { min: 0, max: 10, label: 'micro' },
+  PEQUEÑA: { min: 11, max: 50, label: 'pequeña' },
+  PEQUENA: { min: 11, max: 50, label: 'pequeña' },
+  MEDIANA: { min: 31, max: 250, label: 'mediana' },
+  GRANDE: { min: 101, max: null, label: 'grande' },
+  'NO MIPYME': { min: 101, max: null, label: 'grande' },
+};
+
+function bandFromStratification(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {
+  const value = raw['stratification'];
+  if (typeof value !== 'string') return null;
+  const band = MX_STRATIFICATION_BANDS[value.trim().toUpperCase()];
+  if (!band) return null;
+  const yearValue = raw['last_contract_year'];
+  const year = typeof yearValue === 'number' && Number.isInteger(yearValue) ? yearValue : fallbackYear;
+  if (year === null) return null;
+  return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
+}
+
+export function workforceFromRawData(raw: unknown, source: string, fallbackYear: number | null = null): OfficialWorkforce | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
   const workers = record['workers'];
   const year = record['metrics_year'];
+  if (workers === undefined && record['stratification'] !== undefined) {
+    return bandFromStratification(record, source, fallbackYear);
+  }
   if (typeof workers !== 'number' || !Number.isInteger(workers) || workers < 0) return null;
   if (typeof year !== 'number' || !Number.isInteger(year)) return null;
   const bracket = record['sales_bracket'];
@@ -48,7 +77,7 @@ export function buildSnapshotNameQuery(
   options: { withWorkforce?: boolean } = {},
 ): SnapshotNameQuery {
   const columns: string = options.withWorkforce
-    ? 'normalized_tax_id, legal_name, normalized_legal_name, raw_data'
+    ? 'normalized_tax_id, legal_name, normalized_legal_name, raw_data, source_year'
     : 'normalized_tax_id, legal_name, normalized_legal_name';
   return async (core: string) => {
     if (typeof core !== 'string' || core.trim().length === 0) return [];
@@ -69,7 +98,8 @@ export function buildSnapshotNameQuery(
             normalizedLegalName: text(row['normalized_legal_name']),
           };
           if (!options.withWorkforce) return base;
-          const workforce = workforceFromRawData(row['raw_data'], sourceKey);
+          const sourceYear = typeof row['source_year'] === 'number' ? (row['source_year'] as number) : null;
+          const workforce = workforceFromRawData(row['raw_data'], sourceKey, sourceYear);
           return workforce === null ? base : { ...base, workforce };
         },
       );

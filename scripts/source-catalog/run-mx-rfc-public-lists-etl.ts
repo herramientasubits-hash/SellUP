@@ -3,7 +3,8 @@
  *
  * Carga en `source_company_snapshots` (source_key='mx_rfc_public_lists_registry')
  * una fila por RFC de PERSONA MORAL de: SAT Padrón de Importadores (+ sectoriales),
- * SAT Donatarias Autorizadas (sólo activas) y padrón de proveedores de Nuevo León.
+ * SAT Donatarias Autorizadas (sólo activas), padrón de proveedores de Nuevo León y
+ * padrones de proveedores de la Ciudad de México (SAF y datos abiertos).
  *
  *   --csv=<archivo> que produce `extract-mx-rfc-public-lists.py` (rfc,name,list,extra)
  *   --year=<año de corte de las listas> (por defecto, el año actual)
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
   console.log(`  Personas morales con RFC: ${rows.length}`);
   console.log(`  Con nombre único (RFC asignable con seguridad): ${unique} (${((100 * unique) / Math.max(rows.length, 1)).toFixed(1)} %)`);
   console.log(`  Donatarias: ${rows.filter((row) => row.raw_data.lists.includes('sat_donatarias')).length}`);
-  console.log(`  Con estratificación (Nuevo León): ${rows.filter((row) => row.raw_data.stratification).length}`);
+  console.log(`  Con estratificación (Nuevo León y CDMX): ${rows.filter((row) => row.raw_data.stratification).length}`);
 
   if (!config.apply) {
     console.log('  DRY-RUN: no se escribió nada. Usa --apply (con autorización) para persistir.');

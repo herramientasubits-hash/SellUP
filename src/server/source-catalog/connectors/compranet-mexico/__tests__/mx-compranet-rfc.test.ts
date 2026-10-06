@@ -186,7 +186,7 @@ describe('RFC por nombre dentro de la corrida', () => {
     const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
     assert.match(
       wiring,
-      /countryCode: 'MX',\s*sourceKey: MX_COMPRANET_RFC_SOURCE_KEY,\s*taxIdentifierType: 'RFC',\s*validTaxId: \/\^\[A-ZÑ&\]\{3\}\\d\{6\}\[A-Z0-9\]\{3\}\$\/,\s*normalizeCore: normalizeMexicoCompanyCore,\s*querySnapshots: buildSnapshotNameQuery\(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'\),\s*singleWordIsSignalOnly: true,/,
+      /countryCode: 'MX',\s*sourceKey: MX_COMPRANET_RFC_SOURCE_KEY,\s*taxIdentifierType: 'RFC',\s*validTaxId: \/\^\[A-ZÑ&\]\{3\}\\d\{6\}\[A-Z0-9\]\{3\}\$\/,\s*normalizeCore: normalizeMexicoCompanyCore,\s*querySnapshots: buildSnapshotNameQuery\(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX', \{ withWorkforce: true \}\),\s*singleWordIsSignalOnly: true,/,
     );
   });
 });

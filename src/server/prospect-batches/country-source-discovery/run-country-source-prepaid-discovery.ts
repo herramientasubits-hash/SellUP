@@ -47,6 +47,7 @@ import {
   isCountrySourceMacroPrecisionAdmitted,
 } from './country-source-macro-precision';
 import type { CountrySourceAdapter, CountrySourceCompany } from './country-source-types';
+import { splitAlreadyInSellup, type FindAlreadyInSellup } from './country-source-already-in-sellup';
 import {
   fillMissingOfficialTaxIds,
   type LookUpCountrySourceOfficialTaxId,
@@ -89,6 +90,11 @@ export type CountrySourcePrePaidDiscoveryDeps = {
    * publica sin él (hoy DENUE México). Ausente ⇒ las empresas quedan como vienen.
    */
   lookUpOfficialTaxId?: LookUpCountrySourceOfficialTaxId | null;
+  /**
+   * READ-ONLY. Lo que SellUp ya tiene (candidatas vivas de otros lotes y
+   * Descartadas). Ausente ⇒ no se salta nada (como antes).
+   */
+  findAlreadyInSellup?: FindAlreadyInSellup | null;
 };
 
 export type CountrySourcePrePaidDiscoveryResult = {
@@ -239,7 +245,12 @@ export async function runCountrySourcePrePaidDiscovery(
     ? await fillMissingOfficialTaxIds(admitted, deps.lookUpOfficialTaxId).catch(() => admitted)
     : admitted;
 
-  for (const company of withTaxIds) {
+  // SOURCES-FREE-LAYER-ALREADY-SEEN-1 — lo que SellUp ya tiene (en revisión, en
+  // Descartadas) no se vuelve a proponer: cuenta como conocida por SellUp.
+  const { fresh, alreadyInSellup } = await splitAlreadyInSellup(withTaxIds, input.countryCode, deps.findAlreadyInSellup);
+  sellupKnown += alreadyInSellup;
+
+  for (const company of fresh) {
     const identity = (company.taxId ?? company.normalizedLegalName ?? company.recordIdentityKey)
       .toLowerCase();
     if (seenIdentities.has(identity)) continue;
