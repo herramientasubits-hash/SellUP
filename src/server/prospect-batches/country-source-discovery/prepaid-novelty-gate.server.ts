@@ -30,6 +30,7 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/duplicate-checker';
+import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import {
   runPrePaidNoveltyGate,
   type ListKnownExclusionDomains,
@@ -87,12 +88,17 @@ function buildKnownExclusionDomainsReader(
 const NON_BLOCKING_CANDIDATE_STATUSES = ['discarded', 'rejected', 'archived', 'duplicate', 'qa_cleanup'];
 /** Trozos para `in (...)`: la lista sale de la lectura de la fuente (cientos como mucho). */
 const IN_CHUNK = 100;
+/** Prefijos de host que `normalizeDomain` quita y con los que se guardan webs vivas. */
+const ACTIVE_DOMAIN_HOST_PREFIXES = ['www.', 'www2.', 'www3.', 'ww2.', 'ww3.'];
 
-function chunks<T>(values: readonly T[]): T[][] {
+function chunks<T>(values: readonly T[], size: number = IN_CHUNK): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < values.length; i += IN_CHUNK) out.push(values.slice(i, i + IN_CHUNK));
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
   return out;
 }
+
+/** Webs por consulta: cada una viaja en 6 formas y la URL de PostgREST tiene límite. */
+const DOMAIN_IN_CHUNK = 25;
 
 /**
  * SOURCES-FREE-LAYER-ALREADY-SEEN-1 — lector de lo que SellUp ya tiene, con el
@@ -100,10 +106,26 @@ function chunks<T>(values: readonly T[]): T[][] {
  * Cualquier error ⇒ conjunto vacío (no se salta nada).
  */
 export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabaseAdminClient>): FindAlreadyInSellup {
-  return async ({ taxIds, recordIdentityKeys }) => {
+  return async ({ countryCode, taxIds, recordIdentityKeys, domains = [] }) => {
     const seen = new Set<string>();
     const unlessDomain = new Set<string>();
+    const blockedDomains = new Set<string>();
     try {
+      // SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — candidatas VIVAS del mismo país con la
+      // misma web. Se guardan con o sin prefijo de host (`www.`, `www2.`, `ww2.`…):
+      // se piden esas formas y se compara ya canónica (`normalizeDomain`).
+      for (const ids of chunks(domains, DOMAIN_IN_CHUNK)) {
+        const { data } = await client
+          .from('prospect_candidates')
+          .select('domain')
+          .eq('country_code', countryCode.toUpperCase())
+          .in('domain', ids.flatMap((d) => [d, ...ACTIVE_DOMAIN_HOST_PREFIXES.map((prefix) => `${prefix}${d}`)]))
+          .not('status', 'in', `(${NON_BLOCKING_CANDIDATE_STATUSES.join(',')})`);
+        for (const row of (data ?? []) as Array<{ domain: string | null }>) {
+          const canonical = row.domain ? normalizeDomain(row.domain) : null;
+          if (canonical) blockedDomains.add(canonical);
+        }
+      }
       for (const ids of chunks(taxIds)) {
         const { data } = await client
           .from('prospect_candidates')
@@ -147,7 +169,7 @@ export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabas
     } catch {
       return { blocked: new Set(), blockedUnlessDomain: new Set() };
     }
-    return { blocked: seen, blockedUnlessDomain: unlessDomain };
+    return { blocked: seen, blockedUnlessDomain: unlessDomain, blockedDomains };
   };
 }
 

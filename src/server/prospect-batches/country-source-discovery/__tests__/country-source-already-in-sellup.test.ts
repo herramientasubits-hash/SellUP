@@ -93,3 +93,69 @@ describe('lo que SellUp ya tiene', () => {
     assert.deepEqual(checked, ['EMPRESA SINTETICA denue:2'], 'lo ya visto ni siquiera gasta un chequeo de duplicado');
   });
 });
+
+describe('SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — misma web que una candidata viva del mismo país', () => {
+  const withDomain = (key: string, taxId: string, domain: string | null): CountrySourceCompany => ({
+    ...company(key, taxId),
+    countryCode: 'CO',
+    taxIdentifierType: 'NIT',
+    domain,
+  });
+
+  it('pide las webs canónicas (sin www.) y se salta la que ya está viva', async () => {
+    const asked: Parameters<FindAlreadyInSellup>[0][] = [];
+    const find: FindAlreadyInSellup = async (input) => {
+      asked.push(input);
+      return { blocked: new Set<string>(), blockedUnlessDomain: new Set<string>(), blockedDomains: new Set(['fiscalia.gov.co']) };
+    };
+    const { fresh, alreadyInSellup } = await splitAlreadyInSellup(
+      [
+        withDomain('tax:800152783', '800152783', 'https://WWW.Fiscalia.gov.co/'),
+        withDomain('tax:899999003', '899999003', 'mindefensa.gov.co'),
+        withDomain('tax:900000001', '900000001', null),
+      ],
+      'CO',
+      find,
+    );
+    assert.deepEqual(asked[0].domains, ['fiscalia.gov.co', 'mindefensa.gov.co']);
+    assert.deepEqual(fresh.map((c) => c.taxId), ['899999003', '900000001']);
+    assert.equal(alreadyInSellup, 1);
+  });
+
+  it('un lector sin webs bloqueadas (versión anterior) no cambia nada', async () => {
+    const find: FindAlreadyInSellup = async () => ({ blocked: new Set<string>(), blockedUnlessDomain: new Set<string>() });
+    const { fresh } = await splitAlreadyInSellup([withDomain('tax:800152783', '800152783', 'fiscalia.gov.co')], 'CO', find);
+    assert.equal(fresh.length, 1);
+  });
+
+  it('el lector real pide la web con y sin prefijo de host, sólo del mismo país y de candidatas vivas', async () => {
+    const { buildFindAlreadyInSellup } = await import('../prepaid-novelty-gate.server');
+    type Call = { table: string; method: string; args: unknown[] };
+    const calls: Call[] = [];
+    const client = {
+      from: (table: string) => {
+        const builder: Record<string, unknown> = {};
+        for (const method of ['select', 'eq', 'in', 'not']) {
+          builder[method] = (...args: unknown[]) => {
+            calls.push({ table, method, args });
+            return builder;
+          };
+        }
+        builder.then = (resolve: (v: unknown) => unknown) =>
+          resolve({ data: table === 'prospect_candidates' && calls.some((c) => c.args[0] === 'domain') ? [{ domain: 'www.fiscalia.gov.co' }] : [], error: null });
+        return builder;
+      },
+    };
+    const find = buildFindAlreadyInSellup(client as never);
+    const seen = await find({ countryCode: 'co', taxIds: [], recordIdentityKeys: [], domains: ['fiscalia.gov.co'] });
+
+    assert.deepEqual([...(seen.blockedDomains ?? [])], ['fiscalia.gov.co']);
+    const domainCalls = calls.filter((c) => c.table === 'prospect_candidates');
+    assert.deepEqual(domainCalls.find((c) => c.method === 'eq')?.args, ['country_code', 'CO']);
+    assert.deepEqual(domainCalls.find((c) => c.method === 'in')?.args, [
+      'domain',
+      ['fiscalia.gov.co', 'www.fiscalia.gov.co', 'www2.fiscalia.gov.co', 'www3.fiscalia.gov.co', 'ww2.fiscalia.gov.co', 'ww3.fiscalia.gov.co'],
+    ]);
+    assert.equal(domainCalls.find((c) => c.method === 'not')?.args[0], 'status');
+  });
+});

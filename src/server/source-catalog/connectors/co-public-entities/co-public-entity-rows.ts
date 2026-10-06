@@ -163,6 +163,14 @@ export type CoPublicEntitySnapshotRow = {
 
 type SigepAggregate = { name: string; naturaleza: string; orden: string | null; workers: number; head: boolean; macro: PublicEntityMacro; year: number | null };
 
+/**
+ * Nombre de la entidad en el SIGEP: arreglado y sin el número de orden que el
+ * SIGEP pega a algunas («DIRECCION GENERAL DE LA POLICIA NACIONAL 1»).
+ */
+export function sigepEntityName(raw: string | null | undefined): string {
+  return fixMojibake(raw).replace(/\s+\d{1,2}$/, '').trim();
+}
+
 function aggregateSigep(rows: Iterable<SigepEntityRow>): Map<string, SigepAggregate> {
   const out = new Map<string, SigepAggregate>();
   const best = new Map<string, number>();
@@ -182,7 +190,7 @@ function aggregateSigep(rows: Iterable<SigepEntityRow>): Map<string, SigepAggreg
     const rank = (head ? 1_000_000_000 : 0) + safeWorkers;
     if (current === undefined || rank > (best.get(nit) ?? -1)) {
       best.set(nit, rank);
-      out.set(nit, { name: fixMojibake(row.nombre_de_la_entidad), naturaleza, orden: row.orden?.trim() || null, workers: total, head, macro, year });
+      out.set(nit, { name: sigepEntityName(row.nombre_de_la_entidad), naturaleza, orden: row.orden?.trim() || null, workers: total, head, macro, year });
     } else {
       out.set(nit, { ...current, workers: total });
     }
