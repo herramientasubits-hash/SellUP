@@ -9,6 +9,10 @@
  *   salarios-rondaatp-1a5.csv   https://infra.datos.gob.ar/catalog/jgm/dataset/17/distribution/17.4/download/salarios-rondaatp-1a5.csv
  *   salarios-rondaatp-6a9.csv   https://infra.datos.gob.ar/catalog/jgm/dataset/17/distribution/17.13/download/salarios-rondaatp-6a9.csv
  *
+ * Opcional (SOURCES-AR-DOMAIN-ON-RELOAD-1):
+ *   --sipro-legacy=<csv>  SIPRO histórico: escribe el dominio corporativo en el mismo
+ *                         paso. SIN él, las filas quedan sin dominio.
+ *
  * La razón social y la actividad se LEEN del registro ya cargado en Prod
  * (`ar_rns_registry`, sólo lectura): una sociedad que no esté activa allí no entra.
  *
@@ -43,13 +47,14 @@ import {
   type ArAtpEmployerRow,
   type ArRegistryCompany,
 } from '../../src/server/source-catalog/connectors/rns-argentina/ar-atp-employers';
+import { buildArSiproDomainMap } from '../../src/server/source-catalog/connectors/rns-argentina/ar-sipro-domain';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
 const UPSERT_CHUNK = 500;
 const REGISTRY_READ_CHUNK = 200;
 
-type Config = { atp: string[]; apply: boolean; minWorkers: number };
+type Config = { atp: string[]; apply: boolean; minWorkers: number; siproLegacy: string | null };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -62,7 +67,7 @@ function parseArgs(argv: readonly string[]): Config {
   if (!Number.isInteger(minWorkers) || minWorkers < 1) {
     throw new Error('config_invalid: --min-workers debe ser un entero positivo');
   }
-  return { atp, apply: argv.includes('--apply'), minWorkers };
+  return { atp, apply: argv.includes('--apply'), minWorkers, siproLegacy: value('sipro-legacy') };
 }
 
 async function readEmployers(paths: readonly string[]): Promise<Map<string, ArAtpEmployer>> {
@@ -123,6 +128,15 @@ async function main(): Promise<void> {
   const registry = await readRegistry(client, eligible.map((e) => e.cuit));
   console.log(`  Activas en el registro: ${registry.size}`);
 
+  let siproDomains: Map<string, string> | null = null;
+  if (config.siproLegacy) {
+    const siproRows: Record<string, string>[] = [];
+    for await (const row of readCsvFile(config.siproLegacy)) siproRows.push(row);
+    siproDomains = buildArSiproDomainMap(siproRows);
+  } else {
+    console.warn('  ⚠️ Sin --sipro-legacy: las filas quedan SIN dominio. Corre después run-ar-sipro-domain-etl.ts.');
+  }
+
   const inRegistry = eligible.filter((e) => registry.has(e.cuit));
   const scores = percentileScores(inRegistry.map((e) => e.workers));
   const importedAt = new Date().toISOString();
@@ -134,6 +148,7 @@ async function main(): Promise<void> {
       priorityScore: scores[index],
       importedAt,
       minWorkers: config.minWorkers,
+      siproDomain: siproDomains?.get(employer.cuit) ?? null,
     });
     if (built !== null) rows.push(built);
   });
@@ -150,6 +165,7 @@ async function main(): Promise<void> {
     console.log(`    ${macro.padEnd(46)} ${String(c.n).padStart(5)} · ${c.ge200}`);
   }
   const writable = rows.filter((row) => row.record_identity_key !== null);
+  console.log(`  Con dominio (SIPRO histórico): ${rows.filter((r) => r.raw_data['website_domain']).length}`);
   console.log(`  Filas a escribir: ${writable.length} (sin macro o sin actividad: ${inRegistry.length - rows.length})`);
 
   if (!config.apply) {

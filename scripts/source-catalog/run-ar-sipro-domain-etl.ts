@@ -29,12 +29,12 @@ import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim'
 
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import {
+  AR_SIPRO_DOMAIN_SOURCE,
   buildArSiproDomainMap,
   domainMatchesCurrentArName,
 } from '../../src/server/source-catalog/connectors/rns-argentina/ar-sipro-domain';
 
 const SOURCE_KEYS = ['ar_rns', 'ar_atp_employers'] as const;
-const DOMAIN_SOURCE = 'sipro_legacy_email';
 const PAGE = 1000;
 
 type Row = { id: string; normalized_tax_id: string | null; legal_name: string | null; raw_data: Record<string, unknown> | null };
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
           raw_data: {
             ...c.raw,
             website_domain: c.after,
-            website_domain_source: c.after === null ? null : DOMAIN_SOURCE,
+            website_domain_source: c.after === null ? null : AR_SIPRO_DOMAIN_SOURCE,
           },
         })
         .eq('id', c.row.id)

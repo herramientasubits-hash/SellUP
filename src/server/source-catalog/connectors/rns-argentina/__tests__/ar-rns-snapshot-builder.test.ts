@@ -168,6 +168,25 @@ describe('buildArRnsSnapshotRow', () => {
   });
 });
 
+describe('dominio del SIPRO histórico en la recarga (SOURCES-AR-DOMAIN-ON-RELOAD-1)', () => {
+  const activity = readRnsPrincipalActivity(rnsRow({ razon_social: 'TELECOM ARGENTINA SOCIEDAD ANONIMA' }))!;
+  const build = (siproDomain?: string | null) =>
+    buildArRnsSnapshotRow({ activity, procurement: null, inSipro: false, priorityScore: 1, sourceYear: 2026, importedAt: 'x', siproDomain });
+
+  it('con dominio que se parece al nombre actual ⇒ website_domain y su origen', () => {
+    const row = build('Telecom.com.ar');
+    assert.equal(row.raw_data.website_domain, 'telecom.com.ar');
+    assert.equal(row.raw_data.website_domain_source, 'sipro_legacy_email');
+  });
+
+  it('sin dominio, o con uno que no se parece al nombre actual ⇒ null (nunca inventado)', () => {
+    assert.equal(build().raw_data.website_domain, null);
+    assert.equal(build(null).raw_data.website_domain, null);
+    assert.equal(build('system-net.com.ar').raw_data.website_domain, null);
+    assert.equal(build('system-net.com.ar').raw_data.website_domain_source, null);
+  });
+});
+
 describe('utilidades', () => {
   it('normaliza el nombre legal para buscar por nombre', () => {
     assert.equal(normalizeArLegalName('  Cámara   Ñandú, S.A. '), 'CAMARA NANDU, S.A.');

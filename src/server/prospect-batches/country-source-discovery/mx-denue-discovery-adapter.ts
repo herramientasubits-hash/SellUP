@@ -102,26 +102,67 @@ function splitLocation(location: string | null): { city: string | null; region: 
   };
 }
 
-const GENERIC_STATE_GOVERNMENT = /^GOBIERNO DEL ESTADO(?: LIBRE Y SOBERANO)?$/;
+const STATE_LEVEL_GENERIC =
+  /^(?:GOBIERNO DEL ESTADO(?: LIBRE Y SOBERANO)?|SECRETARIA DE SALUD|SECRETARIA DE EDUCACION(?: PUBLICA)?|SERVICIOS DE SALUD|PODER JUDICIAL(?: DEL ESTADO)?|CONGRESO DEL ESTADO|FISCALIA GENERAL(?: DEL ESTADO)?)$/;
+const MUNICIPAL_GENERIC = /^(?:H )?(?:AYUNTAMIENTO|PRESIDENCIA MUNICIPAL|MUNICIPIO)(?: CONSTITUCIONAL)?$/;
+/** Con estado en la Ciudad de México, «SECRETARIA DE SALUD» es la federal: no se completa. */
+const FEDERAL_CAPITAL = /^CIUDAD DE MEXICO$/;
 
 /**
- * SOURCES-MX-RFC-PUBLIC-LISTS-1 — DENUE registra muchos gobiernos estatales sólo
- * como «GOBIERNO DEL ESTADO» (Prod 05-10: uno en Hermosillo). Así no identifica a
- * nadie: no cruza con el RFC ni con un duplicado, y el vendedor no sabe de qué
- * estado es. Se completa con el estado que DENUE publica en la ubicación.
+ * SOURCES-MX-DENUE-QUALITY-1 — siglas de instituciones nacionales que DENUE trae
+ * como NOMBRE DE ESTABLECIMIENTO (sin razón social): «IMSS CLINICA 76» es una
+ * sucursal del IMSS, no otra empresa. Se lleva a la razón social de la institución
+ * para que todas sus sucursales sean UNA empresa (y crucen con su RFC).
+ * PEMEX y CFE NO: hay gasolineras y contratistas privados que DENUE nombra así.
  */
+const NATIONAL_INSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^IMSS(?! BIENESTAR)\b/, 'INSTITUTO MEXICANO DEL SEGURO SOCIAL'],
+  [/^ISSSTE\b/, 'INSTITUTO DE SEGURIDAD Y SERVICIOS SOCIALES DE LOS TRABAJADORES DEL ESTADO'],
+];
+
+function asciiUpper(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+}
+
+/**
+ * Nombres de organismos públicos que, tal como los publica DENUE, no identifican a
+ * nadie (Prod 05-10/06-10: «GOBIERNO DEL ESTADO» en Hermosillo, «SECRETARIA DE
+ * SALUD» en Villahermosa, «IMSS CLINICA 76»). Así no cruzan con el RFC ni con un
+ * duplicado y el vendedor no sabe de quién se trata:
+ *   · siglas de institución nacional → su razón social;
+ *   · organismo estatal genérico → «… DE <ESTADO>» (salvo la Secretaría de Salud
+ *     en la Ciudad de México, que es la federal);
+ *   · ayuntamiento/municipio genérico → «… DE <MUNICIPIO>».
+ * Cualquier otro nombre no cambia.
+ */
+export function completeGenericPublicEntityName(name: string, region: string | null, city: string | null = null): string {
+  const core = normalizeCompanyNameCore(name, MEXICO_LEGAL_FORMS);
+  for (const [pattern, legalName] of NATIONAL_INSTITUTIONS) {
+    if (pattern.test(core)) return legalName;
+  }
+  const state = region?.trim();
+  if (state && STATE_LEVEL_GENERIC.test(core)) {
+    const isFederalHealth = core === 'SECRETARIA DE SALUD' && FEDERAL_CAPITAL.test(asciiUpper(state));
+    return isFederalHealth ? name : `${name} DE ${state.toUpperCase()}`;
+  }
+  const municipality = city?.trim();
+  if (municipality && MUNICIPAL_GENERIC.test(core)) return `${name} DE ${municipality.toUpperCase()}`;
+  return name;
+}
+
+/** Sólo «GOBIERNO DEL ESTADO» (#591). Se conserva: el resto lo cubre la de arriba. */
 export function completeGenericStateGovernmentName(name: string, region: string | null): string {
   const state = region?.trim();
   if (!state) return name;
   const core = normalizeCompanyNameCore(name, MEXICO_LEGAL_FORMS);
-  return GENERIC_STATE_GOVERNMENT.test(core) ? `${name} DE ${state.toUpperCase()}` : name;
+  return /^GOBIERNO DEL ESTADO(?: LIBRE Y SOBERANO)?$/.test(core) ? `${name} DE ${state.toUpperCase()}` : name;
 }
 
 function toCompany(row: DenueEstablishment, macroIndustryKey: string): CountrySourceCompany | null {
   const rawName = row.legalName?.trim() || row.name?.trim() || null;
   if (rawName === null) return null;
   const { city, region } = splitLocation(row.location);
-  const legalName = completeGenericStateGovernmentName(rawName, region);
+  const legalName = completeGenericPublicEntityName(rawName, region, city);
   return {
     recordIdentityKey: `denue:${row.id}`,
     legalName,
@@ -191,7 +232,7 @@ export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): Coun
           company.normalizedLegalName ?? company.legalName ?? row.id,
           // El nombre comercial también se completa: si no, dos gobiernos estatales
           // con nombre comercial «GOBIERNO DEL ESTADO» se tomarían por la misma empresa.
-          normalizeCompanyNameCore(completeGenericStateGovernmentName(row.name ?? '', company.region), MEXICO_LEGAL_FORMS),
+          normalizeCompanyNameCore(completeGenericPublicEntityName(row.name ?? '', company.region, company.city), MEXICO_LEGAL_FORMS),
         ].filter((key) => key.length > 0);
         if (keys.some((key) => seen.has(key))) continue;
         for (const key of keys) seen.add(key);

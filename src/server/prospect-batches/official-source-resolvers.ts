@@ -273,6 +273,8 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // forma societaria («Softtek») queda como pista: una marca suelta puede ser otra.
     // SOURCES-MX-RFC-PUBLIC-LISTS-1 — si CompraNet no da un RFC seguro, las listas
     // públicas del SAT (importadores, donatarias) y de Nuevo León, con la MISMA regla.
+    // SOURCES-MX-SIZE-BAND-1 — las dos leen además la estratificación declarada
+    // (MICRO / PEQUEÑA / MEDIANA / GRANDE) para el gate ICP de tamaño.
     createFallbackOfficialSourceResolver(
       createSnapshotNameOfficialSourceResolver({
         countryCode: 'MX',
@@ -280,7 +282,7 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         taxIdentifierType: 'RFC',
         validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
         normalizeCore: normalizeMexicoCompanyCore,
-        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'),
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX', { withWorkforce: true }),
         singleWordIsSignalOnly: true,
       }),
       createSnapshotNameOfficialSourceResolver({
@@ -289,7 +291,7 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         taxIdentifierType: 'RFC',
         validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
         normalizeCore: normalizeMexicoCompanyCore,
-        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_RFC_PUBLIC_LISTS_SOURCE_KEY, 'MX'),
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_RFC_PUBLIC_LISTS_SOURCE_KEY, 'MX', { withWorkforce: true }),
         singleWordIsSignalOnly: true,
       }),
     ),

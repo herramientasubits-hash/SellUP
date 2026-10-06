@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildMxRfcPublicListsRows,
+  normalizeMxStratification,
   MX_RFC_PUBLIC_LISTS_SOURCE_KEY,
   type MxRfcPublicListEntry,
 } from '../mx-rfc-public-lists-rows';
@@ -68,6 +69,28 @@ describe('filas de las listas públicas', () => {
       params,
     );
     assert.deepEqual(row.raw_data, { lists: ['sat_donatarias', 'nl_proveedores'] });
+  });
+
+  it('estratificación de CDMX: «Micro», «Grande», «No es MyPIME» (sic) → tramo conocido', () => {
+    assert.equal(normalizeMxStratification('Micro'), 'MICRO');
+    assert.equal(normalizeMxStratification('Grande'), 'GRANDE');
+    assert.equal(normalizeMxStratification('No es MyPIME'), 'GRANDE');
+    assert.equal(normalizeMxStratification('No es MIPYME'), 'GRANDE');
+    assert.equal(normalizeMxStratification('PEQUENA'), 'PEQUEÑA');
+    assert.equal(normalizeMxStratification('Ver nota aclaratoria'), null);
+    assert.equal(normalizeMxStratification('No se cuenta con el dato'), null);
+  });
+
+  it('CDMX: el primer tamaño declarado gana (el extractor entrega del año más nuevo al más viejo)', () => {
+    const [row] = buildMxRfcPublicListsRows(
+      [
+        entry('EEE930521IJ4', 'EMPRESA SINTETICA SA DE CV', 'cdmx_proveedores', 'Micro'),
+        entry('EEE930521IJ4', 'EMPRESA SINTETICA SA DE CV', 'cdmx_proveedores', 'MEDIANA'),
+        entry('EEE930521IJ4', 'EMPRESA SINTETICA SA DE CV', 'cdmx_proveedores_datos', ''),
+      ],
+      params,
+    );
+    assert.deepEqual(row.raw_data, { lists: ['cdmx_proveedores', 'cdmx_proveedores_datos'], stratification: 'MICRO' });
   });
 
   it('la familia de la fuente es TAX_GRAIN', () => {

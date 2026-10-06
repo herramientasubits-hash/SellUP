@@ -35,6 +35,8 @@ export const MX_RFC_PUBLIC_LISTS_SOURCE_KEY = 'mx_rfc_public_lists_registry' as 
 export const MX_RFC_PUBLIC_LISTS = [
   'sat_donatarias',
   'nl_proveedores',
+  'cdmx_proveedores',
+  'cdmx_proveedores_datos',
   'sat_importadores_sectorial',
   'sat_exportadores_sectorial',
   'sat_importadores',
@@ -69,7 +71,20 @@ export type MxRfcPublicListsRow = {
 
 const LIST_RANK = new Map<string, number>(MX_RFC_PUBLIC_LISTS.map((list, index) => [list, index]));
 const DONATARIA_TYPE = /^[A-Z]$/;
-const STRATIFICATIONS = new Set(['MICRO', 'PEQUEÑA', 'MEDIANA', 'GRANDE']);
+/** Listas que declaran estratificación (tamaño). */
+const SIZE_LISTS = new Set<string>(['nl_proveedores', 'cdmx_proveedores']);
+
+/**
+ * Estratificación declarada → MICRO / PEQUEÑA / MEDIANA / GRANDE, o `null`.
+ * CDMX escribe «Micro», «Grande» y «No es MyPIME» (sic): no ser MIPYME = grande.
+ */
+export function normalizeMxStratification(raw: string | null | undefined): string | null {
+  const value = (raw ?? '').normalize('NFC').trim().toUpperCase();
+  if (value === 'MICRO' || value === 'PEQUEÑA' || value === 'MEDIANA' || value === 'GRANDE') return value;
+  if (value === 'PEQUENA') return 'PEQUEÑA';
+  if (/^NO ES M[IY]P[IY]ME$/.test(value) || value === 'NO MIPYME') return 'GRANDE';
+  return null;
+}
 
 function isKnownList(list: string): list is MxRfcPublicList {
   return LIST_RANK.has(list);
@@ -96,7 +111,9 @@ export function buildMxRfcPublicListsRows(
     }
     current.lists.add(entry.list);
     if (entry.list === 'sat_donatarias' && DONATARIA_TYPE.test(extra)) current.donataria = extra;
-    if (entry.list === 'nl_proveedores' && STRATIFICATIONS.has(extra)) current.size = extra;
+    // El primer tamaño declarado gana (el extractor entrega CDMX del año más nuevo al más viejo).
+    const size = SIZE_LISTS.has(entry.list) ? normalizeMxStratification(entry.extra) : null;
+    if (size && !current.size) current.size = size;
     byRfc.set(rfc, current);
   }
 

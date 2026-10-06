@@ -681,7 +681,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) y, si no, en las listas del SAT y Nuevo León (mx_rfc_public_lists_registry), antes de revisar duplicados, y lo trae sólo con coincidencia segura (como el nombre de DENUE es oficial, un nombre de una sola palabra como «AXTEL» vale si hay UN solo RFC con ese nombre; decisión de la dueña 06-10). Los «GOBIERNO DEL ESTADO» sin estado se completan con el estado de la ubicación.',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) y, si no, en las listas del SAT y Nuevo León (mx_rfc_public_lists_registry), antes de revisar duplicados, y lo trae sólo con coincidencia segura (como el nombre de DENUE es oficial, un nombre de una sola palabra como «AXTEL» vale si hay UN solo RFC con ese nombre; decisión de la dueña 06-10). Los organismos públicos genéricos se completan con su estado o municipio («GOBIERNO DEL ESTADO», «SECRETARIA DE SALUD», «H. AYUNTAMIENTO»…) y las sucursales del IMSS y del ISSSTE cuentan como la institución. Desde el 06-10 no vuelve a proponer lo que SellUp ya tiene en revisión o en Descartadas (igual en todos los países con buscador gratuito).',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -837,7 +837,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
       'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
       'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…); «A.C.» con puntos cuenta igual que «AC» desde el 05-10; desde el 06-10 también se quitan IAP / IBP / ABP (asistencia y beneficencia privada), SPR (producción rural) y la forma escrita de cualquier manera («SA CV», «S A P I DE CV», «S DE P.R. DE R.L.», «SAPI DE CV SOFOM ENR»…).',
-      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
+      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC: MICRO (0–10) y PEQUEÑA (11–50) descartan por pequeña; MEDIANA y GRANDE no deciden solas.',
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
@@ -845,12 +845,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   },
   {
     key: 'mx_rfc_public_lists_registry',
-    name: 'SAT y Nuevo León — RFC por nombre (importadores, donatarias, proveedores)',
+    name: 'SAT, Nuevo León y CDMX — RFC por nombre (importadores, donatarias, proveedores)',
     sellupUse: 'legal_validation',
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada), 9.947 donatarias y 2.944 con estratificación de Nuevo León.',
+      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada); con los padrones de proveedores de la Ciudad de México (SAF 2021–2026 y datos abiertos) pasan a 90.954, 8.203 con estratificación (Nuevo León y CDMX). La estratificación llega al gate ICP de tamaño.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
@@ -859,12 +859,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sat.gob.mx/minisitio/PadronImportadoresExportadores/',
     automationLevel: 'medium',
     recommendedUse:
-      'Listas oficiales públicas con RFC y razón social: SAT Padrón de Importadores y sus sectoriales (~70.000 empresas privadas medianas y grandes), SAT Directorio de Donatarias Autorizadas sólo activas (~9.900: universidades privadas, colegios, ONG) y padrón de proveedores de Nuevo León (~2.900, con estratificación MICRO/PEQUEÑA/MEDIANA/GRANDE). Se usa sólo cuando CompraNet no da un RFC seguro, con la misma regla: RFC seguro sólo si exactamente un RFC tiene ese núcleo de nombre. Medido con 177 nombres reales de México: CompraNet sola 11 RFC seguros, con estas listas 26.',
+      'Listas oficiales públicas con RFC y razón social: SAT Padrón de Importadores y sus sectoriales (~70.000 empresas privadas medianas y grandes), SAT Directorio de Donatarias Autorizadas sólo activas (~9.900: universidades privadas, colegios, ONG) padrón de proveedores de Nuevo León (~2.900) y padrones de proveedores de la Ciudad de México (SAF art. 121 fr. XXXIV 2021–2026 y datos abiertos, ~8.400 RFC más), los dos con estratificación MICRO/PEQUEÑA/MEDIANA/GRANDE. Jalisco y Estado de México no se pudieron descargar (captcha / sin respuesta); Veracruz 2019 y Chihuahua 2017 descartados por viejos. Se usa sólo cuando CompraNet no da un RFC seguro, con la misma regla: RFC seguro sólo si exactamente un RFC tiene ese núcleo de nombre. Medido con 177 nombres reales de México: CompraNet sola 11 RFC seguros, con estas listas 26.',
     limitations: [
       'Sólo empresas que importan/exportan, donatarias autorizadas o proveedoras de Nuevo León: una empresa que no aparece no significa que no exista.',
       'El padrón de importadores se publica en PDF (2.130 páginas): la carga lo extrae con scripts/source-catalog/extract-mx-rfc-public-lists.py.',
       'Nunca personas físicas (RFC de 13 caracteres). No se guardan teléfonos, correos, domicilios ni representantes.',
-      'La estratificación sólo existe para proveedores de Nuevo León y es la que declaró la empresa: pista de tamaño, no dato confirmado.',
+      'La estratificación sólo existe para proveedores de Nuevo León y de la Ciudad de México y es la que declaró la empresa: pista de tamaño, no dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC (MICRO y PEQUEÑA descartan por pequeña).',
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
@@ -1699,6 +1699,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo sociedades que además son proveedoras del Estado (COMPR.AR): no representa todo el mercado argentino.',
       'El RNS no publica tamaño: más allá de las primeras 50-100 por industria (por importe adjudicado) puede proponer empresas chicas.',
+      'No se recicla: una CUIT que ya es candidata en SellUp, cuyo descarte quedó cerrado (otra industria, otro tamaño, duplicada) o que fue descartada y sigue sin web no se vuelve a proponer; se lee el triple para llenar el tope con empresas nuevas.',
       'El RNS no publica sitio web: el dominio sale del correo que la sociedad declaró en el SIPRO histórico (anterior a 2016), sólo si se parece a su razón social de entonces y a la de hoy (1.657 de 6.350 en la prueba en seco del 06-10). Sin dominio, la empresa va a Descartadas y el buscador de sitio de Claude intenta rescatarla.',
       'La industria sale de la tabla aprobada por la dueña: actividades fuera de la tabla no se proponen.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
