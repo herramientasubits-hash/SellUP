@@ -84,7 +84,53 @@ export type MxCompranetRfcRow = {
 
 /** Núcleo del nombre mexicano: el MISMO que calcula el resolvedor de la corrida. */
 export function normalizeMexicoCompanyCore(name: string | null | undefined): string {
-  return normalizeCompanyNameCore(name, MX_COMPRANET_LEGAL_FORMS);
+  return stripMexicoLegalFormTail(normalizeCompanyNameCore(name, MX_COMPRANET_LEGAL_FORMS));
+}
+
+/** «SAPI» → «S ?A ?P ?I»: las letras de la sigla, con o sin espacio entre ellas. */
+const spaced = (acronym: string): string => acronym.split('').join(' ?');
+
+/**
+ * SOURCES-MX-LEGAL-FORM-TAIL-1 — la forma societaria escrita de cualquier manera.
+ *
+ * Prod 06-10 (lote 97c51fb0, MX×Retail): «ACOPOL SA CV» y «ABARROTERA DEL DUERO
+ * SA CV» (padrón de importadores del SAT) no cruzaban con «ACOPOL» de DENUE. Unas
+ * 3.000 filas de las dos fuentes de México quedaban con restos así: «S A P I DE CV»,
+ * «SA CV», «SPR DE RL DE CV», «S DE P R DE R L», «S DE RL MI DE CV», «SAPI DE CV
+ * SOFOM ENR»… Una lista de formas exactas nunca las cubre todas; aquí se reconoce
+ * la estructura: sigla base (SA, SAB, SAPI, SAS, SC, SCP, SPR, SRL, S DE RL, S DE
+ * PR DE RL, S EN NC…) + complementos opcionales (DE RL/RI, MI, DE CV, SOFOM ENR/ER).
+ *
+ * Sólo se quita al FINAL y si queda nombre: «ACEROS SA CV» → «ACEROS»; «CASA» o
+ * «PRESAS» no cambian (la sigla tiene que empezar como palabra propia).
+ */
+const MX_LEGAL_FORM_BASE = [
+  `${spaced('SAPI')}`,
+  `${spaced('SAB')}`,
+  `${spaced('SAS')}`,
+  `${spaced('SCP')}(?: DE B Y S)?`,
+  `${spaced('SPR')}`,
+  `${spaced('SRL')}`,
+  `S ?(?:DE|DEL) (?:${spaced('PR')} (?:DE )?)?${spaced('RL')}`,
+  `S ?EN ?N? ?C`,
+  `${spaced('SC')} DE (?:C|P|B Y S) (?:DE )?${spaced('RL')}`,
+  `${spaced('SA')} DE ${spaced('RL')}`,
+  `${spaced('SA')}`,
+  `${spaced('SC')}`,
+].join('|');
+
+const MX_LEGAL_FORM_TAIL = new RegExp(
+  ` (?:${MX_LEGAL_FORM_BASE})` +
+    `(?: (?:DE )?R ?[LI])?` +
+    `(?: M ?I)?` +
+    `(?: (?:DE )?${spaced('CV')})?` +
+    `(?: SOFO[ML](?: (?:${spaced('ENR')}|${spaced('ER')}))?)?$`,
+);
+
+export function stripMexicoLegalFormTail(core: string): string {
+  const match = MX_LEGAL_FORM_TAIL.exec(core);
+  if (match === null || match.index < 2) return core;
+  return core.slice(0, match.index).trim();
 }
 
 /** RFC crudo → RFC de persona moral normalizado (mes 01-12, día 01-31), o `null`. */

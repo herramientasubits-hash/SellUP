@@ -48,6 +48,33 @@ describe('RFC de persona moral', () => {
 });
 
 describe('núcleo del nombre mexicano', () => {
+  it('forma societaria escrita de cualquier manera (SOURCES-MX-LEGAL-FORM-TAIL-1)', () => {
+    const cases: Array<[string, string]> = [
+      ['ACOPOL SA CV', 'ACOPOL'],
+      ['"COMERCIAL SINTETICA", S A P I DE CV', 'COMERCIAL SINTETICA'],
+      ['"HUERTA SINTETICA" SPR DE RL DE CV', 'HUERTA SINTETICA'],
+      ['AGRICOLA SINTETICA S. DE P.R. DE R.L.', 'AGRICOLA SINTETICA'],
+      ['AGRICOLA SINTETICA, S. DE P.R. DE R.L. DE C.V.', 'AGRICOLA SINTETICA'],
+      ['ENSAMBLES SINTETICOS DE MEXICO SA DE RL DE CV', 'ENSAMBLES SINTETICOS DE MEXICO'],
+      ['ESTUDIOS SINTETICOS, S.A.S. DE C.V.', 'ESTUDIOS SINTETICOS'],
+      ['CAFE SINTETICO SC DE P DE RL DE CV', 'CAFE SINTETICO'],
+      ['AISLANTES SINTETICOS, S. DE R.L. MI.', 'AISLANTES SINTETICOS'],
+      ['DULCES SINTETICOS S DE RL MI DE CV', 'DULCES SINTETICOS'],
+      ['FINANCIERA SINTETICA, S.A.P.I. DE C.V. SOFOM ENR', 'FINANCIERA SINTETICA'],
+      ['AGRICOLA SINTETICA SCP DE B Y S RL DE CV', 'AGRICOLA SINTETICA'],
+      ['AGROCAMPO SINTETICO S EN NC DE CV', 'AGROCAMPO SINTETICO'],
+      ['CERVECERIA SINTETICA S DEL RL DE CV', 'CERVECERIA SINTETICA'],
+      ['QUIMICA SINTETICA SRL MI', 'QUIMICA SINTETICA'],
+    ];
+    for (const [name, core] of cases) assert.equal(normalizeMexicoCompanyCore(name), core, name);
+  });
+
+  it('nunca recorta palabras que sólo empiezan o terminan como una sigla', () => {
+    for (const name of ['CASA', 'LAS PRESAS', 'GRUPO ASA', 'TELAS Y MAS', 'AXTEL', 'SA']) {
+      assert.equal(normalizeMexicoCompanyCore(name), name);
+    }
+  });
+
   it('quita la forma societaria escrita sin puntos, como la escribe CompraNet', () => {
     assert.equal(normalizeMexicoCompanyCore('AQ&MK SA DE CV'), 'AQ&MK');
     assert.equal(normalizeMexicoCompanyCore('GRUPO X S DE RL DE CV'), 'GRUPO X');
