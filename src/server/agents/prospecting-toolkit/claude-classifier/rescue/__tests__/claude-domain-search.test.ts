@@ -18,6 +18,9 @@ import {
   dispositionLinkedInUrl,
   nameFromLinkedInSlug,
   DOMAIN_SEARCH_VERSION,
+  buildDomainFinderInput,
+  countryNameFromCode,
+  registryNameCore,
 } from '../domain-search';
 import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
 import { rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
@@ -541,5 +544,85 @@ describe('C. rescate de descartadas sin dominio', () => {
     assert.equal(s.ok && s.dispositionsAdmitted, 0);
     const ev = f.evidence.get('d1')!;
     assert.equal((ev[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { domain: string }).domain, 'sii-group.com');
+  });
+});
+
+describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile, lote bd751c34)', () => {
+  it('el nombre sin forma societaria ni palabras genéricas', () => {
+    assert.equal(registryNameCore('ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA'), 'accenture');
+    assert.equal(registryNameCore('SERVICIOS EQUIFAX CHILE LIMITADA'), 'equifax');
+    assert.equal(registryNameCore('IBM CHILE SPA'), 'ibm');
+    assert.equal(registryNameCore('SONDA S A'), 'sonda');
+    assert.equal(registryNameCore('INDRA SISTEMAS CHILE S.A.'), 'indra');
+    assert.equal(registryNameCore('Compañía Minera Doña Inés'), 'minera dona ines');
+    // Nada cambia, o sólo quedan palabras genéricas o muy cortas ⇒ sin variante.
+    assert.equal(registryNameCore('Sonda'), null);
+    assert.equal(registryNameCore('SERVICIOS INTEGRALES SPA'), 'integrales');
+    assert.equal(registryNameCore('EMPRESA DE SERVICIOS SPA'), null);
+    assert.equal(registryNameCore('GE CHILE SPA'), null);
+    assert.equal(registryNameCore(null), null);
+  });
+
+  it('el país viaja por su nombre', () => {
+    assert.equal(countryNameFromCode('cl'), 'Chile');
+    assert.equal(countryNameFromCode('MX'), 'México');
+    assert.equal(countryNameFromCode('ZZ'), null);
+    assert.equal(countryNameFromCode(null), null);
+  });
+
+  it('la entrada del buscador lleva el país por su nombre y la variante sin forma societaria', () => {
+    const input = buildDomainFinderInput(
+      {
+        id: 'd1',
+        name: 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA',
+        domain: null,
+        country_code: 'CL',
+        reason_code: 'missing_domain_final',
+        evidence: { provider_raw_name: 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA' },
+      },
+      null,
+    );
+    assert.equal(input.name, 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA');
+    assert.equal(input.countryName, 'Chile');
+    assert.ok(input.alternateNames?.includes('accenture'));
+    // Un país explícito manda sobre el del código.
+    assert.equal(
+      buildDomainFinderInput(
+        { id: 'd2', name: 'x', domain: null, country_code: 'CL', reason_code: null, evidence: null },
+        'República de Chile',
+      ).countryName,
+      'República de Chile',
+    );
+  });
+
+  it('Accenture: la página dice «Accenture Chile» y ahora se confirma (antes identity_not_confirmed)', async () => {
+    const html = `<html><head><title>Accenture Chile | Consultoría y tecnología</title></head><body><p>${FILLER}</p></body></html>`;
+    const url = 'https://www.accenture.com/cl-es';
+    const legal = 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA';
+    const base = { name: legal, countryName: 'Chile', countryCode: 'CL', linkedinUrl: null };
+    const before = await findOfficialWebsite(base, MODEL, finderDeps(conversation(url, [url]), page(html, url)));
+    assert.deepEqual(before.found ? null : before.reason, 'identity_not_confirmed');
+    const after = await findOfficialWebsite(
+      { ...base, alternateNames: [registryNameCore(legal) as string] },
+      MODEL,
+      finderDeps(conversation(url, [url]), page(html, url)),
+    );
+    assert.equal(after.found && after.verification, 'name_match');
+    assert.equal(after.found && after.domain, 'accenture.com');
+  });
+
+  it('la variante no basta si el sitio no salió de la búsqueda', async () => {
+    const html = `<html><head><title>Accenture</title></head><body><p>${FILLER}</p></body></html>`;
+    const url = 'https://www.accenture.com';
+    const out = await findOfficialWebsite(
+      { name: 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null, alternateNames: ['accenture'] },
+      MODEL,
+      finderDeps(conversation(url, ['https://otra.cl']), page(html, url)),
+    );
+    assert.deepEqual(out.found ? null : out.reason, 'not_in_search_results');
+  });
+
+  it('versión d4: un «no encontrado» de d3 se reintenta una vez', () => {
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd4');
   });
 });
