@@ -9,7 +9,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { buildArgentinaSnapshotQuery, ARGENTINA_SNAPSHOT_QUERY_LIMIT } from '../argentina-snapshot-query';
+import {
+  buildArgentinaSnapshotQuery,
+  ARGENTINA_SNAPSHOT_QUERY_LIMIT,
+  ARGENTINA_SNAPSHOT_QUERY_MAX_NAMES,
+} from '../argentina-snapshot-query';
 import {
   buildArRnsRegistryRow,
   readRnsPrincipalActivity,
@@ -23,7 +27,7 @@ type Call = { method: string; args: unknown[] };
 function fakeClient(result: { data?: unknown; error?: unknown; throws?: boolean }) {
   const calls: Call[] = [];
   const builder: Record<string, unknown> = {};
-  for (const method of ['from', 'select', 'eq']) {
+  for (const method of ['from', 'select', 'eq', 'in']) {
     builder[method] = (...args: unknown[]) => {
       calls.push({ method, args });
       return builder;
@@ -43,7 +47,7 @@ function fakeClient(result: { data?: unknown; error?: unknown; throws?: boolean 
 }
 
 describe('buildArgentinaSnapshotQuery', () => {
-  it('un único SELECT acotado a ar_rns_registry / AR por núcleo exacto', async () => {
+  it('un único SELECT acotado a ar_rns_registry / AR por nombres exactos', async () => {
     const { client, calls } = fakeClient({
       data: [
         {
@@ -53,7 +57,7 @@ describe('buildArgentinaSnapshotQuery', () => {
         },
       ],
     });
-    const rows = await buildArgentinaSnapshotQuery(client)('TELECOM ARGENTINA');
+    const rows = await buildArgentinaSnapshotQuery(client)(['TELECOM ARGENTINA', 'TELECOM ARGENTINA S A I C', 'TELECOM ARGENTINA']);
     assert.deepEqual(rows, [
       { cuit: '30639453738', legalName: 'TELECOM ARGENTINA SOCIEDAD ANONIMA', normalizedLegalName: 'TELECOM ARGENTINA' },
     ]);
@@ -61,17 +65,28 @@ describe('buildArgentinaSnapshotQuery', () => {
     assert.deepEqual(calls.filter((c) => c.method === 'eq').map((c) => c.args), [
       ['source_key', 'ar_rns_registry'],
       ['country_code', 'AR'],
-      ['normalized_legal_name', 'TELECOM ARGENTINA'],
+    ]);
+    assert.deepEqual(calls.filter((c) => c.method === 'in').map((c) => c.args), [
+      ['normalized_legal_name', ['TELECOM ARGENTINA', 'TELECOM ARGENTINA S A I C']],
     ]);
     assert.deepEqual(calls.at(-1), { method: 'limit', args: [ARGENTINA_SNAPSHOT_QUERY_LIMIT] });
   });
 
   it('sin núcleo no consulta; un error o excepción devuelve vacío', async () => {
     const idle = fakeClient({ data: [] });
-    assert.deepEqual(await buildArgentinaSnapshotQuery(idle.client)('  '), []);
+    assert.deepEqual(await buildArgentinaSnapshotQuery(idle.client)(['  ']), []);
+    assert.deepEqual(await buildArgentinaSnapshotQuery(idle.client)([]), []);
     assert.equal(idle.calls.length, 0);
-    assert.deepEqual(await buildArgentinaSnapshotQuery(fakeClient({ error: { message: 'x' } }).client)('A B'), []);
-    assert.deepEqual(await buildArgentinaSnapshotQuery(fakeClient({ throws: true }).client)('A B'), []);
+    assert.deepEqual(await buildArgentinaSnapshotQuery(fakeClient({ error: { message: 'x' } }).client)(['A B']), []);
+    assert.deepEqual(await buildArgentinaSnapshotQuery(fakeClient({ throws: true }).client)(['A B']), []);
+  });
+
+  it('nunca pide más de ARGENTINA_SNAPSHOT_QUERY_MAX_NAMES nombres', async () => {
+    const { client, calls } = fakeClient({ data: [] });
+    const many = Array.from({ length: 200 }, (_, i) => `EMPRESA ${i}`);
+    await buildArgentinaSnapshotQuery(client)(many);
+    const inCall = calls.find((c) => c.method === 'in');
+    assert.equal((inCall?.args[1] as string[]).length, ARGENTINA_SNAPSHOT_QUERY_MAX_NAMES);
   });
 });
 

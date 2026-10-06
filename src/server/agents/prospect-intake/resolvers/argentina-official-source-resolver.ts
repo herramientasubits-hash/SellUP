@@ -20,10 +20,21 @@
  *     (prefix 30/33/34) has that core.
  *   - Several CUITs with the same core → `low_confidence_match` (signal only).
  *   - No partial / fuzzy matching; generic names never query.
+ *
+ * SOURCES-AR-E2E-1 — the lookup walks closed, exact-name TIERS
+ * (`buildArRegistryLookupTiers`): the core as is; core + a composite legal form
+ * the load-time core keeps («ARCOR» → «ARCOR S A I C»); with/without a trailing
+ * «ARGENTINA»; two or three words joined («MERCADO LIBRE» → «MERCADOLIBRE»). The
+ * FIRST tier that finds any CUIT decides, with the same one-CUIT rule; later
+ * tiers are never read. Still exact names only — never a prefix or fuzzy read.
  */
 
 import { isNameTooGeneric } from '@/server/source-catalog/enrichment/tax-identifier-resolution/resolve-candidate-tax-identifier-colombia';
-import { normalizeArCompanyCore } from '@/server/source-catalog/connectors/rns-argentina/ar-company-name-core';
+import {
+  buildArRegistryLookupTiers,
+  normalizeArCompanyCore,
+  type ArRegistryLookupTierKind,
+} from '@/server/source-catalog/connectors/rns-argentina/ar-company-name-core';
 
 import type {
   OfficialSourceEnrichmentResult,
@@ -53,10 +64,10 @@ export interface ArgentinaSnapshotRow {
 }
 
 /**
- * Injected read-only query: rows whose stored core equals `core`. MUST be
- * read-only and MUST degrade to `[]` on any failure.
+ * Injected read-only query: rows whose stored name equals ONE of `names`
+ * (exact). MUST be read-only and MUST degrade to `[]` on any failure.
  */
-export type ArgentinaSnapshotQuery = (core: string) => Promise<ArgentinaSnapshotRow[]>;
+export type ArgentinaSnapshotQuery = (names: readonly string[]) => Promise<ArgentinaSnapshotRow[]>;
 
 export interface ArgentinaOfficialSourceResolverDeps {
   querySnapshots: ArgentinaSnapshotQuery;
@@ -102,47 +113,71 @@ export function createArgentinaOfficialSourceResolver(
         return notFound(core);
       }
 
-      const rows = await deps.querySnapshots(core);
-      const byCuit = new Map<string, ArgentinaSnapshotRow>();
-      for (const row of rows) {
-        const cuit = row.cuit?.trim() ?? '';
-        // Re-check the core: a looser read can never produce a strong identity.
-        if (!LEGAL_ENTITY_CUIT.test(cuit) || row.normalizedLegalName?.trim() !== core) continue;
-        if (!byCuit.has(cuit)) byCuit.set(cuit, { ...row, cuit });
+      for (const tier of buildArRegistryLookupTiers(core)) {
+        // A variant core («CENCOSUD» from «CENCOSUD ARGENTINA») must pass the same
+        // generic-name gate as the candidate's own core.
+        if (tier.core !== core) {
+          const variantTokens = tier.core.toLowerCase().split(' ').filter((t) => t.length > 0);
+          if (isNameTooGeneric(variantTokens, input.candidate.domain, input.candidate.websiteUrl)) {
+            continue;
+          }
+        }
+        const asked = new Set(tier.names);
+        const rows = await deps.querySnapshots(tier.names);
+        const byCuit = new Map<string, ArgentinaSnapshotRow>();
+        for (const row of rows) {
+          const cuit = row.cuit?.trim() ?? '';
+          // Re-check the name: a looser read can never produce a strong identity.
+          const stored = row.normalizedLegalName?.trim() ?? '';
+          if (!LEGAL_ENTITY_CUIT.test(cuit) || !asked.has(stored)) continue;
+          if (!byCuit.has(cuit)) byCuit.set(cuit, { ...row, cuit });
+        }
+        const distinct = [...byCuit.values()];
+        if (distinct.length > 0) return decide(core, tier.kind, distinct);
       }
-      const distinct = [...byCuit.values()];
-      if (distinct.length === 0) return notFound(core);
+      return notFound(core);
+    },
+  };
+}
 
-      const best = distinct[0];
-      if (distinct.length === 1) {
-        return {
-          status: 'matched',
-          countryCode: ARGENTINA_COUNTRY_CODE,
-          sourceKey: ARGENTINA_OFFICIAL_SOURCE_KEY,
-          confidence: ARGENTINA_EXACT_MATCH_CONFIDENCE,
-          matchMethod: 'normalized_name',
-          taxIdentifier: best.cuit,
-          taxIdentifierType: ARGENTINA_TAX_IDENTIFIER_TYPE,
-          legalName: best.legalName || null,
-          warnings: [],
-          issues: [],
-          safeMetadata: { normalizedSearchName: core },
-        };
-      }
+function decide(
+  core: string,
+  lookupTier: ArRegistryLookupTierKind,
+  distinct: ArgentinaSnapshotRow[],
+): OfficialSourceEnrichmentResult {
+  const best = distinct[0];
+  if (distinct.length === 1) {
+    return {
+      status: 'matched',
+      countryCode: ARGENTINA_COUNTRY_CODE,
+      sourceKey: ARGENTINA_OFFICIAL_SOURCE_KEY,
+      confidence: ARGENTINA_EXACT_MATCH_CONFIDENCE,
+      matchMethod: 'normalized_name',
+      taxIdentifier: best.cuit,
+      taxIdentifierType: ARGENTINA_TAX_IDENTIFIER_TYPE,
+      legalName: best.legalName || null,
+      warnings: [],
+      issues: [],
+      safeMetadata: { normalizedSearchName: core, lookupTier },
+    };
+  }
 
-      return {
-        status: 'low_confidence_match',
-        countryCode: ARGENTINA_COUNTRY_CODE,
-        sourceKey: ARGENTINA_OFFICIAL_SOURCE_KEY,
-        confidence: ARGENTINA_SIGNAL_MATCH_CONFIDENCE,
-        matchMethod: 'normalized_name',
-        taxIdentifier: best.cuit,
-        taxIdentifierType: ARGENTINA_TAX_IDENTIFIER_TYPE,
-        legalName: best.legalName || null,
-        warnings: [],
-        issues: [],
-        safeMetadata: { normalizedSearchName: core, ambiguous: true, candidateCount: distinct.length },
-      };
+  return {
+    status: 'low_confidence_match',
+    countryCode: ARGENTINA_COUNTRY_CODE,
+    sourceKey: ARGENTINA_OFFICIAL_SOURCE_KEY,
+    confidence: ARGENTINA_SIGNAL_MATCH_CONFIDENCE,
+    matchMethod: 'normalized_name',
+    taxIdentifier: best.cuit,
+    taxIdentifierType: ARGENTINA_TAX_IDENTIFIER_TYPE,
+    legalName: best.legalName || null,
+    warnings: [],
+    issues: [],
+    safeMetadata: {
+      normalizedSearchName: core,
+      lookupTier,
+      ambiguous: true,
+      candidateCount: distinct.length,
     },
   };
 }
