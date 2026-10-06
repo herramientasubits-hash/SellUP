@@ -34,6 +34,10 @@
  *   - No toca accounts, prospect_candidates ni otras fuentes. No llama a SUNAT,
  *     Migo ni proveedores: sólo lee archivos locales.
  *   - Reanudable: `--offset=<n>` salta las n primeras filas ya escritas.
+ *   - `--prune` (SOURCES-PE-PRUNE-1): tras cargar, borra las filas de ESA fuente
+ *     que el archivo ya no trae (hora de importación anterior a la de esta carga).
+ *     Nunca en una carga reanudada ni más del 10 % de la fuente salvo
+ *     `--prune-max-fraction=<0-1>`. También exige la autorización de la dueña.
  *   - Reversible: las fuentes nuevas se borran por `source_key`; la recarga del
  *     registro sólo AÑADE campos a `raw_data` (el nombre comparable no cambia).
  */
@@ -75,6 +79,7 @@ import {
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-source-rows';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
+import { decidePeSunatPrune } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-prune';
 
 const UPSERT_CHUNK = 1000;
 const TARGETS = ['registry', 'alias', 'directory'] as const;
@@ -88,6 +93,9 @@ type Config = {
   apply: boolean;
   year: number;
   offset: number;
+  /** SOURCES-PE-PRUNE-1 — tras cargar, borrar las filas de esa fuente que el archivo ya no trae. */
+  prune: boolean;
+  pruneMaxFraction: number | undefined;
 };
 
 function parseArgs(argv: readonly string[]): Config {
@@ -108,7 +116,14 @@ function parseArgs(argv: readonly string[]): Config {
   if (!Number.isInteger(year) || !Number.isInteger(offset) || offset < 0) {
     throw new Error('config_invalid: --year y --offset deben ser enteros (offset ≥ 0)');
   }
-  return { padron, openPadron, oece: value('oece'), only, apply, year, offset };
+  const prune = argv.includes('--prune');
+  if (prune && !apply) throw new Error('config_invalid: --prune sólo con --apply');
+  const pruneMaxRaw = value('prune-max-fraction');
+  const pruneMaxFraction = pruneMaxRaw === null ? undefined : Number(pruneMaxRaw);
+  if (pruneMaxFraction !== undefined && !(pruneMaxFraction > 0 && pruneMaxFraction <= 1)) {
+    throw new Error('config_invalid: --prune-max-fraction debe estar entre 0 y 1');
+  }
+  return { padron, openPadron, oece: value('oece'), only, apply, year, offset, prune, pruneMaxFraction };
 }
 
 async function readOpenPadron(path: string): Promise<Map<string, PeSunatOpenPadronRecord>> {
@@ -146,8 +161,10 @@ function readOeceEntities(path: string): Map<string, string> {
 async function upsertAll(
   sourceKey: string,
   rows: readonly (PeSunatRegistryRow | PeSunatNameAliasRow | PeSunatDirectoryRow)[],
-  offset: number,
+  config: Config,
+  importedAt: string,
 ): Promise<void> {
+  const { offset } = config;
   assertLargeImportAllowed({ sourceKey, countryCode: 'PE', estimatedRows: rows.length, isDryRun: false });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -163,6 +180,43 @@ async function upsertAll(
     if ((i / UPSERT_CHUNK) % 50 === 0) console.log(`  … ${i + chunk.length}/${rows.length}`);
   }
   console.log(`  ${sourceKey}: rowsUpserted = ${upserted}`);
+  if (!config.prune) return;
+
+  // SOURCES-PE-PRUNE-1 — las filas con una hora de importación anterior a la de
+  // esta carga son las que el archivo de hoy ya no trae.
+  const count = async (stale: boolean): Promise<number> => {
+    let query = client
+      .from('source_company_snapshots')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_key', sourceKey)
+      .eq('country_code', 'PE');
+    if (stale) query = query.lt('imported_at', importedAt);
+    const { count: n, error } = await query;
+    if (error || n === null) throw new Error(`prune_count_failed: ${error?.message ?? 'sin conteo'}`);
+    return n;
+  };
+  const totalRows = await count(false);
+  const staleRows = await count(true);
+  const decision = decidePeSunatPrune({
+    totalRows,
+    staleRows,
+    rowsWrittenThisRun: upserted,
+    offset,
+    maxFraction: config.pruneMaxFraction,
+  });
+  console.log(`  ${sourceKey}: ${staleRows} de ${totalRows} filas ya no están en el archivo → ${decision.action}${'reason' in decision ? ` (${decision.reason})` : ''}`);
+  if (decision.action !== 'delete') {
+    if (decision.action === 'refuse') process.exitCode = 1;
+    return;
+  }
+  const { error: deleteError, count: deleted } = await client
+    .from('source_company_snapshots')
+    .delete({ count: 'exact' })
+    .eq('source_key', sourceKey)
+    .eq('country_code', 'PE')
+    .lt('imported_at', importedAt);
+  if (deleteError) throw new Error(`prune_delete_failed: ${deleteError.message}`);
+  console.log(`  ${sourceKey}: rowsPruned = ${deleted ?? 0}`);
 }
 
 async function main(): Promise<void> {
@@ -254,9 +308,9 @@ async function main(): Promise<void> {
     return;
   }
   const target = config.only[0];
-  if (target === 'registry') await upsertAll(PE_SUNAT_REGISTRY_SOURCE_KEY, registryRows, config.offset);
-  if (target === 'alias') await upsertAll(PE_SUNAT_NAME_ALIAS_SOURCE_KEY, aliasRows, config.offset);
-  if (target === 'directory') await upsertAll(PE_SUNAT_DIRECTORY_SOURCE_KEY, directoryRows, config.offset);
+  if (target === 'registry') await upsertAll(PE_SUNAT_REGISTRY_SOURCE_KEY, registryRows, config, importedAt);
+  if (target === 'alias') await upsertAll(PE_SUNAT_NAME_ALIAS_SOURCE_KEY, aliasRows, config, importedAt);
+  if (target === 'directory') await upsertAll(PE_SUNAT_DIRECTORY_SOURCE_KEY, directoryRows, config, importedAt);
 }
 
 main().catch((error: unknown) => {

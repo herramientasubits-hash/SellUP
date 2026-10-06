@@ -1351,7 +1351,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Recargado el 06-10-2026 (autorizado): 871.198 sociedades (RUC 20) del padrón reducido de SUNAT, de ellas 862.987 activas y habidas hoy con tipo de contribuyente y actividad CIIU Rev. 4, y 357.818 con trabajadores del Padrón RUC abierto (corte 2026-09) para el filtro de tamaño. El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias).',
+      'Recargado el 06-10-2026 (autorizado): 871.198 sociedades (RUC 20) del padrón reducido de SUNAT, de ellas 862.987 activas y habidas hoy con tipo de contribuyente y actividad CIIU Rev. 4, y 357.818 con trabajadores del Padrón RUC abierto (corte 2026-09) para el filtro de tamaño. El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1380,7 +1380,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Cargada el 06-10-2026 (autorizado): claves de nombre extra de unas 49.000 sociedades (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE). Un alias nunca usa el nombre propio de otra sociedad (recarga con esa regla: 70.749 claves).',
+      'Cargada el 06-10-2026 (autorizado): claves de nombre extra de unas 49.000 sociedades (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE). Un alias nunca usa el nombre propio de otra sociedad (recarga con esa regla: 70.749 claves). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1406,7 +1406,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio.',
+      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',

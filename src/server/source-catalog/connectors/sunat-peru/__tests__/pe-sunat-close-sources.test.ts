@@ -8,6 +8,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   normalizePeSunatActivityText,
@@ -37,6 +39,7 @@ import {
   PE_SUNAT_DIRECTORY_MIN_WORKERS,
 } from '../pe-sunat-source-rows';
 import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
+import { decidePeSunatPrune, PE_PRUNE_DEFAULT_MAX_FRACTION } from '../pe-sunat-prune';
 import { getSourceFamily } from '../../../record-identity';
 
 function openCells(overrides: Partial<Record<(typeof PE_SUNAT_OPEN_PADRON_HEADER)[number], string>> = {}): string[] {
@@ -334,5 +337,47 @@ describe('un alias nunca usa el nombre propio de otra sociedad (SOURCES-PE-ALIAS
     assert.deepEqual(dropAliasKeysOwnedByOthers(['GOBIERNO REGIONAL LORETO'], '20493196902', owners), ['GOBIERNO REGIONAL LORETO']);
     // Una clave que no es el nombre de nadie se conserva (GLORIA).
     assert.deepEqual(dropAliasKeysOwnedByOthers(['GLORIA'], '20100190797', owners), ['GLORIA']);
+  });
+});
+
+describe('limpieza tras recargar (SOURCES-PE-PRUNE-1)', () => {
+  it('borra las filas viejas de una recarga completa (8.211 de 871.198 en el registro)', () => {
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 871_198, staleRows: 8_211, rowsWrittenThisRun: 862_987, offset: 0 }), {
+      action: 'delete',
+      staleRows: 8_211,
+    });
+  });
+
+  it('nunca en una carga reanudada ni si no se escribió nada', () => {
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 1, rowsWrittenThisRun: 99, offset: 1000 }), {
+      action: 'refuse',
+      reason: 'resumed_run',
+    });
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 1, rowsWrittenThisRun: 0, offset: 0 }), {
+      action: 'refuse',
+      reason: 'nothing_written',
+    });
+  });
+
+  it('nunca más del 10 % de la fuente salvo permiso explícito; sin viejas no hace nada', () => {
+    assert.equal(PE_PRUNE_DEFAULT_MAX_FRACTION, 0.1);
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 11, rowsWrittenThisRun: 89, offset: 0 }), {
+      action: 'refuse',
+      reason: 'too_many_stale',
+    });
+    assert.equal(decidePeSunatPrune({ totalRows: 100, staleRows: 11, rowsWrittenThisRun: 89, offset: 0, maxFraction: 0.2 }).action, 'delete');
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 0, rowsWrittenThisRun: 100, offset: 0 }), {
+      action: 'skip',
+      reason: 'nothing_stale',
+    });
+  });
+
+  it('el cargador sólo borra filas de UNA fuente de Perú y anteriores a esta carga', () => {
+    const code = readFileSync(join(process.cwd(), 'scripts/source-catalog/run-pe-sunat-sources-etl.ts'), 'utf8');
+    const deletes = code.match(/\.delete\([^)]*\)[\s\S]{0,200}?;/g) ?? [];
+    assert.equal(deletes.length, 1);
+    assert.match(deletes[0], /\.eq\('source_key', sourceKey\)\s*\.eq\('country_code', 'PE'\)\s*\.lt\('imported_at', importedAt\)/);
+    assert.match(code, /if \(!config\.prune\) return;/);
+    assert.match(code, /--prune sólo con --apply/);
   });
 });
