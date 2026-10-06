@@ -17,6 +17,20 @@ export type InitialStateParams = {
   defaultRequestedCount: number;
 };
 
+/**
+ * ¿Ya eligió algo la persona? Es lo que «Comenzar de nuevo» le haría perder: con
+ * algo elegido se pide confirmación; sin nada, se reinicia directamente.
+ */
+export function hasWizardSelections(state: ProspectWizardState): boolean {
+  return (
+    state.searchMode !== null ||
+    state.countryCode !== null ||
+    state.industryId !== null ||
+    state.subindustryIds.length > 0 ||
+    (state.additionalCriteriaRaw ?? '').trim().length > 0
+  );
+}
+
 export function createInitialProspectWizardState(
   params: InitialStateParams,
 ): ProspectWizardState {
@@ -451,6 +465,13 @@ export function prospectWizardReducer(
 
     // ── REQUEST_RESTART ─────────────────────────────────────────────────────
     case 'REQUEST_RESTART': {
+      // Sin nada elegido no hay nada que perder: se reinicia sin preguntar.
+      if (!hasWizardSelections(state)) {
+        return createInitialProspectWizardState({
+          catalogVersion: state.catalogVersion,
+          defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
+        });
+      }
       return { ...state, restartConfirmationRequired: true };
     }
 

@@ -7,7 +7,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SidebarProvider, useSidebar } from "@/components/layout/sidebar-context";
 import { ShellAgentPanelSlotProvider } from "@/components/layout/shell-agent-panel-slot";
-import { AgentRunsTray } from "@/components/prospect-batches/agent-runs-tray/agent-runs-tray";
+import { AgentRunsProcessCenter } from "@/components/prospect-batches/agent-runs-tray/agent-runs-tray";
 import type { NavAccessContext } from "@/config/navigation";
 
 interface AppShellProps {
@@ -42,7 +42,14 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
             Main es una columna flex que llena el alto: las páginas pueden optar por
             <DataTablePage> (cabecera y métricas fijas, la tabla desplaza). */}
         <div className="page-atmosphere flex min-h-0 min-w-0 flex-1 flex-col">
-          <AppHeader user={user} initialUnreadCount={initialUnreadCount} navAccess={navAccess} />
+          <AppHeader
+            user={user}
+            initialUnreadCount={initialUnreadCount}
+            navAccess={navAccess}
+            // Centro de procesos: las búsquedas del Agente IA viven en la
+            // cabecera del shell para sobrevivir al chat (AGENT1-PARALLEL-RUNS-TRAY-1).
+            processCenter={<AgentRunsProcessCenter className="max-sm:hidden" />}
+          />
           <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className)}>
             {/* overflow-y-auto habilita scroll en páginas estándar, en la caja de
                 todo el ancho (la barra de scroll queda en el borde, no en medio).
@@ -74,9 +81,6 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
           className="relative z-[51] flex h-full shrink-0 empty:hidden"
         />
       </div>
-      {/* Bandeja de búsquedas del Agente IA: vive en el shell para sobrevivir al
-          chat (AGENT1-PARALLEL-RUNS-TRAY-1). Se porta a `body`; vacía no pinta. */}
-      <AgentRunsTray />
     </ShellAgentPanelSlotProvider>
   );
 }

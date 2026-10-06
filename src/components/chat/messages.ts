@@ -69,7 +69,7 @@ const MESSAGES = {
   "chat.feedback.send": "Enviar comentario",
   "chat.feedback.thanks": "Gracias por el comentario.",
   "chat.newConversation": "Nueva conversación",
-  "chat.minimize": "Minimizar: la búsqueda sigue en el panel flotante",
+  "chat.minimize": "Minimizar: la búsqueda sigue en el Centro de procesos",
   "chat.history": "Historial",
   "chat.historyCollapse": "Ocultar el historial",
   "chat.historyExpand": "Mostrar el historial",

@@ -319,7 +319,7 @@ export function GlobalSearch({
       >
         <Search className="size-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">{placeholder}</span>
-        <Kbd className="ml-1 hidden sm:inline-flex">⌘K</Kbd>
+        <Kbd className="ml-auto hidden sm:inline-flex">⌘K</Kbd>
       </button>
 
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>

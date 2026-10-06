@@ -62,6 +62,11 @@ export type WizardGenerationOverlayProps = {
    * anota su etapa. `null` = no se puede seguir: se muestra el texto genérico.
    */
   clientRequestId: string | null;
+  /**
+   * Cuándo empezó la corrida, para que el contador de segundos sea el real al
+   * volver a abrirla desde el Centro de procesos. Ausente = desde que se pinta.
+   */
+  startedAtMs?: number | null;
 };
 
 /**
@@ -132,17 +137,17 @@ function useRunProgress(clientRequestId: string | null): { label: string; percen
  */
 /** AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida vive en el shell, no en este panel. */
 export const WIZARD_RUN_BACKGROUND_NOTE =
-  'Puedes cerrar o minimizar esta ventana: la búsqueda sigue y la ves en el panel de búsquedas, abajo a la derecha.';
+  'Puedes minimizar esta ventana o empezar otra búsqueda con «+»: esta sigue en el Centro de procesos, arriba a la derecha.';
 export const WIZARD_RUN_QUEUED_TITLE = 'En espera: empieza en cuanto se libere un lugar';
 
-function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayProps) {
+function WizardGenerationOverlay({ clientRequestId, startedAtMs }: WizardGenerationOverlayProps) {
   const progress = useRunProgress(clientRequestId);
   const runs = useAgentRuns();
   const queued = runs.some((run) => run.clientRequestId === clientRequestId && run.status === 'queued');
   const label = queued ? WIZARD_RUN_QUEUED_TITLE : progress.label;
   const percent = queued ? 0 : progress.percent;
-  const [startedAt] = React.useState(() => Date.now());
-  const [seconds, setSeconds] = React.useState(0);
+  const [startedAt] = React.useState(() => startedAtMs ?? Date.now());
+  const [seconds, setSeconds] = React.useState(() => Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
   React.useEffect(() => {
     const timer = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
     return () => clearInterval(timer);
@@ -170,8 +175,8 @@ function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayPro
 
 // ── Submitting panel ──────────────────────────────────────────────────────────
 
-export function SubmittingPanel({ clientRequestId }: WizardGenerationOverlayProps) {
-  return <WizardGenerationOverlay clientRequestId={clientRequestId} />;
+export function SubmittingPanel({ clientRequestId, startedAtMs }: WizardGenerationOverlayProps) {
+  return <WizardGenerationOverlay clientRequestId={clientRequestId} startedAtMs={startedAtMs} />;
 }
 
 // ── Desglose administrativo de la escritura ───────────────────────────────────

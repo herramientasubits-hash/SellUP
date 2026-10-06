@@ -193,7 +193,7 @@ let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 let ProspectChatWizard: (typeof import('../prospect-chat-wizard'))['ProspectChatWizard'];
 let WizardConversationSummary: (typeof import('../wizard-conversation-summary'))['WizardConversationSummary'];
 let WizardApolloContinuationPanel: (typeof import('../wizard-apollo-continuation-panel'))['WizardApolloContinuationPanel'];
-let AgentRunsTray: (typeof import('../../agent-runs-tray/agent-runs-tray'))['AgentRunsTray'];
+let AgentRunsProcessCenter: (typeof import('../../agent-runs-tray/agent-runs-tray'))['AgentRunsProcessCenter'];
 let prospectWizardReducer: (typeof import('@/modules/prospect-batches/chat-wizard'))['prospectWizardReducer'];
 let createInitialProspectWizardState: (typeof import('@/modules/prospect-batches/chat-wizard'))['createInitialProspectWizardState'];
 let STATUS_COPY: (typeof import('@/modules/prospect-batches/apollo-continuation-status'))['APOLLO_CONTINUATION_STATUS_COPY'];
@@ -217,14 +217,14 @@ const NO_LUSHA: WizardLushaCriteriaDecision = {
 
 /**
  * AGENT1-PARALLEL-RUNS-PHASE2-1 — la corrida a medias la conduce la BANDEJA del
- * shell (`AgentRunsTray`), no el mago: el shell real monta las dos cosas. El mago
+ * shell (`AgentRunsProcessCenter`), no el mago: el shell real monta las dos cosas. El mago
  * se renderiza al lado para comprobar que abrirlo no estorba ni duplica nada.
  */
 function renderShell(onClose: () => void = () => {}) {
   return render(
     <>
       <ProspectChatWizard catalog={CATALOG} onClose={onClose} executionEnabled />
-      <AgentRunsTray />
+      <AgentRunsProcessCenter />
     </>,
   );
 }
@@ -305,7 +305,7 @@ before(async () => {
   ({ ProspectChatWizard } = await import('../prospect-chat-wizard'));
   ({ WizardConversationSummary } = await import('../wizard-conversation-summary'));
   ({ WizardApolloContinuationPanel } = await import('../wizard-apollo-continuation-panel'));
-  ({ AgentRunsTray } = await import('../../agent-runs-tray/agent-runs-tray'));
+  ({ AgentRunsProcessCenter } = await import('../../agent-runs-tray/agent-runs-tray'));
   ({ prospectWizardReducer, createInitialProspectWizardState } = await import(
     '@/modules/prospect-batches/chat-wizard'
   ));
@@ -421,7 +421,7 @@ describe('§ 3 · caso 3 — cerrar el chat NO detiene la continuación', () => 
     ];
 
     // El shell con el chat abierto…
-    const tray = render(<AgentRunsTray />);
+    const tray = render(<AgentRunsProcessCenter />);
     const chat = render(<ProspectChatWizard catalog={CATALOG} onClose={() => {}} executionEnabled />);
     await waitFor(() => assert.equal(server.continueCalls.length, 1));
 

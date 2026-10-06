@@ -7,21 +7,26 @@ import type { AgentRun } from '@/modules/prospect-batches/agent-runs/agent-runs-
 import type { AgentRunStatusSnapshot } from '@/modules/prospect-batches/agent-runs/agent-runs-status.server';
 
 export const AGENT_RUNS_TRAY_COPY = {
+  /** Centro de procesos de la cabecera (port de Thema `app-shell/ProcessCenter`). */
+  processCenter: 'Centro de procesos',
+  none: 'Nada en proceso',
+  running: (count: number): string => `${count} en curso`,
+  waiting: (count: number): string => `${count} en espera`,
+  done: (count: number): string => (count === 1 ? '1 terminada' : `${count} terminadas`),
+  failed: (count: number): string => `${count} con error`,
+  emptyTitle: 'No hay nada en proceso',
+  emptyHint: 'Las búsquedas del Agente IA que lances aparecen aquí con su avance, y se quedan cuando terminan.',
+  keepRunning: 'Siguen corriendo aunque cierres el panel',
+  history: 'Historial',
+  collapse: 'Plegar',
+  expand: 'Desplegar',
+  progressOf: (title: string): string => `Avance de ${title}`,
   openPage: 'Ver todas en el chat (en curso y últimos 7 días)',
-  dragHint: 'Arrastra para mover · doble clic para volver a la esquina',
-  continuationOnlyTitle: 'Corrida a medias',
-  regionLabel: 'Búsquedas del Agente IA',
-  title: (active: number, total: number): string =>
-    active > 0
-      ? `${active === 1 ? '1 búsqueda en curso' : `${active} búsquedas en curso`}`
-      : total === 1
-        ? '1 búsqueda terminada'
-        : `${total} búsquedas terminadas`,
-  subtitle: 'Puedes cerrar o minimizar el chat: las búsquedas siguen aquí.',
-  minimize: 'Minimizar',
-  expand: 'Expandir',
-  closeAll: 'Cerrar las terminadas',
+  closeAll: 'Quitar de la lista las búsquedas terminadas',
+  clearFinished: 'Limpiar',
   openBatch: 'Ver lote',
+  openRun: 'Abrir',
+  viewRun: 'Ver',
   dismiss: 'Quitar',
   queued: 'En espera: empieza en cuanto se libere un lugar (máximo 3 a la vez, y una sola por país e industria).',
   detached: 'Sigue en curso (lanzada antes de recargar la página).',
@@ -74,4 +79,28 @@ export function describeAgentRun(run: AgentRun, liveLabel: string | null): Agent
 export function isDetachedRunFinished(status: AgentRunStatusSnapshot): boolean {
   if (!status.batch) return false;
   return status.batch.status !== 'generating' && status.batch.status !== 'draft';
+}
+
+/** El estado de una fila del Centro de procesos (mismos cuatro que Thema). */
+export type ProcessState = 'running' | 'waiting' | 'done' | 'failed';
+
+export function agentRunProcessState(run: AgentRun): ProcessState {
+  if (run.status === 'running') return 'running';
+  if (run.status === 'queued') return 'waiting';
+  return run.status === 'succeeded' ? 'done' : 'failed';
+}
+
+/**
+ * La línea de resumen del Centro de procesos. Lo terminado y lo fallido sólo se
+ * nombran si los hay: así, en el caso normal, cabe en una línea.
+ */
+export function processCenterSummary(counts: Readonly<Record<ProcessState, number>>): string {
+  const total = counts.running + counts.waiting + counts.done + counts.failed;
+  if (total === 0) return AGENT_RUNS_TRAY_COPY.none;
+  return [
+    AGENT_RUNS_TRAY_COPY.running(counts.running),
+    AGENT_RUNS_TRAY_COPY.waiting(counts.waiting),
+    ...(counts.done ? [AGENT_RUNS_TRAY_COPY.done(counts.done)] : []),
+    ...(counts.failed ? [AGENT_RUNS_TRAY_COPY.failed(counts.failed)] : []),
+  ].join(' · ');
 }

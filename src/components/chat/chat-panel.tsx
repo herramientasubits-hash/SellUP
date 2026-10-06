@@ -2,9 +2,9 @@
 
 import * as React from "react";
 
-import { Clock, Minimize2, Plus, X } from "@/icons";
+import { Clock, Minus, Plus, X } from "@/icons";
 import { AiAgentDrawer } from "@/components/ai/ai-agent-drawer";
-import { Button } from "@/components/ui/button";
+import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { Text } from "@/components/typography";
 
 import { ChatMark, type ChatMarkProps } from "./chat-mark";
@@ -33,7 +33,7 @@ export interface ChatPanelProps {
   newConversationDisabled?: boolean;
   /** No se puede cerrar ahora mismo (hay una ejecución en curso). */
   closeDisabled?: boolean;
-  /** «Minimizar»: cierra el panel dejando lo que corre en la bandeja flotante. */
+  /** «Minimizar»: cierra el panel dejando lo que corre en el Centro de procesos. */
   onMinimize?: () => void;
   /** El cuerpo del panel: el hilo, la caja, lo que el asistente necesite. */
   children: React.ReactNode;
@@ -92,59 +92,41 @@ export function ChatPanel({
                 {subtitle ?? t("chat.subtitle")}
               </Text>
             </div>
+            {/* Cada botón de la cabecera es sólo un icono: el tooltip dice qué hace. */}
             {onHistory && (
-              <Button
-                type="button"
+              <TooltipIconButton
+                icon={<Clock aria-hidden />}
+                label={t("chat.history")}
                 variant={historyActive ? "secondary" : "ghost"}
-                size="icon-sm"
                 onClick={onHistory}
-                aria-label={t("chat.history")}
-                title={t("chat.history")}
                 aria-pressed={historyActive}
                 data-testid="chat-panel-history"
-              >
-                <Clock aria-hidden />
-              </Button>
+              />
             )}
             {onNewConversation && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
+              <TooltipIconButton
+                icon={<Plus aria-hidden />}
+                label={newLabel}
                 onClick={onNewConversation}
                 disabled={newConversationDisabled}
-                aria-label={newLabel}
-                title={newLabel}
                 data-testid="chat-panel-new"
-              >
-                <Plus aria-hidden />
-              </Button>
+              />
             )}
             {onMinimize && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
+              <TooltipIconButton
+                icon={<Minus aria-hidden />}
+                label={t("chat.minimize")}
                 onClick={onMinimize}
-                aria-label={t("chat.minimize")}
-                title={t("chat.minimize")}
                 data-testid="chat-panel-minimize"
-              >
-                <Minimize2 aria-hidden />
-              </Button>
+              />
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
+            <TooltipIconButton
+              icon={<X aria-hidden />}
+              label={t("common.close")}
               onClick={() => onOpenChange(false)}
               disabled={closeDisabled}
-              aria-label={t("common.close")}
-              title={t("common.close")}
               data-testid="chat-panel-close"
-            >
-              <X aria-hidden />
-            </Button>
+            />
           </header>
           <div className="flex min-h-0 flex-1 flex-col">{children}</div>
         </aside>

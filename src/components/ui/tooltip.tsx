@@ -45,7 +45,9 @@ function TooltipContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50"
+        // Por encima de todo lo que flota (panel del Agente IA `z-[51]`, desplegables
+        // `z-[70]`): un tooltip tapado no explica nada.
+        className="isolate z-[80]"
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"

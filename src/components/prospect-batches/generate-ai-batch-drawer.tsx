@@ -2,8 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
-import { AGENT_RUNS_TRAY_EXPAND_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
+import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
+import { registerAgentRunOpener, takeAgentRunFromUrl } from '@/components/prospect-batches/agent-runs-tray/agent-run-opener';
+import { AgentRunDrawerView } from '@/components/prospect-batches/chat-wizard/agent-run-drawer-view';
 import { AgentRunsPanel } from '@/components/prospect-batches/agent-runs-tray/agent-runs-panel';
 import {
   AGENT_CHAT_OPEN_RUNS_EVENT,
@@ -14,6 +17,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertCircle,
+  X,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -91,6 +95,9 @@ type StructuredBatchResult = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /** El cuerpo desplazable del panel del agente, con el aire de `ChatPanel`. */
+/** Cuánto se queda el aviso de «sigue en segundo plano». */
+const BACKGROUND_NOTICE_MS = 8_000;
+
 const PANEL_BODY = 'min-h-0 flex-1 overflow-y-auto px-4 py-5';
 
 const MVP_MAX_CANDIDATES = 25;
@@ -311,7 +318,8 @@ type GenerateAIBatchDrawerProps = {
 
 export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
-  const runsInProgress = useAgentRuns().filter((run) => run.status === 'running' || run.status === 'queued').length;
+  const agentRuns = useAgentRuns();
+  const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;
   // AGENT1-RUNS-INSIDE-CHAT-1 — «Búsquedas» es una pestaña DENTRO del cajón, no
   // una pantalla aparte. La conversación sigue montada (oculta) mientras tanto.
   const [chatView, setChatView] = React.useState<'chat' | 'runs'>('chat');
@@ -326,6 +334,38 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   // La cabecera del panel puede pedirle al asistente que empiece de nuevo.
   const wizardRef = React.useRef<ProspectChatWizardHandle>(null);
   const [wizardCanRestart, setWizardCanRestart] = React.useState(false);
+  // Centro de procesos ↔ drawer. `wizardKey` monta una conversación nueva sin
+  // tocar la corrida en vuelo (vive en el almacén del shell); `wizardRunId` es la
+  // que ESTE chat tiene en vuelo; `viewRunId`, la que se abrió desde el centro.
+  const [wizardKey, setWizardKey] = React.useState(0);
+  const [wizardRunId, setWizardRunId] = React.useState<string | null>(null);
+  const [viewRunId, setViewRunId] = React.useState<string | null>(null);
+  // La búsqueda que quedó en segundo plano al pulsar «+»: se avisa arriba del chat nuevo.
+  const [backgroundRunTitle, setBackgroundRunTitle] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!backgroundRunTitle) return undefined;
+    const timer = setTimeout(() => setBackgroundRunTitle(null), BACKGROUND_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [backgroundRunTitle]);
+  const canOpenRuns = experience === 'chat_wizard' && Boolean(catalog);
+  const openRunRef = React.useRef<(clientRequestId: string) => void>(() => {});
+  React.useEffect(() => {
+    openRunRef.current = (clientRequestId) => {
+      // La corrida que este chat tiene en vuelo ya se ve en su conversación.
+      setViewRunId(clientRequestId === wizardRunId ? null : clientRequestId);
+      setChatView('chat');
+      if (!isOpen) {
+        if (isControlled) onOpenChange?.(true);
+        else setDrawer((prev) => ({ ...prev, open: true }));
+      }
+    };
+  });
+  React.useEffect(() => {
+    if (!canOpenRuns) return undefined;
+    const pending = takeAgentRunFromUrl();
+    if (pending) openRunRef.current(pending);
+    return registerAgentRunOpener((clientRequestId) => openRunRef.current(clientRequestId));
+  }, [canOpenRuns]);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -376,10 +416,27 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
     if (drawer.generating) return;
     setChatView('chat');
     onOpenChange?.(false);
+    setViewRunId(null);
+    setWizardRunId(null);
+    setBackgroundRunTitle(null);
     setDrawer(EMPTY_DRAWER);
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
     setProgressSteps([]);
+  }
+
+  /** Una conversación nueva; lo que estuviera en vuelo sigue en el Centro de procesos. */
+  function startNewSearch() {
+    const leftRunning = agentRuns.find(
+      (run) =>
+        (run.clientRequestId === wizardRunId || run.clientRequestId === viewRunId) &&
+        (run.status === 'running' || run.status === 'queued'),
+    );
+    setBackgroundRunTitle(leftRunning?.title ?? null);
+    setViewRunId(null);
+    setWizardRunId(null);
+    setWizardKey((key) => key + 1);
+    setChatView('chat');
   }
 
   function handleGoToBatch() {
@@ -610,14 +667,24 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           open={isOpen}
           onOpenChange={(v) => !v && handleClose()}
           subtitle="Generar empresas candidatas"
-          onNewConversation={() => wizardRef.current?.requestRestart()}
-          newConversationLabel="Comenzar de nuevo"
-          newConversationDisabled={!wizardCanRestart}
+          onNewConversation={() => {
+            // Con una corrida en vuelo (o abierta desde el Centro de procesos) el
+            // «+» no la cancela: sigue en el centro y aquí empieza otra búsqueda.
+            if (wizardRunId || viewRunId) startNewSearch();
+            else {
+              setChatView('chat');
+              wizardRef.current?.requestRestart();
+            }
+          }}
+          newConversationLabel={
+            wizardRunId ? 'Nueva búsqueda (esta sigue en el Centro de procesos)' : viewRunId ? 'Nueva búsqueda' : 'Comenzar de nuevo'
+          }
+          newConversationDisabled={!(wizardRunId || viewRunId || wizardCanRestart)}
           // AGENT1-PARALLEL-RUNS-PHASE2-1 — las búsquedas viven en el shell: el
-          // panel puede irse (minimizar) y lo que corre sigue en la bandeja.
+          // panel puede irse (minimizar) y lo que corre sigue en el Centro de procesos.
           onMinimize={() => {
             handleClose();
-            window.dispatchEvent(new Event(AGENT_RUNS_TRAY_EXPAND_EVENT));
+            window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
           <Tabs value={chatView} onValueChange={(value) => setChatView(value as 'chat' | 'runs')} className="shrink-0 px-4 pt-3">
@@ -630,11 +697,41 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {/* La conversación NO se desmonta al ir a «Búsquedas»: se oculta. */}
-          <div className="flex min-h-0 flex-1 flex-col" hidden={chatView !== 'chat'}>
+          {chatView === 'chat' && backgroundRunTitle && !viewRunId && (
+            <div className="shrink-0 px-4 pt-3" data-testid="agent-run-background-notice">
+              <Alert variant="info" className="relative pr-10">
+                <AlertDescription className="text-xs text-foreground">
+                  La búsqueda «{backgroundRunTitle}» sigue en segundo plano en el Centro de procesos.
+                </AlertDescription>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute right-2 top-2"
+                  aria-label="Cerrar aviso"
+                  onClick={() => setBackgroundRunTitle(null)}
+                >
+                  <X aria-hidden />
+                </Button>
+              </Alert>
+            </div>
+          )}
+          {chatView === 'chat' && viewRunId && (
+            <AgentRunDrawerView
+              key={viewRunId}
+              clientRequestId={viewRunId}
+              onNewSearch={startNewSearch}
+              onClose={handleClose}
+            />
+          )}
+          {/* La conversación NO se desmonta al ir a «Búsquedas» ni al abrir una
+              corrida desde el Centro de procesos: se oculta, y lo que se estaba
+              respondiendo no se pierde. */}
+          <div className={cn('flex min-h-0 flex-1 flex-col', (chatView !== 'chat' || viewRunId) && 'hidden')}>
             <ProspectChatWizard
+              key={wizardKey}
               ref={wizardRef}
               onRestartAvailabilityChange={setWizardCanRestart}
+              onRunningChange={setWizardRunId}
               catalog={catalog}
               onClose={handleClose}
               executionEnabled={executionEnabled}
