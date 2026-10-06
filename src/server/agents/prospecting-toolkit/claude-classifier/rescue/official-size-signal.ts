@@ -14,7 +14,8 @@
  * Países con tamaño oficial en su capa gratuita:
  *   - CL: trabajadores dependientes informados al SII (cl_sii_directory, 100+).
  *     Umbral 100, el mismo que aprobó la dueña para el buscador de Chile.
- *   - EC: empleados del ranking de la Superintendencia (ec_scvs_directory, 200+).
+ *   - EC: empleados del ranking de la Superintendencia (ec_scvs_directory, 100+).
+ *     Umbral 100 desde SOURCES-EC-CLOSE-1 (dueña 06-10: «100+ como Chile»).
  *   - DO: sólo empresas con señal de tamaño de la DGII (#593).
  * Argentina (proveedores del Estado), Colombia (ranking por ventas) y México
  * (estrato DENUE 51+) NO miden tamaño ICP: Claude sigue decidiendo como siempre.
@@ -24,7 +25,7 @@ import { DEFAULT_ICP_MIN_EMPLOYEES } from './rescue-decision';
 
 const OFFICIAL_SIZE_MIN_EMPLOYEES: Readonly<Record<string, number>> = Object.freeze({
   CL: 100,
-  EC: 200,
+  EC: 100,
   DO: 200,
 });
 

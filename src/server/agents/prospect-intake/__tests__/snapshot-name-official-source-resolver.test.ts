@@ -225,3 +225,42 @@ describe('createSnapshotNameOfficialSourceResolver', () => {
     assert.equal(identity.taxIdentifierType, 'RTN');
   });
 });
+
+describe('SOURCES-EC-CLOSE-1 — largeCompanyStrongMinWorkers', () => {
+  const big = { ...row('111321522', 'OPIGRAFIK, SOCIEDAD ANONIMA'), workforce: { workers: 900, year: 2025, source: 'x' } };
+  const small = { ...big, workforce: { workers: 12, year: 2025, source: 'x' } };
+
+  async function resolve(rows: SnapshotNameRow[], extra: Record<string, unknown>) {
+    const f = fake(rows);
+    const resolver = createSnapshotNameOfficialSourceResolver({
+      countryCode: 'GT',
+      sourceKey: 'gt_rgae_proveedores',
+      taxIdentifierType: 'NIT',
+      validTaxId: /^\d{4,12}K?$/,
+      normalizeCore: core,
+      querySnapshots: f.query,
+      singleWordIsSignalOnly: true,
+      ...extra,
+    });
+    return enrichNormalizedProspectWithOfficialSources(makeCandidate({ canonicalName: 'Opigrafik' }), GT, [resolver]);
+  }
+
+  it('sin la opción nada cambia: una palabra suelta es pista aunque la empresa sea grande', async () => {
+    assert.equal((await resolve([big], {})).strongIdentityAvailable, false);
+  });
+
+  it('con la opción, una palabra suelta de UNA empresa grande es fuerte; de una pequeña, pista', async () => {
+    assert.equal((await resolve([big], { largeCompanyStrongMinWorkers: 200 })).strongIdentityAvailable, true);
+    assert.equal((await resolve([small], { largeCompanyStrongMinWorkers: 200 })).strongIdentityAvailable, false);
+  });
+
+  it('también levanta signalOnly, pero nunca con dos empresas posibles', async () => {
+    assert.equal(
+      (await resolve([big], { largeCompanyStrongMinWorkers: 200, signalOnly: true })).strongIdentityAvailable,
+      true,
+    );
+    const other = { ...big, taxId: '222321522' };
+    const two = await resolve([big, other], { largeCompanyStrongMinWorkers: 200 });
+    assert.equal(two.strongIdentityAvailable, false);
+  });
+});

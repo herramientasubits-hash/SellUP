@@ -1,27 +1,30 @@
 /**
- * SOURCES-EC-RUC-BY-NAME-1 — Ecuador (ec_scvs) name→RUC resolver.
+ * Ecuador name→RUC inside the Agent 1 run.
  *
- * Pure tests with a FAKE injected query. No I/O, no DB, no providers. Names shaped
- * like real Superintendencia de Compañías rows; RUCs synthetic (13 digits, 001).
+ * SOURCES-EC-RUC-BY-NAME-1 (normalizer) · SOURCES-EC-CLOSE-1 (the chain:
+ * SCVS registry with employees → its acronyms → SRI registry → SRI trade name →
+ * July SCVS snapshot). Pure tests over a FAKE read-only client keyed by
+ * `source_key`; any write blows up. No I/O, no DB, no providers. Names shaped
+ * like real rows; RUCs synthetic (13 digits, 001).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  buildOfficialSourceEnrichmentMetadata,
   buildOfficialSourceTypedColumns,
   enrichNormalizedProspectWithOfficialSources,
 } from '../source-enrichment';
 import type { NormalizedProspectCandidate, ProspectSearchCriteria } from '../types';
 import {
-  ECUADOR_EXACT_MATCH_CONFIDENCE,
-  createEcuadorOfficialSourceResolver,
-  type EcuadorSnapshotRow,
-} from '../resolvers/ecuador-official-source-resolver';
-import {
   EC_COMPANY_NAME_CORE_SQL,
   normalizeEcCompanyCore,
 } from '@/server/source-catalog/connectors/ec-scvs/ec-company-name-core';
+import { normalizeEcEntityCore } from '@/server/source-catalog/connectors/ec-scvs/ec-entity-name-core';
+import { buildEcuadorOfficialSourceResolver } from '@/server/prospect-batches/ecuador-official-source-chain';
+import { extractOfficialRegistryWorkforce } from '@/server/agents/prospecting-toolkit/employee-size-resolver';
 
 function makeCandidate(overrides: Partial<NormalizedProspectCandidate> = {}): NormalizedProspectCandidate {
   return {
@@ -58,24 +61,65 @@ function makeCandidate(overrides: Partial<NormalizedProspectCandidate> = {}): No
 
 const EC_CRITERIA: ProspectSearchCriteria = { countryCode: 'EC' };
 
-function row(ruc: string, legalName: string): EcuadorSnapshotRow {
-  return { ruc, legalName, normalizedLegalName: normalizeEcCompanyCore(legalName) };
-}
+type SnapshotRow = {
+  source_key: string;
+  normalized_tax_id: string;
+  legal_name: string;
+  normalized_legal_name: string;
+  source_year?: number;
+  raw_data?: Record<string, unknown>;
+};
 
-function fakeQuery(rows: EcuadorSnapshotRow[]) {
-  const calls: string[] = [];
-  const query = async (core: string) => {
-    calls.push(core);
-    return rows.filter((r) => r.normalizedLegalName === core);
+function scvs(ruc: string, legalName: string, workers?: number): SnapshotRow {
+  return {
+    source_key: 'ec_scvs_registry',
+    normalized_tax_id: ruc,
+    legal_name: legalName,
+    normalized_legal_name: normalizeEcCompanyCore(legalName),
+    source_year: 2025,
+    raw_data: workers === undefined ? {} : { workers, metrics_year: 2025 },
   };
-  return { query, calls };
 }
 
-async function enrich(candidate: NormalizedProspectCandidate, rows: EcuadorSnapshotRow[]) {
-  const { query, calls } = fakeQuery(rows);
-  const resolver = createEcuadorOfficialSourceResolver({ querySnapshots: query });
+/** Fake read-only client: answers `.eq('source_key')…eq('normalized_legal_name')`. */
+function fakeClient(rows: SnapshotRow[]) {
+  const asked: Array<[string, string]> = [];
+  const client = {
+    from(table: string) {
+      assert.equal(table, 'source_company_snapshots');
+      const filters: Record<string, string> = {};
+      const builder = {
+        select: () => builder,
+        eq: (column: string, value: string) => {
+          filters[column] = value;
+          return builder;
+        },
+        limit: async () => {
+          asked.push([filters.source_key, filters.normalized_legal_name]);
+          assert.equal(filters.country_code, 'EC');
+          return {
+            data: rows.filter(
+              (r) => r.source_key === filters.source_key && r.normalized_legal_name === filters.normalized_legal_name,
+            ),
+            error: null,
+          };
+        },
+        insert: () => assert.fail('escritura prohibida'),
+        update: () => assert.fail('escritura prohibida'),
+        upsert: () => assert.fail('escritura prohibida'),
+        delete: () => assert.fail('escritura prohibida'),
+      };
+      return builder;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, asked };
+}
+
+async function enrich(candidate: NormalizedProspectCandidate, rows: SnapshotRow[]) {
+  const { client, asked } = fakeClient(rows);
+  const resolver = buildEcuadorOfficialSourceResolver(client);
   const identity = await enrichNormalizedProspectWithOfficialSources(candidate, EC_CRITERIA, [resolver]);
-  return { identity, calls };
+  return { identity, asked };
 }
 
 describe('normalizeEcCompanyCore', () => {
@@ -105,102 +149,134 @@ describe('normalizeEcCompanyCore', () => {
   it('la versión SQL aplica los mismos pasos y las mismas formas', () => {
     assert.match(EC_COMPANY_NAME_CORE_SQL, /translate\(legal_name,/);
     assert.match(EC_COMPANY_NAME_CORE_SQL, /'\[\^A-Z0-9& \]', ' ', 'g'/);
-    assert.equal(EC_COMPANY_NAME_CORE_SQL.split("CIA LTDA|C LTDA").length - 1, 3);
+    assert.equal(EC_COMPANY_NAME_CORE_SQL.split('CIA LTDA|C LTDA').length - 1, 3);
+    assert.match(EC_COMPANY_NAME_CORE_SQL, /\|B I C\|/);
     assert.doesNotMatch(EC_COMPANY_NAME_CORE_SQL, /LIQUIDACION/);
   });
 });
 
-describe('createEcuadorOfficialSourceResolver', () => {
-  it('sólo intenta candidatos de EC con nombre utilizable', () => {
-    const resolver = createEcuadorOfficialSourceResolver({ querySnapshots: async () => [] });
-    const policy = {
-      minimumStrongMatchConfidence: 0.85,
-      allowLowConfidenceAsSignal: true,
-      unsupportedCountryMode: 'warning' as const,
-      errorMode: 'fail_soft' as const,
-    };
-    assert.equal(resolver.canResolve({ candidate: makeCandidate(), criteria: EC_CRITERIA, policy }), true);
-    assert.equal(
-      resolver.canResolve({ candidate: makeCandidate({ countryCode: 'CO' }), criteria: { countryCode: 'CO' }, policy }),
-      false,
-    );
-    assert.equal(
-      resolver.canResolve({ candidate: makeCandidate({ canonicalName: 'AB' }), criteria: EC_CRITERIA, policy }),
-      false,
-    );
-  });
-
-  it('un único RUC con el mismo núcleo → identidad FUERTE (columnas RUC)', async () => {
-    const { identity, calls } = await enrich(makeCandidate(), [
-      row('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
+describe('cadena de Ecuador (buildEcuadorOfficialSourceResolver)', () => {
+  it('un único RUC en el registro → identidad FUERTE con columnas RUC y el tamaño oficial', async () => {
+    const { identity, asked } = await enrich(makeCandidate(), [
+      scvs('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.', 35),
     ]);
-    assert.deepEqual(calls, ['SISTEMAS AUDIOVISUALES LUMENS']);
+    assert.deepEqual(asked, [['ec_scvs_registry', 'SISTEMAS AUDIOVISUALES LUMENS']]);
     assert.equal(identity.strongIdentityAvailable, true);
-    assert.equal(identity.officialSource.confidence, ECUADOR_EXACT_MATCH_CONFIDENCE);
     assert.equal(identity.taxIdentifier, '0992402008001');
     assert.equal(identity.taxIdentifierType, 'RUC');
     const columns = buildOfficialSourceTypedColumns(identity);
     assert.equal(columns.tax_identifier, '0992402008001');
-    assert.equal(columns.tax_identifier_type, 'RUC');
     assert.equal(columns.legal_name, 'SISTEMAS AUDIOVISUALES LUMENS S.A.');
-  });
-
-  it('dos RUC con el mismo núcleo → sólo señal, nunca fuerte', async () => {
-    const { identity } = await enrich(makeCandidate({ canonicalName: 'Inmobiliaria Verzam' }), [
-      row('1790000001001', 'INMOBILIARIA VERZAM CIA. LTDA.'),
-      row('1790000002001', 'INMOBILIARIA VERZAM S.A.'),
-    ]);
-    assert.equal(identity.strongIdentityAvailable, false);
-    assert.equal(identity.officialSource.status, 'low_confidence_match');
-    assert.equal(identity.officialSource.safeMetadata?.ambiguous, true);
-    assert.equal(buildOfficialSourceTypedColumns(identity).tax_identifier, null);
-  });
-
-  it('el mismo RUC en varios expedientes cuenta una sola vez', async () => {
-    const { identity } = await enrich(makeCandidate(), [
-      row('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
-      row('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS SA'),
-    ]);
-    assert.equal(identity.strongIdentityAvailable, true);
-  });
-
-  it('descarta RUC que no son de compañía (no terminan en 001) o mal formados', async () => {
-    const { identity } = await enrich(makeCandidate(), [
-      row('0992402008002', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
-      row('09924020', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
-    ]);
-    assert.equal(identity.strongIdentityAvailable, false);
-    assert.equal(identity.officialSource.status, 'not_found');
-  });
-
-  it('una fila con otro núcleo se descarta aunque la lectura la devuelva', async () => {
-    const resolver = createEcuadorOfficialSourceResolver({
-      querySnapshots: async () => [row('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS HOLDING S.A.')],
+    // El gate ICP de tamaño lee los empleados (35 ⇒ pequeña) por el camino de Chile.
+    const workforce = extractOfficialRegistryWorkforce({
+      officialSourceIdentity: { strongIdentityAvailable: true, officialSourceMetadata: buildOfficialSourceEnrichmentMetadata(identity) },
     });
-    const identity = await enrichNormalizedProspectWithOfficialSources(makeCandidate(), EC_CRITERIA, [resolver]);
-    assert.equal(identity.strongIdentityAvailable, false);
-    assert.equal(identity.officialSource.status, 'not_found');
+    assert.deepEqual(workforce && { workers: workforce.workers, year: workforce.year }, { workers: 35, year: 2025 });
   });
 
-  it('un nombre demasiado genérico nunca consulta', async () => {
-    const { identity, calls } = await enrich(makeCandidate({ canonicalName: 'Grupo S.A.' }), [
-      row('1790000001001', 'GRUPO SA'),
+  it('la sigla de la razón social: «Conecel» de una compañía grande es FUERTE', async () => {
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Conecel' }), [
+      { ...scvs('1791251237001', 'X', 3302), source_key: 'ec_scvs_alias_registry', normalized_legal_name: 'CONECEL' },
     ]);
-    assert.equal(calls.length, 0);
-    assert.equal(identity.strongIdentityAvailable, false);
+    assert.deepEqual(asked.map(([source]) => source).slice(0, 2), ['ec_scvs_registry', 'ec_scvs_alias_registry']);
+    assert.equal(identity.strongIdentityAvailable, true);
+    assert.equal(identity.taxIdentifier, '1791251237001');
   });
 
-  it('una compañía en liquidación nunca coincide con el nombre activo', async () => {
-    const { identity } = await enrich(makeCandidate({ canonicalName: 'Agritechno S.A.S.' }), [
-      row('0993000001001', 'AGRITECHNO S.A.S., EN LIQUIDACIÓN'),
+  it('una palabra suelta de una compañía pequeña (o sin empleados) queda como pista, nunca fuerte', async () => {
+    for (const workers of [12, undefined]) {
+      const { identity } = await enrich(makeCandidate({ canonicalName: 'Movistar' }), [
+        scvs('0991425756001', 'MOVISTAR S.A.', workers),
+      ]);
+      assert.equal(identity.strongIdentityAvailable, false, String(workers));
+      assert.equal(identity.officialSource.status, 'low_confidence_match');
+      assert.equal(buildOfficialSourceTypedColumns(identity).tax_identifier, null);
+    }
+  });
+
+  it('una entidad pública del SRI se encuentra por su nombre de uso («Municipio de Celica»)', async () => {
+    const legal = 'GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA';
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Municipio de Celica' }), [
+      {
+        source_key: 'ec_sri_registry',
+        normalized_tax_id: '1160000310001',
+        legal_name: legal,
+        normalized_legal_name: normalizeEcEntityCore(legal),
+      },
     ]);
-    assert.equal(identity.strongIdentityAvailable, false);
-    assert.equal(identity.officialSource.status, 'not_found');
+    assert.ok(asked.some(([source, core]) => source === 'ec_sri_registry' && core === 'GAD MUNICIPAL CELICA'));
+    assert.equal(identity.strongIdentityAvailable, true);
+    assert.equal(identity.taxIdentifier, '1160000310001');
   });
 
-  it('una lectura vacía degrada a no encontrado', async () => {
-    const { identity } = await enrich(makeCandidate(), []);
+  it('el nombre comercial es pista; sólo es fuerte si la empresa es grande', async () => {
+    const trade = (workers?: number): SnapshotRow => ({
+      source_key: 'ec_sri_trade_name_registry',
+      normalized_tax_id: '1790016919001',
+      legal_name: 'CORPORACION FAVORITA C.A.',
+      normalized_legal_name: 'SUPERMAXI',
+      source_year: 2025,
+      raw_data: workers === undefined ? {} : { workers, metrics_year: 2025 },
+    });
+    const big = await enrich(makeCandidate({ canonicalName: 'Supermaxi' }), [trade(12033)]);
+    assert.equal(big.identity.strongIdentityAvailable, true);
+    assert.equal(big.identity.taxIdentifier, '1790016919001');
+    const unknown = await enrich(makeCandidate({ canonicalName: 'Super Maxi Plus' }), [
+      { ...trade(), normalized_legal_name: 'SUPER MAXI PLUS' },
+    ]);
+    assert.equal(unknown.identity.strongIdentityAvailable, false);
+    assert.equal(unknown.identity.officialSource.status, 'low_confidence_match');
+  });
+
+  it('sin las fuentes nuevas cargadas, el snapshot de julio sigue resolviendo (palabra suelta: pista)', async () => {
+    const legacy = (ruc: string, legalName: string): SnapshotRow => ({
+      source_key: 'ec_scvs',
+      normalized_tax_id: ruc,
+      legal_name: legalName,
+      normalized_legal_name: normalizeEcCompanyCore(legalName),
+    });
+    const strong = await enrich(makeCandidate(), [legacy('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.')]);
+    assert.equal(strong.identity.strongIdentityAvailable, true);
+    assert.deepEqual(
+      strong.asked.map(([source]) => source),
+      ['ec_scvs_registry', 'ec_scvs_alias_registry', 'ec_sri_registry', 'ec_sri_trade_name_registry', 'ec_scvs'],
+    );
+    const single = await enrich(makeCandidate({ canonicalName: 'Petroecuador' }), [
+      legacy('0990295573001', 'PETROECUADOR S.A.'),
+    ]);
+    assert.equal(single.identity.strongIdentityAvailable, false);
+  });
+
+  it('dos RUC con el mismo núcleo → sólo señal; el mismo RUC repetido cuenta una vez', async () => {
+    const two = await enrich(makeCandidate({ canonicalName: 'Inmobiliaria Verzam' }), [
+      scvs('1790000001001', 'INMOBILIARIA VERZAM CIA. LTDA.'),
+      scvs('1790000002001', 'INMOBILIARIA VERZAM S.A.'),
+    ]);
+    assert.equal(two.identity.strongIdentityAvailable, false);
+    assert.equal(two.identity.officialSource.status, 'low_confidence_match');
+    const repeated = await enrich(makeCandidate(), [
+      scvs('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
+      scvs('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS SA'),
+    ]);
+    assert.equal(repeated.identity.strongIdentityAvailable, true);
+  });
+
+  it('descarta RUC que no son de sociedad y nombres demasiado genéricos', async () => {
+    const bad = await enrich(makeCandidate(), [
+      scvs('0992402008002', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
+      scvs('1712345678001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'), // persona natural
+    ]);
+    assert.equal(bad.identity.strongIdentityAvailable, false);
+    const generic = await enrich(makeCandidate({ canonicalName: 'Grupo S.A.' }), [scvs('1790000001001', 'GRUPO SA')]);
+    assert.equal(generic.asked.length, 0);
+    assert.equal(generic.identity.strongIdentityAvailable, false);
+  });
+
+  it('sólo candidatos de Ecuador', async () => {
+    const { asked, identity } = await enrich(makeCandidate({ countryCode: 'CO', requestedCountryCode: 'CO' }), [
+      scvs('0992402008001', 'SISTEMAS AUDIOVISUALES LUMENS S.A.'),
+    ]);
+    assert.equal(asked.length, 0);
     assert.equal(identity.strongIdentityAvailable, false);
-    assert.equal(identity.officialSource.status, 'not_found');
   });
 });

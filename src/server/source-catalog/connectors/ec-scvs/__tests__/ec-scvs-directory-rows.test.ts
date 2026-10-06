@@ -89,10 +89,10 @@ describe('lectura del ranking', () => {
 });
 
 describe('admisión', () => {
-  it('activa, RUC de sociedad y 200 o más empleados → RUC', () => {
-    assert.equal(EC_SCVS_DIRECTORY_MIN_EMPLOYEES, 200);
+  it('activa, RUC de sociedad y 100 o más empleados → RUC (dueña 06-10: «100+ como Chile»)', () => {
+    assert.equal(EC_SCVS_DIRECTORY_MIN_EMPLOYEES, 100);
     assert.equal(admitEcDirectoryCompany(record(), METRICS), '1791234567001');
-    assert.equal(admitEcDirectoryCompany(record(), { ...METRICS, employees: 200 }), '1791234567001');
+    assert.equal(admitEcDirectoryCompany(record(), { ...METRICS, employees: 100 }), '1791234567001');
     assert.equal(admitEcDirectoryCompany(record({ ruc: '1791-234567-001' }), METRICS), '1791234567001');
   });
 
@@ -100,7 +100,7 @@ describe('admisión', () => {
     assert.equal(admitEcDirectoryCompany(record({ legalStatus: 'INACTIVA' }), METRICS), null);
     assert.equal(admitEcDirectoryCompany(record({ legalStatus: 'DISOLUCIÓN Y LIQUIDACIÓN OFICIO INSCRITA EN RM' }), METRICS), null);
     assert.equal(admitEcDirectoryCompany(record({ legalName: '' }), METRICS), null);
-    assert.equal(admitEcDirectoryCompany(record(), { ...METRICS, employees: 199 }), null);
+    assert.equal(admitEcDirectoryCompany(record(), { ...METRICS, employees: 99 }), null);
     assert.equal(admitEcDirectoryCompany(record(), { ...METRICS, employees: null }), null);
     assert.equal(admitEcDirectoryCompany(record(), null), null);
   });
@@ -137,7 +137,7 @@ describe('fila ec_scvs_directory', () => {
 
   it('macro de la tabla, empleados con su año en el formato que ya lee el SII de Chile', () => {
     assert.equal(built.raw_data.macro_industry_key, 'technology');
-    assert.equal(built.raw_data.macro_table_version, 'ec-ciiu4-inec-macro-v1');
+    assert.equal(built.raw_data.macro_table_version, 'ec-ciiu4-inec-macro-v2');
     assert.deepEqual(workforceFromRawData(built.raw_data, 'ec_scvs_directory'), {
       workers: 350,
       year: 2025,
@@ -158,6 +158,20 @@ describe('fila ec_scvs_directory', () => {
     assert.deepEqual(plain.financials, {});
     assert.equal(plain.raw_data.macro_industry_key, null);
     assert.equal(plain.priority_score, 100);
+  });
+
+  it('SOURCES-EC-CLOSE-1: sin dominio de SERCOP no hay web; con él, dominio y origen', () => {
+    assert.equal('website_domain' in built.raw_data, false);
+    const withWeb = buildEcScvsDirectoryRow({
+      record: record(),
+      ruc: '1791234567001',
+      metrics: METRICS,
+      priorityScore: 50,
+      importedAt: '2026-10-02T00:00:00.000Z',
+      websiteDomain: ' Sintetica.COM.ec ',
+    });
+    assert.equal(withWeb.raw_data.website_domain, 'sintetica.com.ec');
+    assert.equal(withWeb.raw_data.website_domain_source, 'sercop_ocds_contact_url');
   });
 
   it('🔴 no guarda representante legal, cargo, teléfono ni dirección', () => {

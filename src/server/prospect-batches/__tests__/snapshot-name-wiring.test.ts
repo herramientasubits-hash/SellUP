@@ -77,10 +77,14 @@ describe('cableado', () => {
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'hn_contrataciones_abiertas', 'HN'\)/);
   });
 
-  it('el factory construye Perú (RUC) sobre el registro de SUNAT', () => {
+  it('el factory construye Perú (RUC) sobre el registro de SUNAT y sus alias', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
-    assert.match(wiring, /countryCode: 'PE',\s*sourceKey: 'pe_sunat_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^20\\d\{9\}\$\//);
-    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'pe_sunat_registry', 'PE'\)/);
+    // SOURCES-PE-CLOSE-1 — resolvedor propio: variantes del nombre + alias + trabajadores.
+    assert.match(wiring, /createPeruOfficialSourceResolver\(\{\s*querySnapshots: buildPeruSnapshotNameQuery\(snapshotClient\),\s*\}\)/);
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    for (const resolver of resolvers.filter((r) => r.countryCode === 'PE')) {
+      assert.equal(resolver.sourceKey, 'pe_sunat_registry');
+    }
   });
 
   it('el factory construye Paraguay (RUC con dígito verificador) sobre el padrón de la SET', () => {

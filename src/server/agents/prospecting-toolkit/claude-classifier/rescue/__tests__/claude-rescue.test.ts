@@ -861,9 +861,9 @@ describe('F. SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño medido por la fuente
       employeeRange: { min: max, max, quote, sourceUrl: 'https://x.example/', confidence: 0.9, verification, status: 'estimated' },
     });
 
-  it('tabla: CL 100, EC y DO 200 si viene del buscador gratuito; el resto no mide', () => {
+  it('tabla: CL y EC 100, DO 200 si viene del buscador gratuito; el resto no mide', () => {
     assert.deepEqual(officialSizeSignal({ countryCode: 'cl', fromFreeLayer: true }), { measured: true, minEmployees: 100 });
-    assert.deepEqual(officialSizeSignal({ countryCode: 'EC', fromFreeLayer: true }), { measured: true, minEmployees: 200 });
+    assert.deepEqual(officialSizeSignal({ countryCode: 'EC', fromFreeLayer: true }), { measured: true, minEmployees: 100 });
     assert.deepEqual(officialSizeSignal({ countryCode: 'DO', fromFreeLayer: true }), { measured: true, minEmployees: 200 });
     for (const code of ['AR', 'CO', 'MX', null]) {
       assert.deepEqual(officialSizeSignal({ countryCode: code, fromFreeLayer: true }), { measured: false, minEmployees: 200 }, String(code));

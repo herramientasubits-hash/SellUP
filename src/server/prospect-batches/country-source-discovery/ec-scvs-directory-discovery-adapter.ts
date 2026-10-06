@@ -8,7 +8,7 @@
  * ── Qué empresas ofrece ─────────────────────────────────────────────────────
  *
  * Las filas `ec_scvs_directory` ya vienen filtradas en la carga: compañías
- * ACTIVAS con RUC de sociedad y 200 o más empleados en su último año del ranking
+ * ACTIVAS con RUC de sociedad y 100 o más empleados en su último año del ranking
  * (`scripts/source-catalog/run-ec-scvs-directory-etl.ts`). Aquí sólo se piden las
  * de la macro industria pedida, de más a menos empleados (percentil en
  * `priority_score`). Igual que Colombia, República Dominicana y Argentina, la
@@ -39,6 +39,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { isRecycledCountrySourceCompany, type CountrySourcePriorSighting } from './country-source-prior-sightings';
 
 /** `source_key` que esta proyección declara. */
 export const EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY = 'ec_scvs_directory_discovery' as const;
@@ -46,8 +47,8 @@ export const EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY = 'ec_scvs_directory_discove
 /** Techo de empresas devueltas por consulta (igual que Colombia y Argentina). */
 export const EC_SCVS_DIRECTORY_DISCOVERY_MAX_ROWS = 200;
 
-/** Umbral de tamaño del Agente 1 (mismo que la carga). */
-export const EC_SCVS_DIRECTORY_DISCOVERY_MIN_EMPLOYEES = 200;
+/** Umbral de tamaño del buscador gratuito (mismo que la carga; dueña 06-10: 100+ como Chile). */
+export const EC_SCVS_DIRECTORY_DISCOVERY_MIN_EMPLOYEES = 100;
 
 /**
  * RUC de sociedad: provincia válida (01-24 o 30) + 8 dígitos + 001. Misma regla
@@ -68,7 +69,18 @@ export type EcScvsDirectorySnapshotReadRow = {
   employees: number | null;
   metrics_year: number | null;
   priority_score: number | null;
+  /** SOURCES-EC-CLOSE-1 — dominio declarado en SERCOP (`ec-sercop-domain.ts`), o `null`. */
+  website_domain?: string | null;
+  /** SOURCES-EC-CLOSE-1 — ausente o `null` = SellUp no la vio. */
+  prior_sighting?: CountrySourcePriorSighting | null;
 };
+
+const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+function normalizeDomain(value: string | null | undefined): string | null {
+  const domain = value?.trim().toLowerCase() ?? '';
+  return DOMAIN_SHAPE.test(domain) ? domain : null;
+}
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
 export type EcScvsDirectoryDiscoveryReads = {
@@ -95,8 +107,10 @@ function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string
     countryCode: 'EC',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
-    // 🔴 El directorio no publica web. No se fabrica ninguna.
-    domain: null,
+    // 🔴 El directorio no publica web. El único dominio es el que la compañía
+    // declaró en SERCOP y se parece a su razón social (`ec-sercop-domain.ts`).
+    // Sin él, no se fabrica ninguno.
+    domain: normalizeDomain(row.website_domain),
     // El directorio sólo trae el código CIIU, no su descripción.
     declaredIndustry: null,
     industryCode: row.ciiu_code?.trim() || null,
@@ -137,6 +151,10 @@ export function buildEcScvsDirectoryDiscoveryAdapter(reads: EcScvsDirectoryDisco
     const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
     for (const row of rows) {
+      if (companies.length >= limit) break;
+      // SOURCES-EC-CLOSE-1 — lo que SellUp ya tiene (candidata o descarte cerrado)
+      // no se vuelve a proponer; un descarte sin web sólo vuelve si ahora la tiene.
+      if (isRecycledCountrySourceCompany(row.prior_sighting, normalizeDomain(row.website_domain) !== null)) continue;
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
       seen.add(company.taxId);

@@ -1351,7 +1351,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas (30-09). El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias). Pendiente de autorización: recargarlo con tipo de contribuyente, actividad CIIU Rev. 4 y trabajadores del Padrón RUC abierto (corte 2026-09: 357.818 con trabajadores) para el filtro de tamaño.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1360,15 +1360,72 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'http://www2.sunat.gob.pe/padron_reducido_ruc.zip',
     automationLevel: 'high',
     recommendedUse:
-      'Carga separada del padrón reducido de SUNAT con 867.359 sociedades (RUC 20) activas y habidas. En cada corrida del Agente 1 completa el RUC por nombre de empresa. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Carga separada del padrón reducido de SUNAT con 867.359 sociedades (RUC 20) activas y habidas. En cada corrida del Agente 1 completa el RUC por nombre de empresa: prueba el nombre tal cual, sin restos de la web, la parte antes del guion, con o sin «del Perú» y, en entidades públicas, sin «de/del». RUC seguro sólo cuando exactamente un RUC tiene ese nombre; un nombre de una sola palabra sólo si la sociedad informa 50 o más trabajadores. Con la recarga, los trabajadores informados por SUNAT llegan al filtro de tamaño junto con el RUC.',
     limitations: [
-      'Sólo sociedades (RUC 20) activas y habidas: no incluye personas naturales con negocio (RUC 10).',
-      'El padrón reducido no trae actividad CIIU ni tamaño.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo sociedades y entidades (RUC 20) activas y habidas: no incluye personas naturales con negocio (RUC 10).',
+      'El padrón reducido no trae actividad ni tamaño; los trae el Padrón RUC abierto (datos abiertos), que se cruza por RUC al recargar.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Una marca que no aparece en la razón social ni en su alias (Backus, Movistar, KFC) no encuentra RUC.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
       'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
+      'Un 0 en trabajadores no significa empresa pequeña: hay grupos que declaran la planilla en otra razón social.',
+    ],
+  },
+  {
+    key: 'pe_sunat_name_alias',
+    name: 'SUNAT + OECE — alias de nombre para el RUC (Perú)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código junto al RUC por nombre de Perú. La carga de 72.125 claves de nombre de 49.207 RUC (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE) espera la autorización de la dueña: hasta entonces Perú usa sólo el núcleo del padrón.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://conosce.osce.gob.pe/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Claves de nombre extra para encontrar el RUC de la MISMA sociedad del padrón: SUNAT guarda razón social y nombre conocido juntos («LECHE GLORIA SOCIEDAD ANONIMA - GLORIA S.A.», «… - DIRESA CALLAO») y abrevia a las entidades públicas («MUNICIPALIDAD DISTRITAL USQUIL»); el listado de entidades contratantes del OECE trae sus nombres completos. Medido el 06-10-2026 con 182 empresas peruanas reales: con alias y variantes 76 tienen RUC seguro, frente a 57 sólo con el padrón.',
+    limitations: [
+      'Sólo apunta a sociedades y entidades activas y habidas del padrón de SUNAT.',
+      'No guarda alias de sindicatos, consorcios, juntas ni asociaciones de cesantes o trabajadores.',
+      'Snapshot estático — se recarga junto con el padrón.',
+    ],
+    riskNotes: [
+      'Un alias compartido por varias sociedades da una señal, nunca un RUC seguro.',
+    ],
+  },
+  {
+    key: 'pe_sunat_directory',
+    name: 'Padrón RUC abierto de SUNAT — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Perú. La carga de 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido) espera la autorización de la dueña: hasta entonces Perú no tiene capa gratuita y va directo a proveedores.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.datosabiertos.gob.pe/dataset/padr%C3%B3n-ruc-superintendencia-nacional-de-aduanas-y-de-administraci%C3%B3n-tributaria-sunat',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita peruana por industria: sociedades y entidades (RUC 20) ACTIVAS y HABIDAS que SUNAT informa con 200 o más trabajadores en su Padrón RUC abierto (datos abiertos, licencia ODC-BY). Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU Rev. 4 → industria (la misma por división que Argentina, más informática del comercio en Tecnología y farmacias en Salud), de más a menos trabajadores. Cada empresa llega con su RUC y su razón social del padrón reducido.',
+    limitations: [
+      'Sólo sociedades y entidades con 200 o más trabajadores informados: SUNAT no informa trabajadores en el 59 % de las sociedades activas, que no aparecen.',
+      'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
+      'Los mayoristas de medicamentos no se distinguen en la CIIU internacional y quedan en Retail.',
+      'SUNAT no publica sitio web: las empresas llegan sin dominio.',
+      'Snapshot estático — el padrón se publica cada mes y requiere recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan dirección, teléfono ni representantes.',
     ],
   },
   {
@@ -1470,7 +1527,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'limited_manual_expansion',
     connectionMode: 'backend_connected',
     nextAction:
-      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md). El RUC por nombre en cada corrida ya usa el snapshot cargado de 339.960 compañías, sin consultar SCVS en cada búsqueda.',
+      'Ejecutar lote limitado bajo política oficial de expansión limitada manual (docs/source-catalog/ec-scvs-limited-expansion-policy.md). Desde SOURCES-EC-CLOSE-1 el RUC por nombre de cada corrida busca primero en ec_scvs_registry (sólo activas, con empleados) y ec_sri_registry; este snapshot de julio queda como último recurso, y un nombre de una sola palabra sólo da una pista.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P0',
@@ -1484,6 +1541,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Solo empresas obligadas a reportar a Supercias',
       'Excluye microempresas',
       'El RUC por nombre sólo encuentra compañías que ya están en el snapshot cargado',
+      'Mezcla compañías activas e inactivas y no trae empleados: por eso va al final de la cadena (p. ej. «MOVISTAR S.A.» es otra compañía, inactiva, no Otecel).',
     ],
   },
   {
@@ -1493,7 +1551,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '1.082 compañías activas con 200 o más empleados cargadas (directorio de compañías × ranking empresarial de la Superintendencia de Compañías, archivos del 05-10, carga autorizada). Capa gratuita de Ecuador: el Agente 1 propone de aquí antes de pagar a proveedores.',
+      'Capa gratuita de Ecuador. Cargadas hoy: 1.082 compañías con 200+ empleados (05-10). SOURCES-EC-CLOSE-1 baja el corte a 100+ (dueña 06-10, «como Chile»: 2.041 compañías, Tecnología 53) y añade el dominio declarado en SERCOP (86 de 2.041 con los años 2025-2026): la recarga espera la autorización de la dueña.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1502,18 +1560,73 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 200 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud). Cada empresa llega con su RUC; los empleados declarados quedan en la fuente como estimado con su año y sólo sirven para no proponer compañías de menos de 200.',
+      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 100 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria v2 (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud, y mayoristas y tiendas de computadoras, programas informáticos y telecomunicaciones en Tecnología). Cada empresa llega con su RUC y, si lo declaró en SERCOP y se parece a su razón social, con su dominio. No vuelve a proponer lo que SellUp ya tiene como candidata o descartó de forma definitiva; un descarte por falta de web vuelve sólo si ahora hay dominio.',
     limitations: [
       'Sólo compañías que reportan a la Superintendencia de Compañías: no incluye bancos, aseguradoras supervisadas por otra entidad, entidades públicas ni personas naturales.',
-      'Sólo compañías con 200 o más empleados declarados en su último estado financiero: las que no presentaron balance no aparecen.',
+      'Sólo compañías con 100 o más empleados declarados en su último estado financiero: las que no presentaron balance no aparecen.',
       'Los empleados son los declarados por la compañía en su estado financiero; son un estimado con su año, no el tamaño confirmado.',
       'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
-      'El directorio no publica sitio web: las empresas llegan sin dominio.',
+      'El directorio no publica sitio web: sólo llega dominio cuando la compañía lo declaró en SERCOP (≈4 % de las 2.041); el resto llega sin web y puede terminar en Descartadas por falta de dominio.',
       'Snapshot estático — requiere recarga para reflejar altas, bajas y nuevos balances.',
     ],
     riskNotes: [
       'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
       'No se guardan representante legal, teléfono ni dirección del directorio.',
+    ],
+  },
+  {
+    key: 'ec_scvs_registry',
+    name: 'SCVS — compañías activas con empleados (RUC y tamaño por nombre)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código (SOURCES-EC-CLOSE-1) como primera fuente de RUC de Ecuador en cada corrida; la carga (182.941 compañías activas + 5.485 siglas, ≈104 MB) espera la autorización de la dueña. Hasta entonces la cadena sigue con ec_scvs.',
+    countryCodes: ['EC'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.supercias.gob.ec/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry).',
+    limitations: [
+      'Sólo compañías de la Superintendencia de Compañías: bancos, cooperativas, entidades públicas y fundaciones están en ec_sri_registry.',
+      'Los empleados son los declarados en el estado financiero: un estimado oficial con su año, nunca el tamaño confirmado; sólo viajan con un RUC seguro.',
+      'Un nombre de una sola palabra («Pronaca») sólo es RUC seguro si la única compañía que lo lleva declara 200 o más empleados; si no, queda como pista.',
+      'Sin coincidencias aproximadas: el núcleo del nombre (o la sigla) debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'No se guardan representante legal, teléfono ni dirección.',
+    ],
+  },
+  {
+    key: 'ec_sri_registry',
+    name: 'SRI — catastro de RUC (entidades públicas, bancos y nombre comercial)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código (SOURCES-EC-CLOSE-1) después de ec_scvs_registry; la carga del catastro del SRI (archivos por provincia publicados en enero de 2025) espera la autorización de la dueña.',
+    countryCodes: ['EC'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sri.gob.ec/datasets',
+    automationLevel: 'high',
+    recommendedUse:
+      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además el nombre comercial del establecimiento principal («SUPERMAXI» → Corporación Favorita) como segundo nombre (ec_sri_trade_name_registry).',
+    limitations: [
+      'El nombre comercial es una pista: sólo da RUC seguro si la empresa es grande según la Superintendencia (200+ empleados).',
+      'Nombres públicos genéricos que se repiten («GAD PARROQUIAL SAN JOSE», «CENTRO DE SALUD B») dan varios RUC y quedan como pista.',
+      'Archivos publicados en enero de 2025: altas posteriores no aparecen hasta una recarga.',
+      'Personas naturales nunca se cargan (su RUC es su cédula).',
+    ],
+    riskNotes: [
+      'Universidades, organismos públicos, municipios y fundaciones SÍ se cargan: también son clientes de UBITS.',
+      'No se guarda dirección, teléfono, correo ni representante.',
     ],
   },
   {

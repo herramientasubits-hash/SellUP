@@ -94,6 +94,16 @@ describe('tabla CIIU del INEC → macro', () => {
     }
   });
 
+  it('v2 (dueña 06-10): mayoristas y tiendas de informática y software a Tecnología; celulares siguen en Retail', () => {
+    for (const code of ['G4651.01', 'G4651.02', 'G4652.01', 'G4652.02', 'G4741.11', 'G4741.12']) {
+      assert.equal(resolveEcActivityMacro(code), 'technology', code);
+    }
+    for (const code of ['G4741.13', 'G4653.01', 'G4759.01']) {
+      assert.equal(resolveEcActivityMacro(code), 'retail', code);
+    }
+    assert.equal(EC_SCVS_MACRO_TABLE_VERSION, 'ec-ciiu4-inec-macro-v2');
+  });
+
   it('hoteles, restaurantes, medios, educación y asociaciones no tienen macro', () => {
     for (const code of ['I5510.01', 'I5610.01', 'J6020.01', 'P8530.01', 'S9411.01', 'M7210.01']) {
       assert.equal(resolveEcActivityMacro(code), null, code);
@@ -124,7 +134,7 @@ describe('capacidad por país', () => {
     });
     assert.equal(resolveCountrySourceCapability('AR')?.sourceKey, 'ar_rns_discovery');
     assert.equal(resolveCountrySourceCapability('CO')?.sourceKey, 'co_siis_discovery');
-    assert.equal(resolveCountrySourceCapability('PE'), null);
+    assert.equal(resolveCountrySourceCapability('VE'), null);
   });
 
   it('la cobertura de Ecuador sale de SU tabla', () => {
@@ -158,6 +168,7 @@ describe('buildEcScvsDirectoryDiscoveryAdapter', () => {
     const [first] = result.companies;
     assert.equal(first.countryCode, 'EC');
     assert.equal(first.taxIdentifierType, 'RUC');
+    // Sin dominio de SERCOP no se fabrica ninguno.
     assert.equal(first.domain, null);
     assert.equal(first.industryCode, 'J6201.01');
     assert.equal(first.city, 'QUITO');
@@ -184,10 +195,10 @@ describe('buildEcScvsDirectoryDiscoveryAdapter', () => {
     assert.equal(result.recordsRead, 4);
   });
 
-  it('vuelve a comprobar el tamaño: por debajo de 200 empleados o sin dato no se ofrece', async () => {
+  it('vuelve a comprobar el tamaño: por debajo de 100 empleados o sin dato no se ofrece', async () => {
     const { reads } = fakeReads([
-      row(1, { employees: 200 }),
-      row(2, { employees: 199 }),
+      row(1, { employees: 100 }),
+      row(2, { employees: 99 }),
       row(3, { employees: null }),
     ]);
     const result = await buildEcScvsDirectoryDiscoveryAdapter(reads)({
@@ -250,7 +261,13 @@ describe('buildEcScvsDirectoryDiscoveryAdapter', () => {
 describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
   type Call = { method: string; args: unknown[] };
 
-  function fakeClient(result: { data?: unknown; error?: unknown; throws?: boolean }) {
+  function fakeClient(result: {
+    data?: unknown;
+    error?: unknown;
+    throws?: boolean;
+    candidates?: unknown[];
+    discards?: unknown[];
+  }) {
     const calls: Call[] = [];
     const builder: Record<string, unknown> = {};
     for (const method of ['from', 'select', 'eq', 'order']) {
@@ -263,6 +280,18 @@ describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
       calls.push({ method: 'limit', args });
       if (result.throws) return Promise.reject(new Error('network down'));
       return Promise.resolve({ data: result.data ?? null, error: result.error ?? null });
+    };
+    // SOURCES-EC-CLOSE-1 — lo ya visto: candidatas y descartes, por RUC.
+    let table = '';
+    const from = builder.from as (...args: unknown[]) => unknown;
+    builder.from = (...args: unknown[]) => {
+      table = String(args[0]);
+      return from(...args);
+    };
+    builder.in = (...args: unknown[]) => {
+      calls.push({ method: 'in', args });
+      if (table === 'prospect_candidates') return Promise.resolve({ data: result.candidates ?? [], error: null });
+      return Promise.resolve({ data: result.discards ?? [], error: null });
     };
     for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
       builder[write] = () => {
@@ -313,6 +342,8 @@ describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
       employees: 350,
       metrics_year: 2025,
       priority_score: 99.5,
+      website_domain: null,
+      prior_sighting: null,
     });
     assert.equal(rows[1].ciiu_code, null);
     assert.equal(rows[1].employees, null);
@@ -320,7 +351,8 @@ describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
     assert.equal(rows[1].priority_score, null);
 
     assert.deepEqual(calls[0], { method: 'from', args: ['source_company_snapshots'] });
-    assert.deepEqual(calls.filter((c) => c.method === 'eq').map((c) => c.args), [
+    const snapshotRead = calls.slice(0, calls.findIndex((c) => c.method === 'limit') + 1);
+    assert.deepEqual(snapshotRead.filter((c) => c.method === 'eq').map((c) => c.args), [
       ['source_key', 'ec_scvs_directory'],
       ['country_code', 'EC'],
       ['raw_data->>macro_industry_key', 'technology'],
@@ -329,7 +361,47 @@ describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
       ['priority_score', { ascending: false }],
       ['normalized_tax_id', { ascending: true }],
     ]);
-    assert.deepEqual(calls.at(-1), { method: 'limit', args: [50] });
+    // Lee el triple de lo pedido (tope 600) para saltar lo que SellUp ya vio.
+    assert.deepEqual(snapshotRead.at(-1), { method: 'limit', args: [150] });
+  });
+
+  it('SOURCES-EC-CLOSE-1: marca por RUC lo que SellUp ya vio y lee el dominio de SERCOP', async () => {
+    const snapshot = (n: number, raw: Record<string, unknown> = {}) => ({
+      record_identity_key: `tax:17912345${n}001`,
+      normalized_tax_id: `17912345${n}001`,
+      legal_name: `EMPRESA ${n} S.A.`,
+      normalized_legal_name: `EMPRESA ${n}`,
+      city: null,
+      region: null,
+      priority_score: 50,
+      raw_data: { ciiu_code: 'J6201.01', workers: 300, metrics_year: 2025, ...raw },
+    });
+    const { client, calls } = fakeClient({
+      data: [snapshot(10, { website_domain: 'empresa10.com.ec' }), snapshot(11), snapshot(12), snapshot(13)],
+      candidates: [{ tax_identifier: '1791234510001' }],
+      discards: [
+        { provider_identifier: 'tax:1791234511001', decision: 'discard' },
+        { provider_identifier: 'tax:1791234512001', decision: null },
+        { provider_identifier: 'tax:1791234510001', decision: null },
+      ],
+    });
+    const rows = await buildEcScvsDirectoryDiscoveryReads(client).readCompaniesByMacro({
+      macroIndustryKey: 'technology',
+      limit: 300,
+    });
+    assert.deepEqual(
+      rows.map((r) => [r.ruc, r.prior_sighting, r.website_domain]),
+      [
+        ['1791234510001', 'candidate', 'empresa10.com.ec'],
+        ['1791234511001', 'definitive_discard', null],
+        ['1791234512001', 'discard', null],
+        ['1791234513001', null, null],
+      ],
+    );
+    assert.deepEqual(calls.find((c) => c.method === 'limit'), { method: 'limit', args: [600] });
+    const inCalls = calls.filter((c) => c.method === 'in').map((c) => c.args);
+    assert.deepEqual(inCalls[0], ['tax_identifier', ['1791234510001', '1791234511001', '1791234512001', '1791234513001']]);
+    assert.deepEqual(inCalls[1][1], ['tax:1791234510001', 'tax:1791234511001', 'tax:1791234512001', 'tax:1791234513001']);
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {
@@ -408,5 +480,47 @@ describe('guardas estáticas', () => {
       read(`${DIR}/prepaid-novelty-gate.server.ts`),
       /ecScvsDirectoryDiscoveryReads:\s*buildEcScvsDirectoryDiscoveryReads\(adminClient\)/,
     );
+  });
+});
+
+describe('SOURCES-EC-CLOSE-1 — web de SERCOP y no volver a proponer lo ya visto', () => {
+  it('el dominio de SERCOP llega al candidato (normalizado); uno mal formado no', async () => {
+    const { reads } = fakeReads([
+      row(1, { website_domain: ' Empresa1.COM.ec ' }),
+      row(2, { website_domain: 'no es un dominio' }),
+    ]);
+    const result = await buildEcScvsDirectoryDiscoveryAdapter(reads)({
+      countryCode: 'EC',
+      macroIndustryKey: 'technology',
+      limit: 10,
+    });
+    assert.deepEqual(result.companies.map((c) => c.domain), ['empresa1.com.ec', null]);
+  });
+
+  it('salta candidatas y descartes cerrados; un descarte sin web sólo vuelve si ahora la tiene', async () => {
+    const { reads } = fakeReads([
+      row(1, { prior_sighting: 'candidate', website_domain: 'a.com' }),
+      row(2, { prior_sighting: 'definitive_discard', website_domain: 'b.com' }),
+      row(3, { prior_sighting: 'discard' }),
+      row(4, { prior_sighting: 'discard', website_domain: 'empresa4.com' }),
+      row(5, { prior_sighting: null }),
+    ]);
+    const result = await buildEcScvsDirectoryDiscoveryAdapter(reads)({
+      countryCode: 'EC',
+      macroIndustryKey: 'technology',
+      limit: 10,
+    });
+    assert.deepEqual(result.companies.map((c) => c.taxId), ['1791234504001', '1791234505001']);
+    assert.equal(result.recordsRead, 5);
+  });
+
+  it('lee de más pero devuelve como mucho lo pedido', async () => {
+    const { reads } = fakeReads([row(1), row(2), row(3), row(4)]);
+    const result = await buildEcScvsDirectoryDiscoveryAdapter(reads)({
+      countryCode: 'EC',
+      macroIndustryKey: 'technology',
+      limit: 2,
+    });
+    assert.deepEqual(result.companies.map((c) => c.taxId), ['1791234501001', '1791234502001']);
   });
 });
