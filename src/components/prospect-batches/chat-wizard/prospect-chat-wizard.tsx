@@ -499,9 +499,12 @@ export function ProspectChatWizard({
   // Goes directly to additional_criteria (last data step) instead of summary,
   // so auto-validation on summary is not immediately re-triggered in a loop.
 
+  // Dueña 06-10: «Editar búsqueda» ya no vuelve sólo al paso anterior: abre
+  // «¿Qué quieres cambiar?» con cada decisión del chat. Se cambia una y se vuelve
+  // al resumen (misma corrida, mismo clientRequestId: § 9).
   function handleEditSearch() {
     setCriteriaText('');
-    dispatch({ type: 'EDIT_STEP', step: 'additional_criteria' });
+    dispatch({ type: 'OPEN_DECISIONS_EDITOR' });
   }
 
   // ── Composer submission (additional criteria) ─────────────────────────────

@@ -142,6 +142,11 @@ export function WizardConversationSummary({
   defaultDiscoveryProvider = null,
   autoProviderCascade = false,
 }: WizardConversationSummaryProps) {
+  // «Editar búsqueda» (dueña 06-10): elegir QUÉ decisión cambiar.
+  if (state.decisionsEditorOpen === true) {
+    return <DecisionsEditor state={state} catalog={catalog} dispatch={dispatch} />;
+  }
+
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
   }
@@ -824,7 +829,8 @@ type SummaryPanelProps = {
   dispatch: React.Dispatch<ProspectWizardAction>;
 };
 
-function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
+/** Las decisiones de la búsqueda, con su valor y el paso donde se cambian. */
+function useDecisionLabels(state: ProspectWizardState, catalog: ActiveIndustryCatalog) {
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === state.countryCode);
   const industryEntry = catalog.industries.find((i) => i.id === state.industryId);
   // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — catálogo v2 (macro industria): la
@@ -846,7 +852,86 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
       ? `${subsRecap.names.join(', ')} · ${subsRecap.countLabel}`
       : WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL;
   const criteriaLabel = state.additionalCriteriaRaw ?? 'Ninguno';
+  return { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled };
+}
 
+/**
+ * Filas de las decisiones. `onChange` lleva al paso; al responder, el chat vuelve
+ * directo al resumen (`returnToSummary`), sin repetir los pasos siguientes.
+ */
+function DecisionRows({
+  state,
+  catalog,
+  dispatch,
+  actionLabel,
+}: SummaryPanelProps & { actionLabel: string }) {
+  const { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled } = useDecisionLabels(
+    state,
+    catalog,
+  );
+  const change = (step: EditableWizardStep) => () => dispatch({ type: 'EDIT_STEP', step, returnToSummary: true });
+  return (
+    <dl className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
+      <SummaryRow label="Tipo de búsqueda" value="Empresas por criterios" />
+      <SummaryRow label="País" value={countryLabel} onEdit={change('country')} actionLabel={actionLabel} />
+      <SummaryRow
+        label={subindustrySelectionEnabled ? 'Industria' : 'Macro Industria'}
+        value={industryLabel}
+        onEdit={change('industry')}
+        actionLabel={actionLabel}
+      />
+      {subindustrySelectionEnabled && (
+        <SummaryRow
+          label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
+          value={subsLabel}
+          onEdit={change('subindustries')}
+          actionLabel={actionLabel}
+          wrap
+        />
+      )}
+      <SummaryRow
+        label="Criterio adicional"
+        value={criteriaLabel}
+        onEdit={change('additional_criteria')}
+        actionLabel={actionLabel}
+        wrap
+      />
+      <SummaryRow label="Tamaño mínimo" value=">200 empleados" />
+    </dl>
+  );
+}
+
+// ── «Editar búsqueda»: qué decisión cambiar ──────────────────────────────────
+
+/**
+ * Dueña 06-10: «Editar búsqueda» sólo devolvía al paso anterior. Ahora muestra cada
+ * decisión tomada en el chat con su valor; se cambia una y se vuelve al resumen.
+ */
+function DecisionsEditor({ state, catalog, dispatch }: SummaryPanelProps) {
+  return (
+    <div className="space-y-4 animate-su-fade-in" data-testid="wizard-decisions-editor">
+      <div className="space-y-1">
+        <h3 className="text-base font-semibold tracking-tight text-foreground">¿Qué quieres cambiar?</h3>
+        <p className="text-xs text-muted-foreground">
+          Elige una decisión. Al cambiarla vuelves al resumen sin repetir las demás.
+        </p>
+      </div>
+      <DecisionRows state={state} catalog={catalog} dispatch={dispatch} actionLabel="Cambiar" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="w-full text-muted-foreground"
+        onClick={() => dispatch({ type: 'CLOSE_DECISIONS_EDITOR' })}
+      >
+        Volver sin cambiar nada
+      </Button>
+    </div>
+  );
+}
+
+function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
+  const { subindustrySelectionEnabled } = useDecisionLabels(state, catalog);
   const serverWarnings = state.warnings.filter((w) => w.step === 'summary');
 
   return (
@@ -855,42 +940,7 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         Resumen de la búsqueda
       </h3>
 
-      <dl className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
-        <SummaryRow
-          label="Tipo de búsqueda"
-          value="Empresas por criterios"
-        />
-        <SummaryRow
-          label="País"
-          value={countryLabel}
-          onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'country' })}
-        />
-        <SummaryRow
-          label={subindustrySelectionEnabled ? 'Industria' : 'Macro Industria'}
-          value={industryLabel}
-          onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'industry' })}
-        />
-        {subindustrySelectionEnabled && (
-          <SummaryRow
-            label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
-            value={subsLabel}
-            onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
-            wrap
-          />
-        )}
-        <SummaryRow
-          label="Criterio adicional"
-          value={criteriaLabel}
-          onEdit={() =>
-            dispatch({ type: 'EDIT_STEP', step: 'additional_criteria' })
-          }
-          wrap
-        />
-        <SummaryRow
-          label="Tamaño mínimo"
-          value=">200 empleados"
-        />
-      </dl>
+      <DecisionRows state={state} catalog={catalog} dispatch={dispatch} actionLabel="Editar" />
 
       {/* § A.4 — la multiselección completa, explícita y contada. Ausente por
           completo en macro mode: no hay selección de subindustria que recapitular. */}
@@ -932,10 +982,12 @@ type SummaryRowProps = {
   label: string;
   value: string;
   onEdit?: () => void;
+  /** Texto del botón («Editar» en el resumen, «Cambiar» en «¿Qué quieres cambiar?»). */
+  actionLabel?: string;
   wrap?: boolean;
 };
 
-function SummaryRow({ label, value, onEdit, wrap = false }: SummaryRowProps) {
+function SummaryRow({ label, value, onEdit, actionLabel = 'Editar', wrap = false }: SummaryRowProps) {
   return (
     <div className="flex items-start justify-between gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -956,11 +1008,11 @@ function SummaryRow({ label, value, onEdit, wrap = false }: SummaryRowProps) {
           variant="ghost"
           size="xs"
           onClick={onEdit}
-          aria-label={`Editar ${label}`}
+          aria-label={`${actionLabel} ${label}`}
           className="shrink-0 self-center text-muted-foreground"
         >
           <Pencil aria-hidden />
-          Editar
+          {actionLabel}
         </Button>
       )}
     </div>
