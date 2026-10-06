@@ -5,6 +5,7 @@
 import type { AgentChatMessage, AgentChatRole, AgentChatTone } from '@/components/agent-chat';
 import type { CompanyCandidate, CompanyResolutionResult } from '@/modules/contact-enrichment/types';
 import type {
+  AutomaticRoutingUiResult,
   ContactEnrichmentChatAction,
   ContactEnrichmentChatState,
   ContactEnrichmentInitialCompany,
@@ -43,8 +44,7 @@ const REQUEST_DONE =
 
 const AUTOMATIC_SEARCHING = 'Voy a buscar contactos automáticamente…';
 
-const AUTOMATIC_DONE =
-  'Busqué contactos automáticamente. Los candidatos quedaron listos para tu revisión. No creé contactos finales: requieren tu aprobación.';
+const AUTOMATIC_APPROVAL_NOTE = 'No creé contactos finales: requieren tu aprobación.';
 
 const AUTOMATIC_ROUTING_DISABLED =
   'La búsqueda automática de contactos no está activada en este entorno. No se ejecutó ninguna búsqueda ni se crearon candidatos.';
@@ -210,6 +210,67 @@ export function createInitialContactEnrichmentChatState(
     ...base,
     ...appendMessages(base, [{ role: 'assistant', content: GREETING }]),
   };
+}
+
+// ── Automatic routing result message (backlog A3/A6) ──────────────────────────
+
+function contactsLabel(n: number): string {
+  return n === 1 ? '1 contacto' : `${n} contactos`;
+}
+
+function pendingLabel(n: number): string {
+  return n === 1 ? '1 contacto pendiente' : `${n} contactos pendientes`;
+}
+
+/** "Fuente Lusha falló." / "Fuentes Apollo y Lusha fallaron." — '' when none failed. */
+function failedSourcesNote(failed: readonly string[] | undefined): string {
+  if (!failed || failed.length === 0) return '';
+  if (failed.length === 1) return ` Fuente ${failed[0]} falló.`;
+  return ` Fuentes ${failed.slice(0, -1).join(', ')} y ${failed.at(-1)} fallaron.`;
+}
+
+/**
+ * Builds the final chat message for the automatic search from the TOTAL
+ * candidate count (no per-source breakdown), not from "an attempt exists".
+ * A search that left 0 candidates never shows a success message. A source is
+ * only named, at the end, when it failed.
+ *
+ *  • flag off                       → routing-disabled notice (warning)
+ *  • blocked before any search      → could-not-complete notice (warning)
+ *  • N new candidates               → "Encontré N contactos para revisar. No creé contactos finales…"
+ *  • 0 new, but pending ones reused → "Esta búsqueda no trajo contactos nuevos, pero ya tienes N…"
+ *  • 0 and nothing pending          → "No se encontraron contactos." (warning)
+ */
+export function buildAutomaticRoutingMessage(
+  result: AutomaticRoutingUiResult,
+): { content: string; tone?: AgentChatTone } {
+  if (!result.automaticRoutingEnabled) {
+    return { content: AUTOMATIC_ROUTING_DISABLED, tone: 'warning' };
+  }
+
+  const apollo = result.providerCandidatesCreated?.apollo ?? null;
+  const lusha = result.providerCandidatesCreated?.lusha ?? null;
+  if (result.attempt1AttemptId == null || (apollo === null && lusha === null)) {
+    return { content: AUTOMATIC_BLOCKED, tone: 'warning' };
+  }
+
+  const created = (apollo ?? 0) + (lusha ?? 0);
+  const reused = result.reusedExistingCandidates ?? 0;
+  const failed = failedSourcesNote(result.failedProviders);
+
+  if (created > 0) {
+    return {
+      content: `Encontré ${contactsLabel(created)} para revisar. ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+    };
+  }
+
+  if (reused > 0) {
+    return {
+      content: `Esta búsqueda no trajo contactos nuevos, pero ya tienes ${pendingLabel(reused)} de revisión para esta empresa.${failed}`,
+    };
+  }
+
+  return { content: `No se encontraron contactos.${failed}`, tone: 'warning' };
 }
 
 // ── Reducer ─────────────────────────────────────────────────────────────────────
@@ -480,16 +541,7 @@ export function contactEnrichmentChatReducer(
     }
 
     case 'AUTOMATIC_ROUTING_SETTLED': {
-      // Three outcomes, all landing back on 'done':
-      //  • flag off               → safe no-op notice (QA-visible "routing disabled")
-      //  • a search actually ran  → candidates left in pending_review for approval
-      //  • blocked before a search → neutral could-not-complete notice
-      const content = !action.result.automaticRoutingEnabled
-        ? AUTOMATIC_ROUTING_DISABLED
-        : action.result.attempt1AttemptId != null
-          ? AUTOMATIC_DONE
-          : AUTOMATIC_BLOCKED;
-      const tone = content === AUTOMATIC_DONE ? undefined : 'warning';
+      const { content, tone } = buildAutomaticRoutingMessage(action.result);
       return {
         ...state,
         step: 'done',
