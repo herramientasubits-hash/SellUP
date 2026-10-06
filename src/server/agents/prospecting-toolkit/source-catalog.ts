@@ -1212,11 +1212,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     // SOURCES-DO-SIZE-SIGNAL-1 (05-10): construida; la carga en Producción espera
     // la autorización de la dueña. Hasta entonces la capa gratuita de RD no propone nada.
     nextAction:
-      '12.931 empresas cargadas (06-10, autorizada). Capa gratuita de República Dominicana: el Agente 1 propone de aquí antes de pagar a proveedores, sólo empresas con señal de tamaño (listas de Grandes Contribuyentes de la DGII o proveedoras del Estado que no son micro ni pequeñas). Desde SOURCES-DO-DGCP-DOMAIN-1 (recarga pendiente de autorización) cada empresa lleva además su dominio cuando el correo corporativo que declaró a la DGCP se parece a su razón social; sin dominio va a Descartadas y la rescata Claude.',
+      '12.931 empresas cargadas (06-10, autorizada; 1.529 con sitio web desde el correo corporativo declarado a la DGCP). Verificada de punta a punta el 06-10: corrida RD × Tecnología (lote cf765b47) cerró la meta sólo con esta fuente, 9 empresas grandes y medianas a revisión con sitio web y RNC, US$0. Las que no tienen web van a Descartadas y las rescata Claude.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://dgii.gov.do/app/WebApps/Misc/VerLista?doc=GCL-240110',
     automationLevel: 'high',
