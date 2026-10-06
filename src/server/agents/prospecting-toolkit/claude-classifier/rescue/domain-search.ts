@@ -46,9 +46,10 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * indragroup.com). Medido en Chile (bd751c34) y Argentina (17da92cf). d6 (06-10): PISTA
  * sin confirmar — ver `unverifiedWebsiteHint`. d7 (06-10): el nombre corto quita las letras
  * sueltas («HEXACTA S. R. L.» → «hexacta») y «company»; los «no encontrado» de d6 se
- * reintentan una vez.
+ * reintentan una vez. d8 (06-10): el dominio puede ser la SIGLA del nombre (meds.cl,
+ * ucmchile.cl) si la página la confirma — ver `pageConfirmsAcronym`.
  */
-export const DOMAIN_SEARCH_VERSION = 'd7';
+export const DOMAIN_SEARCH_VERSION = 'd8';
 
 /**
  * PISTA (decisión de la dueña, 06-10-2026, «si pista»): la web que Claude propuso pero
@@ -61,6 +62,7 @@ const VERIFICATIONS: readonly FoundVerification[] = [
   'linkedin_cross_link',
   'name_match',
   'search_result_match',
+  'acronym_match',
   UNVERIFIED_HINT_VERIFICATION,
 ];
 

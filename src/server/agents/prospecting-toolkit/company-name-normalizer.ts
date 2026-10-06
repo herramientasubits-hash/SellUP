@@ -15,6 +15,8 @@
  *   4. Retornar { name, originalName, wasNormalized, normalizationReason }
  */
 
+import { stripWebHostPrefix } from './normalization';
+
 // ─── SEO generic keyword set ──────────────────────────────────────────────────
 // Exported para que prospecting-pipeline.ts pueda reusar sin duplicar.
 // Superset del GENERIC_KEYWORDS original (Hito 13H) + nuevas entradas (Hito 16W.2).
@@ -266,7 +268,7 @@ function inferNameFromDomain(domainOrUrl: string): string | null {
     const parsed = new URL(
       domainOrUrl.startsWith('http') ? domainOrUrl : `https://${domainOrUrl}`
     );
-    let host = parsed.hostname.replace(/^www\./, '');
+    let host = stripWebHostPrefix(parsed.hostname);
 
     host = stripDomainSuffix(host);
 
