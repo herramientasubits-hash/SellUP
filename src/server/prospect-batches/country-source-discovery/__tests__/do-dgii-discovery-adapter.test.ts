@@ -71,13 +71,13 @@ describe('capacidad por país', () => {
   it('República Dominicana tiene fuente gratuita propia y Colombia conserva la suya', () => {
     assert.deepEqual(resolveCountrySourceCapability('do'), { countryCode: 'DO', sourceKey: 'do_dgii_discovery' });
     assert.deepEqual(resolveCountrySourceCapability('CO'), { countryCode: 'CO', sourceKey: 'co_siis_discovery' });
-    assert.equal(resolveCountrySourceCapability('PE'), null);
+    assert.equal(resolveCountrySourceCapability('VE'), null);
   });
 
   it('la cobertura de cada país sale de SU clasificación', () => {
     assert.equal(countrySourceMacroHasCoverage('DO', 'technology'), true);
     assert.equal(countrySourceMacroHasCoverage('DO', 'no_existe'), false);
-    assert.equal(countrySourceMacroHasCoverage('PE', 'technology'), false);
+    assert.equal(countrySourceMacroHasCoverage('VE', 'technology'), false);
   });
 
   it('sin lecturas inyectadas no hay adapter (fail-open al pago)', () => {

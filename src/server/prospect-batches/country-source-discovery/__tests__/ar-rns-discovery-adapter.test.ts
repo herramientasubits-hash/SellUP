@@ -76,7 +76,7 @@ describe('capacidad por país', () => {
     assert.deepEqual(resolveCountrySourceCapability('ar'), { countryCode: 'AR', sourceKey: 'ar_rns_discovery' });
     assert.equal(resolveCountrySourceCapability('CO')?.sourceKey, 'co_siis_discovery');
     assert.equal(resolveCountrySourceCapability('DO')?.sourceKey, 'do_dgii_discovery');
-    assert.equal(resolveCountrySourceCapability('PE'), null);
+    assert.equal(resolveCountrySourceCapability('VE'), null);
   });
 
   it('la cobertura de Argentina sale de SU tabla', () => {
