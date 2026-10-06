@@ -343,11 +343,11 @@ describe('cableado de Colombia', () => {
   const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
   const read = (rel: string) => strip(readFileSync(join(process.cwd(), rel), 'utf8'));
 
-  it('Supersociedades primero y, detrás, las cámaras en vivo con la regla de una palabra', () => {
+  it('Supersociedades primero; detrás la web (SOURCES-CO-CLOSE-1) y por último las cámaras en vivo', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
     assert.match(
       wiring,
-      /createFallbackOfficialSourceResolver\(\s*createColombiaOfficialSourceResolver\(\{\s*querySnapshots: buildColombiaSnapshotQuery\(snapshotClient\),\s*\}\),\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'CO',\s*sourceKey: CO_RUES_LIVE_SOURCE_KEY,\s*taxIdentifierType: 'NIT',\s*validTaxId: \/\^\[89\]\\d\{8\}\$\/,\s*normalizeCore: normalizeColombiaCompanyCore,\s*querySnapshots: buildRuesNameLiveQuery\(\),\s*singleWordIsSignalOnly: true,/,
+      /createFallbackOfficialSourceResolver\(\s*createColombiaOfficialSourceResolver\(\{\s*querySnapshots: buildColombiaSnapshotQuery\(snapshotClient\),\s*\}\),\s*createFallbackOfficialSourceResolver\(\s*createColombiaDomainOfficialSourceResolver\(\{\s*queryByDomain: buildColombiaDomainSnapshotQuery\(snapshotClient\),\s*\}\),\s*createSnapshotNameOfficialSourceResolver\(\{\s*countryCode: 'CO',\s*sourceKey: CO_RUES_LIVE_SOURCE_KEY,\s*taxIdentifierType: 'NIT',\s*validTaxId: \/\^\[89\]\\d\{8\}\$\/,\s*normalizeCore: normalizeColombiaCompanyCore,\s*querySnapshots: buildRuesNameLiveQuery\(\),\s*singleWordIsSignalOnly: true,\s*singleWordConfirmedByDomain: coSingleWordConfirmedByDomain,/,
     );
   });
 
