@@ -33,7 +33,7 @@ import {
   UNVERIFIED_HINT_VERIFICATION,
 } from '../domain-search';
 import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
-import { rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
+import { RESCUE_CONCURRENCY, rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
 import type { CompanyClassificationResult } from '../../types';
 
@@ -879,7 +879,7 @@ describe('cuenta de Anthropic caída (Prod 06-10 13:07Z, 194 × http_400)', () =
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     // Sólo las que ya estaban en curso (una por hilo) llegan a llamar.
-    assert.ok(searches <= 4, `búsquedas: ${searches}`);
+    assert.ok(searches <= RESCUE_CONCURRENCY, `búsquedas: ${searches}`);
     assert.ok(s.ok);
   });
 
