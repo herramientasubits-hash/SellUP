@@ -1,6 +1,8 @@
 # Agente 2A — Arquitectura
 
 > Base: `origin/main` @ `807e9da7`. Todas las rutas de código son verificables en ese commit.
+> **Actualizado 2026-10-06** (`8aae674d`): resolución por Company ID (#587), lote por IDs (#616),
+> reasignar empresa (#602) y sincronización con HubSpot al aprobar (#362, #612).
 
 ---
 
@@ -42,16 +44,17 @@ flowchart TD
     APR --> OFF["OFFICIAL CONTACT<br/><small>contacts + contact_phones<br/>+ contact_phone_sources · mig 114/115</small>"]
     MRG --> OFF
 
-    OFF -.->|manual, nunca automático| HS["HubSpot"]
-
-    style HS stroke-dasharray: 5 5
+    OFF -->|al aprobar · flag · #362/#612| HS["HubSpot"]
+    REV -->|«Reasignar empresa» · #602| ACC
     style VER fill:#e8f5e9
     style SM fill:#fff3e0
 ```
 
-**Lectura del diagrama.** La línea punteada hacia HubSpot es deliberada: Agente 2A **no
-escribe en HubSpot automáticamente en ningún punto**. Lee HubSpot para resolver la empresa y
-para detectar duplicados; escribir es una acción separada y humana.
+**Lectura del diagrama.** Hasta agosto de 2026 la línea hacia HubSpot era punteada: Agente 2A sólo
+leía HubSpot. Desde #362, **la aprobación humana** dispara la sincronización del contacto (crear o
+vincular por email, crear la empresa si falta) cuando `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED` está
+activo; #612 completa las propiedades vacías de un contacto existente sin sobrescribir. Ningún
+paso anterior a la aprobación escribe en HubSpot.
 
 ---
 
@@ -132,6 +135,9 @@ ahí y no en TypeScript.
 UI (wizard de enriquecimiento)
   └─ contact-enrichment/actions.ts
        ├─ hubspot-account-resolver.ts        ← resuelve empresa (con AbortSignal.timeout, #279)
+       │    └─ con un Company ID: lectura en HubSpot por ID y cuenta creada/vinculada (#587)
+       │       (la UI clasifica ID /^\d{6,}$/ · dominio · nombre con classifyCompanyQuery(),
+       │        contact-enrichment-chat-reducer.ts)
        ├─ server/agents/contact-enrichment-toolkit/…  ← Apollo People Search
        │    └─ lusha-enrichment-runner.ts    ← sólo si ENABLE_LUSHA_CONTACT_ENRICHMENT
        ├─ request-persistence-core.ts        ← contact_enrichment_requests
@@ -149,6 +155,11 @@ UI (acción por cuenta)
                  └─ contact_enrichment_bulk_runs (agregado: procesadas/ok/fallidas/candidatos)
 ```
 
+**Lote por Company IDs (#616).** El panel del agente acepta de 1 a 10 IDs separados por coma
+(`hubspot-id-batch-core.ts`). Cada ID llama en secuencia a `runHubSpotIdBatchItemAction`
+(`hubspot-id-batch-actions.ts`): resolución por ID (#587) → request con cuenta → enrutado
+automático Apollo→Lusha. Los IDs inexistentes se saltan sin crear empresa ni gastar créditos.
+
 No hay bulk de *phone reveal*. La entrada de toda operación de teléfono es escalar.
 
 ### 3.3 Candidate review
@@ -160,6 +171,11 @@ contact-candidate-detail-sheet.tsx
   ├─ getCandidateStoredPhonesSummary / …List   ← candidate-stored-phones-actions.ts (SOLO SELECT)
   └─ getSearchMorePhonesPreflightAction        ← search-more-phones-read.ts → planner
 ```
+
+**Reasignar empresa (#602).** Si el run no tiene cuenta ni empresa de HubSpot, Trazabilidad ofrece
+«Reasignar empresa». La selección se re-resuelve en el servidor y se guarda por candidato en
+`enrichment_metadata.company_reassignment`; las proyecciones de revisión y aprobación aplican ese
+override. Los flujos de teléfono todavía leen `run.account_id` (BACKLOG B1b).
 
 ### 3.4 Reveal de teléfono (waterfall Apollo → Lusha)
 
@@ -200,6 +216,11 @@ approveContactCandidateAction
 La rama de duplicado no es un callejón sin salida desde el PR #277: existe una **segunda**
 operación, separada y humano-confirmada, que añade la información del candidato al contacto
 que ya existe (`merge_candidate_into_existing_contact`, migración 117).
+
+**Después de aprobar (#362, #612).** `hubspot-contact-approval-sync.ts` resuelve la empresa de la
+cuenta en HubSpot (o la deja en revisión si es ambigua) y delega en el autosync de contactos
+(`contact-hubspot-autosync-core.ts`): crea el contacto o lo vincula si ya existe por email
+(`linked_existing`, con `fill_empty` desde #612). Sin email el resultado es `blocked_no_email`.
 
 ---
 

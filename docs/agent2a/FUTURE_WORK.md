@@ -48,10 +48,19 @@ automática.
 
 **No existe y no debe existir.** Todo candidato pasa por revisión humana explícita.
 
-### 1.5 Escritura automática en HubSpot
+### 1.5 Escritura automática en HubSpot — **CAMBIÓ** (#362, #612)
 
-**No existe.** Agente 2A **lee** HubSpot (resolución de empresa, detección de duplicados) y
-**nunca escribe automáticamente**.
+**Esta regla ya no aplica.** Desde #362 (2026-08-27), aprobar un contacto lo sincroniza con
+HubSpot cuando `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED` está activo: crea o vincula el contacto (por
+email), crea la empresa si falta y pide revisión humana si la coincidencia es ambigua. Desde #612,
+al vincular un contacto existente se completan sólo sus propiedades vacías.
+
+Lo que **sigue sin existir**, y es deliberado hasta que se decida lo contrario:
+
+* Escribir en HubSpot **sin** una aprobación humana del candidato.
+* **Sobrescribir** datos que ya tiene HubSpot.
+* Asociar un contacto existente a **otra** empresa (BACKLOG C1, decisión 2).
+* Enviar contactos **sin email** (`blocked_no_email`, BACKLOG C2, decisión 1).
 
 ### 1.6 Bulk de operaciones de teléfono
 
@@ -157,6 +166,14 @@ documental de bajo riesgo pero alta capacidad de confundir a un mantenedor nuevo
 
 ---
 
+### 2.9 Backlog de octubre 2026
+
+Los bugs y mejoras abiertos tras las pruebas de septiembre y octubre (mensajes de resolución de
+empresa, Lusha como complemento de Apollo, deduplicación global en HubSpot, sincronización sin
+email, teléfono con empresa reasignada, backfill de `fill_empty`) están en [BACKLOG.md](BACKLOG.md).
+
+---
+
 ## 3. Riesgo de infraestructura
 
 ### 3.1 Preview no está aislado de Producción
@@ -207,7 +224,7 @@ violación tendría consecuencias irreversibles.
 ### Producto
 
 11. **Ninguna aprobación automática de candidatos.**
-12. **Ninguna escritura automática en HubSpot.**
+12. **Ninguna escritura en HubSpot sin aprobación humana, y nunca sobrescribir datos existentes** (ver § 1.5).
 13. **Ninguna ruta a la búsqueda general de personas de Lusha desde Search More.**
 14. **«Ver más números» no importa ningún cliente de proveedor.** Hay un test estático que falla
     si aparece una de esas importaciones — **no se relaja**.

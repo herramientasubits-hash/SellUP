@@ -269,6 +269,23 @@ Ver [BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md) § 7.
 * El PR #284 documentó dos síntomas que **no eran defectos** para que nadie los «arregle» en el
   futuro.
 
+### 3.12 HubSpot ID existente tratado como empresa manual (#587)
+
+* **Síntoma (2026-10-01):** al escribir un Company ID que sí existe en HubSpot, aparecía «HubSpot
+  no disponible — resultados solo desde SellUp» y se creaba una empresa manual llamada como el ID.
+* **Causa:** el ID se buscaba como texto libre (nombre); sin coincidencia, el flujo caía en la
+  empresa manual. Los contactos quedaban sin `hubspot_company_id`.
+* **Corrección:** `classifyCompanyQuery()` distingue ID, dominio y nombre; el ID se lee en HubSpot
+  por ID y la cuenta se crea o vincula antes de enriquecer.
+* **Pendiente:** ID inexistente con mensaje propio y bloquear nombres sólo numéricos (BACKLOG A2).
+
+### 3.13 «Candidatos listos» con 0 candidatos (#608)
+
+* **Síntoma:** el chat mostraba `AUTOMATIC_DONE` siempre que existía un intento
+  (`attempt1AttemptId != null`), aunque no se hubiera creado ningún candidato.
+* **Corrección:** el mensaje se construye con el conteo real de pendientes y distingue «0 nuevos
+  pero N pendientes» de «ningún contacto».
+
 ---
 
 ## 4. Patrón transversal de estos incidentes
@@ -284,6 +301,8 @@ representar más de un hecho.*
 | #291 | «puedo revelar» vs «la privacidad ni siquiera es evaluable» |
 | #300 | «no he pedido nada» vs «pedí y aún no me contestan» |
 | #309 | «elegible» vs «elegible pero impagable» |
+| #587 | «es un ID» vs «es un nombre» |
+| #608 | «la búsqueda corrió» vs «la búsqueda trajo candidatos» |
 
 Y la respuesta ha sido siempre la misma: **separar el vocabulario**, no añadir un caso especial.
 Es la razón por la que este subsistema tiene vocabularios cerrados tan grandes —15 motivos de
@@ -295,4 +314,10 @@ inelegibilidad en Search More, 7 fases, 3 estados de supresión— en vez de boo
 
 | Fecha | Hito | Cambio | Motivo |
 |---|---|---|---|
-| 2026-10-05 | AGENT2A-COVERAGE-DECISION-MAKERS-1 | Apollo deja hasta 5 revisables y completa hasta 5 (antes 2 y 3); per_page 10 y tope de volumen 30 (gratis). Los intentos por títulos suman CEO y gerente general. Lusha ordena por seniority antes del enrich pagado (tope 5 sin cambios). | Revisión de septiembre 2026: pocos contactos por empresa y casi solo RR. HH. Spec: `docs/superpowers/specs/2026-10-05-agent2a-coverage-decision-makers-design.md` |
+| 2026-08-27 | #362 · `6f7a7f38` | Aprobar un contacto lo sincroniza con HubSpot: crea o vincula el contacto, crea la empresa si falta (revisión humana si la coincidencia es ambigua), envía `phone` y `mobilephone` por separado y marca `sellup_created`. Detrás de `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED`. | Spec `docs/superpowers/specs/2026-08-27-hubspot-contact-approval-autosync-design.md`. Deja obsoleta la regla «nunca escribe en HubSpot» (ver FUTURE_WORK § 1.5) |
+| 2026-10-05 | #587 · `3cc54592` | Si la consulta es un Company ID (`/^\d{6,}$/`), se busca la cuenta en SellUp y, si no está, la empresa en HubSpot por ID. La cuenta se crea o vincula antes de enriquecer. | Incidente § 3.12 |
+| 2026-10-05 | AGENT2A-COVERAGE-DECISION-MAKERS-1 · #589 · `eef261bc` | Apollo deja hasta 5 revisables y completa hasta 5 (antes 2 y 3); per_page 10 y tope de volumen 30 (gratis). Los intentos por títulos suman CEO y gerente general. Lusha ordena por seniority antes del enrich pagado (tope 5 sin cambios). | Revisión de septiembre 2026: pocos contactos por empresa y casi solo RR. HH. Spec: `docs/superpowers/specs/2026-10-05-agent2a-coverage-decision-makers-design.md` |
+| 2026-10-06 | #602 · `75012626` | «Reasignar empresa» en Trazabilidad: búsqueda por nombre, dominio o ID en SellUp y HubSpot. Se guarda por candidato en `enrichment_metadata.company_reassignment` (sin migración); revisión y aprobación usan la cuenta reasignada. Sin escrituras en HubSpot ni llamadas a proveedores. | Candidatos sin cuenta no se podían aprobar (revisión de septiembre). Pendiente: los flujos de teléfono siguen leyendo `run.account_id` (BACKLOG B1b) |
+| 2026-10-06 | #608 · `42f8d24b` | `buildAutomaticRoutingMessage()` usa el conteo real: «Encontré N contactos para revisar», «no trajo contactos nuevos, pero ya tienes N pendientes» o «No se encontraron contactos». | Incidente § 3.13 |
+| 2026-10-06 | #612 · `7775801f` | En `linked_existing`, PATCH sólo con las propiedades vacías en HubSpot (teléfonos, cargo, nombre, LinkedIn). Nunca sobrescribe; queda en `metadata.hubspot_sync.fill_empty`. | Los contactos vinculados quedaban `synced` sin los datos de SellUp. Pendiente: backfill (BACKLOG E1) |
+| 2026-10-06 | #616 · `1447f355` | «Búsqueda por lotes con ID de HubSpot» en el panel del agente: 1 a 10 IDs por coma; cada uno sigue el camino individual (#587 + enrutado Apollo→Lusha). Los IDs inexistentes se saltan sin crear empresa ni gastar. | La búsqueda por lote sólo funcionaba con checkbox en Cuentas |

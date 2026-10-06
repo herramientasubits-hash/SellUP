@@ -6,6 +6,11 @@
 > **Fecha de la auditoría:** 2026-08-19. **Snapshot de presupuesto:** 2026-08-20.
 > **Base de la auditoría:** `origin/main` @ `807e9da7` + esquema de Producción leído en modo READ-ONLY.
 > **Naturaleza de este documento:** auditoría, documentación y handoff. **No introduce ningún cambio de runtime.**
+>
+> **Actualización 2026-10-06** (`origin/main` @ `8aae674d`): el agente se reabrió para corregir los
+> hallazgos de las pruebas de septiembre y octubre. Los cambios integrados desde el handoff están en
+> [HISTORY_AND_INCIDENTS.md](HISTORY_AND_INCIDENTS.md) § 5 y lo pendiente en [BACKLOG.md](BACKLOG.md).
+> La afirmación «no escribe en HubSpot» de la auditoría original **ya no es cierta** desde #362.
 
 ---
 
@@ -43,6 +48,7 @@ atraviesan todo el subsistema:
 | [HISTORY_AND_INCIDENTS.md](HISTORY_AND_INCIDENTS.md) | Cronología de PRs, migraciones e incidentes con causa raíz |
 | [QA_ACCEPTANCE.md](QA_ACCEPTANCE.md) | Casos reales de aceptación verificados contra Producción |
 | [FUTURE_WORK.md](FUTURE_WORK.md) | Lo NO implementado, separando deuda de alcance deliberado |
+| [BACKLOG.md](BACKLOG.md) | Backlog unificado de bugs y mejoras (oct-2026), con estado y camino (fix / spec) |
 | [HANDOFF_PROMPT.md](HANDOFF_PROMPT.md) | Prompt copiable para retomar el agente en un chat nuevo |
 
 ---
@@ -56,11 +62,16 @@ correspondiente, **Lusha** (secundario / challenger). El resultado son filas en
 `contact_enrichment_candidates` en estado `pending_review`. Existe también una modalidad
 **bulk** por cuenta (`contact_enrichment_bulk_runs`).
 
+Desde octubre de 2026: la empresa se puede buscar por **Company ID de HubSpot** (#587), cada
+fuente deja hasta 5 contactos e incluye CEO y gerente general (#589), el mensaje final informa el
+conteo real (#608) y el panel del agente acepta un **lote de 1 a 10 Company IDs** (#616).
+
 ### B. Candidate review
 
 Un operador `admin` revisa cada candidato. Los estados terminales del candidato son
 `approved`, `rejected`, `discarded`, `archived`; `duplicate` es un desenlace propio con su
 propia cola. **Ningún candidato se aprueba automáticamente.**
+Un candidato sin cuenta se puede **reasignar a otra empresa** desde Trazabilidad (#602).
 
 ### C. Phone reveal
 
@@ -101,6 +112,11 @@ identidad nativa de Lusha, tope 5 créditos, sin reintento automático. Ver
 La migración 116 hace la aprobación **atómica**: cuenta, run, contacto, colección de teléfonos
 oficial y auditoría en una sola transacción. La 117 añade el *merge* humano-confirmado de un
 duplicado sobre un contacto existente.
+
+Desde #362, al aprobar, el contacto se **sincroniza con HubSpot** (flag
+`HUBSPOT_CONTACT_AUTO_SYNC_ENABLED`): se crea, o se vincula si ya existe por email, y se asocia a
+la empresa. Desde #612, al vincular uno existente se completan sus propiedades vacías sin
+sobrescribir nada. Los contactos sin email quedan en `blocked_no_email`.
 
 ### H. Privacidad
 
