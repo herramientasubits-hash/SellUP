@@ -162,6 +162,14 @@ export function calculateCNPJCheckDigit(digits: number[], weights: number[]): nu
 
 // ── Registry of Rules ──────────────────────────────────────────────
 
+/** RUC panameño sin espacios ni DV («280-319-61818 D.V.53» → «280-319-61818»). */
+function normalizePanamaRuc(val: string): string {
+  const compact = val.toUpperCase().replace(/D\.?\s*V\.?\s*\d{1,2}\s*$/, '').replace(/\s+/g, '').replace(/-+$/, '');
+  // «983932-1-532761-43»: el cuarto tramo de una persona jurídica es el DV.
+  const withDv = /^(\d{3,}-\d{1,4}-\d{1,7})-\d{1,2}$/.exec(compact);
+  return withDv ? withDv[1] : compact;
+}
+
 export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
   CO: {
     countryCode: 'CO',
@@ -511,6 +519,59 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '1020229024',
     ruleVersion: 'BO-NIT-v1',
   },
+  // SOURCES-TAX-RULES-GT-HN-PA-1 — sin regla, el número de estos tres países no se
+  // podía escribir, corregir ni importar a mano (las corridas sí lo guardan).
+  GT: {
+    countryCode: 'GT',
+    label: 'NIT',
+    placeholder: 'Ej. 1234567K',
+    helpText: 'Ingrese el NIT con su dígito verificador (0-9 o K), con o sin guion.',
+    minLength: 5,
+    maxLength: 15,
+    inputMode: 'text',
+    acceptedCharacters: /^[\dkK\s.-]*$/,
+    formatPattern: /^\d{4,12}K?$/,
+    // Igual que lo guarda el RGAE en cada corrida: dígitos y, si aplica, la K final.
+    validationLevel: 'format_only',
+    normalize: (val) => val.toUpperCase().replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{4,12}K?$/.test(val.toUpperCase().replace(/[\s.-]/g, '')),
+    canonicalExample: '1234567K',
+    ruleVersion: 'GT-NIT-v1',
+  },
+  HN: {
+    countryCode: 'HN',
+    label: 'RTN',
+    placeholder: 'Ej. 08019001210297',
+    helpText: 'Ingrese el RTN de 14 dígitos, con o sin guiones.',
+    minLength: 14,
+    maxLength: 18,
+    inputMode: 'numeric',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{14}$/,
+    validationLevel: 'format_only',
+    normalize: (val) => val.replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{14}$/.test(val.replace(/[\s.-]/g, '')),
+    canonicalExample: '08019001210297',
+    ruleVersion: 'HN-RTN-v1',
+  },
+  PA: {
+    countryCode: 'PA',
+    label: 'RUC',
+    placeholder: 'Ej. 998592-1-535732',
+    helpText:
+      'Ingrese el RUC: tomo-folio-asiento para empresas (por ejemplo 998592-1-535732) o la cédula para personas (8-123-456, E-8-12345, PE-9-1606). El DV se puede omitir.',
+    minLength: 5,
+    maxLength: 30,
+    inputMode: 'text',
+    acceptedCharacters: /^[\dA-Za-z\s.-]*$/,
+    formatPattern: /^(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}$/,
+    // Se guarda sin el DV, igual que pa_panamacompra_ruc_registry.
+    validationLevel: 'format_only',
+    normalize: normalizePanamaRuc,
+    validateFormat: (val) => /^(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}$/.test(normalizePanamaRuc(val)),
+    canonicalExample: '998592-1-535732',
+    ruleVersion: 'PA-RUC-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {
@@ -594,6 +655,15 @@ function getCountryNameByCode(code: string): string {
     AR: 'Argentina',
     BR: 'Brasil',
     DO: 'República Dominicana',
+    PY: 'Paraguay',
+    UY: 'Uruguay',
+    US: 'Estados Unidos',
+    ES: 'España',
+    CR: 'Costa Rica',
+    BO: 'Bolivia',
+    GT: 'Guatemala',
+    HN: 'Honduras',
+    PA: 'Panamá',
   };
   return names[code.toUpperCase().trim()] ?? code;
 }
