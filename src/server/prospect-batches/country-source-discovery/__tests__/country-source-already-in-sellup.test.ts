@@ -128,7 +128,7 @@ describe('SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — misma web que una candidata viv
     assert.equal(fresh.length, 1);
   });
 
-  it('el lector real pide la web con y sin www., sólo del mismo país y de candidatas vivas', async () => {
+  it('el lector real pide la web con y sin prefijo de host, sólo del mismo país y de candidatas vivas', async () => {
     const { buildFindAlreadyInSellup } = await import('../prepaid-novelty-gate.server');
     type Call = { table: string; method: string; args: unknown[] };
     const calls: Call[] = [];
@@ -152,7 +152,10 @@ describe('SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — misma web que una candidata viv
     assert.deepEqual([...(seen.blockedDomains ?? [])], ['fiscalia.gov.co']);
     const domainCalls = calls.filter((c) => c.table === 'prospect_candidates');
     assert.deepEqual(domainCalls.find((c) => c.method === 'eq')?.args, ['country_code', 'CO']);
-    assert.deepEqual(domainCalls.find((c) => c.method === 'in')?.args, ['domain', ['fiscalia.gov.co', 'www.fiscalia.gov.co']]);
+    assert.deepEqual(domainCalls.find((c) => c.method === 'in')?.args, [
+      'domain',
+      ['fiscalia.gov.co', 'www.fiscalia.gov.co', 'www2.fiscalia.gov.co', 'www3.fiscalia.gov.co', 'ww2.fiscalia.gov.co', 'ww3.fiscalia.gov.co'],
+    ]);
     assert.equal(domainCalls.find((c) => c.method === 'not')?.args[0], 'status');
   });
 });
