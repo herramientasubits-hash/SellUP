@@ -102,10 +102,26 @@ function splitLocation(location: string | null): { city: string | null; region: 
   };
 }
 
+const GENERIC_STATE_GOVERNMENT = /^GOBIERNO DEL ESTADO(?: LIBRE Y SOBERANO)?$/;
+
+/**
+ * SOURCES-MX-RFC-PUBLIC-LISTS-1 — DENUE registra muchos gobiernos estatales sólo
+ * como «GOBIERNO DEL ESTADO» (Prod 05-10: uno en Hermosillo). Así no identifica a
+ * nadie: no cruza con el RFC ni con un duplicado, y el vendedor no sabe de qué
+ * estado es. Se completa con el estado que DENUE publica en la ubicación.
+ */
+export function completeGenericStateGovernmentName(name: string, region: string | null): string {
+  const state = region?.trim();
+  if (!state) return name;
+  const core = normalizeCompanyNameCore(name, MEXICO_LEGAL_FORMS);
+  return GENERIC_STATE_GOVERNMENT.test(core) ? `${name} DE ${state.toUpperCase()}` : name;
+}
+
 function toCompany(row: DenueEstablishment, macroIndustryKey: string): CountrySourceCompany | null {
-  const legalName = row.legalName?.trim() || row.name?.trim() || null;
-  if (legalName === null) return null;
+  const rawName = row.legalName?.trim() || row.name?.trim() || null;
+  if (rawName === null) return null;
   const { city, region } = splitLocation(row.location);
+  const legalName = completeGenericStateGovernmentName(rawName, region);
   return {
     recordIdentityKey: `denue:${row.id}`,
     legalName,
@@ -173,7 +189,9 @@ export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): Coun
         // COMUNICACIONES DE MEXICO» comparten nombre comercial).
         const keys = [
           company.normalizedLegalName ?? company.legalName ?? row.id,
-          normalizeCompanyNameCore(row.name, MEXICO_LEGAL_FORMS),
+          // El nombre comercial también se completa: si no, dos gobiernos estatales
+          // con nombre comercial «GOBIERNO DEL ESTADO» se tomarían por la misma empresa.
+          normalizeCompanyNameCore(completeGenericStateGovernmentName(row.name ?? '', company.region), MEXICO_LEGAL_FORMS),
         ].filter((key) => key.length > 0);
         if (keys.some((key) => seen.has(key))) continue;
         for (const key of keys) seen.add(key);

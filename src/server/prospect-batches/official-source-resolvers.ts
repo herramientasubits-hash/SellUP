@@ -69,6 +69,7 @@ import {
   MX_COMPRANET_RFC_SOURCE_KEY,
   normalizeMexicoCompanyCore,
 } from '@/server/source-catalog/connectors/compranet-mexico/mx-compranet-rfc-rows';
+import { MX_RFC_PUBLIC_LISTS_SOURCE_KEY } from '@/server/source-catalog/connectors/mx-rfc-public-lists/mx-rfc-public-lists-rows';
 import {
   normalizePanamaCompanyCore,
   PA_PANAMACOMPRA_RUC_SOURCE_KEY,
@@ -253,15 +254,28 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // SOURCES-MX-RFC-BY-NAME-1 — personas morales con contratos en CompraNet
     // (sólo quienes le vendieron al Estado). Un nombre de una sola palabra sin
     // forma societaria («Softtek») queda como pista: una marca suelta puede ser otra.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'MX',
-      sourceKey: MX_COMPRANET_RFC_SOURCE_KEY,
-      taxIdentifierType: 'RFC',
-      validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
-      normalizeCore: normalizeMexicoCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'),
-      singleWordIsSignalOnly: true,
-    }),
+    // SOURCES-MX-RFC-PUBLIC-LISTS-1 — si CompraNet no da un RFC seguro, las listas
+    // públicas del SAT (importadores, donatarias) y de Nuevo León, con la MISMA regla.
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'MX',
+        sourceKey: MX_COMPRANET_RFC_SOURCE_KEY,
+        taxIdentifierType: 'RFC',
+        validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
+        normalizeCore: normalizeMexicoCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_COMPRANET_RFC_SOURCE_KEY, 'MX'),
+        singleWordIsSignalOnly: true,
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'MX',
+        sourceKey: MX_RFC_PUBLIC_LISTS_SOURCE_KEY,
+        taxIdentifierType: 'RFC',
+        validTaxId: /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/,
+        normalizeCore: normalizeMexicoCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, MX_RFC_PUBLIC_LISTS_SOURCE_KEY, 'MX'),
+        singleWordIsSignalOnly: true,
+      }),
+    ),
     // SOURCES-PA-RUC-BY-NAME-1 — personas jurídicas del buscador de proveedores de
     // PanamaCompraEnCifras (sólo quienes participan en compras públicas).
     createSnapshotNameOfficialSourceResolver({

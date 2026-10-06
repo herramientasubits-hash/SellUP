@@ -14,6 +14,14 @@
  * `priority_score`). Igual que Colombia y República Dominicana, la fuente puede
  * cerrar el objetivo entero.
  *
+ * ── Dos orígenes intercalados (SOURCES-AR-E2E-1) ───────────────────────────
+ *
+ * Además de las proveedoras del Estado (`procurement`, por importe adjudicado)
+ * se leen los empleadores ATP 2020 con ≥100 trabajadores (`employer`, por
+ * trabajadores). Se intercalan uno y uno respetando el orden de cada lista, y
+ * una CUIT presente en las dos sale una sola vez. Así ninguna de las dos listas
+ * se come el objetivo entero.
+ *
  * ── Doble comprobación de pertenencia ───────────────────────────────────────
  *
  * La macro se guardó en la fila al cargar, pero la decisión vigente es la de la
@@ -48,8 +56,13 @@ export const AR_RNS_DISCOVERY_MAX_ROWS = 200;
 /** CUIT de persona jurídica ya normalizada: 11 dígitos con prefijo 30, 33 o 34. */
 const LEGAL_ENTITY_CUIT = /^(30|33|34)\d{9}$/;
 
-/** Fila `ar_rns` acotada a lo que esta proyección usa. */
+/** De qué carga viene una fila. */
+export type ArRnsDiscoveryOrigin = 'procurement' | 'employer';
+
+/** Fila `ar_rns` / `ar_atp_employers` acotada a lo que esta proyección usa. */
 export type ArRnsSnapshotReadRow = {
+  /** Ausente = `procurement` (filas leídas antes de SOURCES-AR-E2E-1). */
+  origin?: ArRnsDiscoveryOrigin;
   record_identity_key: string;
   cuit: string | null;
   legal_name: string | null;
@@ -98,6 +111,23 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
 }
 
 /**
+ * Alterna las filas de cada origen (procurement, employer, procurement…)
+ * conservando el orden dentro de cada uno. Puro.
+ */
+export function interleaveByOrigin(
+  rows: readonly ArRnsSnapshotReadRow[],
+): ArRnsSnapshotReadRow[] {
+  const procurement = rows.filter((row) => (row.origin ?? 'procurement') === 'procurement');
+  const employer = rows.filter((row) => row.origin === 'employer');
+  const out: ArRnsSnapshotReadRow[] = [];
+  for (let i = 0; i < Math.max(procurement.length, employer.length); i++) {
+    if (i < procurement.length) out.push(procurement[i]);
+    if (i < employer.length) out.push(employer[i]);
+  }
+  return out;
+}
+
+/**
  * Construye el adapter de descubrimiento de Argentina.
  *
  * Devuelve SIEMPRE un resultado; los fallos los traduce el orquestador.
@@ -117,11 +147,12 @@ export function buildArRnsDiscoveryAdapter(reads: ArRnsDiscoveryReads): CountryS
       limit,
     });
 
-    // Una CUIT, una empresa: la primera fila válida gana (la lectura ya viene
-    // ordenada por importe adjudicado).
+    // Una CUIT, una empresa: la primera fila válida gana (cada lista ya viene
+    // ordenada; el intercalado alterna procurement / employer).
     const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
-    for (const row of rows) {
+    for (const row of interleaveByOrigin(rows)) {
+      if (companies.length >= limit) break;
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
       seen.add(company.taxId);

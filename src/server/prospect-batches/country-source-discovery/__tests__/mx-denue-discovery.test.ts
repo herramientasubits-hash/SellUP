@@ -22,6 +22,7 @@ import {
 } from '../mx-denue-macro-table';
 import {
   buildMxDenueDiscoveryAdapter,
+  completeGenericStateGovernmentName,
   denueWebsiteToDomain,
   MX_DENUE_DISCOVERY_MAX_ROWS,
   MX_DENUE_DISCOVERY_SOURCE_KEY,
@@ -317,5 +318,28 @@ describe('capacidad y puerta previa al pago con México', () => {
     assert.equal(result.context.residualGap, 0);
     assert.equal(result.context.providerRequired, false);
     assert.equal(result.acceptedCompanies.length, 2);
+  });
+});
+
+describe('«GOBIERNO DEL ESTADO» sin estado (SOURCES-MX-RFC-PUBLIC-LISTS-1)', () => {
+  it('se completa con el estado de la ubicación; los demás nombres no cambian', () => {
+    assert.equal(completeGenericStateGovernmentName('GOBIERNO DEL ESTADO', 'SONORA'), 'GOBIERNO DEL ESTADO DE SONORA');
+    assert.equal(completeGenericStateGovernmentName('Gobierno del Estado Libre y Soberano', 'Jalisco'), 'Gobierno del Estado Libre y Soberano DE JALISCO');
+    assert.equal(completeGenericStateGovernmentName('GOBIERNO DEL ESTADO DE JALISCO', 'JALISCO'), 'GOBIERNO DEL ESTADO DE JALISCO');
+    assert.equal(completeGenericStateGovernmentName('SECRETARIA DE SALUD', 'TABASCO'), 'SECRETARIA DE SALUD');
+    assert.equal(completeGenericStateGovernmentName('GOBIERNO DEL ESTADO', null), 'GOBIERNO DEL ESTADO');
+  });
+
+  it('dos gobiernos estatales con el mismo nombre genérico quedan como dos empresas', async () => {
+    const generic = { name: 'GOBIERNO DEL ESTADO', legalName: 'GOBIERNO DEL ESTADO', website: null };
+    const { reads } = fakeReads({
+      '7': [
+        est('g1', { ...generic, location: ', Hermosillo, SONORA' }),
+        est('g2', { ...generic, location: ', Guadalajara, JALISCO' }),
+        est('g3', { ...generic, location: ', Cajeme, SONORA' }),
+      ],
+    });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(result.companies.map((c) => c.legalName), ['GOBIERNO DEL ESTADO DE SONORA', 'GOBIERNO DEL ESTADO DE JALISCO']);
   });
 });

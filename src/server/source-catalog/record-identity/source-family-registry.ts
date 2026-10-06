@@ -35,6 +35,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   ar_rns: 'TAX_GRAIN',
   // SOURCES-AR-CUIT-BY-NAME-1 — un CUIT, una fila (todas las sociedades activas del RNS).
   ar_rns_registry: 'TAX_GRAIN',
+  // SOURCES-AR-E2E-1 — un CUIT, una fila (sociedades activas con ≥100 trabajadores en ATP 2020).
+  ar_atp_employers: 'TAX_GRAIN',
   // SOURCES-PE-RUC-BY-NAME-1 — un RUC, una fila (sociedades activas y habidas de SUNAT).
   pe_sunat_registry: 'TAX_GRAIN',
   // SOURCES-PY-RUC-BY-NAME-1 — un RUC, una fila (sociedades activas del padrón de la SET).
@@ -47,6 +49,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-ES-NIF-BY-NAME-1 — un NIF, una fila (sociedades adjudicatarias en España).
   es_placsp_registry: 'TAX_GRAIN',
   mx_compranet_rfc_registry: 'TAX_GRAIN',
+  // SOURCES-MX-RFC-PUBLIC-LISTS-1 — un RFC, una fila (importadores, donatarias SAT, proveedores NL).
+  mx_rfc_public_lists_registry: 'TAX_GRAIN',
   pa_panamacompra_ruc_registry: 'TAX_GRAIN',
   hn_ocds_rtn_registry: 'TAX_GRAIN',
   // SOURCES-CL-RUT-BY-NAME-1 — un RUT, una fila (sociedades del Registro de Empresas y Sociedades).

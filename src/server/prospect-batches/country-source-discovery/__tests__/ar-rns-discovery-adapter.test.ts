@@ -20,6 +20,7 @@ import {
   AR_RNS_DISCOVERY_MAX_ROWS,
   AR_RNS_DISCOVERY_SOURCE_KEY,
   buildArRnsDiscoveryAdapter,
+  interleaveByOrigin,
   type ArRnsDiscoveryReads,
   type ArRnsSnapshotReadRow,
 } from '../ar-rns-discovery-adapter';
@@ -186,6 +187,48 @@ describe('buildArRnsDiscoveryAdapter', () => {
   });
 });
 
+describe('dos orígenes intercalados (SOURCES-AR-E2E-1)', () => {
+  it('alterna proveedoras y empleadores respetando el orden de cada lista', () => {
+    const p = [row(1), row(2), row(3)];
+    const e = [row(11, { origin: 'employer' }), row(12, { origin: 'employer' })];
+    assert.deepEqual(
+      interleaveByOrigin([...p, ...e]).map((r) => r.record_identity_key),
+      ['tax:1', 'tax:11', 'tax:2', 'tax:12', 'tax:3'],
+    );
+  });
+
+  it('una CUIT en las dos cargas sale una sola vez y el tope se respeta', async () => {
+    const shared = row(1);
+    const rows = [
+      shared,
+      row(2),
+      { ...shared, origin: 'employer' as const, record_identity_key: 'tax:1-atp' },
+      row(13, { origin: 'employer' }),
+      row(14, { origin: 'employer' }),
+    ];
+    const result = await buildArRnsDiscoveryAdapter(fakeReads(rows).reads)({
+      countryCode: 'AR',
+      macroIndustryKey: 'technology',
+      limit: 3,
+    });
+    assert.deepEqual(
+      result.companies.map((c) => c.recordIdentityKey),
+      ['tax:1', 'tax:2', 'tax:13'],
+    );
+    assert.equal(result.recordsRead, rows.length);
+  });
+
+  it('si una carga está vacía, la otra llena sola', async () => {
+    const rows = [row(11, { origin: 'employer' }), row(12, { origin: 'employer' })];
+    const result = await buildArRnsDiscoveryAdapter(fakeReads(rows).reads)({
+      countryCode: 'AR',
+      macroIndustryKey: 'technology',
+      limit: 5,
+    });
+    assert.equal(result.companies.length, 2);
+  });
+});
+
 describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
   type Call = { method: string; args: unknown[] };
 
@@ -211,7 +254,7 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
     return { client: builder as unknown as SupabaseClient, calls };
   }
 
-  it('lee sólo ar_rns / AR de la macro pedida, por importe descendente y CUIT, con tope', async () => {
+  it('lee ar_rns y ar_atp_employers / AR de la macro pedida, por puntaje y CUIT, con tope', async () => {
     const { client, calls } = fakeClient({
       data: [
         {
@@ -232,18 +275,20 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       limit: 50,
     });
 
+    const expected = {
+      record_identity_key: 'tax:1',
+      cuit: '30500001001',
+      legal_name: 'EMPRESA A',
+      normalized_legal_name: 'EMPRESA A',
+      sector: 'Informática',
+      city: 'CAPITAL FEDERAL',
+      region: 'CABA',
+      activity_code: '620100',
+      priority_score: 99.5,
+    };
     assert.deepEqual(rows, [
-      {
-        record_identity_key: 'tax:1',
-        cuit: '30500001001',
-        legal_name: 'EMPRESA A',
-        normalized_legal_name: 'EMPRESA A',
-        sector: 'Informática',
-        city: 'CAPITAL FEDERAL',
-        region: 'CABA',
-        activity_code: '620100',
-        priority_score: 99.5,
-      },
+      { origin: 'procurement', ...expected },
+      { origin: 'employer', ...expected },
     ]);
     assert.deepEqual(calls[0], { method: 'from', args: ['source_company_snapshots'] });
     const eqs = calls.filter((c) => c.method === 'eq').map((c) => c.args);
@@ -251,12 +296,19 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       ['source_key', 'ar_rns'],
       ['country_code', 'AR'],
       ['raw_data->>macro_industry_key', 'technology'],
+      ['source_key', 'ar_atp_employers'],
+      ['country_code', 'AR'],
+      ['raw_data->>macro_industry_key', 'technology'],
     ]);
-    assert.deepEqual(calls.filter((c) => c.method === 'order').map((c) => c.args), [
+    const order = [
       ['priority_score', { ascending: false }],
       ['normalized_tax_id', { ascending: true }],
-    ]);
-    assert.deepEqual(calls.at(-1), { method: 'limit', args: [50] });
+    ];
+    assert.deepEqual(calls.filter((c) => c.method === 'order').map((c) => c.args), [...order, ...order]);
+    assert.deepEqual(
+      calls.filter((c) => c.method === 'limit').map((c) => c.args),
+      [[50], [50]],
+    );
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {
