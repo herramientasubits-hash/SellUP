@@ -140,7 +140,40 @@ async function checkDuplicateStrict(
   return { status: result.status, summary: result.summary };
 }
 
+/**
+ * SOURCES-EC-CLOSE-2 — fuentes con el nombre comercial y la sigla OFICIALES por
+ * número fiscal, por país. Sólo lectura, una consulta acotada por empresa.
+ */
+const OFFICIAL_NAME_SOURCE_KEYS: Readonly<Record<string, readonly string[]>> = {
+  EC: ['ec_sri_trade_name_registry', 'ec_scvs_alias_registry'],
+};
+
+async function loadOfficialNames(input: { countryCode: string; taxId: string }): Promise<string[]> {
+  const sourceKeys = OFFICIAL_NAME_SOURCE_KEYS[input.countryCode];
+  if (!sourceKeys) return [];
+  try {
+    const { data, error } = await createSupabaseAdminClient()
+      .from('source_company_snapshots')
+      .select('normalized_legal_name')
+      .eq('country_code', input.countryCode)
+      .in('source_key', [...sourceKeys])
+      .eq('normalized_tax_id', input.taxId)
+      .limit(5);
+    if (error || !Array.isArray(data)) return [];
+    return [
+      ...new Set(
+        (data as Array<{ normalized_legal_name: string | null }>)
+          .map((row) => row.normalized_legal_name?.trim() ?? '')
+          .filter((name) => name.length >= 3),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
+  officialNames: loadOfficialNames,
   findWebsite: (input, active) =>
     findOfficialWebsite(
       input,
@@ -172,7 +205,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadDispositions: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_discarded_dispositions')
-        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
+        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin, provider_identifier')
         .eq('batch_id', batchId)
         .eq('status', 'discarded')
         .in('reason_code', reasonCodes);
@@ -199,7 +232,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
           .eq('metadata->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
         admin
           .from('prospect_discarded_dispositions')
-          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
+          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin, provider_identifier')
           .eq('batch_id', batchId)
           .eq('status', 'discarded')
           .eq('evidence->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),

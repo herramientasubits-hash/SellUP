@@ -69,6 +69,11 @@ export type RescueContext = {
   /** El tamaño ya viene confirmado por el proveedor (p. ej. Lusha): Claude no lo contradice. */
   sizeAlreadyConfirmed?: boolean;
   /**
+   * SOURCES-EC-CLOSE-2 — el tamaño lo midió la fuente OFICIAL de la capa gratuita
+   * (`officialSizeSignal`): cuenta como dato confirmado para pasar a revisión.
+   */
+  officialSizeMeasured?: boolean;
+  /**
    * El filtro ICP del asistente ya dejó pasar la fila por tamaño (`icp_size_gate.decision='pass'`).
    * Sólo sirve para REASIGNAR la industria: no resuelve la condición de tamaño de la meta.
    */
@@ -270,7 +275,12 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
   const sectorMismatchUnconfirmed =
     sector === 'unknown' &&
     (result.sector?.matchesCurrentIndustry === false || result.requestedIndustryFit?.fits === false);
-  if (sector !== 'pass' && size !== 'pass' && !linkedinConfirmed) {
+  // SOURCES-EC-CLOSE-2 — el tamaño medido por la fuente OFICIAL (capa gratuita de EC,
+  // CL, RD) también es un dato confirmado: antes se le pedía a Claude no decidir por
+  // tamaño y, con eso, la empresa grande se quedaba en Descartadas si la web no decía
+  // el sector (Prod 06-10, EC×Tec 0ef658fd: Cartimex, Computron, Movilcelistic con web
+  // correcta). Pasa a revisión con el aviso de sector sin confirmar.
+  if (sector !== 'pass' && size !== 'pass' && !ctx.officialSizeMeasured && !linkedinConfirmed) {
     return { kind: 'unchanged', why: 'sector_unknown', ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}) };
   }
   return {

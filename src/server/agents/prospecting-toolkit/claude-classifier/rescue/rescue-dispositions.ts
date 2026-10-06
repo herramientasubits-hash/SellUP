@@ -16,10 +16,14 @@ import {
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
 import {
   isDomainSearchCandidate,
+  DOMAIN_SEARCH_REASON_CODE,
+  readFoundWebsite,
+  websiteNotFoundBeforeOfficialNames,
   websiteNotFoundByAccountError,
   websiteNotFoundWithOlderSearch,
 } from './domain-search';
 import type { RescueDecision } from './rescue-decision';
+import { officialSizeSignal } from './official-size-signal';
 import {
   buildLinkedInEnrichmentFromClaude,
   buildIcpSizeGatePass,
@@ -58,9 +62,33 @@ export type RescuableDispositionRow = {
   evidence: Record<string, unknown> | null;
   /** `free_source` ⇒ vino del buscador gratuito oficial del país. */
   round_origin?: string | null;
+  /** `tax:<número fiscal>` cuando vino de un registro oficial (SOURCES-EC-CLOSE-2). */
+  provider_identifier?: string | null;
 };
 
 type Evidence = Record<string, unknown>;
+
+/**
+ * SOURCES-EC-CLOSE-2 — marca en `claude_rescue` de una fila que se quedó en Descartadas
+ * decidida YA con la regla del tamaño oficial (la capa gratuita vuelve a revisión sin
+ * sector confirmado si sólo le faltaba la web).
+ */
+export const OFFICIAL_SIZE_RULE_MARKER = 'official_size_rule' as const;
+
+/**
+ * Del buscador gratuito, descartada sólo por falta de web, con la web YA encontrada y
+ * tamaño oficial medido, que se quedó sin cambio ANTES de esa regla: vale una vuelta
+ * más (sólo la clasificación; la web no se vuelve a buscar). Prod 06-10, EC×Tec
+ * 0ef658fd: Cartimex, Computron, Movilcelistic.
+ */
+export function keptBeforeOfficialSizeRule(row: RescuableDispositionRow): boolean {
+  if (row.domain || row.reason_code !== DOMAIN_SEARCH_REASON_CODE) return false;
+  const fromFreeLayer = row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true;
+  if (!officialSizeSignal({ countryCode: row.country_code, fromFreeLayer }).measured) return false;
+  const rescue = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
+  if (rescue?.decision !== 'unchanged' || rescue[OFFICIAL_SIZE_RULE_MARKER] === true) return false;
+  return readFoundWebsite(row.evidence ?? null) !== null;
+}
 
 export function needsDispositionRescue(
   row: RescuableDispositionRow,
@@ -75,6 +103,8 @@ export function needsDispositionRescue(
   if (!rescuable) return false;
   if (!row.domain && websiteNotFoundWithOlderSearch(row.evidence)) return true;
   if (!row.domain && websiteNotFoundByAccountError(row.evidence)) return true;
+  if (!row.domain && websiteNotFoundBeforeOfficialNames(row)) return true;
+  if (keptBeforeOfficialSizeRule(row)) return true;
   return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }
 
