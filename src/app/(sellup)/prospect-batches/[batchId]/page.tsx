@@ -19,18 +19,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
 import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
 import { ClaudeClassifyBatchButton } from '@/components/prospect-batches/claude-classify-batch-button';
-import { ClaudeRescueBatchButton } from '@/components/prospect-batches/claude-rescue-batch-button';
-import { ClaudeCompanySearchButton } from '@/components/prospect-batches/claude-company-search-button';
-import {
-  isAgent1ClaudeClassifierEnabled,
-  isAgent1ClaudeCompanySearchEnabled,
-  isAgent1ClaudeRescueEnabled,
-} from '@/lib/feature-flags.server';
+import { isAgent1ClaudeClassifierEnabled, isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import { countClaudeClassificationEligible } from '@/server/agents/prospecting-toolkit/claude-classifier/classification-metadata';
 import {
   getProspectBatchById,
@@ -223,10 +216,9 @@ export default async function BatchDetailPage({ params }: Props) {
                 batch.metadata?.source_key === 'cl_res') && (
                 <RehydrateBatchButton batchId={batch.id} />
               )}
-            {isAdmin && isAgent1ClaudeRescueEnabled() && <ClaudeRescueBatchButton batchId={batch.id} />}
-            {isAdmin && isAgent1ClaudeCompanySearchEnabled() && batch.source === 'agent_1' && (
-              <ClaudeCompanySearchButton batchId={batch.id} />
-            )}
+            {/* Dueña 06-10: sin «Completar con Claude», «Buscar más con Claude» ni
+                «Agregar empresa candidata» en el lote. El rescate con Claude corre
+                solo al terminar la búsqueda y se relanza mientras quede trabajo. */}
             {isAdmin && !isAgent1ClaudeRescueEnabled() && claudeEligibleCount > 0 && (
               <ClaudeClassifyBatchButton batchId={batch.id} eligibleCount={claudeEligibleCount} />
             )}
@@ -237,7 +229,6 @@ export default async function BatchDetailPage({ params }: Props) {
               batch.converted_count === 0 && (
                 <RollbackBatchDialog batchId={batch.id} batchName={batch.name} />
               )}
-            <CreateCandidateDrawer batchId={batch.id} />
           </div>
         }
       />
