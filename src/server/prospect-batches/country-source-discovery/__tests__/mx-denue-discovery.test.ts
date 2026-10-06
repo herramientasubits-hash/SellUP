@@ -22,6 +22,7 @@ import {
 } from '../mx-denue-macro-table';
 import {
   buildMxDenueDiscoveryAdapter,
+  completeGenericPublicEntityName,
   completeGenericStateGovernmentName,
   denueWebsiteToDomain,
   MX_DENUE_DISCOVERY_MAX_ROWS,
@@ -341,5 +342,34 @@ describe('«GOBIERNO DEL ESTADO» sin estado (SOURCES-MX-RFC-PUBLIC-LISTS-1)', (
     });
     const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
     assert.deepEqual(result.companies.map((c) => c.legalName), ['GOBIERNO DEL ESTADO DE SONORA', 'GOBIERNO DEL ESTADO DE JALISCO']);
+  });
+});
+
+describe('organismos públicos genéricos y sucursales de institución (SOURCES-MX-DENUE-QUALITY-1)', () => {
+  it('IMSS e ISSSTE: la sucursal es la institución', () => {
+    assert.equal(completeGenericPublicEntityName('IMSS CLINICA 76', 'MÉXICO', 'Ecatepec de Morelos'), 'INSTITUTO MEXICANO DEL SEGURO SOCIAL');
+    assert.equal(completeGenericPublicEntityName('ISSSTE HOSPITAL REGIONAL', 'JALISCO', 'Zapopan'), 'INSTITUTO DE SEGURIDAD Y SERVICIOS SOCIALES DE LOS TRABAJADORES DEL ESTADO');
+    assert.equal(completeGenericPublicEntityName('IMSS BIENESTAR HOSPITAL RURAL', 'OAXACA', 'Tlacolula'), 'IMSS BIENESTAR HOSPITAL RURAL', 'IMSS-Bienestar es otro organismo');
+    assert.equal(completeGenericPublicEntityName('PEMEX SERVICIO LAS FLORES', 'JALISCO', 'Guadalajara'), 'PEMEX SERVICIO LAS FLORES', 'gasolinera privada: no se toca');
+  });
+
+  it('organismo estatal genérico → con su estado; la Secretaría de Salud en CDMX es la federal', () => {
+    assert.equal(completeGenericPublicEntityName('SECRETARIA DE SALUD', 'TABASCO', 'Centro'), 'SECRETARIA DE SALUD DE TABASCO');
+    assert.equal(completeGenericPublicEntityName('SERVICIOS DE SALUD', 'VERACRUZ DE IGNACIO DE LA LLAVE', 'Xalapa'), 'SERVICIOS DE SALUD DE VERACRUZ DE IGNACIO DE LA LLAVE');
+    assert.equal(completeGenericPublicEntityName('PODER JUDICIAL DEL ESTADO', 'NUEVO LEÓN', 'Monterrey'), 'PODER JUDICIAL DEL ESTADO DE NUEVO LEÓN');
+    assert.equal(completeGenericPublicEntityName('SECRETARIA DE SALUD', 'CIUDAD DE MÉXICO', 'Cuauhtémoc'), 'SECRETARIA DE SALUD');
+    assert.equal(completeGenericPublicEntityName('SECRETARIA DE SALUD DE MICHOACAN', 'MICHOACÁN DE OCAMPO', 'Morelia'), 'SECRETARIA DE SALUD DE MICHOACAN');
+  });
+
+  it('ayuntamiento o municipio genérico → con su municipio', () => {
+    assert.equal(completeGenericPublicEntityName('H. AYUNTAMIENTO', 'MÉXICO', 'Tlalnepantla de Baz'), 'H. AYUNTAMIENTO DE TLALNEPANTLA DE BAZ');
+    assert.equal(completeGenericPublicEntityName('PRESIDENCIA MUNICIPAL', 'JALISCO', null), 'PRESIDENCIA MUNICIPAL');
+  });
+
+  it('sucursales del IMSS con nombre comercial distinto quedan como UNA empresa', async () => {
+    const imss = (id: string, name: string) => est(id, { name, legalName: null, website: null, location: ', Ecatepec de Morelos, MÉXICO' });
+    const { reads } = fakeReads({ '7': [imss('i1', 'IMSS CLINICA 76'), imss('i2', 'IMSS HOSPITAL GENERAL DE ZONA 68')] });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(result.companies.map((c) => c.legalName), ['INSTITUTO MEXICANO DEL SEGURO SOCIAL']);
   });
 });

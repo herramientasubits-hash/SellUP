@@ -681,7 +681,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) y, si no, en las listas del SAT y Nuevo León (mx_rfc_public_lists_registry), antes de revisar duplicados, y lo trae sólo con coincidencia segura (como el nombre de DENUE es oficial, un nombre de una sola palabra como «AXTEL» vale si hay UN solo RFC con ese nombre; decisión de la dueña 06-10). Los «GOBIERNO DEL ESTADO» sin estado se completan con el estado de la ubicación.',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) y, si no, en las listas del SAT y Nuevo León (mx_rfc_public_lists_registry), antes de revisar duplicados, y lo trae sólo con coincidencia segura (como el nombre de DENUE es oficial, un nombre de una sola palabra como «AXTEL» vale si hay UN solo RFC con ese nombre; decisión de la dueña 06-10). Los organismos públicos genéricos se completan con su estado o municipio («GOBIERNO DEL ESTADO», «SECRETARIA DE SALUD», «H. AYUNTAMIENTO»…) y las sucursales del IMSS y del ISSSTE cuentan como la institución.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -837,7 +837,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
       'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
       'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…); «A.C.» con puntos cuenta igual que «AC» desde el 05-10; desde el 06-10 también se quitan IAP / IBP / ABP (asistencia y beneficencia privada), SPR (producción rural) y la forma escrita de cualquier manera («SA CV», «S A P I DE CV», «S DE P.R. DE R.L.», «SAPI DE CV SOFOM ENR»…).',
-      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
+      'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC: MICRO (0–10) y PEQUEÑA (11–50) descartan por pequeña; MEDIANA y GRANDE no deciden solas.',
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
@@ -864,7 +864,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Sólo empresas que importan/exportan, donatarias autorizadas o proveedoras de Nuevo León: una empresa que no aparece no significa que no exista.',
       'El padrón de importadores se publica en PDF (2.130 páginas): la carga lo extrae con scripts/source-catalog/extract-mx-rfc-public-lists.py.',
       'Nunca personas físicas (RFC de 13 caracteres). No se guardan teléfonos, correos, domicilios ni representantes.',
-      'La estratificación sólo existe para proveedores de Nuevo León y es la que declaró la empresa: pista de tamaño, no dato confirmado.',
+      'La estratificación sólo existe para proveedores de Nuevo León y es la que declaró la empresa: pista de tamaño, no dato confirmado. Desde el 06-10 llega al gate ICP de tamaño junto con el RFC (MICRO y PEQUEÑA descartan por pequeña).',
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
