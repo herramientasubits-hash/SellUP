@@ -18,6 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evaluateSendToReviewEligibility, type SendToReviewRejectReason } from './send-to-review-eligibility';
 import { toCandidateSourcePrimary } from './mapping';
+import { fiscalIdentityFromDisposition } from './fiscal-identity-from-disposition';
 import { DISCARD_DISPOSITION_LABELS, type DiscardDispositionCode } from './types';
 
 export interface SendToReviewCoreDeps {
@@ -204,6 +205,7 @@ export async function sendDispositionToReviewCore(
     candidate_id: string | null;
     status: string;
     resulting_candidate_id: string | null;
+    provider_identifier: string | null;
     name: string;
     domain: string | null;
     country_code: string | null;
@@ -290,6 +292,13 @@ export async function sendDispositionToReviewCore(
       record_origin: 'production',
       review_notes: origin ? origin.reviewNote : buildOverrideReviewNote(disp.disposition, disp.reason_detail),
       ...(origin?.columns ?? {}),
+      // SOURCES-FREE-DISCARDS-KEEP-CUIT-1 — número fiscal y razón social de las
+      // filas del buscador gratuito oficial (vacío para todo lo demás).
+      ...fiscalIdentityFromDisposition({
+        sourcePrimary: disp.source_primary,
+        providerIdentifier: disp.provider_identifier,
+        evidence: disp.evidence,
+      }),
       metadata: {
         ...(origin ? { sent_to_review_by_system: origin.kind } : { human_override: true }),
         sent_to_review_from: 'discarded_disposition',

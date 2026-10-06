@@ -1712,11 +1712,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Carga PENDIENTE de autorización: 2.851 sociedades activas con 100 o más trabajadores en ATP 2020 (prueba en seco del 05-10 contra el registro cargado). Tras cargar, pasar a operational_verified con la cifra real.',
+      '2.851 sociedades activas con 100 o más trabajadores en ATP 2020 cargadas (06-10, autorizada; verificada por lectura: Swiss Medical, Hospital Italiano, Galeno, Farmacity, Falabella). El Agente 1 las propone intercaladas con las proveedoras del Estado. Sin sitio web: van a Descartadas y el buscador de sitio de Claude intenta rescatarlas; al pasar a revisión conservan su CUIT.',
     countryCodes: ['AR'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://datos.gob.ar/',
     automationLevel: 'high',
