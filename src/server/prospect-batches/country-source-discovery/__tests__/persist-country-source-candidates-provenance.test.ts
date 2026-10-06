@@ -16,6 +16,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { persistCountrySourceCandidates } from '../persist-country-source-candidates';
@@ -533,5 +535,14 @@ describe('SOURCES-FREE-LAYER-IDENTITY-CLAIMS-1 — lo que escribe la capa gratui
       assert.equal(result.writtenCount, 1);
     }
   });
-});
 
+  it('🔴 en producción el reclamo usa el cliente de service_role, nunca el de la sesión (Prod 06-10: 403)', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/server/prospect-batches/country-source-discovery/persist-country-source-candidates.ts'),
+      'utf8',
+    );
+    assert.match(src, /input\.claimIdentities \?\? claimWithServiceRole/);
+    assert.match(src, /claimGlobalIdentitiesForPersistedCandidates\(createSupabaseAdminClient\(\), batchId, candidateIds\)/);
+    assert.doesNotMatch(src, /claimIdentities \?\? claimGlobalIdentitiesForPersistedCandidates/);
+  });
+});

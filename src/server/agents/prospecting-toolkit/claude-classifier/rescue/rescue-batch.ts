@@ -65,7 +65,13 @@ import {
   type RescuableDispositionRow,
 } from './rescue-dispositions';
 
-export const RESCUE_CONCURRENCY = 4;
+/**
+ * Empresas a la vez. 6 (antes 4) por decisión de la dueña (06-10): en Chile ×
+ * Salud y Chile × Tecnología el rescate en segundo plano sólo alcanzaba ~15 de 50
+ * dentro del tiempo de la búsqueda. Cada empresa espera sobre todo a la red
+ * (búsqueda web de Claude, descarga de páginas); sin 429 de Anthropic medidos con 4.
+ */
+export const RESCUE_CONCURRENCY = 6;
 /** Empresas por corrida en segundo plano (el resto queda para la próxima). */
 export const RESCUE_MAX_COMPANIES_PER_RUN = 60;
 /** Después de esto no se empieza ninguna empresa nueva (cabe en 300 s de Vercel). */

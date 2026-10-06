@@ -37,6 +37,7 @@ import {
   claimGlobalIdentitiesForPersistedCandidates,
   type PersistedGlobalIdentityClaimOutcome,
 } from '@/server/prospect-batches/global-identity-claims-store';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveCountrySourceCapability } from './country-source-capability';
 import {
   CO_SIIS_DISCOVERY_BATCH_SOURCE,
@@ -193,7 +194,7 @@ export async function persistCountrySourceCandidates(
     const duplicatedElsewhere = await claimFreeLayerIdentities(
       client,
       report.batch.id,
-      input.claimIdentities ?? claimGlobalIdentitiesForPersistedCandidates,
+      input.claimIdentities ?? claimWithServiceRole,
     );
     return {
       batchId: report.batch.id,
@@ -205,6 +206,19 @@ export async function persistCountrySourceCandidates(
     return { batchId: input.batchId ?? null, writtenCount: 0, skippedCount: 0, failed: true };
   }
 }
+
+/**
+ * El reclamo SIEMPRE con el cliente de service_role de la factoría aprobada.
+ * `claim_company_identities` es SECURITY INVOKER y la tabla de reclamos sólo
+ * admite service_role (RLS): con el cliente de la sesión del asistente devolvía
+ * 403 y no reclamaba nada (Prod 06-10 19:01Z, RD 0abfa194, aviso de la sesión RD).
+ * Apollo y el rescate ya reclaman así.
+ */
+const claimWithServiceRole: NonNullable<PersistCountrySourceCandidatesInput['claimIdentities']> = (
+  _sessionClient,
+  batchId,
+  candidateIds,
+) => claimGlobalIdentitiesForPersistedCandidates(createSupabaseAdminClient(), batchId, candidateIds);
 
 /**
  * Reclama las identidades de las filas de la capa gratuita del lote y devuelve
@@ -229,8 +243,17 @@ async function claimFreeLayerIdentities(
       .filter((id): id is string => typeof id === 'string');
     if (ids.length === 0) return 0;
     const outcome = await claim(client, batchId, ids);
-    return outcome.degraded ? 0 : outcome.claimedElsewhere.length;
-  } catch {
+    if (outcome.degraded) {
+      // Nunca en silencio: sin reclamo, la misma empresa puede entrar dos veces.
+      console.warn('[free-layer] identity claim degraded', { batchId, candidates: ids.length });
+      return 0;
+    }
+    return outcome.claimedElsewhere.length;
+  } catch (err) {
+    console.warn('[free-layer] identity claim failed', {
+      batchId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return 0;
   }
 }
