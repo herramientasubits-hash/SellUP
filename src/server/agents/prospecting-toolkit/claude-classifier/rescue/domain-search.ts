@@ -44,9 +44,11 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * no saliera de la búsqueda, siempre que la página que bajamos lo confirme; y una
  * redirección a otro dominio vale si ese dominio lleva el nombre (indracompany.com →
  * indragroup.com). Medido en Chile (bd751c34) y Argentina (17da92cf). d6 (06-10): PISTA
- * sin confirmar — ver `unverifiedWebsiteHint`.
+ * sin confirmar — ver `unverifiedWebsiteHint`. d7 (06-10): el nombre corto quita las letras
+ * sueltas («HEXACTA S. R. L.» → «hexacta») y «company»; los «no encontrado» de d6 se
+ * reintentan una vez.
  */
-export const DOMAIN_SEARCH_VERSION = 'd6';
+export const DOMAIN_SEARCH_VERSION = 'd7';
 
 /**
  * PISTA (decisión de la dueña, 06-10-2026, «si pista»): la web que Claude propuso pero
@@ -159,7 +161,7 @@ export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'r
 const REGISTRY_NAME_FILLER_WORDS: ReadonlySet<string> = new Set([
   // formas societarias
   's', 'a', 'sa', 'spa', 'ltda', 'limitada', 'sociedad', 'anonima', 'cia', 'compania', 'eirl', 'srl', 'sac',
-  'sas', 'cv', 'saa', 'sl', 'inc', 'llc', 'corp',
+  'sas', 'cv', 'saa', 'sl', 'inc', 'llc', 'corp', 'company', 'corporation', 'corporacion',
   // conectores
   'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'para',
   // países
@@ -183,7 +185,8 @@ export function registryNameCore(name: string | null | undefined): string | null
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  const kept = words.filter((w) => !REGISTRY_NAME_FILLER_WORDS.has(w));
+  // Letras sueltas fuera: «S. R. L.» llega como s, r, l (AR 17da92cf: «HEXACTA S. R. L.»).
+  const kept = words.filter((w) => w.length > 1 && !REGISTRY_NAME_FILLER_WORDS.has(w));
   if (kept.length === 0 || kept.length === words.length) return null;
   const core = kept.join(' ');
   return core.replace(/\s/g, '').length >= 3 ? core : null;
