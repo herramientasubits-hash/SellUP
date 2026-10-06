@@ -836,7 +836,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
       'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
-      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…); «A.C.» con puntos cuenta igual que «AC» desde el 05-10.',
+      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…); «A.C.» con puntos cuenta igual que «AC» desde el 05-10; desde el 06-10 también se quitan IAP / IBP / ABP (asistencia y beneficencia privada) y SPR (producción rural).',
       'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
     ],
     riskNotes: [
