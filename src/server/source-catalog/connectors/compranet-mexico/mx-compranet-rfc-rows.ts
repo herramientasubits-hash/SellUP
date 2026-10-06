@@ -48,6 +48,20 @@ export const MX_COMPRANET_LEGAL_FORMS: readonly string[] = [
   // «A.C.» con puntos se normaliza a «A C»; sin esta forma «UNIVERSIDAD OLMECA A.C.»
   // y «UNIVERSIDAD OLMECA AC» no coincidían (SOURCES-MX-FREE-LAYER-RFC-1).
   'A C',
+  // Instituciones y asociaciones de asistencia/beneficencia privada (donatarias:
+  // hospitales, fundaciones) y sociedades de producción rural. Prod 06-10: DENUE
+  // trae «ASOCIACION PARA EVITAR LA CEGUERA EN MEXICO» y el SAT la tiene con «IAP»
+  // (SOURCES-MX-IAP-LEGAL-FORMS-1).
+  'I A P',
+  'IAP',
+  'I B P',
+  'IBP',
+  'A B P',
+  'ABP',
+  'SPR DE RL',
+  'SPR DE RI',
+  'S P R DE R L',
+  'S P R DE R I',
   'SC',
   ...MEXICO_LEGAL_FORMS,
 ];
