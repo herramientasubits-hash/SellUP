@@ -399,18 +399,20 @@ describe('RNC por nombre comercial (sólo pista)', () => {
 
 describe('Catálogo de fuentes', () => {
   const entries = [
-    { key: DO_DGII_SIZE_REGISTRY_SOURCE_KEY, status: 'connected_free_discovery' },
-    { key: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, status: 'connected_identity_in_run' },
+    // La fuente con tamaño quedó verificada de punta a punta el 06-10 (lote cf765b47);
+    // el nombre comercial está cargado pero aún no se ha visto en una corrida real.
+    { key: DO_DGII_SIZE_REGISTRY_SOURCE_KEY, status: 'connected_free_discovery', operational: 'operational_verified' },
+    { key: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, status: 'connected_identity_in_run', operational: 'pending_validation' },
   ] as const;
 
-  for (const { key, status } of entries) {
+  for (const { key, status, operational } of entries) {
     it(`${key}: RD, ${status}, snapshot de sólo lectura, sin «connected» y fuera de las recomendaciones`, () => {
       const source = CATALOG_SOURCES.find((s) => s.key === key);
       assert.ok(source, key);
       assert.deepEqual(source.countryCodes, ['DO']);
       assert.equal(source.aiFlowStatus, status);
       assert.equal(source.connectionMode, 'read_only_snapshot');
-      assert.equal(source.operationalStatus, 'pending_validation', 'hasta que la carga esté hecha y verificada');
+      assert.equal(source.operationalStatus, operational);
       assert.deepEqual(source.sectors, []);
       assert.ok((source.limitations ?? []).length > 0);
       for (const depth of ['basic', 'standard', 'deep'] as const) {
