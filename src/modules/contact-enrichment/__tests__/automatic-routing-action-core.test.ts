@@ -354,6 +354,8 @@ describe('wizard stays compatible with the new outcome', () => {
       attempt2AttemptId: null,
       blockedReason: null,
       reusedExistingCandidates: 1,
+      providerCandidatesCreated: { apollo: 0, lusha: null },
+      failedProviders: [],
     };
     const uiResult: AutomaticRoutingUiResult = serverResult;
     assert.equal(uiResult.status, 'fallback_skipped_local_reuse');
@@ -370,5 +372,76 @@ describe('wizard stays compatible with the new outcome', () => {
     assert.equal(settled.automaticResult?.status, 'fallback_skipped_local_reuse');
     const last = settled.messages[settled.messages.length - 1];
     assert.equal(last.tone, undefined);
+  });
+});
+
+// ── AGENT2A-ZERO-CANDIDATES-MESSAGE (backlog A3/A6) ──────────────────────────
+
+describe('action core reports per-provider candidate counts', () => {
+  it('Apollo with candidates, no fallback → apollo = N, lusha = null', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 4, providerStatus: 'success' }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.equal(result.status, 'no_fallback_needed');
+    assert.deepEqual(result.providerCandidatesCreated, { apollo: 4, lusha: null });
+  });
+
+  it('Apollo 0 + Lusha fallback → both counts reported', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      runLushaAttempt: async () => lushaResult({ candidatesCreated: 2 }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.equal(result.status, 'fallback_executed');
+    assert.deepEqual(result.providerCandidatesCreated, { apollo: 0, lusha: 2 });
+  });
+
+  it('Apollo 0 + Lusha 0 → both zero (search ran, nothing found)', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      runLushaAttempt: async () => lushaResult({ candidatesCreated: 0, status: 'no_reviewable_candidate' }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.deepEqual(result.providerCandidatesCreated, { apollo: 0, lusha: 0 });
+  });
+
+  it('flag off and invalid request → both null (nothing ran)', async () => {
+    const flagOff = harness(baseConfig({ automaticRoutingEnabled: false, mode: 'observe_only' }));
+    const disabled = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, flagOff.deps);
+    assert.deepEqual(disabled.providerCandidatesCreated, { apollo: null, lusha: null });
+
+    const invalid = await runAutomaticContactEnrichmentForRequestCore('', TRIGGERED_BY, EVALUATED_AT);
+    assert.deepEqual(invalid.providerCandidatesCreated, { apollo: null, lusha: null });
+  });
+});
+
+describe('action core reports which sources failed', () => {
+  it('both sources worked (even with 0 results) → []', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      runLushaAttempt: async () => lushaResult({ candidatesCreated: 0, ok: false, status: 'no_reviewable_candidate' }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.deepEqual(result.failedProviders, []);
+  });
+
+  it('Lusha provider_error → ["Lusha"]', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      runLushaAttempt: async () => lushaResult({ candidatesCreated: 0, ok: false, status: 'provider_error' }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.deepEqual(result.failedProviders, ['Lusha']);
+  });
+
+  it('Lusha unavailable for the fallback → ["Lusha"]', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      isFallbackProviderAvailable: async () => false,
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.equal(result.status, 'fallback_provider_unavailable');
+    assert.deepEqual(result.failedProviders, ['Lusha']);
   });
 });

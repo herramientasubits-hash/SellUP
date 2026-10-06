@@ -40,6 +40,52 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
    * fallback decision downstream that would need one.
    */
   reusedExistingCandidates: number;
+  /**
+   * AGENT2A-ZERO-CANDIDATES-MESSAGE (backlog A3/A6) — candidates each provider
+   * actually left in pending_review during THIS routing call. `null` means the
+   * provider did not run (no attempt, provider not called, or no fallback),
+   * which the UI must not confuse with "ran and found 0". The chat message
+   * reports these counts so the user never sees a success message — and never
+   * goes to review — when nothing was created.
+   *
+   * Strictly per provider and separate from `reusedExistingCandidates`: this
+   * is NOT the combined effective-reviewable count that REUSE-1.1 ruled out.
+   */
+  providerCandidatesCreated: AutomaticRoutingCandidatesCreated;
+  /** Sources that failed in this call; [] when every source that ran worked. */
+  failedProviders: AutomaticRoutingProviderName[];
+}
+
+export interface AutomaticRoutingCandidatesCreated {
+  apollo: number | null;
+  lusha: number | null;
+}
+
+export type AutomaticRoutingProviderName = 'Apollo' | 'Lusha';
+
+const LUSHA_NON_FAILURE_STATUSES = new Set(['success', 'no_reviewable_candidate']);
+
+/**
+ * Providers that FAILED in this call (error, missing credentials, unavailable).
+ * "Ran and found 0" is not a failure. The chat only names a source when it
+ * appears here.
+ */
+function deriveFailedProviders(
+  result: Awaited<ReturnType<typeof runAutomaticContactEnrichmentFallbackForRequest>>,
+): AutomaticRoutingProviderName[] {
+  const failed: AutomaticRoutingProviderName[] = [];
+  const apollo = result.attempt1?.result;
+  if (apollo && (apollo.status === 'error' || apollo.providerStatus === 'error')) {
+    failed.push('Apollo');
+  }
+  const lusha = result.attempt2?.result;
+  if (
+    result.outcome === 'fallback_provider_unavailable' ||
+    (lusha && !LUSHA_NON_FAILURE_STATUSES.has(lusha.status))
+  ) {
+    failed.push('Lusha');
+  }
+  return failed;
 }
 
 function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult {
@@ -52,6 +98,8 @@ function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult
     attempt2AttemptId: null,
     blockedReason: 'invalid_request_id',
     reusedExistingCandidates: 0,
+    providerCandidatesCreated: { apollo: null, lusha: null },
+    failedProviders: [],
   };
 }
 
@@ -88,5 +136,13 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     attempt2AttemptId: result.attempt2?.attemptId ?? null,
     blockedReason: result.blockedReason,
     reusedExistingCandidates: result.reusedExistingCandidates,
+    providerCandidatesCreated: {
+      apollo:
+        result.attempt1 && result.outcome !== 'attempt1_provider_not_called'
+          ? result.attempt1.result.candidatesCreated
+          : null,
+      lusha: result.attempt2?.result ? result.attempt2.result.candidatesCreated : null,
+    },
+    failedProviders: deriveFailedProviders(result),
   };
 }
