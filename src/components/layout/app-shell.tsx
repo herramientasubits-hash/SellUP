@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SidebarProvider, useSidebar } from "@/components/layout/sidebar-context";
 import { ShellAgentPanelSlotProvider } from "@/components/layout/shell-agent-panel-slot";
+import { AgentRunsTray } from "@/components/prospect-batches/agent-runs-tray/agent-runs-tray";
 import type { NavAccessContext } from "@/config/navigation";
 
 interface AppShellProps {
@@ -73,6 +74,9 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
           className="relative z-[51] flex h-full shrink-0 empty:hidden"
         />
       </div>
+      {/* Bandeja de búsquedas del Agente IA: vive en el shell para sobrevivir al
+          chat (AGENT1-PARALLEL-RUNS-TRAY-1). Se porta a `body`; vacía no pinta. */}
+      <AgentRunsTray />
     </ShellAgentPanelSlotProvider>
   );
 }
