@@ -14,7 +14,11 @@ import {
   type CompanyClassificationResult,
 } from '../types';
 import type { SendToReviewOrigin } from '@/modules/prospect-discards/send-to-review-core';
-import { isDomainSearchCandidate, websiteNotFoundWithOlderSearch } from './domain-search';
+import {
+  isDomainSearchCandidate,
+  websiteNotFoundByAccountError,
+  websiteNotFoundWithOlderSearch,
+} from './domain-search';
 import type { RescueDecision } from './rescue-decision';
 import {
   buildLinkedInEnrichmentFromClaude,
@@ -68,6 +72,7 @@ export function needsDispositionRescue(
     : domainSearchEnabled && isDomainSearchCandidate(row);
   if (!rescuable) return false;
   if (!row.domain && websiteNotFoundWithOlderSearch(row.evidence)) return true;
+  if (!row.domain && websiteNotFoundByAccountError(row.evidence)) return true;
   return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }
 

@@ -162,6 +162,18 @@ export function websiteNotFoundWithOlderSearch(evidence: Evidence | null): boole
   return search?.search_version !== DOMAIN_SEARCH_VERSION;
 }
 
+/**
+ * «Sitio no encontrado» que en realidad fue la CUENTA de Anthropic caída (saldo,
+ * credenciales): no es un veredicto sobre la empresa y se vuelve a intentar.
+ * Prod 06-10: 8 filas de Chile × Salud (5bbae7eb) agotaron sus 3 intentos así.
+ */
+export function websiteNotFoundByAccountError(evidence: Evidence | null): boolean {
+  const rescue = evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
+  if (rescue?.decision !== 'website_not_found') return false;
+  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { reason?: unknown; error_code?: unknown } | undefined;
+  return search?.reason === 'model_error' && ACCOUNT_ERROR_CODES.has(String(search?.error_code ?? ''));
+}
+
 export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'reason_code'>): boolean {
   return !row.domain && row.reason_code === DOMAIN_SEARCH_REASON_CODE;
 }

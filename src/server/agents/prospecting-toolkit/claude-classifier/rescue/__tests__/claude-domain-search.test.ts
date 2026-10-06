@@ -882,5 +882,30 @@ describe('cuenta de Anthropic caída (Prod 06-10 13:07Z, 194 × http_400)', () =
     assert.ok(searches <= 4, `búsquedas: ${searches}`);
     assert.ok(s.ok);
   });
-});
 
+  it('las filas que ya quedaron «sitio no encontrado» por la cuenta caída vuelven a intentarse', () => {
+    const burned = {
+      ...disposition().evidence,
+      claude_rescue: { decision: 'website_not_found' },
+      [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: {
+        found: false,
+        reason: 'model_error',
+        error_code: 'http_400',
+        attempts: 3,
+        search_version: DOMAIN_SEARCH_VERSION,
+      },
+    };
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: burned }, NOW, true), true);
+    // Un «no encontrado» de verdad (o un error pasajero agotado) sigue siendo final.
+    const real = {
+      ...burned,
+      [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'identity_not_confirmed', search_version: DOMAIN_SEARCH_VERSION },
+    };
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: real }, NOW, true), false);
+    const transient = {
+      ...burned,
+      [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'model_error', error_code: 'http_529', attempts: 3, search_version: DOMAIN_SEARCH_VERSION },
+    };
+    assert.equal(needsDispositionRescue({ ...disposition(), evidence: transient }, NOW, true), false);
+  });
+});
