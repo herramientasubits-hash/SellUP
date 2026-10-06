@@ -11,7 +11,9 @@ import assert from 'node:assert/strict';
 import {
   buildDomainFinderRequestBody,
   domainCarriesName,
+  domainIsNameAcronym,
   findOfficialWebsite,
+  pageConfirmsAcronym,
   FIND_WEBSITE_TOOL_NAME,
   type DomainFinderDeps,
 } from '../../domain-finder';
@@ -637,7 +639,7 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
   });
 
   it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd7');
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd8');
   });
 });
 
@@ -907,5 +909,65 @@ describe('cuenta de Anthropic caída (Prod 06-10 13:07Z, 194 × http_400)', () =
       [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: { found: false, reason: 'model_error', error_code: 'http_529', attempts: 3, search_version: DOMAIN_SEARCH_VERSION },
     };
     assert.equal(needsDispositionRescue({ ...disposition(), evidence: transient }, NOW, true), false);
+  });
+});
+
+describe('d8 — el dominio es la sigla del nombre (Prod 06-10, CL×Salud e4fec102)', () => {
+  const MEDS = 'MEDICINA EJERCICIO DEPORTE Y SALUD S A';
+  const UCM = 'UNIDAD CORONARIA MOVIL S A';
+  const medsText = 'Clínica MEDS: medicina del deporte, ejercicio y salud para deportistas. Agenda tu hora.';
+  const ucmText = 'Unidad Coronaria Móvil: rescate y traslado de pacientes, servicio coronario de urgencia.';
+
+  it('reconoce la sigla, sola o con el país', () => {
+    assert.equal(domainIsNameAcronym('www.meds.cl', [MEDS]), true);
+    assert.equal(domainIsNameAcronym('ucmchile.cl', [UCM]), true);
+    assert.equal(domainIsNameAcronym('ucm.cl', [UCM]), true);
+    // Menos de 3 letras, otra sigla, o alojamiento compartido ⇒ no.
+    assert.equal(domainIsNameAcronym('ab.cl', ['Alfa Beta S A']), false);
+    assert.equal(domainIsNameAcronym('umc.cl', [UCM]), false);
+    assert.equal(domainIsNameAcronym('meds.blogspot.com', [MEDS]), false);
+  });
+
+  it('la página confirma con la sigla en el título y las palabras del nombre en el texto', () => {
+    assert.equal(
+      pageConfirmsAcronym('meds.cl', [MEDS], { title: 'MEDS | Clínica', metaDescription: null, visibleText: medsText }),
+      true,
+    );
+    assert.equal(
+      pageConfirmsAcronym('ucmchile.cl', [UCM], { title: 'UCM Chile', metaDescription: null, visibleText: ucmText }),
+      true,
+    );
+  });
+
+  it('otra organización con la misma sigla NO pasa (UCM = universidad)', () => {
+    const university = 'Universidad Católica del Maule: admisión, carreras de pregrado y postgrado.';
+    assert.equal(
+      pageConfirmsAcronym('ucm.cl', [UCM], { title: 'UCM - Universidad', metaDescription: null, visibleText: university }),
+      false,
+    );
+  });
+
+  it('sin la sigla en el título/descripción no confirma', () => {
+    assert.equal(
+      pageConfirmsAcronym('meds.cl', [MEDS], { title: 'Inicio', metaDescription: null, visibleText: medsText }),
+      false,
+    );
+  });
+
+  it('findOfficialWebsite acepta meds.cl como «acronym_match»', async () => {
+    const html = `<html><head><title>MEDS | Clínica</title></head><body><p>${medsText}${FILLER}</p></body></html>`;
+    const deps = finderDeps(conversation('https://www.meds.cl', ['https://www.meds.cl']), page(html, 'https://www.meds.cl/'));
+    const out = await findOfficialWebsite({ name: MEDS, countryName: 'Chile', countryCode: 'CL', linkedinUrl: null }, MODEL, deps);
+    assert.equal(out.found, true);
+    if (!out.found) return;
+    assert.equal(out.domain, 'meds.cl');
+    assert.equal(out.verification, 'acronym_match');
+  });
+
+  it('findOfficialWebsite rechaza ucm.cl de la universidad', async () => {
+    const html = `<html><head><title>UCM - Universidad</title></head><body><p>Universidad Católica del Maule.${FILLER}</p></body></html>`;
+    const deps = finderDeps(conversation('https://www.ucm.cl', ['https://www.ucm.cl']), page(html, 'https://www.ucm.cl/'));
+    const out = await findOfficialWebsite({ name: UCM, countryName: 'Chile', countryCode: 'CL', linkedinUrl: null }, MODEL, deps);
+    assert.equal(out.found, false);
   });
 });
