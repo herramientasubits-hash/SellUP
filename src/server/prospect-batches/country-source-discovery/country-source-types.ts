@@ -60,6 +60,15 @@ export type CountrySourceCompany = {
     macroIndustryKeys: readonly string[];
     tableVersion: string;
   } | null;
+  /**
+   * SOURCES-MX-FREE-LAYER-RFC-1 — la fuente no publicaba el número fiscal y lo
+   * puso el registro oficial por nombre (sólo con coincidencia fuerte).
+   * Ausente cuando el número venía de la propia fuente.
+   */
+  officialTaxIdLookup?: {
+    sourceKey: string | null;
+    confidence: number | null;
+  } | null;
 };
 
 /** Lo que una fuente de país devuelve para unos criterios. */

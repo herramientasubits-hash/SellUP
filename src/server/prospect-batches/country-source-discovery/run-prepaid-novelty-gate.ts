@@ -26,6 +26,7 @@
  * lo de hoy. Ninguno hace el wizard inservible.
  */
 
+import type { LookUpCountrySourceOfficialTaxId } from './country-source-official-tax-id';
 import {
   buildPrePaidNoveltyContext,
   providerOnlyPrePaidNoveltyContext,
@@ -97,6 +98,8 @@ export type PrePaidNoveltyGateDeps = {
   /** `null` ⇒ el país no tiene fuente gratuita cableada. Fail-open. */
   countrySourceAdapter?: CountrySourceAdapter | null;
   checkCompanyDuplicate?: CheckCountrySourceCompanyDuplicate | null;
+  /** SOURCES-MX-FREE-LAYER-RFC-1 — número fiscal oficial por nombre. Sólo lee. */
+  lookUpOfficialTaxId?: LookUpCountrySourceOfficialTaxId | null;
   listKnownExclusionDomains?: ListKnownExclusionDomains | null;
   /**
    * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró
@@ -390,6 +393,7 @@ export async function runPrePaidNoveltyGate(
     {
       adapter: deps.countrySourceAdapter,
       checkCompanyDuplicate: deps.checkCompanyDuplicate,
+      lookUpOfficialTaxId: deps.lookUpOfficialTaxId ?? null,
     },
   );
 

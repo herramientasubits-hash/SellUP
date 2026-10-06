@@ -85,6 +85,12 @@ export type StructuredDiscoveryProvenance = {
   macro_industry_key?: MacroIndustryKey;
   /** ¿La fuente traía sitio web? Booleano estricto, jamás `'false'`. */
   website_available?: boolean;
+  /**
+   * SOURCES-MX-FREE-LAYER-RFC-1 — el número fiscal no venía en la fuente y lo puso
+   * el registro oficial por nombre (coincidencia fuerte). Sólo clave de fuente y
+   * confianza: el número ya va en su columna.
+   */
+  official_tax_id_lookup?: { source_key: string; confidence: number | null };
 };
 
 /** ¿Es este valor una capa de discovery declarada? */
@@ -124,6 +130,8 @@ function ownValue(record: Record<string, unknown>, key: string): unknown {
  *   - `discovery_layer` sobrevive SÓLO si es una capa declarada;
  *   - `macro_industry_key` sobrevive SÓLO si es clave canónica del catálogo macro;
  *   - `website_available` sobrevive SÓLO si es `boolean` (incluido `false`);
+ *   - `official_tax_id_lookup` sobrevive SÓLO con `source_key` de snake_case y
+ *     `confidence` entre 0 y 1 (o `null`); copia sólo esas dos claves;
  *   - cualquier otra clave NO se copia, exista o no en la entrada;
  *   - un valor inválido se OMITE. No se coacciona, no se trunca, no se serializa.
  *
@@ -151,6 +159,18 @@ export function sanitizeStructuredDiscoveryProvenance(
   const websiteAvailable = ownValue(value, 'website_available');
   if (typeof websiteAvailable === 'boolean') {
     provenance.website_available = websiteAvailable;
+  }
+
+  const lookup = ownValue(value, 'official_tax_id_lookup');
+  if (isPlainRecord(lookup)) {
+    const sourceKey = ownValue(lookup, 'source_key');
+    const confidence = ownValue(lookup, 'confidence');
+    const validConfidence =
+      confidence === null ||
+      (typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1);
+    if (typeof sourceKey === 'string' && /^[a-z0-9_]{1,64}$/.test(sourceKey) && validConfidence) {
+      provenance.official_tax_id_lookup = { source_key: sourceKey, confidence: confidence as number | null };
+    }
   }
 
   return provenance;

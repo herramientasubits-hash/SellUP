@@ -61,6 +61,12 @@ describe('núcleo del nombre mexicano', () => {
     assert.equal(normalizeMexicoCompanyCore('GRUPO BIMBO SAB DE CV'), 'GRUPO BIMBO');
   });
 
+  it('«A.C.» con puntos y «AC» dan el mismo núcleo (SOURCES-MX-FREE-LAYER-RFC-1)', () => {
+    assert.equal(normalizeMexicoCompanyCore('Universidad Olmeca, A.C.'), 'UNIVERSIDAD OLMECA');
+    assert.equal(normalizeMexicoCompanyCore('UNIVERSIDAD OLMECA A. C.'), 'UNIVERSIDAD OLMECA');
+    assert.equal(normalizeMexicoCompanyCore('UNIVERSIDAD OLMECA AC'), 'UNIVERSIDAD OLMECA');
+  });
+
   it('DENUE no cambia: MEXICO_LEGAL_FORMS sigue igual y está incluida', () => {
     assert.equal(MEXICO_LEGAL_FORMS.includes('SA DE CV'), false);
     for (const form of MEXICO_LEGAL_FORMS) assert.ok(MX_COMPRANET_LEGAL_FORMS.includes(form), form);
