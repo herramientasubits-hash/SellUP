@@ -8,7 +8,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { findOfficialWebsite, FIND_WEBSITE_TOOL_NAME, type DomainFinderDeps } from '../../domain-finder';
+import {
+  buildDomainFinderRequestBody,
+  domainCarriesName,
+  findOfficialWebsite,
+  FIND_WEBSITE_TOOL_NAME,
+  type DomainFinderDeps,
+} from '../../domain-finder';
 import type { AnthropicConversationResult, AnthropicRequestBody } from '../../anthropic-messages-client';
 import type { SafePageFetchResult } from '../../../website-verifier';
 import {
@@ -611,9 +617,9 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
     assert.equal(after.found && after.domain, 'accenture.com');
   });
 
-  it('la variante no basta si el sitio no salió de la búsqueda', async () => {
+  it('la variante no basta si el sitio no salió de la búsqueda ni lleva el nombre en el dominio', async () => {
     const html = `<html><head><title>Accenture</title></head><body><p>${FILLER}</p></body></html>`;
-    const url = 'https://www.accenture.com';
+    const url = 'https://www.consultora-global.com';
     const out = await findOfficialWebsite(
       { name: 'ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null, alternateNames: ['accenture'] },
       MODEL,
@@ -622,7 +628,106 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
     assert.deepEqual(out.found ? null : out.reason, 'not_in_search_results');
   });
 
-  it('versión d4: un «no encontrado» de d3 se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd4');
+  it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd5');
   });
 });
+
+describe('d5 — nombre corto para buscar y dominio que lleva el nombre (Chile bd751c34, Argentina 17da92cf)', () => {
+  const page200 = (title: string, url: string) =>
+    page(`<html><head><title>${title}</title></head><body><p>${FILLER}</p></body></html>`, url);
+
+  it('el dominio lleva el nombre: contenido (5+ letras) o al inicio (más corto); nunca un alojamiento compartido', () => {
+    assert.equal(domainCarriesName('www.clarochile.cl', ['claro']), true);
+    assert.equal(domainCarriesName('vtr.com', ['vtr']), true);
+    assert.equal(domainCarriesName('ibm.com', ['ibm']), true);
+    assert.equal(domainCarriesName('www.telecom.com.ar', ['telecom']), true);
+    assert.equal(domainCarriesName('indragroup.com', ['indra']), true);
+    assert.equal(domainCarriesName('stefanini.com', ['stefanini']), true);
+    // Corto y no al inicio ⇒ no («NOW SPA» propuso hynow.cl).
+    assert.equal(domainCarriesName('www.hynow.cl', ['now']), false);
+    assert.equal(domainCarriesName('maconline.com', ['innovacion tecnologia']), false);
+    assert.equal(domainCarriesName('claro.blogspot.com', ['claro']), false);
+    assert.equal(domainCarriesName('clarochile.cl', []), false);
+  });
+
+  it('la entrada lleva el nombre corto para buscar y el prompt lo usa', () => {
+    const input = buildDomainFinderInput(
+      { id: 'd', name: 'VTR COMUNICACIONES SPA', domain: null, country_code: 'CL', reason_code: 'missing_domain_final', evidence: null },
+      null,
+    );
+    assert.equal(input.searchHint, 'vtr');
+    const body = buildDomainFinderRequestBody(input, MODEL);
+    const text = JSON.stringify(body.messages);
+    assert.match(text, /Nombre corto \(sin forma societaria\), úsalo para buscar: vtr/);
+    assert.match(text, /País: Chile/);
+    // Sin variante, el prompt no cambia.
+    const plain = buildDomainFinderRequestBody({ ...INPUT }, MODEL);
+    assert.doesNotMatch(JSON.stringify(plain.messages), /Nombre corto/);
+  });
+
+  it('fuera de la búsqueda vale si el dominio lleva el nombre Y la página lo confirma (vtr.com)', async () => {
+    const url = 'https://www.vtr.com';
+    const base = { name: 'VTR COMUNICACIONES SPA', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null };
+    const before = await findOfficialWebsite(base, MODEL, finderDeps(conversation(url, ['https://otra.cl']), page200('VTR | Internet, TV y telefonía', url)));
+    assert.deepEqual(before.found ? null : before.reason, 'not_in_search_results');
+    const after = await findOfficialWebsite(
+      { ...base, alternateNames: ['vtr'] },
+      MODEL,
+      finderDeps(conversation(url, ['https://otra.cl']), page200('VTR | Internet, TV y telefonía', url)),
+    );
+    assert.equal(after.found && after.verification, 'name_match');
+    assert.equal(after.found && after.inSearchResults, false);
+  });
+
+  it('fuera de la búsqueda, con el nombre en el dominio pero la página dice otra cosa ⇒ no', async () => {
+    const url = 'https://www.vtr.com';
+    const out = await findOfficialWebsite(
+      { name: 'VTR COMUNICACIONES SPA', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null, alternateNames: ['vtr'] },
+      MODEL,
+      finderDeps(conversation(url, ['https://otra.cl']), page200('Dominio en venta', url)),
+    );
+    assert.equal(out.found, false);
+  });
+
+  it('fuera de la búsqueda y sin el nombre en el dominio ⇒ sigue sin valer', async () => {
+    const url = 'https://www.maconline.com';
+    const out = await findOfficialWebsite(
+      { name: 'INNOVACION Y TECNOLOGIA EMPRESARIAL ITEM LIMITADA', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null, alternateNames: ['item'] },
+      MODEL,
+      finderDeps(conversation(url, ['https://otra.cl']), page200('Mac Online | ITEM', url)),
+    );
+    assert.deepEqual(out.found ? null : out.reason, 'not_in_search_results');
+  });
+
+  it('redirección a otro dominio que lleva el nombre: vale si la página lo confirma (indracompany.com → indragroup.com)', async () => {
+    const claimed = 'https://www.indracompany.com';
+    const final = 'https://www.indragroup.com/es';
+    const input = { name: 'INDRA SISTEMAS CHILE S.A.', countryName: 'Chile', countryCode: 'CL', linkedinUrl: null, alternateNames: ['indra'] };
+    const ok = await findOfficialWebsite(input, MODEL, finderDeps(conversation(claimed, [claimed]), page200('Indra Group | Tecnología', final)));
+    assert.equal(ok.found && ok.domain, 'indragroup.com');
+    // Redirección a un dominio sin el nombre ⇒ no.
+    const no = await findOfficialWebsite(input, MODEL, finderDeps(conversation(claimed, [claimed]), page200('Indra', 'https://parked.example')));
+    assert.deepEqual(no.found ? null : no.reason, 'redirected_offsite');
+  });
+
+  it('página que responde casi sin texto (JavaScript): vale su título si el dominio lleva el nombre', async () => {
+    const url = 'https://www.sinergit.com.do';
+    const thin = page('<html><head><title>Sinergit | Soluciones TI</title></head><body><div id="app"></div></body></html>', url);
+    const input = { name: 'SINERGIT SRL', countryName: 'República Dominicana', countryCode: 'DO', linkedinUrl: null, alternateNames: ['sinergit'] };
+    const ok = await findOfficialWebsite(input, MODEL, finderDeps(conversation(url, ['https://otra.do']), thin));
+    assert.equal(ok.found && ok.verification, 'name_match');
+    // Mismo caso, pero el título es de otra cosa ⇒ no.
+    const other = page('<html><head><title>Cargando…</title></head><body></body></html>', url);
+    const no = await findOfficialWebsite(input, MODEL, finderDeps(conversation(url, ['https://otra.do']), other));
+    assert.deepEqual(no.found ? null : no.reason, 'page_unreachable');
+    // Casi sin texto, sin el nombre en el dominio y fuera de la búsqueda ⇒ no.
+    const far = await findOfficialWebsite(
+      { ...input, alternateNames: [] },
+      MODEL,
+      finderDeps(conversation('https://www.tiendas-x.do', ['https://otra.do']), page('<html><head><title>Sinergit</title></head><body></body></html>', 'https://www.tiendas-x.do')),
+    );
+    assert.equal(far.found, false);
+  });
+});
+
