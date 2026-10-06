@@ -5,9 +5,16 @@ import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
-import { AGENT_RUNS_PAGE_PATH } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
 import { registerAgentRunOpener, takeAgentRunFromUrl } from '@/components/prospect-batches/agent-runs-tray/agent-run-opener';
 import { AgentRunDrawerView } from '@/components/prospect-batches/chat-wizard/agent-run-drawer-view';
+import { AgentRunsPanel } from '@/components/prospect-batches/agent-runs-tray/agent-runs-panel';
+import {
+  AGENT_CHAT_OPEN_RUNS_EVENT,
+  AGENT_CHAT_RUNS_VIEW,
+  AGENT_CHAT_VIEW_PARAM,
+  type AgentChatOpenRunsDetail,
+} from '@/modules/prospect-batches/agent-runs/agent-chat-events';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertCircle,
   X,
@@ -313,6 +320,9 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   const router = useRouter();
   const agentRuns = useAgentRuns();
   const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;
+  // AGENT1-RUNS-INSIDE-CHAT-1 — «Búsquedas» es una pestaña DENTRO del cajón, no
+  // una pantalla aparte. La conversación sigue montada (oculta) mientras tanto.
+  const [chatView, setChatView] = React.useState<'chat' | 'runs'>('chat');
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const isControlled = controlledOpen !== undefined;
@@ -343,6 +353,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
     openRunRef.current = (clientRequestId) => {
       // La corrida que este chat tiene en vuelo ya se ve en su conversación.
       setViewRunId(clientRequestId === wizardRunId ? null : clientRequestId);
+      setChatView('chat');
       if (!isOpen) {
         if (isControlled) onOpenChange?.(true);
         else setDrawer((prev) => ({ ...prev, open: true }));
@@ -368,8 +379,42 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   const autoSources = getAutoSources(form.countryCode);
   const suggestedSource = form.countryCode ? STRUCTURED_SOURCE_MAP[form.countryCode] ?? null : null;
 
+  const isChatWizard = experience === 'chat_wizard' && catalog !== null;
+  const requestOpen = React.useCallback(() => {
+    if (isControlled) onOpenChange?.(true);
+    else setDrawer((prev) => ({ ...prev, open: true }));
+  }, [isControlled, onOpenChange]);
+
+  // La bandeja flotante pide «abrir el chat en Búsquedas»; si esta pantalla
+  // tiene el asistente, lo atiende aquí mismo.
+  React.useEffect(() => {
+    if (!isChatWizard) return undefined;
+    const onOpenRuns = (event: Event) => {
+      const detail = (event as CustomEvent<AgentChatOpenRunsDetail>).detail;
+      if (detail) detail.handled = true;
+      setChatView('runs');
+      requestOpen();
+    };
+    window.addEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
+    return () => window.removeEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
+  }, [isChatWizard, requestOpen]);
+
+  // Llegada desde otra pantalla (`?agentView=runs`): se abre en «Búsquedas» y se
+  // limpia la URL para que recargar no vuelva a abrirlo.
+  React.useEffect(() => {
+    if (!isChatWizard) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(AGENT_CHAT_VIEW_PARAM) !== AGENT_CHAT_RUNS_VIEW) return;
+    url.searchParams.delete(AGENT_CHAT_VIEW_PARAM);
+    window.history.replaceState(window.history.state, '', url.toString());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir una vez al llegar con el parámetro
+    setChatView('runs');
+    requestOpen();
+  }, [isChatWizard, requestOpen]);
+
   function handleClose() {
     if (drawer.generating) return;
+    setChatView('chat');
     onOpenChange?.(false);
     setViewRunId(null);
     setWizardRunId(null);
@@ -391,6 +436,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
     setViewRunId(null);
     setWizardRunId(null);
     setWizardKey((key) => key + 1);
+    setChatView('chat');
   }
 
   function handleGoToBatch() {
@@ -625,25 +671,33 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             // Con una corrida en vuelo (o abierta desde el Centro de procesos) el
             // «+» no la cancela: sigue en el centro y aquí empieza otra búsqueda.
             if (wizardRunId || viewRunId) startNewSearch();
-            else wizardRef.current?.requestRestart();
+            else {
+              setChatView('chat');
+              wizardRef.current?.requestRestart();
+            }
           }}
           newConversationLabel={
             wizardRunId ? 'Nueva búsqueda (esta sigue en el Centro de procesos)' : viewRunId ? 'Nueva búsqueda' : 'Comenzar de nuevo'
           }
           newConversationDisabled={!(wizardRunId || viewRunId || wizardCanRestart)}
           // AGENT1-PARALLEL-RUNS-PHASE2-1 — las búsquedas viven en el shell: el
-          // panel puede irse (minimizar) y la página de búsquedas las muestra todas.
-          runsInProgress={runsInProgress}
-          onRuns={() => {
-            handleClose();
-            router.push(AGENT_RUNS_PAGE_PATH);
-          }}
+          // panel puede irse (minimizar) y lo que corre sigue en el Centro de procesos.
           onMinimize={() => {
             handleClose();
             window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
-          {backgroundRunTitle && !viewRunId && (
+          <Tabs value={chatView} onValueChange={(value) => setChatView(value as 'chat' | 'runs')} className="shrink-0 px-4 pt-3">
+            <TabsList variant="segmented" className="w-full">
+              <TabsTrigger value="chat" className="flex-1" data-testid="agent-chat-tab-chat">
+                Conversación
+              </TabsTrigger>
+              <TabsTrigger value="runs" className="flex-1" data-testid="agent-chat-tab-runs">
+                {runsInProgress > 0 ? `Búsquedas (${runsInProgress})` : 'Búsquedas'}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {chatView === 'chat' && backgroundRunTitle && !viewRunId && (
             <div className="shrink-0 px-4 pt-3" data-testid="agent-run-background-notice">
               <Alert variant="info" className="relative pr-10">
                 <AlertDescription className="text-xs text-foreground">
@@ -661,7 +715,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               </Alert>
             </div>
           )}
-          {viewRunId && (
+          {chatView === 'chat' && viewRunId && (
             <AgentRunDrawerView
               key={viewRunId}
               clientRequestId={viewRunId}
@@ -669,9 +723,10 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               onClose={handleClose}
             />
           )}
-          {/* Con una corrida abierta desde el centro, la conversación se oculta
-              pero no se desmonta: lo que se estaba respondiendo no se pierde. */}
-          <div className={cn('flex min-h-0 flex-1 flex-col', viewRunId && 'hidden')}>
+          {/* La conversación NO se desmonta al ir a «Búsquedas» ni al abrir una
+              corrida desde el Centro de procesos: se oculta, y lo que se estaba
+              respondiendo no se pierde. */}
+          <div className={cn('flex min-h-0 flex-1 flex-col', (chatView !== 'chat' || viewRunId) && 'hidden')}>
             <ProspectChatWizard
               key={wizardKey}
               ref={wizardRef}
@@ -688,6 +743,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               budgetPreflight={budgetPreflight}
             />
           </div>
+          {chatView === 'runs' && <AgentRunsPanel />}
         </ChatPanel>
       </>
     );

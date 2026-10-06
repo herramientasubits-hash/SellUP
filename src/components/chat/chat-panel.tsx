@@ -2,18 +2,13 @@
 
 import * as React from "react";
 
-import { Activity, Clock, Minus, Plus, X } from "@/icons";
+import { Clock, Minus, Plus, X } from "@/icons";
 import { AiAgentDrawer } from "@/components/ai/ai-agent-drawer";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { Text } from "@/components/typography";
 
 import { ChatMark, type ChatMarkProps } from "./chat-mark";
 import { t } from "./messages";
-
-function runsLabel(inProgress: number): string {
-  if (inProgress <= 0) return t("chat.runs");
-  return inProgress === 1 ? "Ver búsquedas · 1 en curso" : `Ver búsquedas · ${inProgress} en curso`;
-}
 
 export interface ChatPanelProps {
   open: boolean;
@@ -38,12 +33,6 @@ export interface ChatPanelProps {
   newConversationDisabled?: boolean;
   /** No se puede cerrar ahora mismo (hay una ejecución en curso). */
   closeDisabled?: boolean;
-  /**
-   * «Búsquedas»: abre la página de búsquedas en curso e historial. Sin esto no hay
-   * botón. `runsInProgress` > 0 lo marca y lo cuenta.
-   */
-  onRuns?: () => void;
-  runsInProgress?: number;
   /** «Minimizar»: cierra el panel dejando lo que corre en el Centro de procesos. */
   onMinimize?: () => void;
   /** El cuerpo del panel: el hilo, la caja, lo que el asistente necesite. */
@@ -72,8 +61,6 @@ export function ChatPanel({
   newConversationLabel,
   newConversationDisabled = false,
   closeDisabled = false,
-  onRuns,
-  runsInProgress = 0,
   onMinimize,
   children,
 }: ChatPanelProps) {
@@ -114,25 +101,6 @@ export function ChatPanel({
                 onClick={onHistory}
                 aria-pressed={historyActive}
                 data-testid="chat-panel-history"
-              />
-            )}
-            {onRuns && (
-              <TooltipIconButton
-                icon={
-                  <>
-                    <Activity aria-hidden />
-                    {runsInProgress > 0 && (
-                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold leading-none text-primary-foreground">
-                        {runsInProgress}
-                      </span>
-                    )}
-                  </>
-                }
-                label={runsLabel(runsInProgress)}
-                variant={runsInProgress > 0 ? "secondary" : "ghost"}
-                onClick={onRuns}
-                data-testid="chat-panel-runs"
-                className="relative"
               />
             )}
             {onNewConversation && (

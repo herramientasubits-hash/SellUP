@@ -29,7 +29,10 @@ import {
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { WizardApolloContinuationPanel } from '@/components/prospect-batches/chat-wizard/wizard-apollo-continuation-panel';
 import {
-  AGENT_RUNS_PAGE_PATH,
+  agentRunsFallbackHref,
+  requestOpenAgentRunsInChat,
+} from '@/modules/prospect-batches/agent-runs/agent-chat-events';
+import {
   AGENT_RUNS_TRAY_COPY,
   agentRunProcessState,
   describeAgentRun,
@@ -250,6 +253,13 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
     close();
     openAgentRun(clientRequestId, (href) => router.push(href));
   };
+  // AGENT1-RUNS-INSIDE-CHAT-1 — «Historial» abre el CHAT en su pestaña «Búsquedas»
+  // (en curso + últimos 7 días). Si esta pantalla no tiene el asistente, lleva a
+  // Empresas y el cajón se abre ahí en esa pestaña.
+  const openHistory = () => {
+    close();
+    if (!requestOpenAgentRunsInChat()) router.push(agentRunsFallbackHref());
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -354,10 +364,14 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
                   {AGENT_RUNS_TRAY_COPY.clearFinished}
                 </Button>
               )}
-              <Button asChild variant="ghost" size="sm">
-                <Link href={AGENT_RUNS_PAGE_PATH} onClick={close} title={AGENT_RUNS_TRAY_COPY.openPage}>
-                  {AGENT_RUNS_TRAY_COPY.history}
-                </Link>
+              <Button
+                variant="ghost"
+                size="sm"
+                title={AGENT_RUNS_TRAY_COPY.openPage}
+                onClick={openHistory}
+                data-testid="shell-processes-history"
+              >
+                {AGENT_RUNS_TRAY_COPY.history}
               </Button>
             </div>
           </div>

@@ -6,9 +6,6 @@
 import type { AgentRun } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
 import type { AgentRunStatusSnapshot } from '@/modules/prospect-batches/agent-runs/agent-runs-status.server';
 
-/** La página con las búsquedas en curso y el historial de 7 días. */
-export const AGENT_RUNS_PAGE_PATH = '/agent-runs';
-
 export const AGENT_RUNS_TRAY_COPY = {
   /** Centro de procesos de la cabecera (port de Thema `app-shell/ProcessCenter`). */
   processCenter: 'Centro de procesos',
@@ -24,7 +21,7 @@ export const AGENT_RUNS_TRAY_COPY = {
   collapse: 'Plegar',
   expand: 'Desplegar',
   progressOf: (title: string): string => `Avance de ${title}`,
-  openPage: 'Ver todas las búsquedas',
+  openPage: 'Ver todas en el chat (en curso y últimos 7 días)',
   closeAll: 'Quitar de la lista las búsquedas terminadas',
   clearFinished: 'Limpiar',
   openBatch: 'Ver lote',
