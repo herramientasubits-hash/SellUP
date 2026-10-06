@@ -144,6 +144,11 @@ export function buildDoSizeRegistryRows(params: {
   padron: Iterable<DoPadronRow>;
   largeTaxpayers: ReadonlyMap<string, DgiiLargeTaxpayer>;
   procurement: ReadonlyMap<string, DoProcurementSummary>;
+  /**
+   * SOURCES-DO-DGCP-DOMAIN-1 — RNC → dominio corporativo sacado de los correos
+   * de la DGCP (`do-dgcp-domain.ts`). Opcional: sin él, las filas van sin web.
+   */
+  domains?: ReadonlyMap<string, string>;
   sourceYear: number;
   importedAt: string;
 }): DoSizeRegistryRow[] {
@@ -181,6 +186,8 @@ export function buildDoSizeRegistryRows(params: {
         macro_industry_key: classification.macroIndustryKey,
         macro_table_version: DO_DGII_MACRO_TABLE_VERSION,
         size_tier: tier,
+        website_domain: params.domains?.get(rnc) ?? null,
+        website_domain_source: params.domains?.has(rnc) ? 'dgcp_corporate_email' : null,
         dgii_size_class: dgii?.dgiiClass ?? null,
         dgcp_mipyme_class: procurement?.mipymeClass ?? null,
         is_state_supplier: procurement !== undefined,

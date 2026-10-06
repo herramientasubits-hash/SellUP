@@ -1184,7 +1184,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Snapshot parcial 2020–2026 con 53.974 proveedores cargados. Su clasificación MIPYME y su monto adjudicado alimentan la capa gratuita dominicana (do_dgii_size_registry): descarta proveedoras micro y pequeñas y ordena por monto dentro de cada nivel de tamaño. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
+      'Snapshot parcial 2020–2026 con 53.974 proveedores cargados. Su clasificación MIPYME y su monto adjudicado alimentan la capa gratuita dominicana (do_dgii_size_registry): descarta proveedoras micro y pequeñas y ordena por monto dentro de cada nivel de tamaño. Su archivo público de proveedores (datos abiertos, con correos) da además el dominio corporativo de esas empresas. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P2',
@@ -1212,7 +1212,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     // SOURCES-DO-SIZE-SIGNAL-1 (05-10): construida; la carga en Producción espera
     // la autorización de la dueña. Hasta entonces la capa gratuita de RD no propone nada.
     nextAction:
-      'Carga pendiente de autorización. Capa gratuita de República Dominicana: el Agente 1 propone de aquí antes de pagar a proveedores, sólo empresas con señal de tamaño (listas de Grandes Contribuyentes de la DGII o proveedoras del Estado que no son micro ni pequeñas).',
+      '12.931 empresas cargadas (06-10, autorizada). Capa gratuita de República Dominicana: el Agente 1 propone de aquí antes de pagar a proveedores, sólo empresas con señal de tamaño (listas de Grandes Contribuyentes de la DGII o proveedoras del Estado que no son micro ni pequeñas). Desde SOURCES-DO-DGCP-DOMAIN-1 (recarga pendiente de autorización) cada empresa lleva además su dominio cuando el correo corporativo que declaró a la DGCP se parece a su razón social; sin dominio va a Descartadas y la rescata Claude.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P1',
@@ -1227,12 +1227,13 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Estar en la lista prueba «mediana o grande», pero no da el número de empleados: el tamaño del candidato queda por validar.',
       'La clasificación de la DGCP es la que declara el proveedor; muchas grandes figuran como «No clasificada».',
       'La industria sale del texto de actividad de la DGII (cortado a 30 caracteres): actividades fuera de la tabla (hoteles, educación, medios, asociaciones) o ambiguas no se proponen.',
-      'La DGII no publica sitio web: las empresas llegan sin dominio.',
+      'La DGII no publica sitio web. El dominio sale del correo corporativo declarado a la DGCP y sólo si se parece a la razón social: las empresas que no venden al Estado, o con correo gratuito o de una marca distinta («claro.com.do» para Codetel), llegan sin dominio.',
       'Snapshot estático — requiere recarga para reflejar altas, bajas y nuevas listas.',
     ],
     riskNotes: [
       'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
       'Sólo RNC de empresa (9 dígitos): las cédulas de personas físicas de la lista de la DGII nunca se cargan.',
+      'Del archivo de proveedores de la DGCP sólo se guarda el dominio: nunca correos, nombres de contacto ni teléfonos.',
     ],
   },
   {
