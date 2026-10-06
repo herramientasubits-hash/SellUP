@@ -8,7 +8,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { HubSpotAccountResolutionDeps } from '@/modules/contact-enrichment/hubspot-account-resolver';
 
-export type HubSpotAccountCreatedFrom = 'contact_enrichment_approval' | 'contact_enrichment_request';
+export type HubSpotAccountCreatedFrom =
+  | 'contact_enrichment_approval'
+  | 'contact_enrichment_request'
+  // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: «Reasignar empresa» en la ficha del candidato.
+  | 'contact_candidate_reassignment';
 
 export function normalizeAccountName(name: string): string {
   return name
@@ -26,6 +30,7 @@ export function buildHubSpotAccountResolutionDeps(
   createdFrom: HubSpotAccountCreatedFrom,
 ): HubSpotAccountResolutionDeps {
   const fromApproval = createdFrom === 'contact_enrichment_approval';
+  const fromReassignment = createdFrom === 'contact_candidate_reassignment';
   return {
     findByHubspotId: async (hid) => {
       // `limit(1)` y no `maybeSingle()` a secas: con dos cuentas vinculadas al mismo
@@ -69,7 +74,11 @@ export function buildHubSpotAccountResolutionDeps(
             created_from: createdFrom,
             source_hubspot_company_id: input.hubspot_company_id,
             source_contact_enrichment_run_id: input.run_id ?? null,
-            ...(fromApproval ? { created_from_candidate_approval: true } : { created_before_enrichment: true }),
+            ...(fromApproval
+              ? { created_from_candidate_approval: true }
+              : fromReassignment
+                ? { created_from_candidate_reassignment: true }
+                : { created_before_enrichment: true }),
             country_resolution: {
               source: input.country_code
                 ? fromApproval

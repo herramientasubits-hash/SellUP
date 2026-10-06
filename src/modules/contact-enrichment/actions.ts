@@ -38,6 +38,7 @@ import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-res
 import { resolveAccountForEnrichmentRequest } from './request-account-resolution-core';
 import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
+import { applyCandidateCompanyReassignment } from './candidate-company-reassignment-core';
 import type {
   Agent2AInput,
   CompanyCandidate,
@@ -347,7 +348,15 @@ const CANDIDATE_SELECT =
 /** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
 function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
   const record = row as Record<string, unknown>;
-  const run = firstRun(record.run);
+  // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: la empresa reasignada a mano (si existe) manda sobre
+  // la del run. Sin reasignación, `applyCandidateCompanyReassignment` devuelve el run intacto.
+  const runContext = firstRun(record.run);
+  const run = runContext
+    ? applyCandidateCompanyReassignment(runContext, record.enrichment_metadata)
+    : applyCandidateCompanyReassignment(
+        { company_name: null, company_domain: null, account_id: null, hubspot_company_id: null },
+        record.enrichment_metadata,
+      );
   return {
     id: record.id as string,
     full_name: (record.full_name as string | null) ?? '',
@@ -645,7 +654,7 @@ const CANDIDATE_REVIEW_SELECT =
 function mapCandidateRecord(row: unknown): CandidateRecord {
   const r = row as Record<string, unknown>;
   const runRaw = r.run;
-  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
+  const runFromDb = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
     | {
         account_id: string | null;
         hubspot_company_id: string | null;
@@ -655,6 +664,19 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
       }
     | null
     | undefined;
+  // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: con una empresa reasignada a mano, la aprobación usa
+  // ESA cuenta (dedupe + transacción) y no la del run, que puede no tener ninguna.
+  const runCompany = applyCandidateCompanyReassignment(
+    {
+      account_id: runFromDb?.account_id ?? null,
+      hubspot_company_id: runFromDb?.hubspot_company_id ?? null,
+      company_name: runFromDb?.company_name ?? null,
+      company_domain: runFromDb?.company_domain ?? null,
+      country_code: runFromDb?.company_country_code ?? null,
+    },
+    r.enrichment_metadata,
+  );
+  const run = { ...runCompany, company_country_code: runCompany.country_code ?? null };
   return {
     id: r.id as string,
     status: (r.status as ContactCandidateStatus) ?? 'pending_review',

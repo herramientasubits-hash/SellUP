@@ -399,6 +399,9 @@ export function buildContactTraceMetadata(candidate: CandidateRecord): Record<st
     completion: (meta.completion ?? meta.contact_completion ?? null) as unknown,
     post_completion: (meta.post_completion ?? null) as unknown,
     company_consistency: (meta.company_consistency ?? null) as unknown,
+    // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: si la empresa se reasignó a mano antes de aprobar,
+    // el contacto oficial conserva de dónde venía y quién la cambió. Sólo cuando existe.
+    ...(meta.company_reassignment ? { company_reassignment: meta.company_reassignment as unknown } : {}),
   };
 }
 

@@ -12,7 +12,9 @@ import {
   Loader2,
   AlertTriangle,
   RefreshCw,
+  Building2,
 } from "@/icons";
+import { useRouter } from 'next/navigation';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { DetailList } from '@/components/shared/detail-list';
@@ -181,6 +183,15 @@ import {
 } from './phone-reveal-drawer-sync-core';
 import { usePhoneRevealWindowRefresh } from './use-phone-reveal-window-refresh';
 
+// AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el diálogo se carga al abrirlo por primera vez. Así su
+// grafo (búsqueda SellUp/HubSpot + acción de reasignación) no entra en el bundle inicial de la
+// ficha ni en los tests que la renderizan con `@/modules/contact-enrichment/actions` mockeado.
+const ContactCandidateCompanyReassignDialog = React.lazy(() =>
+  import('./contact-candidate-company-reassign-dialog').then((m) => ({
+    default: m.ContactCandidateCompanyReassignDialog,
+  })),
+);
+
 /**
  * Nombres visibles de los proveedores de revelación. Deliberadamente separado de
  * `SOURCE_LABELS` (aunque hoy coincida en Apollo/Lusha) para que ampliar el
@@ -336,6 +347,16 @@ export function ContactCandidateDetailSheet({
   // identidad y duplicado. Estado y handlers viven en el hook; aquí sólo se lee lo que
   // el bloque de teléfono necesita (`busy`) y lo que la carga del candidato escribe.
   const review = useCandidateReviewDecision({ candidate, onClose });
+
+  // «Reasignar empresa» (AGENT2A-CANDIDATE-COMPANY-REASSIGN-1): abre la búsqueda SellUp/HubSpot
+  // desde Trazabilidad. Tras confirmar, se relee el candidato (la empresa nueva desbloquea
+  // «Aprobar») y se refresca la lista para que muestre la empresa correcta.
+  const router = useRouter();
+  const [reassignCompanyOpen, setReassignCompanyOpen] = React.useState(false);
+  // 0 = nunca abierto (no se carga el diálogo). Cada apertura incrementa la sesión y la usa como
+  // `key`: el diálogo arranca limpio sin efectos que reinicien estado, y tras el primer clic se
+  // queda montado para conservar la animación de cierre.
+  const [reassignCompanySession, setReassignCompanySession] = React.useState(0);
   const {
     busy,
     durableMergeOffer,
@@ -2479,6 +2500,22 @@ export function ContactCandidateDetailSheet({
           <CandidateTraceabilitySection
             candidate={candidate}
             phoneRevealProviderLabel={phoneRevealProviderLabel}
+            companyAction={
+              candidate.status === 'pending_review' ? (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={() => {
+                    setReassignCompanySession((n) => n + 1);
+                    setReassignCompanyOpen(true);
+                  }}
+                  disabled={busy}
+                >
+                  <Building2 aria-hidden="true" />
+                  Reasignar empresa
+                </Button>
+              ) : undefined
+            }
           />
 
           {/* 5. Revisión humana (Hito 17A.4B): el override de identidad, el motivo de
@@ -2489,6 +2526,22 @@ export function ContactCandidateDetailSheet({
     </DrawerShell>
 
     <CandidateDuplicateDecisionDialog review={review} />
+
+    {candidate && reassignCompanySession > 0 && (
+      <React.Suspense fallback={null}>
+        <ContactCandidateCompanyReassignDialog
+          key={`${candidate.id}:${reassignCompanySession}`}
+          open={reassignCompanyOpen}
+          onOpenChange={setReassignCompanyOpen}
+          candidate={candidate}
+          onReassigned={(message) => {
+            toast.success(message);
+            void reloadCandidate();
+            router.refresh();
+          }}
+        />
+      </React.Suspense>
+    )}
 
     {/* Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): la confirmación EXPLÍCITA del
         costo, obligatoria antes de ejecutar. Es un `ConfirmDialog` (diálogo de alerta):

@@ -51,6 +51,7 @@ import {
   IDENTITY_TONE_STYLES,
   resolveIdentityDisplay,
 } from './contact-candidate-identity-display';
+import { readCandidateCompanyReassignment } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
 
 /**
  * Un par etiqueta/valor de la ficha: el `DetailItem` del sistema, con el vacío
@@ -275,15 +276,32 @@ export function CandidateCompanyConsistencyNotice({
 export function CandidateTraceabilitySection({
   candidate,
   phoneRevealProviderLabel,
+  companyAction,
 }: {
   candidate: PendingContactCandidate;
   /** Nombre visible de `phone_reveal_provider`; `null` si no hubo intento. */
   phoneRevealProviderLabel: string | null;
+  /**
+   * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el botón «Reasignar empresa». Lo construye la ficha
+   * (que es quien llama al servidor); esta sección sólo lo coloca.
+   */
+  companyAction?: React.ReactNode;
 }) {
   const apolloAttempt = candidate.enrichment_metadata?.apollo_search_attempt ?? null;
+  const reassignment = readCandidateCompanyReassignment(candidate.enrichment_metadata);
+  const withoutCompany = !candidate.account_id && !candidate.hubspot_company_id;
 
   return (
-    <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad">
+    <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad" action={companyAction}>
+      {withoutCompany && (
+        <Alert variant="warning" role="note" className="mb-3">
+          <AlertTitle className="text-sm">Sin empresa asociada</AlertTitle>
+          <AlertDescription className="text-xs leading-relaxed">
+            Este candidato no está asociado a una cuenta de SellUp ni a una empresa de HubSpot, por
+            eso no se puede aprobar. Usa «Reasignar empresa» para asociarlo.
+          </AlertDescription>
+        </Alert>
+      )}
       <DetailList>
         <CandidateDetailItem icon={Hash} label="ID del candidato">
           <span className="font-mono text-xs break-all">{candidate.id}</span>
@@ -322,6 +340,23 @@ export function CandidateTraceabilitySection({
         {candidate.hubspot_company_id && (
           <CandidateDetailItem icon={Globe} label="ID de la empresa en HubSpot">
             <span className="font-mono text-xs break-all">{candidate.hubspot_company_id}</span>
+          </CandidateDetailItem>
+        )}
+        {reassignment && (
+          <CandidateDetailItem
+            icon={Building2}
+            label="Empresa reasignada"
+            className="sm:col-span-2"
+          >
+            <span className="text-xs">
+              {reassignment.company_name}
+              {reassignment.company_domain ? ` · ${reassignment.company_domain}` : ''}
+              {' · '}
+              {reassignment.selected_source === 'hubspot' ? 'desde HubSpot' : 'desde SellUp'}
+              {reassignment.reassigned_at ? ` · ${formatDate(reassignment.reassigned_at)}` : ''}
+              {' · antes: '}
+              {reassignment.original.company_name ?? 'sin empresa'}
+            </span>
           </CandidateDetailItem>
         )}
       </DetailList>
