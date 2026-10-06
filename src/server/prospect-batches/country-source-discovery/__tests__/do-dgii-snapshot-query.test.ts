@@ -1,6 +1,6 @@
 /**
- * SOURCES-DO-FREE-DISCOVERY-1 — lecturas del descubrimiento de República
- * Dominicana. Cliente doble que registra cada llamada; cualquier escritura
+ * SOURCES-DO-FREE-DISCOVERY-1 · SOURCES-DO-SIZE-SIGNAL-1 — lectura del
+ * descubrimiento de República Dominicana. Cliente doble que registra cada llamada; cualquier escritura
  * revienta la prueba.
  */
 
@@ -10,11 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import {
-  buildDoDgiiDiscoveryReads,
-  DO_DGCP_RNC_CHUNK,
-  DO_DGII_PAGE_SIZE,
-} from '../do-dgii-snapshot-query';
+import { buildDoDgiiDiscoveryReads } from '../do-dgii-snapshot-query';
 
 type Call = { table: string; ops: Array<[string, unknown[]]> };
 type Responder = (call: Call) => { data?: unknown; error?: unknown };
@@ -51,107 +47,71 @@ function fakeClient(respond: Responder) {
 
 const op = (call: Call, name: string) => call.ops.filter(([n]) => n === name).map(([, a]) => a);
 
-function dgiiRows(count: number, start = 0) {
+function sizedRows(count: number) {
   return Array.from({ length: count }, (_, i) => ({
-    record_identity_key: `k${start + i}`,
-    normalized_tax_id: String(100000000 + start + i),
-    legal_name: `EMPRESA ${start + i}`,
-    normalized_legal_name: `EMPRESA ${start + i}`,
+    record_identity_key: `k${i}`,
+    normalized_tax_id: String(100000000 + i),
+    legal_name: `EMPRESA ${i} SRL`,
+    normalized_legal_name: `EMPRESA ${i}`,
     sector: 'ACTIVIDADES DE INFORMÁTICA N.C',
+    size_tier: i % 2 === 0 ? 1 : '3',
   }));
 }
 
-describe('readActiveCompaniesByActivity', () => {
-  it('lee sólo activos de rd_dgii_bulk / DO con esas actividades, en orden estable', async () => {
-    const { client, calls } = fakeClient(() => ({ data: dgiiRows(3) }));
-    const rows = await buildDoDgiiDiscoveryReads(client).readActiveCompaniesByActivity({
-      activityTexts: ['ACTIVIDADES DE INFORMÁTICA N.C', 'ACTIVIDADES DE INFORMÁTICA N.C'],
-      limit: 2000,
+describe('readSizedCompaniesByMacro', () => {
+  it('una sola consulta a do_dgii_size_registry / DO / macro, ordenada por tamaño y RNC', async () => {
+    const { client, calls } = fakeClient(() => ({ data: sizedRows(3) }));
+    const rows = await buildDoDgiiDiscoveryReads(client).readSizedCompaniesByMacro({
+      macroIndustryKey: 'technology',
+      limit: 40,
     });
+
+    assert.equal(calls.length, 1);
+    const [call] = calls;
+    assert.equal(call.table, 'source_company_snapshots');
+    assert.deepEqual(op(call, 'eq'), [
+      ['source_key', 'do_dgii_size_registry'],
+      ['country_code', 'DO'],
+      ['raw_data->>macro_industry_key', 'technology'],
+    ]);
+    assert.deepEqual(op(call, 'in'), [], 'nunca la lista de textos (no cabe en la URL)');
+    assert.deepEqual(op(call, 'order'), [
+      ['priority_score', { ascending: false }],
+      ['normalized_tax_id', { ascending: true }],
+    ]);
+    assert.deepEqual(op(call, 'limit'), [[40]]);
+    assert.match(String(op(call, 'select')[0][0]), /size_tier:raw_data->size_tier/);
 
     assert.equal(rows.length, 3);
     assert.equal(rows[0].rnc, '100000000');
-    assert.equal(calls.length, 1, 'página corta ⇒ no pide otra');
-    const [call] = calls;
-    assert.equal(call.table, 'source_company_snapshots');
-    const eqs = op(call, 'eq');
-    assert.deepEqual(eqs, [
-      ['source_key', 'rd_dgii_bulk'],
-      ['country_code', 'DO'],
-      ['raw_data->>is_active_taxpayer', 'true'],
-    ]);
-    assert.deepEqual(op(call, 'in'), [['sector', ['ACTIVIDADES DE INFORMÁTICA N.C']]]);
-    assert.deepEqual(op(call, 'order'), [['normalized_tax_id', { ascending: true }]]);
-    assert.deepEqual(op(call, 'range'), [[0, DO_DGII_PAGE_SIZE - 1]]);
+    assert.equal(rows[0].size_tier, 1);
+    assert.equal(rows[1].size_tier, 3, 'el nivel llega como texto o número; se normaliza');
   });
 
-  it('pagina en bloques de 1.000 hasta el tope', async () => {
-    let page = 0;
-    const { client, calls } = fakeClient(() => ({ data: dgiiRows(DO_DGII_PAGE_SIZE, DO_DGII_PAGE_SIZE * page++) }));
-    const rows = await buildDoDgiiDiscoveryReads(client).readActiveCompaniesByActivity({
-      activityTexts: ['X'],
-      limit: 1500,
-    });
-    assert.equal(calls.length, 2);
-    assert.deepEqual(op(calls[1], 'range'), [[1000, 1499]]);
-    assert.equal(rows.length, 2000); // el doble devuelve páginas llenas; el tope lo pone el rango real
+  it('un nivel ilegible queda nulo (el adapter lo descarta)', async () => {
+    const { client } = fakeClient(() => ({ data: [{ ...sizedRows(1)[0], size_tier: 'x' }] }));
+    const [row] = await buildDoDgiiDiscoveryReads(client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
+    assert.equal(row.size_tier, null);
   });
 
-  it('sin textos o sin tope no consulta; un error devuelve vacío', async () => {
+  it('sin tope no consulta; un error o una excepción devuelven vacío', async () => {
     const empty = fakeClient(() => ({ data: [] }));
-    const reads = buildDoDgiiDiscoveryReads(empty.client);
-    assert.deepEqual(await reads.readActiveCompaniesByActivity({ activityTexts: [], limit: 10 }), []);
-    assert.deepEqual(await reads.readActiveCompaniesByActivity({ activityTexts: ['X'], limit: 0 }), []);
+    assert.deepEqual(await buildDoDgiiDiscoveryReads(empty.client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 0 }), []);
     assert.equal(empty.calls.length, 0);
 
     const failing = fakeClient(() => ({ error: { message: 'boom' } }));
     assert.deepEqual(
-      await buildDoDgiiDiscoveryReads(failing.client).readActiveCompaniesByActivity({ activityTexts: ['X'], limit: 10 }),
+      await buildDoDgiiDiscoveryReads(failing.client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 10 }),
       [],
     );
-  });
-});
 
-describe('readProcurementTotals', () => {
-  it('suma el importe de todos los años por RNC, leyendo do_dgcp en bloques', async () => {
-    const rncs = Array.from({ length: DO_DGCP_RNC_CHUNK + 1 }, (_, i) => String(100000000 + i));
-    const { client, calls } = fakeClient((call) => {
-      const part = op(call, 'in')[0][1] as string[];
-      return {
-        data: part.includes('100000000')
-          ? [
-              { normalized_tax_id: '100000000', awarded: 100 },
-              { normalized_tax_id: '100000000', awarded: '50' },
-              { normalized_tax_id: '100000001', awarded: null },
-            ]
-          : [{ normalized_tax_id: rncs[DO_DGCP_RNC_CHUNK], awarded: 7 }],
-      };
+    const throwing = fakeClient(() => {
+      throw new Error('red caída');
     });
-    const totals = await buildDoDgiiDiscoveryReads(client).readProcurementTotals([...rncs, rncs[0]]);
-
-    assert.equal(calls.length, 2);
-    for (const call of calls) {
-      assert.deepEqual(op(call, 'eq'), [['source_key', 'do_dgcp'], ['country_code', 'DO']]);
-      assert.ok((op(call, 'in')[0][1] as string[]).length <= DO_DGCP_RNC_CHUNK);
-    }
-    assert.equal(totals.get('100000000'), 150);
-    assert.equal(totals.get('100000001'), 0, 'proveedora con importe nulo sigue contando como proveedora');
-    assert.equal(totals.get(rncs[DO_DGCP_RNC_CHUNK]), 7);
-    assert.equal(totals.has('100000002'), false);
-  });
-
-  it('si falla cualquier bloque devuelve vacío (nadie se ofrece a medias)', async () => {
-    let n = 0;
-    const { client } = fakeClient(() => (n++ === 0 ? { data: [] } : { error: { message: 'boom' } }));
-    const rncs = Array.from({ length: DO_DGCP_RNC_CHUNK + 1 }, (_, i) => String(100000000 + i));
-    const totals = await buildDoDgiiDiscoveryReads(client).readProcurementTotals(rncs);
-    assert.equal(totals.size, 0);
-  });
-
-  it('sin RNC no consulta', async () => {
-    const { client, calls } = fakeClient(() => ({ data: [] }));
-    assert.equal((await buildDoDgiiDiscoveryReads(client).readProcurementTotals([])).size, 0);
-    assert.equal(calls.length, 0);
+    assert.deepEqual(
+      await buildDoDgiiDiscoveryReads(throwing.client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 10 }),
+      [],
+    );
   });
 });
 

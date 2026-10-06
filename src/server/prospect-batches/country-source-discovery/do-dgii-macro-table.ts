@@ -32,7 +32,7 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 import { DGII_ACTIVITY_CIIU_DR_CATALOG } from '@/server/source-catalog/connectors/dgii-rd/dgii-activity-ciiu-dr-catalog';
 
 /** Versión de la tabla aprobada. Viaja en la trazabilidad de cada candidato. */
-export const DO_DGII_MACRO_TABLE_VERSION = 'do-ciiu-dr-2009-macro-v1' as const;
+export const DO_DGII_MACRO_TABLE_VERSION = 'do-ciiu-dr-2009-macro-v2' as const;
 
 const MANUFACTURING = 'industry_manufacturing_chemicals_automotive' as const;
 const ENERGY = 'energy_mining_environment' as const;
@@ -115,6 +115,19 @@ export const DO_DGII_ACTIVITY_MACRO: Readonly<Record<string, MacroIndustryKey | 
   '014292': null, // albergue y cuidado de animales de terceros
 });
 
+/**
+ * Textos DGII que quedan SIN macro aunque el catálogo los empareje con un solo
+ * código. El texto viene cortado a 30 caracteres y el clasificador redacta otra
+ * actividad de forma distinta, así que el emparejamiento automático no la vio.
+ * Decidido con la dueña el 05-10-2026 (v2).
+ */
+export const DO_DGII_AMBIGUOUS_TEXTS: ReadonlySet<string> = new Set([
+  // «…de laboratorio, sustancias químicas medicinales» (242390) y «…de LOS
+  // productos de la refinación del petróleo» (232000): en Producción lo usan
+  // laboratorios y también Refidomsa y asfalteras, que salían como Salud.
+  'FABRICACIÓN DE PRODUCTOS DE LA',
+]);
+
 /** Macro de UN código CIIU.DR de 6 dígitos, o `null` si no tiene. */
 export function resolveCiiuDrMacro(code: string): MacroIndustryKey | null {
   if (!/^\d{6}$/.test(code)) return null;
@@ -145,6 +158,7 @@ function buildIndex(): {
   const textsByMacro = new Map<string, string[]>();
 
   for (const entry of DGII_ACTIVITY_CIIU_DR_CATALOG) {
+    if (DO_DGII_AMBIGUOUS_TEXTS.has(entry.text)) continue;
     const macros = new Set(entry.codes.map(resolveCiiuDrMacro));
     // Un solo destino, y que no sea «sin macro»: cualquier otra cosa es ambigua.
     if (macros.size !== 1) continue;
