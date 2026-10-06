@@ -14,7 +14,7 @@ import {
   AGENT_CHAT_VIEW_PARAM,
   type AgentChatOpenRunsDetail,
 } from '@/modules/prospect-batches/agent-runs/agent-chat-events';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsBadge, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertCircle,
   X,
@@ -687,13 +687,25 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
-          <Tabs value={chatView} onValueChange={(value) => setChatView(value as 'chat' | 'runs')} className="shrink-0 px-4 pt-3">
-            <TabsList variant="segmented" className="w-full">
-              <TabsTrigger value="chat" className="flex-1" data-testid="agent-chat-tab-chat">
+          {/* Dueña 06-10: más sutil que la tira rellena. Pestañas subrayadas
+              (variante `line` de Thema), alineadas a la izquierda, sobre una línea
+              tenue a todo el ancho, como el borde de la cabecera del drawer. */}
+          <Tabs
+            value={chatView}
+            onValueChange={(value) => setChatView(value as 'chat' | 'runs')}
+            className="shrink-0 border-b border-border/60 px-3"
+          >
+            <TabsList variant="line">
+              <TabsTrigger value="chat" data-testid="agent-chat-tab-chat">
                 Conversación
               </TabsTrigger>
-              <TabsTrigger value="runs" className="flex-1" data-testid="agent-chat-tab-runs">
-                {runsInProgress > 0 ? `Búsquedas (${runsInProgress})` : 'Búsquedas'}
+              <TabsTrigger
+                value="runs"
+                data-testid="agent-chat-tab-runs"
+                aria-label={runsInProgress > 0 ? `Búsquedas (${runsInProgress} en curso)` : undefined}
+              >
+                Búsquedas
+                <TabsBadge count={runsInProgress} tone="neutral" />
               </TabsTrigger>
             </TabsList>
           </Tabs>

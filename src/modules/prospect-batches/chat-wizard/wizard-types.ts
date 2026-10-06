@@ -108,6 +108,17 @@ export type ProspectWizardState = {
 
   lastEditedStep: ProspectWizardStep | null;
   restartConfirmationRequired: boolean;
+  /**
+   * «Editar búsqueda» (dueña 06-10): está abierta la lista «¿Qué quieres cambiar?»
+   * con cada decisión. Ausente = cerrada (estados guardados antes de este cambio).
+   */
+  decisionsEditorOpen?: boolean;
+  /**
+   * Se está cambiando UNA decisión desde esa lista o desde el resumen: al
+   * responder, el chat vuelve directo al resumen en vez de repetir los pasos
+   * siguientes. Ausente = flujo paso a paso de siempre.
+   */
+  editReturnsToSummary?: boolean;
 
   executionError: { code: string; message: string; retryable: boolean } | null;
   executionBatchId: string | null;
@@ -194,7 +205,9 @@ export type ProspectWizardAction =
   | { type: 'SKIP_ADDITIONAL_CRITERIA' }
   | { type: 'SET_REQUESTED_COUNT'; value: number }
   | { type: 'GO_BACK' }
-  | { type: 'EDIT_STEP'; step: EditableWizardStep }
+  | { type: 'EDIT_STEP'; step: EditableWizardStep; returnToSummary?: boolean }
+  | { type: 'OPEN_DECISIONS_EDITOR' }
+  | { type: 'CLOSE_DECISIONS_EDITOR' }
   | { type: 'REQUEST_RESTART' }
   | { type: 'CANCEL_RESTART' }
   | { type: 'CONFIRM_RESTART' }

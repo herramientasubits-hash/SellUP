@@ -59,14 +59,41 @@ export const DOMAIN_SEARCH_VERSION = 'd9';
  * como comprobada.
  */
 export const UNVERIFIED_HINT_VERIFICATION = 'unverified_hint' as const;
-export type FoundVerification = DomainVerification | typeof UNVERIFIED_HINT_VERIFICATION;
+
+/**
+ * SOURCES-EC-CLOSE-2 — la web que Claude propuso es EXACTAMENTE el nombre comercial
+ * o la sigla que el registro oficial guarda para ese mismo número fiscal («NETLIFE»
+ * del SRI para MEGADATOS S.A. → netlife.ec). Es prueba oficial de identidad aunque
+ * la página no abra, redirija o no diga la razón social.
+ */
+export const OFFICIAL_TRADE_NAME_VERIFICATION = 'official_trade_name' as const;
+/**
+ * SOURCES-EC-CLOSE-2 — la web que Claude propuso es la PRIMERA palabra propia de la
+ * razón social oficial (huawei.com ← «HUAWEI TECHNOLOGIES ECUADOR CIA. LTDA.»,
+ * devsu.com ← «DEVSUSOFTWARE CIA. LTDA.»). Más débil que la marca oficial: llega a
+ * revisión como «Inferido».
+ */
+export const REGISTRY_FIRST_WORD_VERIFICATION = 'registry_first_word' as const;
+export type FoundVerification =
+  | DomainVerification
+  | typeof UNVERIFIED_HINT_VERIFICATION
+  | typeof OFFICIAL_TRADE_NAME_VERIFICATION
+  | typeof REGISTRY_FIRST_WORD_VERIFICATION;
 const VERIFICATIONS: readonly FoundVerification[] = [
   'linkedin_cross_link',
   'name_match',
   'search_result_match',
   'acronym_match',
   UNVERIFIED_HINT_VERIFICATION,
+  OFFICIAL_TRADE_NAME_VERIFICATION,
+  REGISTRY_FIRST_WORD_VERIFICATION,
 ];
+
+/**
+ * Países con nombre comercial / sigla oficial por número fiscal ya cargados
+ * (Ecuador: `ec_sri_trade_name_registry` + `ec_scvs_alias_registry`).
+ */
+export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC']);
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
@@ -99,7 +126,15 @@ export type DomainSearchRow = {
   country_code: string | null;
   reason_code: string | null;
   evidence: Evidence | null;
+  /** `tax:<número fiscal>` cuando la fila vino de un registro oficial. */
+  provider_identifier?: string | null;
 };
+
+/** El número fiscal de la fila (`provider_identifier = tax:…`), o `null`. */
+export function dispositionTaxId(row: Pick<DomainSearchRow, 'provider_identifier'>): string | null {
+  const id = row.provider_identifier?.trim() ?? '';
+  return id.startsWith('tax:') && id.length > 4 ? id.slice(4) : null;
+}
 
 export type FoundWebsite = {
   website: string;
@@ -254,17 +289,24 @@ export function countryNameFromCode(code: string | null | undefined): string | n
   return LATAM_COUNTRIES.find((c) => c.code === upper)?.name ?? null;
 }
 
-export function buildDomainFinderInput(row: DomainSearchRow, countryName: string | null): DomainFinderInput {
+export function buildDomainFinderInput(
+  row: DomainSearchRow,
+  countryName: string | null,
+  /** SOURCES-EC-CLOSE-2 — nombre comercial / sigla oficial del mismo número fiscal. */
+  officialNames: readonly string[] = [],
+): DomainFinderInput {
   const displayName = dispositionDisplayName(row);
   const names = [row.name, nameFromLinkedInSlug(readString(row.evidence, 'linkedin_url'))].filter(
     (n): n is string => !!n,
   );
   const cores = [displayName, ...names].map(registryNameCore).filter((n): n is string => !!n);
   const facilities = [displayName, ...names].map(healthFacilityName).filter((n): n is string => !!n);
+  const official = officialNames.map((n) => n.trim()).filter((n) => n.length >= 3);
   return {
     name: displayName,
-    alternateNames: [...new Set([...names, ...cores, ...facilities])],
-    searchHint: cores[0] ?? null,
+    alternateNames: [...new Set([...names, ...cores, ...facilities, ...official])],
+    // La marca oficial es como se conoce a la empresa («NETLIFE», no «MEGADATOS»).
+    searchHint: official[0] ?? cores[0] ?? null,
     countryName: countryName ?? countryNameFromCode(row.country_code),
     countryCode: row.country_code,
     linkedinUrl: dispositionLinkedInUrl(row),
@@ -304,11 +346,134 @@ export function unverifiedWebsiteHint(
   return { website: `https://${domain}`, domain, verification: UNVERIFIED_HINT_VERIFICATION };
 }
 
+const GOVERNMENT_HOST = /\.(gob|gov|mil)(\.[a-z]{2})?$/;
+/** Sufijos de país que una marca suele pegar a su dominio («heyecuador», «cns-ec»). */
+const COUNTRY_LABEL_SUFFIXES = ['', 'ecuador', 'ec'] as const;
+const compactName = (text: string): string =>
+  text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
 /**
- * Lo que ve el vendedor en «Validación del sitio web»: «Inferido» + el dominio, nunca
- * «Verificado». Sólo para una pista.
+ * SOURCES-EC-CLOSE-2 — la web propuesta es el nombre comercial o la sigla OFICIAL de
+ * ese número fiscal. Sólo si:
+ *  1. el dominio es registrable, no es de gobierno ni una plataforma (redes, directorios);
+ *  2. su etiqueta propia, sin guiones, es EXACTAMENTE el nombre oficial compactado (3+
+ *     letras), o ese nombre + «ecuador»/«ec» («netlife.ec» ← NETLIFE, «teuno.com» ← TE
+ *     UNO, «cns-ec.com» ← CNS). Nada de parecidos: «point.com.ec» ← POINT TECHNOLOGY no.
+ * Después pasa igual por duplicados (SellUp + HubSpot) y por la clasificación.
+ */
+export function officialTradeNameWebsite(
+  claimedUrl: string | null | undefined,
+  officialNames: readonly string[],
+  displayName: string,
+): FoundWebsite | null {
+  if (!claimedUrl || officialNames.length === 0) return null;
+  const domain = normalizeDomain(claimedUrl);
+  if (!domain || GOVERNMENT_HOST.test(domain)) return null;
+  if (!evaluateExternalPlatformGate(claimedUrl, displayName).allowed) return null;
+  const parts = domain.split('.');
+  const registrable = parts.length >= 3 && parts[parts.length - 1].length === 2 && ['com', 'net', 'org', 'edu', 'gob', 'gov', 'co', 'info'].includes(parts[parts.length - 2])
+    ? parts.slice(-3)
+    : parts.slice(-2);
+  const label = compactName(registrable[0] ?? '');
+  if (label.length < 3) return null;
+  const matches = officialNames.some((name) => {
+    const core = compactName(name);
+    return core.length >= 3 && COUNTRY_LABEL_SUFFIXES.some((suffix) => label === `${core}${suffix}`);
+  });
+  if (!matches) return null;
+  const host = registrable.join('.');
+  return { website: `https://${host}`, domain: host, verification: OFFICIAL_TRADE_NAME_VERIFICATION };
+}
+
+/** Primeras palabras de razón social que describen el giro, no a la empresa. */
+const REGISTRY_DESCRIPTOR_WORDS: ReadonlySet<string> = new Set([
+  'distribuidora', 'importadora', 'exportadora', 'constructora', 'industrial', 'industrias', 'industria',
+  'laboratorios', 'laboratorio', 'farmaceutica', 'transportes', 'transporte', 'agricola', 'hospital', 'clinica',
+  'banco', 'cooperativa', 'universidad', 'colegio', 'unidad', 'instituto', 'centro', 'consorcio', 'compania',
+  'fabrica', 'productora', 'procesadora', 'tecnologia', 'tecnologias', 'technologies', 'technology', 'software',
+  'electronica', 'electrica', 'seguridad', 'telecomunicaciones', 'comercializadora', 'operadora', 'administradora',
+]);
+/** Lo que una marca suele pegar a su nombre en la razón social («DEVSU» + «SOFTWARE»). */
+const REGISTRY_WORD_SUFFIXES = ['software', 'soft', 'solutions', 'tech', 'technologies', 'group', 'ecuador', 'ec', 'corp', 'consulting', 'systems', 'sistemas', 'digital', 'labs'] as const;
+
+/**
+ * SOURCES-EC-CLOSE-2 — la web propuesta es la primera palabra propia de la razón social
+ * (5+ letras, no un descriptor del giro): la etiqueta del dominio es esa palabra, esa
+ * palabra + «ecuador»/«ec», o la palabra sin un sufijo de marca («devsu» ←
+ * «devsusoftware»). Nunca gobierno ni plataformas.
+ */
+export function registryFirstWordWebsite(
+  claimedUrl: string | null | undefined,
+  legalName: string,
+): FoundWebsite | null {
+  if (!claimedUrl) return null;
+  const core = registryNameCore(legalName) ?? legalName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const first = compactName(core.split(/\s+/)[0] ?? '');
+  if (first.length < 5 || REGISTRY_DESCRIPTOR_WORDS.has(first)) return null;
+  const domain = normalizeDomain(claimedUrl);
+  if (!domain || GOVERNMENT_HOST.test(domain)) return null;
+  if (!evaluateExternalPlatformGate(claimedUrl, legalName).allowed) return null;
+  const parts = domain.split('.');
+  const registrable =
+    parts.length >= 3 && parts[parts.length - 1].length === 2 && ['com', 'net', 'org', 'edu', 'co', 'info'].includes(parts[parts.length - 2])
+      ? parts.slice(-3)
+      : parts.slice(-2);
+  const label = compactName(registrable[0] ?? '');
+  const matches =
+    COUNTRY_LABEL_SUFFIXES.some((suffix) => label === `${first}${suffix}`) ||
+    (label.length >= 5 && REGISTRY_WORD_SUFFIXES.some((suffix) => first === `${label}${suffix}`));
+  if (!matches) return null;
+  const host = registrable.join('.');
+  return { website: `https://${host}`, domain: host, verification: REGISTRY_FIRST_WORD_VERIFICATION };
+}
+
+/** La web que Claude propuso en una búsqueda anterior que no pasó la comprobación. */
+export function previousClaimedUrl(evidence: Evidence | null): string | null {
+  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { found?: unknown; claimed_url?: unknown } | undefined;
+  if (search?.found !== false) return null;
+  return typeof search.claimed_url === 'string' && search.claimed_url.trim() ? search.claimed_url.trim() : null;
+}
+
+/**
+ * SOURCES-EC-CLOSE-2 — «sitio no encontrado» de una fila con número fiscal de un país
+ * con nombres oficiales, buscada ANTES de usarlos: vale UNA vuelta más (primero sin
+ * pagar, con la web que Claude ya había propuesto).
+ */
+export function websiteNotFoundBeforeOfficialNames(
+  row: Pick<DomainSearchRow, 'country_code' | 'evidence' | 'provider_identifier'>,
+): boolean {
+  const rescue = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
+  if (rescue?.decision !== 'website_not_found') return false;
+  if (!OFFICIAL_NAME_COUNTRIES.has((row.country_code ?? '').toUpperCase())) return false;
+  if (dispositionTaxId(row) === null) return false;
+  const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { official_names_checked?: unknown } | undefined;
+  return search?.official_names_checked !== true;
+}
+
+/**
+ * Lo que ve el vendedor en «Validación del sitio web»: para una pista, «Inferido» + el
+ * dominio, nunca «Verificado»; para la marca oficial del mismo RUC, «Verificado».
  */
 export function buildUnverifiedHintWebsiteVerification(found: FoundWebsite): Record<string, unknown> | null {
+  if (found.verification === OFFICIAL_TRADE_NAME_VERIFICATION) {
+    // SOURCES-EC-CLOSE-2 — comprobada por el registro oficial, no por la página.
+    return {
+      status: 'verified',
+      domain: found.domain,
+      confidence: 80,
+      source: CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+      reason: 'El registro oficial (SRI / Superintendencia) lista esta marca para el mismo RUC.',
+    };
+  }
+  if (found.verification === REGISTRY_FIRST_WORD_VERIFICATION) {
+    return {
+      status: 'inferred',
+      domain: found.domain,
+      confidence: 50,
+      source: CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+      reason: 'Inferido: el dominio es el nombre de la razón social oficial, pero la página no lo confirmó. Verifícalo antes de aprobar.',
+    };
+  }
   if (found.verification !== UNVERIFIED_HINT_VERIFICATION) return null;
   return {
     status: 'inferred',
@@ -345,6 +510,8 @@ export function buildDomainSearchStaysEvidence(
     | { kind: 'not_found'; outcome: Extract<DomainFinderOutcome, { found: false }> }
     | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck },
   decidedAt: string,
+  /** SOURCES-EC-CLOSE-2 — la búsqueda ya usó los nombres oficiales: no se repite por ellos. */
+  options: { officialNamesChecked?: boolean } = {},
 ): Evidence {
   // Un error de la cuenta no es un intento de buscar ESTA empresa: no se cuenta.
   const accountError = params.kind === 'not_found' && isAccountLevelModelError(params.outcome);
@@ -361,6 +528,7 @@ export function buildDomainSearchStaysEvidence(
           reason: params.outcome.reason,
           claimed_url: params.outcome.claimedUrl ?? null,
           error_code: params.outcome.errorCode ?? null,
+          ...(options.officialNamesChecked ? { official_names_checked: true } : {}),
         }
       : {
           ...(base[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as Evidence),

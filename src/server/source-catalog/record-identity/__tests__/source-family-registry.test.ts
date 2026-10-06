@@ -41,7 +41,6 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'ec_scvs_registry',
   'ec_scvs_alias_registry',
   'ec_sri_registry',
-  'ec_sri_trade_name_registry',
   'cl_sii_directory',
   'pe_sunat_directory',
   'cr_company_registry',
@@ -54,6 +53,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'co_fedesoft',
   'ec_scvs',
   'pe_sunat_name_alias',
+  // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.
+  'ec_sri_trade_name_registry',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────

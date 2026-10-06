@@ -48,6 +48,7 @@ function toInteger(value: unknown): number | null {
 function toRow(row: SnapshotSelectRow): PeSunatDirectorySnapshotReadRow {
   const code = row.raw_data?.['ciiu4_code'];
   const activity = row.raw_data?.['activity_text'];
+  const domain = row.raw_data?.['website_domain'];
   return {
     record_identity_key: row.record_identity_key,
     ruc: row.normalized_tax_id,
@@ -57,6 +58,7 @@ function toRow(row: SnapshotSelectRow): PeSunatDirectorySnapshotReadRow {
     region: row.region,
     ciiu4_code: typeof code === 'string' ? code : null,
     activity_text: typeof activity === 'string' ? activity : null,
+    website_domain: typeof domain === 'string' ? domain : null,
     employees: toInteger(row.raw_data?.['workers']),
     metrics_year: toInteger(row.raw_data?.['metrics_year']),
     priority_score: toNumber(row.priority_score),

@@ -169,6 +169,15 @@ describe('buildPeSunatDirectoryDiscoveryAdapter', () => {
     });
   });
 
+  it('la municipalidad llega con su web oficial del RENAMU; un dominio mal formado no se usa', async () => {
+    const { reads } = fakeReads([
+      row(1, { ciiu4_code: '8411', website_domain: 'MuniTacna.gob.pe' }),
+      row(2, { ciiu4_code: '8411', website_domain: 'no es un dominio' }),
+    ]);
+    const result = await buildPeSunatDirectoryDiscoveryAdapter(reads)({ countryCode: 'PE', macroIndustryKey: 'government', limit: 10 });
+    assert.deepEqual(result.companies.map((c) => c.domain), ['munitacna.gob.pe', null]);
+  });
+
   it('re-clasifica con la tabla de HOY: descarta filas de otra macro aunque la lectura las devuelva', async () => {
     const { reads } = fakeReads([
       row(1),
@@ -254,7 +263,7 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
           city: 'LIMA',
           region: 'LIMA',
           priority_score: '1200',
-          raw_data: { ciiu4_code: '6201', activity_text: 'PROGRAMACION INFORMATICA', workers: 1200, metrics_year: 2026 },
+          raw_data: { ciiu4_code: '6201', activity_text: 'PROGRAMACION INFORMATICA', workers: 1200, metrics_year: 2026, website_domain: 'empresa-a.com.pe' },
         },
         {
           record_identity_key: `tax:${ruc(2)}`,
@@ -279,6 +288,7 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
       region: 'LIMA',
       ciiu4_code: '6201',
       activity_text: 'PROGRAMACION INFORMATICA',
+      website_domain: 'empresa-a.com.pe',
       employees: 1200,
       metrics_year: 2026,
       priority_score: 1200,

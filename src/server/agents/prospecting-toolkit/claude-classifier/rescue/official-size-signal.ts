@@ -17,6 +17,8 @@
  *   - EC: empleados del ranking de la Superintendencia (ec_scvs_directory, 100+).
  *     Umbral 100 desde SOURCES-EC-CLOSE-1 (dueña 06-10: «100+ como Chile»).
  *   - DO: sólo empresas con señal de tamaño de la DGII (#593).
+ *   - PE: trabajadores informados a SUNAT en el Padrón RUC abierto (pe_sunat_directory, 200+).
+ *     SOURCES-EC-CLOSE-2, dueña 06-10-2026.
  * Argentina (proveedores del Estado), Colombia (ranking por ventas) y México
  * (estrato DENUE 51+) NO miden tamaño ICP: Claude sigue decidiendo como siempre.
  */
@@ -27,6 +29,7 @@ const OFFICIAL_SIZE_MIN_EMPLOYEES: Readonly<Record<string, number>> = Object.fre
   CL: 100,
   EC: 100,
   DO: 200,
+  PE: 200,
 });
 
 export type OfficialSizeSignal = {

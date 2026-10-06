@@ -31,6 +31,12 @@ import {
   isAccountLevelModelError,
   readFoundWebsite,
   unverifiedWebsiteHint,
+  dispositionTaxId,
+  OFFICIAL_NAME_COUNTRIES,
+  officialTradeNameWebsite,
+  previousClaimedUrl,
+  registryFirstWordWebsite,
+  DOMAIN_SEARCH_REASON_CODE,
   type DomainDuplicateCheck,
   type FoundWebsite,
 } from './domain-search';
@@ -62,6 +68,7 @@ import {
   buildDispositionStaysEvidence,
   dispositionToCompanyInput,
   needsDispositionRescue,
+  OFFICIAL_SIZE_RULE_MARKER,
   type RescuableDispositionRow,
 } from './rescue-dispositions';
 
@@ -144,6 +151,11 @@ export type RescueBatchDeps = {
     findWebsite: (input: DomainFinderInput, active: ActiveAnthropicModel) => Promise<DomainFinderOutcome>;
     /** SellUp + HubSpot, sólo lectura. Lanza si alguna de las dos no se pudo revisar. */
     checkDuplicate: (input: DuplicateCheckInput) => Promise<DomainDuplicateCheck>;
+    /**
+     * SOURCES-EC-CLOSE-2 — nombre comercial y sigla OFICIALES de ese número fiscal
+     * (sólo lectura; `[]` si no hay o falla). Ausente = no se usan.
+     */
+    officialNames?: (input: { countryCode: string; taxId: string }) => Promise<string[]>;
   };
   nowIso: () => string;
   nowMs: () => number;
@@ -337,11 +349,28 @@ async function resolveDispositionWebsite(
 ): Promise<WebsiteStep> {
   let found = readFoundWebsite(row.evidence);
   let cost = 0;
+  // SOURCES-EC-CLOSE-2 — nombre comercial / sigla oficial del mismo número fiscal.
+  const country = (row.country_code ?? '').toUpperCase();
+  const taxId = dispositionTaxId(row);
+  const usesOfficialNames = !found && !!domainSearch.officialNames && OFFICIAL_NAME_COUNTRIES.has(country) && taxId !== null;
+  let officialNames: string[] = [];
+  if (usesOfficialNames && taxId !== null) {
+    try {
+      officialNames = await domainSearch.officialNames!({ countryCode: country, taxId });
+    } catch {
+      officialNames = [];
+    }
+  }
+  // La web que Claude ya había propuesto antes: si es la marca oficial, vale sin volver a pagar.
+  const officialFallback = (claimedUrl: string | null | undefined): FoundWebsite | null =>
+    officialTradeNameWebsite(claimedUrl, officialNames, dispositionDisplayName(row)) ??
+    (usesOfficialNames ? registryFirstWordWebsite(claimedUrl, dispositionDisplayName(row)) : null);
+  if (!found) found = officialFallback(previousClaimedUrl(row.evidence));
   if (!found) {
     const startedMs = deps.nowMs();
     let outcome: DomainFinderOutcome;
     try {
-      outcome = await domainSearch.findWebsite(buildDomainFinderInput(row, null), ctx.active);
+      outcome = await domainSearch.findWebsite(buildDomainFinderInput(row, null, officialNames), ctx.active);
     } catch (err) {
       console.error('[claude-rescue] domain search failed:', err instanceof Error ? err.message : err);
       outcome = { found: false, reason: 'model_error', errorCode: 'unexpected_error', usage: null };
@@ -359,12 +388,15 @@ async function resolveDispositionWebsite(
     if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
-    const hint = unverifiedWebsiteHint(row, outcome);
+    const official = outcome.found ? null : officialFallback(outcome.claimedUrl);
+    const hint = official ?? unverifiedWebsiteHint(row, outcome);
     if (hint) {
       found = hint;
     } else if (!outcome.found) {
       const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
-        buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt),
+        buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt, {
+          officialNamesChecked: usesOfficialNames,
+        }),
       );
       return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
     } else {
@@ -467,12 +499,20 @@ async function rescueDisposition(
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
-    ...(official.measured ? { sizeAlreadyConfirmed: true } : {}),
+    ...(official.measured ? { sizeAlreadyConfirmed: true, officialSizeMeasured: true } : {}),
   });
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso),
   // o si es de OTRA industria UBITS (vuelve con la industria corregida, sin contar para la meta).
-  const goesBack = decision.kind === 'reassign' || (decision.kind === 'admit' && decision.sectorConfirmed);
+  // SOURCES-EC-CLOSE-2 — una del buscador gratuito descartada SÓLO por falta de web, con
+  // la web ya encontrada y el tamaño medido por la fuente oficial: su industria viene de
+  // la tabla oficial del país, no de Claude. Vuelve aunque Claude no confirme el sector
+  // (con el aviso de sector sin confirmar, si lo hay).
+  const officialFreeLayerWebOnly =
+    official.measured && !!found && row.reason_code === DOMAIN_SEARCH_REASON_CODE;
+  const goesBack =
+    decision.kind === 'reassign' ||
+    (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly));
   if (goesBack) {
     const baseOrigin =
       decision.kind === 'reassign'
@@ -524,9 +564,13 @@ async function rescueDisposition(
   }
   // Se queda en Descartadas: si Claude completó algo pero no el sector, no es un «admit».
   const staysDecision = decision.kind === 'admit' ? ({ kind: 'unchanged', why: 'sector_unknown' } as const) : decision;
-  const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
-    buildDispositionStaysEvidence(withFound(evidence), result, staysDecision, decidedAt),
-  );
+  const saved = await deps.patchDispositionEvidence(row.id, (evidence) => {
+    const stays = buildDispositionStaysEvidence(withFound(evidence), result, staysDecision, decidedAt);
+    if (!official.measured) return stays;
+    // Decidida YA con la regla del tamaño oficial: no se reintenta por ella.
+    const rescue = stays[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
+    return { ...stays, [CLAUDE_RESCUE_METADATA_KEY]: { ...(rescue ?? {}), [OFFICIAL_SIZE_RULE_MARKER]: true } };
+  });
   return { tag: saved ? 'kept' : 'failed', cost };
 }
 

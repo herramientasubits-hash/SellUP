@@ -19,6 +19,7 @@
  *   --padron=<txt>       padron_reducido_ruc.txt (https://www2.sunat.gob.pe/padron_reducido_ruc.zip)
  *   --open-padron=<csv>  PadronRUC_AAAAMM.csv (datosabiertos.gob.pe, Padrón RUC SUNAT)
  *   --oece=<csv>         entidades_contratantes.csv (conosce.osce.gob.pe, «|», UTF-8 o Latin-1)
+ *   --renamu=<csv>       Base-Datos_AAAA.csv del RENAMU (INEI, datos abiertos, «;»): web de las municipalidades
  *   --only=registry,alias,directory   (por defecto, las tres)
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
@@ -34,6 +35,10 @@
  *   - No toca accounts, prospect_candidates ni otras fuentes. No llama a SUNAT,
  *     Migo ni proveedores: sólo lee archivos locales.
  *   - Reanudable: `--offset=<n>` salta las n primeras filas ya escritas.
+ *   - `--prune` (SOURCES-PE-PRUNE-1): tras cargar, borra las filas de ESA fuente
+ *     que el archivo ya no trae (hora de importación anterior a la de esta carga).
+ *     Nunca en una carga reanudada ni más del 10 % de la fuente salvo
+ *     `--prune-max-fraction=<0-1>`. También exige la autorización de la dueña.
  *   - Reversible: las fuentes nuevas se borran por `source_key`; la recarga del
  *     registro sólo AÑADE campos a `raw_data` (el nombre comparable no cambia).
  */
@@ -60,6 +65,8 @@ import {
   type PeSunatRegistryRow,
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
 import {
+  dropAliasKeysOwnedByOthers,
+  peruOwnNameKeys,
   peruPublicEntityNameKeys,
   peruRegistryAliasKeys,
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-name-keys';
@@ -73,6 +80,13 @@ import {
 } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-source-rows';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
+import { decidePeSunatPrune } from '../../src/server/source-catalog/connectors/sunat-peru/pe-sunat-prune';
+import {
+  buildPeRenamuDomainMap,
+  peMunicipalityTypeFromLegalName,
+  peRenamuKey,
+  type PeRenamuRow,
+} from '../../src/server/source-catalog/connectors/sunat-peru/pe-renamu-domain';
 
 const UPSERT_CHUNK = 1000;
 const TARGETS = ['registry', 'alias', 'directory'] as const;
@@ -86,6 +100,11 @@ type Config = {
   apply: boolean;
   year: number;
   offset: number;
+  /** SOURCES-PE-PRUNE-1 — tras cargar, borrar las filas de esa fuente que el archivo ya no trae. */
+  prune: boolean;
+  pruneMaxFraction: number | undefined;
+  /** SOURCES-PE-MUNICIPAL-DOMAIN-1 — RENAMU del INEI (CSV «;»), para la web de las municipalidades. */
+  renamu: string | null;
 };
 
 function parseArgs(argv: readonly string[]): Config {
@@ -106,7 +125,14 @@ function parseArgs(argv: readonly string[]): Config {
   if (!Number.isInteger(year) || !Number.isInteger(offset) || offset < 0) {
     throw new Error('config_invalid: --year y --offset deben ser enteros (offset ≥ 0)');
   }
-  return { padron, openPadron, oece: value('oece'), only, apply, year, offset };
+  const prune = argv.includes('--prune');
+  if (prune && !apply) throw new Error('config_invalid: --prune sólo con --apply');
+  const pruneMaxRaw = value('prune-max-fraction');
+  const pruneMaxFraction = pruneMaxRaw === null ? undefined : Number(pruneMaxRaw);
+  if (pruneMaxFraction !== undefined && !(pruneMaxFraction > 0 && pruneMaxFraction <= 1)) {
+    throw new Error('config_invalid: --prune-max-fraction debe estar entre 0 y 1');
+  }
+  return { padron, openPadron, oece: value('oece'), only, apply, year, offset, prune, pruneMaxFraction, renamu: value('renamu') };
 }
 
 async function readOpenPadron(path: string): Promise<Map<string, PeSunatOpenPadronRecord>> {
@@ -144,8 +170,10 @@ function readOeceEntities(path: string): Map<string, string> {
 async function upsertAll(
   sourceKey: string,
   rows: readonly (PeSunatRegistryRow | PeSunatNameAliasRow | PeSunatDirectoryRow)[],
-  offset: number,
+  config: Config,
+  importedAt: string,
 ): Promise<void> {
+  const { offset } = config;
   assertLargeImportAllowed({ sourceKey, countryCode: 'PE', estimatedRows: rows.length, isDryRun: false });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -161,6 +189,43 @@ async function upsertAll(
     if ((i / UPSERT_CHUNK) % 50 === 0) console.log(`  … ${i + chunk.length}/${rows.length}`);
   }
   console.log(`  ${sourceKey}: rowsUpserted = ${upserted}`);
+  if (!config.prune) return;
+
+  // SOURCES-PE-PRUNE-1 — las filas con una hora de importación anterior a la de
+  // esta carga son las que el archivo de hoy ya no trae.
+  const count = async (stale: boolean): Promise<number> => {
+    let query = client
+      .from('source_company_snapshots')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_key', sourceKey)
+      .eq('country_code', 'PE');
+    if (stale) query = query.lt('imported_at', importedAt);
+    const { count: n, error } = await query;
+    if (error || n === null) throw new Error(`prune_count_failed: ${error?.message ?? 'sin conteo'}`);
+    return n;
+  };
+  const totalRows = await count(false);
+  const staleRows = await count(true);
+  const decision = decidePeSunatPrune({
+    totalRows,
+    staleRows,
+    rowsWrittenThisRun: upserted,
+    offset,
+    maxFraction: config.pruneMaxFraction,
+  });
+  console.log(`  ${sourceKey}: ${staleRows} de ${totalRows} filas ya no están en el archivo → ${decision.action}${'reason' in decision ? ` (${decision.reason})` : ''}`);
+  if (decision.action !== 'delete') {
+    if (decision.action === 'refuse') process.exitCode = 1;
+    return;
+  }
+  const { error: deleteError, count: deleted } = await client
+    .from('source_company_snapshots')
+    .delete({ count: 'exact' })
+    .eq('source_key', sourceKey)
+    .eq('country_code', 'PE')
+    .lt('imported_at', importedAt);
+  if (deleteError) throw new Error(`prune_delete_failed: ${deleteError.message}`);
+  console.log(`  ${sourceKey}: rowsPruned = ${deleted ?? 0}`);
 }
 
 async function main(): Promise<void> {
@@ -196,9 +261,25 @@ async function main(): Promise<void> {
       aliasRows.push(row);
     }
   };
+  // Un alias nunca usa el nombre PROPIO de otra sociedad (SOURCES-PE-ALIAS-OWNERSHIP-1).
+  const owners = new Map<string, Set<string>>();
+  for (const row of registryRows) {
+    for (const key of peruOwnNameKeys(row.normalized_legal_name)) {
+      owners.set(key, (owners.get(key) ?? new Set<string>()).add(row.normalized_tax_id));
+    }
+  }
+  let droppedOwned = 0;
+  const ownedFilter = (keys: string[], ruc: string): string[] => {
+    const kept = dropAliasKeysOwnedByOthers(keys, ruc, owners);
+    droppedOwned += keys.length - kept.length;
+    return kept;
+  };
   for (const row of registryRows) {
     const info = open.get(row.normalized_tax_id) ?? null;
-    const keys = peruRegistryAliasKeys(row.legal_name, { taxpayerType: info?.taxpayerType ?? null, workers: info?.workers ?? null });
+    const keys = ownedFilter(
+      peruRegistryAliasKeys(row.legal_name, { taxpayerType: info?.taxpayerType ?? null, workers: info?.workers ?? null }),
+      row.normalized_tax_id,
+    );
     pushAliases(buildPeSunatNameAliasRows({ ruc: row.normalized_tax_id, legalName: row.legal_name, keys, origin: 'sunat_legal_name', open: info, sourceYear: config.year, importedAt }));
   }
   let oeceMatched = 0;
@@ -208,18 +289,44 @@ async function main(): Promise<void> {
       const main = registry.get(ruc);
       if (!main) continue; // sólo entidades activas y habidas del padrón
       oeceMatched++;
-      const keys = peruPublicEntityNameKeys(name).filter((k) => k !== main.normalized_legal_name);
+      const keys = ownedFilter(peruPublicEntityNameKeys(name).filter((k) => k !== main.normalized_legal_name), ruc);
       pushAliases(buildPeSunatNameAliasRows({ ruc, legalName: main.legal_name, keys, origin: 'oece_entity', open: open.get(ruc) ?? null, sourceYear: config.year, importedAt }));
     }
     console.log(`  OECE: ${entities.size} entidades activas · ${oeceMatched} en el padrón`);
   }
-  console.log(`  pe_sunat_name_alias: ${aliasRows.length} filas (${new Set(aliasRows.map((r) => r.normalized_tax_id)).size} RUC)`);
+  console.log(`  pe_sunat_name_alias: ${aliasRows.length} filas (${new Set(aliasRows.map((r) => r.normalized_tax_id)).size} RUC) · ${droppedOwned} claves descartadas por ser el nombre propio de otra sociedad`);
+
+  // SOURCES-PE-MUNICIPAL-DOMAIN-1 — web de las municipalidades (RENAMU) por ubigeo +
+  // tipo, sólo si esa clave identifica a UNA sola municipalidad del padrón.
+  const municipalDomainByRuc = new Map<string, string>();
+  if (config.renamu) {
+    const renamuRows: PeRenamuRow[] = [];
+    for await (const record of readCsvFile(config.renamu, { delimiter: ';' })) renamuRows.push(record as PeRenamuRow);
+    const domainByKey = buildPeRenamuDomainMap(renamuRows);
+    const rucsByKey = new Map<string, string[]>();
+    for (const row of registryRows) {
+      const type = peMunicipalityTypeFromLegalName(row.legal_name);
+      const ubigeo = row.raw_data['ubigeo'];
+      const key = type === null || typeof ubigeo !== 'string' ? null : peRenamuKey(ubigeo, type);
+      if (key !== null) rucsByKey.set(key, [...(rucsByKey.get(key) ?? []), row.normalized_tax_id]);
+    }
+    for (const [key, domain] of domainByKey) {
+      const rucs = rucsByKey.get(key) ?? [];
+      if (rucs.length === 1) municipalDomainByRuc.set(rucs[0], domain);
+    }
+    console.log(`  RENAMU: ${renamuRows.length} municipalidades · ${domainByKey.size} con dominio · ${municipalDomainByRuc.size} con UN RUC del padrón`);
+  }
 
   const directoryRows: PeSunatDirectoryRow[] = [];
   for (const info of open.values()) {
     const main = registry.get(info.ruc);
     if (!main) continue;
-    const row = buildPeSunatDirectoryRow({ open: info, legalName: main.legal_name, importedAt });
+    const row = buildPeSunatDirectoryRow({
+      open: info,
+      legalName: main.legal_name,
+      importedAt,
+      websiteDomain: municipalDomainByRuc.get(info.ruc) ?? null,
+    });
     if (row !== null) directoryRows.push(row);
   }
   directoryRows.sort((a, b) => b.priority_score - a.priority_score || a.normalized_tax_id.localeCompare(b.normalized_tax_id));
@@ -228,7 +335,7 @@ async function main(): Promise<void> {
     const macro = String(row.raw_data['macro_industry_key']);
     byMacro.set(macro, (byMacro.get(macro) ?? 0) + 1);
   }
-  console.log(`  pe_sunat_directory: ${directoryRows.length} filas`);
+  console.log(`  pe_sunat_directory: ${directoryRows.length} filas · ${directoryRows.filter((r) => r.raw_data['website_domain']).length} con web (RENAMU)`);
   for (const [macro, n] of [...byMacro.entries()].sort((a, b) => b[1] - a[1])) console.log(`    ${macro}: ${n}`);
 
   if (!config.apply) {
@@ -236,9 +343,9 @@ async function main(): Promise<void> {
     return;
   }
   const target = config.only[0];
-  if (target === 'registry') await upsertAll(PE_SUNAT_REGISTRY_SOURCE_KEY, registryRows, config.offset);
-  if (target === 'alias') await upsertAll(PE_SUNAT_NAME_ALIAS_SOURCE_KEY, aliasRows, config.offset);
-  if (target === 'directory') await upsertAll(PE_SUNAT_DIRECTORY_SOURCE_KEY, directoryRows, config.offset);
+  if (target === 'registry') await upsertAll(PE_SUNAT_REGISTRY_SOURCE_KEY, registryRows, config, importedAt);
+  if (target === 'alias') await upsertAll(PE_SUNAT_NAME_ALIAS_SOURCE_KEY, aliasRows, config, importedAt);
+  if (target === 'directory') await upsertAll(PE_SUNAT_DIRECTORY_SOURCE_KEY, directoryRows, config, importedAt);
 }
 
 main().catch((error: unknown) => {

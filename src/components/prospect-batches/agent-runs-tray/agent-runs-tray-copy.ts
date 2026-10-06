@@ -104,3 +104,16 @@ export function processCenterSummary(counts: Readonly<Record<ProcessState, numbe
     ...(counts.failed ? [AGENT_RUNS_TRAY_COPY.failed(counts.failed)] : []),
   ].join(' · ');
 }
+
+/**
+ * Qué hace el botón de una fila del Centro de procesos. Una búsqueda TERMINADA (o
+ * fallida que dejó empresas) con lote va directo al lote; lo demás abre la corrida
+ * en el chat (el avance, o el error). Dueña 06-10: «Ver lote» no debe abrir el chat.
+ */
+export type ProcessRowAction = { kind: 'batch'; href: string } | { kind: 'run' };
+
+export function processRowAction(run: AgentRun): ProcessRowAction {
+  const state = agentRunProcessState(run);
+  if ((state === 'done' || state === 'failed') && run.redirectPath) return { kind: 'batch', href: run.redirectPath };
+  return { kind: 'run' };
+}

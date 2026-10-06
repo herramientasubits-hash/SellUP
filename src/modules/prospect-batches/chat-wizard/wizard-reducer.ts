@@ -31,6 +31,20 @@ export function hasWizardSelections(state: ProspectWizardState): boolean {
   );
 }
 
+/**
+ * El paso al que se pasa al responder uno: el siguiente de siempre o, si se está
+ * cambiando UNA decisión desde «¿Qué quieres cambiar?» o el resumen, el resumen
+ * (dueña 06-10: cambiar una decisión no obliga a repetir las demás).
+ */
+function afterEditedStep(
+  state: ProspectWizardState,
+  next: ProspectWizardStep,
+): Pick<ProspectWizardState, 'currentStep' | 'editReturnsToSummary'> {
+  return state.editReturnsToSummary === true
+    ? { currentStep: 'summary', editReturnsToSummary: false }
+    : { currentStep: next, editReturnsToSummary: state.editReturnsToSummary ?? false };
+}
+
 export function createInitialProspectWizardState(
   params: InitialStateParams,
 ): ProspectWizardState {
@@ -48,6 +62,8 @@ export function createInitialProspectWizardState(
     blockingIssues: [],
     lastEditedStep: null,
     restartConfirmationRequired: false,
+    decisionsEditorOpen: false,
+    editReturnsToSummary: false,
     executionError: null,
     executionBatchId: null,
     executionContinuationPending: false,
@@ -148,7 +164,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         searchMode: action.mode,
-        currentStep: 'country',
+        ...afterEditedStep(state, 'country'),
         warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
       };
     }
@@ -176,7 +192,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         countryCode: action.countryCode,
-        currentStep: 'industry',
+        ...afterEditedStep(state, 'industry'),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'),
         lastEditedStep: state.lastEditedStep,
       };
@@ -219,9 +235,11 @@ export function prospectWizardReducer(
         // industria, en las dos taxonomías. Bajo el catálogo macro, además,
         // el paso siguiente ya no existe.
         subindustryIds: [],
-        currentStep: isSubindustrySelectionEnabled(state.catalogVersion)
-          ? 'subindustries'
-          : 'additional_criteria',
+        // Cambiar la industria borra las subindustrias: si el catálogo las tiene,
+        // se preguntan aunque se esté editando sólo la industria.
+        ...(isSubindustrySelectionEnabled(state.catalogVersion)
+          ? { currentStep: 'subindustries' as const }
+          : afterEditedStep(state, 'additional_criteria')),
         warnings: withoutWarningCode(
           state.warnings,
           'SUBINDUSTRIES_REMOVED_AFTER_COUNTRY_CHANGE',
@@ -296,7 +314,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         subindustryIds: deduped,
-        currentStep: 'additional_criteria',
+        ...afterEditedStep(state, 'additional_criteria'),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'TOO_MANY_SUBINDUSTRIES'),
       };
     }
@@ -308,7 +326,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         subindustryIds: [],
-        currentStep: 'additional_criteria',
+        ...afterEditedStep(state, 'additional_criteria'),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'TOO_MANY_SUBINDUSTRIES'),
       };
     }
@@ -339,7 +357,7 @@ export function prospectWizardReducer(
       return {
         ...state,
         additionalCriteriaRaw: value,
-        currentStep: 'requested_count',
+        ...afterEditedStep(state, 'requested_count'),
         blockingIssues: withoutBlockingForStep(
           state.blockingIssues,
           'additional_criteria',
@@ -356,6 +374,7 @@ export function prospectWizardReducer(
         ...state,
         additionalCriteriaRaw: null,
         currentStep: 'summary',
+        editReturnsToSummary: false,
         blockingIssues: withoutBlockingForStep(
           state.blockingIssues,
           'additional_criteria',
@@ -390,6 +409,7 @@ export function prospectWizardReducer(
         ...state,
         additionalCriteriaRaw: result.normalizedValue,
         currentStep: 'summary',
+        editReturnsToSummary: false,
         blockingIssues: [
           ...withoutBlockingForStep(state.blockingIssues, 'additional_criteria'),
           ...result.blockingIssues,
@@ -427,6 +447,7 @@ export function prospectWizardReducer(
         ...state,
         requestedCount: action.value,
         currentStep: 'summary',
+        editReturnsToSummary: false,
         blockingIssues: withoutBlockingCode(
           state.blockingIssues,
           'REQUESTED_COUNT_OUT_OF_RANGE',
@@ -460,7 +481,19 @@ export function prospectWizardReducer(
         ...state,
         currentStep: action.step,
         lastEditedStep: action.step,
+        decisionsEditorOpen: false,
+        editReturnsToSummary: action.returnToSummary === true,
       };
+    }
+
+    // ── OPEN / CLOSE_DECISIONS_EDITOR ───────────────────────────────────────
+    // «Editar búsqueda» (dueña 06-10): en vez de volver sólo al paso anterior, abre
+    // «¿Qué quieres cambiar?» con cada decisión. Cerrarla deja todo como estaba.
+    case 'OPEN_DECISIONS_EDITOR': {
+      return { ...state, decisionsEditorOpen: true };
+    }
+    case 'CLOSE_DECISIONS_EDITOR': {
+      return { ...state, decisionsEditorOpen: false };
     }
 
     // ── REQUEST_RESTART ─────────────────────────────────────────────────────

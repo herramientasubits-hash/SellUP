@@ -269,7 +269,7 @@ function EmptyState() {
     <SharedEmptyState
       icon={Building2}
       title="Sin empresas candidatas"
-      description={'Usa el botón "Agregar empresa candidata" para comenzar.'}
+      description={'Las empresas que encuentre el Agente IA para este lote aparecerán aquí.'}
       variant="plain"
       className="py-16"
     />

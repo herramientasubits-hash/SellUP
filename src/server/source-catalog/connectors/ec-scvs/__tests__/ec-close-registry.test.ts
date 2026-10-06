@@ -26,6 +26,8 @@ import {
 } from '../ec-scvs-registry-rows';
 import {
   accumulateEcSriEntry,
+  ecTradeNameKeys,
+  pickEcTradeNames,
   admitEcSriRecord,
   buildEcSriRegistryRows,
   EC_SRI_REGISTRY_SOURCE_KEY,
@@ -288,6 +290,7 @@ function sri(overrides: Partial<EcSriRecord> = {}): EcSriRecord {
     status: 'ACTIVO',
     establishment: 1,
     tradeName: '',
+    establishmentOpen: true,
     province: 'PICHINCHA',
     canton: 'QUITO',
     ciiuCode: 'O841101',
@@ -303,6 +306,7 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
       ESTADO_CONTRIBUYENTE: 'activo',
       NUMERO_ESTABLECIMIENTO: '12',
       NOMBRE_FANTASIA_COMERCIAL: 'SUPERMAXI',
+      ESTADO_ESTABLECIMIENTO: 'abi',
       DESCRIPCION_PROVINCIA_EST: 'PICHINCHA',
       DESCRIPCION_CANTON_EST: 'QUITO',
       CODIGO_CIIU: 'g471101',
@@ -313,6 +317,7 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
       status: 'ACTIVO',
       establishment: 12,
       tradeName: 'SUPERMAXI',
+      establishmentOpen: true,
       province: 'PICHINCHA',
       canton: 'QUITO',
       ciiuCode: 'G471101',
@@ -324,12 +329,34 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
     assert.equal(admitEcSriRecord(sri({ ruc: '1760001550002' })), false);
   });
 
-  it('el nombre comercial es el del establecimiento de número más bajo que lo trae', () => {
+  it('la razón social es la del establecimiento de número más bajo', () => {
     let entry = accumulateEcSriEntry(undefined, sri({ establishment: 7, tradeName: 'SUCURSAL NORTE' }));
     entry = accumulateEcSriEntry(entry, sri({ establishment: 1, tradeName: '' }));
-    entry = accumulateEcSriEntry(entry, sri({ establishment: 2, tradeName: 'MARCA' }));
     assert.equal(entry.main.establishment, 1);
-    assert.equal(entry.tradeName, 'MARCA');
+  });
+
+  it('SOURCES-EC-CLOSE-2: las 3 marcas que más tiendas usan, sin la tienda ni palabras genéricas (datos reales)', () => {
+    const favorita = { ruc: '1790016919001', legalName: 'CORPORACION FAVORITA C.A.' };
+    let entry: ReturnType<typeof accumulateEcSriEntry> | undefined;
+    for (const [tradeName, open] of [
+      ['SUPERMAXI EL INCA', false], ['SUPERMAXI CUMBAYA', true], ['SUPERMAXI LOS CHILLOS', true],
+      ['AKÍ VECINO NUEVA AURORA', true], ['AKI CONOCOTO', true], ['MEGAMAXI SCALA', true], ['MEGAMAXI 6 DE DICIEMBRE', true],
+      ['JUGUETON QUICENTRO SUR', true], ['SUPER AKI PUERTO GREEN', true],
+    ] as const) {
+      entry = accumulateEcSriEntry(entry, sri({ ...favorita, tradeName, establishmentOpen: open }));
+    }
+    // Empate (AKI y MEGAMAXI, 4): primero la forma más larga.
+    assert.deepEqual(pickEcTradeNames(entry!, 'CORPORACION FAVORITA'), ['SUPERMAXI', 'MEGAMAXI', 'AKI']);
+    // «MI COMISARIATO» es la marca; «MI» solo, no.
+    let rosado: ReturnType<typeof accumulateEcSriEntry> | undefined;
+    for (const tradeName of ['MI COMISARIATO', 'MI COMISARIATO', 'MI JUGUETERIA', 'SUPERCINES', 'SUPERCINES', 'SUPERCINES']) {
+      rosado = accumulateEcSriEntry(rosado, sri({ ruc: '0990004196001', legalName: 'CORPORACION EL ROSADO S.A.', tradeName }));
+    }
+    assert.deepEqual(pickEcTradeNames(rosado!, 'CORPORACION EL ROSADO'), ['SUPERCINES', 'MI COMISARIATO', 'MI JUGUETERIA']);
+    // Una palabra descriptiva nunca abre una marca corta; un conector nunca la cierra.
+    assert.deepEqual(ecTradeNameKeys('FARMACIAS CRUZ AZUL'), ['FARMACIAS CRUZ AZUL']);
+    assert.deepEqual(ecTradeNameKeys('CENTRO DE ACOPIO SUR'), ['CENTRO DE ACOPIO SUR']);
+    assert.deepEqual(ecTradeNameKeys('SUPERMAXI EL INCA'), ['SUPERMAXI EL INCA', 'SUPERMAXI']);
   });
 
   it('una entidad pública queda con su núcleo canónico; sin nombre comercial no hay pista', () => {
@@ -358,7 +385,18 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
     const trade = rows.find((r) => r.source_key === EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY);
     assert.equal(trade?.normalized_legal_name, 'SUPERMAXI');
     assert.equal(trade?.raw_data.workers, 12033);
-    assert.equal(getSourceFamily(EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY), 'TAX_GRAIN');
+    // Hasta 3 marcas por RUC: la 1.ª conserva tax:<RUC>, las demás llevan su clave.
+    assert.equal(getSourceFamily(EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY), 'NATIVE_RECORD_GRAIN');
+    assert.equal(trade?.record_identity_key, 'tax:1790016919001');
+    let two = accumulateEcSriEntry(undefined, favorita);
+    two = accumulateEcSriEntry(two, { ...favorita, tradeName: 'MEGAMAXI' });
+    const brands = buildEcSriRegistryRows({ entry: two, metrics: null, sourceYear: 2025, importedAt: 'x' }).filter(
+      (r) => r.source_key === EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY,
+    );
+    assert.deepEqual(brands.map((r) => [r.normalized_legal_name, r.record_identity_key]), [
+      ['SUPERMAXI', 'tax:1790016919001'],
+      ['MEGAMAXI', 'sri_trade:1790016919001-2'],
+    ]);
     for (const tradeName of ['MATRIZ', 'CORPORACION FAVORITA', 'AB']) {
       const only = buildEcSriRegistryRows({
         entry: accumulateEcSriEntry(undefined, { ...favorita, tradeName }),

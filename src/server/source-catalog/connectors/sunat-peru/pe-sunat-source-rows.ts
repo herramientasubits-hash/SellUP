@@ -21,6 +21,7 @@ import { buildRecordIdentityKey, deriveTaxRecordIdentity } from '../../record-id
 import type { RecordIdentityKey } from '../../record-identity';
 import type { PeSunatOpenPadronRecord } from './pe-sunat-open-padron';
 import { normalizePeruCompanyCore, peSunatOpenPadronRawData } from './pe-sunat-registry-row';
+import { PE_RENAMU_DOMAIN_SOURCE } from './pe-renamu-domain';
 import {
   PE_SUNAT_MACRO_TABLE_VERSION,
   resolvePeActivityMacro,
@@ -138,8 +139,11 @@ export function buildPeSunatDirectoryRow(params: {
   open: PeSunatOpenPadronRecord;
   legalName: string;
   importedAt: string;
+  /** SOURCES-PE-MUNICIPAL-DOMAIN-1 — dominio de la municipalidad en el RENAMU, si lo hay. */
+  websiteDomain?: string | null;
 }): PeSunatDirectoryRow | null {
   const { open, legalName, importedAt } = params;
+  const websiteDomain = params.websiteDomain?.trim().toLowerCase() || null;
   const name = legalName.trim();
   if (!COMPANY_RUC.test(open.ruc) || name.length === 0) return null;
   if (open.taxpayerType !== null && PE_SUNAT_DIRECTORY_EXCLUDED_TAXPAYER_TYPES.has(open.taxpayerType)) return null;
@@ -173,6 +177,8 @@ export function buildPeSunatDirectoryRow(params: {
       macro_table_version: PE_SUNAT_MACRO_TABLE_VERSION,
       workers: open.workers,
       metrics_year: open.metricsYear,
+      website_domain: websiteDomain,
+      website_domain_source: websiteDomain === null ? null : PE_RENAMU_DOMAIN_SOURCE,
       source_type: 'tax_registry_open_data',
       sector_source: 'sunat_ciiu4',
       human_review_required: true,

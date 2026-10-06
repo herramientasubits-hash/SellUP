@@ -1351,7 +1351,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas (30-09). El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias). Pendiente de autorización: recargarlo con tipo de contribuyente, actividad CIIU Rev. 4 y trabajadores del Padrón RUC abierto (corte 2026-09: 357.818 con trabajadores) para el filtro de tamaño.',
+      'Recargado el 06-10-2026 (autorizado): 871.198 sociedades (RUC 20) del padrón reducido de SUNAT, de ellas 862.987 activas y habidas hoy con tipo de contribuyente y actividad CIIU Rev. 4, y 357.818 con trabajadores del Padrón RUC abierto (corte 2026-09) para el filtro de tamaño. El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1380,11 +1380,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código junto al RUC por nombre de Perú. La carga de 72.125 claves de nombre de 49.207 RUC (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE) espera la autorización de la dueña: hasta entonces Perú usa sólo el núcleo del padrón.',
+      'Cargada el 06-10-2026 (autorizado): claves de nombre extra de unas 49.000 sociedades (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE). Un alias nunca usa el nombre propio de otra sociedad (recarga con esa regla: 70.749 claves). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://conosce.osce.gob.pe/',
     automationLevel: 'high',
@@ -1406,11 +1406,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código como capa gratuita de Perú. La carga de 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido) espera la autorización de la dueña: hasta entonces Perú no tiene capa gratuita y va directo a proveedores.',
+      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Las municipalidades llevan su web oficial del RENAMU del INEI (datos abiertos, ODbL; dominio que nombra al distrito o la provincia, nunca gob.pe genérico ni correo gratuito): 169 de las 655 entidades de Gobierno en el dry-run (pendiente de recarga autorizada). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory --renamu=<Base-Datos_AAAA.csv del RENAMU>, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.datosabiertos.gob.pe/dataset/padr%C3%B3n-ruc-superintendencia-nacional-de-aduanas-y-de-administraci%C3%B3n-tributaria-sunat',
     automationLevel: 'high',
@@ -1420,7 +1420,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Sólo sociedades y entidades con 200 o más trabajadores informados: SUNAT no informa trabajadores en el 59 % de las sociedades activas, que no aparecen.',
       'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
       'Los mayoristas de medicamentos no se distinguen en la CIIU internacional y quedan en Retail.',
-      'SUNAT no publica sitio web: las empresas llegan sin dominio.',
+      'SUNAT no publica sitio web: sólo las municipalidades llegan con dominio (RENAMU); hospitales, empresas y demás entidades llegan sin él y dependen del rescate.',
       'Snapshot estático — el padrón se publica cada mes y requiere recarga.',
     ],
     riskNotes: [
@@ -1617,7 +1617,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sri.gob.ec/datasets',
     automationLevel: 'high',
     recommendedUse:
-      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además el nombre comercial del establecimiento principal («SUPERMAXI» → Corporación Favorita) como segundo nombre (ec_sri_trade_name_registry).',
+      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además hasta 3 marcas por RUC, las que más establecimientos usan («SUPERMAXI», «AKI» → Corporación Favorita; «MI COMISARIATO» → El Rosado; «NETLIFE» → Megadatos), como otros nombres (ec_sri_trade_name_registry). En el rescate con Claude de Ecuador, una web que es exactamente esa marca o sigla oficial del mismo RUC cuenta como verificada (netlife.ec, claro.com.ec), y una que es la primera palabra propia de la razón social (huawei.com) llega como inferida.',
     limitations: [
       'El nombre comercial es una pista: sólo da RUC seguro si la empresa es grande según la Superintendencia (200+ empleados).',
       'Nombres públicos genéricos que se repiten («GAD PARROQUIAL SAN JOSE», «CENTRO DE SALUD B») dan varios RUC y quedan como pista.',

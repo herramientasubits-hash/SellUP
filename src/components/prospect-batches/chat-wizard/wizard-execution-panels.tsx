@@ -166,7 +166,8 @@ function WizardGenerationOverlay({ clientRequestId, startedAtMs }: WizardGenerat
             : 'Generando empresas candidatas'
         }
       />
-      <p className="px-6 pb-4 text-center text-xs text-muted-foreground" data-testid="wizard-run-background-note">
+      {/* Dueña 06-10: el aviso quedaba pegado a la línea del loader; con aire arriba y abajo. */}
+      <p className="px-6 pb-6 pt-5 text-center text-xs leading-relaxed text-muted-foreground" data-testid="wizard-run-background-note">
         {WIZARD_RUN_BACKGROUND_NOTE}
       </p>
     </div>
