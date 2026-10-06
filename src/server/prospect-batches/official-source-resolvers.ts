@@ -9,9 +9,9 @@
  * per supported country: Colombia (co_siis, then the cámaras de comercio
  * registry live) name→NIT, República Dominicana
  * (rd_dgii_bulk, then the DGII trade name as a signal only) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
- * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
- * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
- * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
+ * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
+ * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
+ * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
@@ -56,15 +56,15 @@ import { DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
 import { createArgentinaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/argentina-official-source-resolver';
 import { buildArgentinaSnapshotQuery } from '@/server/prospect-batches/argentina-snapshot-query';
-import { createEcuadorOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/ecuador-official-source-resolver';
-import { buildEcuadorSnapshotQuery } from '@/server/prospect-batches/ecuador-snapshot-query';
+import { buildEcuadorOfficialSourceResolver } from '@/server/prospect-batches/ecuador-official-source-chain';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import { buildSnapshotNameQuery } from '@/server/prospect-batches/snapshot-name-query';
 import {
   CENTRAL_AMERICA_LEGAL_FORMS,
   normalizeCompanyNameCore,
 } from '@/server/source-catalog/company-name-core';
-import { normalizePeruCompanyCore } from '@/server/source-catalog/connectors/sunat-peru/pe-sunat-registry-row';
+import { createPeruOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/peru-official-source-resolver';
+import { buildPeruSnapshotNameQuery } from '@/server/prospect-batches/peru-snapshot-query';
 import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
@@ -166,9 +166,9 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     createArgentinaOfficialSourceResolver({
       querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
     }),
-    createEcuadorOfficialSourceResolver({
-      querySnapshots: buildEcuadorSnapshotQuery(snapshotClient),
-    }),
+    // SOURCES-EC-CLOSE-1 — SCVS (activas, con empleados) → siglas → SRI (entidades
+    // públicas) → nombre comercial (pista) → SCVS de julio; ver el módulo.
+    buildEcuadorOfficialSourceResolver(snapshotClient),
     // SOURCES-GT-HN-BY-NAME-1 — registros ya cargados; la dueña autorizó (30-09)
     // dejar de tratarlos como sólo lectura para la identidad fiscal.
     createSnapshotNameOfficialSourceResolver({
@@ -200,13 +200,10 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       }),
     ),
     // SOURCES-PE-RUC-BY-NAME-1 — sociedades activas y habidas del padrón de SUNAT.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'PE',
-      sourceKey: 'pe_sunat_registry',
-      taxIdentifierType: 'RUC',
-      validTaxId: /^20\d{9}$/,
-      normalizeCore: normalizePeruCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'pe_sunat_registry', 'PE'),
+    // SOURCES-PE-CLOSE-1 — con sus alias y entidades públicas (pe_sunat_name_alias),
+    // variantes del nombre y trabajadores para el filtro de tamaño.
+    createPeruOfficialSourceResolver({
+      querySnapshots: buildPeruSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-PY-RUC-BY-NAME-1 — sociedades activas del padrón de RUC de la SET.
     createSnapshotNameOfficialSourceResolver({

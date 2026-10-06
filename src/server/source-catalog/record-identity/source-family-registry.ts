@@ -58,14 +58,25 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   cl_sii_registry: 'TAX_GRAIN',
   // SOURCES-EC-FREE-DISCOVERY-1 — un RUC, una fila (compañías activas de 200+ empleados de la SCVS).
   ec_scvs_directory: 'TAX_GRAIN',
+  // SOURCES-EC-CLOSE-1 — un RUC, una fila: compañías activas de la SCVS con empleados,
+  // su sigla, y el catastro del SRI (entidades públicas y nombre comercial).
+  ec_scvs_registry: 'TAX_GRAIN',
+  ec_scvs_alias_registry: 'TAX_GRAIN',
+  ec_sri_registry: 'TAX_GRAIN',
+  ec_sri_trade_name_registry: 'TAX_GRAIN',
   // SOURCES-CL-SII-FREE-DISCOVERY-1 — un RUT, una fila (personas jurídicas del SII con 100+ trabajadores).
   cl_sii_directory: 'TAX_GRAIN',
+  // SOURCES-PE-FREE-DISCOVERY-1 — un RUC, una fila (sociedades y entidades de SUNAT con 200+ trabajadores).
+  pe_sunat_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
   do_dgii_size_registry: 'TAX_GRAIN',
   do_dgii_trade_name_registry: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-PE-CLOSE-1 — varias filas por RUC (una por clave de nombre: alias del
+  // padrón, entidad pública, entidad contratante OECE): identidad `pe-name-alias:<RUC>:<clave>`.
+  pe_sunat_name_alias: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
 };

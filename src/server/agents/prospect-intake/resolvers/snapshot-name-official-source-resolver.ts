@@ -75,6 +75,14 @@ export interface SnapshotNameResolverConfig {
    */
   singleWordConfirmedByDomain?: (domain: string | null, core: string) => boolean;
   /**
+   * SOURCES-EC-CLOSE-1 — lifts `singleWordIsSignalOnly` and `signalOnly` when the
+   * ONE company that carries the name declared at least this many workers to the
+   * registry. A bare brand or trade name («Pronaca», «Supermaxi») that matches a
+   * single large company is that company; a small homonym stays a signal
+   * («MOVISTAR S.A.» is not Telefónica). Needs `workforce` in the rows.
+   */
+  largeCompanyStrongMinWorkers?: number;
+  /**
    * SOURCES-DO-SIZE-SIGNAL-1 — when true, NO match of this source is ever strong:
    * a unique exact core is kept as a signal (`low_confidence_match`). For sources
    * keyed by something weaker than the legal name, e.g. the DGII trade name
@@ -161,6 +169,10 @@ export function createSnapshotNameOfficialSourceResolver(
       if (config.signalOnly === true && distinct.length > 1) return notFound(core);
 
       const best = distinct[0];
+      const largeRegistered =
+        distinct.length === 1 &&
+        typeof config.largeCompanyStrongMinWorkers === 'number' &&
+        (best.workforce?.workers ?? -1) >= config.largeCompanyStrongMinWorkers;
       const base = {
         countryCode: country,
         sourceKey: config.sourceKey,
@@ -175,8 +187,12 @@ export function createSnapshotNameOfficialSourceResolver(
       const domainConfirms =
         config.singleWordConfirmedByDomain?.(input.candidate.domain ?? input.candidate.websiteUrl ?? null, core) === true;
       const singleWord =
-        config.singleWordIsSignalOnly === true && tokens.length === 1 && !carriesLegalForm && !domainConfirms;
-      if (distinct.length === 1 && !singleWord && config.signalOnly !== true) {
+        config.singleWordIsSignalOnly === true &&
+        tokens.length === 1 &&
+        !carriesLegalForm &&
+        !domainConfirms &&
+        !largeRegistered;
+      if (distinct.length === 1 && !singleWord && (config.signalOnly !== true || largeRegistered)) {
         return {
           ...base,
           status: 'matched',

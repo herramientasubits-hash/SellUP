@@ -1,6 +1,6 @@
 /**
  * ec-scvs-directory-rows.ts — arma filas de `source_company_snapshots` para
- * `ec_scvs_directory`: compañías ecuatorianas ACTIVAS con 200 o más empleados.
+ * `ec_scvs_directory`: compañías ecuatorianas ACTIVAS con 100 o más empleados.
  *
  * SOURCES-EC-FREE-DISCOVERY-1. Puro: sin env, sin I/O, sin DB, sin reloj (la hora
  * de importación se inyecta).
@@ -13,8 +13,8 @@
  *     ingresos por ventas declarados en los estados financieros.
  *
  * Una compañía entra sólo si (1) está ACTIVA, (2) tiene RUC de 13 dígitos de
- * sociedad (termina en 001), y (3) su último año en el ranking declara 200 o más
- * empleados, que es el umbral de tamaño del Agente 1. Así la capa gratuita nunca
+ * sociedad (termina en 001), y (3) su último año en el ranking declara 100 o más
+ * empleados (`EC_SCVS_DIRECTORY_MIN_EMPLOYEES`). Así la capa gratuita nunca
  * cierra un objetivo con microempresas.
  *
  * 🔴 No se guardan representante legal, teléfono ni dirección: el Agente 1 no
@@ -25,6 +25,7 @@ import { deriveTaxRecordIdentity } from '../../record-identity';
 import type { RecordIdentityKey } from '../../record-identity';
 import { normalizeEcCompanyCore } from './ec-company-name-core';
 import { normalizeEcuadorRuc } from './ec-ruc-normalizer';
+import { EC_SERCOP_DOMAIN_SOURCE } from './ec-sercop-domain';
 import {
   EC_SCVS_MACRO_TABLE_VERSION,
   normalizeEcCiiuCode,
@@ -34,8 +35,8 @@ import {
 export const EC_SCVS_DIRECTORY_SOURCE_KEY = 'ec_scvs_directory' as const;
 export const EC_SCVS_DIRECTORY_COUNTRY_CODE = 'EC' as const;
 
-/** Umbral de tamaño del Agente 1 (más de 200 empleados se redondea a 200 o más). */
-export const EC_SCVS_DIRECTORY_MIN_EMPLOYEES = 200;
+/** Umbral de tamaño del buscador gratuito de Ecuador (el mismo que Chile). */
+export const EC_SCVS_DIRECTORY_MIN_EMPLOYEES = 100;
 
 /**
  * RUC de sociedad: provincia válida (01-24 o 30) + 8 dígitos + 001. Misma regla
@@ -159,6 +160,9 @@ export function admitEcDirectoryCompany(
  *
  * `workers` y `metrics_year` siguen el mismo formato que el SII de Chile, así que
  * `workforceFromRawData` los lee igual.
+ *
+ * SOURCES-EC-CLOSE-1 — `websiteDomain`: el dominio que la compañía declaró en
+ * SERCOP (`ec-sercop-domain.ts`), si lo hay. Sin él no se fabrica ninguno.
  */
 export function buildEcScvsDirectoryRow(params: {
   record: EcDirectoryRecord;
@@ -166,8 +170,10 @@ export function buildEcScvsDirectoryRow(params: {
   metrics: EcRankingMetrics;
   priorityScore: number;
   importedAt: string;
+  websiteDomain?: string | null;
 }): EcScvsDirectoryRow {
   const { record, ruc, metrics, priorityScore, importedAt } = params;
+  const websiteDomain = params.websiteDomain?.trim().toLowerCase() || null;
   const identity = deriveTaxRecordIdentity(ruc);
   const macro = resolveEcActivityMacro(record.ciiuCode);
   const core = normalizeEcCompanyCore(record.legalName);
@@ -198,6 +204,9 @@ export function buildEcScvsDirectoryRow(params: {
       metrics_year: metrics.year,
       source_type: 'company_registry_and_financial_ranking',
       sector_source: 'scvs_ciiu4_inec',
+      ...(websiteDomain !== null
+        ? { website_domain: websiteDomain, website_domain_source: EC_SERCOP_DOMAIN_SOURCE }
+        : {}),
       human_review_required: true,
     },
     imported_at: importedAt,

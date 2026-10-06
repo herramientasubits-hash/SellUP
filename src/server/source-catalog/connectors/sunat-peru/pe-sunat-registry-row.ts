@@ -15,6 +15,7 @@
 
 import { deriveTaxRecordIdentity, type RecordIdentityKey } from '../../record-identity';
 import { normalizeCompanyNameCore, PERU_LEGAL_FORMS } from '../../company-name-core';
+import type { PeSunatOpenPadronRecord } from './pe-sunat-open-padron';
 
 export const PE_SUNAT_REGISTRY_SOURCE_KEY = 'pe_sunat_registry' as const;
 export const PE_SUNAT_REGISTRY_COUNTRY_CODE = 'PE' as const;
@@ -40,12 +41,31 @@ export function normalizePeruCompanyCore(name: string | null | undefined): strin
 }
 
 /**
+ * SOURCES-PE-CLOSE-1 — lo que el Padrón RUC abierto añade a la fila: tipo de
+ * contribuyente, clase CIIU Rev. 4 y, si SUNAT los informa, los trabajadores
+ * (`workers` + `metrics_year`, la forma que lee `workforceFromRawData` para el
+ * filtro de tamaño, igual que el SII de Chile).
+ */
+export function peSunatOpenPadronRawData(open: PeSunatOpenPadronRecord | null | undefined): Record<string, unknown> {
+  if (!open) return {};
+  return {
+    taxpayer_type: open.taxpayerType,
+    ciiu4_code: open.ciiu4Code,
+    ...(open.workers !== null && open.metricsYear !== null
+      ? { workers: open.workers, metrics_year: open.metricsYear }
+      : {}),
+  };
+}
+
+/**
  * Convierte una línea del padrón en fila, o `null` si no es una sociedad activa y
- * habida con nombre utilizable (la cabecera también devuelve `null`).
+ * habida con nombre utilizable (la cabecera también devuelve `null`). `open` es
+ * la misma sociedad en el Padrón RUC abierto, si está.
  */
 export function buildPeSunatRegistryRow(
   line: string,
   params: { sourceYear: number; importedAt: string },
+  open: PeSunatOpenPadronRecord | null = null,
 ): PeSunatRegistryRow | null {
   const cells = line.split('|');
   if (cells.length < 5) return null;
@@ -68,7 +88,7 @@ export function buildPeSunatRegistryRow(
     normalized_tax_id: ruc,
     legal_name: legalName,
     normalized_legal_name: core,
-    raw_data: { ubigeo: ubigeo && ubigeo !== '-' ? ubigeo : null },
+    raw_data: { ubigeo: ubigeo && ubigeo !== '-' ? ubigeo : null, ...peSunatOpenPadronRawData(open) },
     imported_at: params.importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
