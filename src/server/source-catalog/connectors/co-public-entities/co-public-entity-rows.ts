@@ -136,7 +136,8 @@ export type CoPublicEntitySnapshotRow = {
   source_key: typeof CO_PUBLIC_ENTITIES_SOURCE_KEY;
   country_code: 'CO';
   source_year: number;
-  source_period: string;
+  /** Vacío, como el resto de cargas: el CHECK de la tabla sólo admite períodos con formato fijo. */
+  source_period: null;
   record_identity_key: string;
   tax_id: string;
   normalized_tax_id: string;
@@ -241,7 +242,7 @@ export function buildCoPublicEntityRows(
       source_key: CO_PUBLIC_ENTITIES_SOURCE_KEY,
       country_code: 'CO',
       source_year: CO_PUBLIC_ENTITIES_SOURCE_YEAR,
-      source_period: 'chip+sigep',
+      source_period: null,
       record_identity_key: `tax:${nit}`,
       tax_id: nit,
       normalized_tax_id: nit,

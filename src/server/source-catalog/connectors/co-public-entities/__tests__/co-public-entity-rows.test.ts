@@ -82,6 +82,8 @@ describe('buildCoPublicEntityRows', () => {
     assert.equal(rows.length, 1);
     const [row] = rows;
     assert.equal(row.record_identity_key, 'tax:800099095');
+    // El CHECK `source_company_snapshots_source_period_format_chk` rechaza texto libre.
+    assert.equal(row.source_period, null);
     assert.equal(row.tax_id, '800099095');
     assert.equal(row.legal_name, 'ALCALDIA DE IPIALES');
     assert.equal(row.normalized_legal_name, 'ALCALDIA DE IPIALES');
