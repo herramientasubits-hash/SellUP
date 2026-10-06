@@ -4,6 +4,16 @@
  *
  * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 6, 27, 28.
  *
+ * ── SOURCES-CO-CLOSE-1 (06-10-2026) ──────────────────────────────────────────
+ *
+ *   - Orden por ingresos (de mayor a menor), no por NIT: antes cada corrida leía
+ *     siempre las mismas filas, las de NIT más bajo.
+ *   - Se lee de más (×3, techo 600) y se marca lo que SellUp ya vio por NIT
+ *     (candidatas y descartes del buscador gratuito), patrón de Argentina (#611).
+ *   - Se devuelve la web cargada (`raw_data.website_domain`).
+ *   - Gobierno se lee del directorio de entidades públicas (`co_public_entities`),
+ *     ordenado por servidores públicos.
+ *
  * ── 🔴 Sólo lectura, y acotada ───────────────────────────────────────────────
  *
  * Un `SELECT … LIMIT` sobre `source_company_snapshots`, filtrado a
@@ -50,13 +60,38 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { CoSiisSnapshotQuery, CoSiisSnapshotRow } from './co-siis-discovery-adapter';
+import {
+  CO_PUBLIC_ENTITY_DISCOVERY_MACROS,
+  CO_PUBLIC_ENTITY_DISCOVERY_MIN_WORKERS,
+  type CoPriorSighting,
+  type CoSiisSnapshotQuery,
+  type CoSiisSnapshotRow,
+} from './co-siis-discovery-adapter';
 
 /** `source_key` de la porción colombiana del snapshot. */
 export const CO_SIIS_SNAPSHOT_SOURCE_KEY = 'co_siis' as const;
 
+/** `source_key` del directorio de entidades públicas (CHIP + SIGEP II). */
+export const CO_PUBLIC_ENTITIES_SOURCE_KEY = 'co_public_entities' as const;
+
+/** Cuántas filas se leen por cada una que se pide (se saltan las ya vistas). */
+export const CO_DISCOVERY_READ_OVERSAMPLE = 3;
+/** Techo de filas leídas por consulta. */
+export const CO_DISCOVERY_READ_CAP = 600;
+/** NIT por consulta al marcar lo ya visto (la URL de PostgREST tiene límite). */
+const SIGHTING_CHUNK = 150;
+
 /** Nombre de la clave CIIU dentro de `raw_data`. */
 const CO_SIIS_RAW_CIIU_KEY = 'CIIU';
+
+/** Decisiones del rescate de Claude que cierran el caso de una empresa descartada. */
+const DEFINITIVE_RESCUE_DECISIONS: ReadonlySet<string> = new Set(['discard', 'duplicate']);
+
+const SIGHTING_RANK: Record<CoPriorSighting, number> = { candidate: 3, definitive_discard: 2, discard: 1 };
+
+function strongest(a: CoPriorSighting | undefined, b: CoPriorSighting): CoPriorSighting {
+  return a !== undefined && SIGHTING_RANK[a] >= SIGHTING_RANK[b] ? a : b;
+}
 
 /** Las dos formas con las que un mismo código puede estar guardado. */
 function expandCiiuCodeForms(codes: readonly string[]): string[] {
@@ -76,32 +111,25 @@ function expandCiiuCodeForms(codes: readonly string[]): string[] {
  * `raw_data.CIIU` es `number` en 10.000/10.000 filas de `co_siis`, así que la
  * lectura tiene que aceptar el número. Contrato deliberadamente estrecho: sólo
  * pasan los códigos plausibles, y cualquier otra forma es `null` (fail-closed).
- *
- * 🔴 NO canoniza el cero a la izquierda a propósito. `getCiiuSectorDescriptionExact`
- * ya rellena con `padStart(4, '0')` los códigos de 1–4 dígitos, y es el único
- * resolvedor autorizado para hacerlo. Duplicar aquí ese relleno pondría la misma
- * regla en dos capas, que es cómo divergen luego. `111` sale como `'111'` y aquel
- * lo resuelve como `'0111'`.
- *
- * No se exporta: su contrato se prueba por la FRONTERA (la proyección de la
- * consulta), que es donde el defecto vivía de verdad.
+ * El relleno del cero a la izquierda lo hace quien resuelve la industria.
  */
 function normalizeSnapshotCiiu(raw: unknown): string | null {
   if (typeof raw === 'number') {
-    // Fail-closed: un CIIU es un entero positivo. Un decimal, un negativo, `NaN`
-    // o un infinito no son códigos — son datos corruptos, y adivinarles una
-    // intención fabricaría evidencia que la fuente no dio.
     if (!Number.isInteger(raw) || raw <= 0) return null;
     return String(raw);
   }
-
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     return trimmed === '' ? null : trimmed;
   }
-
-  // `null`, `undefined`, booleanos, objetos y arrays: nada de esto es un código.
   return null;
+}
+
+const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+function toInteger(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isInteger(n) ? n : null;
 }
 
 type SnapshotSelectRow = {
@@ -115,6 +143,125 @@ type SnapshotSelectRow = {
   raw_data: Record<string, unknown> | null;
 };
 
+const SELECTED_COLUMNS =
+  'record_identity_key, legal_name, normalized_legal_name, tax_id, sector, city, department, raw_data';
+
+function toSiisRow(row: SnapshotSelectRow): CoSiisSnapshotRow {
+  return {
+    record_identity_key: row.record_identity_key,
+    legal_name: row.legal_name,
+    normalized_legal_name: row.normalized_legal_name,
+    tax_id: row.tax_id,
+    sector: row.sector,
+    city: row.city,
+    department: row.department,
+    ciiu: normalizeSnapshotCiiu(row.raw_data?.[CO_SIIS_RAW_CIIU_KEY]),
+    website_domain: text(row.raw_data?.['website_domain']),
+    origin: 'siis',
+  };
+}
+
+function toPublicEntityRow(row: SnapshotSelectRow): CoSiisSnapshotRow {
+  return {
+    record_identity_key: row.record_identity_key,
+    legal_name: row.legal_name,
+    normalized_legal_name: row.normalized_legal_name,
+    tax_id: row.tax_id,
+    sector: row.sector,
+    city: row.city,
+    department: row.department,
+    ciiu: null,
+    website_domain: text(row.raw_data?.['website_domain']),
+    origin: 'public_entity',
+    macro_industry_key: text(row.raw_data?.['macro_industry_key']),
+    workers: toInteger(row.raw_data?.['workers']),
+  };
+}
+
+/**
+ * NIT → lo que SellUp ya sabe de él: candidata en algún lote, descartada de forma
+ * definitiva (el rescate de Claude dijo otra industria, otro tamaño o duplicada)
+ * o descartada sin cierre (p. ej. sin web). Sólo lectura; si una consulta falla,
+ * esa parte no marca nada (fail-open, como el resto de la capa gratuita).
+ */
+async function readPriorSightings(
+  client: SupabaseClient,
+  nits: readonly string[],
+): Promise<Map<string, CoPriorSighting>> {
+  const out = new Map<string, CoPriorSighting>();
+  for (let i = 0; i < nits.length; i += SIGHTING_CHUNK) {
+    const chunk = nits.slice(i, i + SIGHTING_CHUNK);
+    try {
+      const { data, error } = await client.from('prospect_candidates').select('tax_identifier').in('tax_identifier', chunk);
+      if (!error && Array.isArray(data)) {
+        for (const row of data as Array<{ tax_identifier: string | null }>) {
+          if (row.tax_identifier) out.set(row.tax_identifier, strongest(out.get(row.tax_identifier), 'candidate'));
+        }
+      }
+    } catch {
+      /* fail-open */
+    }
+    try {
+      const { data, error } = await client
+        .from('prospect_discarded_dispositions')
+        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .eq('source_primary', 'public_source')
+        .in('provider_identifier', chunk.map((nit) => `tax:${nit}`));
+      if (!error && Array.isArray(data)) {
+        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+          const nit = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
+          if (!nit) continue;
+          const sighting: CoPriorSighting =
+            row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
+          out.set(nit, strongest(out.get(nit), sighting));
+        }
+      }
+    } catch {
+      /* fail-open */
+    }
+  }
+  return out;
+}
+
+async function readSiisRows(client: SupabaseClient, ciiuCodes: readonly string[], limit: number): Promise<CoSiisSnapshotRow[]> {
+  const forms = expandCiiuCodeForms(ciiuCodes);
+  if (forms.length === 0) return [];
+  const base = () =>
+    client
+      .from('source_company_snapshots')
+      .select(SELECTED_COLUMNS)
+      .eq('source_key', CO_SIIS_SNAPSHOT_SOURCE_KEY)
+      .eq('country_code', 'CO')
+      .in(`raw_data->>${CO_SIIS_RAW_CIIU_KEY}`, forms);
+  // De la que más factura a la que menos; el NIT desempata para que dos corridas
+  // idénticas lean las mismas filas.
+  let { data, error } = await base()
+    .order('financials->operatingRevenueCurrent', { ascending: false, nullsFirst: false })
+    .order('record_identity_key', { ascending: true })
+    .limit(limit);
+  if (error) {
+    // Si el orden por ingresos no se puede aplicar, el orden estable de siempre.
+    ({ data, error } = await base().order('record_identity_key', { ascending: true }).limit(limit));
+  }
+  if (error || !Array.isArray(data)) return [];
+  return (data as unknown as SnapshotSelectRow[]).map(toSiisRow);
+}
+
+async function readPublicEntityRows(client: SupabaseClient, macroIndustryKey: string, limit: number): Promise<CoSiisSnapshotRow[]> {
+  const { data, error } = await client
+    .from('source_company_snapshots')
+    .select(SELECTED_COLUMNS)
+    .eq('source_key', CO_PUBLIC_ENTITIES_SOURCE_KEY)
+    .eq('country_code', 'CO')
+    .eq('raw_data->>macro_industry_key', macroIndustryKey)
+    .gte('priority_score', CO_PUBLIC_ENTITY_DISCOVERY_MIN_WORKERS)
+    .order('priority_score', { ascending: false })
+    .order('record_identity_key', { ascending: true })
+    .limit(limit);
+  if (error || !Array.isArray(data)) return [];
+  return (data as unknown as SnapshotSelectRow[]).map(toPublicEntityRow);
+}
+
 /**
  * Adapta un cliente (de `service_role`) a la consulta de descubrimiento.
  *
@@ -122,36 +269,16 @@ type SnapshotSelectRow = {
  * factoría aprobada y env-guarded, igual que el resto de lecturas de esta tabla.
  */
 export function buildCoSiisDiscoverySnapshotQuery(client: SupabaseClient): CoSiisSnapshotQuery {
-  return async ({ ciiuCodes, limit }): Promise<readonly CoSiisSnapshotRow[]> => {
-    const forms = expandCiiuCodeForms(ciiuCodes);
-    if (forms.length === 0 || limit <= 0) return [];
-
+  return async ({ macroIndustryKey, ciiuCodes, limit }): Promise<readonly CoSiisSnapshotRow[]> => {
+    if (limit <= 0) return [];
+    const readLimit = Math.min(limit * CO_DISCOVERY_READ_OVERSAMPLE, CO_DISCOVERY_READ_CAP);
     try {
-      const { data, error } = await client
-        .from('source_company_snapshots')
-        .select(
-          'record_identity_key, legal_name, normalized_legal_name, tax_id, sector, city, department, raw_data',
-        )
-        .eq('source_key', CO_SIIS_SNAPSHOT_SOURCE_KEY)
-        .eq('country_code', 'CO')
-        .in(`raw_data->>${CO_SIIS_RAW_CIIU_KEY}`, forms)
-        // Orden estable: dos corridas idénticas leen las mismas filas. Sin él, el
-        // «no determinista» de Postgres haría irreproducible cualquier diagnóstico.
-        .order('record_identity_key', { ascending: true })
-        .limit(limit);
-
-      if (error || !data) return [];
-
-      return (data as SnapshotSelectRow[]).map((row) => ({
-        record_identity_key: row.record_identity_key,
-        legal_name: row.legal_name,
-        normalized_legal_name: row.normalized_legal_name,
-        tax_id: row.tax_id,
-        sector: row.sector,
-        city: row.city,
-        department: row.department,
-        ciiu: normalizeSnapshotCiiu(row.raw_data?.[CO_SIIS_RAW_CIIU_KEY]),
-      }));
+      const rows = CO_PUBLIC_ENTITY_DISCOVERY_MACROS.has(macroIndustryKey)
+        ? await readPublicEntityRows(client, macroIndustryKey, readLimit)
+        : await readSiisRows(client, ciiuCodes, readLimit);
+      const nits = [...new Set(rows.map((row) => row.tax_id?.trim()).filter((nit): nit is string => Boolean(nit)))];
+      const sightings = nits.length > 0 ? await readPriorSightings(client, nits) : new Map<string, CoPriorSighting>();
+      return rows.map((row) => ({ ...row, prior_sighting: sightings.get(row.tax_id?.trim() ?? '') ?? null }));
     } catch {
       return [];
     }

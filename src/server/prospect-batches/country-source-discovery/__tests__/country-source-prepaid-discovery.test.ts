@@ -19,12 +19,21 @@ import type { CountrySourceAdapter } from '../country-source-types';
 
 const MACRO = 'health_pharma';
 
+/** NIT sintético estable de 9 dígitos a partir de la clave. */
+function syntheticNit(key: string): string {
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) % 100_000_000;
+  return `9${String(hash).padStart(8, '0')}`;
+}
+
 /** Fila sintética. Nunca un nombre de empresa real (§ 21). */
 function row(overrides: Partial<CoSiisSnapshotRow> & { record_identity_key: string }): CoSiisSnapshotRow {
   return {
     legal_name: `EMPRESA SINTETICA ${overrides.record_identity_key}`,
     normalized_legal_name: `empresa sintetica ${overrides.record_identity_key}`,
-    tax_id: `9000000${overrides.record_identity_key}`,
+    // SOURCES-CO-CLOSE-1 — NIT de persona jurídica con la forma real (9 dígitos,
+    // empieza por 8 o 9): la proyección ya no ofrece otra cosa.
+    tax_id: syntheticNit(overrides.record_identity_key),
     sector: 'SERVICIOS',
     city: 'BOGOTA',
     department: 'BOGOTA D.C.',
@@ -142,8 +151,10 @@ test('§ 22(D) SOURCE OFF-MACRO — industria declarada de otra macro NO reduce 
   const rows = ['1', '2', '3'].map((k) => row({ record_identity_key: k, ciiu: '4111' }));
   const result = await gate(rows, noMatch);
 
+  // SOURCES-CO-CLOSE-1 — con la tabla aprobada la proyección ni siquiera ofrece
+  // una fila de otra macro (como Argentina y Chile): no llega a la puerta.
   assert.equal(result.context.freeSource.macroConfirmed, 0);
-  assert.equal(result.context.freeSource.rejected, 3);
+  assert.equal(result.context.acceptedBeforeProvider, 0);
   assert.equal(result.context.residualGap, 5);
   assert.equal(result.context.providerRequired, true);
 });
@@ -154,8 +165,9 @@ test('§ 22(E) SOURCE AMBIGUOUS — sin industria declarada resoluble NO se conf
   const rows = ['1', '2'].map((k) => row({ record_identity_key: k, ciiu: '9999' }));
   const result = await gate(rows, noMatch);
 
+  // SOURCES-CO-CLOSE-1 — un código sin macro en la tabla no se ofrece.
   assert.equal(result.context.freeSource.macroConfirmed, 0);
-  assert.equal(result.context.freeSource.ambiguous, 2);
+  assert.equal(result.context.acceptedBeforeProvider, 0);
   assert.equal(result.context.residualGap, 5);
 });
 
@@ -238,9 +250,11 @@ test('§ 22(I) NO WEBSITE — la empresa se evalúa por identidad legal y NO apo
 });
 
 test('§ 4 — una macro SIN cobertura de códigos no consulta la fuente: devuelve cero, no una muestra genérica', async () => {
+  // SOURCES-CO-CLOSE-1 — con la tabla aprobada las doce macros del catálogo tienen
+  // cobertura en Colombia; la garantía se prueba con una macro que no la tiene.
   let queried = 0;
   const result = await runPrePaidNoveltyGate(
-    { provider: 'lusha', countryCode: 'CO', macroIndustryKey: 'retail', requestedTarget: 5 },
+    { provider: 'lusha', countryCode: 'CO', macroIndustryKey: 'macro_sin_tabla', requestedTarget: 5 },
     {
       countrySourceAdapter: buildCoSiisDiscoveryAdapter(async () => {
         queried++;
@@ -251,8 +265,8 @@ test('§ 4 — una macro SIN cobertura de códigos no consulta la fuente: devuel
   );
 
   assert.equal(queried, 0, 'no se consulta sin códigos que preguntar');
-  assert.equal(result.context.freeSource.failureCode, 'source_not_criteria_aware');
   assert.equal(result.context.residualGap, 5);
+  assert.equal(result.context.acceptedBeforeProvider, 0);
 });
 
 test('🔴 X6.13 · § 14 — la fuente CONSERVA todas las válidas que encuentra', async () => {

@@ -178,7 +178,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'automatic_enrichment',
     nextAction:
-      'Snapshot SIIS 2024 cargado con 10.000 empresas. Es la primera fuente de NIT por nombre en cada corrida del Agente 1 (Apollo, Lusha e importación) y alimenta la capa gratuita colombiana por industria (CIIU) antes de pagar a proveedores. Recargar cuando SIIS publique un nuevo año.',
+      'Snapshot SIIS 2024 cargado con 10.000 empresas. Es la primera fuente de NIT por nombre en cada corrida del Agente 1 (Apollo, Lusha, Tavily, Claude, banco, rescate e importación) y alimenta la capa gratuita colombiana por industria (tabla de actividades CIIU aprobada por la dueña el 06-10-2026) antes de pagar a proveedores. La carga de su web (SECOP II y correo de Supersociedades, sólo si el dominio lleva el nombre: ≈4.900 de 10.000) espera la autorización de la dueña. Recargar cuando SIIS publique un nuevo año (ya existe el corte 2025 en datos.gov.co).',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P0',
@@ -187,7 +187,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://siis.ia.supersociedades.gov.co/',
     automationLevel: 'high',
     recommendedUse:
-      'Snapshot de Supersociedades (SIIS 2024, 10.000 empresas) cargado en SellUp. En cada corrida del Agente 1 (Apollo, Lusha e importación) es la primera fuente para completar el NIT por nombre de empresa; si no da un NIT seguro, el Agente 1 consulta en vivo el registro de las Cámaras de Comercio (Personas Jurídicas Cámaras de Comercio). También alimenta la capa gratuita colombiana por industria (co_siis_discovery, por CIIU), que propone empresas antes de pagar a Apollo o Lusha. Aporta además señales financieras (ingresos, utilidades, activos, patrimonio) para priorizar empresas medianas y grandes.',
+      'Snapshot de Supersociedades (SIIS 2024, 10.000 empresas) cargado en SellUp. En cada corrida del Agente 1 (Apollo, Lusha e importación) es la primera fuente para completar el NIT por nombre de empresa; si no da un NIT seguro, el Agente 1 consulta en vivo el registro de las Cámaras de Comercio (Personas Jurídicas Cámaras de Comercio). También alimenta la capa gratuita colombiana por industria (co_siis_discovery): la industria sale del código CIIU con la tabla aprobada por la dueña (06-10-2026: la misma por división que Argentina, Chile y Ecuador, más mayoristas de medicamentos y cosméticos y farmacias en Salud, y mayoristas y tiendas de informática y telecomunicaciones en Tecnología), propone primero las que más facturan y nunca repite lo que SellUp ya tiene. Con la web cargada, también da el NIT por la web de la candidata. Aporta además señales financieras (ingresos, utilidades, activos, patrimonio) para priorizar empresas medianas y grandes.',
     limitations: [
       'Cobertura limitada a empresas reportadas o supervisadas por Supersociedades — no representa todo el universo empresarial colombiano',
       'No cubre microempresas ni empresas no vigiladas',
@@ -201,6 +201,61 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Que una empresa no esté en SIIS no significa que no exista — por eso, sin NIT seguro, el Agente 1 recurre a las Cámaras de Comercio',
       'Un nombre repetido o genérico no da un NIT seguro',
       'Snapshot 2024 cargado exitosamente (10.000 registros) — monitorear actualización anual',
+    ],
+  },
+  {
+    key: 'co_public_entities',
+    name: 'Entidades públicas (CHIP + SIGEP II) — NIT por web y tamaño',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: en cada corrida del Agente 1 da el NIT de alcaldías, gobernaciones, ministerios, E.S.E. y demás entidades públicas por la WEB de la candidata, con sus servidores públicos como tamaño oficial. La carga (≈4.900 entidades, 3.551 con web; descargas públicas de datos.gov.co) espera la autorización de la dueña.',
+    countryCodes: ['CO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.datos.gov.co/Hacienda-y-Cr-dito-P-blico/ENTIDADES-P-BLICAS-REGISTRADAS-EN-EL-SISTEMA-CHIP/5c7g-ptic',
+    automationLevel: 'high',
+    recommendedUse:
+      'Directorio de entidades públicas de Colombia armado con dos fuentes gratuitas de datos.gov.co: el CHIP de la Contaduría General (NIT, nombre, municipio y página web publicada por la propia entidad) y la Caracterización del Empleo Público del SIGEP II (servidores públicos por entidad, junio 2026). Medido el 06-10-2026: 89 de 275 empresas colombianas sin NIT eran entidades públicas, que no están en las cámaras de comercio y cuya razón social no se parece a su nombre de uso («Alcaldía de Ipiales» es «Ipiales»). En cada corrida (Apollo, Lusha, Tavily, Claude, banco, rescate, capa gratuita e importación), si el SIIS no dio un NIT seguro, el Agente 1 busca la web de la candidata en este directorio: host exacto primero, luego el dominio registrable; si varias entidades comparten la web, gana la que lleva el mismo nombre o la cabeza de la entidad (alcaldía, gobernación, ministerio). Los servidores públicos llegan al filtro ICP de tamaño por el mismo camino que el SII de Chile.',
+    limitations: [
+      'Sólo entidades que reportan al CHIP o al SIGEP II; las que no publican web sólo se encuentran por nombre.',
+      'El SIGEP cuenta servidores de planta, no contratistas: el tamaño real puede ser mayor.',
+      'Personería y concejo comparten el NIT del municipio: sus servidores se suman al municipio.',
+      'Snapshot estático — se rearma desde las descargas públicas cuando se recargue.',
+    ],
+    riskNotes: [
+      'Un dominio del Estado (.gov.co, .mil.co) nunca identifica a una empresa privada.',
+      'Si varias entidades comparten la web y ninguna coincide por nombre ni es la cabeza, queda sólo como pista.',
+      'No se guardan correos ni personas: sólo el dominio y el número de servidores.',
+    ],
+  },
+  {
+    key: 'co_public_entities_discovery',
+    name: 'Entidades públicas — capa gratuita de Gobierno (200+ servidores)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Gobierno para Colombia. Depende de la carga de co_public_entities (≈150 entidades de Gobierno con 200 o más servidores y con web), que espera la autorización de la dueña.',
+    countryCodes: ['CO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.datos.gov.co/Funci-n-p-blica/Caracterizaci-n-del-Empleo-P-blico/h8rs-jxum',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita colombiana para la industria Gobierno (decisión de la dueña, 06-10-2026): antes de pagar a Apollo o Lusha, el Agente 1 propone entidades públicas de administración (alcaldías, gobernaciones, ministerios, departamentos administrativos, superintendencias, agencias, institutos y órganos autónomos) con 200 o más servidores públicos según el SIGEP II, de mayor a menor, con su NIT y su web. Las E.S.E. (hospitales públicos) y las empresas de servicios públicos quedan clasificadas en Salud y Energía pero no se ofrecen. El SIIS no sirve para Gobierno: sólo tiene 5 filas de administración pública, todas empresas privadas mal clasificadas.',
+    limitations: [
+      'Sólo entidades con 200 o más servidores de planta en el SIGEP II: los municipios pequeños no se ofrecen.',
+      'Universidades públicas, empresas industriales y comerciales del Estado y sociedades de economía mixta no tienen industria y no se ofrecen.',
+      'Nunca repite lo que SellUp ya tiene (candidatas o descartes por NIT).',
+    ],
+    riskNotes: [
+      'Las entidades que propone pasan a revisión humana; no se crean cuentas automáticamente.',
     ],
   },
   {
