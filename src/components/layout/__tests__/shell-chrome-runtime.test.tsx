@@ -235,6 +235,33 @@ describe('Cabecera — la ruta y las migas publicadas', () => {
   });
 });
 
+describe('Cabecera — buscador al centro y Centro de procesos junto a los avisos', () => {
+  it('el buscador queda entre la ruta y las acciones, con los dos lados creciendo por igual', () => {
+    render(shell());
+    const header = document.querySelector('header') as HTMLElement;
+    const search = screen.getByRole('button', { name: 'Abrir la búsqueda general' });
+    const [left, middle, right] = Array.from(header.children).filter((el) => el.tagName !== 'BUTTON' || el === search);
+    assert.ok(left.contains(route()), 'a la izquierda va la ruta');
+    assert.equal(middle, search, 'en el centro, el buscador');
+    assert.ok(within(right as HTMLElement).getByRole('button', { name: /Notificaciones/ }), 'a la derecha, las acciones');
+    for (const side of [left, right]) assert.match(side.className, /flex-1 basis-0/);
+  });
+
+  it('el Centro de procesos va justo a la derecha de las notificaciones', () => {
+    render(
+      h(AppHeader, {
+        user: USER,
+        initialUnreadCount: 0,
+        navAccess: ADMIN,
+        processCenter: h('button', { type: 'button' }, 'Centro de procesos'),
+      }),
+    );
+    const bell = screen.getByRole('button', { name: /Notificaciones/ });
+    const processes = screen.getByRole('button', { name: 'Centro de procesos' });
+    assert.equal(bell.nextElementSibling, processes);
+  });
+});
+
 describe('Cabecera — el buscador sigue llegando a Configuración', () => {
   const options = () => screen.queryAllByRole('option').map((option) => option.getAttribute('aria-label'));
 

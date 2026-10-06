@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
-import { AGENT_RUNS_TRAY_EXPAND_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
+import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import { AGENT_RUNS_PAGE_PATH } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
 import {
   AlertCircle,
@@ -578,7 +578,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           }}
           onMinimize={() => {
             handleClose();
-            window.dispatchEvent(new Event(AGENT_RUNS_TRAY_EXPAND_EVENT));
+            window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
           <ProspectChatWizard

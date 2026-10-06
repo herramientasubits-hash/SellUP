@@ -32,6 +32,11 @@ interface AppHeaderProps {
   user: User;
   initialUnreadCount?: number;
   navAccess: NavAccessContext;
+  /**
+   * Centro de procesos (Thema · `ProcessCenter`), a la derecha de los avisos. Lo
+   * pasa el shell para que la cabecera no dependa de qué procesos existen.
+   */
+  processCenter?: React.ReactNode;
 }
 
 /** Palabras con las que también se busca una sección de Configuración. */
@@ -161,7 +166,7 @@ function HeaderRoute({ current }: { current: NavItem | undefined }) {
  * configuración no están aquí: cuelgan de la marca, en el menú lateral. No
  * repite el título de la pantalla: ese es el `PageHeader`.
  */
-export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeaderProps) {
+export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCenter }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -233,17 +238,25 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess }: AppHeader
         />
       </DrawerShell>
 
-      <HeaderRoute current={current} />
+      <div className="flex min-w-0 flex-1 basis-0 items-center">
+        <HeaderRoute current={current} />
+      </div>
+
+      {/* Búsqueda general (⌘K), en el centro de la cabecera — como en Thema: los
+          dos lados crecen por igual (`flex-1 basis-0`), así que queda centrada
+          respecto a la franja y no respecto a lo que haya a cada lado. */}
+      <GlobalSearch
+        navigate={searchDestinations}
+        loadObjects={loadSearchObjects}
+        objectsHint={SEARCH_OBJECTS_HINT}
+        placeholder="Buscar…"
+        className="shrink-0 md:w-72 lg:w-80"
+      />
 
       {/* Acciones transversales */}
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
-        <GlobalSearch
-          navigate={searchDestinations}
-          loadObjects={loadSearchObjects}
-          objectsHint={SEARCH_OBJECTS_HINT}
-          placeholder="Buscar…"
-        />
+      <div className="flex flex-1 basis-0 items-center justify-end gap-1.5 sm:gap-3">
         <NotificationBell initialUnreadCount={initialUnreadCount} />
+        {processCenter}
         <AccountMenu
           user={{ name: displayName, email: user.email, avatarUrl }}
           roleLabel={roleLabel(navAccess)}

@@ -175,6 +175,7 @@ import {
   Download01Icon,
   PresentationBarChart01Icon,
   ShoppingCart01Icon,
+  Queue02Icon,
 } from "@hugeicons/core-free-icons";
 
 // El spinner conserva el dibujo anterior: es el único icono que gira y su
@@ -229,6 +230,7 @@ export const Building2 = createIcon(Building03Icon, "Building2");
 export const Calculator = createIcon(Calculator01Icon, "Calculator");
 export const Download = createIcon(Download01Icon, "Download");
 export const Presentation = createIcon(PresentationBarChart01Icon, "Presentation");
+export const Queue = createIcon(Queue02Icon, "Queue");
 export const ShoppingCart = createIcon(ShoppingCart01Icon, "ShoppingCart");
 export const Calendar = createIcon(Calendar03Icon, "Calendar");
 export const CalendarIcon = createIcon(Calendar03Icon, "CalendarIcon");
