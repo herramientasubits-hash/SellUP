@@ -218,6 +218,46 @@ describe('buildDoSizeRegistryRows', () => {
   });
 });
 
+describe('SOURCES-DO-DGCP-DOMAIN-1 — dominio en la fuente con tamaño', () => {
+  const base = {
+    largeTaxpayers: mergeDgiiLargeTaxpayerLists(parseDgiiLargeTaxpayerListHtml(NACIONALES_HTML, 'nacionales')),
+    procurement: new Map<string, DoProcurementSummary>(),
+    sourceYear: 2026,
+    importedAt: '2026-10-06T00:00:00.000Z',
+  };
+
+  it('con mapa de dominios, la fila guarda el dominio y su origen', () => {
+    const [row] = buildDoSizeRegistryRows({
+      ...base,
+      padron: [padron('101000001', TECH)],
+      domains: new Map([['101000001', 'alfa.com.do']]),
+    });
+    assert.equal(row.raw_data.website_domain, 'alfa.com.do');
+    assert.equal(row.raw_data.website_domain_source, 'dgcp_corporate_email');
+  });
+
+  it('sin mapa, o sin dominio para ese RNC, la fila va sin web', () => {
+    const [without] = buildDoSizeRegistryRows({ ...base, padron: [padron('101000001', TECH)] });
+    assert.equal(without.raw_data.website_domain, null);
+    assert.equal(without.raw_data.website_domain_source, null);
+    const [other] = buildDoSizeRegistryRows({
+      ...base,
+      padron: [padron('101000001', TECH)],
+      domains: new Map([['999999999', 'otra.com']]),
+    });
+    assert.equal(other.raw_data.website_domain, null);
+  });
+
+  it('el dominio nunca decide quién entra: sólo el tamaño', () => {
+    const rows = buildDoSizeRegistryRows({
+      ...base,
+      padron: [padron('101000001', TECH), padron('105000001', TECH)],
+      domains: new Map([['105000001', 'sin-senal.com']]),
+    });
+    assert.deepEqual(rows.map((r) => r.normalized_tax_id), ['101000001']);
+  });
+});
+
 describe('buildDoTradeNameRegistryRows', () => {
   const rows = buildDoTradeNameRegistryRows({
     padron: [

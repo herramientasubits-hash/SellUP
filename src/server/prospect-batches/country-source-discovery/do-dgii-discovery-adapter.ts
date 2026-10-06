@@ -70,6 +70,8 @@ export type DoDgiiActiveRow = {
   normalized_legal_name: string | null;
   sector: string | null;
   size_tier: number | null;
+  /** SOURCES-DO-DGCP-DOMAIN-1 — dominio del correo corporativo en la DGCP, o `null`. */
+  website_domain?: string | null;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -80,6 +82,13 @@ export type DoDgiiDiscoveryReads = {
     limit: number;
   }) => Promise<readonly DoDgiiActiveRow[]>;
 };
+
+const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+function normalizeDomain(value: string | null | undefined): string | null {
+  const domain = value?.trim().toLowerCase() ?? '';
+  return DOMAIN_SHAPE.test(domain) ? domain : null;
+}
 
 function toCompany(row: DoDgiiActiveRow, macroIndustryKey: string): CountrySourceCompany | null {
   const legalName = row.legal_name?.trim() || null;
@@ -99,8 +108,10 @@ function toCompany(row: DoDgiiActiveRow, macroIndustryKey: string): CountrySourc
     countryCode: 'DO',
     city: null,
     region: null,
-    // 🔴 DGII no publica web. No se fabrica ninguna.
-    domain: null,
+    // 🔴 DGII no publica web. El único dominio es el que la carga sacó del correo
+    // corporativo que la empresa declaró a la DGCP, y sólo si se parece a su
+    // razón social (`do-dgcp-domain.ts`). Sin él, no se fabrica ninguno.
+    domain: normalizeDomain(row.website_domain),
     declaredIndustry: classification.description,
     industryCode: classification.code,
     coarseSector: null,

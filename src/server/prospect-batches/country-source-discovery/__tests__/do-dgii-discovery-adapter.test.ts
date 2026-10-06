@@ -172,6 +172,23 @@ describe('buildDoDgiiDiscoveryAdapter', () => {
     assert.equal(health.companies.length, 0);
   });
 
+  it('SOURCES-DO-DGCP-DOMAIN-1: el dominio sacado del correo DGCP viaja como web; uno mal formado no', async () => {
+    const { reads } = fakeReads([
+      { ...row('100000011'), website_domain: 'Sinergit.com.do ' },
+      { ...row('100000012'), website_domain: 'no es un dominio' },
+      { ...row('100000013'), website_domain: null },
+    ]);
+    const result = await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 5 });
+    assert.deepEqual(
+      result.companies.map((c) => [c.taxId, c.domain]),
+      [
+        ['100000011', 'sinergit.com.do'],
+        ['100000012', null],
+        ['100000013', null],
+      ],
+    );
+  });
+
   it('sin filas legibles no ofrece nada', async () => {
     const result = await buildDoDgiiDiscoveryAdapter(fakeReads([]).reads)({
       countryCode: 'DO',

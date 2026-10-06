@@ -68,6 +68,8 @@ function toRow(row: SnapshotSelectRow, origin: ArRnsDiscoveryOrigin): ArRnsSnaps
     region: row.region,
     activity_code: typeof code === 'string' ? code : null,
     priority_score: toNumber(row.priority_score),
+    // SOURCES-AR-SIPRO-DOMAIN-1 — dominio del correo del SIPRO histórico, si lo hay.
+    website_domain: typeof row.raw_data?.['website_domain'] === 'string' ? row.raw_data['website_domain'] : null,
   };
 }
 

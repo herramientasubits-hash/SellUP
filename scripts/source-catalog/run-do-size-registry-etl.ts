@@ -14,6 +14,11 @@
  *   --gc-locales=<html>     página DGII «Grandes Locales y Medianos» (VerLista?doc=GCL-…).
  *   El padrón DGII (rd_dgii_bulk) y las compras públicas (do_dgcp) se LEEN de la
  *   base, por RNC y en orden estable; nunca se modifican.
+ *   --dgcp-proveedores=<csv>  OPCIONAL (SOURCES-DO-DGCP-DOMAIN-1): «Proveedores.csv» de
+ *                           datosabiertos.dgcp.gob.do (api-dgcp/v1/tablas/proveedores?Type=csv).
+ *                           Da el dominio corporativo de cada empresa a partir de sus
+ *                           correos, sólo si se parece a su razón social. Sólo se guarda
+ *                           el dominio: nunca correos, contactos ni teléfonos.
  *   --only=size | trade-name   (por defecto, las dos)
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
@@ -48,6 +53,8 @@ import {
   type DoPadronRow,
   type DoProcurementSummary,
 } from '../../src/server/source-catalog/connectors/dgii-rd/do-size-registry-rows';
+import { buildDgcpDomainMap } from '../../src/server/source-catalog/connectors/dgcp-rd/do-dgcp-domain';
+import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
@@ -184,6 +191,16 @@ async function upsertAll(client: SupabaseClient, rows: readonly { source_key: st
   return upserted;
 }
 
+/** RNC → dominio corporativo desde el archivo de proveedores de la DGCP (local). */
+async function readDgcpDomains(path: string): Promise<Map<string, string>> {
+  const rows: Record<string, string>[] = [];
+  for await (const row of readCsvFile(path)) rows.push(row);
+  if (rows.length === 0 || !('CORREO_COMERCIAL' in rows[0])) {
+    throw new Error('dgcp_csv_invalido: el archivo no trae la columna CORREO_COMERCIAL');
+  }
+  return buildDgcpDomainMap(rows);
+}
+
 function countBy<T>(items: readonly T[], key: (item: T) => string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const item of items) out[key(item)] = (out[key(item)] ?? 0) + 1;
@@ -201,6 +218,7 @@ async function main(): Promise<void> {
   const wantTrade = only !== 'size';
   const nacionalesPath = value(argv, 'gc-nacionales');
   const localesPath = value(argv, 'gc-locales');
+  const dgcpProveedoresPath = value(argv, 'dgcp-proveedores');
   if (wantSize && (!nacionalesPath || !localesPath)) {
     throw new Error('config_invalid: indica --gc-nacionales y --gc-locales (páginas HTML de la DGII)');
   }
@@ -226,9 +244,19 @@ async function main(): Promise<void> {
     }
     const largeTaxpayers = mergeDgiiLargeTaxpayerLists(nacionales, locales);
     const procurement = await readProcurement(client);
-    const rows = buildDoSizeRegistryRows({ padron, largeTaxpayers, procurement, sourceYear, importedAt }).filter(
-      (row) => row.record_identity_key !== null,
-    );
+    const domains = dgcpProveedoresPath ? await readDgcpDomains(dgcpProveedoresPath) : undefined;
+    const rows = buildDoSizeRegistryRows({
+      padron,
+      largeTaxpayers,
+      procurement,
+      domains,
+      sourceYear,
+      importedAt,
+    }).filter((row) => row.record_identity_key !== null);
+    if (domains) {
+      const withDomain = rows.filter((r) => r.raw_data.website_domain !== null).length;
+      console.log(`  Dominios desde correos DGCP: ${domains.size} RNC · en esta fuente ${withDomain} de ${rows.length}`);
+    }
     console.log(`  Listas DGII: nacionales ${nacionales.length} · locales y medianos ${locales.length} · únicas ${largeTaxpayers.size}`);
     console.log(`  Proveedores DGCP: ${procurement.size}`);
     console.log(`  ${DO_DGII_SIZE_REGISTRY_SOURCE_KEY}: ${rows.length} filas`);

@@ -30,10 +30,12 @@ type SnapshotSelectRow = {
   normalized_legal_name: string | null;
   sector: string | null;
   size_tier: unknown;
+  website_domain: unknown;
 };
 
 const SELECTED_COLUMNS =
-  'record_identity_key, normalized_tax_id, legal_name, normalized_legal_name, sector, size_tier:raw_data->size_tier';
+  'record_identity_key, normalized_tax_id, legal_name, normalized_legal_name, sector, ' +
+  'size_tier:raw_data->size_tier, website_domain:raw_data->>website_domain';
 
 function toTier(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
@@ -48,6 +50,7 @@ function toRow(row: SnapshotSelectRow): DoDgiiActiveRow {
     normalized_legal_name: row.normalized_legal_name,
     sector: row.sector,
     size_tier: toTier(row.size_tier),
+    website_domain: typeof row.website_domain === 'string' ? row.website_domain : null,
   };
 }
 

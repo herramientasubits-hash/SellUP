@@ -55,6 +55,7 @@ function sizedRows(count: number) {
     normalized_legal_name: `EMPRESA ${i}`,
     sector: 'ACTIVIDADES DE INFORMÁTICA N.C',
     size_tier: i % 2 === 0 ? 1 : '3',
+    website_domain: i === 0 ? 'empresa0.com.do' : null,
   }));
 }
 
@@ -81,11 +82,14 @@ describe('readSizedCompaniesByMacro', () => {
     ]);
     assert.deepEqual(op(call, 'limit'), [[40]]);
     assert.match(String(op(call, 'select')[0][0]), /size_tier:raw_data->size_tier/);
+    assert.match(String(op(call, 'select')[0][0]), /website_domain:raw_data->>website_domain/);
 
     assert.equal(rows.length, 3);
     assert.equal(rows[0].rnc, '100000000');
     assert.equal(rows[0].size_tier, 1);
     assert.equal(rows[1].size_tier, 3, 'el nivel llega como texto o número; se normaliza');
+    assert.equal(rows[0].website_domain, 'empresa0.com.do');
+    assert.equal(rows[1].website_domain, null);
   });
 
   it('un nivel ilegible queda nulo (el adapter lo descarta)', async () => {

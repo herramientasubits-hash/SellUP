@@ -72,6 +72,8 @@ export type ArRnsSnapshotReadRow = {
   region: string | null;
   activity_code: string | null;
   priority_score: number | null;
+  /** SOURCES-AR-SIPRO-DOMAIN-1 — dominio del correo del SIPRO histórico, o `null`. */
+  website_domain?: string | null;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -81,6 +83,13 @@ export type ArRnsDiscoveryReads = {
     limit: number;
   }) => Promise<readonly ArRnsSnapshotReadRow[]>;
 };
+
+const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+function normalizeDomain(value: string | null | undefined): string | null {
+  const domain = value?.trim().toLowerCase() ?? '';
+  return DOMAIN_SHAPE.test(domain) ? domain : null;
+}
 
 function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): CountrySourceCompany | null {
   const legalName = row.legal_name?.trim() || null;
@@ -98,8 +107,11 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
     countryCode: 'AR',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
-    // 🔴 El RNS no publica web. No se fabrica ninguna.
-    domain: null,
+    // 🔴 Ni el RNS ni ATP publican web. El único dominio es el que la carga sacó
+    // del correo que la sociedad declaró en el SIPRO histórico, y sólo si se
+    // parece a su razón social de entonces Y a la de hoy (`ar-sipro-domain.ts`).
+    // Sin él, no se fabrica ninguno.
+    domain: normalizeDomain(row.website_domain),
     declaredIndustry: row.sector?.trim() || null,
     industryCode: row.activity_code?.trim() || null,
     coarseSector: null,

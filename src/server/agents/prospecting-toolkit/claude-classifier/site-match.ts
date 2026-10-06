@@ -29,6 +29,19 @@ export function isRegistrableDomain(domain: string): boolean {
   return end >= 1 && labels.length >= 2;
 }
 
+/**
+ * La etiqueta propia de un dominio, sin «www» ni sufijo público:
+ * «www.clarochile.cl» → «clarochile», «institucional.telecom.com.ar» → «telecom».
+ * `null` si no tiene ninguna.
+ */
+export function ownDomainLabel(domain: string): string | null {
+  const labels = domain.toLowerCase().split('.').filter(Boolean);
+  let end = labels.length;
+  while (end > 0 && PUBLIC_SUFFIX_PARTS.has(labels[end - 1])) end -= 1;
+  const label = end > 0 ? labels[end - 1] : null;
+  return label && label !== 'www' ? label : null;
+}
+
 export function searchConfirmsDomain(claimed: string, searchDomain: string): boolean {
   if (claimed === searchDomain) return true;
   // Subdominio de un resultado (resultado `unam.mx`, propuesto `portal.unam.mx`).

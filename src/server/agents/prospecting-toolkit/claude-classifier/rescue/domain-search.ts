@@ -14,7 +14,14 @@ import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import { normalizeLinkedInCompanyUrl } from '../../linkedin-company-enrichment';
 import type { DuplicateStatus } from '../../types';
-import type { DomainFinderInput, DomainFinderOutcome, DomainVerification } from '../domain-finder';
+import { evaluateExternalPlatformGate } from '../../external-platform-blocklist';
+import { normalizeDomain } from '../../normalization';
+import {
+  domainCarriesName,
+  type DomainFinderInput,
+  type DomainFinderOutcome,
+  type DomainVerification,
+} from '../domain-finder';
 import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
 import { CLAUDE_RESCUE_METADATA_KEY } from './rescue-patch';
 
@@ -32,10 +39,28 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * genéricas («ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA» → «accenture»): la
  * razón social de los registros oficiales casi nunca es la marca del sitio. Medido en
  * la 1.ª corrida de Chile (lote bd751c34): Claude propuso accenture.com y sonda.com y
- * la comprobación los rechazó.
+ * la comprobación los rechazó. d5 (06-10): Claude también BUSCA con el nombre corto; si
+ * el dominio lleva el nombre de la empresa (entel.cl, clarochile.cl, vtr.com) vale aunque
+ * no saliera de la búsqueda, siempre que la página que bajamos lo confirme; y una
+ * redirección a otro dominio vale si ese dominio lleva el nombre (indracompany.com →
+ * indragroup.com). Medido en Chile (bd751c34) y Argentina (17da92cf). d6 (06-10): PISTA
+ * sin confirmar — ver `unverifiedWebsiteHint`.
  */
-export const DOMAIN_SEARCH_VERSION = 'd4';
-const VERIFICATIONS: readonly DomainVerification[] = ['linkedin_cross_link', 'name_match', 'search_result_match'];
+export const DOMAIN_SEARCH_VERSION = 'd6';
+
+/**
+ * PISTA (decisión de la dueña, 06-10-2026, «si pista»): la web que Claude propuso pero
+ * que NO pudimos abrir (bloqueos, geo). Llega a revisión marcada como «Inferido», nunca
+ * como comprobada.
+ */
+export const UNVERIFIED_HINT_VERIFICATION = 'unverified_hint' as const;
+export type FoundVerification = DomainVerification | typeof UNVERIFIED_HINT_VERIFICATION;
+const VERIFICATIONS: readonly FoundVerification[] = [
+  'linkedin_cross_link',
+  'name_match',
+  'search_result_match',
+  UNVERIFIED_HINT_VERIFICATION,
+];
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
@@ -60,7 +85,7 @@ export type DomainSearchRow = {
 export type FoundWebsite = {
   website: string;
   domain: string;
-  verification: DomainVerification;
+  verification: FoundVerification;
 };
 
 /** Resultado de revisar duplicados en SellUp + HubSpot (sólo lectura). */
@@ -143,7 +168,7 @@ const REGISTRY_NAME_FILLER_WORDS: ReadonlySet<string> = new Set([
   'asesorias', 'asesoria', 'servicios', 'servicio', 'sistemas', 'consultoria', 'ingenieria', 'inversiones',
   'comercial', 'comercializadora', 'empresa', 'empresas', 'grupo', 'group', 'holding', 'holdco', 'agencia',
   'profesionales', 'soluciones', 'negocio', 'negocios', 'corporativa', 'corporativo', 'importaciones',
-  'internacional', 'chilena',
+  'internacional', 'chilena', 'comunicaciones', 'telecomunicaciones',
 ]);
 
 /**
@@ -180,6 +205,7 @@ export function buildDomainFinderInput(row: DomainSearchRow, countryName: string
   return {
     name: displayName,
     alternateNames: [...new Set([...names, ...cores])],
+    searchHint: cores[0] ?? null,
     countryName: countryName ?? countryNameFromCode(row.country_code),
     countryCode: row.country_code,
     linkedinUrl: dispositionLinkedInUrl(row),
@@ -194,7 +220,44 @@ export function readFoundWebsite(evidence: Evidence | null): FoundWebsite | null
   if (search?.found !== true) return null;
   if (typeof search.website !== 'string' || typeof search.domain !== 'string') return null;
   if (!(VERIFICATIONS as readonly unknown[]).includes(search.verification)) return null;
-  return { website: search.website, domain: search.domain, verification: search.verification as DomainVerification };
+  return { website: search.website, domain: search.domain, verification: search.verification as FoundVerification };
+}
+
+/**
+ * La web que Claude propuso y no pudimos abrir, como PISTA sin confirmar. Sólo si:
+ *  1. la búsqueda terminó en `page_unreachable` con una URL propuesta;
+ *  2. la fila viene de un registro oficial CON número fiscal (buscador gratuito);
+ *  3. no es una plataforma (LinkedIn, directorios, redes…);
+ *  4. el dominio lleva el nombre de la empresa (`domainCarriesName`).
+ * Después pasa igual por duplicados (SellUp + HubSpot) y por la clasificación.
+ */
+export function unverifiedWebsiteHint(
+  row: Pick<DomainSearchRow, 'name' | 'evidence' | 'country_code' | 'domain' | 'reason_code' | 'id'>,
+  outcome: DomainFinderOutcome,
+): FoundWebsite | null {
+  if (outcome.found || outcome.reason !== 'page_unreachable' || !outcome.claimedUrl) return null;
+  if (row.evidence?.tax_identifier_present !== true) return null;
+  const domain = normalizeDomain(outcome.claimedUrl);
+  if (!domain) return null;
+  if (!evaluateExternalPlatformGate(outcome.claimedUrl, dispositionDisplayName(row)).allowed) return null;
+  const input = buildDomainFinderInput(row as DomainSearchRow, null);
+  if (!domainCarriesName(domain, [input.name, ...(input.alternateNames ?? [])])) return null;
+  return { website: `https://${domain}`, domain, verification: UNVERIFIED_HINT_VERIFICATION };
+}
+
+/**
+ * Lo que ve el vendedor en «Validación del sitio web»: «Inferido» + el dominio, nunca
+ * «Verificado». Sólo para una pista.
+ */
+export function buildUnverifiedHintWebsiteVerification(found: FoundWebsite): Record<string, unknown> | null {
+  if (found.verification !== UNVERIFIED_HINT_VERIFICATION) return null;
+  return {
+    status: 'inferred',
+    domain: found.domain,
+    confidence: 30,
+    source: CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+    reason: 'Pista sin confirmar: Claude encontró este sitio pero no se pudo abrir para comprobarlo. Verifícalo antes de aprobar.',
+  };
 }
 
 export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsite, searchedAt: string): Evidence {
