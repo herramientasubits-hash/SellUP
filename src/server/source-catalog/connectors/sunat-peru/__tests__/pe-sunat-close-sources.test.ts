@@ -8,6 +8,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   normalizePeSunatActivityText,
@@ -22,7 +24,9 @@ import {
 } from '../pe-sunat-open-padron';
 import { buildPeSunatRegistryRow, normalizePeruCompanyCore } from '../pe-sunat-registry-row';
 import {
+  dropAliasKeysOwnedByOthers,
   endsWithPeruLegalForm,
+  peruOwnNameKeys,
   peruCandidateNameVariants,
   peruPublicEntityKey,
   peruPublicEntityNameKeys,
@@ -35,6 +39,15 @@ import {
   PE_SUNAT_DIRECTORY_MIN_WORKERS,
 } from '../pe-sunat-source-rows';
 import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
+import { decidePeSunatPrune, PE_PRUNE_DEFAULT_MAX_FRACTION } from '../pe-sunat-prune';
+import {
+  buildPeRenamuDomainMap,
+  peDomainFromText,
+  peMunicipalDomainFromRenamu,
+  peMunicipalityTypeFromLegalName,
+  peRegistrableDomain,
+  peRenamuKey,
+} from '../pe-renamu-domain';
 import { getSourceFamily } from '../../../record-identity';
 
 function openCells(overrides: Partial<Record<(typeof PE_SUNAT_OPEN_PADRON_HEADER)[number], string>> = {}): string[] {
@@ -307,5 +320,131 @@ describe('filas de pe_sunat_directory (capa gratuita)', () => {
       importedAt: P.importedAt,
     })!;
     assert.equal(row.raw_data['macro_industry_key'], 'government');
+  });
+});
+
+describe('un alias nunca usa el nombre propio de otra sociedad (SOURCES-PE-ALIAS-OWNERSHIP-1)', () => {
+  it('nombres propios: el núcleo y, en entidades públicas, su clave pública', () => {
+    assert.deepEqual(peruOwnNameKeys('GOBIERNO REGIONAL DE LORETO'), ['GOBIERNO REGIONAL DE LORETO', 'GOBIERNO REGIONAL LORETO']);
+    assert.deepEqual(peruOwnNameKeys('LECHE GLORIA SOCIEDAD ANONIMA GLORIA'), ['LECHE GLORIA SOCIEDAD ANONIMA GLORIA']);
+    assert.deepEqual(peruOwnNameKeys('X'), []);
+  });
+
+  it('la subunidad del OECE no se queda con el nombre del Gobierno Regional; su propio alias sí vale', () => {
+    const owners = new Map<string, Set<string>>([
+      ['GOBIERNO REGIONAL DE LORETO', new Set(['20493196902'])],
+      ['GOBIERNO REGIONAL LORETO', new Set(['20493196902'])],
+      ['LIMA', new Set(['20614437180'])],
+    ]);
+    const subunit = '20408560137';
+    assert.deepEqual(
+      dropAliasKeysOwnedByOthers(['GOBIERNO REGIONAL DE LORETO', 'GOBIERNO REGIONAL LORETO', 'GERENCIA SUB REGIONAL ALTO AMAZONAS YURIMAGUAS', 'LIMA'], subunit, owners),
+      ['GERENCIA SUB REGIONAL ALTO AMAZONAS YURIMAGUAS'],
+    );
+    // El dueño del nombre conserva sus claves.
+    assert.deepEqual(dropAliasKeysOwnedByOthers(['GOBIERNO REGIONAL LORETO'], '20493196902', owners), ['GOBIERNO REGIONAL LORETO']);
+    // Una clave que no es el nombre de nadie se conserva (GLORIA).
+    assert.deepEqual(dropAliasKeysOwnedByOthers(['GLORIA'], '20100190797', owners), ['GLORIA']);
+  });
+});
+
+describe('limpieza tras recargar (SOURCES-PE-PRUNE-1)', () => {
+  it('borra las filas viejas de una recarga completa (8.211 de 871.198 en el registro)', () => {
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 871_198, staleRows: 8_211, rowsWrittenThisRun: 862_987, offset: 0 }), {
+      action: 'delete',
+      staleRows: 8_211,
+    });
+  });
+
+  it('nunca en una carga reanudada ni si no se escribió nada', () => {
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 1, rowsWrittenThisRun: 99, offset: 1000 }), {
+      action: 'refuse',
+      reason: 'resumed_run',
+    });
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 1, rowsWrittenThisRun: 0, offset: 0 }), {
+      action: 'refuse',
+      reason: 'nothing_written',
+    });
+  });
+
+  it('nunca más del 10 % de la fuente salvo permiso explícito; sin viejas no hace nada', () => {
+    assert.equal(PE_PRUNE_DEFAULT_MAX_FRACTION, 0.1);
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 11, rowsWrittenThisRun: 89, offset: 0 }), {
+      action: 'refuse',
+      reason: 'too_many_stale',
+    });
+    assert.equal(decidePeSunatPrune({ totalRows: 100, staleRows: 11, rowsWrittenThisRun: 89, offset: 0, maxFraction: 0.2 }).action, 'delete');
+    assert.deepEqual(decidePeSunatPrune({ totalRows: 100, staleRows: 0, rowsWrittenThisRun: 100, offset: 0 }), {
+      action: 'skip',
+      reason: 'nothing_stale',
+    });
+  });
+
+  it('el cargador sólo borra filas de UNA fuente de Perú y anteriores a esta carga', () => {
+    const code = readFileSync(join(process.cwd(), 'scripts/source-catalog/run-pe-sunat-sources-etl.ts'), 'utf8');
+    const deletes = code.match(/\.delete\([^)]*\)[\s\S]{0,200}?;/g) ?? [];
+    assert.equal(deletes.length, 1);
+    assert.match(deletes[0], /\.eq\('source_key', sourceKey\)\s*\.eq\('country_code', 'PE'\)\s*\.lt\('imported_at', importedAt\)/);
+    assert.match(code, /if \(!config\.prune\) return;/);
+    assert.match(code, /--prune sólo con --apply/);
+  });
+});
+
+describe('web de las municipalidades desde el RENAMU (SOURCES-PE-MUNICIPAL-DOMAIN-1)', () => {
+  const muni = (over: Record<string, string>) => ({ Ubigeo: '230101', Tipomuni: '1', Provincia: 'TACNA', Distrito: 'TACNA', P08: '', P09: '', ...over });
+
+  it('limpia la web declarada y se queda con el dominio registrable', () => {
+    assert.equal(peDomainFromText('https://www.MuniTacna.gob.pe/inicio'), 'munitacna.gob.pe');
+    assert.equal(peDomainFromText('mesadepartes@munitacna.gob.pe'), 'munitacna.gob.pe');
+    assert.equal(peDomainFromText('no tiene'), null);
+    assert.equal(peRegistrableDomain('enlinea.munivinchos.gob.pe'), 'munivinchos.gob.pe');
+    assert.equal(peRegistrableDomain('www.municipalidaddistritaldecalapuja.com'), 'municipalidaddistritaldecalapuja.com');
+  });
+
+  it('el dominio vale si nombra al distrito (o a la provincia o su capital, si es provincial)', () => {
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P09: 'www.munitacna.gob.pe' })), 'munitacna.gob.pe');
+    assert.equal(
+      peMunicipalDomainFromRenamu(muni({ Tipomuni: '1', Provincia: 'MORROPON', Distrito: 'CHULUCANAS', P09: 'munichulucanas.gob.pe' })),
+      'munichulucanas.gob.pe',
+    );
+    assert.equal(peMunicipalDomainFromRenamu(muni({ Tipomuni: '2', Distrito: 'CERRO COLORADO', P09: 'mdcc.gob.pe' })), null); // siglas
+    assert.equal(peMunicipalDomainFromRenamu(muni({ Tipomuni: '2', Distrito: 'VISTA ALEGRE', P09: 'munipucatambo.gob.pe' })), null);
+  });
+
+  it('nunca la página genérica gob.pe, redes, correo gratuito, alojamientos gratuitos ni erratas; el correo institucional sí', () => {
+    for (const web of ['https://www.gob.pe/munitacna', 'facebook.com/munitacna', 'munitacna.blogspot.com', 'munitacna-gob.pe']) {
+      assert.equal(peMunicipalDomainFromRenamu(muni({ P09: web })), null, web);
+    }
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P08: 'munitacna@gmail.com' })), null);
+    assert.equal(peMunicipalDomainFromRenamu(muni({ P09: 'facebook.com/x', P08: 'alcaldia@munitacna.gob.pe' })), 'munitacna.gob.pe');
+  });
+
+  it('un dominio en dos municipalidades no es de ninguna', () => {
+    const map = buildPeRenamuDomainMap([
+      muni({ Ubigeo: '230101', P09: 'munitacna.gob.pe' }),
+      muni({ Ubigeo: '230110', Tipomuni: '2', Distrito: 'TACNA NUEVA', P09: 'munitacna.gob.pe' }),
+      muni({ Ubigeo: '010101', Provincia: 'CHACHAPOYAS', Distrito: 'CHACHAPOYAS', P09: 'munichachapoyas.gob.pe' }),
+    ]);
+    assert.deepEqual([...map.entries()], [['010101|provincial', 'munichachapoyas.gob.pe']]);
+  });
+
+  it('tipo de municipalidad por su razón social; las de centro poblado no están en el RENAMU', () => {
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD PROVINCIAL DE TACNA'), 'provincial');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD METROPOLITANA DE LIMA'), 'provincial');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD  DISTRITAL DE SAN JUAN DE TANTARANCHE'), 'distrital');
+    assert.equal(peMunicipalityTypeFromLegalName('MUNICIPALIDAD DEL CENTRO POBLADO DE YARABAMBA'), null);
+    assert.equal(peMunicipalityTypeFromLegalName('HOSPITAL REGIONAL CUSCO'), null);
+    assert.equal(peRenamuKey('230101', 'provincial'), '230101|provincial');
+    assert.equal(peRenamuKey('2301', 'provincial'), null);
+  });
+
+  it('la fila del buscador gratuito lleva el dominio y su fuente; sin dominio, ninguno', () => {
+    const base = { open: open({ ruc: '20147797100', taxpayerType: 'GOBIERNO REGIONAL LOCAL', ciiu4Code: '8411', workers: 1354 }), legalName: 'MUNICIPALIDAD PROVINCIAL DE TACNA', importedAt: P.importedAt };
+    const withWeb = buildPeSunatDirectoryRow({ ...base, websiteDomain: 'MuniTacna.gob.pe' })!;
+    assert.equal(withWeb.raw_data['website_domain'], 'munitacna.gob.pe');
+    assert.equal(withWeb.raw_data['website_domain_source'], 'inei_renamu_2025');
+    const without = buildPeSunatDirectoryRow(base)!;
+    assert.equal(without.raw_data['website_domain'], null);
+    assert.equal(without.raw_data['website_domain_source'], null);
   });
 });

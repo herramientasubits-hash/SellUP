@@ -50,6 +50,13 @@ export const PE_SUNAT_DIRECTORY_DISCOVERY_MIN_WORKERS = 200;
 /** RUC de sociedad (las personas naturales, RUC 10, nunca se ofrecen). */
 const COMPANY_RUC = /^20\d{9}$/;
 
+const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+function normalizeDomain(value: string | null | undefined): string | null {
+  const domain = value?.trim().toLowerCase() ?? '';
+  return DOMAIN_SHAPE.test(domain) ? domain : null;
+}
+
 /** Fila `pe_sunat_directory` acotada a lo que esta proyección usa. */
 export type PeSunatDirectorySnapshotReadRow = {
   record_identity_key: string;
@@ -60,6 +67,8 @@ export type PeSunatDirectorySnapshotReadRow = {
   region: string | null;
   ciiu4_code: string | null;
   activity_text: string | null;
+  /** SOURCES-PE-MUNICIPAL-DOMAIN-1 — dominio oficial (RENAMU, sólo municipalidades). */
+  website_domain?: string | null;
   employees: number | null;
   metrics_year: number | null;
   priority_score: number | null;
@@ -90,8 +99,9 @@ function toCompany(row: PeSunatDirectorySnapshotReadRow, macroIndustryKey: strin
     countryCode: 'PE',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
-    // 🔴 SUNAT no publica web. No se fabrica ninguna.
-    domain: null,
+    // 🔴 SUNAT no publica web. Sólo las municipalidades traen la del RENAMU del INEI
+    // (SOURCES-PE-MUNICIPAL-DOMAIN-1); el resto llega sin dominio: no se fabrica.
+    domain: normalizeDomain(row.website_domain),
     declaredIndustry: row.activity_text?.trim() || null,
     industryCode: row.ciiu4_code?.trim() || null,
     coarseSector: null,
