@@ -6,11 +6,8 @@
 import type { AgentRun } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
 import type { AgentRunStatusSnapshot } from '@/modules/prospect-batches/agent-runs/agent-runs-status.server';
 
-/** La página con las búsquedas en curso y el historial de 7 días. */
-export const AGENT_RUNS_PAGE_PATH = '/agent-runs';
-
 export const AGENT_RUNS_TRAY_COPY = {
-  openPage: 'Ver todas las búsquedas',
+  openPage: 'Ver todas en el chat (en curso y últimos 7 días)',
   dragHint: 'Arrastra para mover · doble clic para volver a la esquina',
   continuationOnlyTitle: 'Corrida a medias',
   regionLabel: 'Búsquedas del Agente IA',

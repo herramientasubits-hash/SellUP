@@ -4,7 +4,14 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { AGENT_RUNS_TRAY_EXPAND_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
-import { AGENT_RUNS_PAGE_PATH } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
+import { AgentRunsPanel } from '@/components/prospect-batches/agent-runs-tray/agent-runs-panel';
+import {
+  AGENT_CHAT_OPEN_RUNS_EVENT,
+  AGENT_CHAT_RUNS_VIEW,
+  AGENT_CHAT_VIEW_PARAM,
+  type AgentChatOpenRunsDetail,
+} from '@/modules/prospect-batches/agent-runs/agent-chat-events';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertCircle,
   Check,
@@ -305,6 +312,9 @@ type GenerateAIBatchDrawerProps = {
 export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const runsInProgress = useAgentRuns().filter((run) => run.status === 'running' || run.status === 'queued').length;
+  // AGENT1-RUNS-INSIDE-CHAT-1 — «Búsquedas» es una pestaña DENTRO del cajón, no
+  // una pantalla aparte. La conversación sigue montada (oculta) mientras tanto.
+  const [chatView, setChatView] = React.useState<'chat' | 'runs'>('chat');
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
   const isControlled = controlledOpen !== undefined;
@@ -329,8 +339,42 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   const autoSources = getAutoSources(form.countryCode);
   const suggestedSource = form.countryCode ? STRUCTURED_SOURCE_MAP[form.countryCode] ?? null : null;
 
+  const isChatWizard = experience === 'chat_wizard' && catalog !== null;
+  const requestOpen = React.useCallback(() => {
+    if (isControlled) onOpenChange?.(true);
+    else setDrawer((prev) => ({ ...prev, open: true }));
+  }, [isControlled, onOpenChange]);
+
+  // La bandeja flotante pide «abrir el chat en Búsquedas»; si esta pantalla
+  // tiene el asistente, lo atiende aquí mismo.
+  React.useEffect(() => {
+    if (!isChatWizard) return undefined;
+    const onOpenRuns = (event: Event) => {
+      const detail = (event as CustomEvent<AgentChatOpenRunsDetail>).detail;
+      if (detail) detail.handled = true;
+      setChatView('runs');
+      requestOpen();
+    };
+    window.addEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
+    return () => window.removeEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
+  }, [isChatWizard, requestOpen]);
+
+  // Llegada desde otra pantalla (`?agentView=runs`): se abre en «Búsquedas» y se
+  // limpia la URL para que recargar no vuelva a abrirlo.
+  React.useEffect(() => {
+    if (!isChatWizard) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(AGENT_CHAT_VIEW_PARAM) !== AGENT_CHAT_RUNS_VIEW) return;
+    url.searchParams.delete(AGENT_CHAT_VIEW_PARAM);
+    window.history.replaceState(window.history.state, '', url.toString());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir una vez al llegar con el parámetro
+    setChatView('runs');
+    requestOpen();
+  }, [isChatWizard, requestOpen]);
+
   function handleClose() {
     if (drawer.generating) return;
+    setChatView('chat');
     onOpenChange?.(false);
     setDrawer(EMPTY_DRAWER);
     setForm(EMPTY_FORM);
@@ -570,30 +614,39 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           newConversationLabel="Comenzar de nuevo"
           newConversationDisabled={!wizardCanRestart}
           // AGENT1-PARALLEL-RUNS-PHASE2-1 — las búsquedas viven en el shell: el
-          // panel puede irse (minimizar) y la página de búsquedas las muestra todas.
-          runsInProgress={runsInProgress}
-          onRuns={() => {
-            handleClose();
-            router.push(AGENT_RUNS_PAGE_PATH);
-          }}
+          // panel puede irse (minimizar) y lo que corre sigue en la bandeja.
           onMinimize={() => {
             handleClose();
             window.dispatchEvent(new Event(AGENT_RUNS_TRAY_EXPAND_EVENT));
           }}
         >
-          <ProspectChatWizard
-            ref={wizardRef}
-            onRestartAvailabilityChange={setWizardCanRestart}
-            catalog={catalog}
-            onClose={handleClose}
-            executionEnabled={executionEnabled}
-            lushaPreviewEnabled={lushaPreviewEnabled}
-            autoProviderCascade={autoProviderCascade}
-            discoveryProvider={discoveryProvider}
-            providerOverrideCapability={providerOverrideCapability}
-            apolloRunModeLimits={apolloRunModeLimits}
-            budgetPreflight={budgetPreflight}
-          />
+          <Tabs value={chatView} onValueChange={(value) => setChatView(value as 'chat' | 'runs')} className="shrink-0 px-4 pt-3">
+            <TabsList variant="segmented" className="w-full">
+              <TabsTrigger value="chat" className="flex-1" data-testid="agent-chat-tab-chat">
+                Conversación
+              </TabsTrigger>
+              <TabsTrigger value="runs" className="flex-1" data-testid="agent-chat-tab-runs">
+                {runsInProgress > 0 ? `Búsquedas (${runsInProgress})` : 'Búsquedas'}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {/* La conversación NO se desmonta al ir a «Búsquedas»: se oculta. */}
+          <div className="flex min-h-0 flex-1 flex-col" hidden={chatView !== 'chat'}>
+            <ProspectChatWizard
+              ref={wizardRef}
+              onRestartAvailabilityChange={setWizardCanRestart}
+              catalog={catalog}
+              onClose={handleClose}
+              executionEnabled={executionEnabled}
+              lushaPreviewEnabled={lushaPreviewEnabled}
+              autoProviderCascade={autoProviderCascade}
+              discoveryProvider={discoveryProvider}
+              providerOverrideCapability={providerOverrideCapability}
+              apolloRunModeLimits={apolloRunModeLimits}
+              budgetPreflight={budgetPreflight}
+            />
+          </div>
+          {chatView === 'runs' && <AgentRunsPanel />}
         </ChatPanel>
       </>
     );

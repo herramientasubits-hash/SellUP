@@ -2,18 +2,13 @@
 
 import * as React from "react";
 
-import { Activity, Clock, Minimize2, Plus, X } from "@/icons";
+import { Clock, Minimize2, Plus, X } from "@/icons";
 import { AiAgentDrawer } from "@/components/ai/ai-agent-drawer";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/typography";
 
 import { ChatMark, type ChatMarkProps } from "./chat-mark";
 import { t } from "./messages";
-
-function runsLabel(inProgress: number): string {
-  if (inProgress <= 0) return t("chat.runs");
-  return inProgress === 1 ? "1 búsqueda en curso" : `${inProgress} búsquedas en curso`;
-}
 
 export interface ChatPanelProps {
   open: boolean;
@@ -38,12 +33,6 @@ export interface ChatPanelProps {
   newConversationDisabled?: boolean;
   /** No se puede cerrar ahora mismo (hay una ejecución en curso). */
   closeDisabled?: boolean;
-  /**
-   * «Búsquedas»: abre la página de búsquedas en curso e historial. Sin esto no hay
-   * botón. `runsInProgress` > 0 lo marca y lo cuenta.
-   */
-  onRuns?: () => void;
-  runsInProgress?: number;
   /** «Minimizar»: cierra el panel dejando lo que corre en la bandeja flotante. */
   onMinimize?: () => void;
   /** El cuerpo del panel: el hilo, la caja, lo que el asistente necesite. */
@@ -72,8 +61,6 @@ export function ChatPanel({
   newConversationLabel,
   newConversationDisabled = false,
   closeDisabled = false,
-  onRuns,
-  runsInProgress = 0,
   onMinimize,
   children,
 }: ChatPanelProps) {
@@ -117,25 +104,6 @@ export function ChatPanel({
                 data-testid="chat-panel-history"
               >
                 <Clock aria-hidden />
-              </Button>
-            )}
-            {onRuns && (
-              <Button
-                type="button"
-                variant={runsInProgress > 0 ? "secondary" : "ghost"}
-                size="icon-sm"
-                onClick={onRuns}
-                aria-label={runsLabel(runsInProgress)}
-                title={runsLabel(runsInProgress)}
-                data-testid="chat-panel-runs"
-                className="relative"
-              >
-                <Activity aria-hidden />
-                {runsInProgress > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold leading-none text-primary-foreground">
-                    {runsInProgress}
-                  </span>
-                )}
               </Button>
             )}
             {onNewConversation && (
