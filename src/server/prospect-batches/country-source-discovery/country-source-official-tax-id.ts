@@ -10,6 +10,7 @@
  * Mismas fuentes y misma regla que el resto (`buildColombiaOfficialSourceResolvers`):
  * sólo una coincidencia FUERTE pone el número fiscal. Una dudosa se ignora: aquí
  * el número decide duplicados, y uno equivocado escondería una empresa nueva.
+ * Única excepción: un nombre oficial de una sola palabra con UN solo RFC (ver abajo).
  *
  * Nunca falla la corrida: un tropiezo deja la empresa como venía. Con plazo,
  * porque la capa gratuita corre antes del proveedor de pago en el mismo request.
@@ -18,6 +19,7 @@
 import { normalizeProviderDiscoveredCompany } from '@/server/agents/prospect-intake/normalize';
 import {
   enrichNormalizedProspectWithOfficialSources,
+  type OfficialSourceEnrichmentResult,
   type OfficialSourceResolver,
 } from '@/server/agents/prospect-intake/source-enrichment';
 import type { ProviderDiscoveredCompany } from '@/server/agents/prospect-intake/types';
@@ -50,6 +52,15 @@ function toTaxIdentifierType(value: string | null | undefined): TaxIdentifierTyp
   return value && KNOWN_TAX_IDENTIFIER_TYPES.has(value) ? (value as TaxIdentifierType) : 'other';
 }
 
+function isUniqueSingleWordSignal(source: OfficialSourceEnrichmentResult): boolean {
+  return (
+    source.status === 'low_confidence_match' &&
+    source.matchMethod === 'normalized_name' &&
+    source.safeMetadata?.singleWordName === true &&
+    source.safeMetadata?.ambiguous !== true
+  );
+}
+
 /** Adapta los resolutores oficiales (los mismos de Apollo/Tavily/Claude) a esta capa. */
 export function buildCountrySourceOfficialTaxIdLookup(
   resolvers: OfficialSourceResolver[],
@@ -70,13 +81,29 @@ export function buildCountrySourceOfficialTaxIdLookup(
     };
     const normalized = normalizeProviderDiscoveredCompany(discovered, criteria);
     const enriched = await enrichNormalizedProspectWithOfficialSources(normalized, criteria, resolvers);
-    if (!enriched.strongIdentityAvailable || !enriched.taxIdentifier) return null;
-    return {
-      taxId: enriched.taxIdentifier,
-      taxIdentifierType: toTaxIdentifierType(enriched.taxIdentifierType),
-      sourceKey: enriched.officialSource.sourceKey ?? null,
-      confidence: enriched.officialSource.confidence ?? null,
-    };
+    const source = enriched.officialSource;
+    if (enriched.strongIdentityAvailable && enriched.taxIdentifier) {
+      return {
+        taxId: enriched.taxIdentifier,
+        taxIdentifierType: toTaxIdentifierType(enriched.taxIdentifierType),
+        sourceKey: source.sourceKey ?? null,
+        confidence: source.confidence ?? null,
+      };
+    }
+    // Decisión de la dueña 06-10 (Prod, lote 614827f2: DENUE trajo «AXTEL» y
+    // «BICENTEL» sin forma societaria). Para Apollo/Tavily/Claude una sola palabra
+    // es sólo pista porque puede ser una marca; aquí el nombre sale de un registro
+    // OFICIAL (DENUE, 51+ personas) y el registro fiscal tiene UN solo RFC con ese
+    // núcleo. Eso basta en esta capa. Un nombre ambiguo (varios RFC) sigue fuera.
+    if (isUniqueSingleWordSignal(source) && source.taxIdentifier) {
+      return {
+        taxId: source.taxIdentifier,
+        taxIdentifierType: toTaxIdentifierType(source.taxIdentifierType),
+        sourceKey: source.sourceKey ?? null,
+        confidence: source.confidence ?? null,
+      };
+    }
+    return null;
   };
 }
 

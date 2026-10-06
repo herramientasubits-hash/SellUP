@@ -681,7 +681,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) antes de revisar duplicados, y lo trae sólo con coincidencia segura (en una muestra real, 9 de 40 empresas de DENUE).',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) y, si no, en las listas del SAT y Nuevo León (mx_rfc_public_lists_registry), antes de revisar duplicados, y lo trae sólo con coincidencia segura (como el nombre de DENUE es oficial, un nombre de una sola palabra como «AXTEL» vale si hay UN solo RFC con ese nombre; decisión de la dueña 06-10). Los «GOBIERNO DEL ESTADO» sin estado se completan con el estado de la ubicación.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -692,7 +692,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Directorio oficial de INEGI con más de 5 millones de establecimientos. En el Agente 1 es la capa gratuita mexicana por industria: antes de pagar a Apollo o Lusha consulta en vivo la API de DENUE con la tabla SCIAN v2 aprobada por la dueña (por ejemplo, bibliotecas públicas → Gobierno), sólo establecimientos de 51 o más personas, alternando actividades, y deja una fila por empresa (razón social y nombre comercial). Guarda el sitio web o dominio cuando DENUE lo publica. DENUE nunca publica RFC: el RFC lo pone CompraNet por nombre cuando la empresa le vendió al Estado.',
     limitations: [
-      'DENUE nunca publica RFC: sólo lo tienen las empresas que también aparecen en CompraNet con el mismo nombre (alrededor de 1 de cada 4).',
+      'DENUE nunca publica RFC: sólo lo tienen las empresas que también aparecen en CompraNet o en las listas del SAT y Nuevo León con el mismo nombre.',
       'Es registro de establecimiento físico, no necesariamente la razón social fiscal.',
       'Puede devolver múltiples establecimientos para una misma marca o grupo empresarial; SellUp deja una fila por empresa.',
       'Sólo propone establecimientos de 51 o más personas: empresas más pequeñas no entran por esta vía.',
@@ -823,7 +823,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '26.393 personas morales cargadas (contratos CompraNet 2023-2025, carga autorizada el 05-10). El Agente 1 completa el RFC por nombre en cada corrida de México: Apollo, Tavily, Claude y, desde el 05-10, también la capa gratuita de DENUE.',
+      '26.393 personas morales cargadas (contratos CompraNet 2023-2025, carga autorizada el 05-10). El Agente 1 completa el RFC por nombre en cada corrida de México: Apollo, Tavily, Claude y, desde el 05-10, también la capa gratuita de DENUE. Si aquí no hay RFC seguro, se intenta «SAT y Nuevo León — RFC por nombre» (mx_rfc_public_lists_registry).',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
@@ -841,6 +841,34 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: [
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+  },
+  {
+    key: 'mx_rfc_public_lists_registry',
+    name: 'SAT y Nuevo León — RFC por nombre (importadores, donatarias, proveedores)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Respaldo de CompraNet en el RFC por nombre de cada corrida de México (Apollo, Tavily, Claude y la capa gratuita de DENUE). 82.504 personas morales cargadas el 06-10 (autorizada), 9.947 donatarias y 2.944 con estratificación de Nuevo León.',
+    countryCodes: ['MX'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://www.sat.gob.mx/minisitio/PadronImportadoresExportadores/',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Listas oficiales públicas con RFC y razón social: SAT Padrón de Importadores y sus sectoriales (~70.000 empresas privadas medianas y grandes), SAT Directorio de Donatarias Autorizadas sólo activas (~9.900: universidades privadas, colegios, ONG) y padrón de proveedores de Nuevo León (~2.900, con estratificación MICRO/PEQUEÑA/MEDIANA/GRANDE). Se usa sólo cuando CompraNet no da un RFC seguro, con la misma regla: RFC seguro sólo si exactamente un RFC tiene ese núcleo de nombre. Medido con 177 nombres reales de México: CompraNet sola 11 RFC seguros, con estas listas 26.',
+    limitations: [
+      'Sólo empresas que importan/exportan, donatarias autorizadas o proveedoras de Nuevo León: una empresa que no aparece no significa que no exista.',
+      'El padrón de importadores se publica en PDF (2.130 páginas): la carga lo extrae con scripts/source-catalog/extract-mx-rfc-public-lists.py.',
+      'Nunca personas físicas (RFC de 13 caracteres). No se guardan teléfonos, correos, domicilios ni representantes.',
+      'La estratificación sólo existe para proveedores de Nuevo León y es la que declaró la empresa: pista de tamaño, no dato confirmado.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'CompraNet manda: si CompraNet ya da un RFC seguro, esta lista no se consulta.',
     ],
   },
   {
