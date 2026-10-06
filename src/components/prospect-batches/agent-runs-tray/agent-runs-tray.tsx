@@ -8,6 +8,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Queue } from '@/icons';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -36,6 +37,7 @@ import {
   processCenterSummary,
   type ProcessState,
 } from './agent-runs-tray-copy';
+import { openAgentRun } from './agent-run-opener';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -147,12 +149,14 @@ const TILE_ICON: Record<ProcessState, React.ComponentType<{ className?: string }
   failed: AlertCircle,
 };
 
-function ProcessRow({ run, live, onAfterAction }: { run: AgentRun; live: LiveProgress | undefined; onAfterAction: () => void }) {
+function ProcessRow({ run, live, onOpen }: { run: AgentRun; live: LiveProgress | undefined; onOpen: (clientRequestId: string) => void }) {
   const state = agentRunProcessState(run);
   const view = describeAgentRun(run, live?.label ?? null);
   const meta = view.error ?? view.description;
   const percent = live?.percent ?? 5;
   const Icon = TILE_ICON[state];
+  const isActive = state === 'running' || state === 'waiting';
+  const actionLabel = isActive ? AGENT_RUNS_TRAY_COPY.openRun : AGENT_RUNS_TRAY_COPY.viewRun;
 
   return (
     <li className="flex items-start gap-3 border-b border-border/60 px-4 py-3 last:border-b-0">
@@ -183,14 +187,17 @@ function ProcessRow({ run, live, onAfterAction }: { run: AgentRun; live: LivePro
           </Text>
         )}
       </div>
-      {/* La acción tiene columna propia: el título puede truncar sin moverla. */}
-      {view.showLink && run.redirectPath && (
-        <Button asChild size="sm" variant="outline" className="shrink-0 self-center">
-          <Link href={run.redirectPath} onClick={onAfterAction}>
-            {AGENT_RUNS_TRAY_COPY.openBatch}
-          </Link>
-        </Button>
-      )}
+      {/* La acción tiene columna propia: el título puede truncar sin moverla.
+          Abre la corrida en el drawer del chat: el loader si sigue, el resultado si terminó. */}
+      <Button
+        size="sm"
+        variant="outline"
+        className="shrink-0 self-center"
+        aria-label={`${actionLabel} ${run.title}`}
+        onClick={() => onOpen(run.clientRequestId)}
+      >
+        {actionLabel}
+      </Button>
     </li>
   );
 }
@@ -237,7 +244,12 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const isEmpty = runs.length === 0 && !continuationActive;
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
+  const router = useRouter();
   const close = () => setOpen(false);
+  const openRun = (clientRequestId: string) => {
+    close();
+    openAgentRun(clientRequestId, (href) => router.push(href));
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -325,7 +337,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             onActiveChange={setContinuationActive}
           />
           {runs.map((run) => (
-            <ProcessRow key={run.clientRequestId} run={run} live={live[run.clientRequestId]} onAfterAction={close} />
+            <ProcessRow key={run.clientRequestId} run={run} live={live[run.clientRequestId]} onOpen={openRun} />
           ))}
         </ul>
 

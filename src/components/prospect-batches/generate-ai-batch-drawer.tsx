@@ -2,9 +2,12 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import { AGENT_RUNS_PAGE_PATH } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
+import { registerAgentRunOpener, takeAgentRunFromUrl } from '@/components/prospect-batches/agent-runs-tray/agent-run-opener';
+import { AgentRunDrawerView } from '@/components/prospect-batches/chat-wizard/agent-run-drawer-view';
 import {
   AlertCircle,
   Check,
@@ -316,6 +319,30 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   // La cabecera del panel puede pedirle al asistente que empiece de nuevo.
   const wizardRef = React.useRef<ProspectChatWizardHandle>(null);
   const [wizardCanRestart, setWizardCanRestart] = React.useState(false);
+  // Centro de procesos ↔ drawer. `wizardKey` monta una conversación nueva sin
+  // tocar la corrida en vuelo (vive en el almacén del shell); `wizardRunId` es la
+  // que ESTE chat tiene en vuelo; `viewRunId`, la que se abrió desde el centro.
+  const [wizardKey, setWizardKey] = React.useState(0);
+  const [wizardRunId, setWizardRunId] = React.useState<string | null>(null);
+  const [viewRunId, setViewRunId] = React.useState<string | null>(null);
+  const canOpenRuns = experience === 'chat_wizard' && Boolean(catalog);
+  const openRunRef = React.useRef<(clientRequestId: string) => void>(() => {});
+  React.useEffect(() => {
+    openRunRef.current = (clientRequestId) => {
+      // La corrida que este chat tiene en vuelo ya se ve en su conversación.
+      setViewRunId(clientRequestId === wizardRunId ? null : clientRequestId);
+      if (!isOpen) {
+        if (isControlled) onOpenChange?.(true);
+        else setDrawer((prev) => ({ ...prev, open: true }));
+      }
+    };
+  });
+  React.useEffect(() => {
+    if (!canOpenRuns) return undefined;
+    const pending = takeAgentRunFromUrl();
+    if (pending) openRunRef.current(pending);
+    return registerAgentRunOpener((clientRequestId) => openRunRef.current(clientRequestId));
+  }, [canOpenRuns]);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -332,10 +359,19 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   function handleClose() {
     if (drawer.generating) return;
     onOpenChange?.(false);
+    setViewRunId(null);
+    setWizardRunId(null);
     setDrawer(EMPTY_DRAWER);
     setForm(EMPTY_FORM);
     setResult(EMPTY_RESULT);
     setProgressSteps([]);
+  }
+
+  /** Una conversación nueva; lo que estuviera en vuelo sigue en el Centro de procesos. */
+  function startNewSearch() {
+    setViewRunId(null);
+    setWizardRunId(null);
+    setWizardKey((key) => key + 1);
   }
 
   function handleGoToBatch() {
@@ -566,9 +602,16 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           open={isOpen}
           onOpenChange={(v) => !v && handleClose()}
           subtitle="Generar empresas candidatas"
-          onNewConversation={() => wizardRef.current?.requestRestart()}
-          newConversationLabel="Comenzar de nuevo"
-          newConversationDisabled={!wizardCanRestart}
+          onNewConversation={() => {
+            // Con una corrida en vuelo (o abierta desde el Centro de procesos) el
+            // «+» no la cancela: sigue en el centro y aquí empieza otra búsqueda.
+            if (wizardRunId || viewRunId) startNewSearch();
+            else wizardRef.current?.requestRestart();
+          }}
+          newConversationLabel={
+            wizardRunId ? 'Nueva búsqueda (esta sigue en el Centro de procesos)' : viewRunId ? 'Nueva búsqueda' : 'Comenzar de nuevo'
+          }
+          newConversationDisabled={!(wizardRunId || viewRunId || wizardCanRestart)}
           // AGENT1-PARALLEL-RUNS-PHASE2-1 — las búsquedas viven en el shell: el
           // panel puede irse (minimizar) y la página de búsquedas las muestra todas.
           runsInProgress={runsInProgress}
@@ -581,19 +624,33 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
           }}
         >
-          <ProspectChatWizard
-            ref={wizardRef}
-            onRestartAvailabilityChange={setWizardCanRestart}
-            catalog={catalog}
-            onClose={handleClose}
-            executionEnabled={executionEnabled}
-            lushaPreviewEnabled={lushaPreviewEnabled}
-            autoProviderCascade={autoProviderCascade}
-            discoveryProvider={discoveryProvider}
-            providerOverrideCapability={providerOverrideCapability}
-            apolloRunModeLimits={apolloRunModeLimits}
-            budgetPreflight={budgetPreflight}
-          />
+          {viewRunId && (
+            <AgentRunDrawerView
+              key={viewRunId}
+              clientRequestId={viewRunId}
+              onNewSearch={startNewSearch}
+              onClose={handleClose}
+            />
+          )}
+          {/* Con una corrida abierta desde el centro, la conversación se oculta
+              pero no se desmonta: lo que se estaba respondiendo no se pierde. */}
+          <div className={cn('flex min-h-0 flex-1 flex-col', viewRunId && 'hidden')}>
+            <ProspectChatWizard
+              key={wizardKey}
+              ref={wizardRef}
+              onRestartAvailabilityChange={setWizardCanRestart}
+              onRunningChange={setWizardRunId}
+              catalog={catalog}
+              onClose={handleClose}
+              executionEnabled={executionEnabled}
+              lushaPreviewEnabled={lushaPreviewEnabled}
+              autoProviderCascade={autoProviderCascade}
+              discoveryProvider={discoveryProvider}
+              providerOverrideCapability={providerOverrideCapability}
+              apolloRunModeLimits={apolloRunModeLimits}
+              budgetPreflight={budgetPreflight}
+            />
+          </div>
         </ChatPanel>
       </>
     );

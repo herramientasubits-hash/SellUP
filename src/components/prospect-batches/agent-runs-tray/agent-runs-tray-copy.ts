@@ -28,6 +28,8 @@ export const AGENT_RUNS_TRAY_COPY = {
   closeAll: 'Quitar de la lista las búsquedas terminadas',
   clearFinished: 'Limpiar',
   openBatch: 'Ver lote',
+  openRun: 'Abrir',
+  viewRun: 'Ver',
   dismiss: 'Quitar',
   queued: 'En espera: empieza en cuanto se libere un lugar (máximo 3 a la vez, y una sola por país e industria).',
   detached: 'Sigue en curso (lanzada antes de recargar la página).',

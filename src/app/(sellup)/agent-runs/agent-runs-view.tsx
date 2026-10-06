@@ -4,7 +4,7 @@
  * Vista de «Búsquedas» del Agente IA (AGENT1-PARALLEL-RUNS-PHASE2-1).
  *
  * Arriba, las búsquedas de ESTE navegador que corren o esperan (las mismas filas
- * que la bandeja flotante, con su etapa en vivo). Abajo, el historial de los
+ * que el Centro de procesos, con su etapa en vivo). Abajo, el historial de los
  * últimos 7 días de la persona, con acceso a cada lote. Tabla = DataTable
  * (Foundation § 10), página = DataTablePage (§ 14).
  */
