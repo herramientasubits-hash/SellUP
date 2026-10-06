@@ -171,7 +171,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadDispositions: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_discarded_dispositions')
-        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
+        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
         .eq('batch_id', batchId)
         .eq('status', 'discarded')
         .in('reason_code', reasonCodes);
@@ -198,7 +198,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
           .eq('metadata->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
         admin
           .from('prospect_discarded_dispositions')
-          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
+          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
           .eq('batch_id', batchId)
           .eq('status', 'discarded')
           .eq('evidence->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),

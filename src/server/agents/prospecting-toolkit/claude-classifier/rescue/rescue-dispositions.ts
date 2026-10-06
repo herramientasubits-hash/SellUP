@@ -56,6 +56,8 @@ export type RescuableDispositionRow = {
   industry: string | null;
   reason_code: string | null;
   evidence: Record<string, unknown> | null;
+  /** `free_source` ⇒ vino del buscador gratuito oficial del país. */
+  round_origin?: string | null;
 };
 
 type Evidence = Record<string, unknown>;

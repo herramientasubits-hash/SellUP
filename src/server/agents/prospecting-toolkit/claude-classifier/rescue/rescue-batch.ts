@@ -35,6 +35,7 @@ import {
   type FoundWebsite,
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
+import { officialSizeSignal } from './official-size-signal';
 import {
   lookUpRescueOfficialIdentity,
   withRescueOfficialIdentity,
@@ -279,11 +280,16 @@ async function rescueCandidate(
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
-  const minEmployees = readIcpThreshold(row.metadata);
+  // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
+  const official = officialSizeSignal({
+    countryCode: row.country_code,
+    fromFreeLayer: row.source_primary === 'public_source',
+  });
+  const minEmployees = official.measured ? official.minEmployees : readIcpThreshold(row.metadata);
   const decision = decideRescue(result, {
     icpMinEmployees: minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
-    sizeAlreadyConfirmed: sizeAlreadyConfirmed(row.metadata),
+    sizeAlreadyConfirmed: official.measured || sizeAlreadyConfirmed(row.metadata),
     sizePassedIcpGate: icpGatePassed(row.metadata),
   });
   const decidedAt = deps.nowIso();
@@ -447,9 +453,15 @@ async function rescueDisposition(
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
   const cost = searchCost + (result.usage?.estimatedCostUsd ?? 0);
 
+  // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
+  const official = officialSizeSignal({
+    countryCode: row.country_code,
+    fromFreeLayer: row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true,
+  });
   const decision = decideRescue(result, {
-    icpMinEmployees: DEFAULT_ICP_MIN_EMPLOYEES,
+    icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+    ...(official.measured ? { sizeAlreadyConfirmed: true } : {}),
   });
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso),
@@ -458,8 +470,8 @@ async function rescueDisposition(
   if (goesBack) {
     const baseOrigin =
       decision.kind === 'reassign'
-        ? buildDispositionReassignOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt)
-        : buildDispositionAdmissionOrigin(result, decision, DEFAULT_ICP_MIN_EMPLOYEES, decidedAt);
+        ? buildDispositionReassignOrigin(result, decision, official.minEmployees, decidedAt)
+        : buildDispositionAdmissionOrigin(result, decision, official.minEmployees, decidedAt);
     // Las del buscador gratuito ya traen su número fiscal (send-to-review-core);
     // el resto lo busca en las fuentes oficiales con el sitio encontrado.
     const identity =
@@ -591,6 +603,10 @@ async function discardStoredSmallSizes(
   const discardedIds = new Set<string>();
   const decidedAt = deps.nowIso();
   for (const row of candidates) {
+    // Tamaño medido por la fuente oficial: una cifra guardada de Claude no la descarta.
+    if (officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: row.source_primary === 'public_source' }).measured) {
+      continue;
+    }
     if (!storedSmallSizeDiscard(row.metadata, readIcpThreshold(row.metadata))) continue;
     const saved = await deps.patchCandidate(row.id, (metadata) => {
       const threshold = readIcpThreshold(metadata);
