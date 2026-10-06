@@ -38,6 +38,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'cl_sii_registry',
   'ec_scvs_directory',
   'cl_sii_directory',
+  'pe_sunat_directory',
   'cr_company_registry',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
@@ -47,6 +48,7 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pa_panamacompra_convenio',
   'co_fedesoft',
   'ec_scvs',
+  'pe_sunat_name_alias',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────

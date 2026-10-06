@@ -124,7 +124,7 @@ describe('capacidad por país', () => {
     });
     assert.equal(resolveCountrySourceCapability('AR')?.sourceKey, 'ar_rns_discovery');
     assert.equal(resolveCountrySourceCapability('CO')?.sourceKey, 'co_siis_discovery');
-    assert.equal(resolveCountrySourceCapability('PE'), null);
+    assert.equal(resolveCountrySourceCapability('VE'), null);
   });
 
   it('la cobertura de Ecuador sale de SU tabla', () => {

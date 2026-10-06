@@ -1296,7 +1296,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+      '867.359 sociedades (RUC 20) activas y habidas del padrón reducido de SUNAT cargadas (30-09). El Agente 1 completa el RUC por nombre en cada corrida, junto con sus alias (pe_sunat_name_alias). Pendiente de autorización: recargarlo con tipo de contribuyente, actividad CIIU Rev. 4 y trabajadores del Padrón RUC abierto (corte 2026-09: 357.818 con trabajadores) para el filtro de tamaño.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1305,15 +1305,72 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'http://www2.sunat.gob.pe/padron_reducido_ruc.zip',
     automationLevel: 'high',
     recommendedUse:
-      'Carga separada del padrón reducido de SUNAT con 867.359 sociedades (RUC 20) activas y habidas. En cada corrida del Agente 1 completa el RUC por nombre de empresa. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Carga separada del padrón reducido de SUNAT con 867.359 sociedades (RUC 20) activas y habidas. En cada corrida del Agente 1 completa el RUC por nombre de empresa: prueba el nombre tal cual, sin restos de la web, la parte antes del guion, con o sin «del Perú» y, en entidades públicas, sin «de/del». RUC seguro sólo cuando exactamente un RUC tiene ese nombre; un nombre de una sola palabra sólo si la sociedad informa 50 o más trabajadores. Con la recarga, los trabajadores informados por SUNAT llegan al filtro de tamaño junto con el RUC.',
     limitations: [
-      'Sólo sociedades (RUC 20) activas y habidas: no incluye personas naturales con negocio (RUC 10).',
-      'El padrón reducido no trae actividad CIIU ni tamaño.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo sociedades y entidades (RUC 20) activas y habidas: no incluye personas naturales con negocio (RUC 10).',
+      'El padrón reducido no trae actividad ni tamaño; los trae el Padrón RUC abierto (datos abiertos), que se cruza por RUC al recargar.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Una marca que no aparece en la razón social ni en su alias (Backus, Movistar, KFC) no encuentra RUC.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
       'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
+      'Un 0 en trabajadores no significa empresa pequeña: hay grupos que declaran la planilla en otra razón social.',
+    ],
+  },
+  {
+    key: 'pe_sunat_name_alias',
+    name: 'SUNAT + OECE — alias de nombre para el RUC (Perú)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código junto al RUC por nombre de Perú. La carga de 72.125 claves de nombre de 49.207 RUC (alias tras « - » del padrón de SUNAT, entidades públicas sin «de/del» y 3.164 entidades contratantes del OECE) espera la autorización de la dueña: hasta entonces Perú usa sólo el núcleo del padrón.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://conosce.osce.gob.pe/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Claves de nombre extra para encontrar el RUC de la MISMA sociedad del padrón: SUNAT guarda razón social y nombre conocido juntos («LECHE GLORIA SOCIEDAD ANONIMA - GLORIA S.A.», «… - DIRESA CALLAO») y abrevia a las entidades públicas («MUNICIPALIDAD DISTRITAL USQUIL»); el listado de entidades contratantes del OECE trae sus nombres completos. Medido el 06-10-2026 con 182 empresas peruanas reales: con alias y variantes 76 tienen RUC seguro, frente a 57 sólo con el padrón.',
+    limitations: [
+      'Sólo apunta a sociedades y entidades activas y habidas del padrón de SUNAT.',
+      'No guarda alias de sindicatos, consorcios, juntas ni asociaciones de cesantes o trabajadores.',
+      'Snapshot estático — se recarga junto con el padrón.',
+    ],
+    riskNotes: [
+      'Un alias compartido por varias sociedades da una señal, nunca un RUC seguro.',
+    ],
+  },
+  {
+    key: 'pe_sunat_directory',
+    name: 'Padrón RUC abierto de SUNAT — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Perú. La carga de 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido) espera la autorización de la dueña: hasta entonces Perú no tiene capa gratuita y va directo a proveedores.',
+    countryCodes: ['PE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.datosabiertos.gob.pe/dataset/padr%C3%B3n-ruc-superintendencia-nacional-de-aduanas-y-de-administraci%C3%B3n-tributaria-sunat',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita peruana por industria: sociedades y entidades (RUC 20) ACTIVAS y HABIDAS que SUNAT informa con 200 o más trabajadores en su Padrón RUC abierto (datos abiertos, licencia ODC-BY). Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU Rev. 4 → industria (la misma por división que Argentina, más informática del comercio en Tecnología y farmacias en Salud), de más a menos trabajadores. Cada empresa llega con su RUC y su razón social del padrón reducido.',
+    limitations: [
+      'Sólo sociedades y entidades con 200 o más trabajadores informados: SUNAT no informa trabajadores en el 59 % de las sociedades activas, que no aparecen.',
+      'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
+      'Los mayoristas de medicamentos no se distinguen en la CIIU internacional y quedan en Retail.',
+      'SUNAT no publica sitio web: las empresas llegan sin dominio.',
+      'Snapshot estático — el padrón se publica cada mes y requiere recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan dirección, teléfono ni representantes.',
     ],
   },
   {
