@@ -1686,7 +1686,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.350 sociedades del Registro Nacional de Sociedades que además son proveedoras del Estado (COMPR.AR) cargadas. El Agente 1 las propone por industria, con la tabla aprobada por la dueña, antes de pagar a proveedores.',
+      '6.350 sociedades del Registro Nacional de Sociedades que además son proveedoras del Estado (COMPR.AR) cargadas; 1.657 con sitio web desde el correo del SIPRO histórico (carga 06-10, autorizada). Comprobado en Producción el 06-10: Argentina × Tecnología (lote 0ab8ab54) y × Propiedad & Construcción (lote 063ea384) cumplieron la meta sólo con la capa gratuita, sin Apollo ni Tavily, con empresas con web y CUIT y sin repetir corridas anteriores. Recarga: run-ar-rns-snapshot-etl.ts con --sipro-legacy para conservar los dominios.',
     countryCodes: ['AR'],
     sectors: [],
     priority: 'P1',
@@ -1715,7 +1715,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '2.851 sociedades activas con 100 o más trabajadores en ATP 2020 cargadas (06-10, autorizada; verificada por lectura: Swiss Medical, Hospital Italiano, Galeno, Farmacity, Falabella). El Agente 1 las propone intercaladas con las proveedoras del Estado. Sin sitio web: van a Descartadas y el buscador de sitio de Claude intenta rescatarlas; al pasar a revisión conservan su CUIT.',
+      '2.851 sociedades activas con 100 o más trabajadores en ATP 2020 cargadas (06-10, autorizada; verificada por lectura: Swiss Medical, Hospital Italiano, Galeno, Farmacity, Falabella); 348 con sitio web desde el SIPRO histórico. El Agente 1 las propone intercaladas con las proveedoras del Estado. Las que no tienen web van a Descartadas y el rescate con Claude busca su sitio; al pasar a revisión conservan su CUIT. Recarga: run-ar-atp-employers-etl.ts con --sipro-legacy.',
     countryCodes: ['AR'],
     sectors: [],
     priority: 'P1',
@@ -1745,7 +1745,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '1.194.956 sociedades activas del Registro Nacional de Sociedades (datos.jus.gob.ar) cargadas. El Agente 1 completa el CUIT por nombre en cada corrida.',
+      '1.194.956 sociedades activas del Registro Nacional de Sociedades (datos.jus.gob.ar) cargadas. El Agente 1 completa el CUIT por nombre en cada corrida (Apollo, Tavily, Claude e importación). Cubre formas societarias compuestas, asociaciones civiles, variantes con/sin «Argentina» y palabras juntas.',
     countryCodes: ['AR'],
     sectors: [],
     priority: 'P1',
