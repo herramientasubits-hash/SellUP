@@ -14,7 +14,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const ROUTES = ['enrich', 'post-approval-nit-enrich', 'apollo-round-continuation'] as const;
+// SOURCES-EC-CLOSE-2 — la vuelta del rescate con Claude usa la misma autorización.
+const ROUTES = ['enrich', 'post-approval-nit-enrich', 'apollo-round-continuation', 'claude-rescue-continuation'] as const;
 const LEGACY_PUBLIC_SECRET = 'local_cron_secret';
 
 function routeFile(name: string): string {

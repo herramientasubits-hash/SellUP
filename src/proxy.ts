@@ -45,6 +45,7 @@ export async function proxy(request: NextRequest) {
 //   api/integrations/apollo/phone-reveal/webhook     → webhook de máquina (token)
 //   api/cron/enrich                                  → job programado (CRON_SECRET)
 //   api/cron/phone-reveal-recovery                   → job programado (CRON_SECRET)
+//   api/cron/claude-rescue-continuation              → vuelta del rescate con Claude (CRON_SECRET)
 //
 // Cada exclusión termina en `(?:$|/)`, así que abre EXACTAMENTE ese endpoint (y sus
 // subrutas) y no sus vecinos por prefijo: excluir `…/phone-reveal/webhook` no
@@ -52,6 +53,6 @@ export async function proxy(request: NextRequest) {
 // expone un cron nuevo de nombre parecido.
 export const config = {
   matcher: [
-    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

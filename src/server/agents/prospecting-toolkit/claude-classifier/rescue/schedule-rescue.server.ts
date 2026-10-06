@@ -26,23 +26,28 @@ export function scheduleClaudeRescueAfterWizardRun(
   try {
     after(async () => {
       try {
-        const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }, triggeredBy] = await Promise.all([
-          import('./rescue-batch'),
-          import('./rescue-batch.server'),
+        const [{ runRescueRound, triggerRescueContinuation }, triggeredBy] = await Promise.all([
+          import('./rescue-chain.server'),
           resolveTriggeredBy().catch(() => null),
         ]);
         const deadlineMs = computeBackgroundRescueDeadlineMs(actionStartedAtMs, Date.now());
         if (deadlineMs === null) {
           // La búsqueda ya usó casi todo el tiempo de la función: no se empieza nada
-          // que Vercel pueda cortar a la mitad. Queda para el botón del lote.
-          console.info('[claude-rescue] batch', batchId, 'skipped: not enough function time left');
+          // que Vercel pueda cortar a la mitad. SOURCES-EC-CLOSE-2 — en vez de dejarlo
+          // para el botón, la 1.ª vuelta corre en una función nueva.
+          console.info('[claude-rescue] batch', batchId, 'deferred: not enough function time left');
+          await triggerRescueContinuation({ batchId, continuation: 1, spentUsd: 0, triggeredBy });
           return;
         }
-        const summary = await rescueBatchWithClaude(
-          { batchId, triggeredBy, deadlineMs, includeUnassessed: options.includeUnassessed === true },
-          buildLiveRescueBatchDeps(triggeredBy),
-        );
-        console.info('[claude-rescue] batch', batchId, JSON.stringify(summary));
+        // SOURCES-EC-CLOSE-2 — si queda trabajo, la vuelta pide la siguiente sola.
+        await runRescueRound({
+          batchId,
+          triggeredBy,
+          deadlineMs,
+          continuationsDone: 0,
+          spentBeforeUsd: 0,
+          includeUnassessed: options.includeUnassessed === true,
+        });
       } catch (err) {
         console.error('[claude-rescue] background run failed:', err instanceof Error ? err.message : err);
       }

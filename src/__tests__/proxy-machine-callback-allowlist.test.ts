@@ -59,6 +59,11 @@ describe('proxy — callbacks de máquina excluidos de la sesión', () => {
     assert.equal(proxyRunsFor('/api/cron/phone-reveal-recovery'), false);
   });
 
+  it('la vuelta del rescate con Claude NO pasa por el proxy (SOURCES-EC-CLOSE-2, CRON_SECRET)', () => {
+    assert.equal(proxyRunsFor('/api/cron/claude-rescue-continuation'), false);
+    assert.equal(proxyRunsFor('/api/cron/claude-rescue-continuation-otro'), true);
+  });
+
   it('las exclusiones previas siguen intactas (sin regresión)', () => {
     for (const path of [
       '/api/health',
