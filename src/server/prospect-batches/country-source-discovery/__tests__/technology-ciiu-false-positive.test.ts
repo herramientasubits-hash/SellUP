@@ -196,7 +196,7 @@ function retailInternetRow(key: string): CoSiisSnapshotRow {
     record_identity_key: key,
     legal_name: `EMPRESA SINTETICA ${key}`,
     normalized_legal_name: `empresa sintetica ${key}`,
-    tax_id: `9000000${key}`,
+    tax_id: `90000000${key}`,
     sector: 'COMERCIO',
     city: 'BOGOTA',
     department: 'BOGOTA D.C.',
@@ -233,12 +233,12 @@ test('§ 6 — la forma de Producción: 5 filas 4791 y objetivo 5 ya NO cierran 
   assert.equal(result.context.providerRequired, true);
   assert.deepEqual([...result.acceptedCompanies], []);
 
-  // 🔴 Y la fuente ni siquiera pregunta: sin un solo código que confirme la macro,
-  // el gate declara la ausencia de cobertura ANTES de consultar. Una consulta sin
-  // filtro habría devuelto la población entera, que es el modo de fallo que § 4
-  // del hito anterior prohíbe. Cero filas leídas, cero candidatos persistidos.
-  assert.equal(adapterQueries, 0);
-  assert.equal(result.context.freeSource.attempted, false);
+  // SOURCES-CO-CLOSE-1 — Tecnología ya tiene códigos en Colombia (tabla aprobada:
+  // divisiones 61-63 y clases 4651/4652/4741), así que la fuente SÍ pregunta.
+  // Pero 4791 es Retail en esa tabla: las cinco filas se leen y ninguna se ofrece.
+  assert.equal(adapterQueries, 1);
+  assert.equal(result.context.freeSource.attempted, true);
+  assert.equal(result.context.freeSource.macroConfirmed, 0);
 });
 
 test('§ 6 — la fuente gratuita NO puede suprimir al proveedor con evidencia falsa', () => {

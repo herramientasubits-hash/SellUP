@@ -99,6 +99,9 @@ import {
   CO_RUES_LIVE_SOURCE_KEY,
   normalizeColombiaCompanyCore,
 } from '@/server/source-catalog/connectors/personas-juridicas-cc-colombia/rues-name-live-query';
+import { createColombiaDomainOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/colombia-domain-official-source-resolver';
+import { coSingleWordConfirmedByDomain } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
+import { buildColombiaDomainSnapshotQuery } from './colombia-domain-snapshot-query';
 
 const normalizeCentralAmericaCore = (name: string | null | undefined) =>
   normalizeCompanyNameCore(name, CENTRAL_AMERICA_LEGAL_FORMS);
@@ -125,15 +128,24 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       createColombiaOfficialSourceResolver({
         querySnapshots: buildColombiaSnapshotQuery(snapshotClient),
       }),
-      createSnapshotNameOfficialSourceResolver({
-        countryCode: 'CO',
-        sourceKey: CO_RUES_LIVE_SOURCE_KEY,
-        taxIdentifierType: 'NIT',
-        validTaxId: /^[89]\d{8}$/,
-        normalizeCore: normalizeColombiaCompanyCore,
-        querySnapshots: buildRuesNameLiveQuery(),
-        singleWordIsSignalOnly: true,
-      }),
+      // SOURCES-CO-CLOSE-1 — si no, la WEB: entidades públicas (CHIP + SIGEP) y la
+      // web cargada del SIIS; y por último las cámaras en vivo, donde una marca de
+      // una palabra sólo es segura si su propia web la confirma.
+      createFallbackOfficialSourceResolver(
+        createColombiaDomainOfficialSourceResolver({
+          queryByDomain: buildColombiaDomainSnapshotQuery(snapshotClient),
+        }),
+        createSnapshotNameOfficialSourceResolver({
+          countryCode: 'CO',
+          sourceKey: CO_RUES_LIVE_SOURCE_KEY,
+          taxIdentifierType: 'NIT',
+          validTaxId: /^[89]\d{8}$/,
+          normalizeCore: normalizeColombiaCompanyCore,
+          querySnapshots: buildRuesNameLiveQuery(),
+          singleWordIsSignalOnly: true,
+          singleWordConfirmedByDomain: coSingleWordConfirmedByDomain,
+        }),
+      ),
     ),
     // SOURCES-DO-SIZE-SIGNAL-1 — razón social en el padrón DGII primero; si no da
     // RNC seguro, el nombre comercial («CODETEL»), que sólo deja una pista.

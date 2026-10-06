@@ -25,10 +25,7 @@ import type {
   SnapshotNameQuery,
   SnapshotNameRow,
 } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
-import {
-  COLOMBIA_LEGAL_FORMS,
-  normalizeCompanyNameCore,
-} from '@/server/source-catalog/company-name-core';
+import { normalizeColombiaCompanyNameCore } from './co-company-name-core';
 
 /** `source_key` que declara esta fuente (la misma del adaptador por NIT). */
 export const CO_RUES_LIVE_SOURCE_KEY = 'co_personas_juridicas_cc' as const;
@@ -44,9 +41,12 @@ type Fetch = (url: string, init?: { signal?: AbortSignal; headers?: Record<strin
   json: () => Promise<unknown>;
 }>;
 
-/** Núcleo del nombre con las formas societarias de Colombia. */
+/**
+ * Núcleo del nombre con las formas societarias de Colombia, reconocidas por su
+ * estructura (SOURCES-CO-CLOSE-1: «S AS», «S. EN C.», «E.S.E.»…).
+ */
 export function normalizeColombiaCompanyCore(name: string | null | undefined): string {
-  return normalizeCompanyNameCore(name, COLOMBIA_LEGAL_FORMS);
+  return normalizeColombiaCompanyNameCore(name);
 }
 
 /** URL de la consulta por prefijo. El núcleo sólo contiene [A-Z0-9& ]. */

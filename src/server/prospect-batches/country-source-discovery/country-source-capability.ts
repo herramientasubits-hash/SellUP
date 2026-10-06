@@ -62,7 +62,8 @@ import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
-import { macroHasCiiuCoverage } from './macro-ciiu-index';
+import { macroHasCoSiisCoverage } from './co-siis-macro-table';
+import { CO_PUBLIC_ENTITY_DISCOVERY_MACROS } from './co-siis-discovery-adapter';
 import { macroHasDgiiCoverage } from './do-dgii-macro-table';
 import { macroHasArCoverage } from './ar-rns-macro-table';
 
@@ -143,7 +144,12 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
-  return macroHasCiiuCoverage(macroIndustryKey);
+  // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
+  // directorio de entidades públicas.
+  return (
+    macroHasCoSiisCoverage(macroIndustryKey) ||
+    (typeof macroIndustryKey === 'string' && CO_PUBLIC_ENTITY_DISCOVERY_MACROS.has(macroIndustryKey))
+  );
 }
 
 /**

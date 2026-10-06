@@ -68,6 +68,13 @@ export interface SnapshotNameResolverConfig {
    */
   singleWordIsSignalOnly?: boolean;
   /**
+   * SOURCES-CO-CLOSE-1 — with `singleWordIsSignalOnly`, a one-word brand is still
+   * strong when the candidate's OWN website confirms it (koombea.com → KOOMBEA
+   * S.A.S.). The country decides what «confirms» means (Colombia: the domain's
+   * own label is exactly the core and the domain is not a public-sector one).
+   */
+  singleWordConfirmedByDomain?: (domain: string | null, core: string) => boolean;
+  /**
    * SOURCES-EC-CLOSE-1 — lifts `singleWordIsSignalOnly` and `signalOnly` when the
    * ONE company that carries the name declared at least this many workers to the
    * registry. A bare brand or trade name («Pronaca», «Supermaxi») that matches a
@@ -177,14 +184,23 @@ export function createSnapshotNameOfficialSourceResolver(
         issues: [],
       };
       const carriesLegalForm = normalizeCompanyNameCore(input.candidate.canonicalName, []) !== core;
+      const domainConfirms =
+        config.singleWordConfirmedByDomain?.(input.candidate.domain ?? input.candidate.websiteUrl ?? null, core) === true;
       const singleWord =
-        config.singleWordIsSignalOnly === true && tokens.length === 1 && !carriesLegalForm && !largeRegistered;
+        config.singleWordIsSignalOnly === true &&
+        tokens.length === 1 &&
+        !carriesLegalForm &&
+        !domainConfirms &&
+        !largeRegistered;
       if (distinct.length === 1 && !singleWord && (config.signalOnly !== true || largeRegistered)) {
         return {
           ...base,
           status: 'matched',
           confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
-          safeMetadata: { normalizedSearchName: core },
+          safeMetadata:
+            domainConfirms && tokens.length === 1 && !carriesLegalForm
+              ? { normalizedSearchName: core, singleWordConfirmedByDomain: true }
+              : { normalizedSearchName: core },
           ...(best.workforce ? { workforce: { ...best.workforce } } : {}),
         };
       }
