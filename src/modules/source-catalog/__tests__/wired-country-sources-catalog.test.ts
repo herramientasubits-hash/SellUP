@@ -163,6 +163,26 @@ describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): cargada y verific
   });
 });
 
+describe('Chile capa gratuita (SOURCES-CL-SII-FREE-DISCOVERY-1): conectada en código, carga pendiente', () => {
+  it('existe, CL, capa gratuita, sin carga verificada todavía y fuera de las recomendaciones', () => {
+    const s = CATALOG_SOURCES.find((source) => source.key === 'cl_sii_directory');
+    assert.ok(s);
+    assert.deepEqual(s.countryCodes, ['CL']);
+    assert.equal(s.aiFlowStatus, 'connected_free_discovery');
+    assert.equal(s.connectionMode, 'read_only_snapshot');
+    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.deepEqual(s.sectors, []);
+    assert.match(s.nextAction ?? '', /espera la autorización/);
+    for (const industry of INDUSTRIES) {
+      for (const depth of DEPTHS) {
+        const ctx = getCatalogContext({ country: 'Chile', countryCode: 'CL', industry, searchDepth: depth });
+        assert.equal(ctx.recommendedSources.some((r) => r.key === 'cl_sii_directory'), false, `${industry}/${depth}`);
+        assert.equal(ctx.sectorSources.some((r) => r.key === 'cl_sii_directory'), false, `${industry}/${depth}`);
+      }
+    }
+  });
+});
+
 describe('proveedores globales con su estado real (SOURCES-CATALOG-COUNTRY-AUDIT-1)', () => {
   const byKey = (key: string) => CATALOG_SOURCES.find((s) => s.key === key);
 

@@ -15,7 +15,7 @@ import type {
 import {
   buildDoDgiiDiscoveryAdapter,
   DO_DGII_DISCOVERY_MAX_ROWS,
-  DO_DGII_DISCOVERY_READ_CAP,
+  DO_DGII_DISCOVERY_READ_FACTOR,
   DO_DGII_DISCOVERY_SOURCE_KEY,
   type DoDgiiActiveRow,
   type DoDgiiDiscoveryReads,
@@ -32,26 +32,24 @@ import { assessCountrySourceMacroPrecision } from '../country-source-macro-preci
 const TECH_TEXT = 'ACTIVIDADES DE INFORMÁTICA N.C';
 const CONSTRUCTION_TEXT = 'CONSTRUCCIÓN DE ALMACENES';
 
-function row(rnc: string, sector = TECH_TEXT): DoDgiiActiveRow {
+function row(rnc: string, sector = TECH_TEXT, sizeTier: number | null = 2): DoDgiiActiveRow {
   return {
     record_identity_key: `rnc:${rnc}`,
     rnc,
     legal_name: `EMPRESA SINTETICA ${rnc} SRL`,
-    normalized_legal_name: `EMPRESA SINTETICA ${rnc} SRL`,
+    normalized_legal_name: `EMPRESA SINTETICA ${rnc}`,
     sector,
+    size_tier: sizeTier,
   };
 }
 
-function fakeReads(rows: DoDgiiActiveRow[], totals: Record<string, number>) {
-  const calls = { active: [] as Array<{ activityTexts: readonly string[]; limit: number }>, totals: [] as string[][] };
+/** Lectura doble: devuelve las filas tal cual (la fuente ya viene ordenada). */
+function fakeReads(rows: DoDgiiActiveRow[]) {
+  const calls: Array<{ macroIndustryKey: string; limit: number }> = [];
   const reads: DoDgiiDiscoveryReads = {
-    async readActiveCompaniesByActivity(input) {
-      calls.active.push(input);
-      return rows.filter((r) => input.activityTexts.includes(r.sector ?? ''));
-    },
-    async readProcurementTotals(rncs) {
-      calls.totals.push([...rncs]);
-      return new Map(Object.entries(totals).filter(([rnc]) => rncs.includes(rnc)));
+    async readSizedCompaniesByMacro(input) {
+      calls.push(input);
+      return rows.slice(0, input.limit);
     },
   };
   return { reads, calls };
@@ -84,16 +82,13 @@ describe('capacidad por país', () => {
   it('sin lecturas inyectadas no hay adapter (fail-open al pago)', () => {
     assert.equal(buildCountrySourceAdapter('DO', {}), null);
     assert.equal(buildCountrySourceAdapter('DO', { coSiisSnapshotQuery: async () => [] }), null);
-    assert.ok(buildCountrySourceAdapter('DO', { doDgiiDiscoveryReads: fakeReads([], {}).reads }));
+    assert.ok(buildCountrySourceAdapter('DO', { doDgiiDiscoveryReads: fakeReads([]).reads }));
   });
 });
 
 describe('buildDoDgiiDiscoveryAdapter', () => {
-  it('sólo ofrece proveedoras del Estado, ordenadas por importe adjudicado', async () => {
-    const { reads, calls } = fakeReads(
-      [row('100000001'), row('100000002'), row('100000003'), row('100000004')],
-      { '100000002': 5_000, '100000003': 90_000, '100000004': 0 },
-    );
+  it('lee la fuente con tamaño de esa macro y respeta su orden', async () => {
+    const { reads, calls } = fakeReads([row('100000003', TECH_TEXT, 1), row('100000002'), row('100000004', TECH_TEXT, 4)]);
     const result = await buildDoDgiiDiscoveryAdapter(reads)({
       countryCode: 'DO',
       macroIndustryKey: 'technology',
@@ -101,15 +96,13 @@ describe('buildDoDgiiDiscoveryAdapter', () => {
     });
 
     assert.equal(result.sourceKey, DO_DGII_DISCOVERY_SOURCE_KEY);
-    assert.equal(result.recordsRead, 4);
-    // 100000001 no es proveedora del Estado ⇒ fuera. 100000004 sí lo es (importe 0).
+    assert.equal(result.recordsRead, 3);
     assert.deepEqual(result.companies.map((c) => c.taxId), ['100000003', '100000002', '100000004']);
-    assert.equal(calls.active[0].limit, DO_DGII_DISCOVERY_READ_CAP);
-    assert.ok(calls.active[0].activityTexts.includes(TECH_TEXT));
+    assert.deepEqual(calls, [{ macroIndustryKey: 'technology', limit: 10 * DO_DGII_DISCOVERY_READ_FACTOR }]);
   });
 
   it('cada empresa lleva RNC, industria oficial y la macro de la tabla aprobada', async () => {
-    const { reads } = fakeReads([row('100000009')], { '100000009': 1 });
+    const { reads } = fakeReads([row('100000009')]);
     const [company] = (
       await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 5 })
     ).companies;
@@ -128,43 +121,59 @@ describe('buildDoDgiiDiscoveryAdapter', () => {
 
   it('respeta el límite pedido y el techo de 200', async () => {
     const rows = Array.from({ length: 5 }, (_, i) => row(`10000010${i}`));
-    const totals = Object.fromEntries(rows.map((r, i) => [r.rnc as string, i]));
-    const { reads } = fakeReads(rows, totals);
-    const adapter = buildDoDgiiDiscoveryAdapter(reads);
+    const adapter = buildDoDgiiDiscoveryAdapter(fakeReads(rows).reads);
     assert.equal((await adapter({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 2 })).companies.length, 2);
     assert.equal(DO_DGII_DISCOVERY_MAX_ROWS, 200);
     assert.equal((await adapter({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 0 })).companies.length, 0);
+
+    const { reads, calls } = fakeReads(rows);
+    await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 999 });
+    assert.equal(calls[0].limit, DO_DGII_DISCOVERY_MAX_ROWS * DO_DGII_DISCOVERY_READ_FACTOR);
   });
 
   it('una macro sin actividades clasificadas no consulta nada', async () => {
-    const { reads, calls } = fakeReads([row('100000001')], { '100000001': 1 });
+    const { reads, calls } = fakeReads([row('100000001')]);
     const result = await buildDoDgiiDiscoveryAdapter(reads)({
       countryCode: 'DO',
       macroIndustryKey: 'no_existe',
       limit: 5,
     });
     assert.equal(result.companies.length, 0);
-    assert.equal(calls.active.length, 0);
-    assert.equal(calls.totals.length, 0);
+    assert.equal(calls.length, 0);
   });
 
-  it('descarta RNC inválidos y duplicados antes de preguntar por compras públicas', async () => {
-    const { reads, calls } = fakeReads(
-      [row('100000001'), row('100000001'), row('12345'), { ...row('100000002'), rnc: null }],
-      { '100000001': 1 },
-    );
+  it('descarta RNC inválidos, duplicados y filas sin nivel de tamaño válido', async () => {
+    const { reads } = fakeReads([
+      row('100000001'),
+      row('100000001'),
+      row('12345'),
+      { ...row('100000002'), rnc: null },
+      row('100000005', TECH_TEXT, null),
+      row('100000006', TECH_TEXT, 7),
+      { ...row('100000007'), legal_name: '  ' },
+    ]);
     const result = await buildDoDgiiDiscoveryAdapter(reads)({
       countryCode: 'DO',
       macroIndustryKey: 'technology',
       limit: 5,
     });
-    assert.deepEqual(calls.totals, [['100000001']]);
     assert.deepEqual(result.companies.map((c) => c.taxId), ['100000001']);
   });
 
-  it('sin compras públicas legibles no ofrece nada', async () => {
-    const { reads } = fakeReads([row('100000001')], {});
-    const result = await buildDoDgiiDiscoveryAdapter(reads)({
+  it('la tabla de HOY manda: una fila guardada con otra macro o con texto ya ambiguo no se ofrece', async () => {
+    const { reads } = fakeReads([
+      row('100000001', CONSTRUCTION_TEXT),
+      row('100000002', 'FABRICACIÓN DE PRODUCTOS DE LA'),
+      row('100000003'),
+    ]);
+    const tech = await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 5 });
+    assert.deepEqual(tech.companies.map((c) => c.taxId), ['100000003']);
+    const health = await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'health_pharma', limit: 5 });
+    assert.equal(health.companies.length, 0);
+  });
+
+  it('sin filas legibles no ofrece nada', async () => {
+    const result = await buildDoDgiiDiscoveryAdapter(fakeReads([]).reads)({
       countryCode: 'DO',
       macroIndustryKey: 'technology',
       limit: 5,
@@ -202,19 +211,19 @@ describe('pertenencia por tabla oficial', () => {
 });
 
 describe('puerta previa al pago con República Dominicana', () => {
-  function gate(rows: DoDgiiActiveRow[], totals: Record<string, number>, macroIndustryKey = 'technology') {
+  function gate(rows: DoDgiiActiveRow[], macroIndustryKey = 'technology') {
     return runPrePaidNoveltyGate(
       { provider: 'lusha', countryCode: 'DO', macroIndustryKey, requestedTarget: 2 },
       {
-        countrySourceAdapter: buildDoDgiiDiscoveryAdapter(fakeReads(rows, totals).reads),
+        countrySourceAdapter: buildDoDgiiDiscoveryAdapter(fakeReads(rows).reads),
         checkCompanyDuplicate: async (input) => noMatch(input),
         listKnownExclusionDomains: async () => [],
       },
     );
   }
 
-  it('dos proveedoras nuevas cierran el objetivo sin pagar (igual que Colombia)', async () => {
-    const result = await gate([row('100000001'), row('100000002')], { '100000001': 10, '100000002': 20 });
+  it('dos empresas con tamaño nuevas cierran el objetivo sin pagar (igual que Colombia)', async () => {
+    const result = await gate([row('100000002', TECH_TEXT, 1), row('100000001')]);
     assert.equal(result.context.freeSource.macroConfirmed, 2);
     assert.equal(result.context.residualGap, 0);
     assert.equal(result.context.providerRequired, false);
@@ -222,18 +231,14 @@ describe('puerta previa al pago con República Dominicana', () => {
   });
 
   it('las de otra macro no cierran hueco', async () => {
-    const result = await gate(
-      [row('100000001', CONSTRUCTION_TEXT)],
-      { '100000001': 10 },
-      'technology',
-    );
+    const result = await gate([row('100000001', CONSTRUCTION_TEXT)], 'technology');
     assert.equal(result.acceptedCompanies.length, 0);
     assert.equal(result.context.residualGap, 2);
     assert.equal(result.context.providerRequired, true);
   });
 
   it('una macro sin cobertura en DGII ni siquiera consulta', async () => {
-    const result = await gate([row('100000001')], { '100000001': 10 }, 'no_existe');
+    const result = await gate([row('100000001')], 'no_existe');
     assert.equal(result.context.freeSource.attempted, false);
     assert.equal(result.context.residualGap, 2);
   });

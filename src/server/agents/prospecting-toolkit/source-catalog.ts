@@ -1017,6 +1017,37 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'cl_sii_directory',
+    name: 'SII — capa gratuita por industria (100+ trabajadores)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Chile. La carga (≈11.000 personas jurídicas del SII con 100 o más trabajadores, armada desde cl_sii_registry sin descargar nada) espera la autorización de la dueña: hasta entonces Chile no tiene capa gratuita y va directo a proveedores.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita chilena por industria: personas jurídicas del SII con 100 o más trabajadores dependientes informados (2024) cuyo código de actividad (6 dígitos) y texto de actividad coinciden. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga, de más a menos trabajadores, según la tabla de actividades → industria aprobada por la dueña (05-10-2026): la misma por división que Argentina y Ecuador, más el cobre (división 04) en Energía y minería, mayoristas de medicamentos e instrumental médico, farmacias y ortopedias en Salud, mayoristas y tiendas de informática y telecomunicaciones en Tecnología, y los «fondos y sociedades de inversión» sin industria salvo 25 holdings revisados a mano (Falabella y Cencosud en Comercio, Enel en Energía, Red Salud en Salud…). Cada empresa llega con su RUT; los trabajadores quedan en la fuente como estimado con su año.',
+    limitations: [
+      'Sólo empresas con 100 o más trabajadores dependientes informados al SII en 2024; las que no informaron trabajadores no aparecen.',
+      '«Trabajadores dependientes informados» es un estimado oficial con su año, no el tamaño confirmado.',
+      'La industria sale del código de actividad del SII: un holding puede estar registrado con el giro de inversión y no con el de su grupo.',
+      'Actividades fuera de la tabla no se proponen: hoteles, restaurantes, medios, investigación, educación (el asistente no tiene industria «Educación»), cultura, deporte y asociaciones.',
+      'El SII no publica sitio web ni dirección: las empresas llegan sin dominio.',
+      'Empresas del mismo grupo con RUT distinto aparecen por separado (decisión de la dueña).',
+      'Snapshot estático — se rearma desde cl_sii_registry cuando éste se recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan representantes, teléfonos ni direcciones.',
+    ],
+  },
+  {
     key: 'cl_res_registry',
     name: 'Registro de Empresas y Sociedades — RUT por nombre',
     sellupUse: 'legal_validation',
@@ -1097,11 +1128,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://dgii.gov.do/',
     automationLevel: 'high',
     recommendedUse:
-      'Padrón de contribuyentes jurídicos (RNC) de la DGII: 493.548 empresas con razón social, estado tributario y actividad económica (texto libre). Dos usos en el Agente 1: (1) número fiscal por nombre en cada corrida (RNC); (2) base de la capa gratuita dominicana por industria (do_dgii_discovery), que propone empresas activas en la DGII, con actividad incluida en la tabla actividad → industria aprobada por la dueña y que además son proveedoras del Estado (DGCP), ordenadas por monto adjudicado. También valida y enriquece cuentas RD tras la aprobación. No cubre personas físicas (cédula).',
+      'Padrón de contribuyentes jurídicos (RNC) de la DGII: 493.548 empresas con razón social, estado tributario y actividad económica (texto libre). Dos usos en el Agente 1: (1) número fiscal por nombre en cada corrida (RNC); (2) base de la capa gratuita dominicana por industria (do_dgii_discovery), que desde el 05-10 lee la carga derivada do_dgii_size_registry: empresas activas en la DGII, con actividad incluida en la tabla actividad → industria aprobada por la dueña y con señal de tamaño (Grandes Contribuyentes de la DGII o proveedoras del Estado que no son micro ni pequeñas). Su nombre comercial alimenta además do_dgii_trade_name_registry (RNC por nombre comercial, sólo pista). También valida y enriquece cuentas RD tras la aprobación. No cubre personas físicas (cédula).',
     limitations: [
       'Solo RNC jurídicos (9 dígitos) — cédulas/personas físicas (11 dígitos) fuera de scope',
       'Actividad económica en texto libre DGII — no hay CIIU oficial; la capa gratuita sólo usa las actividades de la tabla aprobada por la dueña',
-      'La capa gratuita sólo propone empresas activas que además son proveedoras del Estado (DGCP): no cubre todo el mercado',
+      'La capa gratuita sólo propone empresas activas con señal de tamaño (listas de la DGII de 2024 o proveedoras del Estado no micro ni pequeñas): no cubre todo el mercado',
       'Snapshot estático — requiere re-carga manual para actualizar',
     ],
     riskNotes: [
@@ -1153,7 +1184,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Snapshot parcial 2020–2026 con 53.974 proveedores cargados. Filtra y ordena por monto adjudicado la capa gratuita dominicana que parte del padrón DGII. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
+      'Snapshot parcial 2020–2026 con 53.974 proveedores cargados. Su clasificación MIPYME y su monto adjudicado alimentan la capa gratuita dominicana (do_dgii_size_registry): descarta proveedoras micro y pequeñas y ordena por monto dentro de cada nivel de tamaño. El post-approval puede usar match local por RNC. No es fuente legal ni tributaria; no reemplaza DGII.',
     countryCodes: ['DO'],
     sectors: [],
     priority: 'P2',
@@ -1161,7 +1192,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     type: 'procurement',
     url: 'https://datosabiertos.dgcp.gob.do/datos-abiertos/tablas',
     automationLevel: 'medium',
-    recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS. En la capa gratuita dominicana por industria, sólo se proponen empresas del padrón DGII que además son proveedoras en DGCP, ordenadas por monto adjudicado.',
+    recommendedUse: 'Proveedores del Estado dominicano con RNC. Datos desde 2005. Señal de empresa activa con historial contractual B2G en República Dominicana. Portal de datos abiertos OCDS. En la capa gratuita dominicana por industria, aporta la señal de tamaño de las proveedoras que la DGII no lista como grandes o medianas (las micro y pequeñas quedan fuera) y el monto adjudicado para ordenar.',
     limitations: [
       'Solo empresas proveedoras del Estado dominicano — no representa el universo empresarial completo de RD',
       'Cobertura parcial: snapshot 2020–2026 con 53.974 proveedores (partial_snapshot, no complete_snapshot)',
@@ -1170,6 +1201,63 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     riskNotes: [
       'Miembro Open Contracting Partnership (OCDS) — datos bajo estándares abiertos, riesgo legal bajo',
     ],
+  },
+
+  {
+    key: 'do_dgii_size_registry',
+    name: 'DGII Grandes Contribuyentes + DGCP — capa gratuita por industria con tamaño',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    // SOURCES-DO-SIZE-SIGNAL-1 (05-10): construida; la carga en Producción espera
+    // la autorización de la dueña. Hasta entonces la capa gratuita de RD no propone nada.
+    nextAction:
+      'Carga pendiente de autorización. Capa gratuita de República Dominicana: el Agente 1 propone de aquí antes de pagar a proveedores, sólo empresas con señal de tamaño (listas de Grandes Contribuyentes de la DGII o proveedoras del Estado que no son micro ni pequeñas).',
+    countryCodes: ['DO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://dgii.gov.do/app/WebApps/Misc/VerLista?doc=GCL-240110',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita dominicana por industria. Une el padrón DGII (empresas ACTIVAS, actividad según la tabla aprobada por la dueña) con dos señales de tamaño gratuitas: las listas públicas de Grandes Contribuyentes de la DGII (632 grandes nacionales, 7.941 grandes locales y 3.688 medianas, publicadas en 2024) y la clasificación MIPYME de los proveedores del Estado en la DGCP. Ordena: grandes nacionales, grandes locales, medianas y, por último, proveedoras del Estado sin clasificar; dentro de cada nivel, por monto adjudicado. Cada empresa llega con su RNC. Deja fuera a las proveedoras que la DGCP marca como micro o pequeñas (hasta 50 empleados) salvo que la DGII las liste como medianas o grandes.',
+    limitations: [
+      'Las listas de la DGII son de 2024 y no publican a pequeños ni micro: una empresa nueva o que no está en la lista sólo entra si es proveedora del Estado.',
+      'Estar en la lista prueba «mediana o grande», pero no da el número de empleados: el tamaño del candidato queda por validar.',
+      'La clasificación de la DGCP es la que declara el proveedor; muchas grandes figuran como «No clasificada».',
+      'La industria sale del texto de actividad de la DGII (cortado a 30 caracteres): actividades fuera de la tabla (hoteles, educación, medios, asociaciones) o ambiguas no se proponen.',
+      'La DGII no publica sitio web: las empresas llegan sin dominio.',
+      'Snapshot estático — requiere recarga para reflejar altas, bajas y nuevas listas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'Sólo RNC de empresa (9 dígitos): las cédulas de personas físicas de la lista de la DGII nunca se cargan.',
+    ],
+  },
+  {
+    key: 'do_dgii_trade_name_registry',
+    name: 'DGII — RNC por nombre comercial (sólo pista)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Carga pendiente de autorización. Cuando la razón social no da un RNC seguro, el Agente 1 busca el nombre de la empresa entre los nombres comerciales del padrón DGII y deja el RNC como pista para revisión.',
+    countryCodes: ['DO'],
+    sectors: [],
+    priority: 'P2',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://dgii.gov.do/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Nombres comerciales de las empresas activas del padrón DGII cuyo nombre comercial es distinto de su razón social («CODETEL» → Compañía Dominicana de Teléfonos). Respaldo del RNC por razón social en cada corrida: si el nombre comercial coincide con una sola empresa, su RNC queda como pista (nunca como RNC seguro); si coincide con varias, como pista ambigua.',
+    limitations: [
+      'Nunca da un RNC seguro: varias empresas pueden operar con el mismo nombre comercial.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Snapshot estático — se deriva del padrón DGII cargado; requiere recarga para reflejar cambios.',
+    ],
+    riskNotes: ['La pista requiere revisión humana antes de usar el RNC.'],
   },
 
   {

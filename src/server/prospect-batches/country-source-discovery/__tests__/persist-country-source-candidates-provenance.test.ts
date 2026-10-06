@@ -404,3 +404,44 @@ describe('SOURCES-EC-FREE-DISCOVERY-1 — Ecuador', () => {
     assert.equal(stats.batchInserts[0].source, 'agent_1');
   });
 });
+
+describe('SOURCES-CL-SII-FREE-DISCOVERY-1 — Chile', () => {
+  it('el candidato chileno lleva su propia fuente, su RUT y su actividad; la procedencia sigue siendo la lista cerrada', async () => {
+    const stats = freshStats();
+    const result = await persistCountrySourceCandidates(makeFiscalAwareFakeSupabase(stats), {
+      companies: [
+        syntheticCompany({
+          recordIdentityKey: 'tax:76000001-9',
+          legalName: 'EMPRESA SINTETICA CL SPA',
+          normalizedLegalName: 'EMPRESA SINTETICA CL',
+          taxId: '76000001-9',
+          taxIdentifierType: 'RUT',
+          countryCode: 'CL',
+          city: null,
+          region: null,
+          declaredIndustry: 'ACTIVIDADES DE CONSULTORIA DE INFORMATICA Y DE GESTION DE INSTALACIONES INFORMATICAS',
+          industryCode: '620200',
+          coarseSector: null,
+          officialMacroIndustry: { macroIndustryKeys: ['technology'], tableVersion: 'cl-ciiu4cl-sii-macro-v1' },
+        }),
+      ],
+      countryCode: 'CL',
+      countryName: 'Chile',
+      macroIndustryKey: 'technology',
+      requestedByUserId: 'user-synthetic-1',
+    });
+
+    assert.equal(result.failed, false);
+    assert.equal(result.writtenCount, 1);
+    const candidate = stats.candidateInserts[0];
+    assert.equal(candidate.source_primary, 'public_source');
+    assert.equal(candidate.tax_identifier, '76000001-9');
+    assert.equal(candidate.tax_identifier_type, 'RUT');
+    assert.equal(candidate.country_code, 'CL');
+    const trace = candidate.source_trace as Record<string, unknown>;
+    assert.equal(trace.sourceKey, 'cl_sii_directory_discovery');
+    assert.equal(trace.industryCode, '620200');
+    assert.equal((candidate.metadata as Record<string, unknown>).macro_industry_key, 'technology');
+    assert.equal(stats.batchInserts[0].source, 'agent_1');
+  });
+});

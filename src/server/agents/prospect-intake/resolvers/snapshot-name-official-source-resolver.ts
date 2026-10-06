@@ -67,6 +67,14 @@ export interface SnapshotNameResolverConfig {
    * not a bare brand, and can still be strong.
    */
   singleWordIsSignalOnly?: boolean;
+  /**
+   * SOURCES-DO-SIZE-SIGNAL-1 — when true, NO match of this source is ever strong:
+   * a unique exact core is kept as a signal (`low_confidence_match`). For sources
+   * keyed by something weaker than the legal name, e.g. the DGII trade name
+   * («CODETEL»): many companies trade under a name that is not theirs alone.
+   * Several companies with that core give `not_found`: no arbitrary number.
+   */
+  signalOnly?: boolean;
 }
 
 /** Build a snapshot-backed `OfficialSourceResolver` for one country. */
@@ -141,6 +149,10 @@ export function createSnapshotNameOfficialSourceResolver(
         };
       }
 
+      // Una fuente sólo-pista con varias empresas posibles no apunta a ninguna:
+      // el primer RNC de la lista sería arbitrario.
+      if (config.signalOnly === true && distinct.length > 1) return notFound(core);
+
       const best = distinct[0];
       const base = {
         countryCode: country,
@@ -155,7 +167,7 @@ export function createSnapshotNameOfficialSourceResolver(
       const carriesLegalForm = normalizeCompanyNameCore(input.candidate.canonicalName, []) !== core;
       const singleWord =
         config.singleWordIsSignalOnly === true && tokens.length === 1 && !carriesLegalForm;
-      if (distinct.length === 1 && !singleWord) {
+      if (distinct.length === 1 && !singleWord && config.signalOnly !== true) {
         return {
           ...base,
           status: 'matched',
@@ -171,7 +183,9 @@ export function createSnapshotNameOfficialSourceResolver(
         safeMetadata:
           distinct.length > 1
             ? { normalizedSearchName: core, ambiguous: true, candidateCount: distinct.length }
-            : { normalizedSearchName: core, singleWordName: true },
+            : config.signalOnly === true
+              ? { normalizedSearchName: core, signalOnlySource: true }
+              : { normalizedSearchName: core, singleWordName: true },
       };
     },
   };

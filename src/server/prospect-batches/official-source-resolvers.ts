@@ -8,7 +8,7 @@
  * `enrichNormalizedProspectWithOfficialSources`. Today that is one resolver
  * per supported country: Colombia (co_siis, then the cámaras de comercio
  * registry live) name→NIT, República Dominicana
- * (rd_dgii_bulk) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
+ * (rd_dgii_bulk, then the DGII trade name as a signal only) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (ec_scvs snapshot) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry)
  * name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
@@ -48,7 +48,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake';
 import { createColombiaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/colombia-official-source-resolver';
 import { buildColombiaSnapshotQuery } from '@/server/prospect-batches/colombia-snapshot-query';
-import { createDominicanOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/dominican-republic-official-source-resolver';
+import {
+  createDominicanOfficialSourceResolver,
+  normalizeDominicanCompanyCore,
+} from '@/server/agents/prospect-intake/resolvers/dominican-republic-official-source-resolver';
+import { DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/dgii-rd/do-size-registry-rows';
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
 import { createArgentinaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/argentina-official-source-resolver';
 import { buildArgentinaSnapshotQuery } from '@/server/prospect-batches/argentina-snapshot-query';
@@ -131,9 +135,22 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         singleWordIsSignalOnly: true,
       }),
     ),
-    createDominicanOfficialSourceResolver({
-      querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
-    }),
+    // SOURCES-DO-SIZE-SIGNAL-1 — razón social en el padrón DGII primero; si no da
+    // RNC seguro, el nombre comercial («CODETEL»), que sólo deja una pista.
+    createFallbackOfficialSourceResolver(
+      createDominicanOfficialSourceResolver({
+        querySnapshots: buildDominicanSnapshotQuery(snapshotClient),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'DO',
+        sourceKey: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY,
+        taxIdentifierType: 'RNC',
+        validTaxId: /^\d{9}$/,
+        normalizeCore: (name) => normalizeDominicanCompanyCore(name ?? ''),
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, 'DO'),
+        signalOnly: true,
+      }),
+    ),
     createArgentinaOfficialSourceResolver({
       querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
     }),
