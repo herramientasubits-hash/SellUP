@@ -71,6 +71,18 @@ export function normalizeCompanyName(name: string): string {
  * normalizeDomain("mail.google.com") → "mail.google.com"
  * normalizeDomain("") → null
  */
+/**
+ * Quita el prefijo web del host: `www.`, `www2.`, `ww2.`, `ww3.`…
+ *
+ * AGENT1-WEB-HOST-PREFIX-1 — Prod 06-10 (CL×Salud, e4fec102): Mutual de
+ * Seguridad entró como «Ww2.mutual» con dominio `ww2.mutual.cl` porque sólo se
+ * quitaba `www.`. Si lo que queda no tiene punto, se deja el host como venía.
+ */
+export function stripWebHostPrefix(hostname: string): string {
+  const stripped = hostname.replace(/^(?:www\d*|ww\d+)\./i, '');
+  return stripped.includes('.') ? stripped : hostname;
+}
+
 export function normalizeDomain(urlOrDomain: string): string | null {
   if (!urlOrDomain || urlOrDomain.trim().length === 0) return null;
 
@@ -90,8 +102,8 @@ export function normalizeDomain(urlOrDomain: string): string | null {
     return null;
   }
 
-  // Strip www.
-  hostname = hostname.replace(/^www\./, '');
+  // Strip www., www2., ww2.…
+  hostname = stripWebHostPrefix(hostname);
 
   // Must have at least one dot and be longer than 3 chars
   if (!hostname.includes('.') || hostname.length < 4) return null;

@@ -59,6 +59,7 @@
  *     aplican EDITORIAL_TITLE_START_RE para bloquear títulos no empresariales
  */
 
+import { stripWebHostPrefix } from './normalization';
 import type { WebSearchResult } from './types';
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -126,6 +127,9 @@ const JOB_BOARD_DOMAINS = new Set([
   'jobsora.com',
   'laborum.cl',
   'chiletrabajos.cl',
+  // AGENT1-WEB-HOST-PREFIX-1 — Prod 06-10 (CL×Salud, e4fec102): la página de
+  // empleos `mutual.trabajando.cl` entró como empresa (sólo estaba `.com`).
+  'trabajando.cl',
   'jooble.org',
   'talent.com',
 ]);
@@ -145,6 +149,7 @@ export const JOB_BOARD_BRAND_LABELS: readonly string[] = Object.freeze([
   'jooble',
   'multitrabajos',
   'zonajobs',
+  'trabajando',
 ]);
 
 /** `true` si el dominio es `<marca>.<terminación de país>` (o un subdominio suyo). */
@@ -758,7 +763,7 @@ const SOCIAL_POST_PATH_PREFIXES: Array<{ domain: string; prefix: string }> = [
 
 function extractDomain(url: string): string | null {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return stripWebHostPrefix(new URL(url).hostname);
   } catch {
     return null;
   }
