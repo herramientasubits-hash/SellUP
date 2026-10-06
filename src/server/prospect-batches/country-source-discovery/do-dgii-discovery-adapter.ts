@@ -55,9 +55,19 @@ export const DO_DGII_DISCOVERY_MAX_ROWS = 200;
 
 /**
  * Filas leídas por cada empresa pedida: margen para las que la tabla de hoy ya
- * no reconoce o que repiten RNC.
+ * no reconoce, que repiten RNC o que SellUp ya vio en otra corrida
+ * (SOURCES-DO-NO-RECYCLE-1: antes era 2).
  */
-export const DO_DGII_DISCOVERY_READ_FACTOR = 2;
+export const DO_DGII_DISCOVERY_READ_FACTOR = 3;
+
+/**
+ * SOURCES-DO-NO-RECYCLE-1 — lo que SellUp ya sabe de un RNC antes de esta
+ * corrida: `candidate` (está en algún lote), `definitive_discard` (descartada y el
+ * rescate cerró el caso: otra industria, otro tamaño o duplicada) o `discard`
+ * (descartada sin cierre, típicamente por falta de web). Mismo criterio que
+ * Argentina (SOURCES-AR-NO-RECYCLE-1, #611).
+ */
+export type DoDgiiPriorSighting = 'candidate' | 'definitive_discard' | 'discard';
 
 const BUSINESS_RNC = /^\d{9}$/;
 const VALID_TIERS: ReadonlySet<number> = new Set([1, 2, 3, 4]);
@@ -72,6 +82,8 @@ export type DoDgiiActiveRow = {
   size_tier: number | null;
   /** SOURCES-DO-DGCP-DOMAIN-1 — dominio del correo corporativo en la DGCP, o `null`. */
   website_domain?: string | null;
+  /** SOURCES-DO-NO-RECYCLE-1 — ausente o `null` = SellUp no la vio. */
+  prior_sighting?: DoDgiiPriorSighting | null;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -88,6 +100,28 @@ const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9]
 function normalizeDomain(value: string | null | undefined): string | null {
   const domain = value?.trim().toLowerCase() ?? '';
   return DOMAIN_SHAPE.test(domain) ? domain : null;
+}
+
+/**
+ * SOURCES-DO-NO-RECYCLE-1 — ¿proponerla otra vez sólo repetiría una corrida
+ * anterior? La lectura de la fuente es determinista (mismo orden), así que sin
+ * esto la 2.ª corrida de la misma industria relee las mismas empresas: lo que ya
+ * está en revisión sale como duplicado y lo que no tiene web vuelve a
+ * Descartadas. Sí se repite si ya es candidata, si su descarte quedó cerrado, o
+ * si fue descartada y SIGUE sin web. Una descartada que AHORA tiene dominio
+ * vuelve a ofrecerse. Las cuentas y HubSpot los cubre el detector de duplicados
+ * de la capa; esto cubre lo que ese detector no mira.
+ */
+export function isRecycledDoCompany(row: Pick<DoDgiiActiveRow, 'prior_sighting' | 'website_domain'>): boolean {
+  switch (row.prior_sighting) {
+    case 'candidate':
+    case 'definitive_discard':
+      return true;
+    case 'discard':
+      return normalizeDomain(row.website_domain) === null;
+    default:
+      return false;
+  }
 }
 
 function toCompany(row: DoDgiiActiveRow, macroIndustryKey: string): CountrySourceCompany | null {
@@ -151,6 +185,7 @@ export function buildDoDgiiDiscoveryAdapter(reads: DoDgiiDiscoveryReads): Countr
     const companies: CountrySourceCompany[] = [];
     for (const row of rows) {
       if (companies.length >= limit) break;
+      if (isRecycledDoCompany(row)) continue;
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
       seen.add(company.taxId);

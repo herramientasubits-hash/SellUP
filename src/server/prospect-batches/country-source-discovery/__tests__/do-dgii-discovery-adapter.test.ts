@@ -16,6 +16,7 @@ import {
   buildDoDgiiDiscoveryAdapter,
   DO_DGII_DISCOVERY_MAX_ROWS,
   DO_DGII_DISCOVERY_READ_FACTOR,
+  isRecycledDoCompany,
   DO_DGII_DISCOVERY_SOURCE_KEY,
   type DoDgiiActiveRow,
   type DoDgiiDiscoveryReads,
@@ -187,6 +188,20 @@ describe('buildDoDgiiDiscoveryAdapter', () => {
         ['100000013', null],
       ],
     );
+  });
+
+  it('SOURCES-DO-NO-RECYCLE-1: no repite candidatas ni descartes cerrados; un descarte sin web sólo vuelve si ahora tiene dominio', async () => {
+    const { reads } = fakeReads([
+      { ...row('100000021'), prior_sighting: 'candidate' },
+      { ...row('100000022'), prior_sighting: 'definitive_discard', website_domain: 'ya.com.do' },
+      { ...row('100000023'), prior_sighting: 'discard', website_domain: null },
+      { ...row('100000024'), prior_sighting: 'discard', website_domain: 'nueva.com.do' },
+      { ...row('100000025'), prior_sighting: null },
+    ]);
+    const result = await buildDoDgiiDiscoveryAdapter(reads)({ countryCode: 'DO', macroIndustryKey: 'technology', limit: 5 });
+    assert.deepEqual(result.companies.map((c) => c.taxId), ['100000024', '100000025']);
+    assert.equal(isRecycledDoCompany({ prior_sighting: 'discard', website_domain: 'no es dominio' }), true);
+    assert.equal(isRecycledDoCompany({ prior_sighting: undefined, website_domain: null }), false);
   });
 
   it('sin filas legibles no ofrece nada', async () => {

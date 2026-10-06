@@ -34,6 +34,15 @@ function fakeClient(respond: Responder) {
           return Promise.resolve({ data: null, error: null, ...respond(call) });
         };
       }
+      // Las consultas que terminan en `.in(...)` (marcar lo ya visto) se esperan
+      // directamente: el builder es «thenable», como el de supabase-js.
+      builder.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
+        try {
+          return Promise.resolve({ data: null, error: null, ...respond(call) }).then(resolve, reject);
+        } catch (err) {
+          return Promise.reject(err).then(resolve, reject);
+        }
+      };
       for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
         builder[write] = () => {
           throw new Error(`escritura prohibida: ${write}`);
@@ -61,13 +70,17 @@ function sizedRows(count: number) {
 
 describe('readSizedCompaniesByMacro', () => {
   it('una sola consulta a do_dgii_size_registry / DO / macro, ordenada por tamaño y RNC', async () => {
-    const { client, calls } = fakeClient(() => ({ data: sizedRows(3) }));
+    const { client, calls } = fakeClient((c) => (c.table === 'source_company_snapshots' ? { data: sizedRows(3) } : { data: [] }));
     const rows = await buildDoDgiiDiscoveryReads(client).readSizedCompaniesByMacro({
       macroIndustryKey: 'technology',
       limit: 40,
     });
 
-    assert.equal(calls.length, 1);
+    assert.deepEqual(
+      calls.map((c) => c.table),
+      ['source_company_snapshots', 'prospect_candidates', 'prospect_discarded_dispositions'],
+      'una lectura de la fuente y, después, lo ya visto',
+    );
     const [call] = calls;
     assert.equal(call.table, 'source_company_snapshots');
     assert.deepEqual(op(call, 'eq'), [
@@ -90,6 +103,48 @@ describe('readSizedCompaniesByMacro', () => {
     assert.equal(rows[1].size_tier, 3, 'el nivel llega como texto o número; se normaliza');
     assert.equal(rows[0].website_domain, 'empresa0.com.do');
     assert.equal(rows[1].website_domain, null);
+  });
+
+  it('SOURCES-DO-NO-RECYCLE-1: marca por RNC lo que SellUp ya vio (candidata > descarte cerrado > descarte)', async () => {
+    const { client, calls } = fakeClient((c) => {
+      if (c.table === 'source_company_snapshots') return { data: sizedRows(4) };
+      if (c.table === 'prospect_candidates') return { data: [{ tax_identifier: '100000000' }] };
+      return {
+        data: [
+          { provider_identifier: 'tax:100000000', decision: 'discard' },
+          { provider_identifier: 'tax:100000001', decision: 'duplicate' },
+          { provider_identifier: 'tax:100000002', decision: 'website_not_found' },
+          { provider_identifier: 'tax:100000002', decision: null },
+          { provider_identifier: 'nombre-sin-rnc', decision: 'discard' },
+        ],
+      };
+    });
+    const rows = await buildDoDgiiDiscoveryReads(client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(
+      rows.map((r) => [r.rnc, r.prior_sighting]),
+      [
+        ['100000000', 'candidate'],
+        ['100000001', 'definitive_discard'],
+        ['100000002', 'discard'],
+        ['100000003', null],
+      ],
+    );
+    const candidatesCall = calls.find((c) => c.table === 'prospect_candidates');
+    assert.deepEqual(op(candidatesCall as Call, 'in'), [['tax_identifier', ['100000000', '100000001', '100000002', '100000003']]]);
+    const discardsCall = calls.find((c) => c.table === 'prospect_discarded_dispositions');
+    assert.deepEqual(op(discardsCall as Call, 'eq'), [['source_primary', 'public_source']]);
+    assert.deepEqual(op(discardsCall as Call, 'in'), [
+      ['provider_identifier', ['tax:100000000', 'tax:100000001', 'tax:100000002', 'tax:100000003']],
+    ]);
+  });
+
+  it('si fallan las consultas de lo ya visto, ofrece todo como antes (fail-open)', async () => {
+    const { client } = fakeClient((c) => {
+      if (c.table === 'source_company_snapshots') return { data: sizedRows(2) };
+      throw new Error('red caída');
+    });
+    const rows = await buildDoDgiiDiscoveryReads(client).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 10 });
+    assert.deepEqual(rows.map((r) => r.prior_sighting), [null, null]);
   });
 
   it('un nivel ilegible queda nulo (el adapter lo descarta)', async () => {
