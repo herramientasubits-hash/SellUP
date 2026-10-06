@@ -10,6 +10,7 @@
  * la búsqueda: reutiliza el dominio ya comprobado.
  */
 
+import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import { normalizeLinkedInCompanyUrl } from '../../linkedin-company-enrichment';
 import type { DuplicateStatus } from '../../types';
@@ -26,9 +27,14 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * enlaza al mismo LinkedIn. d3 (01-10): si el sitio bloquea nuestra descarga, vale el título
  * del resultado de búsqueda de ese dominio; redirección válida si el destino salió de la
  * búsqueda; el nombre se compara en todas sus formas. Un «no encontrado» de una versión
- * anterior se reintenta UNA vez.
+ * anterior se reintenta UNA vez. d4 (06-10): país por su nombre («Chile», no «CL») y,
+ * para comparar con la página, también el nombre sin forma societaria ni palabras
+ * genéricas («ACCENTURE CHILE ASESORIAS Y SERVICIOS LIMITADA» → «accenture»): la
+ * razón social de los registros oficiales casi nunca es la marca del sitio. Medido en
+ * la 1.ª corrida de Chile (lote bd751c34): Claude propuso accenture.com y sonda.com y
+ * la comprobación los rechazó.
  */
-export const DOMAIN_SEARCH_VERSION = 'd3';
+export const DOMAIN_SEARCH_VERSION = 'd4';
 const VERIFICATIONS: readonly DomainVerification[] = ['linkedin_cross_link', 'name_match', 'search_result_match'];
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
@@ -120,13 +126,61 @@ export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'r
   return !row.domain && row.reason_code === DOMAIN_SEARCH_REASON_CODE;
 }
 
+/**
+ * Formas societarias, conectores y palabras genéricas de las razones sociales de
+ * registros oficiales («SERVICIOS EQUIFAX CHILE LIMITADA»). Sólo sirven para COMPARAR
+ * con la página: nunca para buscar.
+ */
+const REGISTRY_NAME_FILLER_WORDS: ReadonlySet<string> = new Set([
+  // formas societarias
+  's', 'a', 'sa', 'spa', 'ltda', 'limitada', 'sociedad', 'anonima', 'cia', 'compania', 'eirl', 'srl', 'sac',
+  'sas', 'cv', 'saa', 'sl', 'inc', 'llc', 'corp',
+  // conectores
+  'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'para',
+  // países
+  'chile', 'mexico', 'colombia', 'peru', 'argentina', 'ecuador', 'uruguay', 'paraguay', 'bolivia', 'latam',
+  // descriptores genéricos
+  'asesorias', 'asesoria', 'servicios', 'servicio', 'sistemas', 'consultoria', 'ingenieria', 'inversiones',
+  'comercial', 'comercializadora', 'empresa', 'empresas', 'grupo', 'group', 'holding', 'holdco', 'agencia',
+  'profesionales', 'soluciones', 'negocio', 'negocios', 'corporativa', 'corporativo', 'importaciones',
+  'internacional', 'chilena',
+]);
+
+/**
+ * El nombre sin forma societaria ni palabras genéricas, o `null` si no cambia o no
+ * queda nada distintivo (al menos 3 letras): «IBM CHILE SPA» → «ibm».
+ */
+export function registryNameCore(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+  const words = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const kept = words.filter((w) => !REGISTRY_NAME_FILLER_WORDS.has(w));
+  if (kept.length === 0 || kept.length === words.length) return null;
+  const core = kept.join(' ');
+  return core.replace(/\s/g, '').length >= 3 ? core : null;
+}
+
+/** «CL» → «Chile». El buscador entiende mejor el nombre que el código. */
+export function countryNameFromCode(code: string | null | undefined): string | null {
+  if (typeof code !== 'string' || !code.trim()) return null;
+  const upper = code.trim().toUpperCase();
+  return LATAM_COUNTRIES.find((c) => c.code === upper)?.name ?? null;
+}
+
 export function buildDomainFinderInput(row: DomainSearchRow, countryName: string | null): DomainFinderInput {
+  const displayName = dispositionDisplayName(row);
+  const names = [row.name, nameFromLinkedInSlug(readString(row.evidence, 'linkedin_url'))].filter(
+    (n): n is string => !!n,
+  );
+  const cores = [displayName, ...names].map(registryNameCore).filter((n): n is string => !!n);
   return {
-    name: dispositionDisplayName(row),
-    alternateNames: [row.name, nameFromLinkedInSlug(readString(row.evidence, 'linkedin_url'))].filter(
-      (n): n is string => !!n,
-    ),
-    countryName,
+    name: displayName,
+    alternateNames: [...new Set([...names, ...cores])],
+    countryName: countryName ?? countryNameFromCode(row.country_code),
     countryCode: row.country_code,
     linkedinUrl: dispositionLinkedInUrl(row),
   };
