@@ -26,6 +26,8 @@ export type ClassifiableCandidateRow = {
   country: string | null;
   status: string | null;
   metadata: Record<string, unknown> | null;
+  /** Número fiscal ya puesto (si lo hay): el rescate no lo vuelve a buscar. */
+  tax_identifier?: string | null;
 };
 
 function failedConditions(metadata: Record<string, unknown> | null): string[] {
