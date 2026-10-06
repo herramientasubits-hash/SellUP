@@ -710,4 +710,24 @@ describe('d5 — nombre corto para buscar y dominio que lleva el nombre (Chile b
     const no = await findOfficialWebsite(input, MODEL, finderDeps(conversation(claimed, [claimed]), page200('Indra', 'https://parked.example')));
     assert.deepEqual(no.found ? null : no.reason, 'redirected_offsite');
   });
+
+  it('página que responde casi sin texto (JavaScript): vale su título si el dominio lleva el nombre', async () => {
+    const url = 'https://www.sinergit.com.do';
+    const thin = page('<html><head><title>Sinergit | Soluciones TI</title></head><body><div id="app"></div></body></html>', url);
+    const input = { name: 'SINERGIT SRL', countryName: 'República Dominicana', countryCode: 'DO', linkedinUrl: null, alternateNames: ['sinergit'] };
+    const ok = await findOfficialWebsite(input, MODEL, finderDeps(conversation(url, ['https://otra.do']), thin));
+    assert.equal(ok.found && ok.verification, 'name_match');
+    // Mismo caso, pero el título es de otra cosa ⇒ no.
+    const other = page('<html><head><title>Cargando…</title></head><body></body></html>', url);
+    const no = await findOfficialWebsite(input, MODEL, finderDeps(conversation(url, ['https://otra.do']), other));
+    assert.deepEqual(no.found ? null : no.reason, 'page_unreachable');
+    // Casi sin texto, sin el nombre en el dominio y fuera de la búsqueda ⇒ no.
+    const far = await findOfficialWebsite(
+      { ...input, alternateNames: [] },
+      MODEL,
+      finderDeps(conversation('https://www.tiendas-x.do', ['https://otra.do']), page('<html><head><title>Sinergit</title></head><body></body></html>', 'https://www.tiendas-x.do')),
+    );
+    assert.equal(far.found, false);
+  });
 });
+

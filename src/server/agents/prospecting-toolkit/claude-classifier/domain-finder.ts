@@ -178,7 +178,7 @@ function withoutLocationWords(name: string): string | null {
 }
 
 /** Nombres a comparar: el principal, sus variantes y cada uno sin el país. Gana el mejor. */
-function bestNameScore(input: DomainFinderInput, domain: string, title: string | null, meta: string | null): number {
+function bestNameScore(input: DomainFinderInput, domain: string | null, title: string | null, meta: string | null): number {
   const base = [input.name, ...(input.alternateNames ?? [])].filter((n) => n && n.trim());
   const names = [...base, ...base.map(withoutLocationWords).filter((n): n is string => !!n)];
   return Math.max(0, ...names.map((n) => scoreCompanyNameAgainstPage(n, domain, title, meta).score));
@@ -292,6 +292,29 @@ export async function verifyProposedWebsite(
         verification: 'search_result_match',
         inSearchResults: true,
       };
+    }
+    // d5: la página SÍ respondió pero casi sin texto (sitios hechos con JavaScript; RD
+    // 8c1dcf78: 3 casos «http_200»). Vale su título si el dominio salió de la búsqueda o
+    // lleva el nombre, sin redirigir a otro dominio y con el nombre confirmado (≥60).
+    const thinButAnswered = !!page?.html && (page.httpStatus ?? 0) > 0 && (page.httpStatus ?? 0) < 400;
+    if (thinButAnswered && !isOffsiteRedirect(input.claimedUrl, page?.finalUrl ?? null)) {
+      const thinDomain = normalizeDomain(page?.finalUrl ?? input.claimedUrl) ?? claimedDomain;
+      const signals = extractPageSignals(page?.html ?? '');
+      if (
+        (inSearchResults || domainCarriesName(thinDomain, inputNames(input))) &&
+        // Sólo el título y la descripción: el dominio no cuenta (ya se usó arriba) y una
+        // página vacía no confirma nada.
+        !!(signals.title || signals.metaDescription) &&
+        bestNameScore(input, null, signals.title, signals.metaDescription) >= FINDER_MIN_NAME_SCORE
+      ) {
+        return {
+          found: true,
+          website: `https://${thinDomain}`,
+          domain: thinDomain,
+          verification: 'name_match',
+          inSearchResults,
+        };
+      }
     }
     const errorCode = fetchError ?? page?.error ?? (page?.httpStatus ? `http_${page.httpStatus}` : 'thin_page');
     return { found: false, reason: 'page_unreachable', errorCode };
