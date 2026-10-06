@@ -681,7 +681,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected',
     connectionMode: 'wizard_discovery',
     nextAction:
-      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: el RFC por nombre lo completa «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) cuando la empresa le vendió al Estado.',
+      'Conectada como capa gratuita mexicana por industria antes de pagar a proveedores: consulta en vivo la API de DENUE (gratuita, con el token de INEGI guardado en la bóveda) usando la tabla SCIAN v2 aprobada por la dueña. DENUE nunca publica RFC: desde el 05-10 cada empresa que esta capa propone busca su RFC por nombre en «CompraNet — RFC por nombre» (mx_compranet_rfc_registry) antes de revisar duplicados, y lo trae sólo con coincidencia segura (en una muestra real, 9 de 40 empresas de DENUE).',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P0',
@@ -690,9 +690,9 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.inegi.org.mx/servicios/api_denue.html',
     automationLevel: 'high',
     recommendedUse:
-      'Directorio oficial de INEGI con más de 5 millones de establecimientos. En el Agente 1 es la capa gratuita mexicana por industria: antes de pagar a Apollo o Lusha consulta en vivo la API de DENUE con la tabla SCIAN v2 aprobada por la dueña (por ejemplo, bibliotecas públicas → Gobierno), sólo establecimientos de 51 o más personas, alternando actividades, y deja una fila por empresa (razón social y nombre comercial). Guarda el sitio web o dominio cuando DENUE lo publica. DENUE nunca publica RFC: no resuelve identidad fiscal.',
+      'Directorio oficial de INEGI con más de 5 millones de establecimientos. En el Agente 1 es la capa gratuita mexicana por industria: antes de pagar a Apollo o Lusha consulta en vivo la API de DENUE con la tabla SCIAN v2 aprobada por la dueña (por ejemplo, bibliotecas públicas → Gobierno), sólo establecimientos de 51 o más personas, alternando actividades, y deja una fila por empresa (razón social y nombre comercial). Guarda el sitio web o dominio cuando DENUE lo publica. DENUE nunca publica RFC: el RFC lo pone CompraNet por nombre cuando la empresa le vendió al Estado.',
     limitations: [
-      'DENUE nunca publica RFC — no resuelve identidad fiscal.',
+      'DENUE nunca publica RFC: sólo lo tienen las empresas que también aparecen en CompraNet con el mismo nombre (alrededor de 1 de cada 4).',
       'Es registro de establecimiento físico, no necesariamente la razón social fiscal.',
       'Puede devolver múltiples establecimientos para una misma marca o grupo empresarial; SellUp deja una fila por empresa.',
       'Sólo propone establecimientos de 51 o más personas: empresas más pequeñas no entran por esta vía.',
@@ -823,7 +823,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '26.393 personas morales cargadas (contratos CompraNet 2023-2025, carga autorizada el 05-10). El Agente 1 completa el RFC por nombre en cada corrida de México.',
+      '26.393 personas morales cargadas (contratos CompraNet 2023-2025, carga autorizada el 05-10). El Agente 1 completa el RFC por nombre en cada corrida de México: Apollo, Tavily, Claude y, desde el 05-10, también la capa gratuita de DENUE.',
     countryCodes: ['MX'],
     sectors: [],
     priority: 'P1',
@@ -836,7 +836,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo empresas que le vendieron al Gobierno federal entre 2023 y 2025: una empresa que no aparece no significa que no exista.',
       'Nunca personas físicas (RFC de 13 caracteres) ni extranjeros (EXT…).',
-      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…).',
+      'La forma societaria se quita también escrita sin puntos («SA DE CV», «SAB DE CV», «S DE RL DE CV»…); «A.C.» con puntos cuenta igual que «AC» desde el 05-10.',
       'La estratificación es la que declaró el proveedor en su contrato más reciente (MICRO, PEQUEÑA, MEDIANA, GRANDE, NO MIPYME…): sirve de pista de tamaño, no es un dato confirmado.',
     ],
     riskNotes: [
