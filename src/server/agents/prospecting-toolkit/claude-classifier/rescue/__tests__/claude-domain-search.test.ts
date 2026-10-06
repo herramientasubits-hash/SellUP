@@ -25,8 +25,11 @@ import {
   nameFromLinkedInSlug,
   DOMAIN_SEARCH_VERSION,
   buildDomainFinderInput,
+  buildUnverifiedHintWebsiteVerification,
   countryNameFromCode,
   registryNameCore,
+  unverifiedWebsiteHint,
+  UNVERIFIED_HINT_VERIFICATION,
 } from '../domain-search';
 import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
 import { rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
@@ -629,7 +632,7 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
   });
 
   it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd5');
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd6');
   });
 });
 
@@ -728,6 +731,85 @@ describe('d5 — nombre corto para buscar y dominio que lleva el nombre (Chile b
       finderDeps(conversation('https://www.tiendas-x.do', ['https://otra.do']), page('<html><head><title>Sinergit</title></head><body></body></html>', 'https://www.tiendas-x.do')),
     );
     assert.equal(far.found, false);
+  });
+});
+
+describe('d6 — PISTA sin confirmar (dueña 06-10: «si pista»)', () => {
+  const official = (overrides: Partial<RescuableDispositionRow> = {}) =>
+    disposition({
+      name: 'COASIN CHILE S.A',
+      country_code: 'CL',
+      evidence: { provider_raw_name: 'COASIN CHILE S.A', tax_identifier_present: true, tax_identifier_type: 'RUT' },
+      ...overrides,
+    });
+  const unreachable = (url: string | null) =>
+    ({ found: false, reason: 'page_unreachable', errorCode: 'fetch_error', claimedUrl: url, usage: FOUND.usage }) as const;
+
+  it('sólo con página que no abre, número fiscal oficial, sin plataforma y dominio con el nombre', () => {
+    const hint = unverifiedWebsiteHint(official(), unreachable('https://www.coasin.cl'));
+    assert.deepEqual(hint, { website: 'https://coasin.cl', domain: 'coasin.cl', verification: UNVERIFIED_HINT_VERIFICATION });
+    // Otro motivo ⇒ no.
+    assert.equal(unverifiedWebsiteHint(official(), { found: false, reason: 'identity_not_confirmed', claimedUrl: 'https://coasin.cl', usage: null }), null);
+    // Sin URL propuesta ⇒ no.
+    assert.equal(unverifiedWebsiteHint(official(), unreachable(null)), null);
+    // Sin número fiscal oficial (p. ej. Apollo) ⇒ no.
+    assert.equal(unverifiedWebsiteHint(official({ evidence: { provider_raw_name: 'COASIN CHILE S.A' } }), unreachable('https://coasin.cl')), null);
+    // Dominio sin el nombre ⇒ no.
+    assert.equal(unverifiedWebsiteHint(official(), unreachable('https://www.redes-industriales.cl')), null);
+    // Plataforma ⇒ no.
+    assert.equal(unverifiedWebsiteHint(official(), unreachable('https://www.linkedin.com/company/coasin')), null);
+    // Encontrado ⇒ no es pista.
+    assert.equal(unverifiedWebsiteHint(official(), FOUND), null);
+  });
+
+  it('el vendedor ve «Inferido» con el motivo, nunca «Verificado»', () => {
+    const wv = buildUnverifiedHintWebsiteVerification({ website: 'https://coasin.cl', domain: 'coasin.cl', verification: UNVERIFIED_HINT_VERIFICATION });
+    assert.equal(wv?.status, 'inferred');
+    assert.equal(wv?.domain, 'coasin.cl');
+    assert.match(String(wv?.reason), /Pista sin confirmar/);
+    assert.equal(buildUnverifiedHintWebsiteVerification({ website: 'https://x.cl', domain: 'x.cl', verification: 'name_match' }), null);
+  });
+
+  it('rescate completo: la pista pasa por duplicados y clasificación y llega a revisión marcada', async () => {
+    const f = fakeDeps({
+      loadDispositions: async () => [official()],
+      domainSearch: {
+        findWebsite: async () => unreachable('https://www.coasin.cl'),
+        checkDuplicate: async () => ({ status: 'new_candidate', summary: 'Nueva' }),
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+    assert.equal(f.classifiedCompanies[0].websiteOrDomain, 'https://coasin.cl');
+    const origin = f.origins[0];
+    assert.equal(origin.columns?.domain, 'coasin.cl');
+    assert.equal((origin.metadata[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { verification: string }).verification, 'unverified_hint');
+    assert.equal((origin.metadata.website_verification as { status: string }).status, 'inferred');
+  });
+
+  it('la pista que ya está en HubSpot se queda en Descartadas', async () => {
+    const f = fakeDeps({
+      loadDispositions: async () => [official()],
+      domainSearch: {
+        findWebsite: async () => unreachable('https://www.coasin.cl'),
+        checkDuplicate: async () => ({ status: 'existing_in_hubspot', summary: 'Ya está' }),
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsKept, 1);
+    assert.equal(f.origins.length, 0);
+  });
+
+  it('sin número fiscal oficial, una página que no abre sigue siendo reintentable (como antes)', async () => {
+    const f = fakeDeps({
+      domainSearch: {
+        findWebsite: async () => unreachable('https://sii-group.com'),
+        checkDuplicate: async () => ({ status: 'new_candidate', summary: '' }),
+      },
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.origins.length, 0);
+    assert.equal((f.evidence.get('d1')!.claude_rescue as { decision: string }).decision, 'retryable');
   });
 });
 

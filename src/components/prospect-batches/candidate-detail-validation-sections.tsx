@@ -274,6 +274,8 @@ export function CandidateWebsiteVerificationSection({
         const wvConfidence = websiteVerification.confidence as number | undefined;
         const wvHttpStatus = websiteVerification.http_status as number | undefined;
         const wvSkipped = websiteVerification.skipped as boolean | undefined;
+        // Pista sin confirmar del rescate con Claude: explica por qué no está verificada.
+        const wvReason = typeof websiteVerification.reason === 'string' ? websiteVerification.reason : null;
 
         if (wvSkipped) {
           return (
@@ -315,6 +317,7 @@ export function CandidateWebsiteVerificationSection({
                 {cfg.label}
               </Badge>
             )}
+            {wvReason && <p className="text-sm text-muted-foreground">{wvReason}</p>}
             <FieldGrid>
               {wvDomain && <Field label="Dominio" value={wvDomain} mono />}
               {wvConfidence !== undefined && <Field label="Confianza" value={`${wvConfidence}%`} />}
