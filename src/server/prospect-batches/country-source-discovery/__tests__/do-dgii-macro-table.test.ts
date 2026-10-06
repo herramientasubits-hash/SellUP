@@ -13,6 +13,8 @@ import { MACRO_INDUSTRIES } from '@/modules/macro-industry-catalog/macro-industr
 import {
   classifyDgiiActivityText,
   DO_DGII_ACTIVITY_MACRO,
+  DO_DGII_AMBIGUOUS_TEXTS,
+  DO_DGII_MACRO_TABLE_VERSION,
   DO_DGII_CLASS_MACRO,
   DO_DGII_DIVISION_MACRO,
   macroHasDgiiCoverage,
@@ -166,5 +168,17 @@ describe('índice de textos DGII', () => {
       assert.ok(entry.codes.length > 0 && entry.codes.every((c) => /^\d{6}$/.test(c)), entry.text);
       assert.ok(entry.description.length > 0, entry.text);
     }
+  });
+
+  it('v2 (05-10-2026): «FABRICACIÓN DE PRODUCTOS DE LA» queda sin macro (laboratorios + refinería/asfalto)', () => {
+    assert.equal(DO_DGII_MACRO_TABLE_VERSION, 'do-ciiu-dr-2009-macro-v2');
+    assert.deepEqual([...DO_DGII_AMBIGUOUS_TEXTS], ['FABRICACIÓN DE PRODUCTOS DE LA']);
+    const entry = DGII_ACTIVITY_CIIU_DR_CATALOG.find((e) => e.text === 'FABRICACIÓN DE PRODUCTOS DE LA');
+    assert.ok(entry, 'el texto sigue en el catálogo de datos');
+    assert.equal(resolveCiiuDrMacro(entry.codes[0]), 'health_pharma', 'el código por sí solo sigue siendo Salud');
+    assert.equal(classifyDgiiActivityText('FABRICACIÓN DE PRODUCTOS DE LA'), null);
+    assert.ok(!resolveDgiiActivityTextsForMacro('health_pharma').includes('FABRICACIÓN DE PRODUCTOS DE LA'));
+    // Los laboratorios con texto propio siguen en Salud.
+    assert.equal(classifyDgiiActivityText('FABRICACIÓN DE MEDICAMENTOS DE')?.macroIndustryKey, 'health_pharma');
   });
 });

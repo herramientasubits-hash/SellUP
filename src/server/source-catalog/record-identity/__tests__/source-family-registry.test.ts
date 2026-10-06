@@ -36,6 +36,8 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'cl_sii_registry',
   'ec_scvs_directory',
   'cr_company_registry',
+  'do_dgii_size_registry',
+  'do_dgii_trade_name_registry',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [

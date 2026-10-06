@@ -1,41 +1,43 @@
 /**
- * do-dgii-discovery-adapter.ts — descubrimiento gratuito de República Dominicana
- * sobre el padrón DGII, consciente de criterios. PROYECCIÓN DE SÓLO LECTURA.
+ * do-dgii-discovery-adapter.ts — descubrimiento gratuito de República Dominicana,
+ * consciente de criterios. PROYECCIÓN DE SÓLO LECTURA.
  *
- * SOURCES-DO-FREE-DISCOVERY-1.
+ * SOURCES-DO-FREE-DISCOVERY-1 · SOURCES-DO-SIZE-SIGNAL-1.
  *
  * ── Qué empresas ofrece, y por qué sólo esas ────────────────────────────────
  *
  * El padrón DGII (`rd_dgii_bulk`) es el universo entero de personas jurídicas
- * —493.548 RNC, 233.540 activas— y no publica tamaño. Ofrecerlo tal cual
+ * —493.548 RNC, 233.571 activas— y no publica tamaño. Ofrecerlo tal cual
  * cerraría el objetivo con microempresas sin que Apollo llegara a ejecutarse.
- * Por decisión de la dueña (29-09-2026) sólo se ofrecen empresas:
  *
- *   1. ACTIVAS en DGII,
- *   2. cuya actividad oficial pertenece a la macro pedida según la tabla
- *      aprobada (`do-dgii-macro-table.ts`),
- *   3. que además son PROVEEDORAS DEL ESTADO (aparecen en `do_dgcp`, señal de
- *      empresa operativa),
+ * Desde el 05-10-2026 (decisión de la dueña, «Lista DGII + DGCP») la fuente es
+ * `do_dgii_size_registry`, ya filtrada en la carga
+ * (`scripts/source-catalog/run-do-size-registry-etl.ts`): empresas ACTIVAS en la
+ * DGII, con actividad de la tabla aprobada, y con señal de tamaño — Grandes
+ * Contribuyentes Nacionales, Grandes Locales y Medianos de la DGII, o
+ * proveedoras del Estado (DGCP) que no son micro ni pequeñas. Se ordenan por
+ * nivel de tamaño y, dentro del nivel, por importe adjudicado.
  *
- * ordenadas por importe total adjudicado, de mayor a menor. Por lo demás se
- * comporta igual que Colombia: puede cerrar el objetivo entero.
+ * Antes se leían las 2.000 empresas de RNC más antiguo de la macro y luego se
+ * cruzaban con compras públicas: en Retail quedaba fuera el 89 % de las
+ * proveedoras. La carga precalculada evita esa ventana.
  *
- * ── Criterios de verdad, no muestra genérica ────────────────────────────────
+ * ── Doble comprobación ──────────────────────────────────────────────────────
  *
- * Una macro sin actividades clasificadas NO consulta: devuelve cero. La lectura
- * se acota a `DO_DGII_DISCOVERY_READ_CAP` filas del padrón (orden estable por
- * RNC), así que en las macros más grandes se ofrece la franja de RNC más
- * antiguos, no todo el universo.
+ * La macro se guardó en la fila al cargar, pero la decisión vigente es la de la
+ * tabla (`do-dgii-macro-table.ts`): cada fila se re-clasifica desde su texto de
+ * actividad y sólo se ofrece si la tabla de HOY coincide. Y el nivel de tamaño
+ * se vuelve a comprobar.
  *
  * ── E/S ─────────────────────────────────────────────────────────────────────
  *
- * Las dos lecturas se INYECTAN (`DoDgiiDiscoveryReads`). Este módulo no
- * construye ningún cliente, no lee env, no escribe y no sale a la red.
+ * La lectura se INYECTA (`DoDgiiDiscoveryReads`). Este módulo no construye
+ * ningún cliente, no lee env, no escribe y no sale a la red.
  */
 
 import {
   classifyDgiiActivityText,
-  resolveDgiiActivityTextsForMacro,
+  macroHasDgiiCoverage,
   DO_DGII_MACRO_TABLE_VERSION,
 } from './do-dgii-macro-table';
 import type {
@@ -51,36 +53,42 @@ export const DO_DGII_DISCOVERY_SOURCE_KEY = 'do_dgii_discovery' as const;
 /** Techo de empresas devueltas por consulta (igual que Colombia). */
 export const DO_DGII_DISCOVERY_MAX_ROWS = 200;
 
-/** Techo de filas del padrón leídas antes de cruzar con compras públicas. */
-export const DO_DGII_DISCOVERY_READ_CAP = 2000;
+/**
+ * Filas leídas por cada empresa pedida: margen para las que la tabla de hoy ya
+ * no reconoce o que repiten RNC.
+ */
+export const DO_DGII_DISCOVERY_READ_FACTOR = 2;
 
 const BUSINESS_RNC = /^\d{9}$/;
+const VALID_TIERS: ReadonlySet<number> = new Set([1, 2, 3, 4]);
 
-/** Fila del padrón DGII ya acotada a lo que esta proyección usa. */
+/** Fila de `do_dgii_size_registry` acotada a lo que esta proyección usa. */
 export type DoDgiiActiveRow = {
   record_identity_key: string;
   rnc: string | null;
   legal_name: string | null;
   normalized_legal_name: string | null;
   sector: string | null;
+  size_tier: number | null;
 };
 
-/** Lecturas inyectadas. Ambas de sólo lectura y fail-soft (vacío si fallan). */
+/** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
 export type DoDgiiDiscoveryReads = {
-  /** Contribuyentes ACTIVOS cuya actividad es uno de estos textos DGII. */
-  readActiveCompaniesByActivity: (input: {
-    activityTexts: readonly string[];
+  /** Empresas con señal de tamaño de esta macro, de mayor a menor. */
+  readSizedCompaniesByMacro: (input: {
+    macroIndustryKey: string;
     limit: number;
   }) => Promise<readonly DoDgiiActiveRow[]>;
-  /** Importe total adjudicado (DOP) por RNC en compras públicas (`do_dgcp`). */
-  readProcurementTotals: (rncs: readonly string[]) => Promise<ReadonlyMap<string, number>>;
 };
 
-function toCompany(row: DoDgiiActiveRow, rnc: string): CountrySourceCompany | null {
+function toCompany(row: DoDgiiActiveRow, macroIndustryKey: string): CountrySourceCompany | null {
   const legalName = row.legal_name?.trim() || null;
-  if (legalName === null) return null;
+  const rnc = row.rnc?.trim() ?? '';
+  if (legalName === null || !BUSINESS_RNC.test(rnc)) return null;
+  if (row.size_tier === null || !VALID_TIERS.has(row.size_tier)) return null;
+  // La tabla de HOY manda: la macro guardada al cargar sólo sirvió para filtrar.
   const classification = classifyDgiiActivityText(row.sector);
-  if (classification === null) return null;
+  if (classification === null || classification.macroIndustryKey !== macroIndustryKey) return null;
 
   return {
     recordIdentityKey: row.record_identity_key,
@@ -100,6 +108,9 @@ function toCompany(row: DoDgiiActiveRow, rnc: string): CountrySourceCompany | nu
       macroIndustryKeys: [classification.macroIndustryKey],
       tableVersion: DO_DGII_MACRO_TABLE_VERSION,
     },
+    // 🔴 El nivel de tamaño NO viaja al candidato: el writer común deja el tamaño
+    // como «por validar» y su procedencia es una lista cerrada. Aquí sólo
+    // garantiza que no se ofrece ninguna micro o pequeña conocida.
   };
 }
 
@@ -112,40 +123,27 @@ export function buildDoDgiiDiscoveryAdapter(reads: DoDgiiDiscoveryReads): Countr
   return async (criteria: CountrySourceCriteria): Promise<CountrySourceDiscoveryResult> => {
     const empty = { sourceKey: DO_DGII_DISCOVERY_SOURCE_KEY, companies: [], recordsRead: 0 };
 
-    const activityTexts = resolveDgiiActivityTextsForMacro(criteria.macroIndustryKey);
-    if (activityTexts.length === 0) return empty;
+    // Una macro sin actividades clasificadas no consulta: nunca una muestra genérica.
+    if (!macroHasDgiiCoverage(criteria.macroIndustryKey)) return empty;
 
     const limit = Math.max(0, Math.min(Math.trunc(criteria.limit), DO_DGII_DISCOVERY_MAX_ROWS));
     if (limit === 0) return empty;
 
-    const rows = await reads.readActiveCompaniesByActivity({
-      activityTexts,
-      limit: DO_DGII_DISCOVERY_READ_CAP,
+    const rows = await reads.readSizedCompaniesByMacro({
+      macroIndustryKey: criteria.macroIndustryKey,
+      limit: limit * DO_DGII_DISCOVERY_READ_FACTOR,
     });
 
-    // Un RNC, una empresa: la primera fila válida gana (orden estable por RNC).
-    const byRnc = new Map<string, DoDgiiActiveRow>();
-    for (const row of rows) {
-      const rnc = row.rnc?.trim() ?? '';
-      if (!BUSINESS_RNC.test(rnc) || byRnc.has(rnc)) continue;
-      byRnc.set(rnc, row);
-    }
-    if (byRnc.size === 0) return { ...empty, recordsRead: rows.length };
-
-    const totals = await reads.readProcurementTotals([...byRnc.keys()]);
-
-    const ranked = [...byRnc.entries()]
-      .filter(([rnc]) => totals.has(rnc))
-      .sort(([rncA], [rncB]) => {
-        const diff = (totals.get(rncB) ?? 0) - (totals.get(rncA) ?? 0);
-        return diff !== 0 ? diff : rncA.localeCompare(rncB);
-      });
-
+    // Un RNC, una empresa: la primera fila válida gana (la lectura ya viene
+    // ordenada por tamaño e importe adjudicado).
+    const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
-    for (const [rnc, row] of ranked) {
+    for (const row of rows) {
       if (companies.length >= limit) break;
-      const company = toCompany(row, rnc);
-      if (company !== null) companies.push(company);
+      const company = toCompany(row, criteria.macroIndustryKey);
+      if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
+      seen.add(company.taxId);
+      companies.push(company);
     }
 
     return { sourceKey: DO_DGII_DISCOVERY_SOURCE_KEY, companies, recordsRead: rows.length };
