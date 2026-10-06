@@ -10,6 +10,7 @@
  */
 
 import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
+import { buildLiveRescueOfficialIdentityResolver } from './rescue-official-identity.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
@@ -161,7 +162,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadReviewCandidates: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
-        .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata')
+        .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata, tax_identifier')
         .eq('batch_id', batchId)
         .eq('status', 'needs_review');
       if (error) throw new Error(`candidates_read_failed:${error.message}`);
@@ -170,7 +171,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadDispositions: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_discarded_dispositions')
-        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
+        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
         .eq('batch_id', batchId)
         .eq('status', 'discarded')
         .in('reason_code', reasonCodes);
@@ -197,7 +198,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
           .eq('metadata->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
         admin
           .from('prospect_discarded_dispositions')
-          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence')
+          .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin')
           .eq('batch_id', batchId)
           .eq('status', 'discarded')
           .eq('evidence->claude_rescue->>discard_reason', SECTOR_MISMATCH_DISCARD_REASON),
@@ -219,6 +220,8 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       return !!(data as { metadata?: Record<string, unknown> | null } | null)?.metadata?.claude_company_search;
     },
     classify: classifyCompanyLive,
+    // SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal oficial de lo que se admite.
+    resolveOfficialIdentity: buildLiveRescueOfficialIdentityResolver(),
     logUsage: logProviderUsage,
     patchCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch),
     patchDispositionEvidence,

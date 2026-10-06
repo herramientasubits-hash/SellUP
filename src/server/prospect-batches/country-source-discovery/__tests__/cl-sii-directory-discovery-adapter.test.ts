@@ -389,6 +389,7 @@ describe('lectura de producción (buildClSiiDirectoryDiscoveryReads)', () => {
       workers: 350,
       metrics_year: 2024,
       priority_score: 99.5,
+      already_seen: false,
     });
     assert.equal(rows[1].activity_code, null);
     assert.equal(rows[1].activity, null);
@@ -397,7 +398,7 @@ describe('lectura de producción (buildClSiiDirectoryDiscoveryReads)', () => {
     assert.equal(rows[1].priority_score, null);
 
     assert.deepEqual(calls[0], { method: 'from', args: ['source_company_snapshots'] });
-    assert.deepEqual(calls.filter((c) => c.method === 'eq').map((c) => c.args), [
+    assert.deepEqual(calls.filter((c) => c.method === 'eq').map((c) => c.args).slice(0, 3), [
       ['source_key', 'cl_sii_directory'],
       ['country_code', 'CL'],
       ['raw_data->>macro_industry_key', 'technology'],
@@ -406,7 +407,8 @@ describe('lectura de producción (buildClSiiDirectoryDiscoveryReads)', () => {
       ['priority_score', { ascending: false }],
       ['normalized_tax_id', { ascending: true }],
     ]);
-    assert.deepEqual(calls.at(-1), { method: 'limit', args: [50] });
+    // Lee de más (×3) para poder saltar lo ya visto.
+    assert.deepEqual(calls.find((c) => c.method === 'limit'), { method: 'limit', args: [150] });
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {
@@ -490,3 +492,64 @@ describe('guardas estáticas', () => {
     );
   });
 });
+
+describe('SOURCES-CL-NO-RECYCLE-1 — no volver a proponer lo que SellUp ya vio', () => {
+  it('el adapter salta lo ya visto y corta en el tope pedido', async () => {
+    const rows = [row(1, { already_seen: true }), row(2), row(3, { already_seen: true }), row(4), row(5), row(6)];
+    const result = await buildClSiiDirectoryDiscoveryAdapter(fakeReads(rows).reads)({
+      countryCode: 'CL',
+      macroIndustryKey: 'technology',
+      limit: 2,
+    });
+    assert.deepEqual(result.companies.map((c) => c.taxId), [rut(2), rut(4)]);
+    assert.equal(result.recordsRead, 6);
+  });
+
+  it('la lectura marca lo ya visto por RUT (candidatos y descartadas del buscador gratuito); fail-open', async () => {
+    const snapshotRows = [1, 2, 3].map((n) => ({
+      record_identity_key: `tax:${rut(n)}`,
+      normalized_tax_id: rut(n),
+      legal_name: `EMPRESA ${n} SPA`,
+      normalized_legal_name: `EMPRESA ${n}`,
+      priority_score: 90 - n,
+      raw_data: { activity_code: TECH_CODE, activity: TECH_TEXT, workers: 500, metrics_year: 2024 },
+    }));
+    const asked: Array<{ table: string; column: string; values: unknown }> = [];
+    const client = {
+      from(table: string) {
+        const chain: Record<string, unknown> = {};
+        let column = '';
+        for (const m of ['select', 'eq', 'order']) chain[m] = () => chain;
+        chain.limit = () => Promise.resolve({ data: snapshotRows, error: null });
+        chain.in = (col: string, values: unknown) => {
+          column = col;
+          asked.push({ table, column, values });
+          if (table === 'prospect_candidates') return Promise.resolve({ data: [{ tax_identifier: rut(1) }], error: null });
+          return Promise.resolve({ data: [{ provider_identifier: `tax:${rut(3)}` }], error: null });
+        };
+        return chain;
+      },
+    } as unknown as SupabaseClient;
+    const rows = await buildClSiiDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
+    assert.deepEqual(rows.map((r) => r.already_seen), [true, false, true]);
+    assert.deepEqual(asked.map((a) => [a.table, a.column]), [
+      ['prospect_candidates', 'tax_identifier'],
+      ['prospect_discarded_dispositions', 'provider_identifier'],
+    ]);
+    assert.deepEqual(asked[1].values, [rut(1), rut(2), rut(3)].map((r) => `tax:${r}`));
+
+    // Si la marca falla, las filas se ofrecen igual.
+    const failing = {
+      from(table: string) {
+        const chain: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'order']) chain[m] = () => chain;
+        chain.limit = () => Promise.resolve({ data: snapshotRows, error: null });
+        chain.in = () => Promise.reject(new Error(`caída ${table}`));
+        return chain;
+      },
+    } as unknown as SupabaseClient;
+    const open = await buildClSiiDirectoryDiscoveryReads(failing).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
+    assert.deepEqual(open.map((r) => r.already_seen), [false, false, false]);
+  });
+});
+

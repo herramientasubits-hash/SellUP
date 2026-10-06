@@ -445,3 +445,93 @@ describe('SOURCES-CL-SII-FREE-DISCOVERY-1 — Chile', () => {
     assert.equal(stats.batchInserts[0].source, 'agent_1');
   });
 });
+
+describe('SOURCES-FREE-LAYER-IDENTITY-CLAIMS-1 — lo que escribe la capa gratuita reclama su identidad', () => {
+  /**
+   * El doble fiscal de siempre, pero la lectura de ids de la capa gratuita
+   * (`select('id')` + `source_primary = public_source`) devuelve las filas del lote.
+   */
+  function clientWithFreeLayerIds(stats: Stats, ids: string[]): SupabaseClient {
+    const inner = makeFiscalAwareFakeSupabase(stats) as unknown as { rpc: unknown; from(table: string): Record<string, unknown> };
+    return {
+      rpc: inner.rpc,
+      from(table: string) {
+        const chain = inner.from(table);
+        if (table !== 'prospect_candidates') return chain;
+        let selected = '';
+        let freeLayer = false;
+        const wrapped: Record<string, unknown> = { ...chain };
+        wrapped.select = (cols: string) => ((selected = cols), wrapped);
+        wrapped.eq = (col: string, value: unknown) => {
+          if (col === 'source_primary' && value === 'public_source') freeLayer = true;
+          return wrapped;
+        };
+        for (const op of ['in', 'neq', 'order', 'limit', 'not', 'or', 'ilike', 'is']) wrapped[op] = () => wrapped;
+        wrapped.then = (resolve: (v: unknown) => unknown) =>
+          resolve({ data: selected === 'id' && freeLayer ? ids.map((id) => ({ id })) : [], error: null });
+        return wrapped;
+      },
+    } as unknown as SupabaseClient;
+  }
+
+  const input = (claimIdentities: NonNullable<Parameters<typeof persistCountrySourceCandidates>[1]['claimIdentities']>) => ({
+    companies: [
+      syntheticCompany({
+        recordIdentityKey: 'tax:131233686',
+        legalName: 'SADOTEL SAS',
+        normalizedLegalName: 'SADOTEL',
+        taxId: '131233686',
+        taxIdentifierType: 'RNC' as const,
+        countryCode: 'DO',
+        officialMacroIndustry: { macroIndustryKeys: ['technology'], tableVersion: 'do-ciiu-dr-macro-v1' },
+      }),
+    ],
+    countryCode: 'DO',
+    countryName: 'República Dominicana',
+    macroIndustryKey: 'technology',
+    requestedByUserId: 'user-synthetic-1',
+    claimIdentities,
+  });
+
+  it('reclama las identidades de las filas de la capa gratuita del lote', async () => {
+    const stats = freshStats();
+    const calls: Array<{ batchId: string; ids: readonly string[] }> = [];
+    const result = await persistCountrySourceCandidates(
+      clientWithFreeLayerIds(stats, ['cand-1']),
+      input(async (_client, batchId, ids) => (calls.push({ batchId, ids }), { claimedElsewhere: [], degraded: false })),
+    );
+    assert.equal(result.failed, false);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].ids, ['cand-1']);
+    assert.equal(calls[0].batchId, result.batchId);
+    assert.equal(result.writtenCount, 1);
+  });
+
+  it('una que ya tenía otro candidato vivo queda duplicada y NO cuenta para la meta', async () => {
+    const stats = freshStats();
+    const result = await persistCountrySourceCandidates(
+      clientWithFreeLayerIds(stats, ['cand-1']),
+      input(async () => ({
+        claimedElsewhere: [{ candidateId: 'cand-1' }] as never,
+        degraded: false,
+      })),
+    );
+    assert.equal(result.writtenCount, 0);
+    assert.equal(result.skippedCount, 1);
+  });
+
+  it('si el reclamo falla o se degrada, todo queda como estaba (nadie se marca)', async () => {
+    for (const claim of [
+      async () => ({ claimedElsewhere: [{ candidateId: 'cand-1' }] as never, degraded: true }),
+      async () => {
+        throw new Error('rpc caída');
+      },
+    ]) {
+      const stats = freshStats();
+      const result = await persistCountrySourceCandidates(clientWithFreeLayerIds(stats, ['cand-1']), input(claim));
+      assert.equal(result.failed, false);
+      assert.equal(result.writtenCount, 1);
+    }
+  });
+});
+
