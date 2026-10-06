@@ -570,6 +570,10 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
     assert.equal(registryNameCore('EMPRESA DE SERVICIOS SPA'), null);
     assert.equal(registryNameCore('GE CHILE SPA'), null);
     assert.equal(registryNameCore(null), null);
+    // Formas societarias con puntos y espacios (AR 17da92cf) y «COMPANY».
+    assert.equal(registryNameCore('HEXACTA S. R. L.'), 'hexacta');
+    assert.equal(registryNameCore('YEL INFORMATICA S.R.L'), 'yel informatica');
+    assert.equal(registryNameCore('LEAFNOISE COMPANY S. A.'), 'leafnoise');
   });
 
   it('el país viaja por su nombre', () => {
@@ -632,7 +636,7 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
   });
 
   it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd6');
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd7');
   });
 });
 
@@ -810,6 +814,24 @@ describe('d6 — PISTA sin confirmar (dueña 06-10: «si pista»)', () => {
     await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(f.origins.length, 0);
     assert.equal((f.evidence.get('d1')!.claude_rescue as { decision: string }).decision, 'retryable');
+  });
+});
+
+describe('pista con formas societarias con puntos (AR 17da92cf)', () => {
+  it('HEXACTA S. R. L. con hexacta.com que no abre ⇒ pista', () => {
+    const row = disposition({
+      name: 'HEXACTA S. R. L.',
+      country_code: 'AR',
+      evidence: { provider_raw_name: 'HEXACTA S. R. L.', tax_identifier_present: true, tax_identifier_type: 'CUIT' },
+    });
+    const hint = unverifiedWebsiteHint(row, {
+      found: false,
+      reason: 'page_unreachable',
+      errorCode: 'fetch_error',
+      claimedUrl: 'https://www.hexacta.com',
+      usage: null,
+    });
+    assert.equal(hint?.domain, 'hexacta.com');
   });
 });
 
