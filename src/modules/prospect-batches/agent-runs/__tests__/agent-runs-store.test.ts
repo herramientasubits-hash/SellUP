@@ -18,8 +18,10 @@ import {
 import type { WizardExecutionActionResult } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import {
   AGENT_RUNS_TRAY_COPY,
+  agentRunProcessState,
   describeAgentRun,
   isDetachedRunFinished,
+  processCenterSummary,
 } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
 
 const ID_A = '11111111-1111-4111-8111-111111111111';
@@ -172,9 +174,20 @@ describe('textos de la bandeja', () => {
     assert.equal(failed.showLink, true);
   });
 
-  it('título según cuántas siguen en curso', () => {
-    assert.equal(AGENT_RUNS_TRAY_COPY.title(2, 3), '2 búsquedas en curso');
-    assert.equal(AGENT_RUNS_TRAY_COPY.title(0, 1), '1 búsqueda terminada');
+  it('Centro de procesos: cada corrida cae en uno de los cuatro estados de Thema', () => {
+    assert.equal(agentRunProcessState(run({ status: 'running' })), 'running');
+    assert.equal(agentRunProcessState(run({ status: 'queued' })), 'waiting');
+    assert.equal(agentRunProcessState(run({ status: 'succeeded' })), 'done');
+    assert.equal(agentRunProcessState(run({ status: 'failed' })), 'failed');
+  });
+
+  it('el resumen sólo nombra lo terminado y lo fallido si los hay', () => {
+    assert.equal(processCenterSummary({ running: 0, waiting: 0, done: 0, failed: 0 }), 'Nada en proceso');
+    assert.equal(processCenterSummary({ running: 2, waiting: 1, done: 0, failed: 0 }), '2 en curso · 1 en espera');
+    assert.equal(
+      processCenterSummary({ running: 0, waiting: 0, done: 1, failed: 2 }),
+      '0 en curso · 0 en espera · 1 terminada · 2 con error',
+    );
   });
 
   it('una desligada termina cuando su lote deja de generar', () => {
@@ -184,35 +197,7 @@ describe('textos de la bandeja', () => {
   });
 });
 
-describe('arrastrar la bandeja (posición dentro de la ventana)', async () => {
-  const { clampTrayPosition, parseStoredTrayPosition, TRAY_EDGE_MARGIN } = await import(
-    '@/components/prospect-batches/agent-runs-tray/use-draggable-tray'
-  );
-  const size = { width: 300, height: 200 };
-  const viewport = { width: 1000, height: 800 };
-
-  it('dentro de la ventana no se toca; fuera se encaja con margen', () => {
-    assert.deepEqual(clampTrayPosition({ x: 100, y: 100 }, size, viewport), { x: 100, y: 100 });
-    assert.deepEqual(clampTrayPosition({ x: -50, y: -10 }, size, viewport), { x: TRAY_EDGE_MARGIN, y: TRAY_EDGE_MARGIN });
-    assert.deepEqual(clampTrayPosition({ x: 5000, y: 5000 }, size, viewport), {
-      x: viewport.width - size.width - TRAY_EDGE_MARGIN,
-      y: viewport.height - size.height - TRAY_EDGE_MARGIN,
-    });
-  });
-
-  it('una ventana más chica que la bandeja la deja pegada al margen', () => {
-    assert.deepEqual(clampTrayPosition({ x: 200, y: 200 }, size, { width: 200, height: 100 }), { x: TRAY_EDGE_MARGIN, y: TRAY_EDGE_MARGIN });
-  });
-
-  it('lo guardado roto se ignora', () => {
-    assert.deepEqual(parseStoredTrayPosition('{"x":10,"y":20}'), { x: 10, y: 20 });
-    assert.equal(parseStoredTrayPosition('nada'), null);
-    assert.equal(parseStoredTrayPosition('{"x":"a","y":2}'), null);
-    assert.equal(parseStoredTrayPosition(null), null);
-  });
-});
-
-describe('abrir el chat en «Búsquedas» desde la bandeja', async () => {
+describe('abrir el chat en «Búsquedas» desde el Centro de procesos', async () => {
   const events = await import('../agent-chat-events');
 
   it('sin un chat montado nadie lo atiende y hay ruta de respaldo a Empresas', () => {

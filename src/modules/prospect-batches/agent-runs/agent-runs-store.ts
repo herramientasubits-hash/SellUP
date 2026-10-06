@@ -5,7 +5,7 @@
  * Antes la corrida vivía dentro del asistente: al cerrar el panel se desmontaba y
  * con él la promesa, el lote y el resultado. La corrida seguía en el servidor,
  * pero nadie la miraba. Aquí vive en un almacén del navegador que monta el shell
- * de la app, así que sobrevive al chat, y la bandeja flotante la pinta.
+ * de la app, así que sobrevive al chat, y el Centro de procesos de la cabecera la pinta.
  *
  * Fase 2 (AGENT1-PARALLEL-RUNS-PHASE2-1): hasta `AGENT_RUNS_MAX_CONCURRENT` a la
  * vez. Apollo y Tavily no reservan del pool del piloto (cuota del proveedor), así
