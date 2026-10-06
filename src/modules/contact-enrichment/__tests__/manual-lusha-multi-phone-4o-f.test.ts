@@ -1188,7 +1188,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
     // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 143, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 movió el techo a la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 144, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

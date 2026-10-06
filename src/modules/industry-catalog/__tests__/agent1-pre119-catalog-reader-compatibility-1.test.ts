@@ -1035,7 +1035,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // usuario autenticado lee sólo su propia fila). Guarda sólo la etapa y su rótulo: no es tabla
     // ni vista del catálogo de industrias, ni de teléfono, ni de BR, ni de CUT3B4, y el barrido de
     // abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^143_/);
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por usuario
+    // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
+    // `max_active_executions_per_user`; ninguna fila de datos). No es tabla ni vista del catálogo
+    // de industrias, ni de teléfono, ni de BR, ni de CUT3B4, y el barrido de abajo lo comprueba
+    // sobre su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^144_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1171,6 +1176,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // usuario autenticado lee sólo su propia fila); no es tabla ni vista del catálogo de
       // industrias. AUTORADA y NO APLICADA.
       '143_agent1_run_progress.sql',
+      // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 reclamó después la 144: varias ejecuciones activas por
+      // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+      // que lee `max_active_executions_per_user`; ninguna fila de datos). No es tabla ni vista del
+      // catálogo de industrias. AUTORADA y NO APLICADA.
+      '144_wizard_budget_concurrent_executions.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

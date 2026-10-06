@@ -444,7 +444,12 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // usuario autenticado lee sólo su propia fila); no es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA. El proxy se mueve de la 143 a la 144, y el barrido de
     // AUTORÍA se ENSANCHA para incluir la 143.
-      migrations.filter((f) => f.startsWith('144')).length,
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 reclamó después la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA. El proxy se mueve de la 144 a la
+    // 145, y el barrido de AUTORÍA se ENSANCHA para incluir la 144.
+      migrations.filter((f) => f.startsWith('145')).length,
       0,
       'este corte no añade migración',
     );
@@ -469,7 +474,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('140') ||
         f.startsWith('141') ||
         f.startsWith('142') ||
-        f.startsWith('143'),
+        f.startsWith('143') ||
+        f.startsWith('144'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

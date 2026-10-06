@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AGENT_RUNS_MAX_CONCURRENT,
   AGENT_RUNS_STORAGE_KEY,
   createAgentRunsStore,
   restoreAgentRuns,
@@ -23,6 +24,8 @@ import {
 
 const ID_A = '11111111-1111-4111-8111-111111111111';
 const ID_B = '22222222-2222-4222-8222-222222222222';
+const ID_C = '33333333-3333-4333-8333-333333333333';
+const ID_D = '44444444-4444-4444-8444-444444444444';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = { ...initial };
@@ -47,7 +50,7 @@ const payload = (clientRequestId: string): AgentRunPayload => ({ clientRequestId
 const tick = () => new Promise((r) => setImmediate(r));
 
 describe('almacén de corridas', () => {
-  it('una a la vez: la segunda queda en espera y arranca sola al terminar la primera', async () => {
+  it('distinto país × industria corren juntas; el mismo país × industria espera', async () => {
     const calls: string[] = [];
     const jobs = new Map<string, ReturnType<typeof deferred>>();
     const store = createAgentRunsStore({
@@ -60,27 +63,36 @@ describe('almacén de corridas', () => {
       storage: memoryStorage(),
     });
 
-    const first = store.startRun({ title: 'México · Retail', payload: payload(ID_A) });
-    const second = store.startRun({ title: 'Chile · Salud', payload: payload(ID_B) });
-    assert.deepEqual(calls, [ID_A]);
-    assert.deepEqual(store.getSnapshot().map((r) => [r.title, r.status]), [
-      ['Chile · Salud', 'queued'],
-      ['México · Retail', 'running'],
-    ]);
+    const first = store.startRun({ title: 'México · Retail', concurrencyKey: 'MX:retail', payload: payload(ID_A) });
+    store.startRun({ title: 'Chile · Salud', concurrencyKey: 'CL:salud', payload: payload(ID_B) });
+    store.startRun({ title: 'México · Retail', concurrencyKey: 'MX:retail', payload: payload(ID_C) });
+    assert.deepEqual(calls, [ID_A, ID_B]);
+    assert.equal(store.getSnapshot().find((r) => r.clientRequestId === ID_C)!.status, 'queued');
 
     jobs.get(ID_A)!.resolve(ok('batch-a', 6));
     assert.equal((await first).ok, true);
     await tick();
-    assert.deepEqual(calls, [ID_A, ID_B]);
+    assert.deepEqual(calls, [ID_A, ID_B, ID_C]);
     const a = store.getSnapshot().find((r) => r.clientRequestId === ID_A)!;
     assert.equal(a.status, 'succeeded');
     assert.equal(a.batchId, 'batch-a');
     assert.equal(a.candidateCount, 6);
 
     jobs.get(ID_B)!.resolve({ ok: false, code: 'GENERATION_FAILED', message: 'falló' } as unknown as WizardExecutionActionResult);
-    await second;
     await tick();
     assert.equal(store.getSnapshot().find((r) => r.clientRequestId === ID_B)!.status, 'failed');
+  });
+
+  it(`nunca más de ${AGENT_RUNS_MAX_CONCURRENT} a la vez`, async () => {
+    const calls: string[] = [];
+    const store = createAgentRunsStore({
+      execute: (p) => (calls.push(p.clientRequestId), deferred().promise),
+      storage: null,
+    });
+    const ids = [ID_A, ID_B, ID_C, ID_D];
+    ids.forEach((id, i) => store.startRun({ title: `País ${i}`, concurrencyKey: `K${i}`, payload: payload(id) }));
+    assert.equal(calls.length, AGENT_RUNS_MAX_CONCURRENT);
+    assert.equal(store.getSnapshot().filter((r) => r.status === 'queued').length, ids.length - AGENT_RUNS_MAX_CONCURRENT);
   });
 
   it('el mismo id dos veces (doble clic) es la MISMA corrida', async () => {
@@ -169,5 +181,33 @@ describe('textos de la bandeja', () => {
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: null }), false);
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: { id: 'b', status: 'generating', candidateCount: 0 } }), false);
     assert.equal(isDetachedRunFinished({ clientRequestId: ID_A, progress: null, batch: { id: 'b', status: 'ready_for_review', candidateCount: 4 } }), true);
+  });
+});
+
+describe('arrastrar la bandeja (posición dentro de la ventana)', async () => {
+  const { clampTrayPosition, parseStoredTrayPosition, TRAY_EDGE_MARGIN } = await import(
+    '@/components/prospect-batches/agent-runs-tray/use-draggable-tray'
+  );
+  const size = { width: 300, height: 200 };
+  const viewport = { width: 1000, height: 800 };
+
+  it('dentro de la ventana no se toca; fuera se encaja con margen', () => {
+    assert.deepEqual(clampTrayPosition({ x: 100, y: 100 }, size, viewport), { x: 100, y: 100 });
+    assert.deepEqual(clampTrayPosition({ x: -50, y: -10 }, size, viewport), { x: TRAY_EDGE_MARGIN, y: TRAY_EDGE_MARGIN });
+    assert.deepEqual(clampTrayPosition({ x: 5000, y: 5000 }, size, viewport), {
+      x: viewport.width - size.width - TRAY_EDGE_MARGIN,
+      y: viewport.height - size.height - TRAY_EDGE_MARGIN,
+    });
+  });
+
+  it('una ventana más chica que la bandeja la deja pegada al margen', () => {
+    assert.deepEqual(clampTrayPosition({ x: 200, y: 200 }, size, { width: 200, height: 100 }), { x: TRAY_EDGE_MARGIN, y: TRAY_EDGE_MARGIN });
+  });
+
+  it('lo guardado roto se ignora', () => {
+    assert.deepEqual(parseStoredTrayPosition('{"x":10,"y":20}'), { x: 10, y: 20 });
+    assert.equal(parseStoredTrayPosition('nada'), null);
+    assert.equal(parseStoredTrayPosition('{"x":"a","y":2}'), null);
+    assert.equal(parseStoredTrayPosition(null), null);
   });
 });

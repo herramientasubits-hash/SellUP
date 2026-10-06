@@ -133,7 +133,7 @@ function useRunProgress(clientRequestId: string | null): { label: string; percen
 /** AGENT1-PARALLEL-RUNS-TRAY-1 — la corrida vive en el shell, no en este panel. */
 export const WIZARD_RUN_BACKGROUND_NOTE =
   'Puedes cerrar o minimizar esta ventana: la búsqueda sigue y la ves en el panel de búsquedas, abajo a la derecha.';
-export const WIZARD_RUN_QUEUED_TITLE = 'En espera: empieza cuando termine la búsqueda en curso';
+export const WIZARD_RUN_QUEUED_TITLE = 'En espera: empieza en cuanto se libere un lugar';
 
 function WizardGenerationOverlay({ clientRequestId }: WizardGenerationOverlayProps) {
   const progress = useRunProgress(clientRequestId);

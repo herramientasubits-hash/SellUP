@@ -458,7 +458,15 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // menciona `AGENT1-CUT3B4`, no reutiliza `identity_epoch` ni escribe candidatos —ni siquiera
     // referencia `prospect_candidates`/`prospect_batches` como FK—, y el barrido explícito de
     // abajo se ENSANCHA para incluir la 142, el techo anterior. AUTORADA y NO APLICADA.
-    const CEILING = '143_agent1_run_progress.sql';
+    const RUN_PROGRESS_143 = '143_agent1_run_progress.sql';
+    // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 reclamó después la 144: varias ejecuciones activas por
+    // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+    // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4: no menciona `AGENT1-CUT3B4`, no reutiliza `identity_epoch`
+    // ni escribe candidatos —ni siquiera referencia `prospect_candidates`/`prospect_batches`—, y el
+    // barrido explícito de abajo se ENSANCHA para incluir la 143, el techo anterior. AUTORADA y NO
+    // APLICADA.
+    const CEILING = '144_wizard_budget_concurrent_executions.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -476,6 +484,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       GLOBAL_IDENTITY_CLAIMS_140,
       TAX_IDENTIFIER_EIN_NIF_141,
       COMPANY_BANK_142,
+      RUN_PROGRESS_143,
       CEILING,
     ]) {
       assert.equal(
@@ -493,7 +502,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // CLAIMS-1 la 140, y el conteo sube otra vez con las dos. SOURCES-US-EIN-BY-NAME-1 añade la
     // 141 y el conteo sube con ella. AGENT1-COMPANY-BANK añade la 142 y el conteo sube con ella.
     // AGENT1-RUN-LIVE-PROGRESS-1 añade la 143 y el conteo sube con ella.
-    assert.equal(migrations.length, 143);
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 añade la 144 y el conteo sube con ella.
+    assert.equal(migrations.length, 144);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

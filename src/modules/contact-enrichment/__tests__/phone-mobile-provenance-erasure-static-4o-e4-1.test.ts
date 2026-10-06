@@ -547,8 +547,13 @@ describe('4O-E4.1 estático — alcance', () => {
       // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
       // ni de CUT3B4; no ASIGNA `mobile_phone` ni introduce procedencia del escalar móvil. AUTORADA
       // y NO APLICADA.
-      143,
-      'la 143 (el progreso en vivo de la corrida, AGENT1-RUN-LIVE-PROGRESS-1) es la última',
+      // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por
+      // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+      // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+      // catálogo, ni de BR, ni de CUT3B4; no ASIGNA `mobile_phone` ni introduce procedencia del
+      // escalar móvil. AUTORADA y NO APLICADA.
+      144,
+      'la 144 (varias ejecuciones activas por usuario en la reserva del piloto, AGENT1-PARALLEL-RUNS-PHASE2-1) es la última',
     );
   });
 

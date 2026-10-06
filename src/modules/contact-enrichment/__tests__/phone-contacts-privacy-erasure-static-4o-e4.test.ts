@@ -511,6 +511,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // filas de contactos, no nombra `mobile_phone` y no toca la erasure que esta suite protege.
       // AUTORADA y NO APLICADA.
       '143_agent1_run_progress.sql',
+      // 🔴 AGENT1-PARALLEL-RUNS-PHASE2-1 reclamó después la 144: varias ejecuciones activas por
+      // usuario en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits`
+      // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
+      // catálogo, ni de BR, ni de CUT3B4. No contiene un solo `DELETE`: no borra filas de
+      // contactos, no nombra `mobile_phone` y no toca la erasure que esta suite protege. AUTORADA y
+      // NO APLICADA.
+      '144_wizard_budget_concurrent_executions.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -591,7 +598,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // Agente 1 para el chat (tabla aparte `agent1_run_progress`; escribe service_role y cada
     // usuario autenticado lee sólo su propia fila). No es de teléfono, ni del catálogo, ni de BR,
     // ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 143);
+    // AGENT1-PARALLEL-RUNS-PHASE2-1 mueve el techo a la 144: varias ejecuciones activas por usuario
+    // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
+    // `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del catálogo,
+    // ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 144);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {
