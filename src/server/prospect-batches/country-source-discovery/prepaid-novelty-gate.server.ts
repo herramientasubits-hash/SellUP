@@ -30,6 +30,7 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/duplicate-checker';
+import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import {
   runPrePaidNoveltyGate,
   type ListKnownExclusionDomains,
@@ -99,10 +100,25 @@ function chunks<T>(values: readonly T[]): T[][] {
  * Cualquier error ⇒ conjunto vacío (no se salta nada).
  */
 export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabaseAdminClient>): FindAlreadyInSellup {
-  return async ({ taxIds, recordIdentityKeys }) => {
+  return async ({ countryCode, taxIds, recordIdentityKeys, domains = [] }) => {
     const seen = new Set<string>();
     const unlessDomain = new Set<string>();
+    const blockedDomains = new Set<string>();
     try {
+      // SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — candidatas VIVAS del mismo país con la
+      // misma web; se guardan con y sin `www.`, así que se piden las dos formas.
+      for (const ids of chunks(domains)) {
+        const { data } = await client
+          .from('prospect_candidates')
+          .select('domain')
+          .eq('country_code', countryCode.toUpperCase())
+          .in('domain', ids.flatMap((d) => [d, `www.${d}`]))
+          .not('status', 'in', `(${NON_BLOCKING_CANDIDATE_STATUSES.join(',')})`);
+        for (const row of (data ?? []) as Array<{ domain: string | null }>) {
+          const canonical = row.domain ? normalizeDomain(row.domain) : null;
+          if (canonical) blockedDomains.add(canonical);
+        }
+      }
       for (const ids of chunks(taxIds)) {
         const { data } = await client
           .from('prospect_candidates')
@@ -146,7 +162,7 @@ export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabas
     } catch {
       return { blocked: new Set(), blockedUnlessDomain: new Set() };
     }
-    return { blocked: seen, blockedUnlessDomain: unlessDomain };
+    return { blocked: seen, blockedUnlessDomain: unlessDomain, blockedDomains };
   };
 }
 

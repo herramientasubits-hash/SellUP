@@ -13,6 +13,7 @@ import {
   fixMojibake,
   nitCheckDigit,
   normalizeEntityNit,
+  sigepEntityName,
   type ChipEntityRow,
   type SigepEntityRow,
 } from '../co-public-entity-rows';
@@ -48,6 +49,12 @@ describe('piezas', () => {
     assert.equal(fixMojibake('ALCALDÃ\u008dA'), 'ALCALDÍA');
     assert.equal(fixMojibake('GOBERNACIÃ“N'), 'GOBERNACIÓN');
     assert.equal(fixMojibake('MINISTERIO'), 'MINISTERIO');
+  });
+
+  it('nombre del SIGEP sin el número de orden pegado al final', () => {
+    assert.equal(sigepEntityName('DIRECCION GENERAL DE LA POLICIA NACIONAL 1'), 'DIRECCION GENERAL DE LA POLICIA NACIONAL');
+    assert.equal(sigepEntityName('ALCALDIA DE IPIALES'), 'ALCALDIA DE IPIALES');
+    assert.equal(sigepEntityName('INSTITUTO 1 DE MAYO'), 'INSTITUTO 1 DE MAYO');
   });
 
   it('NIT: con dígito de verificación separado o pegado (sólo si cuadra)', () => {

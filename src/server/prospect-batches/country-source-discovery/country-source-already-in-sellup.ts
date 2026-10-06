@@ -14,6 +14,12 @@
  *     fiscal o por el mismo registro de la fuente (`source_trace.sourceRecordId`);
  *   · en Descartadas (`prospect_discarded_dispositions`, descartada o ya enviada a
  *     revisión) por el mismo identificador (`tax:<id>` o el del registro).
+ *   · SOURCES-FREE-LAYER-ACTIVE-DOMAIN-1 — como candidata VIVA del MISMO país con
+ *     la misma web canónica (sin `www.`, protocolo ni ruta). Prod 06-10, Colombia:
+ *     8 de 22 empresas del buscador gratuito (Fiscalía, Contraloría, Experian,
+ *     SoftwareOne…) ya estaban en revisión desde Lusha o la búsqueda web, sin
+ *     número fiscal y con «www.fiscalia.gov.co»: ni el número ni el registro las
+ *     veían. Otro país con la misma web es otra sociedad (SoftwareOne RD ≠ CO).
  * Una candidata DESCARTADA (p. ej. por ser de otra industria) NO bloquea: el
  * descarte histórico no es una lista negra perpetua (§ 9).
  *
@@ -26,7 +32,13 @@
  * Puro: la lectura se inyecta. Nunca lanza (fail-open: sin lectura no se salta nada).
  */
 
+import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { CountrySourceCompany } from './country-source-types';
+
+/** Web canónica de una empresa de la fuente (sin `www.`), o `null`. */
+export function canonicalCompanyDomain(company: Pick<CountrySourceCompany, 'domain'>): string | null {
+  return company.domain ? normalizeDomain(company.domain) : null;
+}
 
 /** Las claves de identidad con las que SellUp guarda una empresa de la fuente. */
 export function sellupKeysOf(company: CountrySourceCompany): string[] {
@@ -41,6 +53,8 @@ export type AlreadyInSellup = {
   blocked: ReadonlySet<string>;
   /** Claves descartadas sólo por falta de web: bloquean mientras no haya dominio. */
   blockedUnlessDomain: ReadonlySet<string>;
+  /** Webs canónicas de candidatas VIVAS del mismo país: bloquean siempre. */
+  blockedDomains?: ReadonlySet<string>;
 };
 
 /** READ-ONLY: devuelve las claves que SellUp ya tiene. */
@@ -48,6 +62,8 @@ export type FindAlreadyInSellup = (input: {
   countryCode: string;
   taxIds: readonly string[];
   recordIdentityKeys: readonly string[];
+  /** Webs canónicas (sin `www.`) de las empresas leídas. */
+  domains?: readonly string[];
 }) => Promise<AlreadyInSellup>;
 
 export async function splitAlreadyInSellup(
@@ -62,6 +78,7 @@ export async function splitAlreadyInSellup(
       countryCode,
       taxIds: [...new Set(companies.map((c) => c.taxId).filter((id): id is string => Boolean(id)))],
       recordIdentityKeys: [...new Set(companies.map((c) => c.recordIdentityKey))],
+      domains: [...new Set(companies.map(canonicalCompanyDomain).filter((d): d is string => d !== null))],
     });
   } catch {
     return { fresh: [...companies], alreadyInSellup: 0 };
@@ -70,6 +87,8 @@ export async function splitAlreadyInSellup(
     const keys = sellupKeysOf(company);
     if (keys.some((key) => seen.blocked.has(key))) return false;
     if (!company.domain && keys.some((key) => seen.blockedUnlessDomain.has(key))) return false;
+    const domain = canonicalCompanyDomain(company);
+    if (domain !== null && seen.blockedDomains?.has(domain)) return false;
     return true;
   });
   return { fresh, alreadyInSellup: companies.length - fresh.length };
