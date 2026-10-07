@@ -28,6 +28,7 @@
 import { isNameTooGeneric } from '@/server/source-catalog/enrichment/tax-identifier-resolution/resolve-candidate-tax-identifier-colombia';
 import {
   chileCandidateNameVariants,
+  chileEntityByOfficialDomain,
   chileGroupBrandByDomain,
   chilePublicEntityBySigla,
   CL_HOMONYM_MIN_WORKERS,
@@ -156,7 +157,8 @@ export function createChileOfficialSourceResolver(config: ChileOfficialSourceRes
       );
 
       // Marca de un grupo grande con su web oficial: decide antes que los homónimos del SII.
-      const groupBrand = chileGroupBrandByDomain(allVariants, domain);
+      // Si el nombre viene mal armado, basta la web oficial de la marca o del organismo.
+      const groupBrand = chileGroupBrandByDomain(allVariants, domain) ?? chileEntityByOfficialDomain(domain);
       if (groupBrand !== null) {
         return {
           status: 'matched',

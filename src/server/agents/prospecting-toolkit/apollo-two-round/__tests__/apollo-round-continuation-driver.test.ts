@@ -205,7 +205,7 @@ function workerDeps(world: World, clock: { value: number }): ApolloContinuationW
         pendingOrganizationCount: result.pendingOrganizationCount,
       };
     },
-    settleJob: async ({ jobId, leaseToken, status, resolution }) => {
+    settleJob: async ({ jobId, leaseToken, status, resolution, resetAttempts }) => {
       // § 3 — vallado: un token viejo no cierra nada.
       const job = world.queue.find(
         (entry) => entry.id === jobId && entry.leaseToken === leaseToken,
@@ -213,6 +213,8 @@ function workerDeps(world: World, clock: { value: number }): ApolloContinuationW
       if (!job) return;
       job.status = status;
       job.lastResolution = resolution;
+      // AGENT1-STUCK-RUNS-CLOSE-1 — igual que el servidor real.
+      if (resetAttempts) job.attempts = 0;
     },
     now: () => clock.value,
   };
