@@ -428,6 +428,7 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       activity_code: '620100',
       priority_score: 99.5,
       website_domain: null,
+      official_workers: null,
       prior_sighting: null,
     };
     assert.deepEqual(rows, [
