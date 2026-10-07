@@ -70,6 +70,12 @@ import {
   macroHasBoDiscoveryCoverage,
   type BoOfficialDiscoveryReads,
 } from './bo-official-discovery-adapter';
+import {
+  buildCrFreeDirectoryDiscoveryAdapter,
+  CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type CrFreeDirectoryDiscoveryReads,
+} from './cr-free-directory-discovery-adapter';
+import { macroHasCrCoverage } from './cr-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -127,8 +133,14 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
  * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
  * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
+ *
+ * SOURCES-CR-CLOSE-1 — Costa Rica entra con un directorio oficial: proveedoras
+ * del Estado (ofertas de SICOP, clasificadas por lo que venden con la tabla
+ * UNSPSC aprobada de Paraguay), empresas en Zona Franca (PROCOMER, por su
+ * actividad CAECR con la tabla CIIU aprobada) y entidades públicas (Gobierno);
+ * sin las que el MEIC registra como micro o pequeña.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -146,6 +158,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
   GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
+  CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -169,6 +182,7 @@ export function resolveCountrySourceCapability(
  * Paraguay: la macro tiene clases UNSPSC en la tabla.
  * Guatemala: la macro tiene clases UNSPSC en la tabla (la misma de Paraguay).
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
+ * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -186,6 +200,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
   if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
+  if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -212,6 +227,7 @@ export function buildCountrySourceAdapter(
     pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
     gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
+    crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -252,6 +268,11 @@ export function buildCountrySourceAdapter(
   }
   if (capability.countryCode === 'BO') {
     return deps.boOfficialDiscoveryReads ? buildBoOfficialDiscoveryAdapter(deps.boOfficialDiscoveryReads) : null;
+  }
+  if (capability.countryCode === 'CR') {
+    return deps.crFreeDirectoryDiscoveryReads
+      ? buildCrFreeDirectoryDiscoveryAdapter(deps.crFreeDirectoryDiscoveryReads)
+      : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);

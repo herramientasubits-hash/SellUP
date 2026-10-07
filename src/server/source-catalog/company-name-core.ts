@@ -197,6 +197,8 @@ export const CHILE_LEGAL_FORMS: readonly string[] = [
 
 /**
  * Formas societarias de Costa Rica, más largas primero. SOURCES-CR-CEDULA-BY-NAME-1.
+ * La cédula por nombre usa el núcleo por estructura de `cr-name-keys.ts`
+ * (SOURCES-CR-CLOSE-1); esta lista la sigue usando el guardia del rescate.
  */
 export const COSTA_RICA_LEGAL_FORMS: readonly string[] = [
   'SOCIEDAD DE RESPONSABILIDAD LIMITADA',

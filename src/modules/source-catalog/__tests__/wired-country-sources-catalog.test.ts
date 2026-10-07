@@ -39,6 +39,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'cl_res_registry', country: 'CL', status: 'connected_identity_in_run' },
   { key: 'cl_sii_registry', country: 'CL', status: 'connected_identity_in_run' },
   { key: 'cr_company_registry', country: 'CR', status: 'connected_identity_in_run' },
+  { key: 'cr_free_directory', country: 'CR', status: 'connected_free_discovery' },
 ];
 
 /** Fuentes consultadas EN VIVO (no son una carga): mismo estado, modo backend_connected. */

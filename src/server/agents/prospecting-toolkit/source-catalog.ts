@@ -2184,12 +2184,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
   // ── Costa Rica ──────────────────────────────────────────────────────────────
   {
     key: 'cr_company_registry',
-    name: 'PYMES activas MEIC + proveedores SICOP — cédula jurídica por nombre',
+    name: 'Registro de cédulas de Costa Rica (MEIC, SICOP, Zona Franca, SUGEF, entidades públicas) — cédula jurídica por nombre',
     sellupUse: 'legal_validation',
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '18.216 sociedades con cédula jurídica cargadas (16.491 PYMES activas del MEIC + 1.725 proveedores de SICOP con nombre). El Agente 1 completa la cédula jurídica por nombre en cada corrida.',
+      '18.216 sociedades cargadas (02-10-2026). SOURCES-CR-CLOSE-1: recarga pendiente de autorización con 19.346 cédulas (dry-run 06-10: + empresas en Zona Franca de PROCOMER, entidades supervisadas por SUGEF y 385 instituciones públicas de SICOP con cédula 2…/4…/3-014/3-007), el núcleo nuevo (forma societaria reconocida por su estructura), sus alias (cr_company_name_alias: nombre anterior, siglas oficiales de MIDEPLAN, clave de municipalidad) y el tramo PYME del MEIC. Recarga: scripts/source-catalog/run-cr-company-registry-etl.ts --pymes=… --recursos=… --aclaraciones=… --zona-franca=… --sugef=… --sicop-institutions=… --mideplan=<salida de scripts/source-catalog/extract-cr-mideplan-fichas.py> --apply=registry,alias.',
     countryCodes: ['CR'],
     sectors: [],
     priority: 'P1',
@@ -2198,16 +2198,47 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://datos.go.cr/',
     automationLevel: 'high',
     recommendedUse:
-      'Combinación de tres archivos oficiales y gratuitos de datos.go.cr (CC-BY): la lista de PYMES activas del MEIC (enero de 2025) y los archivos de recursos y aclaraciones de SICOP 2022-2024 (Hacienda), que sí traen el nombre del proveedor. 18.216 sociedades (cédula 3…). En cada corrida del Agente 1 completa la cédula jurídica por nombre de empresa. El 99,8 % de los nombres es único. Cédula segura sólo cuando exactamente una cédula tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Costa Rica no publica un padrón abierto de personas jurídicas (el Registro Nacional pide usuario y captcha; la consulta de Hacienda bloquea por geografía). Se combinan fuentes oficiales y gratuitas: la lista de PYMES activas del MEIC, los archivos de recursos y aclaraciones de SICOP (Hacienda, datos.go.cr, CC-BY), el Excel de empresas en Régimen de Zona Franca de PROCOMER, la lista de entidades supervisadas por SUGEF y las instituciones compradoras de SICOP (ministerios, poderes, autónomas, bancos del Estado, universidades públicas y las 84 municipalidades). En cada corrida del Agente 1 completa la cédula jurídica por nombre, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, con o sin «de Costa Rica», nombre anterior, sigla oficial, clave que iguala «Municipalidad de San José» con «MUNICIPALIDAD DEL CANTÓN CENTRAL DE SAN JOSÉ»). Cédula segura sólo cuando exactamente una cédula tiene esa clave; un nombre de una sola palabra o una sigla necesita que la web lo confirme. Si la sociedad está en la lista del MEIC, su tramo (micro hasta 10, pequeña hasta 35, mediana hasta 100) llega al filtro de tamaño: micro y pequeña se descartan, mediana no decide.',
     limitations: [
-      'Sólo PYMES activas (micro, pequeñas y medianas) y proveedores del Estado: las empresas grandes casi no aparecen.',
-      'La lista del MEIC es de enero de 2025; requiere recarga para reflejar altas y bajas.',
-      'Sólo cédulas jurídicas de sociedades (3…): no incluye personas físicas, DIMEX ni entes estatales.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Las empresas grandes locales que no están en Zona Franca, SUGEF ni SICOP no aparecen (falta la lista de Grandes Contribuyentes de Hacienda, bloqueada por geografía).',
+      'Las marcas que no son la razón social (Gollo, EPA, Kölbi, Pequeño Mundo…) no se encuentran.',
+      'Los hospitales de la CCSS no tienen cédula propia (compran con la de la CCSS) y no se asignan.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas (MEIC de enero de 2025, Zona Franca de agosto de 2025).',
     ],
     riskNotes: [
-      'La cédula jurídica no tiene dígito verificador documentado: sólo se valida la forma (10 dígitos).',
+      'La cédula jurídica no tiene dígito verificador documentado: sólo se valida la forma (10 dígitos que empiezan por 2, 3 o 4).',
+      'Nunca cédulas físicas ni DIMEX. Un alias nunca puede ser el nombre propio de otra cédula; fideicomisos, consorcios y asociaciones solidaristas no aportan alias.',
       'El snapshot cr_sicop anterior se cargó sin nombres y no sirve para buscar por nombre; ésta es la fuente que se usa.',
+    ],
+  },
+  {
+    key: 'cr_free_directory',
+    name: 'Directorio oficial de Costa Rica (SICOP, Zona Franca, entidades públicas) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-CR-CLOSE-1 (reutiliza las tablas aprobadas UNSPSC de Paraguay y CIIU de Argentina/Perú; aprobado por la dueña el 06-10-2026): carga pendiente de autorización, 2.318 filas en el dry-run del 06-10 (1.399 proveedoras de SICOP con nombre, 613 empresas de Zona Franca, 306 entidades públicas; fuera 3.346 micro o pequeñas según el MEIC). Recarga: bajar las ofertas anuales y las solicitudes de SICOP de datos.go.cr, correr scripts/source-catalog/extract-cr-sicop-suppliers.py y luego run-cr-company-registry-etl.ts … --sicop-suppliers=… --apply=directory.',
+    countryCodes: ['CR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://datos.go.cr/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita costarricense por industria, antes de pagar a Apollo o Lusha. Tres fuentes oficiales y gratuitas, una fila por cédula: (1) sociedades que ofertaron al Estado en SICOP 2022-2024 (Hacienda, datos.go.cr, CC-BY), clasificadas por lo que venden (UNSPSC, tabla aprobada de Paraguay) y ordenadas por a cuántas instituciones ofertan; (2) empresas en Régimen de Zona Franca (PROCOMER), clasificadas por su actividad CAECR (CIIU Rev. 4, tabla aprobada) y ofrecidas primero; (3) entidades públicas para Gobierno, con su web de la ficha de MIDEPLAN. Cada empresa llega con su cédula jurídica y su razón social.',
+    limitations: [
+      'Sin las que el MEIC registra como micro o pequeña (decisión de la dueña, 06-10-2026); las medianas entran y el filtro de tamaño no las decide solo.',
+      'Las proveedoras de SICOP sólo entran si el registro tiene su nombre (las ofertas no lo traen).',
+      'Las empresas de Zona Franca cuya ficha no trae código CAECR no se proponen (sí dan cédula por nombre).',
+      'Sólo las entidades públicas traen web; las empresas sin web van a Descartadas y dependen del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga para sumar ofertas nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos.',
     ],
   },
   {

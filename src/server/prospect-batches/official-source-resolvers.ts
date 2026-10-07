@@ -14,8 +14,8 @@
  * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
- * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
- * name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
+ * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry +
+ * cr_company_name_alias) name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
  * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
@@ -90,7 +90,8 @@ import {
   CL_SII_REGISTRY_SOURCE_KEY,
   normalizeChileSiiCore,
 } from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
-import { normalizeCostaRicaCompanyCore } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
+import { createCostaRicaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/costa-rica-official-source-resolver';
+import { buildCostaRicaSnapshotNameQuery } from '@/server/prospect-batches/costa-rica-snapshot-query';
 import {
   BO_SEPREC_LIVE_SOURCE_KEY,
   buildSeprecNameLiveQuery,
@@ -324,13 +325,10 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       singleWordIsSignalOnly: true,
     }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'CR',
-      sourceKey: 'cr_company_registry',
-      taxIdentifierType: 'cedula_juridica',
-      validTaxId: /^3\d{9}$/,
-      normalizeCore: normalizeCostaRicaCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cr_company_registry', 'CR'),
+    // SOURCES-CR-CLOSE-1 — más Zona Franca, SUGEF, instituciones públicas de SICOP
+    // (cédulas 2…/4…), alias (nombre anterior, siglas) y el tramo PYME del MEIC.
+    createCostaRicaOfficialSourceResolver({
+      querySnapshots: buildCostaRicaSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-BO-CLOSE-1 — Bolivia: primero la lista de grandes contribuyentes ya
     // cargada (PRICO/GRACO de Impuestos + PRIO/OEA de la Aduana, con nombre del
