@@ -104,6 +104,76 @@ export const PY_DNCP_FAMILY_MACRO: Readonly<Record<string, MacroIndustryKey>> = 
   '8312': 'technology', // servicios de información (internet)
 });
 
+
+/**
+ * Rubro en palabras de cada segmento y familia UNSPSC: lo que ve el vendedor en la
+ * columna «Industria» (no el artículo suelto, «Notebook»).
+ */
+export const PY_DNCP_RUBRO_LABEL: Readonly<Record<string, string>> = Object.freeze({
+  '10': 'Animales vivos, plantas, semillas',
+  '11': 'Minerales, textiles y materiales no comestibles',
+  '12': 'Químicos, gases y materiales explosivos',
+  '13': 'Resinas, caucho, plásticos',
+  '14': 'Papel y productos de papel',
+  '15': 'Combustibles y lubricantes',
+  '20': 'Maquinaria de minería y perforación',
+  '21': 'Maquinaria agrícola, forestal y de jardinería',
+  '22': 'Maquinaria de construcción',
+  '23': 'Maquinaria industrial',
+  '24': 'Manejo, embalaje y almacenamiento de materiales',
+  '25': 'Vehículos y sus accesorios',
+  '26': 'Generación y distribución de energía, cables',
+  '27': 'Herramientas',
+  '30': 'Componentes y materiales de construcción',
+  '31': 'Componentes de manufactura',
+  '32': 'Componentes electrónicos',
+  '39': 'Iluminación y equipo eléctrico',
+  '40': 'Climatización, plomería, distribución de fluidos',
+  '41': 'Equipo de laboratorio, medición y ensayo',
+  '42': 'Equipo y suministros médicos',
+  '43': 'Informática y telecomunicaciones',
+  '44': 'Equipo y útiles de oficina',
+  '45': 'Equipo de impresión, fotografía y audiovisual',
+  '46': 'Equipo de defensa, seguridad y orden público',
+  '47': 'Equipo y suministros de limpieza',
+  '48': 'Maquinaria y equipo para servicios (cocinas, lavanderías)',
+  '49': 'Deportes y recreación',
+  '50': 'Alimentos y bebidas',
+  '51': 'Medicamentos y productos farmacéuticos',
+  '52': 'Electrodomésticos y artículos para el hogar',
+  '53': 'Ropa, calzado, maletas y artículos de aseo',
+  '56': 'Muebles y mobiliario',
+  '60': 'Material didáctico, instrumentos musicales, juguetes',
+  '70': 'Servicios agrícolas, pesqueros, forestales',
+  '71': 'Servicios de minería, petróleo y gas',
+  '72': 'Construcción y mantenimiento de edificios e infraestructura',
+  '73': 'Servicios de producción y fabricación industrial',
+  '76': 'Limpieza industrial y descontaminación',
+  '77': 'Servicios medioambientales',
+  '78': 'Transporte, almacenamiento y correo',
+  '80': 'Gestión, servicios profesionales y administrativos',
+  '81': 'Ingeniería e investigación',
+  '82': 'Publicidad, diseño, impresión y artes gráficas',
+  '83': 'Servicios públicos: agua, electricidad',
+  '84': 'Servicios financieros y seguros',
+  '85': 'Servicios de salud',
+  '92': 'Seguridad y vigilancia',
+  '7811': 'Pasajes y agencias de viajes',
+  '8111': 'Servicios informáticos (software, desarrollo, soporte)',
+  '8112': 'Servicios de datos',
+  '8116': 'Entrega de servicios de tecnología de la información',
+  '8311': 'Servicios de telecomunicaciones y medios',
+  '8312': 'Servicios de información (internet)',
+});
+
+/** Rubro de una clase UNSPSC (la familia manda sobre el segmento), o `null`. */
+export function resolvePyUnspscRubro(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null;
+  const code = raw.trim();
+  if (!/^\d{2,8}$/.test(code)) return null;
+  return PY_DNCP_RUBRO_LABEL[code.slice(0, 4)] ?? PY_DNCP_RUBRO_LABEL[code.slice(0, 2)] ?? null;
+}
+
 /** Macro de UNA clase UNSPSC (8 dígitos, o su prefijo), o `null` si no tiene. */
 export function resolvePyUnspscMacro(raw: string | null | undefined): MacroIndustryKey | null {
   if (typeof raw !== 'string') return null;

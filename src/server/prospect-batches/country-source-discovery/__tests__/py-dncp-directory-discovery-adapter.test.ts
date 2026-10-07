@@ -27,7 +27,11 @@ import {
 import { buildPyDncpDirectoryDiscoveryReads } from '../py-dncp-directory-snapshot-query';
 import {
   macroHasPyDncpCoverage,
+  PY_DNCP_FAMILY_MACRO,
   PY_DNCP_MACRO_TABLE_VERSION,
+  PY_DNCP_RUBRO_LABEL,
+  PY_DNCP_SEGMENT_MACRO,
+  resolvePyUnspscRubro,
   resolvePyDncpSupplierMacro,
   resolvePyUnspscMacro,
 } from '../py-dncp-macro-table';
@@ -130,6 +134,18 @@ describe('tabla UNSPSC de la DNCP → macro', () => {
     assert.equal(resolvePyDncpSupplierMacro({ '4321': 40, '4218': 30, '7213': 30 }), null);
     assert.equal(resolvePyDncpSupplierMacro({ '9010': 900, '4321': 100 }), null);
     assert.equal(resolvePyDncpSupplierMacro({}), null);
+  });
+
+  it('rubro en palabras: la familia manda; sin rubro, null', () => {
+    assert.equal(resolvePyUnspscRubro('43211503'), 'Informática y telecomunicaciones');
+    assert.equal(resolvePyUnspscRubro('8111'), 'Servicios informáticos (software, desarrollo, soporte)');
+    assert.equal(resolvePyUnspscRubro('78111502'), 'Pasajes y agencias de viajes');
+    assert.equal(resolvePyUnspscRubro('90101501'), null);
+    assert.equal(resolvePyUnspscRubro(null), null);
+    // Toda clase con macro tiene rubro.
+    for (const code of [...Object.keys(PY_DNCP_SEGMENT_MACRO), ...Object.keys(PY_DNCP_FAMILY_MACRO)]) {
+      assert.ok(PY_DNCP_RUBRO_LABEL[code], code);
+    }
   });
 
   it('cobertura por macro (Gobierno no se ofrece desde los proveedores)', () => {
@@ -270,7 +286,8 @@ describe('buildPyDncpDirectoryDiscoveryAdapter', () => {
     assert.equal(first.countryCode, 'PY');
     assert.equal(first.taxIdentifierType, 'RUC');
     assert.equal(first.industryCode, '4321');
-    assert.equal(first.declaredIndustry, 'Computadoras');
+    // El rubro, no el artículo suelto («Computadoras»).
+    assert.equal(first.declaredIndustry, 'Informática y telecomunicaciones');
     assert.deepEqual(first.officialMacroIndustry, { macroIndustryKeys: ['technology'], tableVersion: PY_DNCP_MACRO_TABLE_VERSION });
   });
 
