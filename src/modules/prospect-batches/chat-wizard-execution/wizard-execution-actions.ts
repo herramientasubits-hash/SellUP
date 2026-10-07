@@ -83,6 +83,8 @@ import {
   isTavilyFirstClosing,
   shouldReviewTavilyFirstInline,
   resolveInlineRescueWindowMs,
+  resolveFreeLayerRescueWindowMs,
+  freeLayerLeftCompaniesWithoutWeb,
   reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
   tavilyOwnReviewable,
@@ -316,6 +318,14 @@ export type WizardExecutionDeps = {
    * revisó. Sin dep ⇒ no se revisa dentro (la decisión usa lo de Tavily).
    */
   rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
+  /**
+   * AGENT1-FREE-LAYER-RESCUE-FIRST-1 — el MISMO rescate, sólo sobre las sin web del
+   * buscador gratuito, antes de Tavily. Devuelve lo que decidió (telemetría del lote).
+   */
+  rescueFreeLayerInline?: (input: {
+    batchId: string;
+    windowMs: number;
+  }) => Promise<{ ok: boolean; admitted: number; kept: number; remaining: number } | null>;
   /**
    * AGENT1-TAVILY-FIRST-3 — ids de las filas de Tavily (`web_ai`) del lote que
    * cuentan para la meta, leídos DESPUÉS de la revisión de Claude. `null` = no se pudo.
@@ -644,6 +654,23 @@ export async function executeProspectWizardGenerationAction(
         buildLiveRescueBatchDeps(triggeredBy),
       );
       return summary.ok;
+    },
+    rescueFreeLayerInline: async ({ batchId, windowMs }) => {
+      if (!isAgent1ClaudeRescueEnabled()) return null;
+      const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
+        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
+      ]);
+      const triggeredBy = await requireActiveUser()
+        .then((auth) => auth.internalUserId)
+        .catch(() => null);
+      const summary = await rescueBatchWithClaude(
+        { batchId, triggeredBy, deadlineMs: windowMs, onlyFreeSourceMissingDomain: true },
+        buildLiveRescueBatchDeps(triggeredBy),
+      );
+      return summary.ok
+        ? { ok: true, admitted: summary.dispositionsAdmitted, kept: summary.dispositionsKept, remaining: summary.remaining }
+        : { ok: false, admitted: 0, kept: 0, remaining: 0 };
     },
     listAcceptedCandidateIds: async (batchId) => {
       const { data, error } = await budgetClient
@@ -1517,6 +1544,43 @@ export async function executeProspectWizardGeneration(
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
         .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
     : null;
+
+  // ── AGENT1-FREE-LAYER-RESCUE-FIRST-1 — la web de las sin web del buscador gratuito ──
+  //
+  // Prod 07-10 (Bolivia × Tecnología 84ddefb7): el buscador gratuito trajo grandes
+  // contribuyentes con NIT oficial y SIN web (ninguna fuente oficial boliviana la
+  // publica); fueron a Descartadas, Tavily llenó el lote hasta el tope de 10 y el
+  // rescate nunca les buscó la web. Aquí, ANTES de Tavily, una pasada corta del
+  // MISMO rescate sólo sobre esas descartadas: las que encuentran web vuelven al lote
+  // «por revisar» y ocupan cupo antes que Tavily (que respeta el tope del lote).
+  // No toca la demanda: el hueco se sigue midiendo con lo que el escritor acepta.
+  // Best-effort: cualquier fallo deja todo como antes.
+  // 🔴 El lote es el CANÓNICO de la ejecución, no `prePaidNovelty.batchId`: ése es
+  // null cuando la capa no guardó ninguna CON web, que es justo este caso (las sin
+  // web se registran en el lote canónico). Revisión del chat de Ecuador, 07-10.
+  let freeLayerRescueFirst:
+    | { ran: true; admitted: number; kept: number; remaining: number; ok: boolean; ms: number }
+    | { ran: false; reason: 'no_time' | 'failed' | 'not_available' }
+    | null = null;
+  if (deps.rescueFreeLayerInline && freeLayerLeftCompaniesWithoutWeb(prePaidNovelty)) {
+    const nowMs = (): number => (deps.nowMs ? deps.nowMs() : Date.now());
+    const elapsedMs = deps.actionStartedAtMs === undefined ? 0 : nowMs() - deps.actionStartedAtMs;
+    const windowMs = resolveFreeLayerRescueWindowMs(elapsedMs);
+    if (windowMs === null) {
+      freeLayerRescueFirst = { ran: false, reason: 'no_time' };
+    } else {
+      const startedMs = nowMs();
+      const result = await resolveCanonicalBatchId()
+        .then((batchId) => deps.rescueFreeLayerInline!({ batchId, windowMs }))
+        .catch(() => undefined);
+      freeLayerRescueFirst =
+        result === undefined
+          ? { ran: false, reason: 'failed' }
+          : result === null
+            ? { ran: false, reason: 'not_available' }
+            : { ran: true, ...result, ms: nowMs() - startedMs };
+    }
+  }
 
   // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
   //
@@ -3015,6 +3079,9 @@ export async function executeProspectWizardGeneration(
         published: {
           [LUSHA_WATERFALL_LEG_METADATA_KEY]: waterfallLegTrace.lushaWaterfallLeg,
           ...(tavilyFirstOutcome ? { tavily_first_leg: tavilyFirstOutcome } : {}),
+          // AGENT1-FREE-LAYER-RESCUE-FIRST-1 — cuántas sin web del buscador gratuito
+          // volvieron con web antes de Tavily (para medir si saltarse Tavily conviene).
+          ...(freeLayerRescueFirst ? { free_layer_rescue_first: freeLayerRescueFirst } : {}),
           // AGENT1-TAVILY-FIRST-1 — con Tavily + Apollo, el escritor de Apollo
           // publicó sólo su mitad: se republica el bloque combinado.
           // AGENT1-TAVILY-FIRST-3 — y también cuando Claude revisó dentro: el

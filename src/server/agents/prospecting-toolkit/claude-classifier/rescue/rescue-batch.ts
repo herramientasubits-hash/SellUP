@@ -769,6 +769,23 @@ async function mapUntil<T, R>(items: readonly T[], limit: number, shouldStop: ()
   return results;
 }
 
+/**
+ * AGENT1-FREE-LAYER-RESCUE-FIRST-1 — descartada del buscador gratuito sólo por
+ * falta de web, con número fiscal oficial. Prod 07-10 (BO×Tecnología 84ddefb7):
+ * Entel, ZTE, Garo… llegaron con NIT y sin web, Tavily llenó el lote hasta el tope y
+ * el rescate nunca les buscó la web.
+ */
+export function isFreeSourceMissingDomainDisposition(
+  row: Pick<RescuableDispositionRow, 'round_origin' | 'reason_code' | 'provider_identifier' | 'domain'>,
+): boolean {
+  return (
+    row.round_origin === 'free_source' &&
+    row.reason_code === 'missing_domain_final' &&
+    !row.domain &&
+    (row.provider_identifier ?? '').startsWith('tax:')
+  );
+}
+
 export async function rescueBatchWithClaude(
   params: {
     batchId: string;
@@ -777,6 +794,13 @@ export async function rescueBatchWithClaude(
     deadlineMs?: number;
     /** Lote del piloto «Claude busca empresas»: revisar también los que no traen completitud. */
     includeUnassessed?: boolean;
+    /**
+     * AGENT1-FREE-LAYER-RESCUE-FIRST-1 — revisar SÓLO las descartadas sin web del
+     * buscador gratuito con número fiscal (round_origin free_source,
+     * missing_domain_final, `tax:`), nada de candidatas ni de Apollo/Tavily. Para la
+     * pasada que corre ANTES de Tavily dentro de la búsqueda.
+     */
+    onlyFreeSourceMissingDomain?: boolean;
   },
   deps: RescueBatchDeps,
 ): Promise<RescueBatchSummary> {
@@ -809,13 +833,17 @@ export async function rescueBatchWithClaude(
       ? await deps.loadBatchHasClaudeCompanySearch(params.batchId).catch(() => false)
       : false);
   const startedMs = deps.nowMs();
-  const storedSizeDiscards = await discardStoredSmallSizes(candidates, deps);
+  const onlyFreeSource = params.onlyFreeSourceMissingDomain === true;
+  const storedSizeDiscards = onlyFreeSource ? new Set<string>() : await discardStoredSmallSizes(candidates, deps);
   const work: WorkItem[] = [
-    ...candidates
+    ...(onlyFreeSource ? [] : candidates)
       .filter((row) => !storedSizeDiscards.has(row.id))
       .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed }))
       .map((row) => ({ kind: 'candidate' as const, row })),
-    ...dispositions.filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch)).map((row) => ({ kind: 'disposition' as const, row })),
+    ...dispositions
+      .filter((row) => !onlyFreeSource || isFreeSourceMissingDomainDisposition(row))
+      .filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch))
+      .map((row) => ({ kind: 'disposition' as const, row })),
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
   const requestedIndustryId = await deps.loadBatchIndustryId(params.batchId).catch(() => null);
@@ -834,12 +862,9 @@ export async function rescueBatchWithClaude(
     slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
   };
   const admittedIds: string[] = [];
-  const storedReassigned = await reassignStoredSectorMismatches(
-    params.batchId,
-    ctx.requestedIndustry?.name ?? null,
-    deps,
-    admittedIds,
-  );
+  const storedReassigned = onlyFreeSource
+    ? 0
+    : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
 
   const outcomes = await mapUntil(
     thisRun,

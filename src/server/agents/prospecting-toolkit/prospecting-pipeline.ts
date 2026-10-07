@@ -526,10 +526,13 @@ export async function runProspectingPipeline(
       // prensa; Claude citaba la portada y la cita no se encontraba ⇒ sin sector).
       // La página encontrada sigue como `sourceUrl`.
       const foundPageUrl = evaluated.website ?? rawResult?.url ?? null;
-      const website = toHomepageUrl(foundPageUrl);
-      const domain = evaluated.domain
-        ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(website ?? ''))
-        : normalizeDomain(website ?? '');
+      const foundDomain = evaluated.domain
+        ? (normalizeDomain(evaluated.domain) ?? normalizeDomain(toHomepageUrl(foundPageUrl) ?? ''))
+        : normalizeDomain(toHomepageUrl(foundPageUrl) ?? '');
+      // AGENT1-TAVILY-INSTITUTIONS-1 — subportal de gobierno/educación ⇒ su institución.
+      const institutionHost = institutionParentHost(foundDomain);
+      const website = institutionHost ? `https://${institutionHost}/` : toHomepageUrl(foundPageUrl);
+      const domain = institutionHost ?? foundDomain;
 
       const rawName =
         evaluated.clean_company_name?.trim() ||
@@ -538,7 +541,7 @@ export async function runProspectingPipeline(
 
       // Hito 16W.2: strip SEO phrases and legal suffixes from proposed name
       const normResult = normalizeProspectCompanyName(rawName, domain ?? undefined);
-      const name = normResult.name;
+      let name = normResult.name;
 
       const inferredNameSource: NameInferenceSource =
         evaluated.clean_company_name ? 'title_prefix' : (titleFallback?.source ?? 'title_fallback');
@@ -549,6 +552,13 @@ export async function runProspectingPipeline(
         country: input.country,
         countryCode: input.countryCode,
       });
+      const repairedName = repairInstitutionName({
+        name,
+        host: domain,
+        pageTitle: websiteVerification.title ?? null,
+        subportalCollapsed: institutionHost !== null,
+      });
+      if (repairedName) name = repairedName;
 
       const duplicateCheck = await checkCompanyDuplicate({
         name,
@@ -798,8 +808,15 @@ export async function buildProspectingPipelineCandidate(
   // AGENT1-TAVILY-HOMEPAGE-2 — en Tavily la URL es la PÁGINA encontrada; el sitio
   // es su portada (Prod 02-10, BO 8c3b2db5: este constructor seguía guardando la
   // página interior). La página queda como `sourceUrl`. Apollo: lo declarado.
-  const website = isApolloResult ? declaredWebsite : toHomepageUrl(declaredWebsite);
-  const domain = declaredWebsite === null ? null : normalizeDomain(declaredWebsite);
+  // AGENT1-TAVILY-INSTITUTIONS-1 — un subportal de gobierno/educación es de su
+  // institución: se usan su portada y su dominio.
+  const institutionHost = isApolloResult || declaredWebsite === null ? null : institutionParentHost(normalizeDomain(declaredWebsite));
+  const website = isApolloResult
+    ? declaredWebsite
+    : institutionHost
+      ? `https://${institutionHost}/`
+      : toHomepageUrl(declaredWebsite);
+  const domain = declaredWebsite === null ? null : (institutionHost ?? normalizeDomain(declaredWebsite));
   // Sin sitio declarado no hay URL de la que inferir un nombre: inferirlo del
   // perfil de Apollo produciría «Apollo» para cualquier organización sin dominio.
   const nameInferenceUrl = declaredWebsite ?? '';
@@ -891,6 +908,15 @@ export async function buildProspectingPipelineCandidate(
     country: context.country,
     countryCode: context.countryCode,
   });
+  if (!isApolloResult && !nameQualityFiltered) {
+    const repairedName = repairInstitutionName({
+      name,
+      host: domain,
+      pageTitle: websiteVerification.title ?? null,
+      subportalCollapsed: institutionHost !== null,
+    });
+    if (repairedName) name = repairedName;
+  }
 
   // Paso 4b: Deduplicación (SellUp + HubSpot si está conectado)
   const duplicateCheck = await checkCompanyDuplicate({
@@ -1042,4 +1068,64 @@ export function toHomepageUrl(url: string | null): string | null {
   } catch {
     return trimmed;
   }
+}
+
+// ─── AGENT1-TAVILY-INSTITUTIONS-1 — sitios de gobierno y educación ───────────────
+//
+// Prod 07-10, Ecuador × Gobierno (b24a558b), filas de Tavily:
+//   · el título de la página ERA la dirección («www.supercias.gob.ec», «ibarra.gob.»)
+//     y quedó como nombre ⇒ sin RUC por nombre y sin cruce de duplicados;
+//   · un SUBPORTAL se tomó como institución («Admisión», admision.educacion.gob.ec,
+//     es del Ministerio de Educación).
+// Sólo para resultados web (no Apollo) y sólo en dominios de gobierno o educación.
+
+/** `x.gob.ec`, `x.gov.co`, `x.edu.ec`, `x.mil.ec` (3 etiquetas) o `x.gov`, `x.edu` (2). */
+function institutionHostLabels(host: string): number {
+  if (/\.(gob|gov|edu|mil)\.[a-z]{2}$/.test(host)) return 3;
+  if (/\.(gov|edu|mil)$/.test(host)) return 2;
+  return 0;
+}
+
+/** ¿Es un sitio de gobierno o educación? */
+export function isInstitutionHost(domain: string | null | undefined): boolean {
+  return Boolean(domain) && institutionHostLabels(domain!.toLowerCase().replace(/^www\./, '')) > 0;
+}
+
+/**
+ * La institución dueña de un SUBPORTAL de gobierno o educación:
+ * «admision.educacion.gob.ec» → «educacion.gob.ec». `null` si ya es la institución
+ * o no es un sitio de gobierno/educación.
+ */
+export function institutionParentHost(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  const host = domain.toLowerCase().replace(/^www\./, '');
+  const keep = institutionHostLabels(host);
+  if (keep === 0) return null;
+  const labels = host.split('.');
+  return labels.length > keep ? labels.slice(-keep).join('.') : null;
+}
+
+/** ¿El «nombre» es en realidad una dirección («www.supercias.gob.ec», «ibarra.gob.»)? */
+export function looksLikeHostName(name: string | null | undefined): boolean {
+  const value = (name ?? '').trim();
+  // En minúsculas, sin espacios y con un punto entre letras: «S.A.» o «UEES» no lo son.
+  return value === value.toLowerCase() && /^[a-z0-9.\-/:]+$/.test(value) && /[a-z0-9-]\.[a-z]/.test(value);
+}
+
+/**
+ * Nombre de la institución desde el título de su PORTADA cuando el que se tenía es
+ * una dirección o el de un subportal. `null` = se queda el nombre que había.
+ */
+export function repairInstitutionName(input: {
+  name: string;
+  host: string | null;
+  pageTitle: string | null;
+  subportalCollapsed: boolean;
+}): string | null {
+  if (!isInstitutionHost(input.host)) return null;
+  const hostLike = looksLikeHostName(input.name);
+  if (!hostLike && !input.subportalCollapsed) return null;
+  const fromTitle = input.pageTitle ? inferNameFromTitle(input.pageTitle, input.host ?? undefined) : null;
+  if (fromTitle && !looksLikeHostName(fromTitle)) return fromTitle;
+  return hostLike ? inferNameFromDomain(input.host ?? '') : null;
 }

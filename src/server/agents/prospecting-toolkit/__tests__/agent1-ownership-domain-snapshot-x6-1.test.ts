@@ -432,11 +432,18 @@ describe('X6.1 § F · anclas', () => {
       ),
       'si el constructor cambia de lector, esta suite ya no puede hablar por él',
     );
+    // AGENT1-TAVILY-INSTITUTIONS-1 — fuera de Apollo, un subportal de gobierno/educación
+    // usa el dominio de su institución; en Apollo `institutionHost` es siempre null, así
+    // que el dominio sigue derivándose del website declarado.
     assert.ok(
       pipeline.includes(
-        'const domain = declaredWebsite === null ? null : normalizeDomain(declaredWebsite);',
+        'const domain = declaredWebsite === null ? null : (institutionHost ?? normalizeDomain(declaredWebsite));',
       ),
       'el dominio del candidato se deriva del website: es lo que hace load-bearing a X6.1',
+    );
+    assert.ok(
+      pipeline.includes('const institutionHost = isApolloResult || declaredWebsite === null ? null :'),
+      'en Apollo no hay institución: el dominio es el declarado',
     );
   });
 
