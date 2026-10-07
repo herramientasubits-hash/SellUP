@@ -16,8 +16,9 @@
  *
  * Igual que la tabla AR aprobada (v2), quien revende informática o equipo médico
  * va a Tecnología o Salud: es el integrador o el distribuidor de esa industria.
- * Cambiar esta tabla es una decisión de producto: no se edita sin el visto bueno
- * de la dueña.
+ * La dueña del producto la aprobó el 06-10-2026 («tabla PY aprobada», medida sobre
+ * 1.127 proveedoras de 2022-2026). Cambiarla es una decisión de producto: no se
+ * edita sin su visto bueno.
  *
  * Reglas:
  *   - La familia (4 dígitos) manda sobre su segmento (2 dígitos).

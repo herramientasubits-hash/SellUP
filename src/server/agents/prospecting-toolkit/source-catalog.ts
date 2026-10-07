@@ -2297,7 +2297,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-PY-CLOSE-1: carga pendiente de autorización. Recarga: bajar awa-masivo.zip de cada año (contrataciones.gov.py/images/opendata-v3/final/ocds/<AÑO>/), correr scripts/source-catalog/extract-py-dncp-suppliers.py summary y profiles, y luego scripts/source-catalog/run-py-dncp-directory-etl.ts --suppliers=… --dncp-api=… --dir=<padrón DNIT> --apply.',
+      'SOURCES-PY-CLOSE-1 (tabla UNSPSC aprobada por la dueña el 06-10-2026): carga pendiente de autorización, 1.127 sociedades (dry-run 06-10 sobre 3.618 proveedoras de 2022-2026: fuera 1.200 MIPYME declaradas, 603 no activas, 590 consorcios o personas físicas, 98 sin industria dominante), 791 con web declarada o dominio del correo corporativo. Recarga: bajar awa-masivo.zip de cada año (contrataciones.gov.py/images/opendata-v3/final/ocds/<AÑO>/), correr scripts/source-catalog/extract-py-dncp-suppliers.py summary y profiles, y luego scripts/source-catalog/run-py-dncp-directory-etl.ts --suppliers=… --dncp-api=… --dir=<padrón DNIT> --apply.',
     countryCodes: ['PY'],
     sectors: [],
     priority: 'P1',
