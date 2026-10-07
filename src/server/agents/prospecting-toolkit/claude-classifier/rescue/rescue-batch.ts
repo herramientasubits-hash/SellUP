@@ -431,8 +431,8 @@ async function resolveDispositionWebsite(
   }
   // La web que Claude ya había propuesto antes: si es la marca oficial, vale sin volver a pagar.
   const officialFallback = (claimedUrl: string | null | undefined): FoundWebsite | null =>
-    officialTradeNameWebsite(claimedUrl, officialNames, dispositionDisplayName(row)) ??
-    (usesOfficialNames ? registryFirstWordWebsite(claimedUrl, dispositionDisplayName(row)) : null);
+    officialTradeNameWebsite(claimedUrl, officialNames, dispositionDisplayName(row), country) ??
+    (usesOfficialNames ? registryFirstWordWebsite(claimedUrl, dispositionDisplayName(row), country) : null);
   if (!found) found = officialFallback(previousClaimedUrl(row.evidence));
   if (!found) {
     const startedMs = deps.nowMs();

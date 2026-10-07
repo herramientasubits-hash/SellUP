@@ -1990,6 +1990,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Las resoluciones sólo publican cambios de categoría: la lista se reconstruye y puede quedar desfasada hasta la próxima resolución.',
       'PRICO/GRACO se eligen por impuestos y ventas, no por trabajadores: no es un tamaño en personas.',
       'Cooperativas, entidades públicas y sociedades sin matrícula de comercio no tienen nombre en el SEPREC y no entran.',
+      'Siglas oficiales por NIT (bo_name_alias, misma carga): las de la razón social (TELECEL, DMC, DISMATEC) y la de gob.bo para empresas públicas (ENTEL). Las usa el rescate para encontrar la web, como los nombres oficiales de Ecuador (corrida 07-10: con la razón social larga no encontraba entel.bo).',
     ],
     riskNotes: [
       'No se guardan contactos ni personas: sólo NIT, razón social, departamento, tipo societario y objeto social.',
