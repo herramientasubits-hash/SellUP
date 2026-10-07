@@ -12,7 +12,10 @@
  *   2. SIGLAS. Si ninguna variante encuentra nada y una de ellas es la sigla de un
  *      organismo público conocido (INJUV, Junaeb, SENDA, PDI con su web…), su RUT.
  *   3. ALIAS. El nombre comercial al final de una razón social larga
- *      («Transemel» → EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A).
+ *      («Transemel» → EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A). Sólo da un
+ *      RUT seguro si la web del candidato lleva esa palabra (transemel.cl); sin web
+ *      que lo confirme queda como pista: una palabra única del SII («LAETITIA», de
+ *      una fundación) puede ser también la marca de otra empresa.
  *
  * Fuerte (`matched`, 0.85) sólo con UN RUT distinto. Varios → `low_confidence_match`
  * (pista, nunca llena las columnas fiscales). El resultado siempre dice
@@ -91,6 +94,17 @@ function distinctByRut(rows: readonly ChileNameRow[]): ChileNameRow[] {
   });
 }
 
+/** ¿La web del candidato lleva la palabra del alias («transemel.cl» para «TRANSEMEL»)? */
+function domainCarriesAlias(domainOrUrl: string | null, aliasCore: string): boolean {
+  if (!domainOrUrl || aliasCore.includes(' ')) return false;
+  try {
+    const host = new URL(domainOrUrl.includes('://') ? domainOrUrl : `https://${domainOrUrl}`).hostname.toLowerCase();
+    return host.replace(/[^a-z0-9.]/g, '').includes(aliasCore.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 /** Construye el resolvedor de RUT por nombre de Chile (registro del SII + alias + siglas). */
 export function createChileOfficialSourceResolver(config: ChileOfficialSourceResolverConfig): OfficialSourceResolver {
   const notFound = (core: string | null): OfficialSourceEnrichmentResult => ({
@@ -164,6 +178,15 @@ export function createChileOfficialSourceResolver(config: ChileOfficialSourceRes
         nameVariant: pick.variant.origin,
         ...(best.alias === true ? { matchedAlias: true } : {}),
       };
+
+      if (best.alias === true && !domainCarriesAlias(domain, pick.variant.core)) {
+        return {
+          ...base,
+          status: 'low_confidence_match',
+          confidence: SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
+          safeMetadata: { ...metadata, aliasNeedsDomain: true },
+        };
+      }
 
       if (distinct.length > 1) {
         return {
