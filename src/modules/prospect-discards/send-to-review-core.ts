@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { evaluateSendToReviewEligibility, type SendToReviewRejectReason } from './send-to-review-eligibility';
 import { toCandidateSourcePrimary } from './mapping';
 import { fiscalIdentityFromDisposition } from './fiscal-identity-from-disposition';
+import { officialWorkforceFromDisposition } from './official-workforce-from-disposition';
 import { DISCARD_DISPOSITION_LABELS, type DiscardDispositionCode } from './types';
 
 export interface SendToReviewCoreDeps {
@@ -297,6 +298,12 @@ export async function sendDispositionToReviewCore(
       ...fiscalIdentityFromDisposition({
         sourcePrimary: disp.source_primary,
         providerIdentifier: disp.provider_identifier,
+        evidence: disp.evidence,
+      }),
+      // AGENT1-RESCUED-FREE-LAYER-KEEPS-DATA-1 — y su tamaño oficial (gana sobre el
+      // estimado de Claude, igual que en la entrada directa).
+      ...officialWorkforceFromDisposition({
+        sourcePrimary: disp.source_primary,
         evidence: disp.evidence,
       }),
       metadata: {

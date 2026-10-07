@@ -204,6 +204,12 @@ type DeliverySlots = { remaining: number };
 /**
  * Reserva un lugar ANTES de gastar en Claude; si la fila no termina en revisión, lo
  * devuelve. Sin lugar ⇒ ni se revisa (cero gasto) y se queda en Descartadas.
+ *
+ * AGENT1-RESCUE-SLOTS-REQUESTED-INDUSTRY-1 — una empresa de OTRA industria
+ * (`reassigned`) vuelve a revisión con su industria corregida pero NO ocupa uno
+ * de los 10 lugares de la búsqueda: el lugar vuelve. Prod 07-10 (Ecuador ×
+ * Retail, 2aab8384): Proexpo (mariscos) y Olimpo Flowers ocuparon lugares de
+ * Retail y Kywi, Pycca o Eljuri se quedaron en Descartadas.
  */
 async function rescueDispositionWithinCap(
   row: RescuableDispositionRow,
@@ -214,7 +220,23 @@ async function rescueDispositionWithinCap(
   if (ctx.slots.remaining <= 0) return { tag: 'capped', cost: 0 };
   ctx.slots.remaining--;
   const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
-  if (outcome.tag !== 'admitted' && outcome.tag !== 'reassigned') ctx.slots.remaining++;
+  if (!keepsDeliverySlot(outcome.tag)) ctx.slots.remaining++;
+  return outcome;
+}
+
+/** Sólo una empresa de la industria pedida que entra a revisión ocupa uno de los lugares. */
+export function keepsDeliverySlot(tag: ItemOutcome['tag']): boolean {
+  return tag === 'admitted';
+}
+
+/** Un candidato en revisión que resulta de OTRA industria deja libre su lugar. */
+async function rescueCandidateFreeingSlot(
+  row: ClassifiableCandidateRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+): Promise<ItemOutcome> {
+  const outcome = await rescueCandidate(row, ctx, deps);
+  if (outcome.tag === 'reassigned') ctx.slots.remaining++;
   return outcome;
 }
 
@@ -624,13 +646,15 @@ async function markSent(deps: RescueBatchDeps, dispositionId: string, metadata: 
 /**
  * Descartes por sector YA guardados que encajan con UBITS → revisión con la
  * industria corregida. Sólo lee la clasificación guardada: costo cero.
+ *
+ * AGENT1-RESCUE-SLOTS-REQUESTED-INDUSTRY-1 — son de OTRA industria: no ocupan
+ * los lugares de la búsqueda (antes sí, y dejaban fuera a las de la industria pedida).
  */
 async function reassignStoredSectorMismatches(
   batchId: string,
   requestedIndustryName: string | null,
   deps: RescueBatchDeps,
   reopenedIds: string[],
-  slots: DeliverySlots,
 ): Promise<number> {
   if (!deps.loadSectorMismatchDiscards) return 0;
   let loaded: Awaited<ReturnType<NonNullable<RescueBatchDeps['loadSectorMismatchDiscards']>>>;
@@ -644,9 +668,6 @@ async function reassignStoredSectorMismatches(
   const decidedAt = deps.nowIso();
   if (deps.reopenDiscardedCandidate) {
     for (const row of loaded.candidates) {
-      // AGENT1-DELIVERY-CAP-HARD-1 — reabrir también ocupa un lugar en revisión.
-      if (slots.remaining <= 0) break;
-      slots.remaining--;
       const saved = await deps.reopenDiscardedCandidate(row.id, (metadata) => {
         const decision = decideStoredReassignment({
           stored: metadata,
@@ -659,8 +680,6 @@ async function reassignStoredSectorMismatches(
       if (saved) {
         reopenedIds.push(row.id);
         reassigned++;
-      } else {
-        slots.remaining++;
       }
     }
   }
@@ -673,16 +692,12 @@ async function reassignStoredSectorMismatches(
       sizePassedIcpGate: false,
     });
     if (!decision) continue;
-    if (slots.remaining <= 0) break;
-    slots.remaining--;
     const origin = buildStoredReassignDispositionOrigin(row.evidence, decision, decidedAt);
     const candidateId = await deps.admitDisposition(row.id, origin);
     if (candidateId) {
       reopenedIds.push(candidateId);
       await markSent(deps, row.id, origin.metadata);
       reassigned++;
-    } else {
-      slots.remaining++;
     }
   }
   return reassigned;
@@ -799,7 +814,6 @@ export async function rescueBatchWithClaude(
     ctx.requestedIndustry?.name ?? null,
     deps,
     admittedIds,
-    ctx.slots,
   );
 
   const outcomes = await mapUntil(
@@ -808,7 +822,7 @@ export async function rescueBatchWithClaude(
     () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
       item.kind === 'candidate'
-        ? rescueCandidate(item.row, ctx, deps)
+        ? rescueCandidateFreeingSlot(item.row, ctx, deps)
         : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds),
   );
 
