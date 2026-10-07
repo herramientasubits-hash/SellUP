@@ -167,7 +167,11 @@ function normalizePanamaRuc(val: string): string {
   const compact = val.toUpperCase().replace(/D\.?\s*V\.?\s*\d{1,2}\s*$/, '').replace(/\s+/g, '').replace(/-+$/, '');
   // «983932-1-532761-43»: el cuarto tramo de una persona jurídica es el DV.
   const withDv = /^(\d{3,}-\d{1,4}-\d{1,7})-\d{1,2}$/.exec(compact);
-  return withDv ? withDv[1] : compact;
+  if (withDv) return withDv[1];
+  // SOURCES-PA-CLOSE-1 — entidad pública «8-NT-1-12541-40»: sin DV y sin ceros a la
+  // izquierda en el tomo («8-NT-01-12761» = «8-NT-1-12761»), como en pa_ruc_registry.
+  const entity = /^(\d{1,2})-NT-(\d{1,4})-(\d{1,7})(?:-\d{1,2})?$/.exec(compact);
+  return entity ? `${Number(entity[1])}-NT-${Number(entity[2])}-${entity[3]}` : compact;
 }
 
 export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
@@ -559,16 +563,16 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     label: 'RUC',
     placeholder: 'Ej. 998592-1-535732',
     helpText:
-      'Ingrese el RUC: tomo-folio-asiento para empresas (por ejemplo 998592-1-535732) o la cédula para personas (8-123-456, E-8-12345, PE-9-1606). El DV se puede omitir.',
+      'Ingrese el RUC: tomo-folio-asiento para empresas (por ejemplo 998592-1-535732), el de entidades públicas (8-NT-2-4249) o la cédula para personas (8-123-456, E-8-12345, PE-9-1606). El DV se puede omitir.',
     minLength: 5,
     maxLength: 30,
     inputMode: 'text',
     acceptedCharacters: /^[\dA-Za-z\s.-]*$/,
-    formatPattern: /^(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}$/,
+    formatPattern: /^(?:(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}|\d{1,2}-NT-\d{1,4}-\d{1,7})$/,
     // Se guarda sin el DV, igual que pa_panamacompra_ruc_registry.
     validationLevel: 'format_only',
     normalize: normalizePanamaRuc,
-    validateFormat: (val) => /^(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}$/.test(normalizePanamaRuc(val)),
+    validateFormat: (val) => /^(?:(?:\d{3,}|\d{1,2}(?:AV|PI)?|PE|E|N)-\d{1,4}-\d{1,7}|\d{1,2}-NT-\d{1,4}-\d{1,7})$/.test(normalizePanamaRuc(val)),
     canonicalExample: '998592-1-535732',
     ruleVersion: 'PA-RUC-v1',
   },

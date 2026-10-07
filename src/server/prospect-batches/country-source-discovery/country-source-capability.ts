@@ -76,6 +76,12 @@ import {
   type CrFreeDirectoryDiscoveryReads,
 } from './cr-free-directory-discovery-adapter';
 import { macroHasCrCoverage } from './cr-free-directory-macro-table';
+import {
+  buildPaFreeDirectoryDiscoveryAdapter,
+  PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type PaFreeDirectoryDiscoveryReads,
+} from './pa-free-directory-discovery-adapter';
+import { macroHasPaCoverage } from './pa-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -139,8 +145,13 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * UNSPSC aprobada de Paraguay), empresas en Zona Franca (PROCOMER, por su
  * actividad CAECR con la tabla CIIU aprobada) y entidades públicas (Gobierno);
  * sin las que el MEIC registra como micro o pequeña.
+ *
+ * SOURCES-PA-CLOSE-1 — Panamá entra con un directorio oficial: sociedades a las que
+ * el Estado adjudicó al menos B/.1 millón en PanamaCompra (clasificadas por lo que
+ * venden con la tabla UNSPSC aprobada de Paraguay), Grandes Contribuyentes de la DGI
+ * (tabla revisada por la dueña) y entidades compradoras con RUC (Gobierno).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'PA'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -159,6 +170,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
   CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -201,6 +213,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
+  if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -228,6 +241,7 @@ export function buildCountrySourceAdapter(
     gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
     crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
+    paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -272,6 +286,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'CR') {
     return deps.crFreeDirectoryDiscoveryReads
       ? buildCrFreeDirectoryDiscoveryAdapter(deps.crFreeDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'PA') {
+    return deps.paFreeDirectoryDiscoveryReads
+      ? buildPaFreeDirectoryDiscoveryAdapter(deps.paFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

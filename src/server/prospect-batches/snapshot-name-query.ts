@@ -129,6 +129,9 @@ export function workforceFromRawData(raw: unknown, source: string, fallbackYear:
 export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   PRICO: 'principal contribuyente (PRICO)',
   GRACO: 'gran contribuyente (GRACO)',
+  // SOURCES-PA-CLOSE-1 — Grandes Contribuyentes de la DGI de Panamá (ingresos ≥
+  // B/.20 M y activos ≥ B/.60 M). Mismo trato: «empresa grande» que no decide sola.
+  PA_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Panamá)',
 };
 
 function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {

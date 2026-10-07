@@ -116,7 +116,7 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un RTN seguro.',
   ],
   PA: [
-    'Panamá no publica un padrón de RUC abierto: el RUC por nombre sólo cubre personas jurídicas proveedoras del Estado (PanamaCompraEnCifras).',
+    'Panamá no publica un padrón de RUC abierto: el RUC por nombre cubre a quien vende o compra al Estado (PanamaCompraEnCifras) y a los Grandes Contribuyentes de la DGI.',
     'Las cédulas de personas naturales nunca se guardan.',
     'Nombres repetidos o genéricos no dan un RUC seguro.',
   ],
@@ -2278,10 +2278,12 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     key: 'pa_panamacompra_ruc_registry',
     name: 'PanamaCompraEnCifras — RUC por nombre (personas jurídicas proveedoras del Estado)',
     sellupUse: 'legal_validation',
-    aiFlowStatus: 'connected_identity_in_run',
+    // SOURCES-PA-CLOSE-1: sustituida por el registro unido pa_ruc_registry (sus filas
+    // entran en él). El Agente 1 ya no la consulta: sólo queda cargada.
+    aiFlowStatus: 'snapshot_persisted',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.700 personas jurídicas cargadas (PanamaCompraEnCifras, carga autorizada el 05-10). El Agente 1 completa el RUC por nombre en cada corrida de Panamá.',
+      'SOURCES-PA-CLOSE-1: SUSTITUIDA por «Registro unido de RUC de Panamá» (pa_ruc_registry), que incluye sus 6.699 proveedoras más las adjudicaciones 2022-2026, las entidades compradoras y los Grandes Contribuyentes de la DGI, con limpieza de nombres propia de Panamá. El Agente 1 ya no la consulta. Sus filas se borran (con autorización) cuando el registro unido esté cargado y verificado. La fila basura «000-2-2015» se borró el 07-10 (autorizado).',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P1',
@@ -2303,13 +2305,70 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'pa_ruc_registry',
+    name: 'Registro unido de RUC de Panamá (PanamaCompra + Grandes Contribuyentes DGI) — RUC por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 8.078 RUC (7.864 con nombre único): 7.808 sociedades proveedoras de PanamaCompraEnCifras (adjudicaciones 2022-2026, Convenio Marco y el buscador de proveedores), 61 entidades compradoras con RUC de entidad pública («8-NT-…») y los 297 Grandes Contribuyentes de la DGI (lista 2025); más 1.953 alias (pa_ruc_name_alias). CARGA PENDIENTE de autorización tras el merge: scripts/source-catalog/run-pa-sources-etl.ts --apply --only=registry y luego --only=alias.',
+    countryCodes: ['PA'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'partial_snapshot',
+    type: 'official_registry',
+    url: 'https://www.panamacompraencifras.gob.pa/',
+    automationLevel: 'high',
+    recommendedUse:
+      'RUC por nombre de Panamá en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RUC a quien vende al Estado (PanamaCompraEnCifras, DGCP), a las entidades públicas compradoras y a los Grandes Contribuyentes de la DGI (Resolución 201-3486 de 17-04-2025, Gaceta Oficial 30271-A: ingresos >= B/.20 millones y activos >= B/.60 millones). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, «Y Cía», sucursal, sigla o nombre comercial entre paréntesis o tras la forma, con o sin «Panamá», alcaldía = municipio). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Un Gran Contribuyente llega a la ficha como «gran contribuyente (DGI Panamá)», sin número de personas: no decide solo el filtro de tamaño. Con 105 nombres reales escritos como los dan Apollo, Tavily o Claude: 36 con RUC seguro (antes 13) y 9 pistas.',
+    limitations: [
+      'Sólo quien vende al Estado, compra como Estado o es Gran Contribuyente: una empresa privada mediana que no está en ninguno no aparece (Panamá no publica un padrón de RUC abierto; el Registro Público pide usuario y captcha).',
+      'Las marcas que no son la razón social (BAC Credomatic, Super 99, Grupo Rey, ENSA) no se encuentran salvo que la fuente traiga el nombre comercial.',
+      'Muchas entidades públicas (ACP, IDAAN, universidades, la mayoría de municipios) no publican su RUC en PanamaCompra: quedan sin RUC.',
+      'La lista de la DGI es un PDF escaneado: se lee con OCR y cada RUC exige que dos lecturas coincidan; los nombres que el OCR destrozó se corrigieron a mano.',
+      'No trae trabajadores: ninguna fuente abierta de Panamá los publica por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUC seguro; queda como señal (p. ej. Petróleos Delta tiene un RUC en la DGI y otro en PanamaCompra).',
+      'Sociedades antiguas con tomo de 1 o 2 dígitos («82-30-15216» = Nestlé) sólo se aceptan desde la DGI: por su forma son iguales a una cédula.',
+    ],
+  },
+  {
+    key: 'pa_free_directory',
+    name: 'Directorio oficial de Panamá (PanamaCompra + Grandes Contribuyentes DGI + entidades) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 609 filas: sociedades con al menos B/.1 millón adjudicado en 2022-2026 y macro dominante por UNSPSC (tabla de Paraguay), Grandes Contribuyentes de la DGI clasificados por la tabla revisada (210 de 256 sin UNSPSC) y 60 entidades compradoras con RUC (Gobierno). CARGA PENDIENTE de autorización tras el merge: run-pa-sources-etl.ts --apply --only=directory.',
+    countryCodes: ['PA'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'partial_snapshot',
+    type: 'procurement',
+    url: 'https://www.panamacompraencifras.gob.pa/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita del Agente 1 para Panamá: propone, por industria y antes de pagar a Apollo, sociedades con RUC (Grandes Contribuyentes de la DGI y entidades públicas primero; luego las que venden a más entidades). La industria sale de lo que venden al Estado (UNSPSC de los datos OCDS de PanamaCompra, licencia PDDL) con la tabla aprobada de Paraguay, de una tabla empresa → industria revisada por la dueña para los Grandes Contribuyentes, o es Gobierno para las entidades. La web sale del dominio del correo corporativo registrado en PanamaCompra (nunca se guarda el correo); sin web, la empresa va a Descartadas y el rescate la busca. Los Grandes Contribuyentes llevan el tamaño oficial «grande».',
+    limitations: [
+      'Sólo sociedades relevantes (Gran Contribuyente o >= B/.1 millón adjudicado en 2022-2026) y entidades con RUC publicado: una capa delgada (cientos, no miles), cargada hacia construcción.',
+      'El código UNSPSC sólo existe en los datos OCDS hasta abril de 2024.',
+      'Pocas filas traen web: la mayoría depende del rescate.',
+      'No trae trabajadores; micro y pequeña no se pueden marcar (no hay fuente abierta).',
+    ],
+    riskNotes: [
+      'Holdings, hoteles, casinos, universidades y nombres que no identifican el negocio quedan sin industria a propósito.',
+    ],
+  },
+  {
     key: 'pa_panamacompra_convenio',
     name: 'PanamaCompra Convenio Marco',
     sellupUse: 'commercial_signal',
     aiFlowStatus: 'connected_post_approval',
     connectionMode: 'offline_signal',
     nextAction:
-      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. El RUC por nombre en cada corrida usa otra carga más amplia: «PanamaCompraEnCifras — RUC por nombre» (pa_panamacompra_ruc_registry).',
+      'Conectada como señal procurement B2G local. Snapshot parcial de proveedores de Convenio Marco con 447 proveedores cargados. El post-approval puede usar match local por RUC. No es fuente legal ni tributaria; no valida RUC ni reemplaza DGI Panamá ni Registro Público. El RUC por nombre en cada corrida usa otra carga más amplia: «Registro unido de RUC de Panamá» (pa_ruc_registry). Los dominios de correo de estas proveedoras (sólo el dominio) dan la web a la capa gratuita.',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P2',
