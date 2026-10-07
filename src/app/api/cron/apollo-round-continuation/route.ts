@@ -35,6 +35,8 @@ import {
 } from '@/modules/contact-enrichment/phone-reveal-recovery-cron-core';
 
 import { runApolloRoundContinuationWorkerFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker.server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { closeStuckAgentRuns } from '@/modules/prospect-batches/stuck-runs/stuck-runs.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +53,9 @@ async function handleCronRequest(request: NextRequest) {
     }
 
     const stats = await runApolloRoundContinuationWorkerFromEnv();
-    return NextResponse.json({ success: true, stats });
+    // AGENT1-STUCK-RUNS-CLOSE-1 — después de retomar, cerrar lo que quedó trabado.
+    const stuck = await closeStuckAgentRuns(createSupabaseAdminClient());
+    return NextResponse.json({ success: true, stats, stuck });
   } catch (err) {
     console.error('[CronApolloContinuation] Exception during worker execution:', err);
     return NextResponse.json(

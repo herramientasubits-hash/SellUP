@@ -154,6 +154,9 @@ mock.module('@/modules/prospect-batches/agent-runs/agent-runs-client', {
       server.findCalls += 1;
       return server.pending;
     },
+    // AGENT1-STUCK-RUNS-CLOSE-1 — botones «Terminar» / «Continuar» de la fila.
+    APOLLO_CONTINUATION_RETRY_EVENT: 'sellup:apollo-continuation:retry',
+    finishAgentRunViaRoute: async () => ({ closedJobs: 0, batchStatus: null }),
   },
 });
 

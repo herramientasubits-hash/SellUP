@@ -20,6 +20,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
+import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
+import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
+import { batchRunAttention } from '@/modules/prospect-batches/stuck-runs/stuck-runs-policy';
 import { RollbackBatchDialog } from '@/components/prospect-batches/rollback-batch-dialog';
 import { RehydrateBatchButton } from '@/components/prospect-batches/rehydrate-batch-button';
 import { ClaudeClassifyBatchButton } from '@/components/prospect-batches/claude-classify-batch-button';
@@ -70,13 +73,22 @@ export const maxDuration = 300;
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates, isAdmin] = await Promise.all([
+  const [batch, candidates, isAdmin, latestContinuation] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
     isCurrentUserAdmin(),
+    readLatestContinuationJob(batchId),
   ]);
 
   if (!batch) notFound();
+
+  // AGENT1-STUCK-RUNS-CLOSE-1 — ¿quedó la corrida a medias? (botones Continuar / Terminar)
+  const runAttention = batchRunAttention({
+    status: batch.status,
+    updatedAt: batch.updated_at ?? null,
+    nowMs: new Date().getTime(),
+    hasOpenContinuation: latestContinuation?.status === 'pending' || latestContinuation?.status === 'processing',
+  });
 
   const claudeEligibleCount = isAgent1ClaudeClassifierEnabled()
     ? countClaudeClassificationEligible(candidates)
@@ -232,6 +244,8 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         }
       />
+
+      {runAttention !== 'none' && <StalledRunBanner batchId={batch.id} attention={runAttention} />}
 
       {/* Banner importación externa */}
       {(batch.source as string) === 'external_import' && (() => {

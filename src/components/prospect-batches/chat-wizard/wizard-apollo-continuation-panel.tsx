@@ -41,9 +41,12 @@ import { ChatMark } from '@/components/chat';
 // 300 s y el cliente despacha las server actions de una en una, así que el resto
 // del chat esperaba detrás (Prod 06-10, «Validando la configuración…» congelado).
 import {
+  APOLLO_CONTINUATION_RETRY_EVENT,
   continueApolloRoundViaRoute as continueApolloRound,
+  finishAgentRunViaRoute,
   findPendingApolloContinuationViaRoute as findPendingApolloContinuation,
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { Button } from '@/components/ui/button';
 import {
   APOLLO_CONTINUATION_BROWSER_CLOSED_NOTE,
   APOLLO_CONTINUATION_IN_SESSION_NOTE,
@@ -57,6 +60,16 @@ import {
 /** En la bandeja: sigue mientras SellUp esté abierto, no sólo el chat. */
 const APOLLO_CONTINUATION_TRAY_NOTE =
   'Sigue mientras SellUp esté abierto. Si lo cierras no se pierde nada: un proceso diario lo retoma.';
+
+/** AGENT1-STUCK-RUNS-CLOSE-1 — textos de los botones de la fila. */
+const CONTINUATION_ACTION_COPY = {
+  finish: 'Terminar',
+  finishing: 'Terminando…',
+  finishHint: 'Se queda con lo encontrado y no gasta más créditos.',
+  resume: 'Continuar',
+  resumeHint: 'Sigue sólo lo que falta. Puede usar créditos de Apollo.',
+  finishError: 'No se pudo terminar. Inténtalo de nuevo.',
+} as const;
 
 /** Espera por defecto cuando el servidor no indica ninguna. */
 const FALLBACK_RETRY_MS = 2_000;
@@ -82,6 +95,11 @@ type ContinuationView =
       readonly status: ApolloContinuationUiStatus;
       /** El último intento no llegó al servidor. */
       readonly transportError: boolean;
+      /**
+       * AGENT1-STUCK-RUNS-CLOSE-1 — esta pantalla dejó de conducirla sin que
+       * terminara (error de red o la tiene otro): se ofrece «Continuar».
+       */
+      readonly stopped?: boolean;
     };
 
 export type WizardApolloContinuationPanelProps = {
@@ -113,7 +131,31 @@ export function WizardApolloContinuationPanel({
   onActiveChange,
 }: WizardApolloContinuationPanelProps) {
   const [view, setView] = React.useState<ContinuationView>({ kind: 'unknown' });
+  // AGENT1-STUCK-RUNS-CLOSE-1 — cambiarlo vuelve a preguntar y a conducir desde cero.
+  const [driveNonce, setDriveNonce] = React.useState(0);
+  const [finishing, setFinishing] = React.useState(false);
+  const [finishError, setFinishError] = React.useState(false);
   const isActive = view.kind === 'active';
+
+  React.useEffect(() => {
+    const retry = () => setDriveNonce((n) => n + 1);
+    window.addEventListener(APOLLO_CONTINUATION_RETRY_EVENT, retry);
+    return () => window.removeEventListener(APOLLO_CONTINUATION_RETRY_EVENT, retry);
+  }, []);
+
+  const finish = async (batchId: string) => {
+    setFinishing(true);
+    setFinishError(false);
+    try {
+      await finishAgentRunViaRoute(batchId);
+      // Volver a preguntar: sin continuación abierta, la fila desaparece.
+      setDriveNonce((n) => n + 1);
+    } catch {
+      setFinishError(true);
+    } finally {
+      setFinishing(false);
+    }
+  };
   React.useEffect(() => {
     onActiveChange?.(isActive);
   }, [isActive, onActiveChange]);
@@ -154,7 +196,7 @@ export function WizardApolloContinuationPanel({
           // en la cola. Se para —un bucle apretado contra un servidor caído es
           // una tormenta— y se dice exactamente eso.
           if (!cancelled) {
-            setView({ kind: 'active', batchId: target, status: 'failed', transportError: true });
+            setView({ kind: 'active', batchId: target, status: 'failed', transportError: true, stopped: true });
           }
           return;
         }
@@ -177,7 +219,10 @@ export function WizardApolloContinuationPanel({
         const unclaimed =
           outcome.status === 'pending_continuation' && outcome.pendingOrganizationCount === 0;
         unclaimedRounds = unclaimed ? unclaimedRounds + 1 : 0;
-        if (unclaimedRounds >= MAX_UNCLAIMED_ROUNDS) return;
+        if (unclaimedRounds >= MAX_UNCLAIMED_ROUNDS) {
+          setView({ kind: 'active', batchId: target, status: outcome.status, transportError: false, stopped: true });
+          return;
+        }
 
         await sleep(outcome.retryAfterMs ?? FALLBACK_RETRY_MS);
       }
@@ -191,7 +236,7 @@ export function WizardApolloContinuationPanel({
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [pausedRunSignal]);
+  }, [pausedRunSignal, driveNonce]);
 
   if (view.kind !== 'active') return null;
 
@@ -224,9 +269,39 @@ export function WizardApolloContinuationPanel({
               {APOLLO_CONTINUATION_TRAY_NOTE}
             </p>
           )}
-          <a className="text-xs font-medium text-primary hover:underline" href={`/prospect-batches/${view.batchId}`}>
-            Ver lote
-          </a>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {!isFinished && (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={finishing}
+                title={CONTINUATION_ACTION_COPY.finishHint}
+                onClick={() => void finish(view.batchId)}
+                data-testid="wizard-apollo-continuation-finish"
+              >
+                {finishing ? CONTINUATION_ACTION_COPY.finishing : CONTINUATION_ACTION_COPY.finish}
+              </Button>
+            )}
+            {view.stopped && !isFinished && (
+              <Button
+                size="xs"
+                variant="ghost"
+                title={CONTINUATION_ACTION_COPY.resumeHint}
+                onClick={() => setDriveNonce((n) => n + 1)}
+                data-testid="wizard-apollo-continuation-resume"
+              >
+                {CONTINUATION_ACTION_COPY.resume}
+              </Button>
+            )}
+            <a className="text-xs font-medium text-primary hover:underline" href={`/prospect-batches/${view.batchId}`}>
+              Ver lote
+            </a>
+          </div>
+          {finishError && (
+            <p className="text-xs text-destructive" role="alert">
+              {CONTINUATION_ACTION_COPY.finishError}
+            </p>
+          )}
         </div>
       </li>
     );
