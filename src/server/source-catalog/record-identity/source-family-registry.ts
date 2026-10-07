@@ -69,6 +69,11 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   pe_sunat_directory: 'TAX_GRAIN',
   // SOURCES-PY-CLOSE-1 — un RUC, una fila (proveedores del Estado de la DNCP de Paraguay).
   py_dncp_directory: 'TAX_GRAIN',
+  // SOURCES-GT-CLOSE-1 — un NIT, una fila (registro unido de Guatemala: Guatecompras,
+  // entidades compradoras, agentes de retención del IVA de la SAT y RGAE; y la capa
+  // gratuita de sociedades adjudicatarias de Guatecompras).
+  gt_nit_registry: 'TAX_GRAIN',
+  gt_guatecompras_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
@@ -87,6 +92,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-PY-CLOSE-1 — varias filas por RUC (sigla, partes del nombre, clave de
   // entidad pública del padrón de la DNIT): identidad `py-name-alias:<RUC>:<clave>`.
   py_set_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-GT-CLOSE-1 — varias filas por NIT (sigla, nombre comercial, nombre de otra
+  // fuente, clave de municipalidad): identidad `gt-name-alias:<NIT>:<clave>`.
+  gt_nit_name_alias: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC: la 1.ª con clave tax:<RUC>, las demás

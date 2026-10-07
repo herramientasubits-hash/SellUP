@@ -71,6 +71,12 @@ import {
 } from './bo-official-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
+import {
+  buildGtGuatecomprasDirectoryDiscoveryAdapter,
+  GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type GtGuatecomprasDirectoryDiscoveryReads,
+} from './gt-guatecompras-directory-discovery-adapter';
+import { macroHasGtGuatecomprasCoverage } from './gt-guatecompras-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
@@ -112,12 +118,17 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * (UNSPSC, `py-dncp-macro-table.ts`), sin consorcios y sin las que declararon ser
  * micro, pequeña o mediana.
  *
+ * SOURCES-GT-CLOSE-1 — Guatemala entra con las sociedades a las que el Estado
+ * adjudicó en Guatecompras (datos abiertos OCDS), clasificadas por lo que venden
+ * (UNSPSC, `gt-guatecompras-macro-table.ts`), sólo agentes de retención del IVA o
+ * con al menos Q5 millones adjudicados.
+ *
  * SOURCES-BO-CLOSE-1 — Bolivia entra con los grandes contribuyentes (PRICO/GRACO de
  * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
  * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
  * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'BO'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -133,6 +144,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
 });
 
@@ -155,6 +167,7 @@ export function resolveCountrySourceCapability(
  * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
  * Paraguay: la macro tiene clases UNSPSC en la tabla.
+ * Guatemala: la macro tiene clases UNSPSC en la tabla (la misma de Paraguay).
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
@@ -171,6 +184,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
+  if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
@@ -196,6 +210,7 @@ export function buildCountrySourceAdapter(
     clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
     pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
+    gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
@@ -228,6 +243,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'PY') {
     return deps.pyDncpDirectoryDiscoveryReads
       ? buildPyDncpDirectoryDiscoveryAdapter(deps.pyDncpDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'GT') {
+    return deps.gtGuatecomprasDirectoryDiscoveryReads
+      ? buildGtGuatecomprasDirectoryDiscoveryAdapter(deps.gtGuatecomprasDirectoryDiscoveryReads)
       : null;
   }
   if (capability.countryCode === 'BO') {

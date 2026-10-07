@@ -31,11 +31,12 @@ export function normalizeGuatemalaNit(
     str = String(raw);
   }
 
-  // Trim + remover espacios y guiones
-  str = str.trim().replace(/[\s\-]/g, '');
+  // Trim + remover espacios y guiones; la K del dígito verificador, en mayúscula.
+  str = str.trim().replace(/[\s\-]/g, '').toUpperCase();
 
-  // Solo dígitos
-  if (!/^\d+$/.test(str)) {
+  // Dígitos y, si el dígito verificador es 10, una K final (SOURCES-GT-CLOSE-1:
+  // antes se rechazaba y se perdía ~1 de cada 11 sociedades).
+  if (!/^\d+K?$/.test(str)) {
     return { isValid: false, normalized: null, reason: 'non_numeric', observedLength: null };
   }
 
