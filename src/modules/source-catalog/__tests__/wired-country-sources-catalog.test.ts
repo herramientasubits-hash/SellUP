@@ -31,6 +31,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'ar_rns_registry', country: 'AR', status: 'connected_identity_in_run' },
   { key: 'ar_rns', country: 'AR', status: 'connected_free_discovery' },
   { key: 'py_set_registry', country: 'PY', status: 'connected_identity_in_run' },
+  { key: 'py_dncp_directory', country: 'PY', status: 'connected_free_discovery' },
   { key: 'uy_rupe_registry', country: 'UY', status: 'connected_identity_in_run' },
   { key: 'us_sec_edgar_registry', country: 'US', status: 'connected_identity_in_run' },
   { key: 'us_irs_eo_registry', country: 'US', status: 'connected_identity_in_run' },

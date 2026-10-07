@@ -58,7 +58,13 @@ import {
   PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type PeSunatDirectoryDiscoveryReads,
 } from './pe-sunat-directory-discovery-adapter';
+import {
+  buildPyDncpDirectoryDiscoveryAdapter,
+  PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type PyDncpDirectoryDiscoveryReads,
+} from './py-dncp-directory-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
+import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
@@ -94,8 +100,13 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * (actividad CIIU Rev. 4 + trabajadores) cruzado con el padrón reducido,
  * clasificado por la tabla CIIU (`pe-sunat-macro-table.ts`), sólo sociedades y
  * entidades activas y habidas de 200+ trabajadores.
+ *
+ * SOURCES-PY-CLOSE-1 — Paraguay entra con las sociedades que el Estado contrató
+ * (adjudicaciones de la DNCP en datos abiertos), clasificadas por lo que venden
+ * (UNSPSC, `py-dncp-macro-table.ts`), sin consorcios y sin las que declararon ser
+ * micro, pequeña o mediana.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -110,6 +121,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   EC: { countryCode: 'EC', sourceKey: EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -130,6 +142,7 @@ export function resolveCountrySourceCapability(
  * Ecuador: la macro tiene actividades CIIU del INEC en la tabla.
  * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
+ * Paraguay: la macro tiene clases UNSPSC en la tabla.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -144,6 +157,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
+  if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -167,6 +181,7 @@ export function buildCountrySourceAdapter(
     ecScvsDirectoryDiscoveryReads?: EcScvsDirectoryDiscoveryReads | null;
     clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
+    pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -193,6 +208,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'PE') {
     return deps.peSunatDirectoryDiscoveryReads
       ? buildPeSunatDirectoryDiscoveryAdapter(deps.peSunatDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'PY') {
+    return deps.pyDncpDirectoryDiscoveryReads
+      ? buildPyDncpDirectoryDiscoveryAdapter(deps.pyDncpDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
