@@ -230,60 +230,61 @@ describe('buildPeSunatDirectoryDiscoveryAdapter', () => {
 describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
   type Call = { method: string; args: unknown[] };
 
-  function fakeClient(result: { data?: unknown; error?: unknown; throws?: boolean }) {
-    const calls: Call[] = [];
-    const builder: Record<string, unknown> = {};
-    for (const method of ['from', 'select', 'eq', 'order']) {
-      builder[method] = (...args: unknown[]) => {
-        calls.push({ method, args });
+  /** Cliente doble: una respuesta por consulta (en orden); cualquier escritura revienta. */
+  function fakeClient(results: Array<{ data?: unknown; error?: unknown; throws?: boolean }>) {
+    const calls: Call[][] = [];
+    const queue = [...results];
+    const client = {
+      from: (...args: unknown[]) => {
+        const current: Call[] = [{ method: 'from', args }];
+        calls.push(current);
+        const builder: Record<string, unknown> = {};
+        for (const method of ['select', 'eq', 'order', 'not', 'is']) {
+          builder[method] = (...a: unknown[]) => {
+            current.push({ method, args: a });
+            return builder;
+          };
+        }
+        builder.limit = (...a: unknown[]) => {
+          current.push({ method: 'limit', args: a });
+          const result = queue.shift() ?? { data: [] };
+          if (result.throws) return Promise.reject(new Error('network down'));
+          return Promise.resolve({ data: result.data ?? null, error: result.error ?? null });
+        };
+        for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
+          builder[write] = () => {
+            throw new Error(`escritura prohibida: ${write}`);
+          };
+        }
         return builder;
-      };
-    }
-    builder.limit = (...args: unknown[]) => {
-      calls.push({ method: 'limit', args });
-      if (result.throws) return Promise.reject(new Error('network down'));
-      return Promise.resolve({ data: result.data ?? null, error: result.error ?? null });
+      },
     };
-    for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
-      builder[write] = () => {
-        throw new Error(`escritura prohibida: ${write}`);
-      };
-    }
-    return { client: builder as unknown as SupabaseClient, calls };
+    return { client: client as unknown as SupabaseClient, calls };
   }
 
+  const dbRow = (n: number, rawData: Record<string, unknown>, priority: unknown = 1200 - n) => ({
+    record_identity_key: `tax:${ruc(n)}`,
+    normalized_tax_id: ruc(n),
+    legal_name: `EMPRESA ${n} S.A.C.`,
+    normalized_legal_name: `EMPRESA ${n}`,
+    city: n === 1 ? 'LIMA' : null,
+    region: n === 1 ? 'LIMA' : null,
+    priority_score: priority,
+    raw_data: rawData,
+  });
+
   it('lee sólo pe_sunat_directory / PE de la macro pedida, por trabajadores descendente y RUC, con tope', async () => {
-    const { client, calls } = fakeClient({
-      data: [
-        {
-          record_identity_key: `tax:${ruc(1)}`,
-          normalized_tax_id: ruc(1),
-          legal_name: 'EMPRESA A S.A.C.',
-          normalized_legal_name: 'EMPRESA A',
-          city: 'LIMA',
-          region: 'LIMA',
-          priority_score: '1200',
-          raw_data: { ciiu4_code: '6201', activity_text: 'PROGRAMACION INFORMATICA', workers: 1200, metrics_year: 2026, website_domain: 'empresa-a.com.pe' },
-        },
-        {
-          record_identity_key: `tax:${ruc(2)}`,
-          normalized_tax_id: ruc(2),
-          legal_name: 'EMPRESA B S.A.C.',
-          normalized_legal_name: 'EMPRESA B',
-          city: null,
-          region: null,
-          priority_score: null,
-          raw_data: { ciiu4_code: 7, activity_text: null, workers: '350.5', metrics_year: 'x' },
-        },
-      ],
-    });
+    const { client, calls } = fakeClient([
+      { data: [dbRow(1, { ciiu4_code: '6201', activity_text: 'PROGRAMACION INFORMATICA', workers: 1200, metrics_year: 2026, website_domain: 'empresa-a.com.pe' }, '1200')] },
+      { data: [dbRow(2, { ciiu4_code: 7, activity_text: null, workers: '350.5', metrics_year: 'x' }, null)] },
+    ]);
     const rows = await buildPeSunatDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 50 });
 
     assert.deepEqual(rows[0], {
       record_identity_key: `tax:${ruc(1)}`,
       ruc: ruc(1),
-      legal_name: 'EMPRESA A S.A.C.',
-      normalized_legal_name: 'EMPRESA A',
+      legal_name: 'EMPRESA 1 S.A.C.',
+      normalized_legal_name: 'EMPRESA 1',
       city: 'LIMA',
       region: 'LIMA',
       ciiu4_code: '6201',
@@ -298,24 +299,48 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
     assert.equal(rows[1].employees, null);
     assert.equal(rows[1].metrics_year, null);
 
-    assert.deepEqual(calls[0], { method: 'from', args: ['source_company_snapshots'] });
-    assert.deepEqual(calls.filter((c) => c.method === 'eq').map((c) => c.args), [
-      ['source_key', 'pe_sunat_directory'],
-      ['country_code', 'PE'],
-      ['raw_data->>macro_industry_key', 'technology'],
-    ]);
-    assert.deepEqual(calls.filter((c) => c.method === 'order').map((c) => c.args), [
-      ['priority_score', { ascending: false }],
-      ['normalized_tax_id', { ascending: true }],
-    ]);
-    assert.deepEqual(calls.at(-1), { method: 'limit', args: [50] });
+    for (const query of calls) {
+      assert.deepEqual(query[0], { method: 'from', args: ['source_company_snapshots'] });
+      assert.deepEqual(query.filter((c) => c.method === 'eq').map((c) => c.args), [
+        ['source_key', 'pe_sunat_directory'],
+        ['country_code', 'PE'],
+        ['raw_data->>macro_industry_key', 'technology'],
+      ]);
+      assert.deepEqual(query.filter((c) => c.method === 'order').map((c) => c.args), [
+        ['priority_score', { ascending: false }],
+        ['normalized_tax_id', { ascending: true }],
+      ]);
+    }
   });
 
-  it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {
-    const idle = fakeClient({ data: [] });
+  it('primero las que traen web oficial; el resto sólo completa lo que falta del tope', async () => {
+    const { client, calls } = fakeClient([
+      { data: [dbRow(1, { ciiu4_code: '8411', workers: 300, metrics_year: 2026, website_domain: 'munitacna.gob.pe' })] },
+      { data: [dbRow(2, { ciiu4_code: '8411', workers: 9000, metrics_year: 2026 })] },
+    ]);
+    const rows = await buildPeSunatDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'government', limit: 5 });
+    assert.deepEqual(rows.map((r) => r.ruc), [ruc(1), ruc(2)]);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].find((c) => c.method === 'not')?.args, ['raw_data->>website_domain', 'is', null]);
+    assert.deepEqual(calls[0].at(-1), { method: 'limit', args: [5] });
+    assert.deepEqual(calls[1].find((c) => c.method === 'is')?.args, ['raw_data->>website_domain', null]);
+    assert.deepEqual(calls[1].at(-1), { method: 'limit', args: [4] });
+  });
+
+  it('si las que traen web llenan el tope, no se lee el resto', async () => {
+    const { client, calls } = fakeClient([
+      { data: [1, 2].map((n) => dbRow(n, { ciiu4_code: '8411', workers: 300, metrics_year: 2026, website_domain: `muni${n}.gob.pe` })) },
+    ]);
+    const rows = await buildPeSunatDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'government', limit: 2 });
+    assert.equal(rows.length, 2);
+    assert.equal(calls.length, 1);
+  });
+
+  it('con límite 0 no consulta; un error o una excepción en cualquiera de las dos lecturas devuelven vacío', async () => {
+    const idle = fakeClient([]);
     assert.deepEqual(await buildPeSunatDirectoryDiscoveryReads(idle.client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 0 }), []);
     assert.equal(idle.calls.length, 0);
-    for (const failing of [{ error: { message: 'boom' } }, { throws: true }]) {
+    for (const failing of [[{ error: { message: 'boom' } }], [{ throws: true }], [{ data: [] }, { error: { message: 'boom' } }]]) {
       assert.deepEqual(
         await buildPeSunatDirectoryDiscoveryReads(fakeClient(failing).client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 }),
         [],
