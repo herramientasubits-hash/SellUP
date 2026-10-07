@@ -51,6 +51,11 @@ import {
 } from '@/server/agents/prospect-intake/resolvers/guatemala-official-source-resolver';
 import { buildGuatemalaSnapshotNameQuery } from '@/server/prospect-batches/guatemala-snapshot-query';
 import type { OfficialSourceResolverInput } from '@/server/agents/prospect-intake/source-enrichment';
+import { GT_SAT_IVA_AGENT_BAND, workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
+import {
+  extractOfficialRegistryWorkforce,
+  resolveEmployeeSizeForIcpGate,
+} from '@/server/agents/prospecting-toolkit/employee-size-resolver';
 
 describe('NIT de Guatemala', () => {
   it('dígito verificador módulo 11, con K cuando da 10 (NIT reales del listado de la SAT)', () => {
@@ -420,6 +425,74 @@ describe('lectura de producción (buildGuatemalaSnapshotNameQuery)', () => {
     assert.equal(idle.calls.length, 0);
     assert.deepEqual(await buildGuatemalaSnapshotNameQuery(fakeClient({ error: {} }).client)('A B'), []);
     assert.deepEqual(await buildGuatemalaSnapshotNameQuery(fakeClient({ throws: true }).client)('A B'), []);
+  });
+});
+
+describe('agente de retención del IVA (SAT) → filtro de tamaño', () => {
+  const ivaBand = { workers: 0, year: 2026, source: 'gt_sat_iva_agent', maxWorkers: null, sizeBand: GT_SAT_IVA_AGENT_BAND };
+
+  it('sólo un agente de retención da tramo; el año sale del listado o del de respaldo', () => {
+    assert.deepEqual(workforceFromRawData({ sat_iva_agent: true, sat_list_date: '2026-04-01' }, 'gt_sat_iva_agent'), ivaBand);
+    assert.deepEqual(workforceFromRawData({ sat_iva_agent: true }, 'gt_sat_iva_agent', 2026), ivaBand);
+    assert.equal(workforceFromRawData({ sat_iva_agent: true }, 'gt_sat_iva_agent'), null);
+    // No estar en la lista no prueba que sea pequeña.
+    assert.equal(workforceFromRawData({ sat_iva_agent: false, awarded_gtq: 5_000_000 }, 'gt_sat_iva_agent', 2026), null);
+  });
+
+  it('la lectura trae raw_data y pone el tramo sólo en las filas de agentes', async () => {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const builder: Record<string, unknown> = {};
+    for (const method of ['from', 'select', 'eq', 'in']) {
+      builder[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+        return builder;
+      };
+    }
+    builder.limit = () =>
+      Promise.resolve({
+        data: [
+          { source_key: 'gt_nit_registry', normalized_tax_id: '697656', legal_name: 'BANCO INDUSTRIAL', normalized_legal_name: 'BANCO INDUSTRIAL', raw_data: { sat_iva_agent: true, sat_list_date: '2026-04-01' } },
+          { source_key: 'gt_nit_registry', normalized_tax_id: '904946', legal_name: 'OTRA', normalized_legal_name: 'BANCO INDUSTRIAL', raw_data: { awards: 1 } },
+        ],
+        error: null,
+      });
+    const rows = await buildGuatemalaSnapshotNameQuery(builder as unknown as SupabaseClient)('BANCO INDUSTRIAL');
+    assert.match(String(calls.find((c) => c.method === 'select')?.args[0]), /raw_data/);
+    assert.deepEqual(rows[0].workforce, ivaBand);
+    assert.equal(rows[1].workforce, null);
+  });
+
+  it('el NIT seguro lleva el tramo a la ficha y NO decide (ni aprueba ni descarta)', async () => {
+    const { resolver } = resolverWith({
+      'BANCO INDUSTRIAL': [
+        { taxId: '697656', legalName: 'BANCO INDUSTRIAL SOCIEDAD ANONIMA', normalizedLegalName: 'BANCO INDUSTRIAL', alias: true, workforce: ivaBand },
+        { taxId: '697656', legalName: 'BANCO INDUSTRIAL SOCIEDAD ANONIMA', normalizedLegalName: 'BANCO INDUSTRIAL', workforce: null },
+      ],
+    });
+    const out = await resolver.resolve(candidate('Banco Industrial'));
+    assert.equal(out.status, 'matched');
+    assert.deepEqual(out.workforce, ivaBand);
+
+    const registry = extractOfficialRegistryWorkforce({
+      officialSourceIdentity: { strongIdentityAvailable: true, officialSourceMetadata: { workforce: out.workforce } },
+    });
+    const resolved = resolveEmployeeSizeForIcpGate({ threshold: 200, referenceYear: 2026, officialRegistryWorkforce: registry });
+    assert.equal(resolved.selectedSource, 'unknown');
+    const attempt = resolved.attemptedSources.find((a) => a.source === 'official_registry_workers');
+    assert.equal(attempt?.usable, false);
+    assert.match(attempt?.reason ?? '', /agente de retención del IVA/);
+  });
+
+  it('una pista (dos NIT) no lleva tramo', async () => {
+    const { resolver } = resolverWith({
+      'MUNICIPALIDAD SAN JOSE': [
+        { taxId: '697656', legalName: 'A', normalizedLegalName: 'MUNICIPALIDAD SAN JOSE', workforce: ivaBand },
+        { taxId: '904945', legalName: 'B', normalizedLegalName: 'MUNICIPALIDAD SAN JOSE' },
+      ],
+    });
+    const out = await resolver.resolve(candidate('Municipalidad de San José'));
+    assert.equal(out.status, 'low_confidence_match');
+    assert.equal(out.workforce, undefined);
   });
 });
 
