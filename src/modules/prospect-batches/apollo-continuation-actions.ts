@@ -35,6 +35,18 @@ import {
   listOpenContinuationBatchIds,
   readApolloContinuationSnapshot,
 } from './apollo-continuation-read.server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { closeStuckAgentRuns, finishAgentRunForBatch } from './stuck-runs/stuck-runs.server';
+import { STUCK_RUN_CLOSE_CODES } from './stuck-runs/stuck-runs-policy';
+
+/** AGENT1-STUCK-RUNS-CLOSE-1 — cliente de servicio, o `null` sin configuración. */
+function stuckRunsClient() {
+  try {
+    return createSupabaseAdminClient();
+  } catch {
+    return null;
+  }
+}
 
 export type ContinueApolloRoundResult = {
   readonly status: ApolloContinuationUiStatus | 'forbidden';
@@ -89,6 +101,14 @@ export async function continueApolloRound(batchId: string): Promise<ContinueApol
     return { status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null };
   }
   if (resolution === 'exhausted') {
+    // AGENT1-STUCK-RUNS-CLOSE-1 — agotada la continuación, el lote no puede
+    // quedarse «generando»: lo encontrado pasa a revisión.
+    const client = stuckRunsClient();
+    if (client) {
+      await finishAgentRunForBatch(client, batchId, null, { code: STUCK_RUN_CLOSE_CODES.exhausted }).catch(
+        (error: unknown) => console.error('[ApolloContinuation] cierre del lote agotado falló:', error),
+      );
+    }
     return { status: 'failed', pendingOrganizationCount: 0, retryAfterMs: null };
   }
   if (resolution === 'identity_mismatch') {
@@ -140,6 +160,12 @@ export type PendingApolloContinuationResult = {
  */
 export async function findPendingApolloContinuation(): Promise<PendingApolloContinuationResult> {
   await requireActiveUser();
+
+  // AGENT1-STUCK-RUNS-CLOSE-1 — antes de mostrar nada, se cierra lo que ya no
+  // va a avanzar (intentos agotados, abandonado, lote quieto). Así el Centro de
+  // procesos no enseña «a medias» una corrida que nadie retomará.
+  const sweepClient = stuckRunsClient();
+  if (sweepClient) await closeStuckAgentRuns(sweepClient);
 
   const candidateBatchIds = await listOpenContinuationBatchIds();
   if (candidateBatchIds.length === 0) return null;

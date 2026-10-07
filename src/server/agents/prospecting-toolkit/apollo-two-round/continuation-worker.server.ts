@@ -307,7 +307,7 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       return { assessmentDeadlineReached: paused, pendingOrganizationCount: pending };
     },
 
-    settleJob: async ({ jobId, leaseToken, status, resolution, errorCode }) => {
+    settleJob: async ({ jobId, leaseToken, status, resolution, errorCode, resetAttempts }) => {
       const patch: Record<string, unknown> = {
         status,
         error_code: errorCode ?? null,
@@ -324,6 +324,8 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       if (status === 'pending') {
         patch.next_retry_at = new Date(Date.now() + RETRY_BACKOFF_SECONDS * 1000).toISOString();
       }
+      // AGENT1-STUCK-RUNS-CLOSE-1 — ver `resetAttempts` en el contrato.
+      if (resetAttempts) patch.attempts = 0;
       // § 3 — VALLADO. El cierre exige el token con el que se reclamó: si el
       // lease caducó y otro worker se quedó el trabajo, el token viejo no
       // encuentra fila y esta escritura no pisa nada.

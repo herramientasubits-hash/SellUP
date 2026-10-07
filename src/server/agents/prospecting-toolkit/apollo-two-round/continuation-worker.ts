@@ -117,6 +117,12 @@ export type ApolloContinuationWorkerDeps = {
     status: 'completed' | 'pending' | 'failed' | 'skipped';
     resolution: ApolloContinuationJobResolution;
     errorCode?: string;
+    /**
+     * AGENT1-STUCK-RUNS-CLOSE-1 — la cuenta de intentos vuelve a cero: el trabajo
+     * vuelve a la cola tras AVANZAR (o sin haber empezado), no tras fallar. Así
+     * el tope corta los cortes repetidos y no una corrida larga y sana.
+     */
+    resetAttempts?: boolean;
   }) => Promise<void>;
   now: () => number;
 };
@@ -177,11 +183,26 @@ export function continuationIdentityMatches(
   return true;
 }
 
+/**
+ * AGENT1-STUCK-RUNS-CLOSE-1 — código con el que se cierra un trabajo que se tomó
+ * más veces de las permitidas sin llegar a cerrarse.
+ */
+export const APOLLO_CONTINUATION_MAX_ATTEMPTS_EXCEEDED = 'max_attempts_exceeded';
+
 /** Procesa UN trabajo. Nunca lanza: el desenlace siempre se decide aquí. */
 async function resolveJob(
   job: ApolloContinuationJob,
   deps: ApolloContinuationWorkerDeps,
 ): Promise<{ resolution: ApolloContinuationJobResolution; errorCode?: string }> {
+  // 🔴 AGENT1-STUCK-RUNS-CLOSE-1 — el reclamo suma un intento ANTES de que el
+  // conductor lo vea y no mira el máximo. Una ejecución que Vercel corta por
+  // tiempo nunca llega a cerrar el trabajo: su turno vence, se vuelve a tomar y
+  // así sin fin (Prod 07-10, AR×Gobierno b61a430d: 4 intentos de 3). Pasado el
+  // máximo se cierra SIN reanudar: reanudar podría volver a gastar.
+  if (job.attempts > job.maxAttempts) {
+    return { resolution: 'exhausted', errorCode: APOLLO_CONTINUATION_MAX_ATTEMPTS_EXCEEDED };
+  }
+
   let checkpoint: ApolloContinuationCheckpointView | null;
   try {
     checkpoint = await deps.loadCheckpointView(job.batchId);
@@ -300,6 +321,7 @@ export async function runApolloRoundContinuationWorker(
         leaseToken: job.leaseToken,
         status: 'pending',
         resolution: 'requeued',
+        resetAttempts: true,
       });
       continue;
     }
@@ -312,6 +334,7 @@ export async function runApolloRoundContinuationWorker(
       status,
       resolution,
       ...(errorCode ? { errorCode } : {}),
+      ...(resolution === 'requeued' ? { resetAttempts: true } : {}),
     });
 
     stats.resolutions.push({ jobId: job.id, resolution });
