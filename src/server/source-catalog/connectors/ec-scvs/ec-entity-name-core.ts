@@ -23,7 +23,8 @@
 
 import { normalizeEcCompanyCore } from './ec-company-name-core';
 
-const GAD = '(?:GOBIERNO AUTONOMO DESCENTRALIZADO|GOBIERNO AUTONOMO DESCENTRALIZADA|GAD)';
+// SOURCES-EC-PUBLIC-ENTITIES-1 — también «HONORABLE GOBIERNO AUTONOMO …» (Chimborazo).
+const GAD = '(?:(?:HONORABLE |H )?GOBIERNO AUTONOMO DESCENTRALIZADO|GOBIERNO AUTONOMO DESCENTRALIZADA|GAD)';
 const OF = '(?:DE LA |DEL |DE LOS |DE )?';
 
 /** Orden: lo más específico primero. El grupo 1 es el lugar. */
@@ -36,6 +37,14 @@ const PUBLIC_ENTITY_PATTERNS: ReadonlyArray<{ re: RegExp; kind: string }> = [
   { re: new RegExp(`^(?:GOBIERNO|CONSEJO) PROVINCIAL ${OF}(.+)$`), kind: 'PROVINCIAL' },
   { re: new RegExp(`^PREFECTURA ${OF}(?:PROVINCIA ${OF})?(.+)$`), kind: 'PROVINCIAL' },
   // Cantones y distritos metropolitanos.
+  // SOURCES-EC-PUBLIC-ENTITIES-1 — formas que el SRI también usa (Prod 07-10):
+  // «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPALIDAD DE AMBATO»,
+  // «… ILUSTRE MUNICIPALIDAD DEL CANTON DAULE», «GOBIERNO MUNICIPAL DEL CANTON MORONA».
+  {
+    re: new RegExp(`^${GAD} (?:M I |MUY ILUSTRE |ILUSTRE |I )?MUNICIPALIDAD ${OF}(?:CANTON ${OF})?(.+)$`),
+    kind: 'MUNICIPAL',
+  },
+  { re: new RegExp(`^GOBIERNO MUNICIPAL ${OF}(?:CANTON ${OF})?(.+)$`), kind: 'MUNICIPAL' },
   { re: new RegExp(`^${GAD} (?:MUNICIPAL )?${OF}(?:DISTRITO METROPOLITANO|CANTON) ${OF}(.+)$`), kind: 'MUNICIPAL' },
   { re: new RegExp(`^${GAD} MUNICIPAL ${OF}(?:CANTON ${OF})?(.+)$`), kind: 'MUNICIPAL' },
   {
@@ -51,9 +60,15 @@ export function canonicalEcLocalGovernment(core: string): string | null {
   for (const { re, kind } of PUBLIC_ENTITY_PATTERNS) {
     const match = re.exec(core);
     if (match === null) continue;
-    const place = match[1].replace(/^(?:CANTON|DISTRITO METROPOLITANO) (?:DE |DEL )?/, '').trim();
-    if (place.length < 2) return null;
-    return `GAD ${kind} ${place}`;
+    const place = match[1]
+      .replace(/^(?:CANTON|DISTRITO METROPOLITANO) (?:DE |DEL )?/, '')
+      // Su propia sigla al final: «BABAHOYO GADM DE BABAHOYO», «SAN FRANCISCO DE MILAGRO GADMM».
+      .replace(/ GADM[A-Z]*(?: .*)?$/, '')
+      .trim();
+    // «DE LOS RIOS»: el artículo opcional se comía el «LOS» del nombre de la provincia.
+    const fixedPlace = place === 'RIOS' && /\bLOS RIOS\b/.test(core) ? 'LOS RIOS' : place;
+    if (fixedPlace.length < 2) return null;
+    return `GAD ${kind} ${fixedPlace}`;
   }
   return null;
 }
