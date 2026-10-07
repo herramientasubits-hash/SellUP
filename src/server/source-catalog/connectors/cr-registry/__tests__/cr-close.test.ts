@@ -19,6 +19,7 @@ import {
 import { buildCrCompanyRegistry, type CrSourceRecords } from '../cr-company-registry-rows';
 import {
   matchCrMideplanInstitutions,
+  parseCrLargeTaxpayersListText,
   parseCrNamedCedulaListText,
   splitCrInstitutionAcronym,
 } from '../cr-official-lists';
@@ -639,5 +640,62 @@ describe('cédula por la web oficial de una entidad pública (corrida CR×Tec 07
   it('sin web o con otra web, el nombre sigue mandando', async () => {
     assert.equal((await resolve('TEC', 'otra.com')).status, 'not_found');
     assert.equal((await resolve('Instituto Tecnológico de Costa Rica', null)).taxIdentifier, '4000042145');
+  });
+});
+
+describe('Hacienda «Grandes Contribuyentes Nacionales» (PDF de noviembre de 2025)', () => {
+  // La forma real del texto del PDF: número, cédula y razón social en una o varias líneas.
+  const text = [
+    '1 ',
+    'Actualizada al 03 de noviembre del 2025 ',
+    'Lista de Grandes Contribuyentes Nacionales ',
+    'N° ',
+    'Id N° ',
+    'Razón Social ',
+    '1 ',
+    '3101011167 ',
+    '3-101-011167 SOCIEDAD ANONIMA ',
+    '2 ',
+    '3102658545 ',
+    'AKAMAI ',
+    'TECHNOLOGIES COSTA RICA SOCIEDAD DE RESPONSABILIDAD LIMITADA ',
+    '3 ',
+    '3101000784 ',
+    'FLORIDA ICE AND FARM COMPANY SOCIEDAD ANONIMA ',
+    'Holding + otra Actividad** ',
+    '4 ',
+    '3102008751 ',
+    'EBRO COSTA RICA LIMITADA ',
+    'Holding 100%* ',
+    ' ',
+    '* Holding: Estas no se encuentran sujetas al pago del impuesto sobre la renta ',
+  ].join('\n');
+
+  it('una fila por cédula, nombre en varias líneas, sin encabezados ni la anotación «Holding»', () => {
+    assert.deepEqual(parseCrLargeTaxpayersListText(text), [
+      { cedula: '3101011167', name: '3-101-011167 SOCIEDAD ANONIMA' },
+      { cedula: '3102658545', name: 'AKAMAI TECHNOLOGIES COSTA RICA SOCIEDAD DE RESPONSABILIDAD LIMITADA' },
+      { cedula: '3101000784', name: 'FLORIDA ICE AND FARM COMPANY SOCIEDAD ANONIMA' },
+      { cedula: '3102008751', name: 'EBRO COSTA RICA LIMITADA' },
+    ]);
+  });
+
+  it('da cédula a las grandes locales; un nombre más reciente (SUGEF) no se pisa', () => {
+    const { registry } = buildCrCompanyRegistry(
+      {
+        grandesContribuyentes: [
+          { cedula: '3101000784', name: 'FLORIDA ICE AND FARM COMPANY SOCIEDAD ANONIMA' },
+          { cedula: '3101046536', name: 'SCOTIABANK DE COSTA RICA SOCIEDAD ANONIMA' },
+        ],
+        sugef: [{ cedula: '3-101-046536', name: 'Davibank (Costa Rica) S.A. (antes Scotiabank de Costa Rica S.A.)' }],
+      },
+      params,
+    );
+    const fifco = registry.find((r) => r.tax_id === '3101000784');
+    assert.equal(fifco?.normalized_legal_name, 'FLORIDA ICE AND FARM COMPANY');
+    assert.equal(fifco?.raw_data.origin, 'hacienda_grandes_contribuyentes');
+    const davibank = registry.find((r) => r.tax_id === '3101046536');
+    assert.equal(davibank?.legal_name, 'Davibank (Costa Rica) S.A.');
+    assert.deepEqual(davibank?.raw_data.origins, ['sugef', 'hacienda_grandes_contribuyentes']);
   });
 });

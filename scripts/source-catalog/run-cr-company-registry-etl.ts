@@ -16,7 +16,8 @@
  *   --aclaraciones=<xlsx>     Hacienda SICOP «aclaraciones» 2022-2024.
  *   --zona-franca=<xlsx>      PROCOMER «Empresas en Régimen de Zona Franca».
  *   --sugef=<txt>             SUGEF «Entidades supervisadas» (pdftotext -layout).
- *   --grandes=<txt>           Hacienda «Grandes Contribuyentes Nacionales» (pdftotext -layout).
+ *   --grandes=<txt>           Hacienda «Grandes Contribuyentes Nacionales» (texto del PDF; la
+ *                             descarga está bloqueada fuera de Costa Rica).
  *   --sicop-suppliers=<jsonl> y --sicop-institutions=<jsonl>
  *                             salida de `extract-cr-sicop-suppliers.py`.
  *   --mideplan=<jsonl>        fichas de MIDEPLAN ({name, web}) para siglas y web.
@@ -52,6 +53,7 @@ import {
 } from '../../src/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
 import {
   matchCrMideplanInstitutions,
+  parseCrLargeTaxpayersListText,
   parseCrNamedCedulaListText,
   type CrMideplanInstitution,
 } from '../../src/server/source-catalog/connectors/cr-registry/cr-official-lists';
@@ -130,7 +132,7 @@ async function main(): Promise<void> {
     aclaraciones: path('aclaraciones') ? readFirstSheet(path('aclaraciones')!) : [],
     zonaFranca: path('zona-franca') ? readFirstSheet(path('zona-franca')!) : [],
     sugef: path('sugef') ? parseCrNamedCedulaListText(readFileSync(path('sugef')!, 'utf8')) : [],
-    grandesContribuyentes: path('grandes') ? parseCrNamedCedulaListText(readFileSync(path('grandes')!, 'utf8')) : [],
+    grandesContribuyentes: path('grandes') ? parseCrLargeTaxpayersListText(readFileSync(path('grandes')!, 'utf8')) : [],
     institutions,
     acronymsByCedula,
     websitesByCedula,

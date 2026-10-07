@@ -54,6 +54,55 @@ export function parseCrNamedCedulaListText(text: string): CrNamedCedula[] {
   return out;
 }
 
+/** Encabezados de página de la lista de Grandes Contribuyentes Nacionales. */
+const LARGE_TAXPAYERS_HEADER = /^(Actualizada al|Lista de Grandes|N°|Id N°|Raz[oó]n Social)/i;
+
+/** Anotación de las tenedoras de acciones al final de la razón social, y la nota al pie. */
+const LARGE_TAXPAYERS_HOLDING_NOTE = /\s+Holding\b.*$/i;
+
+const DIGITS_ONLY = /^\d{1,4}$/;
+const CEDULA_LINE = /^[234]\d{9}$/;
+
+/**
+ * Hacienda «Lista de Grandes Contribuyentes Nacionales» (PDF, `pdftotext` o
+ * PyMuPDF): cada fila es «N°», la cédula en su propia línea y la razón social en
+ * una o VARIAS líneas siguientes, hasta el número de la fila siguiente. Las
+ * tenedoras de acciones llevan detrás «Holding 100%*» u «Holding + otra
+ * Actividad**», que no es parte del nombre. SOURCES-CR-CLOSE-1.
+ */
+export function parseCrLargeTaxpayersListText(text: string): CrNamedCedula[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const out: CrNamedCedula[] = [];
+  const seen = new Set<string>();
+  let i = 0;
+  while (i < lines.length) {
+    if (!CEDULA_LINE.test(lines[i])) {
+      i += 1;
+      continue;
+    }
+    const cedula = lines[i];
+    const parts: string[] = [];
+    let j = i + 1;
+    while (
+      j < lines.length &&
+      !CEDULA_LINE.test(lines[j]) &&
+      !(DIGITS_ONLY.test(lines[j]) && j + 1 < lines.length && CEDULA_LINE.test(lines[j + 1]))
+    ) {
+      if (!LARGE_TAXPAYERS_HEADER.test(lines[j]) && !DIGITS_ONLY.test(lines[j])) parts.push(lines[j]);
+      j += 1;
+    }
+    i = j;
+    const name = clean(parts.join(' ').replace(LARGE_TAXPAYERS_HOLDING_NOTE, ''));
+    if (seen.has(cedula) || costaRicaNameCore(name).length < 2) continue;
+    seen.add(cedula);
+    out.push({ cedula, name });
+  }
+  return out;
+}
+
 /** Una ficha de MIDEPLAN ya leída. */
 export type CrMideplanInstitution = { name: string | null; web: string | null };
 
