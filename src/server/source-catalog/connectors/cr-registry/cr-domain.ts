@@ -53,3 +53,22 @@ export function costaRicaSingleWordConfirmedByDomain(
   const word = compact(core);
   return word.length >= 3 && label === word;
 }
+
+/** Prefijo de la clave de alias por web (nunca choca con un núcleo de nombre: lleva «:» y «.»). */
+export const CR_WEB_ALIAS_PREFIX = 'web:' as const;
+
+/**
+ * Clave de alias por la web OFICIAL de una entidad pública («https://www.tec.ac.cr/»
+ * → «web:tec.ac.cr»), o `null` si no es un dominio propio (red social, correo
+ * gratuito, un segundo nivel suelto como «go.cr»).
+ */
+export function costaRicaWebAliasKey(url: string | null | undefined): string | null {
+  const host = normalizeWebsiteHost(url ?? null);
+  if (host === null) return null;
+  const domain = registrableCostaRicaDomain(host);
+  const label = domain.split('.')[0] ?? '';
+  if (label.length < 2 || SECOND_LEVEL.has(label) || label === 'cr') return null;
+  if (isNonCorporateDomain(domain) || isNonCorporateDomain(host)) return null;
+  if (/^(facebook|instagram|twitter|x|google|youtube|linkedin|wix|wordpress|blogspot)\./.test(domain)) return null;
+  return `${CR_WEB_ALIAS_PREFIX}${domain}`;
+}
