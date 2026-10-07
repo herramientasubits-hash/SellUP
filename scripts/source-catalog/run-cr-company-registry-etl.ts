@@ -118,7 +118,11 @@ async function main(): Promise<void> {
   const fichas = readJsonl<{ name?: string; web?: string }>(path('mideplan')).map(mideplanFicha);
   const mideplan = matchCrMideplanInstitutions(institutions, fichas);
   const acronymsByCedula = new Map<string, string[]>();
-  for (const [cedula, info] of mideplan) if (info.acronym) acronymsByCedula.set(cedula, [info.acronym]);
+  const websitesByCedula = new Map<string, string>();
+  for (const [cedula, info] of mideplan) {
+    if (info.acronym) acronymsByCedula.set(cedula, [info.acronym]);
+    if (info.web) websitesByCedula.set(cedula, info.web);
+  }
 
   const records: CrSourceRecords = {
     pymes: path('pymes') ? readFirstSheet(path('pymes')!) : [],
@@ -129,6 +133,7 @@ async function main(): Promise<void> {
     grandesContribuyentes: path('grandes') ? parseCrNamedCedulaListText(readFileSync(path('grandes')!, 'utf8')) : [],
     institutions,
     acronymsByCedula,
+    websitesByCedula,
   };
   const year = Number(value(argv, 'year') ?? new Date().getUTCFullYear());
   const importedAt = new Date().toISOString();
@@ -199,7 +204,7 @@ async function main(): Promise<void> {
   for (const row of registry) cores.set(row.normalized_legal_name, (cores.get(row.normalized_legal_name) ?? 0) + 1);
   const unique = registry.filter((row) => cores.get(row.normalized_legal_name) === 1).length;
   console.log(
-    `  Leídos: pymes ${records.pymes?.length ?? 0} · recursos ${records.recursos?.length ?? 0} · aclaraciones ${records.aclaraciones?.length ?? 0} · zona franca ${records.zonaFranca?.length ?? 0} · sugef ${records.sugef?.length ?? 0} · grandes ${records.grandesContribuyentes?.length ?? 0} · instituciones ${institutions.length} · fichas MIDEPLAN cruzadas ${mideplan.size} (siglas ${acronymsByCedula.size})`,
+    `  Leídos: pymes ${records.pymes?.length ?? 0} · recursos ${records.recursos?.length ?? 0} · aclaraciones ${records.aclaraciones?.length ?? 0} · zona franca ${records.zonaFranca?.length ?? 0} · sugef ${records.sugef?.length ?? 0} · grandes ${records.grandesContribuyentes?.length ?? 0} · instituciones ${institutions.length} · fichas MIDEPLAN cruzadas ${mideplan.size} (siglas ${acronymsByCedula.size}, webs ${websitesByCedula.size})`,
   );
   console.log(`  Registro: ${registry.length} cédulas — por origen ${JSON.stringify(countBy(registry, (r) => String(r.raw_data.origin)))}`);
   console.log(`  Registro: por prefijo ${JSON.stringify(countBy(registry, (r) => r.tax_id.slice(0, 1)))} · tramo MEIC ${JSON.stringify(countBy(registry, (r) => String(r.raw_data['cr_meic_size'] ?? '-')))}`);

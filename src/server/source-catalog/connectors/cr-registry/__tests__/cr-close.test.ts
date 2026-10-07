@@ -31,7 +31,7 @@ import {
   mergeCrFreeDirectoryRows,
   type CrRegistryLookup,
 } from '../cr-free-directory-row';
-import { costaRicaSingleWordConfirmedByDomain, registrableCostaRicaDomain } from '../cr-domain';
+import { costaRicaSingleWordConfirmedByDomain, costaRicaWebAliasKey, registrableCostaRicaDomain } from '../cr-domain';
 import { createCostaRicaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/costa-rica-official-source-resolver';
 import { workforceFromRawData, CR_MEIC_BANDS } from '@/server/prospect-batches/snapshot-name-query';
 import { DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY } from '@/server/agents/prospect-intake/source-enrichment';
@@ -573,5 +573,71 @@ describe('descubrimiento gratuito de Costa Rica', () => {
     const out = await adapter({ countryCode: 'CR', macroIndustryKey: 'no_such_macro', limit: 10 } as never);
     assert.equal(called, false);
     assert.deepEqual(out.companies, []);
+  });
+});
+
+describe('cédula por la web oficial de una entidad pública (corrida CR×Tec 07-10: «TEC» con tec.ac.cr)', () => {
+  it('clave de alias por web: dominio propio, nunca un segundo nivel suelto ni una red social', () => {
+    assert.equal(costaRicaWebAliasKey('https://www.tec.ac.cr/'), 'web:tec.ac.cr');
+    assert.equal(costaRicaWebAliasKey('https://www.grupoice.com/wps/portal'), 'web:grupoice.com');
+    assert.equal(costaRicaWebAliasKey('go.cr'), null);
+    assert.equal(costaRicaWebAliasKey('https://www.facebook.com/muni'), null);
+    assert.equal(costaRicaWebAliasKey(null), null);
+  });
+
+  const { registry, aliases } = buildCrCompanyRegistry(
+    {
+      institutions: [
+        { cedula: '4000042145', name: 'INSTITUTO TECNOLÓGICO DE COSTA RICA' },
+        { cedula: '2100042010', name: 'MINISTERIO DE SALUD' },
+        { cedula: '3007999991', name: 'AUDITORIA GENERAL DE SERVICIOS DE SALUD' },
+        { cedula: '3007999992', name: 'ENTE A' },
+        { cedula: '3007999993', name: 'ENTE B' },
+      ],
+      websitesByCedula: new Map([
+        ['4000042145', 'https://www.tec.ac.cr/'],
+        // El órgano adscrito apunta a una página dentro de la web del ministerio.
+        ['2100042010', 'https://www.ministeriodesalud.go.cr/'],
+        ['3007999991', 'https://www.ministeriodesalud.go.cr/index.php/281-comisiones/1324-auditoria'],
+        // Dos entes con la misma web en la raíz: no identifica a ninguno.
+        ['3007999992', 'https://www.compartida.go.cr/'],
+        ['3007999993', 'https://www.compartida.go.cr/'],
+      ]),
+    },
+    params,
+  );
+  const owner = (key: string) => aliases.filter((a) => a.normalized_legal_name === key).map((a) => a.tax_id);
+
+  it('la web identifica a su entidad; la compartida sólo a la que la tiene en la raíz', () => {
+    assert.deepEqual(owner('web:tec.ac.cr'), ['4000042145']);
+    assert.deepEqual(owner('web:ministeriodesalud.go.cr'), ['2100042010']);
+    assert.deepEqual(owner('web:compartida.go.cr'), []);
+  });
+
+  const rows = [...registry, ...aliases];
+  const resolver = createCostaRicaOfficialSourceResolver({
+    querySnapshots: async (core) =>
+      rows
+        .filter((r) => r.normalized_legal_name === core)
+        .map((r) => ({ taxId: r.tax_id, legalName: r.legal_name, normalizedLegalName: r.normalized_legal_name, alias: r.source_key === 'cr_company_name_alias' })),
+  });
+  const resolve = (canonicalName: string, domain: string | null) =>
+    resolver.resolve({
+      candidate: { canonicalName, countryCode: 'CR', domain, websiteUrl: null },
+      criteria: { countryCode: 'CR' },
+      policy: DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
+    } as unknown as OfficialSourceResolverInput);
+
+  it('«TEC» con tec.ac.cr → cédula del Instituto Tecnológico, por web', async () => {
+    const out = await resolve('TEC', 'tec.ac.cr');
+    assert.equal(out.status, 'matched');
+    assert.equal(out.taxIdentifier, '4000042145');
+    assert.equal(out.matchMethod, 'domain');
+    assert.deepEqual(out.safeMetadata, { matchedOfficialWebsite: 'tec.ac.cr' });
+  });
+
+  it('sin web o con otra web, el nombre sigue mandando', async () => {
+    assert.equal((await resolve('TEC', 'otra.com')).status, 'not_found');
+    assert.equal((await resolve('Instituto Tecnológico de Costa Rica', null)).taxIdentifier, '4000042145');
   });
 });
