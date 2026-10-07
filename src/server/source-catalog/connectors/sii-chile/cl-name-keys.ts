@@ -258,6 +258,29 @@ export function chileGroupBrandByDomain(
   return null;
 }
 
+/** Una entidad de las tablas curadas (marca de grupo o sigla pública). */
+export type ChileOfficialDomainEntity = { rut: string; legalName: string; via: 'group_brand' | 'public_entity_sigla' };
+
+/**
+ * SOURCES-CL-OFFICIAL-DOMAIN-1 — la web del candidato ES la oficial de una marca de
+ * grupo o de un organismo público de las tablas: eso basta, aunque el nombre venga
+ * mal armado. Prod 07-10 (Chile × Retail, ecf6b342): la búsqueda web trajo «Tiendas y
+ * horarios Easy» (el título de la página) con easy.cl y quedó sin RUT. Las webs de las
+ * tablas son de UNA sola entidad cada una; un subdominio también es suyo.
+ */
+export function chileEntityByOfficialDomain(domainOrUrl: string | null | undefined): ChileOfficialDomainEntity | null {
+  const domain = plainDomain(domainOrUrl);
+  if (domain === null) return null;
+  const owns = (domains: readonly string[]) => domains.some((d) => domain === d || domain.endsWith(`.${d}`));
+  for (const brand of Object.values(CL_GROUP_BRANDS)) {
+    if (owns(brand.domains)) return { rut: brand.rut, legalName: brand.legalName, via: 'group_brand' };
+  }
+  for (const entity of Object.values(CL_PUBLIC_ENTITY_SIGLAS)) {
+    if (owns(entity.domains)) return { rut: entity.rut, legalName: entity.legalName, via: 'public_entity_sigla' };
+  }
+  return null;
+}
+
 /**
  * SOURCES-CL-RETAIL-BRANDS-1 — desempate de homónimos por tamaño: si un nombre exacto
  * lo comparten varias sociedades y UNA sola informa este mínimo de trabajadores

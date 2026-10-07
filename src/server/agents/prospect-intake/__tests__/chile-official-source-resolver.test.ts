@@ -230,6 +230,14 @@ describe('marcas de grupos grandes y homónimos por tamaño (Chile × Retail, 07
     assert.equal((await resolver.resolve(input('Jumbo', 'jumbo-juguetes.cl'))).status, 'not_found');
   });
 
+  it('la web oficial basta aunque el nombre venga mal armado («Tiendas y horarios Easy», ecf6b342)', async () => {
+    const { query } = memoryQuery({});
+    const resolver = createChileOfficialSourceResolver({ querySnapshots: query });
+    assert.equal((await resolver.resolve(input('Tiendas y horarios Easy', 'easy.cl'))).taxIdentifier, '77562427-2');
+    assert.equal((await resolver.resolve(input('Trámites en línea', 'https://www.sernac.cl/portal'))).taxIdentifier, '60702000-0');
+    assert.equal((await resolver.resolve(input('Tiendas y horarios Easy', 'easyhome.cl'))).status, 'not_found');
+  });
+
   it('homónimos: gana la única con 50+ trabajadores si las demás informan 0', async () => {
     const { query } = memoryQuery({ TRICOT: [wfRow('84000000-1', 130), wfRow('76266576-K', 0)] });
     const out = await createChileOfficialSourceResolver({ querySnapshots: query }).resolve(input('Tricot.cl', 'tricot.cl'));
