@@ -75,7 +75,10 @@ describe('1. las sin web que no caben siguen en la fuente', () => {
 
   it('la capa gratuita usa la selección y deja constancia de lo que siguió en la fuente', () => {
     const runner = source(`${DISCOVERY}/run-prepaid-novelty-discovery.server.ts`);
-    assert.match(runner, /selectUnverifiedForThisSearch\(withoutDomain, deliveryCap, deliveredFree\.length\)/);
+    assert.match(runner, /selectUnverifiedForThisSearch\(\s*withoutDomain,\s*deliveryCap,\s*deliveredFree\.length \+ alreadyWaiting,?\s*\)/);
+    // AGENT1-FREE-LAYER-WINDOW-PER-BATCH-1 — en producción se cuentan las que ya esperan en el lote.
+    assert.match(runner, /countPendingUnverified: countPendingFreeSourceUnverified/);
+    assert.match(runner, /\.is\('evidence->claude_rescue->>decision', null\)/);
     assert.match(runner, /companies: sentToDiscards/);
     assert.match(runner, /unverified_left_in_source:/);
     assert.doesNotMatch(runner, /companies: withoutDomain/);
