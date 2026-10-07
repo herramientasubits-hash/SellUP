@@ -219,12 +219,38 @@ export type PrePaidNoveltyDiscoveryDeps = {
    * ausente ⇒ la escritura real. Nunca lanza.
    */
   recordUnverified?: typeof persistDiscardedDispositionRows;
+  /**
+   * AGENT1-FREE-LAYER-WINDOW-PER-BATCH-1 — cuántas sin web de la capa gratuita ya
+   * esperan al rescate en ESTE lote (sin decisión). Ausente ⇒ 0 (como antes).
+   */
+  countPendingUnverified?: (client: SupabaseClient, batchId: string) => Promise<number>;
 };
+
+/**
+ * Sin web, de la capa gratuita, todavía en Descartadas y sin decisión del rescate:
+ * las que ya ocupan la ventana de esta búsqueda. Sólo lectura; un error cuenta 0.
+ */
+export async function countPendingFreeSourceUnverified(client: SupabaseClient, batchId: string): Promise<number> {
+  try {
+    const { count, error } = await client
+      .from('prospect_discarded_dispositions')
+      .select('id', { count: 'exact', head: true })
+      .eq('batch_id', batchId)
+      .eq('round_origin', 'free_source')
+      .eq('reason_code', 'missing_domain_final')
+      .eq('status', 'discarded')
+      .is('evidence->claude_rescue->>decision', null);
+    return error || count === null ? 0 : count;
+  } catch {
+    return 0;
+  }
+}
 
 const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
   runGate: runProductionPrePaidNoveltyGate,
   persist: persistCountrySourceCandidates,
   recordUnverified: persistDiscardedDispositionRows,
+  countPendingUnverified: countPendingFreeSourceUnverified,
 };
 
 /**
@@ -500,7 +526,20 @@ async function runFreeCatalogLayer(
   // próxima búsqueda del mismo país e industria las vuelve a ofrecer. Prod 07-10
   // (Ecuador × Retail, 2aab8384): 79 sin web a Descartadas, el rescate metió 4 y
   // Kywi, Pycca, Eljuri o Unicomer no iban a volver nunca.
-  const sentToDiscards = selectUnverifiedForThisSearch(withoutDomain, deliveryCap, deliveredFree.length);
+  //
+  // AGENT1-FREE-LAYER-WINDOW-PER-BATCH-1 — la capa gratuita puede correr MÁS de una vez
+  // en la misma búsqueda (Prod 07-10, Costa Rica × Tecnología, 25fd9c3e: 12:10:01 y
+  // 12:11:48, 10 + 10 = 20 a Descartadas). La ventana descuenta las sin web que el
+  // lote YA tiene esperando al rescate.
+  const alreadyWaiting =
+    canonicalBatchId && deps.countPendingUnverified && deliveryCap !== null
+      ? await deps.countPendingUnverified(client, canonicalBatchId).catch(() => 0)
+      : 0;
+  const sentToDiscards = selectUnverifiedForThisSearch(
+    withoutDomain,
+    deliveryCap,
+    deliveredFree.length + alreadyWaiting,
+  );
 
   const unverifiedTelemetry = {
     unverified_without_domain: withoutDomain.length,
