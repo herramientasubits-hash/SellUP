@@ -34,7 +34,7 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 import { AR_RNS_CLASS_MACRO, AR_RNS_DIVISION_MACRO } from './ar-rns-macro-table';
 
 /** Versión de la tabla. */
-export const BO_ACTIVITY_MACRO_TABLE_VERSION = 'bo-keyword-ciiu4-macro-v1' as const;
+export const BO_ACTIVITY_MACRO_TABLE_VERSION = 'bo-keyword-ciiu4-macro-v1.1' as const;
 
 /** Una regla: palabras (raíces, en mayúsculas sin tildes) → división o clase CIIU Rev. 4. */
 export type BoActivityRule = {
@@ -195,10 +195,23 @@ export function matchBoActivityRule(
   const normalized = normalizeBoActivityText(text);
   if (normalized.length === 0) return null;
   if (basis === 'legal_name') {
-    for (const rule of BO_ACTIVITY_RULES) {
-      if ([...rule.stems, ...(rule.nameOnlyStems ?? [])].some((stem) => stemMatches(normalized, stem, false))) return rule;
+    const matches = (rule: BoActivityRule) =>
+      [...rule.stems, ...(rule.nameOnlyStems ?? [])].some((stem) => stemMatches(normalized, stem, false));
+    // Las reglas sólo-de-nombre sin raíces propias («tecnología», «sistemas»,
+    // «digital»…) son GENÉRICAS: sólo deciden si ninguna otra del nombre aparece.
+    // Corrida 07-10 (6a7af4ea): «TECNOLOGIA EN PREFABRICADOS PARA LA CONSTRUCCION»
+    // es construcción, no tecnología.
+    const specific = BO_ACTIVITY_RULES.find((rule) => rule.stems.length > 0 && matches(rule)) ?? null;
+    const generic = BO_ACTIVITY_RULES.find((rule) => rule.stems.length === 0 && matches(rule)) ?? null;
+    // «DISTRIBUIDORA MAYORISTA DE TECNOLOGIA»: comercio + tecnología en el nombre es un
+    // mayorista de informática (clase 4651 → Tecnología, tabla AR v2), no Retail.
+    if (specific?.ciiu === '46' && generic !== null) {
+      return BO_ACTIVITY_RULES.find((rule) => rule.ciiu === '4651') ?? specific;
     }
-    return null;
+    // «INTEGRADORES & CONSULTORES EN TECNOLOGIA»: consultoría + tecnología es
+    // consultoría informática (división 62 → Tecnología).
+    if (specific?.ciiu === '71' && generic !== null) return generic;
+    return specific ?? generic;
   }
   const earliest = (generic: boolean): BoActivityRule | null => {
     let best: { rule: BoActivityRule; index: number } | null = null;
