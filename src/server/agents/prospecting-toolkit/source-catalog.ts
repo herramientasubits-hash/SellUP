@@ -2593,7 +2593,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Sólo quien vende al Estado, compra como Estado o es agente de retención del IVA: una empresa privada mediana que no está en ninguno no aparece.',
       'Las marcas que no son la razón social (Tigo, Walmart, Banrural, BAC, EEGSA, Energuate) no se encuentran.',
-      'No trae trabajadores ni ingresos: ninguna fuente abierta de Guatemala los publica por empresa.',
+      'No trae trabajadores ni ingresos: ninguna fuente abierta de Guatemala los publica por empresa. SOURCES-GT-SIZE-1: un NIT que es agente de retención del IVA de la SAT llega a la ficha como tramo «agente de retención del IVA (SAT Guatemala)», señal de empresa grande que el filtro de tamaño registra pero no usa para aprobar ni descartar; no estar en la lista no prueba que sea pequeña.',
       'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
