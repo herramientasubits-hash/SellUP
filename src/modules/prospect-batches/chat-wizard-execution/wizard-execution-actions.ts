@@ -84,7 +84,6 @@ import {
   shouldReviewTavilyFirstInline,
   resolveInlineRescueWindowMs,
   resolveFreeLayerRescueWindowMs,
-  freeLayerLeftCompaniesWithoutWeb,
   reopenBatchForApolloAfterTavilyFirst,
   resolveTavilyFirstPrecheck,
   tavilyOwnReviewable,
@@ -318,14 +317,6 @@ export type WizardExecutionDeps = {
    * revisó. Sin dep ⇒ no se revisa dentro (la decisión usa lo de Tavily).
    */
   rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
-  /**
-   * AGENT1-FREE-LAYER-RESCUE-FIRST-1 — el MISMO rescate, sólo sobre las sin web del
-   * buscador gratuito, antes de Tavily. Devuelve lo que decidió (telemetría del lote).
-   */
-  rescueFreeLayerInline?: (input: {
-    batchId: string;
-    windowMs: number;
-  }) => Promise<{ ok: boolean; admitted: number; kept: number; remaining: number } | null>;
   /**
    * AGENT1-TAVILY-FIRST-3 — ids de las filas de Tavily (`web_ai`) del lote que
    * cuentan para la meta, leídos DESPUÉS de la revisión de Claude. `null` = no se pudo.
@@ -655,23 +646,6 @@ export async function executeProspectWizardGenerationAction(
       );
       return summary.ok;
     },
-    rescueFreeLayerInline: async ({ batchId, windowMs }) => {
-      if (!isAgent1ClaudeRescueEnabled()) return null;
-      const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
-        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
-        import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
-      ]);
-      const triggeredBy = await requireActiveUser()
-        .then((auth) => auth.internalUserId)
-        .catch(() => null);
-      const summary = await rescueBatchWithClaude(
-        { batchId, triggeredBy, deadlineMs: windowMs, onlyFreeSourceMissingDomain: true },
-        buildLiveRescueBatchDeps(triggeredBy),
-      );
-      return summary.ok
-        ? { ok: true, admitted: summary.dispositionsAdmitted, kept: summary.dispositionsKept, remaining: summary.remaining }
-        : { ok: false, admitted: 0, kept: 0, remaining: 0 };
-    },
     listAcceptedCandidateIds: async (batchId) => {
       const { data, error } = await budgetClient
         .from('prospect_candidates')
@@ -785,14 +759,42 @@ export async function executeProspectWizardGenerationAction(
         // CUT-5 §§ 4, 5 — el lote canónico de la ejecución llega hasta el writer
         // gratuito. Sin esto la capa creaba lote propio.
         resolveBatchId: input.resolveBatchId,
-        // AGENT1-COMPANY-BANK-FIRST-1 — el banco es la PRIMERA fuente: corre antes
-        // de la capa gratuita, en el mismo lote. Banco apagado ⇒ ausente.
+        // AGENT1-FREE-LAYER-FIRST-1 — el banco corre DESPUÉS de la capa gratuita
+        // oficial y de su rescate, sólo por el hueco, en el mismo lote. Banco
+        // apagado ⇒ ausente.
         drawCompanyBank:
           resolveProductionBankFirstDrawer(input.industryName ?? '', {
             // Con Tavily-primero, su revisión de Claude ya cubre lo del banco: una sola pasada.
             reviewInline: !isAgent1TavilyFirstEffective(),
           }) ?? undefined,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
+        // AGENT1-FREE-LAYER-FIRST-1 — el rescate de Claude sólo sobre las sin web de la
+        // capa gratuita, entre la capa y el banco, con una ventana que deja tiempo a
+        // Tavily y a Apollo.
+        rescueUnverifiedFreeLayer: async (batchId) => {
+          const windowMs = resolveFreeLayerRescueWindowMs(Date.now() - actionStartedAtMs);
+          if (windowMs === null) return { ran: false, reason: 'no_time' };
+          if (!isAgent1ClaudeRescueEnabled()) return { ran: false, reason: 'not_available' };
+          const [{ rescueBatchWithClaude }, { buildLiveRescueBatchDeps }] = await Promise.all([
+            import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch'),
+            import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server'),
+          ]);
+          const startedMs = Date.now();
+          const summary = await rescueBatchWithClaude(
+            { batchId, triggeredBy: input.requestedByUserId, deadlineMs: windowMs, onlyFreeSourceMissingDomain: true },
+            buildLiveRescueBatchDeps(input.requestedByUserId),
+          );
+          return summary.ok
+            ? {
+                ran: true,
+                ok: true,
+                admitted: summary.dispositionsAdmitted,
+                kept: summary.dispositionsKept,
+                remaining: summary.remaining,
+                ms: Date.now() - startedMs,
+              }
+            : { ran: true, ok: false, error: summary.error, ms: Date.now() - startedMs };
+        },
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
         // proveedor se declare aquí evita que la ruta herede la capacidad de otro.
@@ -1545,42 +1547,11 @@ export async function executeProspectWizardGeneration(
         .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
     : null;
 
-  // ── AGENT1-FREE-LAYER-RESCUE-FIRST-1 — la web de las sin web del buscador gratuito ──
-  //
-  // Prod 07-10 (Bolivia × Tecnología 84ddefb7): el buscador gratuito trajo grandes
-  // contribuyentes con NIT oficial y SIN web (ninguna fuente oficial boliviana la
-  // publica); fueron a Descartadas, Tavily llenó el lote hasta el tope de 10 y el
-  // rescate nunca les buscó la web. Aquí, ANTES de Tavily, una pasada corta del
-  // MISMO rescate sólo sobre esas descartadas: las que encuentran web vuelven al lote
-  // «por revisar» y ocupan cupo antes que Tavily (que respeta el tope del lote).
-  // No toca la demanda: el hueco se sigue midiendo con lo que el escritor acepta.
-  // Best-effort: cualquier fallo deja todo como antes.
-  // 🔴 El lote es el CANÓNICO de la ejecución, no `prePaidNovelty.batchId`: ése es
-  // null cuando la capa no guardó ninguna CON web, que es justo este caso (las sin
-  // web se registran en el lote canónico). Revisión del chat de Ecuador, 07-10.
-  let freeLayerRescueFirst:
-    | { ran: true; admitted: number; kept: number; remaining: number; ok: boolean; ms: number }
-    | { ran: false; reason: 'no_time' | 'failed' | 'not_available' }
-    | null = null;
-  if (deps.rescueFreeLayerInline && freeLayerLeftCompaniesWithoutWeb(prePaidNovelty)) {
-    const nowMs = (): number => (deps.nowMs ? deps.nowMs() : Date.now());
-    const elapsedMs = deps.actionStartedAtMs === undefined ? 0 : nowMs() - deps.actionStartedAtMs;
-    const windowMs = resolveFreeLayerRescueWindowMs(elapsedMs);
-    if (windowMs === null) {
-      freeLayerRescueFirst = { ran: false, reason: 'no_time' };
-    } else {
-      const startedMs = nowMs();
-      const result = await resolveCanonicalBatchId()
-        .then((batchId) => deps.rescueFreeLayerInline!({ batchId, windowMs }))
-        .catch(() => undefined);
-      freeLayerRescueFirst =
-        result === undefined
-          ? { ran: false, reason: 'failed' }
-          : result === null
-            ? { ran: false, reason: 'not_available' }
-            : { ran: true, ...result, ms: nowMs() - startedMs };
-    }
-  }
+  // AGENT1-FREE-LAYER-FIRST-1 — el rescate de las sin web de la capa gratuita corre
+  // DENTRO de la capa (entre ella y el banco); aquí sólo se recoge lo que decidió
+  // para publicarlo en el lote (`free_layer_rescue_first`).
+  const freeLayerRescueFirst =
+    (prePaidNovelty?.telemetry?.['free_layer_rescue_first'] as Record<string, unknown> | undefined) ?? null;
 
   // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
   //

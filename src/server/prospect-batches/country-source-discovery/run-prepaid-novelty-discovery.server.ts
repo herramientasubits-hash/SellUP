@@ -157,6 +157,13 @@ export type PrePaidNoveltyDiscoveryInput = {
    * exactamente como antes.
    */
   drawCompanyBank?: BankFirstDrawer;
+  /**
+   * AGENT1-FREE-LAYER-FIRST-1 — el rescate de Claude SÓLO sobre las sin web que la
+   * capa gratuita acaba de mandar a Descartadas, ANTES del banco (las que encuentra
+   * web vuelven «por revisar» y ocupan su lugar en el lote). Devuelve lo que decidió
+   * (telemetría del lote) o `null` si no corrió. Ausente ⇒ no se intenta.
+   */
+  rescueUnverifiedFreeLayer?: (batchId: string) => Promise<Record<string, unknown> | null>;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -254,14 +261,13 @@ const PRODUCTION_DEPS: PrePaidNoveltyDiscoveryDeps = {
 };
 
 /**
- * AGENT1-COMPANY-BANK-FIRST-1 — primero el banco, después la capa gratuita.
+ * AGENT1-FREE-LAYER-FIRST-1 (antes AGENT1-COMPANY-BANK-FIRST-1) — primero la capa
+ * gratuita oficial, después el banco.
  *
- *   · banco sin aporte (apagado, vacío, caído) ⇒ la capa gratuita de siempre,
- *     byte por byte;
- *   · el banco cierra la meta ⇒ la capa gratuita no corre y `providerRequired`
- *     es `false`: no corre ninguna pierna de pago;
- *   · el banco aporta en parte ⇒ la capa gratuita busca sólo el hueco que queda,
- *     en el MISMO lote, y su tope de entrega descuenta lo que el banco ya entregó.
+ *   · la capa gratuita cierra la meta ⇒ el banco no se consulta;
+ *   · aporte parcial (o sólo sin web) ⇒ el banco busca sólo el hueco que queda, en
+ *     el MISMO lote, y su escritor descuenta del tope lo que el lote ya tiene;
+ *   · sin lote canónico (ruta Lusha) ⇒ sólo la capa gratuita, como siempre.
  *
  * Sólo lo que el ESCRITOR midió como completo cuenta para la meta; las filas
  * «por completar» del banco se entregan pero no cierran el hueco.
@@ -282,91 +288,66 @@ export async function runPrePaidNoveltyDiscovery(
   /** Inyectable SÓLO para pruebas. Producción usa siempre las reales. */
   deps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
 ): Promise<PrePaidNoveltyDiscoveryOutcome> {
+  // ── AGENT1-FREE-LAYER-FIRST-1 — primero la capa gratuita oficial, después el banco ──
+  //
+  // Decisión de la dueña (07-10), que sustituye a «primero el banco» (02-10). Prod
+  // 07-10 (Bolivia × Tecnología 7f36b6f9): el banco (sobrantes de Tavily de corridas
+  // anteriores, empresas pequeñas y sin número fiscal) llenó el lote hasta el tope
+  // de 10 ANTES que la capa gratuita, y los grandes contribuyentes con NIT oficial
+  // (ZTE, Garo, Nexus…) no tuvieron lugar. Ahora:
+  //   1. la capa gratuita con el objetivo entero;
+  //   2. el rescate de Claude sólo sobre sus sin web (si se inyecta);
+  //   3. el banco sólo por el hueco que queda, en el MISMO lote (su escritor
+  //      descuenta lo que el lote ya tiene del tope de entrega).
+  const free = await runFreeCatalogLayer(client, input, deps);
+
   const resolveCanonical = input.resolveBatchId;
-  const bank =
-    resolveCanonical && input.drawCompanyBank
-      ? await input
-          .drawCompanyBank({
-            countryCode: input.countryCode,
-            countryName: input.countryName,
-            macroIndustryKey: input.macroIndustryKey,
-            requestedTarget: input.requestedTarget,
-            requestedByUserId: input.requestedByUserId,
-            resolveBatchId: resolveCanonical,
-          })
-          .catch(() => null)
-      : null;
-  if (!bank || bank.persistedCount <= 0) {
-    const outcome = await runFreeCatalogLayer(client, input, deps);
-    return bank ? { ...outcome, telemetry: { ...outcome.telemetry, company_bank_first: bank.telemetry } } : outcome;
+  const sentToDiscards = free.telemetry['unverified_sent_to_discards'];
+  let rescueTelemetry: Record<string, unknown> | null = null;
+  if (input.rescueUnverifiedFreeLayer && typeof sentToDiscards === 'number' && sentToDiscards > 0) {
+    const batchId = free.batchId ?? (resolveCanonical ? await resolveCanonical().catch(() => null) : null);
+    rescueTelemetry = batchId
+      ? await input.rescueUnverifiedFreeLayer(batchId).catch(() => ({ ran: false, reason: 'failed' }))
+      : { ran: false, reason: 'no_batch' };
+  }
+  const freeTelemetry = rescueTelemetry ? { ...free.telemetry, free_layer_rescue_first: rescueTelemetry } : free.telemetry;
+
+  const freeAccepted = Math.min(Math.max(0, free.acceptedBeforeProvider), input.requestedTarget);
+  const remaining = Math.max(0, input.requestedTarget - freeAccepted);
+  // Sin hueco, o sin lote canónico (ruta Lusha), el banco no se consulta.
+  if (remaining === 0 || !resolveCanonical || !input.drawCompanyBank) {
+    return { ...free, telemetry: freeTelemetry };
   }
 
-  const bankAccepted = Math.min(Math.max(0, bank.acceptedCount), input.requestedTarget);
-  const remaining = Math.max(0, input.requestedTarget - bankAccepted);
-  const bankBatchId = bank.batchId;
-  const bankTelemetry = { company_bank_first: bank.telemetry };
-
-  if (remaining === 0) {
-    return {
-      requestedTarget: input.requestedTarget,
-      residualGap: 0,
-      acceptedBeforeProvider: bankAccepted,
-      providerRequired: false,
-      batchId: bankBatchId,
-      persistedCount: bank.persistedCount,
-      knownSuppressionDomains: [],
-      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
-      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
-      providerExclusionPlan: noGateExclusionPlan(input),
-      freeSource: notAttemptedFreeSourceOutcome(),
-      telemetry: bankTelemetry,
-    };
-  }
-
-  const freeCap = resolveMaxDeliveredCandidates(undefined, input.requestedTarget);
-  const free = await runFreeCatalogLayer(
-    client,
-    {
-      ...input,
+  const bank = await input
+    .drawCompanyBank({
+      countryCode: input.countryCode,
+      countryName: input.countryName,
+      macroIndustryKey: input.macroIndustryKey,
       requestedTarget: remaining,
-      resolveBatchId: async () => bankBatchId ?? (await resolveCanonical!()),
-    },
-    {
-      ...deps,
-      maxDeliveredCandidates:
-        deps.maxDeliveredCandidates !== undefined
-          ? deps.maxDeliveredCandidates
-          : freeCap === null
-            ? null
-            : Math.max(freeCap - bank.persistedCount, remaining),
-    },
-  ).catch((): PrePaidNoveltyDiscoveryOutcome | null => null);
-
-  if (!free) {
-    // La capa gratuita falló: lo que el banco escribió sigue siendo verdad.
+      requestedByUserId: input.requestedByUserId,
+      resolveBatchId: async () => free.batchId ?? (await resolveCanonical()),
+    })
+    .catch(() => null);
+  if (!bank || bank.persistedCount <= 0) {
     return {
-      requestedTarget: input.requestedTarget,
-      residualGap: remaining,
-      acceptedBeforeProvider: bankAccepted,
-      providerRequired: true,
-      batchId: bankBatchId,
-      persistedCount: bank.persistedCount,
-      knownSuppressionDomains: [],
-      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
-      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
-      providerExclusionPlan: noGateExclusionPlan(input),
-      freeSource: notAttemptedFreeSourceOutcome(),
-      telemetry: bankTelemetry,
+      ...free,
+      telemetry: bank ? { ...freeTelemetry, company_bank_first: bank.telemetry } : freeTelemetry,
     };
   }
 
+  const bankAccepted = Math.min(Math.max(0, bank.acceptedCount), remaining);
+  const acceptedBeforeProvider = Math.min(input.requestedTarget, freeAccepted + bankAccepted);
+  const residualGap = Math.max(0, input.requestedTarget - acceptedBeforeProvider);
   return {
     ...free,
     requestedTarget: input.requestedTarget,
-    acceptedBeforeProvider: Math.min(input.requestedTarget, bankAccepted + free.acceptedBeforeProvider),
-    batchId: free.batchId ?? bankBatchId,
-    persistedCount: bank.persistedCount + free.persistedCount,
-    telemetry: { ...free.telemetry, ...bankTelemetry },
+    acceptedBeforeProvider,
+    residualGap,
+    providerRequired: residualGap > 0,
+    batchId: free.batchId ?? bank.batchId,
+    persistedCount: free.persistedCount + bank.persistedCount,
+    telemetry: { ...freeTelemetry, company_bank_first: bank.telemetry },
   };
 }
 
