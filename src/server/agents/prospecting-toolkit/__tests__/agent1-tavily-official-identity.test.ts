@@ -198,7 +198,12 @@ describe('el segundo constructor de candidatas también guarda la portada (AGENT
   const body = src.slice(src.indexOf('export async function buildProspectingPipelineCandidate'));
 
   it('fuera de Apollo el sitio es la portada; Apollo conserva lo declarado', () => {
-    assert.match(body, /const website = isApolloResult \? declaredWebsite : toHomepageUrl\(declaredWebsite\);/);
+    // AGENT1-TAVILY-INSTITUTIONS-1 — Apollo conserva lo declarado; fuera de Apollo, la
+    // portada (o la de la institución dueña de un subportal de gobierno/educación).
+    assert.match(
+      body,
+      /const website = isApolloResult\s*\?\s*declaredWebsite\s*:\s*institutionHost\s*\?\s*`https:\/\/\$\{institutionHost\}\/`\s*:\s*toHomepageUrl\(declaredWebsite\);/,
+    );
   });
   it('la página encontrada sigue como fuente', () => {
     assert.match(body, /sourceUrl: result\.url,/);
