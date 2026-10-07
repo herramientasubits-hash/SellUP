@@ -2311,7 +2311,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 8.078 RUC (7.864 con nombre único): 7.808 sociedades proveedoras de PanamaCompraEnCifras (adjudicaciones 2022-2026, Convenio Marco y el buscador de proveedores), 61 entidades compradoras con RUC de entidad pública («8-NT-…») y los 297 Grandes Contribuyentes de la DGI (lista 2025); más 1.953 alias (pa_ruc_name_alias). CARGA PENDIENTE de autorización tras el merge: scripts/source-catalog/run-pa-sources-etl.ts --apply --only=registry y luego --only=alias.',
+      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 8.106 RUC (7.890 con nombre único): 7.836 sociedades proveedoras de PanamaCompraEnCifras (adjudicaciones 2022-2026, Convenio Marco y el buscador de proveedores), 61 entidades compradoras con RUC de entidad pública («8-NT-…») y los 297 Grandes Contribuyentes de la DGI (lista 2025); más 2.857 alias (pa_ruc_name_alias: siglas, nombre comercial —6.626 proveedoras lo publican—, otros nombres). CARGA PENDIENTE de autorización tras el merge: scripts/source-catalog/run-pa-sources-etl.ts --apply --only=registry y luego --only=alias.',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P1',
@@ -2320,7 +2320,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.panamacompraencifras.gob.pa/',
     automationLevel: 'high',
     recommendedUse:
-      'RUC por nombre de Panamá en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RUC a quien vende al Estado (PanamaCompraEnCifras, DGCP), a las entidades públicas compradoras y a los Grandes Contribuyentes de la DGI (Resolución 201-3486 de 17-04-2025, Gaceta Oficial 30271-A: ingresos >= B/.20 millones y activos >= B/.60 millones). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, «Y Cía», sucursal, sigla o nombre comercial entre paréntesis o tras la forma, con o sin «Panamá», alcaldía = municipio). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Un Gran Contribuyente llega a la ficha como «gran contribuyente (DGI Panamá)», sin número de personas: no decide solo el filtro de tamaño. Con 105 nombres reales escritos como los dan Apollo, Tavily o Claude: 36 con RUC seguro (antes 13) y 9 pistas.',
+      'RUC por nombre de Panamá en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RUC a quien vende al Estado (PanamaCompraEnCifras, DGCP), a las entidades públicas compradoras y a los Grandes Contribuyentes de la DGI (Resolución 201-3486 de 17-04-2025, Gaceta Oficial 30271-A: ingresos >= B/.20 millones y activos >= B/.60 millones). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, «Y Cía», sucursal, sigla o nombre comercial entre paréntesis o tras la forma, con o sin «Panamá», alcaldía = municipio). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Un Gran Contribuyente llega a la ficha como «gran contribuyente (DGI Panamá)», sin número de personas: no decide solo el filtro de tamaño. Con 105 nombres reales escritos como los dan Apollo, Tavily o Claude: 41 con RUC seguro (antes 13) y 9 pistas.',
     limitations: [
       'Sólo quien vende al Estado, compra como Estado o es Gran Contribuyente: una empresa privada mediana que no está en ninguno no aparece (Panamá no publica un padrón de RUC abierto; el Registro Público pide usuario y captcha).',
       'Las marcas que no son la razón social (BAC Credomatic, Super 99, Grupo Rey, ENSA) no se encuentran salvo que la fuente traiga el nombre comercial.',
@@ -2341,7 +2341,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 609 filas: sociedades con al menos B/.1 millón adjudicado en 2022-2026 y macro dominante por UNSPSC (tabla de Paraguay), Grandes Contribuyentes de la DGI clasificados por la tabla revisada (210 de 256 sin UNSPSC) y 60 entidades compradoras con RUC (Gobierno). CARGA PENDIENTE de autorización tras el merge: run-pa-sources-etl.ts --apply --only=directory.',
+      'SOURCES-PA-CLOSE-1: construido y medido en seco el 07-10-2026 — 608 filas (65 con web del correo; 10 dominios compartidos descartados): sociedades con al menos B/.1 millón adjudicado en 2022-2026 y macro dominante por UNSPSC (tabla de Paraguay), Grandes Contribuyentes de la DGI clasificados por la tabla revisada (210 de 256 sin UNSPSC) y 60 entidades compradoras con RUC (Gobierno). CARGA PENDIENTE de autorización tras el merge: run-pa-sources-etl.ts --apply --only=directory.',
     countryCodes: ['PA'],
     sectors: [],
     priority: 'P1',
