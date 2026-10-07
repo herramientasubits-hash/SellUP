@@ -9,7 +9,7 @@
  * per supported country: Colombia (co_siis, then the cámaras de comercio
  * registry live) name→NIT, República Dominicana
  * (rd_dgii_bulk, then the DGII trade name as a signal only) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
- * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_rgae_proveedores) name→NIT and
+ * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_nit_registry + gt_nit_name_alias, then gt_rgae_proveedores) name→NIT and
  * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
  * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
@@ -67,6 +67,8 @@ import { createPeruOfficialSourceResolver } from '@/server/agents/prospect-intak
 import { buildPeruSnapshotNameQuery } from '@/server/prospect-batches/peru-snapshot-query';
 import { createParaguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/paraguay-official-source-resolver';
 import { buildParaguaySnapshotNameQuery } from '@/server/prospect-batches/paraguay-snapshot-query';
+import { createGuatemalaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/guatemala-official-source-resolver';
+import { buildGuatemalaSnapshotNameQuery } from '@/server/prospect-batches/guatemala-snapshot-query';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
@@ -170,16 +172,22 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // SOURCES-EC-CLOSE-1 — SCVS (activas, con empleados) → siglas → SRI (entidades
     // públicas) → nombre comercial (pista) → SCVS de julio; ver el módulo.
     buildEcuadorOfficialSourceResolver(snapshotClient),
-    // SOURCES-GT-HN-BY-NAME-1 — registros ya cargados; la dueña autorizó (30-09)
-    // dejar de tratarlos como sólo lectura para la identidad fiscal.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'GT',
-      sourceKey: 'gt_rgae_proveedores',
-      taxIdentifierType: 'NIT',
-      validTaxId: /^\d{4,12}K?$/,
-      normalizeCore: normalizeCentralAmericaCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'gt_rgae_proveedores', 'GT'),
-    }),
+    // SOURCES-GT-CLOSE-1 — registro unido de NIT (Guatecompras, entidades
+    // compradoras, agentes de retención del IVA de la SAT y RGAE) con sus alias;
+    // si no da un NIT fuerte, el RGAE de siempre (SOURCES-GT-HN-BY-NAME-1).
+    createFallbackOfficialSourceResolver(
+      createGuatemalaOfficialSourceResolver({
+        querySnapshots: buildGuatemalaSnapshotNameQuery(snapshotClient),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'GT',
+        sourceKey: 'gt_rgae_proveedores',
+        taxIdentifierType: 'NIT',
+        validTaxId: /^\d{4,12}K?$/,
+        normalizeCore: normalizeCentralAmericaCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'gt_rgae_proveedores', 'GT'),
+      }),
+    ),
     // SOURCES-HN-RTN-BY-NAME-1 — personas jurídicas de ONCAE + SEFIN (OCDS, 2018-2026);
     // si no da RTN fuerte, el snapshot piloto de Contrataciones Abiertas (72 filas).
     createFallbackOfficialSourceResolver(
