@@ -11,6 +11,8 @@
  *      (`cr_company_name_alias`: nombre anterior, siglas oficiales, otros nombres
  *      de la misma cédula). La PRIMERA variante con alguna fila decide. Cada
  *      variante es una igualdad exacta: no hay coincidencia difusa.
+ *   0. WEB OFICIAL. Si la web de la candidata es la de una entidad pública (ficha
+ *      de MIDEPLAN, guardada como alias `web:<dominio>`), esa cédula manda.
  *   2. UNA PALABRA. Un nombre de una sola palabra sin forma societaria («ICE»,
  *      «Purdy», «Medtronic») sólo da una cédula fuerte si la web de la candidata
  *      lo confirma («ccss.sa.cr» ↔ CCSS). Si no, queda como pista.
@@ -33,7 +35,11 @@ import {
   isCostaRicaPublicEntityCore,
   type CostaRicaNameVariant,
 } from '@/server/source-catalog/connectors/cr-registry/cr-name-keys';
-import { costaRicaSingleWordConfirmedByDomain } from '@/server/source-catalog/connectors/cr-registry/cr-domain';
+import {
+  costaRicaSingleWordConfirmedByDomain,
+  costaRicaWebAliasKey,
+  CR_WEB_ALIAS_PREFIX,
+} from '@/server/source-catalog/connectors/cr-registry/cr-domain';
 import { CR_JURIDICAL_CEDULA } from '@/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
 
 import type {
@@ -130,6 +136,36 @@ export function createCostaRicaOfficialSourceResolver(
 
     async resolve(input: OfficialSourceResolverInput): Promise<OfficialSourceEnrichmentResult> {
       const name = input.candidate.canonicalName ?? '';
+
+      // La web oficial de una entidad pública (ficha de MIDEPLAN) manda: «TEC» con
+      // tec.ac.cr es el Instituto Tecnológico de Costa Rica aunque MIDEPLAN no
+      // publique esa sigla. Sólo con UNA cédula para esa web.
+      const webKey = costaRicaWebAliasKey(input.candidate.domain ?? input.candidate.websiteUrl ?? null);
+      if (webKey !== null) {
+        const byWeb = distinctByCedula(
+          (await config.querySnapshots(webKey)).filter(
+            (row) => row.normalizedLegalName?.trim() === webKey && CR_JURIDICAL_CEDULA.test(row.taxId?.trim() ?? ''),
+          ),
+        );
+        if (byWeb.length === 1) {
+          const best = byWeb[0];
+          return {
+            status: 'matched',
+            countryCode: 'CR',
+            sourceKey: COSTA_RICA_REGISTRY_SOURCE_KEY,
+            confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
+            matchMethod: 'domain',
+            taxIdentifier: best.taxId,
+            taxIdentifierType: 'cedula_juridica',
+            legalName: best.legalName || null,
+            warnings: [],
+            issues: [],
+            safeMetadata: { matchedOfficialWebsite: webKey.slice(CR_WEB_ALIAS_PREFIX.length) },
+            ...(best.workforce ? { workforce: { ...best.workforce } } : {}),
+          };
+        }
+      }
+
       const all = costaRicaCandidateNameVariants(name);
       const variants = all.filter(
         (variant) =>
