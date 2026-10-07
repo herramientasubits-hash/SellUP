@@ -28,6 +28,7 @@ import {
   macroHasPyDncpCoverage,
   PY_DNCP_MACRO_TABLE_VERSION,
   resolvePyUnspscMacro,
+  resolvePyUnspscRubro,
 } from './py-dncp-macro-table';
 import type {
   CountrySourceAdapter,
@@ -97,7 +98,9 @@ function toCompany(row: PyDncpDirectorySnapshotReadRow, macroIndustryKey: string
     // La web declarada a la DNCP, o el dominio de su correo corporativo. Sin web
     // la empresa va a Descartadas y el rescate con Claude la busca.
     domain: normalizeDomain(row.website_domain),
-    declaredIndustry: row.activity_text?.trim() || null,
+    // El rubro (familia UNSPSC en palabras), no el artículo suelto («Notebook»):
+    // es lo que ve el vendedor en la columna «Industria».
+    declaredIndustry: resolvePyUnspscRubro(row.unspsc_family) ?? (row.activity_text?.trim() || null),
     industryCode: row.unspsc_family?.trim() || null,
     coarseSector: null,
     officialMacroIndustry: {
