@@ -56,6 +56,10 @@ import { DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/
 import { buildDominicanSnapshotQuery } from '@/server/prospect-batches/dominican-republic-snapshot-query';
 import { createArgentinaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/argentina-official-source-resolver';
 import { buildArgentinaSnapshotQuery } from '@/server/prospect-batches/argentina-snapshot-query';
+import {
+  AR_PUBLIC_ENTITIES_SOURCE_KEY,
+  normalizeArPublicEntityCore,
+} from '@/server/source-catalog/connectors/rns-argentina/ar-public-entities';
 import { buildEcuadorOfficialSourceResolver } from '@/server/prospect-batches/ecuador-official-source-chain';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import { buildSnapshotNameQuery } from '@/server/prospect-batches/snapshot-name-query';
@@ -163,9 +167,23 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         signalOnly: true,
       }),
     ),
-    createArgentinaOfficialSourceResolver({
-      querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
-    }),
+    // SOURCES-AR-PUBLIC-ENTITIES-1 — si el registro de sociedades no da un CUIT
+    // fuerte, el directorio de entidades públicas (municipios, organismos
+    // nacionales, universidades). Un nombre de una sola palabra queda como pista.
+    createFallbackOfficialSourceResolver(
+      createArgentinaOfficialSourceResolver({
+        querySnapshots: buildArgentinaSnapshotQuery(snapshotClient),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'AR',
+        sourceKey: AR_PUBLIC_ENTITIES_SOURCE_KEY,
+        taxIdentifierType: 'CUIT',
+        validTaxId: /^(30|33|34)\d{9}$/,
+        normalizeCore: normalizeArPublicEntityCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, AR_PUBLIC_ENTITIES_SOURCE_KEY, 'AR'),
+        singleWordIsSignalOnly: true,
+      }),
+    ),
     // SOURCES-EC-CLOSE-1 — SCVS (activas, con empleados) → siglas → SRI (entidades
     // públicas) → nombre comercial (pista) → SCVS de julio; ver el módulo.
     buildEcuadorOfficialSourceResolver(snapshotClient),
