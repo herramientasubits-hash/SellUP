@@ -149,7 +149,12 @@ async function main(): Promise<void> {
     const row = byCedula.get(cedula);
     if (!row) return null;
     const size = row.raw_data['cr_meic_size'];
-    return { legalName: row.legal_name, meicSize: typeof size === 'string' ? size : null };
+    const origins = row.raw_data['origins'];
+    return {
+      legalName: row.legal_name,
+      meicSize: typeof size === 'string' ? size : null,
+      largeTaxpayer: Array.isArray(origins) && origins.includes('hacienda_grandes_contribuyentes'),
+    };
   };
   const suppliers = readJsonl<{ cedula: string; fam: Record<string, number>; buyers: number; offers: number; last_year: number | null }>(
     path('sicop-suppliers'),
@@ -192,7 +197,14 @@ async function main(): Promise<void> {
     const info = mideplan.get(inst.cedula);
     take(
       buildCrPublicEntityRow({
-        entity: { cedula: inst.cedula, name: inst.name, purchaseRequests: inst.requests, website: info?.web ?? null, acronym: info?.acronym ?? null },
+        entity: {
+          cedula: inst.cedula,
+          name: inst.name,
+          purchaseRequests: inst.requests,
+          website: info?.web ?? null,
+          acronym: info?.acronym ?? null,
+          largeTaxpayer: lookup(inst.cedula)?.largeTaxpayer === true,
+        },
         sourceYear: year,
         importedAt,
       }),
@@ -213,7 +225,7 @@ async function main(): Promise<void> {
   console.log(`  Con nombre único: ${unique} (${((100 * unique) / Math.max(registry.length, 1)).toFixed(1)} %) · alias ${aliases.length}`);
   console.log(`  Directorio: ${directory.length} — por fuente ${JSON.stringify(countBy(directory, (r) => String(r.raw_data.directory_kind)))}`);
   console.log(`  Directorio por macro: ${JSON.stringify(countBy(directory, (r) => String(r.raw_data.macro_industry_key)))}`);
-  console.log(`  Directorio con web: ${directory.filter((r) => r.raw_data.website_domain).length} · exclusiones ${JSON.stringify(exclusions)}`);
+  console.log(`  Directorio con web: ${directory.filter((r) => r.raw_data.website_domain).length} · grandes contribuyentes ${directory.filter((r) => r.raw_data.official_size_band === 'large').length} · exclusiones ${JSON.stringify(exclusions)}`);
 
   if (argv.includes('--sample')) {
     const byMacro = new Map<string, CrFreeDirectoryRow[]>();
