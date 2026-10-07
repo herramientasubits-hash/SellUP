@@ -75,6 +75,20 @@ export interface SnapshotNameResolverConfig {
    */
   singleWordConfirmedByDomain?: (domain: string | null, core: string) => boolean;
   /**
+   * SOURCES-BO-CLOSE-1 — a brand found inside ONE registered legal name
+   * (`brandSignal` rows) is normally only a hint. When the candidate's OWN website
+   * is that brand (alpasur.com.bo ↔ ALMACENES PACIFICO SUR S.A. ALPASUR), it is
+   * that company: the match becomes strong. The country decides what «confirms».
+   */
+  brandConfirmedByDomain?: (domain: string | null, core: string) => boolean;
+  /**
+   * SOURCES-BO-CLOSE-1 — does the candidate's name carry a real legal form? By
+   * default: anything the normalizer stripped. A country whose normalizer also
+   * strips a glued website or country («Cognos.com.bo», «Get Server Bolivia»)
+   * passes its own test, so a bare brand with a web tail stays a bare brand.
+   */
+  nameCarriesLegalForm?: (name: string | null | undefined) => boolean;
+  /**
    * SOURCES-EC-CLOSE-1 — lifts `singleWordIsSignalOnly` and `signalOnly` when the
    * ONE company that carries the name declared at least this many workers to the
    * registry. A bare brand or trade name («Pronaca», «Supermaxi») that matches a
@@ -149,18 +163,22 @@ export function createSnapshotNameOfficialSourceResolver(
         }
         const brand = [...brandIds.values()];
         if (brand.length !== 1) return notFound(core);
+        const brandConfirmed =
+          config.brandConfirmedByDomain?.(input.candidate.domain ?? input.candidate.websiteUrl ?? null, core) === true;
         return {
-          status: 'low_confidence_match',
+          status: brandConfirmed ? 'matched' : 'low_confidence_match',
           countryCode: country,
           sourceKey: config.sourceKey,
-          confidence: SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
+          confidence: brandConfirmed ? SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE : SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
           matchMethod: 'normalized_name',
           taxIdentifier: brand[0].taxId,
           taxIdentifierType: config.taxIdentifierType,
           legalName: brand[0].legalName || null,
           warnings: [],
           issues: [],
-          safeMetadata: { normalizedSearchName: core, brandInLegalName: true },
+          safeMetadata: brandConfirmed
+            ? { normalizedSearchName: core, brandInLegalName: true, brandConfirmedByDomain: true }
+            : { normalizedSearchName: core, brandInLegalName: true },
         };
       }
 
@@ -183,7 +201,9 @@ export function createSnapshotNameOfficialSourceResolver(
         warnings: [],
         issues: [],
       };
-      const carriesLegalForm = normalizeCompanyNameCore(input.candidate.canonicalName, []) !== core;
+      const carriesLegalForm = config.nameCarriesLegalForm
+        ? config.nameCarriesLegalForm(input.candidate.canonicalName)
+        : normalizeCompanyNameCore(input.candidate.canonicalName, []) !== core;
       const domainConfirms =
         config.singleWordConfirmedByDomain?.(input.candidate.domain ?? input.candidate.websiteUrl ?? null, core) === true;
       const singleWord =

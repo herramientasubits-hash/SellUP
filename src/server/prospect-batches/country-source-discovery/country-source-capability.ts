@@ -63,6 +63,12 @@ import {
   PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type PyDncpDirectoryDiscoveryReads,
 } from './py-dncp-directory-discovery-adapter';
+import {
+  BO_OFFICIAL_DISCOVERY_SOURCE_KEY,
+  buildBoOfficialDiscoveryAdapter,
+  macroHasBoDiscoveryCoverage,
+  type BoOfficialDiscoveryReads,
+} from './bo-official-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -116,8 +122,13 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * adjudicó en Guatecompras (datos abiertos OCDS), clasificadas por lo que venden
  * (UNSPSC, `gt-guatecompras-macro-table.ts`), sólo agentes de retención del IVA o
  * con al menos Q5 millones adjudicados.
+ *
+ * SOURCES-BO-CLOSE-1 — Bolivia entra con los grandes contribuyentes (PRICO/GRACO de
+ * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
+ * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
+ * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -134,6 +145,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
   GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -156,6 +168,7 @@ export function resolveCountrySourceCapability(
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
  * Paraguay: la macro tiene clases UNSPSC en la tabla.
  * Guatemala: la macro tiene clases UNSPSC en la tabla (la misma de Paraguay).
+ * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -172,6 +185,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
   if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
+  if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -197,6 +211,7 @@ export function buildCountrySourceAdapter(
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
     pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
     gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
+    boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -234,6 +249,9 @@ export function buildCountrySourceAdapter(
     return deps.gtGuatecomprasDirectoryDiscoveryReads
       ? buildGtGuatecomprasDirectoryDiscoveryAdapter(deps.gtGuatecomprasDirectoryDiscoveryReads)
       : null;
+  }
+  if (capability.countryCode === 'BO') {
+    return deps.boOfficialDiscoveryReads ? buildBoOfficialDiscoveryAdapter(deps.boOfficialDiscoveryReads) : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);

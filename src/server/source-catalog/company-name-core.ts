@@ -211,7 +211,10 @@ export const COSTA_RICA_LEGAL_FORMS: readonly string[] = [
 
 /**
  * Formas societarias de Bolivia (SEPREC), más largas primero.
- * SOURCES-BO-NIT-BY-NAME-LIVE-1.
+ * SOURCES-BO-NIT-BY-NAME-LIVE-1. Las usa la guarda de duplicados del rescate
+ * (`known-company-guard.ts`). El NIT por nombre de Bolivia usa la limpieza
+ * estructural de `connectors/seprec-bolivia/bo-company-name-core.ts`
+ * (SOURCES-BO-CLOSE-1), que además reconoce la forma en medio del nombre.
  */
 export const BOLIVIA_LEGAL_FORMS: readonly string[] = [
   'SOCIEDAD DE RESPONSABILIDAD LIMITADA',

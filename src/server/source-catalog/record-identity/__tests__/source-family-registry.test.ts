@@ -51,6 +51,8 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'cr_company_registry',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
+  // SOURCES-BO-CLOSE-1 — grandes contribuyentes de Bolivia.
+  'bo_large_taxpayers',
 ] as const;
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
@@ -64,6 +66,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'gt_nit_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.
   'ec_sri_trade_name_registry',
+  // SOURCES-BO-CLOSE-1 — una fila por ficha de gob.bo (sin NIT).
+  'bo_public_entities',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────

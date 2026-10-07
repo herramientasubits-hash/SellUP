@@ -468,9 +468,12 @@ export function resolveEmployeeSizeForIcpGate(
       source: 'official_registry_workers',
       value: registry.workers,
       usable: false,
-      reason: isRecent
-        ? `${registry.workers} trabajadores informados (${registry.year}) es un piso bajo el umbral: no decide`
-        : `dato de ${registry.year} demasiado antiguo`,
+      reason: !isRecent
+        ? `dato de ${registry.year} demasiado antiguo`
+        : registry.band != null && bandMax === null && registry.workers === 0
+          ? // SOURCES-BO-CLOSE-1 — una categoría sin personas (gran contribuyente) no decide.
+            `${registry.source} declara ${registry.band} (${registry.year}): no dice cuántas personas trabajan, no decide`
+          : `${registry.workers} trabajadores informados (${registry.year}) es un piso bajo el umbral: no decide`,
     });
   }
 

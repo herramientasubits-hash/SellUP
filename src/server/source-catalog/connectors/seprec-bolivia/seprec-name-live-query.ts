@@ -19,7 +19,7 @@
  * no muestra su ficha (responde 412): quedan sin NIT.
  *
  * Tiempo acotado, porque la corrida es secuencial:
- *   - tope de 6 s por petición, y al menos 2,5 s entre peticiones (el SEPREC
+ *   - tope de 6 s por petición, y al menos 4 s entre peticiones (el SEPREC
  *     responde 429 a las ráfagas; ante un 429 se espera 5 s y se reintenta una vez);
  *   - tras 3 fallos seguidos la fuente se apaga el resto de la corrida;
  *   - como mucho 25 empresas consultadas por corrida;
@@ -32,7 +32,7 @@ import type {
   SnapshotNameQuery,
   SnapshotNameRow,
 } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
-import { BOLIVIA_LEGAL_FORMS, normalizeCompanyNameCore } from '@/server/source-catalog/company-name-core';
+import { boliviaNameWords, normalizeBoliviaCompanyCore as normalizeBoliviaCompanyNameCore } from './bo-company-name-core';
 
 export const BO_SEPREC_LIVE_SOURCE_KEY = 'bo_seprec_live' as const;
 
@@ -43,8 +43,14 @@ export const BO_SEPREC_REQUEST_TIMEOUT_MS = 6_000;
  * recibe 4-5 peticiones en pocos segundos (medido el 02-10: con 3 s entre
  * peticiones, 8 de 8 respondieron 200). Se espacian las peticiones y, ante un 429,
  * se espera y se reintenta UNA vez.
+ *
+ * SOURCES-BO-CLOSE-1 — medido otra vez el 06-10: con 3 s entre peticiones, 7 de 31
+ * búsquedas respondieron 429; sostenido, el SEPREC deja pasar ~1 petición cada 5 s.
+ * Con 4 s caben ~11 peticiones en el presupuesto de la corrida, casi sin 429. Las
+ * empresas grandes ya no pasan por aquí: salen antes de la lista de grandes
+ * contribuyentes (`bo_large_taxpayers`).
  */
-export const BO_SEPREC_MIN_INTERVAL_MS = 2_500;
+export const BO_SEPREC_MIN_INTERVAL_MS = 4_000;
 export const BO_SEPREC_RATE_LIMIT_WAIT_MS = 5_000;
 export const BO_SEPREC_MAX_CONSECUTIVE_FAILURES = 3;
 export const BO_SEPREC_MAX_LOOKUPS_PER_RUN = 25;
@@ -64,9 +70,13 @@ type Fetch = (url: string, init?: { signal?: AbortSignal; headers?: Record<strin
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Núcleo del nombre boliviano: el MISMO que calcula el resolvedor de la corrida. */
+/**
+ * Núcleo del nombre boliviano: el MISMO que calcula el resolvedor de la corrida.
+ * SOURCES-BO-CLOSE-1: forma societaria por estructura, web y país pegados fuera
+ * (`bo-company-name-core.ts`).
+ */
 export function normalizeBoliviaCompanyCore(name: string | null | undefined): string {
-  return normalizeCompanyNameCore(name, BOLIVIA_LEGAL_FORMS);
+  return normalizeBoliviaCompanyNameCore(name);
 }
 
 export function buildSeprecSearchUrl(core: string): string {
@@ -135,9 +145,12 @@ export function findBrandInLegalName(
   if (total === null || total > BO_SEPREC_BRAND_MAX_SEARCH_TOTAL) return null;
   const words = wanted.split(' ').filter((word) => word.length > 0);
   if (words.length === 0 || words.join('').length < 4) return null;
+  // SOURCES-BO-CLOSE-1 — sobre TODA la razón social, no sobre su núcleo: el núcleo
+  // corta en la forma societaria del medio y la sigla de detrás se perdería
+  // («ALMACENES PACIFICO SUR S.A. ALPASUR»).
   const containing = hits.filter((hit) => {
-    const coreWords = new Set(hit.core.split(' '));
-    return words.every((word) => coreWords.has(word));
+    const legalWords = new Set(boliviaNameWords(hit.legalName));
+    return words.every((word) => legalWords.has(word));
   });
   return containing.length === 1 ? containing[0] : null;
 }
@@ -150,7 +163,8 @@ export function findBrandInLegalName(
  * La búsqueda del SEPREC busca el texto seguido, así que el nombre corto da 0.
  */
 export const BO_SEPREC_SECTOR_NAME_VARIANTS: readonly { trailingWord: string; legalPhrase: string }[] = [
-  { trailingWord: 'SAFI', legalPhrase: 'SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION' },
+  // SOURCES-BO-CLOSE-1 — «SAFI» ya no hace falta aquí: es forma societaria y el
+  // núcleo la quita a los dos lados («Credifondo SAFI» = CREDIFONDO … S.A. = CREDIFONDO).
   { trailingWord: 'SEGUROS', legalPhrase: 'COMPANIA DE SEGUROS' },
 ];
 
@@ -164,28 +178,15 @@ export function sectorNameVariant(wanted: string): string | null {
 }
 
 /**
- * SOURCES-BO-COUNTRY-SUFFIX-VARIANT-1 — Tavily y Apollo a veces guardan la marca
- * con el país o el dominio pegados (medido el 02-10, lote 0d4b77fb): «Get Server
- * Bolivia» (SEPREC: GET SERVER S.R.L.), «Cognos.com.bo». Colas que se quitan, de la
- * más larga a la más corta.
+ * SOURCES-BO-CLOSE-1 — nombres de entidades públicas: el SEPREC registra comercio,
+ * no Estado (medido el 06-10: «Caja Nacional de Salud», «Caja de Salud de Caminos»
+ * → 0 resultados). Buscarlas sólo gasta el presupuesto de la corrida.
  */
-export const BO_SEPREC_TRAILING_NOISE: readonly string[][] = [
-  ['COM', 'BO'],
-  ['ORG', 'BO'],
-  ['NET', 'BO'],
-  ['BOLIVIA'],
-  ['BO'],
-];
+const PUBLIC_ENTITY_NAME =
+  /^(GOBIERNO AUTONOMO|GOBIERNO MUNICIPAL|GAM |GAD |ALCALDIA|GOBERNACION|MINISTERIO|VICEMINISTERIO|CAJA NACIONAL DE SALUD|CAJA DE SALUD|CAJA PETROLERA|CAJA BANCARIA ESTATAL|UNIVERSIDAD MAYOR|UNIVERSIDAD AUTONOMA|UNIVERSIDAD PUBLICA|SERVICIO DEPARTAMENTAL|SERVICIO NACIONAL|AUTORIDAD DE |AGENCIA ESTATAL|AGENCIA NACIONAL|ASAMBLEA LEGISLATIVA|TRIBUNAL |CONTRALORIA|PROCURADURIA|DEFENSORIA|POLICIA BOLIVIANA|FUERZAS ARMADAS|HOSPITAL (DEL |DE )?(NINO|CLINICAS|OBRERO|MUNICIPAL|DEPARTAMENTAL|GENERAL|DE TERCER|DE SEGUNDO))/;
 
-/** Nombre sin el país ni el dominio pegados al final, o `null` si no aplica. */
-export function withoutTrailingCountry(wanted: string): string | null {
-  const words = wanted.split(' ').filter((word) => word.length > 0);
-  for (const tail of BO_SEPREC_TRAILING_NOISE) {
-    if (words.length <= tail.length) continue;
-    const end = words.slice(-tail.length);
-    if (end.every((word, i) => word === tail[i])) return words.slice(0, -tail.length).join(' ');
-  }
-  return null;
+export function isBoliviaPublicEntityName(core: string): boolean {
+  return PUBLIC_ENTITY_NAME.test(core.trim());
 }
 
 /** Ficha de detalle → NIT (sólo dígitos), o `null`. Nada más se lee. */
@@ -247,7 +248,19 @@ export function buildSeprecNameLiveQuery(
     }
   };
 
-  const getJson = async (url: string): Promise<unknown | null> => {
+  /**
+   * SOURCES-BO-CLOSE-1 — las peticiones van EN FILA aunque varias empresas se
+   * busquen a la vez (la capa gratuita busca 4 en paralelo): así el intervalo
+   * mínimo se respeta de verdad y el SEPREC no ve ráfagas.
+   */
+  let queue: Promise<unknown> = Promise.resolve();
+  const getJson = (url: string): Promise<unknown | null> => {
+    const next = queue.then(() => getJsonNow(url));
+    queue = next.catch(() => null);
+    return next;
+  };
+
+  const getJsonNow = async (url: string): Promise<unknown | null> => {
     if (consecutiveFailures >= BO_SEPREC_MAX_CONSECUTIVE_FAILURES || !budgetLeft()) return null;
     await pace(BO_SEPREC_MIN_INTERVAL_MS);
     if (!budgetLeft()) return null;
@@ -267,6 +280,8 @@ export function buildSeprecNameLiveQuery(
 
   return async (core: string) => {
     if (typeof core !== 'string' || core.trim().length === 0) return [];
+    // Una entidad pública no está en el registro de comercio: ni una petición.
+    if (isBoliviaPublicEntityName(core)) return [];
     if (consecutiveFailures >= BO_SEPREC_MAX_CONSECUTIVE_FAILURES) return [];
     if (lookups >= BO_SEPREC_MAX_LOOKUPS_PER_RUN) return [];
     lookups += 1;
@@ -287,11 +302,10 @@ export function buildSeprecNameLiveQuery(
     // resultados? Entonces se devuelve como PISTA (nunca NIT fuerte).
     let brand = findBrandInLegalName(wanted, hits, searchTotal(search));
 
-    // SOURCES-BO-SECTOR-NAME-VARIANT-1 — sin marca: si el nombre es «X SAFI» o
-    // «X Seguros», UNA búsqueda más con la forma larga. También es sólo pista.
-    // Como mucho UNA búsqueda más por empresa (el SEPREC es lento): primero sin el
-    // país o el dominio pegados; si no aplica, la forma larga del sector.
-    const variant = brand === null && hits.length === 0 ? (withoutTrailingCountry(wanted) ?? sectorNameVariant(wanted)) : null;
+    // SOURCES-BO-SECTOR-NAME-VARIANT-1 — sin marca: si el nombre es «X Seguros»,
+    // UNA búsqueda más con la forma larga. También es sólo pista. (El país y la web
+    // pegados ya los quita el núcleo: SOURCES-BO-CLOSE-1.)
+    const variant = brand === null && hits.length === 0 ? sectorNameVariant(wanted) : null;
     if (variant !== null) {
       const variantSearch = await getJson(buildSeprecSearchUrl(variant));
       brand = findBrandInLegalName(variant, parseSeprecSearch(variantSearch), searchTotal(variantSearch));
