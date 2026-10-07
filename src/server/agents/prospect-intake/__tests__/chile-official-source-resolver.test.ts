@@ -19,6 +19,7 @@ import {
   chileBrandTailKey,
   chileCandidateNameVariants,
   chilePublicEntityBySigla,
+  CL_GROUP_BRANDS,
   CL_PUBLIC_ENTITY_SIGLAS,
 } from '@/server/source-catalog/connectors/sii-chile/cl-name-keys';
 import { buildClSiiNameAliasRow } from '@/server/source-catalog/connectors/sii-chile/cl-sii-name-alias-rows';
@@ -203,6 +204,45 @@ describe('createChileOfficialSourceResolver', () => {
     const out = await createChileOfficialSourceResolver({ querySnapshots: query }).resolve(input('Unipdata - Customer Analytics'));
     assert.equal(out.status, 'not_found');
     assert.equal(asked.includes('CUSTOMER ANALYTICS'), false);
+  });
+});
+
+describe('marcas de grupos grandes y homónimos por tamaño (Chile × Retail, 070a2921)', () => {
+  const wfRow = (taxId: string, workers: number | null): ChileNameRow =>
+    row(taxId, 'TRICOT', workers === null ? {} : { workforce: { workers, year: 2024, source: 'cl_sii_registry' } });
+
+  it('cada RUT de la tabla de marcas es válido', () => {
+    for (const [brand, entry] of Object.entries(CL_GROUP_BRANDS)) assert.equal(normalizeChileRut(entry.rut), entry.rut, brand);
+  });
+
+  it('«Paris» con paris.cl es PARIS ADMINISTRADORA aunque el SII tenga otras «PARIS»', async () => {
+    const { query } = memoryQuery({ PARIS: [row('76994106-1', 'PARIS'), row('77193906-6', 'PARIS')] });
+    const out = await createChileOfficialSourceResolver({ querySnapshots: query }).resolve(input('Paris.cl', 'paris.cl'));
+    assert.equal(out.status, 'matched');
+    assert.equal(out.taxIdentifier, '96973670-5');
+  });
+
+  it('«Supermercado Jumbo» con jumbo.cl; sin la web oficial la marca nunca decide', async () => {
+    const { query } = memoryQuery({});
+    const resolver = createChileOfficialSourceResolver({ querySnapshots: query });
+    assert.equal((await resolver.resolve(input('Supermercado Jumbo', 'https://www.jumbo.cl/'))).taxIdentifier, '76134941-4');
+    assert.equal((await resolver.resolve(input('Jumbo'))).status, 'not_found');
+    assert.equal((await resolver.resolve(input('Jumbo', 'jumbo-juguetes.cl'))).status, 'not_found');
+  });
+
+  it('homónimos: gana la única con 50+ trabajadores si las demás informan 0', async () => {
+    const { query } = memoryQuery({ TRICOT: [wfRow('84000000-1', 130), wfRow('76266576-K', 0)] });
+    const out = await createChileOfficialSourceResolver({ querySnapshots: query }).resolve(input('Tricot.cl', 'tricot.cl'));
+    assert.equal(out.status, 'matched');
+    assert.equal(out.taxIdentifier, '84000000-1');
+    assert.equal((out.safeMetadata as Record<string, unknown>).homonymResolvedBySize, true);
+  });
+
+  it('homónimos: si dos tienen trabajadores, o la grande tiene menos de 50, sigue ambiguo', async () => {
+    const both = memoryQuery({ TRICOT: [wfRow('84000000-1', 130), wfRow('76266576-K', 12)] });
+    assert.equal((await createChileOfficialSourceResolver({ querySnapshots: both.query }).resolve(input('Tricot'))).status, 'low_confidence_match');
+    const small = memoryQuery({ TRICOT: [wfRow('84000000-1', 30), wfRow('76266576-K', null)] });
+    assert.equal((await createChileOfficialSourceResolver({ querySnapshots: small.query }).resolve(input('Tricot'))).status, 'low_confidence_match');
   });
 });
 

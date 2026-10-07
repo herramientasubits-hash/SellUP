@@ -28,7 +28,9 @@
 import { isNameTooGeneric } from '@/server/source-catalog/enrichment/tax-identifier-resolution/resolve-candidate-tax-identifier-colombia';
 import {
   chileCandidateNameVariants,
+  chileGroupBrandByDomain,
   chilePublicEntityBySigla,
+  CL_HOMONYM_MIN_WORKERS,
   type ChileNameVariant,
 } from '@/server/source-catalog/connectors/sii-chile/cl-name-keys';
 
@@ -94,6 +96,17 @@ function distinctByRut(rows: readonly ChileNameRow[]): ChileNameRow[] {
   });
 }
 
+/**
+ * Entre homónimos, la ÚNICA sociedad con `CL_HOMONYM_MIN_WORKERS`+ trabajadores, si
+ * todas las demás informan 0 o nada. Si dos tienen trabajadores, sigue ambiguo.
+ */
+function onlyActiveHomonym(rows: readonly ChileNameRow[]): ChileNameRow | null {
+  const active = rows.filter((row) => (row.workforce?.workers ?? 0) >= CL_HOMONYM_MIN_WORKERS);
+  if (active.length !== 1) return null;
+  const othersIdle = rows.every((row) => row === active[0] || (row.workforce?.workers ?? 0) === 0);
+  return othersIdle && active[0].alias !== true ? active[0] : null;
+}
+
 /** ¿La web del candidato lleva la palabra del alias («transemel.cl» para «TRANSEMEL»)? */
 function domainCarriesAlias(domainOrUrl: string | null, aliasCore: string): boolean {
   if (!domainOrUrl || aliasCore.includes(' ')) return false;
@@ -142,6 +155,24 @@ export function createChileOfficialSourceResolver(config: ChileOfficialSourceRes
           ),
       );
 
+      // Marca de un grupo grande con su web oficial: decide antes que los homónimos del SII.
+      const groupBrand = chileGroupBrandByDomain(allVariants, domain);
+      if (groupBrand !== null) {
+        return {
+          status: 'matched',
+          countryCode: 'CL',
+          sourceKey: CHILE_REGISTRY_SOURCE_KEY,
+          confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
+          matchMethod: 'normalized_name',
+          taxIdentifier: groupBrand.rut,
+          taxIdentifierType: 'RUT',
+          legalName: groupBrand.legalName,
+          warnings: [],
+          issues: [],
+          safeMetadata: { normalizedSearchName: firstCore ?? groupBrand.legalName, groupBrand: true },
+        };
+      }
+
       const pick = variants.length > 0 ? await pickFirstVariantWithRows(variants, config.querySnapshots) : null;
       if (pick === null) {
         const entity = chilePublicEntityBySigla(allVariants, domain);
@@ -185,6 +216,19 @@ export function createChileOfficialSourceResolver(config: ChileOfficialSourceRes
           status: 'low_confidence_match',
           confidence: SNAPSHOT_NAME_SIGNAL_MATCH_CONFIDENCE,
           safeMetadata: { ...metadata, aliasNeedsDomain: true },
+        };
+      }
+
+      const bySize = distinct.length > 1 ? onlyActiveHomonym(distinct) : null;
+      if (bySize !== null) {
+        return {
+          ...base,
+          taxIdentifier: bySize.taxId,
+          legalName: bySize.legalName || null,
+          status: 'matched',
+          confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
+          safeMetadata: { ...metadata, homonymResolvedBySize: true, candidateCount: distinct.length },
+          ...(bySize.workforce ? { workforce: { ...bySize.workforce } } : {}),
         };
       }
 
