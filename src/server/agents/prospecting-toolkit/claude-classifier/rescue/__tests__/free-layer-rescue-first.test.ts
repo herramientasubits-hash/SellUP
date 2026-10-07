@@ -141,17 +141,34 @@ describe('cuándo y cuánto tiempo', () => {
 });
 
 describe('cableado en la búsqueda', () => {
+  const src = readFileSync(
+    join(process.cwd(), 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
+    'utf8',
+  );
+
   it('la pasada va DESPUÉS del buscador gratuito y ANTES de la demanda de pago y de Tavily, sólo sobre las del buscador', () => {
-    const src = readFileSync(
-      join(process.cwd(), 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
-      'utf8',
-    );
     const free = src.indexOf('const prePaidNovelty = deps.runPrePaidNoveltyDiscovery');
-    const pass = src.indexOf('AGENT1-FREE-LAYER-RESCUE-FIRST-1');
+    const pass = src.indexOf('if (deps.rescueFreeLayerInline && freeLayerLeftCompaniesWithoutWeb(prePaidNovelty))');
     const demand = src.indexOf('const apolloResultDemand = prePaidContributed');
     const tavily = src.indexOf("if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true)");
     assert.ok(free > 0 && pass > free && demand > pass && tavily > demand);
     assert.match(src, /onlyFreeSourceMissingDomain: true/);
-    assert.match(src, /rescueBatchWithClaude\(\s*\{ batchId, triggeredBy, deadlineMs: windowMs, onlyFreeSourceMissingDomain \}/);
+  });
+
+  it('usa el lote CANÓNICO de la ejecución: con 0 guardadas con web, prePaidNovelty.batchId es null y la pasada igual corre', () => {
+    const pass = src.slice(src.indexOf('if (deps.rescueFreeLayerInline &&'), src.indexOf('// ── 5e. CUT-2'));
+    assert.match(pass, /resolveCanonicalBatchId\(\)/);
+    assert.doesNotMatch(pass, /prePaidNovelty\.batchId/);
+    // La condición de «dejó sin web» no depende del lote: 0 guardadas y 5 nuevas ⇒ corre.
+    assert.equal(freeLayerLeftCompaniesWithoutWeb({ persistedCount: 0, freeSource: { attempted: true, acceptedNovel: 5 } }), true);
+  });
+
+  it('deja en el lote cuántas admitió la pasada (free_layer_rescue_first)', () => {
+    assert.match(src, /free_layer_rescue_first: freeLayerRescueFirst/);
+  });
+
+  it('el rescate inline de Tavily no cambia: sigue devolviendo sí/no y revisa el lote entero', () => {
+    assert.match(src, /rescueBatchInline\?: \(input: \{ batchId: string; windowMs: number \}\) => Promise<boolean>;/);
+    assert.match(src, /\{ batchId, triggeredBy, deadlineMs: windowMs \},/);
   });
 });
