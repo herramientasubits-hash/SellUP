@@ -70,6 +70,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'ec_sri_trade_name_registry',
   // SOURCES-BO-CLOSE-1 — una fila por ficha de gob.bo (sin NIT).
   'bo_public_entities',
+  // SOURCES-BO-CLOSE-1 — siglas oficiales por NIT.
+  'bo_name_alias',
   // SOURCES-CR-CLOSE-1 — varias claves de nombre por cédula.
   'cr_company_name_alias',
 ] as const;

@@ -171,11 +171,18 @@ export function boliviaLegalNameAliases(legalName: string | null | undefined): s
   const middle = firstLegalFormAt(words, 1);
   if (middle.index > 0) {
     const after = stripTails(words.slice(middle.index + middle.length));
-    if (after.length === 1 && after[0].length >= 4 && !/^\d+$/.test(after[0])) aliases.add(after[0]);
+    // Sigla de 3+ letras («… S.A. DMC S.A.» → DMC; «… S.A. ALPASUR» → ALPASUR).
+    if (after.length === 1 && after[0].length >= 3 && !/^\d+$/.test(after[0])) aliases.add(after[0]);
   }
   aliases.delete(normalizeBoliviaCompanyCore(legalName));
+  // SOURCES-BO-CLOSE-1 (corrida 07-10) — «HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.»: el
+  // país entre paréntesis no es una sigla.
+  for (const alias of [...aliases]) if (NOT_AN_ALIAS.has(alias)) aliases.delete(alias);
   return [...aliases];
 }
+
+/** Palabras que entre paréntesis o detrás de la forma no son una sigla. */
+const NOT_AN_ALIAS: ReadonlySet<string> = new Set(['BOLIVIA', 'DE BOLIVIA', 'BOLIVIANA', 'SUCURSAL', 'SUCURSAL BOLIVIA', 'EN LIQUIDACION', 'LIMITADA', 'LTDA']);
 
 /** Sufijos que una web suele pegar a la marca: «credifondosafi», «getserverbolivia». */
 const DOMAIN_LABEL_SUFFIXES = ['', 'sa', 'srl', 'ltda', 'safi', 'bo', 'bolivia', 'bol'];

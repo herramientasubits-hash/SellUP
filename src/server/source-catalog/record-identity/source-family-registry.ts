@@ -88,6 +88,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-BO-CLOSE-1 — una fila por ficha de gob.bo (`gobbo:<slug>`): las entidades
   // públicas no tienen NIT publicado.
   bo_public_entities: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-BO-CLOSE-1 — varias siglas oficiales por NIT (`bo-alias:<NIT>:<sigla>`).
+  bo_name_alias: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PE-CLOSE-1 — varias filas por RUC (una por clave de nombre: alias del
   // padrón, entidad pública, entidad contratante OECE): identidad `pe-name-alias:<RUC>:<clave>`.
   pe_sunat_name_alias: 'NATIVE_RECORD_GRAIN',

@@ -93,7 +93,12 @@ const VERIFICATIONS: readonly FoundVerification[] = [
  * Países con nombre comercial / sigla oficial por número fiscal ya cargados
  * (Ecuador: `ec_sri_trade_name_registry` + `ec_scvs_alias_registry`).
  */
-export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC']);
+/**
+ * SOURCES-BO-CLOSE-1 — Bolivia: siglas oficiales por NIT (`bo_name_alias`). Activa
+ * también, a propósito, la web por la primera palabra propia de la razón social
+ * (huawei.com ← HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.), como en Ecuador.
+ */
+export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC', 'BO']);
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
@@ -348,7 +353,7 @@ export function unverifiedWebsiteHint(
 
 const GOVERNMENT_HOST = /\.(gob|gov|mil)(\.[a-z]{2})?$/;
 /** Sufijos de país que una marca suele pegar a su dominio («heyecuador», «cns-ec»). */
-const COUNTRY_LABEL_SUFFIXES = ['', 'ecuador', 'ec'] as const;
+const COUNTRY_LABEL_SUFFIXES = ['', 'ecuador', 'ec', 'bolivia', 'bo'] as const;
 const compactName = (text: string): string =>
   text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 

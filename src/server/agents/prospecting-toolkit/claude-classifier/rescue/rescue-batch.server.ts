@@ -149,6 +149,8 @@ async function checkDuplicateStrict(
  */
 const OFFICIAL_NAME_SOURCE_KEYS: Readonly<Record<string, readonly string[]>> = {
   EC: ['ec_sri_trade_name_registry', 'ec_scvs_alias_registry'],
+  // SOURCES-BO-CLOSE-1 — siglas oficiales por NIT (TELECEL, DMC, ENTEL de gob.bo).
+  BO: ['bo_name_alias'],
 };
 
 async function loadOfficialNames(input: { countryCode: string; taxId: string }): Promise<string[]> {
