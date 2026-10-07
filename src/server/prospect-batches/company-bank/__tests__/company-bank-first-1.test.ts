@@ -188,25 +188,26 @@ describe('§ 2 — el depósito de Apollo guarda candidato + evidencia', () => {
 // ─── § 3 ──────────────────────────────────────────────────────────────────────
 
 describe('§ 3 — el tope es por vendedor y por búsqueda', () => {
-  it('descuenta lo que el lote ya tiene y nunca baja del objetivo de quien escribe', () => {
-    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 0, floor: null }), 10);
-    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 4, floor: null }), 6);
-    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 12, floor: null }), 0);
-    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 8, floor: 5 }), 5);
-    assert.equal(resolveEffectiveDeliveryCap({ cap: null, alreadyDelivered: 8, floor: 5 }), null);
+  it('descuenta lo que el lote ya tiene', () => {
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 0 }), 10);
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 4 }), 6);
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 12 }), 0);
+    assert.equal(resolveEffectiveDeliveryCap({ cap: null, alreadyDelivered: 8 }), null);
   });
 
-  it('🔴 MEASURES-TARGET-1: Apollo entra con el lote lleno y aun así puede escribir lo que FALTA', () => {
-    // Medido 05-10 (Chile × Salud, d92a12ec): banco 10 + Tavily 6 ⇒ tope 0 para
-    // Apollo, que pagó 6 créditos y no escribió nada.
-    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 16, floor: 5 }), 5);
+  it('🔴 AGENT1-DELIVERY-CAP-HARD-1: el tope es duro — ninguna pierna pasa de 10, ni para cerrar su meta', () => {
+    // Antes un «piso» (MEASURES-TARGET-1) dejaba escribir lo que faltaba para la meta
+    // aunque el lote estuviera lleno: en Prod hubo búsquedas con 27 en revisión.
+    // Regla de la dueña (07-10): mínimo 5 y máximo 10; el resto va al banco.
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 16 }), 0);
+    assert.equal(resolveEffectiveDeliveryCap({ cap: 10, alreadyDelivered: 8 }), 2);
     const writer = readFileSync(path.join(REPO_ROOT, 'src/server/agents/prospecting-toolkit/candidate-writer.ts'), 'utf8');
-    assert.match(writer, /floor: input\.deliveryCapFloor \?\? targetCap/);
+    assert.doesNotMatch(writer, /deliveryCapFloor/);
     const runner = readFileSync(
       path.join(REPO_ROOT, 'src/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server.ts'),
       'utf8',
     );
-    assert.match(runner, /deliveryCapFloor: input\.resultDemand\?\.remainingTarget \?\? config\.targetEligibleCompanies/);
+    assert.doesNotMatch(runner, /deliveryCapFloor:/);
   });
 
   it('🔴 MEASURES-TARGET-1: las filas del banco se escriben por la ruta de Apollo (se miden)', async () => {
@@ -220,6 +221,17 @@ describe('§ 3 — el tope es por vendedor y por búsqueda', () => {
     });
     assert.equal(out.metadata?.provider, 'apollo_organizations');
     assert.equal(out.metadata?.search_mode, 'company_bank_first');
+    // AGENT1-DELIVERY-CAP-HARD-1 — lo que guardó una búsqueda web vuelve como web.
+    const web = buildBankPipelineOutput({
+      industryName: 'Salud & Farmacéuticos',
+      countryCode: 'CL',
+      countryName: 'Chile',
+      requestedTarget: 5,
+      candidates: [],
+      provider: 'tavily',
+    });
+    assert.equal(web.metadata?.provider, 'tavily');
+    assert.equal(web.input.webSearchProvider, 'tavily');
   });
 
   it('el escritor lee el lote ANTES de recortar', () => {
@@ -722,3 +734,41 @@ describe('§ 6 — SOURCES-CL-BANK-OFFICIAL-IDENTITY-1: el número fiscal se vue
   });
 });
 
+
+// ─── AGENT1-DELIVERY-CAP-HARD-1 ─────────────────────────────────────────────
+
+describe('AGENT1-DELIVERY-CAP-HARD-1 — lo que guardó una búsqueda web vuelve como web', () => {
+  it('Apollo y web salen en dos escrituras, Apollo primero, cada una con su origen; los totales se suman', async () => {
+    const webRow: CompanyBankDrawnCompany = { ...bankRow('r2', pipelinePayload('Beta', 'beta.co')), sourceProvider: 'tavily' };
+    const h = drawerHarness({
+      rows: [bankRow('r1', pipelinePayload('Alfa', 'alfa.co'), 'ready'), webRow, bankRow('r3', pipelinePayload('Gama', 'gama.co'))],
+      persistedByDomain: { 'alfa.co': 'c-1', 'beta.co': 'c-2', 'gama.co': 'c-3' },
+      review: 'absent',
+    });
+    const out = await h.drawer(h.input);
+    assert.equal(h.rec.writes.length, 2);
+    assert.equal(h.rec.writes[0].candidateProvenance, 'apollo');
+    assert.deepEqual(h.rec.writes[0].candidates.map((c) => c.domain), ['alfa.co', 'gama.co']);
+    assert.equal(h.rec.writes[1].candidateProvenance, null);
+    assert.deepEqual(h.rec.writes[1].candidates.map((c) => c.domain), ['beta.co']);
+    assert.equal(out.persistedCount, 3);
+    assert.equal(h.rec.batchResolutions, 1);
+  });
+
+  it('sólo Apollo ⇒ una sola escritura, como siempre', async () => {
+    const h = drawerHarness({
+      rows: [bankRow('r1', pipelinePayload('Alfa', 'alfa.co'), 'ready')],
+      persistedByDomain: { 'alfa.co': 'c-1' },
+      review: 'absent',
+    });
+    await h.drawer(h.input);
+    assert.equal(h.rec.writes.length, 1);
+    assert.equal(h.rec.writes[0].candidateProvenance, 'apollo');
+  });
+
+  it('la escritura de producción pide el proveedor de su origen', () => {
+    const code = readFileSync(path.join(REPO_ROOT, 'src/server/prospect-batches/company-bank/prepaid-bank-draw.server.ts'), 'utf8');
+    assert.match(code, /candidateProvenance: writeInput\.candidateProvenance/);
+    assert.match(code, /provider: writeInput\.candidateProvenance === 'apollo' \? 'apollo_organizations' : 'tavily'/);
+  });
+});

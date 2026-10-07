@@ -6,6 +6,7 @@
  * de `website-verifier` y el logger común de `provider_usage_logs`.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { loadActiveDiscoveryCatalog } from '@/modules/industry-catalog/discovery-catalog-loader';
@@ -56,8 +57,9 @@ export async function resolveActiveAnthropicModel(): Promise<ActiveAnthropicMode
   return { model, apiKey: credential.apiKey };
 }
 
-export async function loadClassifierCatalog(): Promise<ClassifierCatalogIndustry[]> {
-  const catalog = await loadActiveDiscoveryCatalog();
+/** `client` opcional: ver `loadActiveDiscoveryCatalog` (rescate sin sesión). */
+export async function loadClassifierCatalog(client?: SupabaseClient): Promise<ClassifierCatalogIndustry[]> {
+  const catalog = await loadActiveDiscoveryCatalog(client);
   return catalog.industries.map((industry) => ({
     industryId: industry.id,
     industryName: industry.name,

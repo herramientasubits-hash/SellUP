@@ -2277,7 +2277,6 @@ export async function writeProspectingCandidates(
         ? input.maxDeliveredCandidates
         : null,
     alreadyDelivered: alreadyDeliveredInBatch,
-    floor: input.deliveryCapFloor ?? targetCap,
   });
   const toPersist =
     deliveryCap !== null && capOrdered.length > deliveryCap

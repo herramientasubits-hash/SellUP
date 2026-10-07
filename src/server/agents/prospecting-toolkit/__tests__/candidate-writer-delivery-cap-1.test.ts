@@ -15,7 +15,8 @@
  *   (b) COMPLETAS PRIMERO: con las completas al FINAL del orden de entrada, todas
  *       se persisten y las recortadas son incompletas.
  *   (c) sin tope (`undefined` o `null`) ⇒ las 12 se insertan (X6.13 intacto).
- *   (d) un tope por debajo del objetivo sube al objetivo (tope 3, objetivo 5 ⇒ 5).
+ *   (d) AGENT1-DELIVERY-CAP-HARD-1 — el tope es duro: aunque quede por debajo del
+ *       objetivo, nunca se escribe más (tope 3, objetivo 5 ⇒ 3; el resto, recortado).
  *
  * «Completa» = `providerEnrichmentCapture.precision` real con la subindustria
  * pedida confirmada. «Incompleta» = el MISMO candidato sin captura de precisión
@@ -570,18 +571,20 @@ describe('AGENT1-DELIVERY-CAP-1 — writer Apollo/Tavily: tope de entrega por ve
     assert.equal((metadata.precision_gate as Record<string, unknown>).target_cap_exclusions, 0);
   });
 
-  it('(d) un tope por debajo del objetivo sube al objetivo: tope 3 + objetivo 5 ⇒ 5 filas', async () => {
-    const { stats } = await runWriter(buildCandidates(), {
+  it('(d) AGENT1-DELIVERY-CAP-HARD-1: el tope es duro aunque quede por debajo del objetivo (tope 3 + objetivo 5 ⇒ 3)', async () => {
+    const { stats, deliveryCappedCompanies } = await runWriter(buildCandidates(), {
       maxDeliveredCandidates: 3,
       targetPersistibleCandidates: TARGET,
     });
-    assert.equal(stats.candidateInserts.length, TARGET);
+    assert.equal(stats.candidateInserts.length, 3);
 
     const metadata = lastBatchMetadata(stats);
-    assert.equal((metadata.precision_gate as Record<string, unknown>).target_cap_exclusions, 7);
+    assert.equal((metadata.precision_gate as Record<string, unknown>).target_cap_exclusions, 9);
     const targetCap = metadata.target_cap as Record<string, unknown>;
-    assert.equal(targetCap.delivery_cap, TARGET, 'el tope efectivo es el objetivo, no 3');
-    assert.equal(targetCap.delivery_capped_count, 7);
+    assert.equal(targetCap.delivery_cap, 3, 'el objetivo ya no sube el tope');
+    assert.equal(targetCap.delivery_capped_count, 9);
+    // Lo que no cupo sale como recortado (para el banco).
+    assert.equal(deliveryCappedCompanies.length, 9);
   });
 
   it('un tope igual o mayor que las elegibles no recorta nada', async () => {
