@@ -42,6 +42,10 @@ import type {
 import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
 import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import { isRecycledCountrySourceCompany, type CountrySourcePriorSighting } from './country-source-prior-sightings';
+import {
+  EC_PUBLIC_ENTITY_RULES_VERSION,
+  type EcPublicEntityClass,
+} from '@/server/source-catalog/connectors/ec-scvs/ec-public-entity-classifier';
 
 /** `source_key` que esta proyección declara. */
 export const EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY = 'ec_scvs_directory_discovery' as const;
@@ -75,7 +79,24 @@ export type EcScvsDirectorySnapshotReadRow = {
   website_domain?: string | null;
   /** SOURCES-EC-CLOSE-1 — ausente o `null` = SellUp no la vio. */
   prior_sighting?: CountrySourcePriorSighting | null;
+  /**
+   * SOURCES-EC-PUBLIC-ENTITIES-1 — entidad pública del catastro del SRI (no de la
+   * Superintendencia): ya clasificada por tipo; no trae empleados ni CIIU de la tabla.
+   */
+  public_entity?: EcPublicEntityClass | null;
 };
+
+/**
+ * SOURCES-EC-PUBLIC-ENTITIES-1 — industrias que ofrecen entidades públicas del SRI
+ * (Gobierno: nacionales, provincias, municipios grandes, universidades públicas;
+ * Salud: hospitales públicos grandes).
+ */
+export const EC_PUBLIC_ENTITY_MACROS: ReadonlySet<string> = new Set(['government', 'health_pharma']);
+
+/** ¿La capa gratuita de Ecuador tiene algo que ofrecer en esta industria? */
+export function macroHasEcFreeLayerCoverage(macroIndustryKey: string | null | undefined): boolean {
+  return macroHasEcCoverage(macroIndustryKey) || EC_PUBLIC_ENTITY_MACROS.has(macroIndustryKey ?? '');
+}
 
 const DOMAIN_SHAPE = /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -90,12 +111,18 @@ export type EcScvsDirectoryDiscoveryReads = {
     macroIndustryKey: string;
     limit: number;
   }) => Promise<readonly EcScvsDirectorySnapshotReadRow[]>;
+  /** SOURCES-EC-PUBLIC-ENTITIES-1 — entidades públicas del SRI de esa industria. Ausente = no se ofrecen. */
+  readPublicEntitiesByMacro?: (input: {
+    macroIndustryKey: string;
+    limit: number;
+  }) => Promise<readonly EcScvsDirectorySnapshotReadRow[]>;
 };
 
 function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string): CountrySourceCompany | null {
   const legalName = row.legal_name?.trim() || null;
   const ruc = row.ruc?.trim() ?? '';
   if (legalName === null || !COMPANY_RUC.test(ruc)) return null;
+  if (row.public_entity) return toPublicEntityCompany(row, row.public_entity, legalName, ruc, macroIndustryKey);
   if (row.employees === null || row.employees < EC_SCVS_DIRECTORY_DISCOVERY_MIN_EMPLOYEES) return null;
   // La tabla de HOY manda: la macro guardada al cargar sólo sirvió para filtrar.
   if (resolveEcActivityMacro(row.ciiu_code) !== macroIndustryKey) return null;
@@ -130,6 +157,40 @@ function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string
 }
 
 /**
+ * SOURCES-EC-PUBLIC-ENTITIES-1 — una entidad pública del SRI. El tamaño lo da su
+ * TIPO (regla del clasificador), no un número: sin `officialWorkforce`. Sin web
+ * (el catastro no la publica): la busca el rescate con Claude.
+ */
+function toPublicEntityCompany(
+  row: EcScvsDirectorySnapshotReadRow,
+  entity: EcPublicEntityClass,
+  legalName: string,
+  ruc: string,
+  macroIndustryKey: string,
+): CountrySourceCompany | null {
+  if (entity.macroIndustryKey !== macroIndustryKey) return null;
+  return {
+    recordIdentityKey: row.record_identity_key,
+    legalName,
+    normalizedLegalName: row.normalized_legal_name?.trim() || null,
+    taxId: ruc,
+    taxIdentifierType: 'RUC',
+    countryCode: 'EC',
+    city: row.city?.trim() || null,
+    region: row.region?.trim() || null,
+    domain: normalizeDomain(row.website_domain),
+    declaredIndustry: getMacroIndustryByKey(macroIndustryKey)?.displayName ?? null,
+    industryCode: row.ciiu_code?.trim() || null,
+    coarseSector: null,
+    officialMacroIndustry: {
+      macroIndustryKeys: [macroIndustryKey],
+      tableVersion: EC_PUBLIC_ENTITY_RULES_VERSION,
+    },
+    officialWorkforce: null,
+  };
+}
+
+/**
  * Construye el adapter de descubrimiento de Ecuador.
  *
  * Devuelve SIEMPRE un resultado; los fallos los traduce el orquestador.
@@ -139,15 +200,21 @@ export function buildEcScvsDirectoryDiscoveryAdapter(reads: EcScvsDirectoryDisco
     const empty = { sourceKey: EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY, companies: [], recordsRead: 0 };
 
     // Una macro sin actividades clasificadas no consulta: nunca una muestra genérica.
-    if (!macroHasEcCoverage(criteria.macroIndustryKey)) return empty;
+    if (!macroHasEcFreeLayerCoverage(criteria.macroIndustryKey)) return empty;
 
     const limit = Math.max(0, Math.min(Math.trunc(criteria.limit), EC_SCVS_DIRECTORY_DISCOVERY_MAX_ROWS));
     if (limit === 0) return empty;
 
-    const rows = await reads.readCompaniesByMacro({
-      macroIndustryKey: criteria.macroIndustryKey,
-      limit,
-    });
+    // Compañías de la Superintendencia primero (por empleados); después, en Gobierno
+    // y Salud, las entidades públicas del SRI (SOURCES-EC-PUBLIC-ENTITIES-1).
+    const companyRows = macroHasEcCoverage(criteria.macroIndustryKey)
+      ? await reads.readCompaniesByMacro({ macroIndustryKey: criteria.macroIndustryKey, limit })
+      : [];
+    const publicRows =
+      EC_PUBLIC_ENTITY_MACROS.has(criteria.macroIndustryKey) && reads.readPublicEntitiesByMacro
+        ? await reads.readPublicEntitiesByMacro({ macroIndustryKey: criteria.macroIndustryKey, limit })
+        : [];
+    const rows = [...companyRows, ...publicRows];
 
     // Un RUC, una empresa: la primera fila válida gana (la lectura ya viene
     // ordenada por empleados).

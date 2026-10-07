@@ -46,6 +46,7 @@ import {
 import {
   buildEcScvsDirectoryDiscoveryAdapter,
   EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  macroHasEcFreeLayerCoverage,
   type EcScvsDirectoryDiscoveryReads,
 } from './ec-scvs-directory-discovery-adapter';
 import {
@@ -84,7 +85,6 @@ import {
 } from './gt-guatecompras-directory-discovery-adapter';
 import { macroHasGtGuatecomprasCoverage } from './gt-guatecompras-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
-import { macroHasEcCoverage } from './ec-scvs-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
 import { macroHasCoSiisCoverage } from './co-siis-macro-table';
 import { CO_PUBLIC_ENTITY_DISCOVERY_MACROS } from './co-siis-discovery-adapter';
@@ -194,7 +194,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'DO') return macroHasDgiiCoverage(macroIndustryKey);
   if (capability.countryCode === 'AR') return macroHasArCoverage(macroIndustryKey);
   if (capability.countryCode === 'MX') return macroHasMxCoverage(macroIndustryKey);
-  if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
+  if (capability.countryCode === 'EC') return macroHasEcFreeLayerCoverage(macroIndustryKey);
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);

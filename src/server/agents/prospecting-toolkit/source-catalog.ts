@@ -1552,7 +1552,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Capa gratuita de Ecuador. Cargadas 2.041 compañías activas con 100+ empleados (recarga autorizada 06-10, SOURCES-EC-CLOSE-1, «como Chile»; antes 1.082 con 200+), 86 con el dominio declarado en SERCOP 2025-2026. Próxima recarga: con el siguiente ranking anual.',
+      'Capa gratuita de Ecuador. Cargadas 2.041 compañías activas con 100+ empleados (recarga autorizada 06-10, SOURCES-EC-CLOSE-1, «como Chile»; antes 1.082 con 200+), 86 con el dominio declarado en SERCOP 2025-2026. Próxima recarga: con el siguiente ranking anual. Desde SOURCES-EC-PUBLIC-ENTITIES-1 (07-10) también ofrece, en Gobierno y Salud, entidades públicas del SRI elegidas por tipo (~226: nacionales, provincias, municipios grandes, universidades públicas y hospitales grandes); el conteo oficial de servidores (SIITH, Ministerio del Trabajo) está bloqueado desde fuera de Ecuador.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1609,7 +1609,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.734 sociedades activas + nombres comerciales (autorizado 06-10).',
+      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.734 sociedades activas + nombres comerciales (autorizado 06-10). Desde SOURCES-EC-PUBLIC-ENTITIES-1 sus entidades públicas también alimentan la capa gratuita de Gobierno y Salud.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
