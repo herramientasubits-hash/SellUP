@@ -34,6 +34,7 @@ import {
   costaRicaRegistryAliasKeys,
   currentCostaRicaName,
 } from './cr-name-keys';
+import { costaRicaWebAliasKey } from './cr-domain';
 
 export const CR_COMPANY_REGISTRY_SOURCE_KEY = 'cr_company_registry' as const;
 export const CR_COMPANY_NAME_ALIAS_SOURCE_KEY = 'cr_company_name_alias' as const;
@@ -102,6 +103,12 @@ export type CrSourceRecords = {
   grandesContribuyentes?: readonly CrNamedCedula[];
   /** Siglas oficiales por cédula (MIDEPLAN, cruzadas por nombre en la carga). */
   acronymsByCedula?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Web oficial por cédula (ficha de MIDEPLAN de una entidad pública). Se guarda
+   * como alias `web:<dominio>`: la candidata con esa misma web encuentra la cédula
+   * aunque su nombre sea una sigla que MIDEPLAN no publica («TEC» → tec.ac.cr).
+   */
+  websitesByCedula?: ReadonlyMap<string, string>;
 };
 
 /** Núcleo del nombre costarricense: el MISMO que calcula el resolvedor de la corrida. */
@@ -257,6 +264,22 @@ export function buildCrCompanyRegistry(
     }
   }
 
+  // Una web que aparece en dos cédulas sólo identifica a la que la tiene en la
+  // raíz (un órgano adscrito suele apuntar a una página dentro de la web de su
+  // ministerio); si ninguna o varias, no identifica a ninguna.
+  const webKeyByCedula = new Map<string, string>();
+  const webCedulas = new Map<string, { cedula: string; root: boolean }[]>();
+  for (const [cedula, url] of records.websitesByCedula ?? []) {
+    const key = costaRicaWebAliasKey(url);
+    if (key === null || !byCedula.has(cedula)) continue;
+    const root = !/^[a-z]+:\/\/[^/]+\/[^?#\s]+/i.test(url.trim());
+    webCedulas.set(key, [...(webCedulas.get(key) ?? []), { cedula, root }]);
+  }
+  for (const [key, owners] of webCedulas) {
+    const pick = owners.length === 1 ? owners : owners.filter((o) => o.root);
+    if (pick.length === 1) webKeyByCedula.set(pick[0].cedula, key);
+  }
+
   const aliases: CrCompanyNameAliasRow[] = [];
   for (const row of registry) {
     const entry = byCedula.get(row.tax_id)!;
@@ -265,6 +288,8 @@ export function buildCrCompanyRegistry(
       otherNames: entry.otherNames,
       acronyms: records.acronymsByCedula?.get(row.tax_id) ?? [],
     });
+    const webKey = webKeyByCedula.get(row.tax_id);
+    if (webKey !== undefined) keys.push(webKey);
     const seen = new Set<string>([row.normalized_legal_name]);
     for (const key of keys) {
       if (seen.has(key)) continue;
