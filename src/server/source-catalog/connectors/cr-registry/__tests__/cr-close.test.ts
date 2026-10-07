@@ -739,3 +739,19 @@ describe('tamaño oficial «grande» = lista de Grandes Contribuyentes Nacionale
     assert.equal(ice.row.raw_data.official_size_band, 'large');
   });
 });
+
+describe('el adaptador entrega el tamaño oficial «grande» al rescate', () => {
+  it('officialSizeBand sólo para la gran contribuyente', async () => {
+    const adapter = buildCrFreeDirectoryDiscoveryAdapter({
+      async readCompaniesByMacro() {
+        return [
+          { record_identity_key: 'tax:3102474379', cedula: '3102474379', legal_name: 'AMAZON SUPPORT SERVICES COSTA RICA S.R.L.', normalized_legal_name: 'AMAZON SUPPORT SERVICES COSTA RICA', city: null, region: null, directory_kind: 'zona_franca', activity_code: '8211', activity_text: null, website_domain: null, meic_size: null, official_size_band: 'large', priority_score: 1 },
+          { record_identity_key: 'tax:3101233948', cedula: '3101233948', legal_name: 'S.T.T. GROUP DE CR S.A.', normalized_legal_name: 'S T T GROUP DE CR', city: null, region: null, directory_kind: 'zona_franca', activity_code: '8211', activity_text: null, website_domain: null, meic_size: null, official_size_band: null, priority_score: 1 },
+        ];
+      },
+    });
+    const out = await adapter({ countryCode: 'CR', macroIndustryKey: 'services_company', limit: 10 } as never);
+    assert.deepEqual(out.companies[0]?.officialSizeBand, { band: 'large', sourceLabel: 'Hacienda – Grandes Contribuyentes' });
+    assert.equal(out.companies[1]?.officialSizeBand, undefined);
+  });
+});

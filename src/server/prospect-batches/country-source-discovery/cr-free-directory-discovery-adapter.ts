@@ -42,6 +42,9 @@ import type {
 /** `source_key` que esta proyección declara. */
 export const CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY = 'cr_free_directory_discovery' as const;
 
+/** Etiqueta corta del tamaño oficial «grande» de Costa Rica para la ficha. */
+export const CR_LARGE_TAXPAYER_SIZE_LABEL = 'Hacienda – Grandes Contribuyentes' as const;
+
 /** Techo de empresas devueltas por consulta (igual que el resto de países). */
 export const CR_FREE_DIRECTORY_DISCOVERY_MAX_ROWS = 200;
 
@@ -118,6 +121,12 @@ function toCompany(row: CrFreeDirectorySnapshotReadRow, macroIndustryKey: string
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: CR_FREE_DIRECTORY_MACRO_TABLE_VERSION,
     },
+    // Tamaño oficial «grande»: está en la lista de Grandes Contribuyentes Nacionales
+    // de Hacienda (aprobado por la dueña el 07-10-2026). El rescate lo usa para
+    // admitir sin web a una filial de multinacional.
+    ...(row.official_size_band === 'large'
+      ? { officialSizeBand: { band: 'large' as const, sourceLabel: CR_LARGE_TAXPAYER_SIZE_LABEL } }
+      : {}),
   };
 }
 
