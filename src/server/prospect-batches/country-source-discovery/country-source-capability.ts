@@ -64,6 +64,12 @@ import {
   type PyDncpDirectoryDiscoveryReads,
 } from './py-dncp-directory-discovery-adapter';
 import {
+  BO_OFFICIAL_DISCOVERY_SOURCE_KEY,
+  buildBoOfficialDiscoveryAdapter,
+  macroHasBoDiscoveryCoverage,
+  type BoOfficialDiscoveryReads,
+} from './bo-official-discovery-adapter';
+import {
   buildCrFreeDirectoryDiscoveryAdapter,
   CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type CrFreeDirectoryDiscoveryReads,
@@ -123,13 +129,18 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * (UNSPSC, `gt-guatecompras-macro-table.ts`), sólo agentes de retención del IVA o
  * con al menos Q5 millones adjudicados.
  *
+ * SOURCES-BO-CLOSE-1 — Bolivia entra con los grandes contribuyentes (PRICO/GRACO de
+ * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
+ * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
+ * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
+ *
  * SOURCES-CR-CLOSE-1 — Costa Rica entra con un directorio oficial: proveedoras
  * del Estado (ofertas de SICOP, clasificadas por lo que venden con la tabla
  * UNSPSC aprobada de Paraguay), empresas en Zona Franca (PROCOMER, por su
  * actividad CAECR con la tabla CIIU aprobada) y entidades públicas (Gobierno);
  * sin las que el MEIC registra como micro o pequeña.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'CR'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -146,6 +157,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
   GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
   CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
@@ -169,6 +181,7 @@ export function resolveCountrySourceCapability(
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
  * Paraguay: la macro tiene clases UNSPSC en la tabla.
  * Guatemala: la macro tiene clases UNSPSC en la tabla (la misma de Paraguay).
+ * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
@@ -186,6 +199,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
   if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
+  if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
@@ -212,6 +226,7 @@ export function buildCountrySourceAdapter(
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
     pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
     gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
+    boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
     crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
@@ -250,6 +265,9 @@ export function buildCountrySourceAdapter(
     return deps.gtGuatecomprasDirectoryDiscoveryReads
       ? buildGtGuatecomprasDirectoryDiscoveryAdapter(deps.gtGuatecomprasDirectoryDiscoveryReads)
       : null;
+  }
+  if (capability.countryCode === 'BO') {
+    return deps.boOfficialDiscoveryReads ? buildBoOfficialDiscoveryAdapter(deps.boOfficialDiscoveryReads) : null;
   }
   if (capability.countryCode === 'CR') {
     return deps.crFreeDirectoryDiscoveryReads

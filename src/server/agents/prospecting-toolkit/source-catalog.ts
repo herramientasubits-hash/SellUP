@@ -84,8 +84,9 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Distinguir RUC de persona natural vs empresa antes de prospectar.',
   ],
   BO: [
-    'Bolivia no publica un padrón descargable: el NIT por nombre se consulta en vivo en el registro de comercio (SEPREC) y puede tardar o fallar.',
-    'Peticiones espaciadas y como mucho 45 segundos por corrida (unas 8-10 empresas): las demás quedan sin NIT.',
+    'Bolivia no publica un padrón descargable: el NIT por nombre sale primero de la lista de grandes contribuyentes cargada (PRICO/GRACO de Impuestos y PRIO/OEA de la Aduana) y, si no está, del registro de comercio (SEPREC) en vivo, que puede tardar o fallar.',
+    'El SEPREC en vivo va despacio (una petición cada 4 s, como mucho 45 segundos por corrida): las demás empresas quedan sin NIT.',
+    'Las entidades públicas (alcaldías, gobernaciones, ministerios, cajas de salud) no tienen NIT publicado en ninguna fuente gratuita: llegan con su web de gob.bo cuando la hay.',
     'Las empresas unipersonales (personas) nunca se ofrecen; nombres repetidos o genéricos no dan un NIT seguro.',
   ],
   BR: [
@@ -1944,7 +1945,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'backend_connected',
     nextAction:
-      'Consulta en vivo y gratuita en cada corrida: el Agente 1 busca la empresa por nombre en el SEPREC y lee su NIT. Peticiones espaciadas 2,5 s (el SEPREC frena las ráfagas) y como mucho 45 s por corrida: unas 8-10 empresas.',
+      'Consulta en vivo y gratuita en cada corrida, DESPUÉS de la lista de grandes contribuyentes: el Agente 1 busca la empresa por nombre en el SEPREC y lee su NIT. Peticiones en fila, espaciadas 4 s (el SEPREC frena las ráfagas; medido el 06-10) y como mucho 45 s por corrida: unas 5-8 empresas. Los nombres de entidades públicas no se consultan.',
     countryCodes: ['BO'],
     sectors: [],
     priority: 'P1',
@@ -1953,19 +1954,97 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://miempresa.seprec.gob.bo/',
     automationLevel: 'medium',
     recommendedUse:
-      'Bolivia no publica un padrón descargable de empresas. En cada corrida del Agente 1 se consulta en vivo la búsqueda por nombre del Servicio Plurinacional de Registro de Comercio (SEPREC) y, para las empresas activas cuyo nombre coincide exactamente, su ficha básica para leer el NIT (nunca los contactos). Probado el 02-10: Cervecería Boliviana Nacional y Banco Mercantil Santa Cruz devuelven su NIT. NIT seguro sólo cuando exactamente un NIT tiene ese mismo núcleo de nombre; los homónimos y los nombres de una sola palabra sin forma societaria quedan como señal.',
+      'Bolivia no publica un padrón descargable de empresas. En cada corrida del Agente 1 se consulta en vivo la búsqueda por nombre del Servicio Plurinacional de Registro de Comercio (SEPREC) y, para las empresas activas cuyo nombre coincide exactamente, su ficha básica para leer el NIT (nunca los contactos). Probado el 02-10: Cervecería Boliviana Nacional y Banco Mercantil Santa Cruz devuelven su NIT. NIT seguro sólo cuando exactamente un NIT tiene ese mismo núcleo de nombre (la forma societaria se quita por su estructura, también en medio: «DAPIBOL S.A. AGENCIA DESPACHANTE…» = DAPIBOL; y la web o el país pegados: «Cognos.com.bo» = COGNOS). Una marca de una sola palabra o una marca dentro de UNA sola razón social sólo es NIT seguro si la web propia de la empresa es esa marca (datec.com.bo = DATEC LTDA.; alpasur.com.bo = ALMACENES PACIFICO SUR S.A. ALPASUR; dueña, 06-10); si no, queda como pista.',
     limitations: [
       'Es la búsqueda que usa el portal público del SEPREC, no un servicio documentado para terceros: puede cambiar sin aviso.',
-      'Lenta y con límite de ritmo: el SEPREC responde 429 a 4-5 peticiones seguidas, así que se espacian 2,5 s (ante un 429 se espera 5 s y se reintenta una vez). Con 45 s por corrida alcanza para unas 8-10 empresas; tras 3 fallos seguidos se apaga en esa corrida.',
-      'Excluye empresas unipersonales (personas) y matrículas no activas.',
-      'NIT seguro sólo con el núcleo del nombre exacto. Si la marca aparece dentro de la razón social de UNA sola sociedad activa (búsqueda con 5 resultados o menos: Logibol → OPERADOR LOGISTICO DE CARGAS LOGIBOL S.R.L.), su NIT queda como PISTA para revisar, nunca en el campo fiscal.',
-      'Aseguradoras y administradoras de fondos usan un nombre corto («Credifondo SAFI», «Alianza Seguros») que el SEPREC escribe largo (SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION, COMPAÑIA DE SEGUROS): si el nombre corto da 0 resultados se hace UNA búsqueda más con la forma larga, y lo que salga también queda sólo como PISTA.',
-      'Sin NIT para las empresas con la matrícula NO renovada: el SEPREC las lista como activas pero no muestra su ficha (medido el 02-10 con Solucredit S.R.L.).',
-      'Si la marca llega con el país o el dominio pegados («Get Server Bolivia», «Cognos.com.bo») y no hay resultados, la búsqueda extra se hace sin esa cola (antes que la del sector); lo que salga también es sólo PISTA.',
+      'Lenta y con límite de ritmo: sostenido, el SEPREC deja pasar ~1 petición cada 5 s (06-10). Peticiones en fila cada 4 s; ante un 429 se espera 5 s y se reintenta una vez. Con 45 s por corrida alcanza para unas 5-8 empresas; tras 3 fallos seguidos se apaga en esa corrida.',
+      'Excluye empresas unipersonales (personas), matrículas no activas y entidades públicas (no se registran en el SEPREC).',
+      'Si la marca aparece dentro de la razón social de UNA sola sociedad activa (búsqueda con 5 resultados o menos) y la web no la confirma, su NIT queda como PISTA para revisar, nunca en el campo fiscal.',
+      'Aseguradoras con nombre corto («Alianza Seguros») que el SEPREC escribe largo (COMPAÑIA DE SEGUROS): si el nombre corto da 0 resultados se hace UNA búsqueda más con la forma larga, y lo que salga queda como PISTA. «SAFI» y «SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION» se quitan como forma societaria.',
+      'Sin NIT para las empresas con la matrícula NO renovada: el SEPREC no muestra su ficha (Solucredit S.R.L., Intersoft S.A.). Si es gran contribuyente, el NIT sale de la lista cargada.',
     ],
     riskNotes: [
-      'Si el SEPREC cambia o cae, las empresas bolivianas simplemente quedan sin NIT; la corrida sigue.',
+      'Si el SEPREC cambia o cae, las empresas bolivianas que no son grandes contribuyentes simplemente quedan sin NIT; la corrida sigue.',
       'Uso autorizado por la dueña el 02-10 sabiendo que no es un servicio público documentado.',
+    ],
+  },
+  {
+    key: 'bo_large_taxpayers',
+    name: 'Grandes contribuyentes de Bolivia — NIT por nombre (Impuestos Nacionales + Aduana + SEPREC)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'NIT por nombre en TODAS las corridas (Apollo, Tavily, Claude y buscador gratuito), antes que el SEPREC en vivo, y categoría PRICO/GRACO al filtro de tamaño (sólo informa: no aprueba ni descarta). Carga pendiente de autorización (dry-run 06-10). Recarga (anual, con autorización): reconstruir la lista con las resoluciones de categorización de Impuestos Nacionales (www.impuestos.gob.bo, RND «Categorización, recategorización y confirmación de contribuyentes PRICO, GRACO y RESTO») y las listas PRIO y OEA de la Aduana (www.aduana.gob.bo), consultar cada NIT en el SEPREC con scripts/source-catalog/run-bo-seprec-nit-crawl.ts (lento: ~1 NIT cada 10 s) y cargar con scripts/source-catalog/run-bo-large-taxpayers-etl.ts --apply.',
+    countryCodes: ['BO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.impuestos.gob.bo/',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Lista oficial de las sociedades más grandes de Bolivia: Impuestos Nacionales publica en sus resoluciones los NIT de los principales (PRICO) y grandes (GRACO) contribuyentes; la lista vigente se reconstruye desde la recategorización completa de 2018 con las altas y bajas de 2022, 2023 y 2024 (vigente desde el 01-01-2025). Se suman los Principales Operadores de Comercio Exterior (PRIO) y los Operadores Económicos Autorizados (OEA) de la Aduana. El nombre, el departamento y el objeto social de cada NIT salen del SEPREC (matrícula = NIT). NIT seguro por nombre con la misma regla que el SEPREC en vivo.',
+    limitations: [
+      'Sólo grandes contribuyentes (~5.000 sociedades de ~400.000 unidades del SEPREC): las medianas y pequeñas siguen dependiendo del SEPREC en vivo.',
+      'Las resoluciones sólo publican cambios de categoría: la lista se reconstruye y puede quedar desfasada hasta la próxima resolución.',
+      'PRICO/GRACO se eligen por impuestos y ventas, no por trabajadores: no es un tamaño en personas.',
+      'Cooperativas, entidades públicas y sociedades sin matrícula de comercio no tienen nombre en el SEPREC y no entran.',
+    ],
+    riskNotes: [
+      'No se guardan contactos ni personas: sólo NIT, razón social, departamento, tipo societario y objeto social.',
+    ],
+  },
+  {
+    key: 'bo_large_taxpayers_discovery',
+    name: 'Grandes contribuyentes de Bolivia — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Capa gratuita de Bolivia: antes de pagar a proveedores, el Agente 1 propone grandes contribuyentes (PRICO primero) de la industria pedida, con NIT. Carga pendiente de autorización (dry-run 06-10).',
+    countryCodes: ['BO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.impuestos.gob.bo/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Sociedades activas, no unipersonales y con la matrícula de comercio RENOVADA de la lista de grandes contribuyentes. La industria sale de la tabla de palabras sobre la razón social y el objeto social (bo-keyword-ciiu4-macro-v1, traducida a la tabla aprobada de Argentina por división CIIU). Cada empresa llega con su NIT y su razón social.',
+    limitations: [
+      'La industria sale del texto de la escritura, no de un código: puede fallar en objetos sociales genéricos («actos de comercio en general»), que no se proponen.',
+      'Ni Impuestos ni el SEPREC publican la web: las empresas llegan sin ella y dependen del rescate.',
+      'Hoteles, restaurantes, medios y educación no se proponen (igual que Argentina).',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
+  {
+    key: 'bo_public_entities_discovery',
+    name: 'Entidades públicas de Bolivia (gob.bo) — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Capa gratuita de Gobierno (y de empresas públicas nacionales y cajas de salud en su industria) con la web oficial de gob.bo. Carga pendiente de autorización (dry-run 06-10). Recarga (con autorización): bajar las fichas del sitemap de www.gob.bo (despacio, ~2,5 s por ficha) y cargar con scripts/source-catalog/run-bo-public-entities-etl.ts --apply.',
+    countryCodes: ['BO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.gob.bo/entidades',
+    automationLevel: 'high',
+    recommendedUse:
+      'Portal único del Estado (AGETIC, DS 5340/2025): ficha de cada entidad con su web oficial, su entidad madre y su ubicación. Se proponen gobernaciones, ministerios, organismos nacionales y las alcaldías de las nueve capitales y El Alto; las empresas públicas nacionales (ENDE, BoA, Entel…) en su industria y las cajas de salud en Salud. Primero las que traen web.',
+    limitations: [
+      'Sin NIT: ninguna fuente oficial gratuita lo publica para las entidades públicas.',
+      'gob.bo casi no trae web de alcaldías ni gobernaciones: llegan sin ella y dependen del rescate.',
+      'Sin tamaño: por eso sólo se proponen las alcaldías de las capitales y El Alto; las demás quedan fuera (el SICOES, que publica la categoría por habitantes, bloquea el acceso).',
+    ],
+    riskNotes: [
+      'Del correo de contacto sólo se usa el dominio institucional, nunca la dirección.',
     ],
   },
 
