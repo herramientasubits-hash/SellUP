@@ -33,6 +33,13 @@ export const AR_PUBLIC_ENTITIES_SOURCE_KEY = 'ar_public_entities' as const;
 export const AR_PUBLIC_ENTITIES_SOURCE_YEAR = 2026;
 export const AR_PUBLIC_ENTITIES_TABLE_VERSION = 'ar-public-entities-v1' as const;
 
+/**
+ * `size_kind` de la dotación del INDEC (empleados de un organismo nacional, foto
+ * de agosto de 2026). Es el único tamaño que llega a la ficha: la población de
+ * un municipio no son trabajadores.
+ */
+export const AR_PUBLIC_ENTITY_WORKERS_SIZE_KIND = 'workers_indec' as const;
+
 /** Tipos de entidad del directorio. */
 export type ArPublicEntityType = 'municipality' | 'national_entity' | 'university';
 

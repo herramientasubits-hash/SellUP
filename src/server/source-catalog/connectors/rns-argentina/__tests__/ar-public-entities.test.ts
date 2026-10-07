@@ -180,6 +180,35 @@ describe('buscador gratuito de Gobierno', () => {
     assert.deepEqual(gov.companies.map((c) => c.taxId), [CUIT_A]);
   });
 
+  it('la dotación del INDEC llega a la ficha como tamaño oficial; la población, nunca', async () => {
+    const adapter = buildArRnsDiscoveryAdapter({
+      readCompaniesByMacro: async () => [publicRow(0, { official_workers: 3331 }), publicRow(1)],
+    });
+    const result = await adapter({ countryCode: 'AR', macroIndustryKey: 'government', limit: 10 } as never);
+    assert.deepEqual(result.companies[0].officialWorkforce, { workers: 3331, year: 2026, sourceLabel: 'INDEC' });
+    assert.equal(result.companies[1].officialWorkforce, null);
+  });
+
+  it('la lectura toma los empleados sólo si el tamaño es la dotación del INDEC', async () => {
+    const rowsFor = (raw: Record<string, unknown>) => {
+      const builder: Record<string, unknown> = {};
+      for (const method of ['from', 'select', 'order', 'eq']) builder[method] = () => builder;
+      builder.limit = () =>
+        Promise.resolve({
+          data: [{ record_identity_key: 'tax:1', normalized_tax_id: CUIT_A, legal_name: 'X', raw_data: raw }],
+          error: null,
+        });
+      builder.in = () => Promise.resolve({ data: [], error: null });
+      return buildArRnsDiscoveryReads(builder as unknown as SupabaseClient).readCompaniesByMacro({
+        macroIndustryKey: 'government',
+        limit: 1,
+      });
+    };
+    assert.equal((await rowsFor({ size: 957, size_kind: 'workers_indec' }))[0].official_workers, 957);
+    assert.equal((await rowsFor({ size: 667082, size_kind: 'population_2022' }))[0].official_workers, null);
+    assert.equal((await rowsFor({ size: null, size_kind: null }))[0].official_workers, null);
+  });
+
   it('la lectura de Gobierno consulta SÓLO ar_public_entities; las demás macros, las sociedades', async () => {
     const eqs: unknown[][] = [];
     const builder: Record<string, unknown> = {};

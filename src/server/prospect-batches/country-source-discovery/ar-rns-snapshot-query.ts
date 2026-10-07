@@ -24,6 +24,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AR_PUBLIC_ENTITY_DISCOVERY_MACROS } from './ar-rns-discovery-adapter';
+import { AR_PUBLIC_ENTITY_WORKERS_SIZE_KIND } from '@/server/source-catalog/connectors/rns-argentina/ar-public-entities';
 import type {
   ArRnsDiscoveryOrigin,
   ArRnsDiscoveryReads,
@@ -71,6 +72,13 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Empleados oficiales guardados por la carga de entidades públicas, o `null`. */
+function officialWorkers(raw: Record<string, unknown> | null): number | null {
+  if (raw?.['size_kind'] !== AR_PUBLIC_ENTITY_WORKERS_SIZE_KIND) return null;
+  const size = toNumber(raw['size']);
+  return size !== null && Number.isInteger(size) && size > 0 ? size : null;
+}
+
 function toRow(row: SnapshotSelectRow, origin: ArRnsDiscoveryOrigin): ArRnsSnapshotReadRow {
   const code = row.raw_data?.['actividad_codigo'];
   return {
@@ -86,6 +94,8 @@ function toRow(row: SnapshotSelectRow, origin: ArRnsDiscoveryOrigin): ArRnsSnaps
     priority_score: toNumber(row.priority_score),
     // SOURCES-AR-SIPRO-DOMAIN-1 — dominio del correo del SIPRO histórico, si lo hay.
     website_domain: typeof row.raw_data?.['website_domain'] === 'string' ? row.raw_data['website_domain'] : null,
+    // SOURCES-AR-PUBLIC-ENTITY-SIZE-1 — sólo empleados (INDEC), nunca población.
+    official_workers: officialWorkers(row.raw_data),
   };
 }
 
