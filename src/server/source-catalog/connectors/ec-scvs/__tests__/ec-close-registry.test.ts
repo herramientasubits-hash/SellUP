@@ -289,6 +289,7 @@ function sri(overrides: Partial<EcSriRecord> = {}): EcSriRecord {
     ruc: '1760001550001',
     legalName: 'GOBIERNO AUTONOMO DESCENTRALIZADO DEL DISTRITO METROPOLITANO DE QUITO',
     status: 'ACTIVO',
+    taxpayerType: 'SOCIEDAD',
     establishment: 1,
     tradeName: '',
     establishmentOpen: true,
@@ -305,6 +306,7 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
       NUMERO_RUC: '1790016919001',
       RAZON_SOCIAL: ' CORPORACION  FAVORITA C.A. ',
       ESTADO_CONTRIBUYENTE: 'activo',
+      TIPO_CONTRIBUYENTE: 'sociedad',
       NUMERO_ESTABLECIMIENTO: '12',
       NOMBRE_FANTASIA_COMERCIAL: 'SUPERMAXI',
       ESTADO_ESTABLECIMIENTO: 'abi',
@@ -316,6 +318,7 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
       ruc: '1790016919001',
       legalName: 'CORPORACION FAVORITA C.A.',
       status: 'ACTIVO',
+      taxpayerType: 'SOCIEDAD',
       establishment: 12,
       tradeName: 'SUPERMAXI',
       establishmentOpen: true,
@@ -328,6 +331,16 @@ describe('catastro del SRI (ec_sri_registry, ec_sri_trade_name_registry)', () =>
     assert.equal(admitEcSriRecord(sri({ status: 'PASIVO' })), false);
     assert.equal(admitEcSriRecord(sri({ ruc: '1712345678001' })), false); // persona natural
     assert.equal(admitEcSriRecord(sri({ ruc: '1760001550002' })), false);
+  });
+
+  // SOURCES-EC-SRI-NO-PERSONS-1 — Prod 07-10: ~36.000 personas naturales extranjeras con
+  // RUC de tercer dígito 6 (el de las entidades públicas) habrían entrado como «públicas».
+  it('una PERSONA NATURAL nunca entra, aunque su RUC tenga el tercer dígito de una entidad pública', () => {
+    assert.equal(admitEcSriRecord(sri({ ruc: '0962420170001', taxpayerType: 'PERSONA NATURAL' })), false);
+    assert.equal(admitEcSriRecord(sri({ ruc: '0992279885001', taxpayerType: 'PERSONA NATURAL' })), false);
+    // Sin la columna (archivo distinto): no se puede saber ⇒ no entra.
+    assert.equal(admitEcSriRecord(sri({ taxpayerType: '' })), false);
+    assert.equal(admitEcSriRecord(sri({ taxpayerType: 'SOCIEDAD' })), true);
   });
 
   it('la razón social es la del establecimiento de número más bajo', () => {
