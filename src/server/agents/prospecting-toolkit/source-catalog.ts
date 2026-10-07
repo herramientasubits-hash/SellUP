@@ -1719,7 +1719,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.245 Sociedades con NIT cargadas en el snapshot 2025, 0 duplicados. El Agente 1 completa el NIT por nombre en cada corrida con este snapshot; los nombres repetidos quedan como señal para revisión humana.',
+      '6.245 Sociedades con NIT cargadas en el snapshot 2025, 0 duplicados. SOURCES-GT-CLOSE-1: sus filas entran también en el registro unido gt_nit_registry, que el Agente 1 consulta primero; este snapshot queda como respaldo del NIT por nombre. El cargador rechazaba los NIT con dígito verificador K (~1 de cada 11): corregido para la próxima recarga.',
     countryCodes: ['GT'],
     sectors: [],
     priority: 'P2',
@@ -2258,6 +2258,64 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No usar como fuente legal, fiscal ni de validación de identidad',
       'No usar para post-approval automático — sin NIT/NRC públicos',
       'No llamar /api/v1/procesos ni endpoints autenticados de personas',
+    ],
+  },
+  {
+    key: 'gt_nit_registry',
+    name: 'Registro unido de NIT de Guatemala (Guatecompras + SAT + RGAE) — NIT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-GT-CLOSE-1: carga pendiente de autorización. Dry-run 06-10-2026: 14.293 NIT (14.279 con nombre único) — 7.223 proveedores de Guatecompras 2023-2026 (sociedades, asociaciones, cooperativas; sin personas individuales ni copropiedades), 675 entidades compradoras (341 municipalidades, ministerios, autónomas, USAC), 6.339 agentes de retención del IVA de la SAT (01-04-2026) y las 6.245 sociedades del RGAE; más 753 alias (gt_nit_name_alias). Recarga: extract-gt-guatecompras-parties.py sobre los JSONL anuales de data.open-contracting.org (publicación 142), extract-gt-sat-iva-agents.py sobre el PDF de la SAT, y scripts/source-catalog/run-gt-sources-etl.ts --apply --only=registry y luego --only=alias.',
+    countryCodes: ['GT'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.guatecompras.gt/',
+    automationLevel: 'high',
+    recommendedUse:
+      'NIT por nombre de Guatemala en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita): une por NIT a quien vende al Estado (Guatecompras, datos abiertos OCDS del MINFIN, CC BY 4.0), a las entidades públicas compradoras (municipalidades, ministerios, autónomas, USAC, hospitales), a los grandes contribuyentes del listado de agentes de retención del IVA de la SAT y al RGAE. Cada NIT pasa el dígito verificador (módulo 11, con K). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, «Y Compañía», sucursal, sigla final, nombre comercial tras la forma, con o sin «de Guatemala», clave de municipalidad sin el departamento). NIT seguro sólo cuando exactamente un NIT tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Con 60 nombres reales escritos como los dan Apollo, Tavily o Claude: 44 con NIT seguro (antes 10 con el RGAE sólo); 27 de 28 entidades públicas.',
+    limitations: [
+      'Sólo quien vende al Estado, compra como Estado o es agente de retención del IVA: una empresa privada mediana que no está en ninguno no aparece.',
+      'Las marcas que no son la razón social (Tigo, Walmart, Banrural, BAC, EEGSA, Energuate) no se encuentran.',
+      'No trae trabajadores ni ingresos: ninguna fuente abierta de Guatemala los publica por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un NIT seguro; queda como señal.',
+      'El listado de la SAT se baja a mano (el portal pide pasar un control anti-robots) o de la copia pública de archive.org.',
+    ],
+  },
+  {
+    key: 'gt_guatecompras_directory',
+    name: 'Proveedores del Estado Guatecompras — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-GT-CLOSE-1: carga pendiente de autorización. Dry-run 06-10-2026: 1.705 sociedades de 6.059 con adjudicaciones en 2023-2026 (fuera 2.836 poco relevantes, 1.518 sin industria dominante, 961 sin adjudicación propia, 8 consorcios), 748 con dominio de correo corporativo (202 dominios de grupo compartidos descartados). Recarga: run-gt-sources-etl.ts --apply --only=directory.',
+    countryCodes: ['GT'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://www.guatecompras.gt/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita guatemalteca por industria: sociedades a las que el Estado adjudicó contratos entre 2023 y 2026 (Guatecompras, datos abiertos OCDS, CC BY 4.0). La industria sale de lo que venden al Estado (clase UNSPSC de los artículos, la misma tabla UNSPSC → industria aprobada para Paraguay). Sólo entran las relevantes: agentes de retención del IVA de la SAT (contribuyentes especiales) o con al menos Q5 millones adjudicados; primero los agentes del IVA, luego las que venden a más entidades. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su NIT, su razón social y, si lo tiene, el dominio de su correo corporativo como web.',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
+      'Sin personas individuales, copropiedades ni consorcios. No hay tamaño oficial: la relevancia (agente del IVA o monto) no es un número de trabajadores.',
+      'La industria sale de lo que venden al Estado: viajes, comida, alojamiento, educación y servicios comunitarios no se proponen; Gobierno tampoco (las entidades públicas son compradoras, no proveedoras).',
+      'Sin correo corporativo, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
     ],
   },
 

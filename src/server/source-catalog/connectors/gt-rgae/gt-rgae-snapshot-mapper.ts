@@ -164,7 +164,7 @@ export function findSnapshotInvariantViolations(rows: GtRgaeSnapshotRow[]): stri
     if (r.source_year !== 2025)
       violations.push(`${idx} source_year=${r.source_year}`);
 
-    if (!/^\d+$/.test(r.normalized_tax_id))
+    if (!/^\d+K?$/.test(r.normalized_tax_id))
       violations.push(`${idx} normalized_tax_id non-numeric`);
     else if (r.normalized_tax_id.length < GT_NIT_MIN_LENGTH || r.normalized_tax_id.length > GT_NIT_MAX_LENGTH)
       violations.push(`${idx} normalized_tax_id length ${r.normalized_tax_id.length} out of range [${GT_NIT_MIN_LENGTH},${GT_NIT_MAX_LENGTH}]`);
