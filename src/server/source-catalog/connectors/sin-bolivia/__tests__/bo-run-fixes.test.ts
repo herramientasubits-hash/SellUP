@@ -109,13 +109,31 @@ describe('rescate: nombres oficiales de Bolivia', () => {
   });
 
   it('la web cuya etiqueta es la sigla oficial es la de ese NIT (también con «bolivia»/«bo» pegado)', () => {
-    assert.equal(officialTradeNameWebsite('https://www.entel.bo/', ['ENTEL'], 'EMPRESA NACIONAL DE TELECOMUNICACIONES SOCIEDAD ANONIMA')?.domain, 'entel.bo');
-    assert.equal(officialTradeNameWebsite('https://dmc.com.bo', ['DMC'], 'DISTRIBUIDOR MAYORISTA DE COMPUTADORAS S.A. DMC S.A.')?.domain, 'dmc.com.bo');
-    assert.equal(officialTradeNameWebsite('https://dismatecbolivia.com', ['DISMATEC'], 'DISMATEC')?.domain, 'dismatecbolivia.com');
-    assert.equal(officialTradeNameWebsite('https://www.tigo.com.bo', ['TELECEL'], 'TELECEL'), null);
+    assert.equal(officialTradeNameWebsite('https://www.entel.bo/', ['ENTEL'], 'EMPRESA NACIONAL DE TELECOMUNICACIONES SOCIEDAD ANONIMA', 'BO')?.domain, 'entel.bo');
+    assert.equal(officialTradeNameWebsite('https://dmc.com.bo', ['DMC'], 'DISTRIBUIDOR MAYORISTA DE COMPUTADORAS S.A. DMC S.A.', 'BO')?.domain, 'dmc.com.bo');
+    assert.equal(officialTradeNameWebsite('https://dismatecbolivia.com', ['DISMATEC'], 'DISMATEC', 'BO')?.domain, 'dismatecbolivia.com');
+    assert.equal(officialTradeNameWebsite('https://www.tigo.com.bo', ['TELECEL'], 'TELECEL', 'BO'), null);
+  });
+
+  it('el sufijo es del país de la fila: Bolivia no acepta «…ec», Ecuador no acepta «…bo»/«…bolivia»', () => {
+    assert.equal(officialTradeNameWebsite('https://dmcec.com', ['DMC'], 'DMC', 'BO'), null);
+    assert.equal(officialTradeNameWebsite('https://tiabo.com', ['TIA'], 'TIA', 'EC'), null);
+    assert.equal(officialTradeNameWebsite('https://tiabolivia.com', ['TIA'], 'TIA'), null);
+    assert.equal(officialTradeNameWebsite('https://tiaecuador.com', ['TIA'], 'TIA')?.domain, 'tiaecuador.com');
+    assert.equal(registryFirstWordWebsite('https://huaweibolivia.com', 'HUAWEI TECHNOLOGIES ECUADOR', 'EC'), null);
+    assert.equal(registryFirstWordWebsite('https://huaweibolivia.com', 'HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.', 'BO')?.domain, 'huaweibolivia.com');
+  });
+
+  it('el rescate pasa el país de la fila a las dos comprobaciones', () => {
+    const batch = readFileSync(
+      join(process.cwd(), 'src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts'),
+      'utf8',
+    );
+    assert.match(batch, /officialTradeNameWebsite\(claimedUrl, officialNames, dispositionDisplayName\(row\), country\)/);
+    assert.match(batch, /registryFirstWordWebsite\(claimedUrl, dispositionDisplayName\(row\), country\)/);
   });
 
   it('primera palabra propia de la razón social (a propósito en Bolivia): huawei.com ← HUAWEI TECHNOLOGIES', () => {
-    assert.equal(registryFirstWordWebsite('https://www.huawei.com/bo/', 'HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.')?.domain, 'huawei.com');
+    assert.equal(registryFirstWordWebsite('https://www.huawei.com/bo/', 'HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.', 'BO')?.domain, 'huawei.com');
   });
 });
