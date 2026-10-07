@@ -192,7 +192,9 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     ...(domainSearchEnabled ? { domainSearch: liveDomainSearch } : {}),
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
-    loadCatalog: loadClassifierCatalog,
+    // El rescate también corre SIN sesión (vueltas en cadena desde la ruta del cron):
+    // el catálogo se lee con el cliente de servicio, sólo lectura.
+    loadCatalog: () => loadClassifierCatalog(createSupabaseAdminClient()),
     loadReviewCandidates: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
