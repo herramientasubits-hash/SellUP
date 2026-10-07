@@ -427,6 +427,41 @@ function buildEmptyReport(executedAt: string, dryRun: boolean, batchSource: stri
 }
 
 /**
+ * SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los trabajadores que publica la fuente
+ * oficial (número exacto). Sólo enteros positivos; cualquier otra cosa deja el
+ * tamaño «por validar» como siempre.
+ *
+ * 🔴 Estado `estimated_*`, nunca `confirmed_*`: lo que el registro publica es un
+ * estimado oficial con su año (trabajadores informados, servidores de planta),
+ * no el tamaño confirmado de la empresa (Catálogo de fuentes, SII / Supercias).
+ */
+export function resolveOfficialEmployeeCount(disc: Pick<SourceDiscoveryCandidate, 'officialEmployeeCount'>): {
+  count: number;
+  status: 'estimated_100_plus' | 'estimated_under_100';
+  year: number | null;
+  sourceLabel: string;
+} | null {
+  const official = disc.officialEmployeeCount;
+  if (!official || !Number.isInteger(official.count) || official.count < 1) return null;
+  const sourceLabel = typeof official.sourceLabel === 'string' ? official.sourceLabel.trim() : '';
+  if (sourceLabel === '') return null;
+  return {
+    count: official.count,
+    status: official.count >= 100 ? 'estimated_100_plus' : 'estimated_under_100',
+    year: typeof official.year === 'number' && Number.isInteger(official.year) ? official.year : null,
+    sourceLabel,
+  };
+}
+
+/** Confianza del tamaño oficial: dato del registro, pero estimado (no confirmado). */
+export const OFFICIAL_EMPLOYEE_COUNT_CONFIDENCE = 90;
+
+/** Texto de procedencia del tamaño oficial para la columna y la ficha. */
+export function officialEmployeeCountSourceText(official: { sourceLabel: string; year: number | null }): string {
+  return official.year !== null ? `${official.sourceLabel} ${official.year}` : official.sourceLabel;
+}
+
+/**
  * Adapts a candidate (either StructuredSourceCandidateDraft or SourceDiscoveryCandidate)
  * into a canonical StructuredSourceCandidateDraft.
  */
@@ -442,6 +477,7 @@ function adaptCandidate(
   }
 
   const disc = candidate as SourceDiscoveryCandidate;
+  const officialSize = resolveOfficialEmployeeCount(disc);
 
   const emptyHubspotTrace: HubspotTrace = {
     lookupAttempted: false,
@@ -458,9 +494,9 @@ function adaptCandidate(
   };
 
   const emptyCommercialTrace: CommercialTrace = {
-    employeeCountStatus: 'unknown_requires_manual_validation',
-    employeeCountSource: null,
-    employeeCountConfidence: null,
+    employeeCountStatus: officialSize?.status ?? 'unknown_requires_manual_validation',
+    employeeCountSource: officialSize ? officialEmployeeCountSourceText(officialSize) : null,
+    employeeCountConfidence: officialSize ? OFFICIAL_EMPLOYEE_COUNT_CONFIDENCE : null,
     fitReasons: [],
     reviewFlags: (disc.reviewFlags as ReviewFlag[]) ?? [],
     reviewedBy: null,
@@ -504,8 +540,8 @@ function adaptCandidate(
     website: (disc.metadata?.website as string) ?? null,
     countryCode: disc.countryCode ?? countryCode,
     sourcePrimary: disc.sourcePrimary || sourceProvider,
-    employeeCount: null,
-    employeeCountStatus: 'unknown_requires_manual_validation',
+    employeeCount: officialSize?.count ?? null,
+    employeeCountStatus: officialSize?.status ?? 'unknown_requires_manual_validation',
     commercialFitStatus: 'needs_manual_review',
     hubspotMatchStatus: 'not_attempted',
     reviewStatus: 'needs_manual_review',
@@ -1191,7 +1227,20 @@ export async function writeStructuredSourceCandidatesPreview(
         dataset: input.dataset,
         preview_mode: true,
         human_review_required: true,
-        notes: 'Tamaño no confirmado — validar manualmente',
+        notes:
+          draft.employeeCount !== null
+            ? 'Tamaño estimado de la fuente oficial (con su año) — revisar antes de aprobar'
+            : 'Tamaño no confirmado — validar manualmente',
+        // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — la ficha muestra de dónde salió.
+        ...(draft.employeeCount !== null
+          ? {
+              company_employee_count: {
+                employee_count: draft.employeeCount,
+                employee_count_status: 'official_estimate',
+                employee_count_source: draft.commercialTrace.employeeCountSource,
+              },
+            }
+          : {}),
         enrichment: enrichmentMeta,
         ...(p.duplicateCheckMetadata ? { duplicate_check: p.duplicateCheckMetadata } : {}),
       };
@@ -1248,10 +1297,10 @@ export async function writeStructuredSourceCandidatesPreview(
         tax_identifier_type: resolvedTaxIdentifierType ?? null,
         source_primary: input.sourceProvider,
         sources_checked: [input.sourceProvider],
-        employee_count: null,
-        employee_count_status: 'unknown_requires_manual_validation',
-        employee_count_source: null,
-        employee_count_confidence: null,
+        employee_count: draft.employeeCount,
+        employee_count_status: draft.employeeCountStatus,
+        employee_count_source: draft.commercialTrace.employeeCountSource,
+        employee_count_confidence: draft.commercialTrace.employeeCountConfidence,
         commercial_fit_status: p.commercialFitStatus,
         hubspot_match_status: p.hubspotMatchStatus,
         hubspot_lifecycle_status: p.hubspotLifecycleStatus,

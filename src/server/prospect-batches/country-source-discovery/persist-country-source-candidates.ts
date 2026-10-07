@@ -130,6 +130,15 @@ function toSourceDiscoveryCandidate(
     },
     reviewFlags: company.domain ? [] : ['missing_website'],
     qualityDecision: 'accepted',
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — el tamaño que la fuente oficial publica
+    // llega a la ficha; sin él, el writer lo deja «por validar» como siempre.
+    officialEmployeeCount: company.officialWorkforce
+      ? {
+          count: company.officialWorkforce.workers,
+          year: company.officialWorkforce.year,
+          sourceLabel: company.officialWorkforce.sourceLabel,
+        }
+      : null,
   };
 }
 

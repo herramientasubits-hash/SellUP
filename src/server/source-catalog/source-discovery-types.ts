@@ -50,6 +50,15 @@ export interface SourceDiscoveryCandidate {
   metadata?: Record<string, unknown>;
   reviewFlags?: string[];
   qualityDecision?: string;
+  /**
+   * SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — trabajadores que publica la fuente oficial
+   * (número exacto). El writer estructurado lo escribe en `employee_count`.
+   */
+  officialEmployeeCount?: {
+    count: number;
+    year: number | null;
+    sourceLabel: string;
+  } | null;
 }
 
 /** Output del discovery — resultado homogéneo independiente del conector. */
