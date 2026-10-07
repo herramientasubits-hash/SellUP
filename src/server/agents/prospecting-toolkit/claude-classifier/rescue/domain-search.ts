@@ -405,6 +405,47 @@ export function officialTradeNameWebsite(
   return { website: `https://${host}`, domain: host, verification: OFFICIAL_TRADE_NAME_VERIFICATION };
 }
 
+/**
+ * AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 (dueña 07-10: «sí, pero sólo si es un buen
+ * prospecto, no cualquiera sin web»). Prod 07-10, Costa Rica × Servicios (47f4c893):
+ * AMAZON SUPPORT SERVICES COSTA RICA → amazon.com, DOLE SHARED SERVICES → dole.com,
+ * rechazadas con `identity_not_confirmed` porque la portada de la MATRIZ no nombra a
+ * la filial. La web global NUNCA se acepta como la de la filial (chocaría con la misma
+ * marca en otros países); sólo prueba que la filial es del grupo cuando el dominio es
+ * la primera palabra propia de su razón social (o las dos primeras juntas:
+ * «KIMBERLY – CLARK» → kimberly-clark.com). Nunca gobierno ni plataformas.
+ */
+export type ParentGroupWebsite = { website: string; domain: string };
+
+export function parentGroupWebsite(
+  row: Pick<DomainSearchRow, 'name' | 'evidence'>,
+  outcome: DomainFinderOutcome,
+): ParentGroupWebsite | null {
+  if (outcome.found || outcome.reason !== 'identity_not_confirmed' || !outcome.claimedUrl) return null;
+  if (row.evidence?.tax_identifier_present !== true) return null;
+  const legalName = dispositionDisplayName(row as DomainSearchRow);
+  const domain = normalizeDomain(outcome.claimedUrl);
+  if (!domain || GOVERNMENT_HOST.test(domain)) return null;
+  if (!evaluateExternalPlatformGate(outcome.claimedUrl, legalName).allowed) return null;
+  const core = registryNameCore(legalName) ?? legalName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const words = core.split(/\s+/).map(compactName).filter(Boolean);
+  const first = words[0] ?? '';
+  if (first.length < 4 || REGISTRY_DESCRIPTOR_WORDS.has(first)) return null;
+  const parts = domain.split('.');
+  const registrable =
+    parts.length >= 3 && parts[parts.length - 1].length === 2 && ['com', 'net', 'org', 'co'].includes(parts[parts.length - 2])
+      ? parts.slice(-3)
+      : parts.slice(-2);
+  const label = compactName(registrable[0] ?? '');
+  const matches = label === first || (words.length > 1 && label === `${first}${words[1]}`);
+  if (!matches) return null;
+  const host = registrable.join('.');
+  return { website: `https://${host}`, domain: host };
+}
+
+/** Clave de la metadata/evidencia con la web de la matriz (nunca es la web del candidato). */
+export const PARENT_GROUP_WEBSITE_KEY = 'parent_group_website';
+
 /** Primeras palabras de razón social que describen el giro, no a la empresa. */
 const REGISTRY_DESCRIPTOR_WORDS: ReadonlySet<string> = new Set([
   'distribuidora', 'importadora', 'exportadora', 'constructora', 'industrial', 'industrias', 'industria',

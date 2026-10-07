@@ -76,6 +76,19 @@ export type CountrySourceCompany = {
    * sólo da un tramo o nada.
    */
   officialWorkforce?: CountrySourceOfficialWorkforce | null;
+  /**
+   * AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — la fuente oficial dice que es GRANDE
+   * sin dar un número (p. ej. lista de Grandes Contribuyentes de Hacienda de Costa
+   * Rica). Ausente cuando no hay ese dato.
+   */
+  officialSizeBand?: CountrySourceOfficialSizeBand | null;
+};
+
+/** Tamaño oficial por tramo: hoy sólo «grande», con la fuente que lo dice. */
+export type CountrySourceOfficialSizeBand = {
+  band: 'large';
+  /** Nombre corto de la fuente para la ficha («Hacienda – Grandes Contribuyentes»). */
+  sourceLabel: string;
 };
 
 /** SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño oficial exacto de una fuente. */

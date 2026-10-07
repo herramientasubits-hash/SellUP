@@ -23,7 +23,6 @@ import {
   FREE_LAYER_RESCUE_RESERVE_MS,
   FREE_LAYER_RESCUE_WINDOW_MS,
   TAVILY_FIRST_APOLLO_START_LIMIT_MS,
-  freeLayerLeftCompaniesWithoutWeb,
   resolveFreeLayerRescueWindowMs,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-tavily-first';
 
@@ -125,13 +124,6 @@ describe('qué filas entran en la pasada previa a Tavily', () => {
 });
 
 describe('cuándo y cuánto tiempo', () => {
-  it('sólo si el buscador gratuito dejó empresas nuevas sin persistir', () => {
-    assert.equal(freeLayerLeftCompaniesWithoutWeb({ persistedCount: 0, freeSource: { attempted: true, acceptedNovel: 5 } }), true);
-    assert.equal(freeLayerLeftCompaniesWithoutWeb({ persistedCount: 5, freeSource: { attempted: true, acceptedNovel: 5 } }), false);
-    assert.equal(freeLayerLeftCompaniesWithoutWeb({ persistedCount: 0, freeSource: { attempted: false, acceptedNovel: 0 } }), false);
-    assert.equal(freeLayerLeftCompaniesWithoutWeb(null), false);
-  });
-
   it('ventana corta (45 s) que deja 60 s a Tavily antes del límite de Apollo; sin tiempo, no corre', () => {
     assert.equal(resolveFreeLayerRescueWindowMs(10_000), FREE_LAYER_RESCUE_WINDOW_MS);
     const late = TAVILY_FIRST_APOLLO_START_LIMIT_MS - FREE_LAYER_RESCUE_RESERVE_MS - 20_000;
@@ -140,30 +132,34 @@ describe('cuándo y cuánto tiempo', () => {
   });
 });
 
-describe('cableado en la búsqueda', () => {
+describe('cableado en la búsqueda (AGENT1-FREE-LAYER-FIRST-1)', () => {
   const src = readFileSync(
     join(process.cwd(), 'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'),
     'utf8',
   );
+  const layer = readFileSync(
+    join(process.cwd(), 'src/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server.ts'),
+    'utf8',
+  );
 
-  it('la pasada va DESPUÉS del buscador gratuito y ANTES de la demanda de pago y de Tavily, sólo sobre las del buscador', () => {
-    const free = src.indexOf('const prePaidNovelty = deps.runPrePaidNoveltyDiscovery');
-    const pass = src.indexOf('if (deps.rescueFreeLayerInline && freeLayerLeftCompaniesWithoutWeb(prePaidNovelty))');
-    const demand = src.indexOf('const apolloResultDemand = prePaidContributed');
-    const tavily = src.indexOf("if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true)");
-    assert.ok(free > 0 && pass > free && demand > pass && tavily > demand);
-    assert.match(src, /onlyFreeSourceMissingDomain: true/);
+  it('el asistente inyecta en la capa gratuita el rescate SÓLO de sus sin web, con la ventana corta', () => {
+    const inject = src.slice(src.indexOf('rescueUnverifiedFreeLayer: async (batchId) => {'));
+    assert.ok(inject.length > 0);
+    assert.match(inject, /resolveFreeLayerRescueWindowMs\(Date\.now\(\) - actionStartedAtMs\)/);
+    assert.match(inject, /onlyFreeSourceMissingDomain: true/);
   });
 
-  it('usa el lote CANÓNICO de la ejecución: con 0 guardadas con web, prePaidNovelty.batchId es null y la pasada igual corre', () => {
-    const pass = src.slice(src.indexOf('if (deps.rescueFreeLayerInline &&'), src.indexOf('// ── 5e. CUT-2'));
-    assert.match(pass, /resolveCanonicalBatchId\(\)/);
-    assert.doesNotMatch(pass, /prePaidNovelty\.batchId/);
-    // La condición de «dejó sin web» no depende del lote: 0 guardadas y 5 nuevas ⇒ corre.
-    assert.equal(freeLayerLeftCompaniesWithoutWeb({ persistedCount: 0, freeSource: { attempted: true, acceptedNovel: 5 } }), true);
+  it('en la capa: primero la capa gratuita, después el rescate (si mandó sin web a Descartadas), después el banco', () => {
+    const run = layer.slice(layer.indexOf('export async function runPrePaidNoveltyDiscovery('), layer.indexOf('async function runFreeCatalogLayer('));
+    const free = run.indexOf('await runFreeCatalogLayer(client, input, deps)');
+    const rescue = run.indexOf('input.rescueUnverifiedFreeLayer(batchId)');
+    const bank = run.indexOf('.drawCompanyBank({');
+    assert.ok(free > 0 && rescue > free && bank > rescue);
+    assert.match(run, /free\.telemetry\['unverified_sent_to_discards'\]/);
   });
 
-  it('deja en el lote cuántas admitió la pasada (free_layer_rescue_first)', () => {
+  it('deja en el lote lo que decidió el rescate (free_layer_rescue_first)', () => {
+    assert.match(src, /prePaidNovelty\?\.telemetry\?\.\['free_layer_rescue_first'\]/);
     assert.match(src, /free_layer_rescue_first: freeLayerRescueFirst/);
   });
 

@@ -58,6 +58,7 @@ function toRow(row: SnapshotSelectRow): CrFreeDirectorySnapshotReadRow {
     activity_text: text(row.raw_data?.['activity_text']),
     website_domain: text(row.raw_data?.['website_domain']),
     meic_size: text(row.raw_data?.['cr_meic_size']),
+    official_size_band: text(row.raw_data?.['official_size_band']),
     priority_score: toNumber(row.priority_score),
   };
 }

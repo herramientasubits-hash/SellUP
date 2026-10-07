@@ -62,18 +62,6 @@ export function resolveFreeLayerRescueWindowMs(elapsedMs: number): number | null
   return window >= TAVILY_FIRST_MIN_RESCUE_WINDOW_MS ? window : null;
 }
 
-/**
- * ¿Dejó el buscador gratuito empresas nuevas sin persistir (las sin web van a
- * Descartadas)? Sólo entonces vale la pena la pasada del rescate antes de Tavily.
- */
-export function freeLayerLeftCompaniesWithoutWeb(outcome: {
-  persistedCount: number;
-  freeSource: { attempted: boolean; acceptedNovel: number };
-} | null): boolean {
-  if (outcome === null || !outcome.freeSource.attempted) return false;
-  return outcome.freeSource.acceptedNovel > outcome.persistedCount;
-}
-
 export function canStartApolloAfterTavilyFirst(elapsedMs: number): boolean {
   return elapsedMs <= TAVILY_FIRST_APOLLO_START_LIMIT_MS;
 }
