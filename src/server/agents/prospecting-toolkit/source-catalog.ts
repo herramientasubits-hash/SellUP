@@ -1551,7 +1551,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Capa gratuita de Ecuador. Cargadas hoy: 1.082 compañías con 200+ empleados (05-10). SOURCES-EC-CLOSE-1 baja el corte a 100+ (dueña 06-10, «como Chile»: 2.041 compañías, Tecnología 53) y añade el dominio declarado en SERCOP (86 de 2.041 con los años 2025-2026): la recarga espera la autorización de la dueña.',
+      'Capa gratuita de Ecuador. Cargadas 2.041 compañías activas con 100+ empleados (recarga autorizada 06-10, SOURCES-EC-CLOSE-1, «como Chile»; antes 1.082 con 200+), 86 con el dominio declarado en SERCOP 2025-2026. Próxima recarga: con el siguiente ranking anual.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1581,7 +1581,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código (SOURCES-EC-CLOSE-1) como primera fuente de RUC de Ecuador en cada corrida; la carga (182.941 compañías activas + 5.485 siglas, ≈104 MB) espera la autorización de la dueña. Hasta entonces la cadena sigue con ec_scvs.',
+      'Primera fuente de RUC de Ecuador en cada corrida (SOURCES-EC-CLOSE-1). Cargadas 182.941 compañías activas + 5.484 siglas (autorizado 06-10).',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1608,7 +1608,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código (SOURCES-EC-CLOSE-1) después de ec_scvs_registry; la carga del catastro del SRI (archivos por provincia publicados en enero de 2025) espera la autorización de la dueña.',
+      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.734 sociedades activas + nombres comerciales (autorizado 06-10).',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',

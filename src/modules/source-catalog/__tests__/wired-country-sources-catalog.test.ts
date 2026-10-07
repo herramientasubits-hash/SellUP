@@ -152,7 +152,7 @@ describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): cargada y verific
     assert.equal(s.connectionMode, 'read_only_snapshot');
     assert.equal(s.operationalStatus, 'operational_verified');
     assert.deepEqual(s.sectors, []);
-    assert.match(s.nextAction ?? '', /1\.082 compañías activas/);
+    assert.match(s.nextAction ?? '', /2\.041 compañías activas/);
     for (const industry of INDUSTRIES) {
       for (const depth of DEPTHS) {
         const ctx = getCatalogContext({ country: 'Ecuador', countryCode: 'EC', industry, searchDepth: depth });
