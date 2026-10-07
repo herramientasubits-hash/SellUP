@@ -15,6 +15,10 @@
  * interruptores van en la orden, igual que en Producción:
  *   ENABLE_AGENT1_CLAUDE_RESCUE=true ENABLE_AGENT1_CLAUDE_DOMAIN_FINDER=true \
  *     npx tsx scripts/agent1/run-claude-rescue.ts --batch=<uuid> --apply
+ *
+ * `--sin-tope`: EXCEPCIÓN al máximo de 10 en revisión por búsqueda
+ * (AGENT1-DELIVERY-CAP-HARD-1). Sólo para un lote que la dueña haya autorizado
+ * expresamente; sin él, el rescate respeta el tope como en Producción.
  */
 
 import { loadEnvConfig } from '@next/env';
@@ -33,18 +37,25 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Fuera de Vercel no hay límite de 300 s, pero cada vuelta mantiene el mismo plazo. */
 const ROUND_DEADLINE_MS = 200_000;
 
-function parseArgs(argv: readonly string[]): { batchId: string; apply: boolean } {
+function parseArgs(argv: readonly string[]): { batchId: string; apply: boolean; ignoreDeliveryCap: boolean } {
   const hit = argv.find((arg) => arg.startsWith('--batch='));
   const batchId = hit ? hit.slice('--batch='.length) : '';
   if (!UUID.test(batchId)) throw new Error('config_invalid: falta --batch=<uuid del lote>');
-  return { batchId, apply: argv.includes('--apply') };
+  return { batchId, apply: argv.includes('--apply'), ignoreDeliveryCap: argv.includes('--sin-tope') };
 }
 
 async function main(): Promise<void> {
-  const { batchId, apply } = parseArgs(process.argv.slice(2));
+  const { batchId, apply, ignoreDeliveryCap } = parseArgs(process.argv.slice(2));
   console.log(`RESCATE CON CLAUDE — lote ${batchId} — ${apply ? 'APPLY (gasta Claude)' : 'DRY-RUN (no llama a Claude)'}`);
 
-  const deps = buildLiveRescueBatchDeps(null);
+  const live = buildLiveRescueBatchDeps(null);
+  // Sin `deliverySlots` el rescate no mira el tope (dep opcional): la excepción.
+  const deps = ignoreDeliveryCap ? { ...live, deliverySlots: undefined } : live;
+  if (ignoreDeliveryCap) console.log('  ⚠️ --sin-tope: este lote NO respeta el máximo de 10 en revisión (excepción autorizada).');
+  else if (live.deliverySlots) {
+    const free = await live.deliverySlots(batchId).catch(() => null);
+    console.log(`  Cupo libre bajo el tope de 10: ${free ?? 'sin tope'}`);
+  }
   const [candidates, dispositions] = await Promise.all([
     deps.loadReviewCandidates(batchId),
     deps.loadDispositions(batchId),
