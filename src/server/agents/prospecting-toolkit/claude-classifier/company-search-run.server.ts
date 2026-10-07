@@ -12,6 +12,7 @@ import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
+import { depositWebSurplusToBank } from '@/server/prospect-batches/company-bank/web-company-bank-deposit.server';
 import { runProspectingPipeline } from '../prospecting-pipeline';
 import { resolveTavilyCountryRegions } from '../tavily-country-regions';
 import { buildTavilyOfficialIdentityEnricher } from '../tavily-official-identity.server';
@@ -238,6 +239,15 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
           ...(existingBatchId ? { existingBatchId } : {}),
         });
         if (reopened && output.status === 'failed') await restoreClosedBatch(existingBatchId as string);
+        // AGENT1-DELIVERY-CAP-HARD-1 — lo que no cupo en los 10 del vendedor va al banco.
+        if (output.status !== 'failed') {
+          await depositWebSurplusToBank({
+            countryCode: enrichedOutput.input?.countryCode ?? null,
+            industryName: enrichedOutput.input?.industry ?? null,
+            sourceBatchId: output.batchId,
+            capped: output.deliveryCappedCompanies,
+          });
+        }
         return {
           batchId: output.status === 'failed' ? null : output.batchId,
           candidatesCreated: output.candidatesCreated,

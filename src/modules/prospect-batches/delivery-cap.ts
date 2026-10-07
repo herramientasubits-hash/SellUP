@@ -100,18 +100,18 @@ export function applyDeliveryCap<T>(
 /**
  * AGENT1-COMPANY-BANK-FIRST-1 — el tope es por VENDEDOR y por búsqueda, no por
  * escritor: lo que el lote ya contiene (el banco, la capa gratuita, otra pierna)
- * se descuenta. Nunca baja del objetivo de quien escribe (`floor`), así que una
- * pierna que todavía tiene que cerrar la meta siempre puede aportar sus completas.
+ * se descuenta.
+ *
+ * AGENT1-DELIVERY-CAP-HARD-1 — regla de la dueña (07-10-2026): «mínimo debe traer
+ * 5 prospectos y máximo 10; el resto va al banco». El tope es DURO: ninguna
+ * pierna escribe por encima de él, ni siquiera para cerrar su objetivo. Antes un
+ * «piso» (el objetivo de quien escribe) podía superarlo y en Prod hubo búsquedas
+ * con 27 empresas en revisión. Lo que no cabe sale como recortado y va al banco.
  *
  * `cap === null` ⇒ sin tope (igual que antes).
  */
-export function resolveEffectiveDeliveryCap(input: {
-  cap: number | null;
-  alreadyDelivered: number;
-  floor: number | null;
-}): number | null {
+export function resolveEffectiveDeliveryCap(input: { cap: number | null; alreadyDelivered: number }): number | null {
   if (input.cap === null || !Number.isFinite(input.cap)) return null;
   const already = Number.isFinite(input.alreadyDelivered) ? Math.max(0, Math.trunc(input.alreadyDelivered)) : 0;
-  const floor = input.floor !== null && Number.isFinite(input.floor) ? Math.max(0, Math.trunc(input.floor)) : 0;
-  return Math.max(Math.trunc(input.cap) - already, floor, 0);
+  return Math.max(Math.trunc(input.cap) - already, 0);
 }

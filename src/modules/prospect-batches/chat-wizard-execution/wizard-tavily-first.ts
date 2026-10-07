@@ -76,8 +76,23 @@ export type TavilyFirstOutcome =
    * para Apollo: se entrega lo de Tavily (Apollo no corre ni gasta).
    */
   | { outcome: 'batch_reopen_failed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
+  /**
+   * AGENT1-DELIVERY-CAP-HARD-1 — Tavily (y Claude) dejaron pocas que CUENTAN pero el
+   * lote ya llegó al tope de entrega (máximo 10 por búsqueda): Apollo y Lusha no
+   * corren ni gastan, porque nada de lo que trajeran cabría en el lote.
+   */
+  | { outcome: 'lot_at_delivery_cap'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; lotReviewable: number; deliveryCap: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily falló a mitad; la corrida siguió con Apollo. */
   | { outcome: 'failed' };
+
+/**
+ * AGENT1-DELIVERY-CAP-HARD-1 — ¿el lote ya está en el tope de entrega? Sin tope o
+ * sin conteo ⇒ no (se sigue como siempre).
+ */
+export function isLotAtDeliveryCap(lotReviewable: number | null, deliveryCap: number | null): boolean {
+  if (lotReviewable === null || deliveryCap === null) return false;
+  return lotReviewable >= deliveryCap;
+}
 
 export function resolveTavilyFirstPrecheck(input: {
   tavilyConfigured: boolean;

@@ -3492,9 +3492,8 @@ export async function runApolloTwoRoundWizardDiscovery(
       existingBatchId: input.reservedBatchId,
       // AGENT1-DELIVERY-CAP-1 — tope de ENTREGA por vendedor (env; ausente ⇒ sin tope).
       maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
-      // AGENT1-BANK-FIRST-MEASURES-TARGET-1 — aunque el lote ya traiga lo del
-      // banco y de Tavily, Apollo puede escribir al menos lo que FALTA para la meta.
-      deliveryCapFloor: input.resultDemand?.remainingTarget ?? config.targetEligibleCompanies,
+      // AGENT1-DELIVERY-CAP-HARD-1 — el tope es duro (máximo 10 por búsqueda): lo
+      // que no quepa porque el lote ya trae lo del banco y de Tavily va al banco.
       extraBatchMetadata: {
         ...(input.extraBatchMetadata ?? {}),
         apollo_discovery_modality: 'two_round_adaptive',

@@ -12,6 +12,8 @@
 import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
 import { buildLiveRescueOfficialIdentityResolver } from './rescue-official-identity.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
+import { BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES } from '../../batch-identity-registry';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { sendDispositionToReviewCore } from '@/modules/prospect-discards/send-to-review-core';
@@ -192,7 +194,9 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     ...(domainSearchEnabled ? { domainSearch: liveDomainSearch } : {}),
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
-    loadCatalog: loadClassifierCatalog,
+    // El rescate también corre SIN sesión (vueltas en cadena desde la ruta del cron):
+    // el catálogo se lee con el cliente de servicio, sólo lectura.
+    loadCatalog: () => loadClassifierCatalog(createSupabaseAdminClient()),
     loadReviewCandidates: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
@@ -201,6 +205,19 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .eq('status', 'needs_review');
       if (error) throw new Error(`candidates_read_failed:${error.message}`);
       return (data ?? []) as ClassifiableCandidateRow[];
+    },
+    // AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda: tope menos lo que ya está
+    // vivo en el lote (los MISMOS estados que cuenta el escritor común).
+    deliverySlots: async (batchId) => {
+      const cap = resolveMaxDeliveredCandidates();
+      if (cap === null) return null;
+      const { count, error } = await createSupabaseAdminClient()
+        .from('prospect_candidates')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', batchId)
+        .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES]);
+      if (error || count === null) return null;
+      return Math.max(0, cap - count);
     },
     loadDispositions: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()

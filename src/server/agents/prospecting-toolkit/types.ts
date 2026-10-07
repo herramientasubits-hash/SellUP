@@ -742,13 +742,6 @@ export type CandidateWriterInput = {
    */
   holdBatchStatus?: boolean;
   /**
-   * AGENT1-BANK-FIRST-MEASURES-TARGET-1 — lo mínimo que este escritor puede
-   * entregar aunque el lote ya esté lleno: lo que FALTA para la meta. Sin esto,
-   * una pierna que entra con el lote ya en el tope (banco + Tavily) pagaba y no
-   * podía escribir ni sus completas. Ausente ⇒ el objetivo declarado del escritor.
-   */
-  deliveryCapFloor?: number | null;
-  /**
    * AGENT1-COMPANY-BANK-FIRST-1 — las filas son de Apollo aunque esta escritura no
    * sea una búsqueda de Apollo (vienen del banco): `source_primary = 'apollo'` y
    * su rastro de proveedor, como cuando las escribió la corrida original.
