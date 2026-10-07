@@ -11,7 +11,11 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 // AGENT2A-PROD-INCIDENT: las dos búsquedas salen por este helper, que es el que
 // pone el techo de espera. Antes cada una llamaba a `fetch` sin `signal`.
-import { postHubSpotCompanySearch, getHubSpotCompanyById } from './hubspot-company-search-request';
+import {
+  postHubSpotCompanySearch,
+  getHubSpotCompanyById,
+  HUBSPOT_COMPANY_SEARCH_TIMEOUT_MS,
+} from './hubspot-company-search-request';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -359,5 +363,65 @@ export async function getHubSpotCompanyByIdForResolver(
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : 'Error desconocido';
     return { company: null, skipped: false, error };
+  }
+}
+
+// ============================================================
+// Ficha completa de UNA empresa (HUBSPOT-ACCOUNT-SYNC-1)
+// ============================================================
+
+export type HubSpotCompanyProfileResult =
+  | { status: 'found'; hubspotCompanyId: string; properties: Record<string, string | null> }
+  /** HubSpot contestó 404: el ID no existe en este portal (p. ej. vino del sandbox). */
+  | { status: 'not_found' }
+  /** No se pudo consultar: nunca se confunde con «no existe». */
+  | { status: 'unavailable'; reason: string };
+
+/** Correo del dueño por su ID cuando la ficha no trae `owneremail`. Solo lectura. */
+async function readHubSpotOwnerEmail(token: string, ownerId: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://api.hubapi.com/crm/v3/owners/${encodeURIComponent(ownerId)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(HUBSPOT_COMPANY_SEARCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) return null;
+    const owner = (await response.json()) as { email?: string | null };
+    return owner.email?.trim().toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lee la ficha de una empresa de HubSpot con las propiedades que SellUp copia
+ * (`HUBSPOT_COMPANY_PROFILE_PROPERTIES`). Solo lectura: nunca escribe en HubSpot.
+ */
+export async function getHubSpotCompanyProfileById(
+  companyId: string,
+  properties: readonly string[],
+): Promise<HubSpotCompanyProfileResult> {
+  const id = companyId.trim();
+  if (!/^\d+$/.test(id)) return { status: 'unavailable', reason: 'invalid_company_id' };
+
+  const connected = await isHubSpotConnected();
+  if (!connected) return { status: 'unavailable', reason: 'not_connected' };
+  const token = await getHubSpotToken();
+  if (!token) return { status: 'unavailable', reason: 'no_token' };
+
+  try {
+    const response = await getHubSpotCompanyById(token, id, [...properties]);
+    if (response.status === 404) return { status: 'not_found' };
+    if (!response.ok) return { status: 'unavailable', reason: `hubspot_${response.status}` };
+    const r = (await response.json()) as { id: string; properties?: Record<string, string | null> };
+    const props = { ...(r.properties ?? {}) };
+    if (props.hubspot_owner_id && !props.owneremail) {
+      props.owneremail = await readHubSpotOwnerEmail(token, props.hubspot_owner_id);
+    }
+    return { status: 'found', hubspotCompanyId: String(r.id), properties: props };
+  } catch (err: unknown) {
+    return { status: 'unavailable', reason: err instanceof Error ? err.name : 'unknown_error' };
   }
 }

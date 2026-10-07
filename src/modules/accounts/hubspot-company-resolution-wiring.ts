@@ -20,7 +20,7 @@ import {
 } from './hubspot-company-resolution-runtime';
 
 const ACCOUNT_SELECT =
-  'id, name, domain, country, country_code, city, region, tax_identifier, legal_name, company_size, hubspot_company_id, metadata';
+  'id, name, domain, website, linkedin_url, industry, country, country_code, city, region, tax_identifier, legal_name, company_size, hubspot_company_id, metadata, owner:internal_users!accounts_owner_id_fkey ( email, full_name )';
 
 async function loadAccountForHubSpotResolution(
   admin: SupabaseClient,
@@ -37,6 +37,11 @@ async function loadAccountForHubSpotResolution(
   }
   if (!data) return null;
   const row = data as Record<string, unknown>;
+  const ownerRaw = row.owner;
+  const owner = (Array.isArray(ownerRaw) ? ownerRaw[0] : ownerRaw) as
+    | { email: string | null; full_name: string | null }
+    | null
+    | undefined;
   return {
     id: row.id as string,
     name: row.name as string,
@@ -50,6 +55,11 @@ async function loadAccountForHubSpotResolution(
     companySize: (row.company_size as string | null) ?? null,
     hubspotCompanyId: (row.hubspot_company_id as string | null) ?? null,
     metadata: (row.metadata as Record<string, unknown> | null) ?? {},
+    industry: (row.industry as string | null) ?? null,
+    website: (row.website as string | null) ?? null,
+    linkedinUrl: (row.linkedin_url as string | null) ?? null,
+    ownerEmail: owner?.email ?? null,
+    ownerName: owner?.full_name ?? null,
   };
 }
 
@@ -66,6 +76,14 @@ async function createCompanyForAccount(
     region: account.region,
     legalName: account.legalName,
     numberOfEmployees: account.companySize,
+    // HUBSPOT-ACCOUNT-SYNC-1 — antes la empresa llegaba a HubSpot sin industria, web,
+    // LinkedIn ni dueño. El dueño es el responsable de la empresa en SellUp, buscado por
+    // correo entre los usuarios de HubSpot.
+    industry: account.industry ?? null,
+    website: account.website ?? null,
+    linkedinUrl: account.linkedinUrl ?? null,
+    approvedByEmail: account.ownerEmail ?? null,
+    approvedByName: account.ownerName ?? null,
   });
   return result.ok && result.hubspotCompanyId
     ? { ok: true, hubspotCompanyId: result.hubspotCompanyId }

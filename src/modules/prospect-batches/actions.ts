@@ -83,6 +83,7 @@ import {
   resolveImportExistingCompanyDuplicate,
 } from '@/server/prospect-batches/import-identity-admission';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
+import { completeConvertedAccount } from '@/modules/accounts/complete-converted-account.server';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
@@ -1949,7 +1950,7 @@ export async function approveAndConvertCandidateAction(
   // 1. Cargar candidato
   const { data: candidate, error: candidateErr } = await supabase
     .from('prospect_candidates')
-    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source)')
+    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, created_by)')
     .eq('id', id)
     .single();
 
@@ -2128,6 +2129,14 @@ export async function approveAndConvertCandidateAction(
     accountMeta = newAccountMeta;
   }
 
+  // HUBSPOT-ACCOUNT-SYNC-1 — quien lanzó la búsqueda del Agente 1 (creador del lote).
+  const batchRaw = (candidate as Record<string, unknown>).batch;
+  const batchRow = (Array.isArray(batchRaw) ? batchRaw[0] : batchRaw) as
+    | { created_by?: string | null }
+    | null
+    | undefined;
+  const searcherUserId: string = batchRow?.created_by ?? internalUserId;
+
   // 4. Resolver sincronización / vinculación a HubSpot
   const validation = (candidate.metadata?.validation || {}) as Record<string, unknown>;
   const hsCheck = (validation.hubspot_duplicate_check || {}) as Record<string, unknown>;
@@ -2213,10 +2222,12 @@ export async function approveAndConvertCandidateAction(
         ((candidate.metadata?.ai_evaluation as Record<string, unknown> | null)?.description as string | undefined) ??
         null;
 
+      // HUBSPOT-ACCOUNT-SYNC-1 — el dueño en HubSpot es quien LANZÓ la búsqueda del
+      // Agente 1 (creador del lote), no quien aprueba. Sin creador, cae en quien aprueba.
       const { data: userRow } = await supabase
         .from('internal_users')
         .select('email, full_name')
-        .eq('id', internalUserId)
+        .eq('id', searcherUserId)
         .single();
       const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
       const userFullName = userRow?.full_name ?? '';
@@ -2349,6 +2360,17 @@ export async function approveAndConvertCandidateAction(
     .from('accounts')
     .update(accountUpdates)
     .eq('id', accountId);
+
+  // HUBSPOT-ACCOUNT-SYNC-1 — responsable + lo que HubSpot ya sabe de la empresa
+  // (industria, tamaño, NIT… sólo lo vacío) y, después de responder, las fuentes
+  // oficiales gratuitas del Agente 1. Nunca rompe la aprobación.
+  await completeConvertedAccount({
+    accountId,
+    hubspotCompanyId: hubspotCompanyId ?? null,
+    searcherUserId,
+    actorUserId: internalUserId,
+    nowIso: nowStr,
+  });
 
   // Formatear candidate.metadata.hubspot_sync para compatibilidad del panel de detalle
   const candidateHubspotSync: Record<string, unknown> = {

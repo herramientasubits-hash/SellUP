@@ -28,6 +28,13 @@ export interface AccountForHubSpotResolution {
   companySize: string | null;
   hubspotCompanyId: string | null;
   metadata: Record<string, unknown> | null;
+  /** HUBSPOT-ACCOUNT-SYNC-1 — lo que viaja a HubSpot además de la identidad. */
+  industry?: string | null;
+  website?: string | null;
+  linkedinUrl?: string | null;
+  /** Correo del responsable en SellUp: se busca como dueño en HubSpot. */
+  ownerEmail?: string | null;
+  ownerName?: string | null;
 }
 
 export interface HubSpotCompanyMatchCheck {

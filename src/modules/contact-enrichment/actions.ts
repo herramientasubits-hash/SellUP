@@ -36,7 +36,10 @@ import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
 import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { resolveAccountForEnrichmentRequest } from './request-account-resolution-core';
-import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
+import {
+  buildHubSpotAccountResolutionDeps,
+  loadContactSearchTriggeredBy,
+} from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import { applyCandidateCompanyReassignment } from './candidate-company-reassignment-core';
 import type {
@@ -864,9 +867,11 @@ export async function approveContactCandidate(
         });
       },
       resolveOrCreateAccount: async (args) => {
+        const searcherUserId =
+          (await loadContactSearchTriggeredBy(admin, { runId: args.run_id })) ?? internalUserId;
         return resolveOrCreateAccountForHubSpotCandidate(
           args,
-          buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_enrichment_approval'),
+          buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_enrichment_approval', searcherUserId),
         );
       },
       updateRunAccountId: async (runId, accountId, outcome, countryCodeApplied, countryResolutionSource) => {
