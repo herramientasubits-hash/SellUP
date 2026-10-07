@@ -33,6 +33,7 @@
  * Read-only: every query is a bounded SELECT through `buildSnapshotNameQuery`.
  */
 
+import { withEcPublicEntitySize } from './ec-public-entity-size';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake';
@@ -95,11 +96,14 @@ export function buildEcuadorOfficialSourceResolver(snapshotClient: SupabaseClien
     );
   const tradeName = () => byName(EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY, normalizeEcEntityCore, true);
 
-  return createFallbackOfficialSourceResolver(
-    current(
-      createFallbackOfficialSourceResolver(tradeName(), byName(EC_SCVS_LEGACY_SOURCE_KEY, normalizeEcCompanyCore)),
+  // SOURCES-EC-GOV-HEAD-ONLY-1 — una entidad pública sin tamaño lleva el de su tipo.
+  return withEcPublicEntitySize(
+    createFallbackOfficialSourceResolver(
+      current(
+        createFallbackOfficialSourceResolver(tradeName(), byName(EC_SCVS_LEGACY_SOURCE_KEY, normalizeEcCompanyCore)),
+      ),
+      withoutCountrySuffix(current(tradeName())),
     ),
-    withoutCountrySuffix(current(tradeName())),
   );
 }
 

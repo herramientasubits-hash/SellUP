@@ -74,6 +74,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // gratuita de sociedades adjudicatarias de Guatecompras).
   gt_nit_registry: 'TAX_GRAIN',
   gt_guatecompras_directory: 'TAX_GRAIN',
+  // SOURCES-HN-CLOSE-1 — un RTN, una fila (capa gratuita de personas jurídicas que
+  // venden al Estado: ONCAE / HonduCompras y SEFIN / SIAFI).
+  hn_honducompras_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-CR-CLOSE-1 — una cédula, una fila (proveedoras SICOP, Zona Franca, entidades públicas).
@@ -107,6 +110,12 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-CR-CLOSE-1 — varias filas por cédula (nombre anterior, siglas oficiales,
   // otros nombres y clave de municipalidad): identidad `cr-name-alias:<cédula>:<clave>`.
   cr_company_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-HN-CLOSE-1 — varias filas por RTN (sigla, nombre comercial, nombre de otra
+  // fuente, clave pública, sigla de la CNBS): identidad `hn-name-alias:<RTN>:<clave>`.
+  hn_rtn_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-HN-CLOSE-1 — una fila por entidad compradora de ONCAE (`hn-oncae-ce:<código>`):
+  // ONCAE no publica su RTN.
+  hn_public_entities: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
   // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
   pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',

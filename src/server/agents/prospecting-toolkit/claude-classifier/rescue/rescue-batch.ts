@@ -74,6 +74,7 @@ import {
   OFFICIAL_SIZE_RULE_MARKER,
   type RescuableDispositionRow,
 } from './rescue-dispositions';
+import { institutionWebMatchesName } from './institution-web-name-match';
 
 /**
  * Empresas a la vez. 6 (antes 4) por decisión de la dueña (06-10): en Chile ×
@@ -542,6 +543,16 @@ async function resolveDispositionWebsite(
     } else {
       found = { website: outcome.website, domain: outcome.domain, verification: outcome.verification };
     }
+  }
+
+  // AGENT1-RESCUE-INSTITUTION-WEB-NAME-1 — una web .gob/.edu de OTRA entidad no vale.
+  if (!institutionWebMatchesName(found.domain, [dispositionDisplayName(row), row.name ?? '', ...officialNames])) {
+    const at = deps.nowIso();
+    const outcome = { found: false as const, reason: 'identity_not_confirmed' as const, claimedUrl: found.website, usage: null };
+    const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
+      buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, at, { officialNamesChecked: usesOfficialNames }),
+    );
+    return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
   }
 
   let duplicate: DomainDuplicateCheck;

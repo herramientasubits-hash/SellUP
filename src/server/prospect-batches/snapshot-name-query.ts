@@ -100,9 +100,32 @@ function bandFromCostaRicaMeicSize(raw: Record<string, unknown>, source: string)
   return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
 }
 
+/**
+ * SOURCES-HN-CLOSE-1 — marca «*MIPYME*» que HonduCompras pega al nombre del
+ * proveedor. En Honduras la MIPYME llega hasta 150 personas (micro hasta 10,
+ * pequeña hasta 50, mediana hasta 150): todo el tramo queda bajo el umbral ICP de
+ * 200, así que el filtro de tamaño la descarta (aprobado por la dueña el
+ * 07-10-2026). Una grande no se marca: no hay tramo «grande».
+ */
+export const HN_MIPYME_BAND = { min: 0, max: 150, label: 'mipyme' } as const;
+
+function bandFromHondurasMipyme(raw: Record<string, unknown>, source: string): OfficialWorkforce | null {
+  const year = raw['hn_mipyme_year'];
+  if (typeof year !== 'number' || !Number.isInteger(year)) return null;
+  return {
+    workers: HN_MIPYME_BAND.min,
+    year,
+    source,
+    maxWorkers: HN_MIPYME_BAND.max,
+    sizeBand: HN_MIPYME_BAND.label,
+    declaredBelowIcp: true,
+  };
+}
+
 export function workforceFromRawData(raw: unknown, source: string, fallbackYear: number | null = null): OfficialWorkforce | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
+  if (record['hn_mipyme_year'] !== undefined) return bandFromHondurasMipyme(record, source);
   if (record['py_mipyme_size'] !== undefined) return bandFromParaguayMipymeSize(record, source);
   if (record['cr_meic_size'] !== undefined) return bandFromCostaRicaMeicSize(record, source);
   const workers = record['workers'];

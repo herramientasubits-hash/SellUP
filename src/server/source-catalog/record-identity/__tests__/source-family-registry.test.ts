@@ -48,6 +48,8 @@ const TAX_GRAIN_SOURCE_KEYS = [
   // SOURCES-GT-CLOSE-1
   'gt_nit_registry',
   'gt_guatecompras_directory',
+  // SOURCES-HN-CLOSE-1
+  'hn_honducompras_directory',
   'cr_company_registry',
   // SOURCES-CR-CLOSE-1
   'cr_free_directory',
@@ -79,6 +81,9 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'bo_name_alias',
   // SOURCES-CR-CLOSE-1 — varias claves de nombre por cédula.
   'cr_company_name_alias',
+  // SOURCES-HN-CLOSE-1 — varias claves de nombre por RTN y entidades sin RTN.
+  'hn_rtn_name_alias',
+  'hn_public_entities',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────
