@@ -16,7 +16,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
-import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
+import {
+  buildHubSpotAccountResolutionDeps,
+  loadContactSearchTriggeredBy,
+} from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { requireActiveUserForEnrichment } from './actions';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { isNextControlFlowSignal } from './next-control-flow-signal';
@@ -85,11 +88,14 @@ export async function reassignContactCandidateCompanyAction(
         );
         return pickReassignmentCompany(sel, resolution.candidates);
       },
-      resolveOrCreateAccount: async (args) =>
-        resolveOrCreateAccountForHubSpotCandidate(
+      resolveOrCreateAccount: async (args) => {
+        const searcherUserId =
+          (await loadContactSearchTriggeredBy(admin, { candidateId })) ?? internalUserId;
+        return resolveOrCreateAccountForHubSpotCandidate(
           { ...args, run_id: null },
-          buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_candidate_reassignment'),
-        ),
+          buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_candidate_reassignment', searcherUserId),
+        );
+      },
       writeCandidateMetadata: async (id, metadata) => {
         const { data, error } = await admin
           .from('contact_enrichment_candidates')

@@ -39,6 +39,28 @@ export interface HubSpotAccountResolutionDeps {
    * La implementación debe usar `WHERE country_code IS NULL` para no sobrescribir.
    */
   updateAccountCountryCode?: (accountId: string, countryCode: string) => Promise<void>;
+  /**
+   * HUBSPOT-ACCOUNT-SYNC-1 — completa la empresa con su ficha de HubSpot (industria,
+   * tamaño, NIT, país…) y le pone responsable si no tiene. Sólo llena lo vacío. Un fallo
+   * aquí nunca rompe la resolución: la empresa ya quedó resuelta.
+   */
+  completeAccount?: (accountId: string, hubspotId: string) => Promise<void>;
+}
+
+async function completeAccountSafely(
+  deps: HubSpotAccountResolutionDeps,
+  accountId: string,
+  hubspotId: string,
+): Promise<void> {
+  if (!deps.completeAccount) return;
+  try {
+    await deps.completeAccount(accountId, hubspotId);
+  } catch (err) {
+    console.error('[hubspot-account-resolver] completeAccount failed', {
+      accountId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export type AccountResolutionSuccess = {
@@ -88,6 +110,7 @@ export async function resolveOrCreateAccountForHubSpotCandidate(
     if (country_code && deps.updateAccountCountryCode) {
       await deps.updateAccountCountryCode(byHubspot.id, country_code);
     }
+    await completeAccountSafely(deps, byHubspot.id, hubspot_company_id);
     return {
       accountId: byHubspot.id,
       outcome: 'existing_by_hubspot',
@@ -107,6 +130,7 @@ export async function resolveOrCreateAccountForHubSpotCandidate(
       if (country_code && deps.updateAccountCountryCode) {
         await deps.updateAccountCountryCode(byDomain.id, country_code);
       }
+      await completeAccountSafely(deps, byDomain.id, byDomain.hubspot_company_id ?? hubspot_company_id);
       const outcome = byDomain.hubspot_company_id
         ? 'existing_by_domain'
         : 'existing_by_domain_linked';
@@ -135,6 +159,7 @@ export async function resolveOrCreateAccountForHubSpotCandidate(
   });
 
   if ('error' in created) return { error: created.error };
+  await completeAccountSafely(deps, created.id, hubspot_company_id);
   return {
     accountId: created.id,
     outcome: 'created',
