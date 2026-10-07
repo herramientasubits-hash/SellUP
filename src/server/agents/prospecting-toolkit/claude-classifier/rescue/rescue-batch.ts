@@ -156,6 +156,16 @@ export type RescueBatchDeps = {
      * (sólo lectura; `[]` si no hay o falla). Ausente = no se usan.
      */
     officialNames?: (input: { countryCode: string; taxId: string }) => Promise<string[]>;
+    /**
+     * AGENT1-RESCUE-KNOWN-COMPANY-GUARD-1 — ¿SellUp ya tiene esta empresa por otro
+     * camino (mismo nombre base en el lote, mismo número fiscal vivo)? Sólo lectura;
+     * `null` = nueva. Ausente = sólo el control por web (como antes).
+     */
+    findKnownCompany?: (input: {
+      batchId: string;
+      taxId: string | null;
+      names: readonly string[];
+    }) => Promise<DomainDuplicateCheck | null>;
   };
   /**
    * AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote bajo el tope de entrega
@@ -480,6 +490,21 @@ async function resolveDispositionWebsite(
       [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
     }));
     return { kind: 'done', outcome: { tag: 'failed', cost } };
+  }
+  if (duplicate.status === 'new_candidate' && domainSearch.findKnownCompany) {
+    // La web encontrada puede ser OTRA de una empresa que SellUp ya tiene (Prod 07-10:
+    // «PYCCA S.A.» con polipapel.com mientras «Pycca», pycca.com, ya estaba en el lote).
+    // Fail-open: el control por web ya pasó; un fallo de esta lectura sólo se registra.
+    try {
+      const known = await domainSearch.findKnownCompany({
+        batchId: ctx.batchId,
+        taxId,
+        names: [dispositionDisplayName(row), row.name ?? ''],
+      });
+      if (known) duplicate = known;
+    } catch (err) {
+      console.error('[claude-rescue] known company check failed:', err instanceof Error ? err.message : err);
+    }
   }
   if (duplicate.status !== 'new_candidate') {
     const at = deps.nowIso();
