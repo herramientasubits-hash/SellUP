@@ -87,6 +87,10 @@ describe('núcleo costarricense por estructura', () => {
       'AMAZON SUPPORT SERVICES COSTA RICA S.R.L.',
     );
     assert.equal(currentCostaRicaName('X S.A. ZF981647 - Planta satélite'), 'X S.A.');
+    assert.equal(
+      currentCostaRicaName('COSTA RICA CONTACT CENTER CRCC, S.A. (se fusionó con Teleperformance Costa Rica SRL)'),
+      'COSTA RICA CONTACT CENTER CRCC, S.A.',
+    );
     assert.deepEqual(formerCostaRicaNames('Davibank (Costa Rica) S.A. (antes Scotiabank de Costa Rica S.A.)'), [
       'Scotiabank de Costa Rica S.A.',
     ]);

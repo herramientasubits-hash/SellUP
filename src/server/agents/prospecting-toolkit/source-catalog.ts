@@ -2110,7 +2110,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '18.216 sociedades cargadas (02-10-2026). SOURCES-CR-CLOSE-1: recarga pendiente de autorización con 19.346 cédulas (dry-run 06-10: + empresas en Zona Franca de PROCOMER, entidades supervisadas por SUGEF y 385 instituciones públicas de SICOP con cédula 2…/4…/3-014/3-007), el núcleo nuevo (forma societaria reconocida por su estructura), sus alias (cr_company_name_alias: nombre anterior, siglas oficiales de MIDEPLAN, clave de municipalidad) y el tramo PYME del MEIC. Recarga: scripts/source-catalog/run-cr-company-registry-etl.ts --pymes=… --recursos=… --aclaraciones=… --zona-franca=… --sugef=… --sicop-institutions=… --mideplan=… --apply=registry,alias.',
+      '18.216 sociedades cargadas (02-10-2026). SOURCES-CR-CLOSE-1: recarga pendiente de autorización con 19.346 cédulas (dry-run 06-10: + empresas en Zona Franca de PROCOMER, entidades supervisadas por SUGEF y 385 instituciones públicas de SICOP con cédula 2…/4…/3-014/3-007), el núcleo nuevo (forma societaria reconocida por su estructura), sus alias (cr_company_name_alias: nombre anterior, siglas oficiales de MIDEPLAN, clave de municipalidad) y el tramo PYME del MEIC. Recarga: scripts/source-catalog/run-cr-company-registry-etl.ts --pymes=… --recursos=… --aclaraciones=… --zona-franca=… --sugef=… --sicop-institutions=… --mideplan=<salida de scripts/source-catalog/extract-cr-mideplan-fichas.py> --apply=registry,alias.',
     countryCodes: ['CR'],
     sectors: [],
     priority: 'P1',

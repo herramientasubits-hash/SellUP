@@ -104,7 +104,7 @@ function stripLegalFormTails(upper: string): string {
  * X», «(fusionada con Y…)», «(antiguo …)» y el código de una planta satélite de
  * Zona Franca («ZF981647 - Planta satélite: …»).
  */
-const AFTER_CURRENT_NAME = /[\s,;(]+\(?\s*(?:antes|fusionad[ao]s?|se fusion[oó]|antiguo|anteriormente)\b|\s*\(\s*planta\b|\s+ZF\d{5,}\b/i;
+const AFTER_CURRENT_NAME = /[\s,;(]+\(?\s*(?:antes\b|fusionad[ao]s?\b|se fusion|antiguo\b|anteriormente\b)|\s*\(\s*planta\b|\s+ZF\d{5,}\b/i;
 
 /**
  * El nombre ACTUAL: primera línea (Zona Franca escribe las plantas satélite en
