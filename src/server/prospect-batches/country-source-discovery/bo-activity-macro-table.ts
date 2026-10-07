@@ -124,7 +124,7 @@ export const BO_ACTIVITY_RULES: readonly BoActivityRule[] = [
   { ciiu: '78', stems: ['RECURSOS HUMANOS', 'OUTSOURCING', 'TERCERIZACION', 'PERSONAL TEMPORAL'], label: 'personal y tercerización' },
   { ciiu: '77', stems: ['ALQUILER DE MAQUINARIA', 'ALQUILER DE EQUIPOS', 'ARRENDAMIENTO DE MAQUINARIA', 'ARRENDAMIENTO DE EQUIPOS', 'RENT A CAR'], label: 'alquiler de equipos' },
   // ── Comercio (45-47) ──
-  { ciiu: '45', stems: ['AUTOMOTRIZ', 'AUTOMOTORES', 'CONCESIONARI', 'VEHICULOS', 'REPUESTOS', 'NEUMATICOS', 'LLANTAS', 'MOTOCICLETAS'], label: 'vehículos y repuestos' },
+  { ciiu: '45', stems: ['AUTOMOTRIZ', 'AUTOMOTORES', 'CONCESIONARI', 'VEHICULOS', 'REPUESTOS', 'AUTOPARTE', 'NEUMATICOS', 'LLANTAS', 'MOTOCICLETAS'], label: 'vehículos y repuestos' },
   { ciiu: '47', stems: ['SUPERMERCADO', 'HIPERMERCADO', 'TIENDA', 'TIENDAS', 'MINIMARKET'], label: 'comercio minorista' },
   {
     ciiu: '46',
@@ -158,18 +158,58 @@ function stemMatches(text: string, stem: string, allowGlued: boolean): boolean {
   return allowGlued && normalizedStem.length >= GLUED_STEM_MIN_CHARS && text.includes(normalizedStem);
 }
 
-/** Primera regla que coincide con el texto, o `null`. */
+/**
+ * Reglas GENÉRICAS: describen cómo vende (importa, distribuye, fabrica), no qué. En
+ * el objeto social sólo cuentan si ninguna regla específica aparece.
+ */
+const GENERIC_RULE_CIIUS: ReadonlySet<string | null> = new Set(['46', '25']);
+
+/** Posición de la primera raíz de la regla en el texto, o -1. */
+function firstStemIndex(text: string, stems: readonly string[], allowGlued: boolean): number {
+  let best = -1;
+  for (const stem of stems) {
+    const normalizedStem = normalizeBoActivityText(stem);
+    let index = ` ${text}`.indexOf(` ${normalizedStem}`);
+    if (index < 0 && allowGlued && normalizedStem.length >= GLUED_STEM_MIN_CHARS) index = text.indexOf(normalizedStem);
+    if (index >= 0 && (best < 0 || index < best)) best = index;
+  }
+  return best;
+}
+
+/**
+ * Regla que corresponde al texto, o `null`.
+ *
+ * - En la RAZÓN SOCIAL, la primera regla de la tabla que coincide (la razón social
+ *   es corta y nombra el giro).
+ * - En el OBJETO SOCIAL, la actividad que aparece PRIMERO en el texto: las
+ *   escrituras empiezan por la actividad principal y después enumeran todo lo que
+ *   la sociedad podría vender (SOURCES-BO-CLOSE-1, corrida 07-10: «autopartes,
+ *   neumáticos… computadoras, celulares» es repuestos, no telecomunicaciones). Las
+ *   reglas genéricas (comercio en general, industria en general) sólo si ninguna
+ *   específica aparece. Empate en la misma posición: gana la que va antes en la tabla.
+ */
 export function matchBoActivityRule(
   text: string | null | undefined,
   basis: 'legal_name' | 'social_purpose' = 'legal_name',
 ): BoActivityRule | null {
   const normalized = normalizeBoActivityText(text);
   if (normalized.length === 0) return null;
-  for (const rule of BO_ACTIVITY_RULES) {
-    const stems = basis === 'legal_name' ? [...rule.stems, ...(rule.nameOnlyStems ?? [])] : rule.stems;
-    if (stems.some((stem) => stemMatches(normalized, stem, basis === 'social_purpose'))) return rule;
+  if (basis === 'legal_name') {
+    for (const rule of BO_ACTIVITY_RULES) {
+      if ([...rule.stems, ...(rule.nameOnlyStems ?? [])].some((stem) => stemMatches(normalized, stem, false))) return rule;
+    }
+    return null;
   }
-  return null;
+  const earliest = (generic: boolean): BoActivityRule | null => {
+    let best: { rule: BoActivityRule; index: number } | null = null;
+    for (const rule of BO_ACTIVITY_RULES) {
+      if (GENERIC_RULE_CIIUS.has(rule.ciiu) !== generic) continue;
+      const index = firstStemIndex(normalized, rule.stems, true);
+      if (index >= 0 && (best === null || index < best.index)) best = { rule, index };
+    }
+    return best?.rule ?? null;
+  };
+  return earliest(false) ?? earliest(true);
 }
 
 /** Macro de una división o clase CIIU Rev. 4, con las clases de la v2 de Argentina. */

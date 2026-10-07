@@ -93,7 +93,12 @@ const VERIFICATIONS: readonly FoundVerification[] = [
  * Países con nombre comercial / sigla oficial por número fiscal ya cargados
  * (Ecuador: `ec_sri_trade_name_registry` + `ec_scvs_alias_registry`).
  */
-export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC']);
+/**
+ * SOURCES-BO-CLOSE-1 — Bolivia: siglas oficiales por NIT (`bo_name_alias`). Activa
+ * también, a propósito, la web por la primera palabra propia de la razón social
+ * (huawei.com ← HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.), como en Ecuador.
+ */
+export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC', 'BO']);
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
@@ -348,7 +353,20 @@ export function unverifiedWebsiteHint(
 
 const GOVERNMENT_HOST = /\.(gob|gov|mil)(\.[a-z]{2})?$/;
 /** Sufijos de país que una marca suele pegar a su dominio («heyecuador», «cns-ec»). */
-const COUNTRY_LABEL_SUFFIXES = ['', 'ecuador', 'ec'] as const;
+/**
+ * Lo que la web de una marca puede pegar a su nombre, POR PAÍS («netlife.ec»,
+ * «dismatecbolivia.com»). Por país para que una sigla corta de Ecuador no se
+ * verifique con «<sigla>bo.com» ni una de Bolivia con «<sigla>ec» (SOURCES-BO-CLOSE-1).
+ */
+const COUNTRY_LABEL_SUFFIXES: Readonly<Record<string, readonly string[]>> = {
+  EC: ['', 'ecuador', 'ec'],
+  BO: ['', 'bolivia', 'bo'],
+};
+
+/** Sufijos del país de la fila; sin país conocido, sólo la etiqueta exacta. */
+function countryLabelSuffixes(countryCode: string): readonly string[] {
+  return COUNTRY_LABEL_SUFFIXES[countryCode.trim().toUpperCase()] ?? [''];
+}
 const compactName = (text: string): string =>
   text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -365,6 +383,8 @@ export function officialTradeNameWebsite(
   claimedUrl: string | null | undefined,
   officialNames: readonly string[],
   displayName: string,
+  /** País de la fila; Ecuador por defecto (su comportamiento de siempre). */
+  countryCode = 'EC',
 ): FoundWebsite | null {
   if (!claimedUrl || officialNames.length === 0) return null;
   const domain = normalizeDomain(claimedUrl);
@@ -378,7 +398,7 @@ export function officialTradeNameWebsite(
   if (label.length < 3) return null;
   const matches = officialNames.some((name) => {
     const core = compactName(name);
-    return core.length >= 3 && COUNTRY_LABEL_SUFFIXES.some((suffix) => label === `${core}${suffix}`);
+    return core.length >= 3 && countryLabelSuffixes(countryCode).some((suffix) => label === `${core}${suffix}`);
   });
   if (!matches) return null;
   const host = registrable.join('.');
@@ -405,6 +425,8 @@ const REGISTRY_WORD_SUFFIXES = ['software', 'soft', 'solutions', 'tech', 'techno
 export function registryFirstWordWebsite(
   claimedUrl: string | null | undefined,
   legalName: string,
+  /** País de la fila; Ecuador por defecto (su comportamiento de siempre). */
+  countryCode = 'EC',
 ): FoundWebsite | null {
   if (!claimedUrl) return null;
   const core = registryNameCore(legalName) ?? legalName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -420,7 +442,7 @@ export function registryFirstWordWebsite(
       : parts.slice(-2);
   const label = compactName(registrable[0] ?? '');
   const matches =
-    COUNTRY_LABEL_SUFFIXES.some((suffix) => label === `${first}${suffix}`) ||
+    countryLabelSuffixes(countryCode).some((suffix) => label === `${first}${suffix}`) ||
     (label.length >= 5 && REGISTRY_WORD_SUFFIXES.some((suffix) => first === `${label}${suffix}`));
   if (!matches) return null;
   const host = registrable.join('.');

@@ -9,20 +9,27 @@
  *   - la categoría de contribuyente en el filtro de tamaño (sólo informa: no decide);
  *   - el buscador gratuito de Bolivia por industria.
  *
- * Entrada: el archivo que deja `run-bo-seprec-nit-crawl.ts` (una línea JSON por NIT).
+ * Entrada: el archivo que deja `run-bo-seprec-nit-crawl.ts` (una línea JSON por NIT)
+ * y, opcional, la carpeta de fichas de gob.bo (`--gobbo=`) para las siglas oficiales
+ * de las empresas públicas.
+ *
+ * También carga `bo_name_alias` (siglas oficiales por NIT: TELECEL, DMC, ENTEL…) que
+ * usa el rescate para encontrar la web (SOURCES-BO-CLOSE-1, corrida 07-10).
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   node --import tsx scripts/source-catalog/run-bo-large-taxpayers-etl.ts --crawl=.tmp/bo/bo_seprec_by_nit.jsonl
  *
  * Escritura REAL (sólo con autorización explícita de la dueña): añadir --apply.
- * `--apply` REEMPLAZA sólo `bo_large_taxpayers` (borra sus filas y sube las nuevas;
- * reversible con DELETE … WHERE source_key = 'bo_large_taxpayers').
+ * `--apply` REEMPLAZA sólo `bo_large_taxpayers` y `bo_name_alias` (borra sus filas y
+ * sube las nuevas; reversible con DELETE … WHERE source_key IN ('bo_large_taxpayers',
+ * 'bo_name_alias')).
  */
 
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
@@ -30,9 +37,10 @@ import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim'
 import {
   BO_LARGE_TAXPAYERS_SOURCE_KEY,
   buildBoLargeTaxpayerRows,
-  type BoLargeTaxpayerSnapshotRow,
   type BoSeprecCrawlRecord,
 } from '../../src/server/source-catalog/connectors/sin-bolivia/bo-large-taxpayer-rows';
+import { buildBoNameAliasRows, BO_NAME_ALIAS_SOURCE_KEY } from '../../src/server/source-catalog/connectors/sin-bolivia/bo-name-alias-rows';
+import { normalizeBoliviaPublicEntityCore, parseGobBoEntityPage } from '../../src/server/source-catalog/connectors/gob-bo/bo-public-entity-rows';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
@@ -49,14 +57,18 @@ function countBy<T>(items: readonly T[], key: (item: T) => string): Record<strin
   return out;
 }
 
-async function replaceSource(client: SupabaseClient, rows: readonly (BoLargeTaxpayerSnapshotRow & { imported_at: string })[]): Promise<number> {
-  if (rows.some((row) => row.source_key !== BO_LARGE_TAXPAYERS_SOURCE_KEY)) {
-    throw new Error('refused: una fila no pertenece a bo_large_taxpayers');
+async function replaceSource(
+  client: SupabaseClient,
+  sourceKey: string,
+  rows: readonly ({ source_key: string } & Record<string, unknown>)[],
+): Promise<number> {
+  if (rows.some((row) => row.source_key !== sourceKey)) {
+    throw new Error(`refused: una fila no pertenece a ${sourceKey}`);
   }
   const { error } = await client
     .from('source_company_snapshots')
     .delete()
-    .eq('source_key', BO_LARGE_TAXPAYERS_SOURCE_KEY)
+    .eq('source_key', sourceKey)
     .eq('country_code', 'BO');
   if (error) throw new Error(`clear_failed: ${error.message}`);
   let upserted = 0;
@@ -71,10 +83,22 @@ async function replaceSource(client: SupabaseClient, rows: readonly (BoLargeTaxp
   return upserted;
 }
 
+/** Siglas de gob.bo por núcleo de nombre (vacío si no se indica la carpeta). */
+function readGobBoAcronyms(pagesDir: string | null): { normalizedLegalName: string; acronym: string | null }[] {
+  if (pagesDir === null) return [];
+  const out: { normalizedLegalName: string; acronym: string | null }[] = [];
+  for (const file of readdirSync(pagesDir).filter((name) => name.endsWith('.html'))) {
+    const entity = parseGobBoEntityPage(readFileSync(join(pagesDir, file), 'utf8'), file.slice(0, -'.html'.length));
+    if (entity) out.push({ normalizedLegalName: normalizeBoliviaPublicEntityCore(entity.name), acronym: entity.acronym });
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const apply = argv.includes('--apply');
   const crawlPath = value(argv, 'crawl');
+  const gobboDir = value(argv, 'gobbo');
   if (!crawlPath) throw new Error('config_invalid: indica --crawl=<jsonl>');
   console.log(`BO LARGE TAXPAYERS ETL — ${apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
@@ -85,6 +109,7 @@ async function main(): Promise<void> {
   const importedAt = new Date().toISOString();
   const { rows: built, skipped } = buildBoLargeTaxpayerRows(records);
   const rows = built.map((row) => ({ ...row, imported_at: importedAt }));
+  const aliasRows = buildBoNameAliasRows(built, readGobBoAcronyms(gobboDir)).map((row) => ({ ...row, imported_at: importedAt }));
 
   const offered = rows.filter((r) => r.raw_data.matricula_renewed && r.raw_data.macro_industry_key !== null);
   console.log(`  NIT consultados: ${records.length} · filas: ${rows.length} · descartes ${JSON.stringify(skipped)}`);
@@ -92,6 +117,7 @@ async function main(): Promise<void> {
   console.log(`    matrícula renovada ${rows.filter((r) => r.raw_data.matricula_renewed).length} · con objeto social ${rows.filter((r) => r.raw_data.social_purpose).length}`);
   console.log(`    por macro ${JSON.stringify(countBy(rows, (r) => String(r.raw_data.macro_industry_key)))}`);
   console.log(`    clasificadas por ${JSON.stringify(countBy(rows, (r) => String(r.raw_data.macro_basis)))}`);
+  console.log(`  ${BO_NAME_ALIAS_SOURCE_KEY}: ${aliasRows.length} siglas (${aliasRows.filter((r) => r.raw_data.alias_source === 'gobbo_acronym').length} de gob.bo) · ej. ${aliasRows.slice(0, 6).map((r) => r.normalized_legal_name).join(', ')}`);
   console.log(`  Buscador gratuito (renovadas y con macro): ${offered.length} · por macro ${JSON.stringify(countBy(offered, (r) => String(r.raw_data.macro_industry_key)))}`);
 
   if (apply) {
@@ -101,7 +127,8 @@ async function main(): Promise<void> {
     if (!url || !key) throw new Error('supabase_service_role_not_configured');
     ensureNode20WebSocketShim();
     const client = createClient(url, key);
-    console.log(`  rowsUpserted = ${await replaceSource(client, rows)}`);
+    console.log(`  rowsUpserted = ${await replaceSource(client, BO_LARGE_TAXPAYERS_SOURCE_KEY, rows)}`);
+    console.log(`  aliasRowsUpserted = ${await replaceSource(client, BO_NAME_ALIAS_SOURCE_KEY, aliasRows)}`);
   } else {
     console.log('  DRY-RUN: no se escribió nada. Usa --apply (con autorización) para persistir.');
   }
