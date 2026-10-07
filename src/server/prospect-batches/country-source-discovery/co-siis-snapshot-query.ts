@@ -67,6 +67,11 @@ import {
   type CoSiisSnapshotQuery,
   type CoSiisSnapshotRow,
 } from './co-siis-discovery-adapter';
+import {
+  isUnsearchedFreeLayerDiscard,
+  PRIOR_SIGHTING_DISPOSITION_COLUMNS,
+  type PriorSightingDispositionRow,
+} from './country-source-prior-sightings';
 
 /** `source_key` de la porción colombiana del snapshot. */
 export const CO_SIIS_SNAPSHOT_SOURCE_KEY = 'co_siis' as const;
@@ -204,13 +209,15 @@ async function readPriorSightings(
     try {
       const { data, error } = await client
         .from('prospect_discarded_dispositions')
-        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .select(PRIOR_SIGHTING_DISPOSITION_COLUMNS)
         .eq('source_primary', 'public_source')
         .in('provider_identifier', chunk.map((nit) => `tax:${nit}`));
       if (!error && Array.isArray(data)) {
-        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+        // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — la sin web que el rescate nunca buscó vuelve.
+        const nowMs = Date.now();
+        for (const row of data as PriorSightingDispositionRow[]) {
           const nit = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
-          if (!nit) continue;
+          if (!nit || isUnsearchedFreeLayerDiscard(row, nowMs)) continue;
           const sighting: CoPriorSighting =
             row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
           out.set(nit, strongest(out.get(nit), sighting));

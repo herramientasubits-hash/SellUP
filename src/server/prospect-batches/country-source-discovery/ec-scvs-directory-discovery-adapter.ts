@@ -39,6 +39,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
 import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import { isRecycledCountrySourceCompany, type CountrySourcePriorSighting } from './country-source-prior-sightings';
 
@@ -112,8 +113,10 @@ function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string
     // declaró en SERCOP y se parece a su razón social (`ec-sercop-domain.ts`).
     // Sin él, no se fabrica ninguno.
     domain: normalizeDomain(row.website_domain),
-    // El directorio sólo trae el código CIIU, no su descripción.
-    declaredIndustry: null,
+    // El directorio sólo trae el código CIIU, no su descripción: la columna Industria
+    // muestra la industria de la tabla oficial (antes quedaba vacía; Prod 07-10:
+    // 0 de 8 candidatas directas de Ecuador con industria).
+    declaredIndustry: getMacroIndustryByKey(macroIndustryKey)?.displayName ?? null,
     industryCode: row.ciiu_code?.trim() || null,
     coarseSector: null,
     officialMacroIndustry: {

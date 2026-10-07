@@ -55,6 +55,7 @@ import { buildPyDncpDirectoryDiscoveryReads } from './py-dncp-directory-snapshot
 import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
+import { isUnsearchedFreeLayerDiscard } from './country-source-prior-sightings';
 
 /**
  * Lector acotado de dominios conocidos de SellUp.
@@ -151,13 +152,23 @@ export function buildFindAlreadyInSellup(client: ReturnType<typeof createSupabas
       for (const ids of chunks(identifiers)) {
         const { data } = await client
           .from('prospect_discarded_dispositions')
-          .select('provider_identifier, status, reason_code, rescue_decision:evidence->claude_rescue->>decision')
+          .select('provider_identifier, status, reason_code, created_at, rescue_decision:evidence->claude_rescue->>decision')
           .eq('source_primary', 'public_source')
           .in('status', ['discarded', 'sent_to_review'])
           .in('provider_identifier', ids);
-        type Row = { provider_identifier: string | null; status: string; reason_code: string | null; rescue_decision: string | null };
+        type Row = {
+          provider_identifier: string | null;
+          status: string;
+          reason_code: string | null;
+          created_at: string | null;
+          rescue_decision: string | null;
+        };
+        const nowMs = Date.now();
         for (const row of (data ?? []) as Row[]) {
           if (!row.provider_identifier) continue;
+          // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — sin web y el rescate nunca la
+          // buscó (el lote ya estaba lleno): no cuenta como vista, se vuelve a ofrecer.
+          if (isUnsearchedFreeLayerDiscard({ ...row, decision: row.rescue_decision }, nowMs)) continue;
           // Descartada SÓLO por falta de web y sin cierre: vuelve si ahora trae dominio.
           const openMissingDomain =
             row.status === 'discarded' &&
