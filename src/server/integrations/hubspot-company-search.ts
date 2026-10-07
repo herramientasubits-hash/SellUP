@@ -425,3 +425,20 @@ export async function getHubSpotCompanyProfileById(
     return { status: 'unavailable', reason: err instanceof Error ? err.name : 'unknown_error' };
   }
 }
+
+/**
+ * IDs de empresas del HubSpot conectado con dominio EXACTO (sin caer a búsqueda por
+ * nombre). Solo lectura. `null` si HubSpot no está disponible.
+ */
+export async function searchHubSpotCompanyIdsByExactDomain(domain: string): Promise<string[] | null> {
+  const clean = domain.trim().toLowerCase();
+  if (!clean) return [];
+  if (!(await isHubSpotConnected())) return null;
+  const token = await getHubSpotToken();
+  if (!token) return null;
+  try {
+    return (await searchCompaniesByDomain(token, clean)).map((c) => c.id);
+  } catch {
+    return null;
+  }
+}
