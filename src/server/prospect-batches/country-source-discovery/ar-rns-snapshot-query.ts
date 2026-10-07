@@ -26,6 +26,11 @@ import type {
   ArRnsPriorSighting,
   ArRnsSnapshotReadRow,
 } from './ar-rns-discovery-adapter';
+import {
+  isUnsearchedFreeLayerDiscard,
+  PRIOR_SIGHTING_DISPOSITION_COLUMNS,
+  type PriorSightingDispositionRow,
+} from './country-source-prior-sightings';
 
 /** Fuente cargada → origen que el adapter intercala. */
 export const AR_DISCOVERY_SOURCES: ReadonlyArray<{
@@ -128,13 +133,15 @@ async function readPriorSightings(
     try {
       const { data, error } = await client
         .from('prospect_discarded_dispositions')
-        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .select(PRIOR_SIGHTING_DISPOSITION_COLUMNS)
         .eq('source_primary', 'public_source')
         .in('provider_identifier', chunk.map((cuit) => `tax:${cuit}`));
       if (!error && Array.isArray(data)) {
-        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+        // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — la sin web que el rescate nunca buscó vuelve.
+        const nowMs = Date.now();
+        for (const row of data as PriorSightingDispositionRow[]) {
           const cuit = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
-          if (!cuit) continue;
+          if (!cuit || isUnsearchedFreeLayerDiscard(row, nowMs)) continue;
           const sighting: ArRnsPriorSighting =
             row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
           out.set(cuit, strongest(out.get(cuit), sighting));

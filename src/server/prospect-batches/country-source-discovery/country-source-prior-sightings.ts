@@ -38,6 +38,38 @@ function strongest(
   return a !== undefined && SIGHTING_RANK[a] >= SIGHTING_RANK[b] ? a : b;
 }
 
+/**
+ * AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — una descartada SÓLO por falta de
+ * web que el rescate de Claude NUNCA buscó (sin decisión: el lote ya estaba lleno)
+ * no es un «ya visto»: pasada una hora (el rescate en cadena tuvo su turno) se puede
+ * volver a ofrecer. Prod 07-10 (Ecuador × Retail): el rescate se detuvo en el tope
+ * de 10 y las demás quedaban bloqueadas para siempre sin que nadie buscara su web.
+ */
+export const UNSEARCHED_DISCARD_GRACE_MS = 60 * 60 * 1000;
+const MISSING_DOMAIN_REASON_CODE = 'missing_domain_final';
+
+/** Columnas que pide la consulta de Descartadas para esta regla (PostgREST). */
+export const PRIOR_SIGHTING_DISPOSITION_COLUMNS =
+  'provider_identifier, status, reason_code, created_at, decision:evidence->claude_rescue->>decision';
+
+export type PriorSightingDispositionRow = {
+  provider_identifier: string | null;
+  status: string | null;
+  reason_code: string | null;
+  created_at: string | null;
+  decision: string | null;
+};
+
+export function isUnsearchedFreeLayerDiscard(
+  row: { status?: string | null; reason_code?: string | null; decision?: string | null; created_at?: string | null },
+  nowMs: number,
+): boolean {
+  if (row.status !== 'discarded' || row.reason_code !== MISSING_DOMAIN_REASON_CODE) return false;
+  if (row.decision !== null && row.decision !== undefined && row.decision !== '') return false;
+  const createdMs = row.created_at ? Date.parse(row.created_at) : Number.NaN;
+  return Number.isFinite(createdMs) && nowMs - createdMs >= UNSEARCHED_DISCARD_GRACE_MS;
+}
+
 /** Número fiscal → lo que SellUp ya sabe de esa empresa. */
 export async function readCountrySourcePriorSightings(
   client: SupabaseClient,
@@ -62,13 +94,14 @@ export async function readCountrySourcePriorSightings(
     try {
       const { data, error } = await client
         .from('prospect_discarded_dispositions')
-        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .select(PRIOR_SIGHTING_DISPOSITION_COLUMNS)
         .eq('source_primary', 'public_source')
         .in('provider_identifier', chunk.map((taxId) => `tax:${taxId}`));
       if (!error && Array.isArray(data)) {
-        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+        const nowMs = Date.now();
+        for (const row of data as PriorSightingDispositionRow[]) {
           const taxId = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
-          if (!taxId) continue;
+          if (!taxId || isUnsearchedFreeLayerDiscard(row, nowMs)) continue;
           const sighting: CountrySourcePriorSighting =
             row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
           out.set(taxId, strongest(out.get(taxId), sighting));

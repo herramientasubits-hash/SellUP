@@ -26,6 +26,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DO_DGII_SIZE_REGISTRY_SOURCE_KEY } from '@/server/source-catalog/connectors/dgii-rd/do-size-registry-rows';
 import type { DoDgiiActiveRow, DoDgiiDiscoveryReads, DoDgiiPriorSighting } from './do-dgii-discovery-adapter';
+import {
+  isUnsearchedFreeLayerDiscard,
+  PRIOR_SIGHTING_DISPOSITION_COLUMNS,
+  type PriorSightingDispositionRow,
+} from './country-source-prior-sightings';
 
 /** RNC por consulta al marcar lo ya visto (la URL de PostgREST tiene límite). */
 export const DO_SIGHTING_CHUNK = 150;
@@ -72,13 +77,15 @@ async function readPriorSightings(
     try {
       const { data, error } = await client
         .from('prospect_discarded_dispositions')
-        .select('provider_identifier, decision:evidence->claude_rescue->>decision')
+        .select(PRIOR_SIGHTING_DISPOSITION_COLUMNS)
         .eq('source_primary', 'public_source')
         .in('provider_identifier', chunk.map((rnc) => `tax:${rnc}`));
       if (!error && Array.isArray(data)) {
-        for (const row of data as Array<{ provider_identifier: string | null; decision: string | null }>) {
+        // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — la sin web que el rescate nunca buscó vuelve.
+        const nowMs = Date.now();
+        for (const row of data as PriorSightingDispositionRow[]) {
           const rnc = row.provider_identifier?.startsWith('tax:') ? row.provider_identifier.slice(4) : null;
-          if (!rnc) continue;
+          if (!rnc || isUnsearchedFreeLayerDiscard(row, nowMs)) continue;
           const sighting: DoDgiiPriorSighting =
             row.decision && DEFINITIVE_RESCUE_DECISIONS.has(row.decision) ? 'definitive_discard' : 'discard';
           out.set(rnc, strongest(out.get(rnc), sighting));

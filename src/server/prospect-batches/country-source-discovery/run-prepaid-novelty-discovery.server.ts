@@ -99,6 +99,7 @@ import { persistDiscardedDispositionRows } from '@/modules/prospect-discards/pip
 import {
   buildUnverifiedFreeDispositionRows,
   partitionFreeCompaniesByDomain,
+  selectUnverifiedForThisSearch,
 } from './free-source-unverified';
 import type { BankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
 
@@ -488,17 +489,23 @@ async function runFreeCatalogLayer(
   // sólo lo GUARDADO cierra hueco, basta con no guardarla para que los
   // proveedores de pago corran por lo que falta.
   const { withDomain, withoutDomain } = partitionFreeCompaniesByDomain(gate.acceptedCompanies);
-  const deliveredFree = applyDeliveryCap(
-    withDomain,
+  const deliveryCap =
     deps.maxDeliveredCandidates === undefined
       ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
-      : deps.maxDeliveredCandidates,
-    () => true,
-  ).delivered;
+      : deps.maxDeliveredCandidates;
+  const deliveredFree = applyDeliveryCap(withDomain, deliveryCap, () => true).delivered;
+  // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — a «Descartadas» sólo van las sin
+  // web que el rescate puede llegar a meter en ESTA búsqueda (los lugares que la
+  // capa gratuita deja libres). Las demás no se registran: siguen sin «ver» y la
+  // próxima búsqueda del mismo país e industria las vuelve a ofrecer. Prod 07-10
+  // (Ecuador × Retail, 2aab8384): 79 sin web a Descartadas, el rescate metió 4 y
+  // Kywi, Pycca, Eljuri o Unicomer no iban a volver nunca.
+  const sentToDiscards = selectUnverifiedForThisSearch(withoutDomain, deliveryCap, deliveredFree.length);
 
   const unverifiedTelemetry = {
     unverified_without_domain: withoutDomain.length,
     unverified_sent_to_discards: 0,
+    unverified_left_in_source: withoutDomain.length - sentToDiscards.length,
   };
 
   const persistence =
@@ -515,12 +522,12 @@ async function runFreeCatalogLayer(
       : { batchId: null as string | null, writtenCount: 0, skippedCount: 0, failed: false };
 
   const discardsBatchId = persistence.batchId ?? canonicalBatchId;
-  if (withoutDomain.length > 0 && discardsBatchId && deps.recordUnverified) {
+  if (sentToDiscards.length > 0 && discardsBatchId && deps.recordUnverified) {
     const recorded = await deps.recordUnverified(
       buildUnverifiedFreeDispositionRows({
         batchId: discardsBatchId,
         countryCode: input.countryCode,
-        companies: withoutDomain,
+        companies: sentToDiscards,
       }),
     ).catch(() => ({ persisted: 0 }));
     unverifiedTelemetry.unverified_sent_to_discards = recorded.persisted;
