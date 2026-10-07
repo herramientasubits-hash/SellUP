@@ -2269,7 +2269,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '97.727 sociedades activas (RUC 80…) del padrón público de RUC de la SET/DNIT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+      '97.727 sociedades activas (RUC 80…) del padrón público de RUC de la DNIT cargadas (30-09-2026). SOURCES-PY-CLOSE-1: recarga pendiente de autorización con el núcleo nuevo (forma societaria reconocida por su estructura: E.A.S., SAECA…; sin el paréntesis final), sus alias (py_set_name_alias: siglas como COPACO o ANDE, partes del nombre, clave de entidad pública) y el tamaño MIPYME declarado a la DNCP. Recarga: bajar ruc0..9.zip de dnit.gov.py («listado de RUC con sus equivalencias») y correr scripts/source-catalog/run-py-set-registry-etl.ts --dir=… --dncp-api=<fichas DNCP> --apply (con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=py_set_registry).',
     countryCodes: ['PY'],
     sectors: [],
     priority: 'P1',
@@ -2278,15 +2278,46 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.dnit.gov.py/',
     automationLevel: 'high',
     recommendedUse:
-      'Padrón público de RUC de la SET/DNIT de Paraguay: 97.727 sociedades activas (RUC 80…). En cada corrida del Agente 1 completa el RUC por nombre de empresa. El RUC se guarda con su dígito verificador (por ejemplo 80002201-7). El 97,8 % de los nombres es único. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Padrón público de RUC de la DNIT de Paraguay: sociedades y entidades públicas activas (RUC 80…). En cada corrida del Agente 1 completa el RUC por nombre de empresa, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). El RUC se guarda con su dígito verificador (por ejemplo 80002201-7). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, sigla del padrón, con o sin «de Paraguay», clave de entidad pública que iguala «Gobernación de Central» con «GOBERNACION DEPARTAMENTO CENTRAL» y «Municipalidad de Asunción» con «MUNICIPALIDAD DE LA CIUDAD DE ASUNCION»). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Si la sociedad declaró a la DNCP ser micro, pequeña o mediana, ese tramo llega al filtro de tamaño.',
     limitations: [
-      'Sólo sociedades activas con RUC 80…: no incluye personas físicas.',
-      'El padrón no trae sector, actividad ni tamaño.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo RUC 80… activos: no incluye personas físicas.',
+      'El padrón no trae sector, actividad ni tamaño; el tamaño sólo llega si la sociedad lo declaró a la DNCP.',
+      'Las marcas que no son la razón social (Tigo, Stock, Superseis, Pechugón…) no se encuentran.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
-      'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUC seguro; queda como señal.',
+      'Los fideicomisos, sindicatos y asociaciones de funcionarios no aportan alias (no son la empresa que nombran).',
+    ],
+  },
+  {
+    key: 'py_dncp_directory',
+    name: 'Proveedores del Estado DNCP — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-PY-CLOSE-1 (tabla UNSPSC aprobada por la dueña el 06-10-2026): carga pendiente de autorización, 1.127 sociedades (dry-run 06-10 sobre 3.618 proveedoras de 2022-2026: fuera 1.200 MIPYME declaradas, 603 no activas, 590 consorcios o personas físicas, 98 sin industria dominante), 791 con web declarada o dominio del correo corporativo. Recarga: bajar awa-masivo.zip de cada año (contrataciones.gov.py/images/opendata-v3/final/ocds/<AÑO>/), correr scripts/source-catalog/extract-py-dncp-suppliers.py summary y profiles, y luego scripts/source-catalog/run-py-dncp-directory-etl.ts --suppliers=… --dncp-api=… --dir=<padrón DNIT> --apply.',
+    countryCodes: ['PY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://www.contrataciones.gov.py/datos/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita paraguaya por industria: sociedades (RUC 80…) activas en el padrón de la DNIT a las que el Estado adjudicó contratos entre 2022 y 2026 (datos abiertos OCDS de la DNCP, licencia CC BY 4.0). La industria sale de lo que venden al Estado (clase UNSPSC de lo adjudicado, tabla UNSPSC → industria) y se ordenan por cuántas entidades distintas les compran. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RUC, su razón social del padrón y, cuando la DNCP la publica, su web (o el dominio de su correo corporativo).',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
+      'Sin consorcios ni personas físicas, y sin las que declararon a la DNCP ser micro, pequeña o mediana (Ley 4457: hasta 50 trabajadores). Las grandes no declaran tamaño.',
+      'La industria sale de lo que venden al Estado: viajes, comida, alojamiento, educación y servicios comunitarios no se proponen; Gobierno tampoco (las entidades públicas son compradoras, no proveedoras).',
+      'Sin web declarada ni correo corporativo, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
     ],
   },
 
