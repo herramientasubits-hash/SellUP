@@ -133,10 +133,24 @@ const BRAND_DESCRIPTOR_WORDS: ReadonlySet<string> = new Set([
  */
 export type EcSriEntry = { main: EcSriRecord; tradeScores: ReadonlyMap<string, number> };
 
+/**
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — el SRI acepta texto libre como nombre comercial y
+ * algunos establecimientos llevan un código, no una marca: un RUC o una cédula
+ * («0501161124»), una fecha («14 10 2020») o un número de chasis
+ * («…MOSCOSOZCFCB35A6R55817032075»). Una marca con números («1001CARROS», «RADIO
+ * UNICA 94 5 FM», «G4S») sí se conserva.
+ */
+export function isCodeLikeTradeName(core: string): boolean {
+  if (!/[A-Z]/.test(core)) return true;
+  return core
+    .split(' ')
+    .some((word) => /^\d{7,}$/.test(word) || (/[A-Z]/.test(word) && (word.match(/\d/g)?.length ?? 0) >= 5));
+}
+
 /** Formas de un nombre comercial que pueden ser la marca. */
 export function ecTradeNameKeys(tradeName: string): string[] {
   const core = normalizeEcEntityCore(tradeName);
-  if (core.length < MIN_TRADE_NAME_CORE) return [];
+  if (core.length < MIN_TRADE_NAME_CORE || isCodeLikeTradeName(core)) return [];
   const words = core.split(' ').filter((w) => w.length > 0);
   const keys = new Set<string>([core]);
   const [first, second] = words;

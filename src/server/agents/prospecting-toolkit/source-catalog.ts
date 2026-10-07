@@ -1590,7 +1590,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',
     recommendedUse:
-      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry).',
+      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry), y el nombre sin la sigla final («FARMACIAS CUXIBAMBA FARMACUX» → «FARMACIAS CUXIBAMBA»). Si Apollo nombra a la empresa con el país al final («Dibeal Ecuador», «Servident Ec») y no hay RUC seguro, se busca otra vez sin él.',
     limitations: [
       'Sólo compañías de la Superintendencia de Compañías: bancos, cooperativas, entidades públicas y fundaciones están en ec_sri_registry.',
       'Los empleados son los declarados en el estado financiero: un estimado oficial con su año, nunca el tamaño confirmado; sólo viajan con un RUC seguro.',
@@ -1617,12 +1617,13 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sri.gob.ec/datasets',
     automationLevel: 'high',
     recommendedUse:
-      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además hasta 3 marcas por RUC, las que más establecimientos usan («SUPERMAXI», «AKI» → Corporación Favorita; «MI COMISARIATO» → El Rosado; «NETLIFE» → Megadatos), como otros nombres (ec_sri_trade_name_registry). En el rescate con Claude de Ecuador, una web que es exactamente esa marca o sigla oficial del mismo RUC cuenta como verificada (netlife.ec, claro.com.ec), y una que es la primera palabra propia de la razón social (huawei.com) llega como inferida.',
+      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales (en forma corta: «Hospital Pablo Arturo Suárez» = «HOSPITAL PROVINCIAL GENERAL PABLO ARTURO SUAREZ»), universidades, empresas públicas, bancos, cooperativas y fundaciones. Además hasta 3 marcas por RUC, las que más establecimientos usan («SUPERMAXI», «AKI» → Corporación Favorita; «MI COMISARIATO» → El Rosado; «NETLIFE» → Megadatos), como otros nombres (ec_sri_trade_name_registry). En el rescate con Claude de Ecuador, una web que es exactamente esa marca o sigla oficial del mismo RUC cuenta como verificada (netlife.ec, claro.com.ec), y una que es la primera palabra propia de la razón social (huawei.com) llega como inferida.',
     limitations: [
       'El nombre comercial es una pista: sólo da RUC seguro si la empresa es grande según la Superintendencia (200+ empleados).',
       'Nombres públicos genéricos que se repiten («GAD PARROQUIAL SAN JOSE», «CENTRO DE SALUD B») dan varios RUC y quedan como pista.',
       'Archivos publicados en enero de 2025: altas posteriores no aparecen hasta una recarga.',
       'Personas naturales nunca se cargan (su RUC es su cédula).',
+      'Los nombres comerciales que son un código (RUC, cédula, fecha, número de chasis) no se cargan.',
     ],
     riskNotes: [
       'Universidades, organismos públicos, municipios y fundaciones SÍ se cargan: también son clientes de UBITS.',
