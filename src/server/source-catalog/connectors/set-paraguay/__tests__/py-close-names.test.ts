@@ -197,6 +197,8 @@ describe('web de la fuente y confirmación de una palabra', () => {
     assert.equal(paraguayCompanyDomain({ url: null, email: 'agosto7srl@hotmail.com' }), null);
     assert.equal(paraguayCompanyDomain({ url: null, email: 'altamirasrl@tigo.com.py' }), null);
     assert.equal(paraguayCompanyDomain({ url: 'http://ventas.gmail.com', email: null }), null);
+    // Ficha real de la DNCP: dos direcciones pegadas; se cae al correo (gratuito ⇒ nada).
+    assert.equal(paraguayCompanyDomain({ url: 'http://www.mimbi.com.py.http://www.google.com', email: 'mimbi314@hotmail.com' }), null);
   });
 
   it('la etiqueta del dominio confirma la palabra; un dominio del Estado sólo a una entidad pública', () => {

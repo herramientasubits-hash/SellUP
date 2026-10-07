@@ -41,6 +41,14 @@ export function isParaguayPublicSectorDomain(domain: string | null | undefined):
   return typeof domain === 'string' && PY_PUBLIC_SECTOR_DOMAIN.test(domain.toLowerCase());
 }
 
+/**
+ * Un host armado con dos direcciones pegadas («www.x.com.py.http://www.google.com»
+ * llega como «x.com.py.http»): no es un dominio.
+ */
+function isGluedUrl(host: string): boolean {
+  return /\.(https?|www)(\.|$)/.test(host);
+}
+
 /** Correo gratuito (gmail, hotmail…): nunca es la web de una empresa. */
 function isFreeMailDomain(host: string): boolean {
   return isNonCorporateDomain(registrableParaguayDomain(host)) || isNonCorporateDomain(host);
@@ -65,7 +73,7 @@ export function paraguayCompanyDomain(input: {
   email?: string | null;
 }): { domain: string; origin: 'url' | 'email' } | null {
   const fromUrl = normalizeWebsiteHost(input.url ?? null);
-  if (fromUrl !== null && !isFreeMailDomain(fromUrl)) {
+  if (fromUrl !== null && !isGluedUrl(fromUrl) && !isFreeMailDomain(fromUrl)) {
     return { domain: registrableParaguayDomain(fromUrl), origin: 'url' };
   }
   const fromEmail = emailDomain(input.email ?? null);

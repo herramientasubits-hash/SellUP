@@ -95,6 +95,7 @@ export const PY_DNCP_SEGMENT_MACRO: Readonly<Record<string, MacroIndustryKey>> =
 
 /** Familia UNSPSC (4 dígitos) → macro. Manda sobre su segmento. */
 export const PY_DNCP_FAMILY_MACRO: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
+  '7811': 'services_company', // pasajes y transporte de pasajeros (agencias de viajes, no logística)
   '8111': 'technology', // servicios informáticos (software, desarrollo, soporte)
   '8112': 'technology', // servicios de datos
   '8116': 'technology', // entrega de servicios de tecnología de la información

@@ -102,6 +102,8 @@ describe('tabla UNSPSC de la DNCP → macro', () => {
     assert.equal(resolvePyUnspscMacro('72131601'), 'property_construction');
     assert.equal(resolvePyUnspscMacro('15101505'), 'energy_mining_environment');
     assert.equal(resolvePyUnspscMacro('78101802'), 'transport_logistics');
+    // Pasajes aéreos: agencias de viajes, no logística.
+    assert.equal(resolvePyUnspscMacro('78111502'), 'services_company');
     assert.equal(resolvePyUnspscMacro('84131501'), 'insurance_financial_services');
     assert.equal(resolvePyUnspscMacro('50192100'), 'consumer_goods');
   });
