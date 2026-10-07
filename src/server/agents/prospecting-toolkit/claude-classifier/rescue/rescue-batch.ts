@@ -37,8 +37,11 @@ import {
   previousClaimedUrl,
   registryFirstWordWebsite,
   DOMAIN_SEARCH_REASON_CODE,
+  PARENT_GROUP_WEBSITE_KEY,
+  parentGroupWebsite,
   type DomainDuplicateCheck,
   type FoundWebsite,
+  type ParentGroupWebsite,
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
 import { officialSizeSignal } from './official-size-signal';
@@ -403,7 +406,33 @@ async function rescueCandidate(
 
 type WebsiteStep =
   | { kind: 'found'; found: FoundWebsite; cost: number }
-  | { kind: 'done'; outcome: ItemOutcome };
+  | { kind: 'done'; outcome: ItemOutcome }
+  /** AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — filial grande cuya única web es la de la matriz. */
+  | {
+      kind: 'parent';
+      parent: ParentGroupWebsite;
+      outcome: Extract<DomainFinderOutcome, { found: false }>;
+      searchedAt: string;
+      cost: number;
+    };
+
+/**
+ * AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — ¿la fuente OFICIAL dice que es grande?
+ * Sólo filas del buscador gratuito: la fuente ya filtra por tamaño (CL, EC, DO, PE),
+ * trae los trabajadores (≥ umbral) o la marca «grande» por tramo (CR: Grandes
+ * Contribuyentes de Hacienda, dueña 07-10). Sin ese dato, no entra sin web.
+ */
+export function isOfficiallyLargeFreeLayerRow(
+  row: Pick<RescuableDispositionRow, 'round_origin' | 'country_code' | 'evidence'>,
+): boolean {
+  if (row.round_origin !== 'free_source' || row.evidence?.tax_identifier_present !== true) return false;
+  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true });
+  if (official.measured) return true;
+  const workforce = row.evidence?.official_workforce as { workers?: unknown } | undefined;
+  if (typeof workforce?.workers === 'number' && workforce.workers >= official.minEmployees) return true;
+  const band = row.evidence?.official_size_band as { band?: unknown } | undefined;
+  return band?.band === 'large';
+}
 
 /**
  * Descartada SIN dominio: Claude busca el sitio oficial y se revisan duplicados.
@@ -458,6 +487,9 @@ async function resolveDispositionWebsite(
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
     const official = outcome.found ? null : officialFallback(outcome.claimedUrl);
     const hint = official ?? unverifiedWebsiteHint(row, outcome);
+    // AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — filial grande con sólo la web de la matriz.
+    const parent = !hint && !outcome.found && isOfficiallyLargeFreeLayerRow(row) ? parentGroupWebsite(row, outcome) : null;
+    if (parent && !outcome.found) return { kind: 'parent', parent, outcome, searchedAt, cost };
     if (hint) {
       found = hint;
     } else if (!outcome.found) {
@@ -517,6 +549,109 @@ async function resolveDispositionWebsite(
   return { kind: 'found', found, cost };
 }
 
+/**
+ * AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — filial GRANDE (según la fuente oficial) de un
+ * grupo cuya única web es la de la matriz (amazon.com para AMAZON SUPPORT SERVICES COSTA
+ * RICA). Entra a revisión SIN web sólo si, además:
+ *   · no es duplicada (SellUp + HubSpot por NOMBRE, y la guarda de nombre/número fiscal;
+ *     nunca por el dominio global, que sería la matriz);
+ *   · Claude, leyendo la web de la matriz, CONFIRMA la industria pedida.
+ * La web global nunca se guarda como la del candidato (sólo como referencia), el reclamo
+ * «una empresa, un vendedor» va por el número fiscal, y el tamaño es el oficial (no el
+ * de la matriz). Si algo falla, se queda en Descartadas como antes.
+ */
+/** Columnas que en la vía de la matriz describirían a la MATRIZ, no a la filial. */
+const PARENT_PAGE_COLUMNS = [
+  'website',
+  'employee_count',
+  'employee_count_status',
+  'employee_count_source',
+  'employee_count_confidence',
+] as const;
+
+function withoutKeys(record: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keys.includes(key)));
+}
+
+async function rescueParentGroupDisposition(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
+  admittedIds: string[],
+  step: Extract<WebsiteStep, { kind: 'parent' }>,
+): Promise<ItemOutcome> {
+  const { parent, outcome, searchedAt } = step;
+  const displayName = dispositionDisplayName(row);
+  const parentRef = (extra: Record<string, unknown>) => ({
+    [PARENT_GROUP_WEBSITE_KEY]: { website: parent.website, domain: parent.domain, searched_at: searchedAt, ...extra },
+  });
+  const stays = async (extra: Record<string, unknown>, cost: number): Promise<ItemOutcome> => {
+    const saved = await deps.patchDispositionEvidence(row.id, (evidence) => ({
+      ...buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt),
+      ...parentRef(extra),
+    }));
+    return { tag: saved ? 'kept' : 'failed', cost };
+  };
+
+  let duplicate: DomainDuplicateCheck;
+  try {
+    duplicate = await domainSearch.checkDuplicate({ name: displayName, website: null, domain: null, countryCode: row.country_code });
+    if (duplicate.status === 'new_candidate' && domainSearch.findKnownCompany) {
+      const known = await domainSearch
+        .findKnownCompany({ batchId: ctx.batchId, taxId: dispositionTaxId(row), names: [displayName, row.name ?? ''] })
+        .catch(() => null);
+      if (known) duplicate = known;
+    }
+  } catch (err) {
+    console.error('[claude-rescue] parent-group duplicate check failed:', err instanceof Error ? err.message : err);
+    return stays({ decision: 'retryable' }, step.cost);
+  }
+  if (duplicate.status !== 'new_candidate') return stays({ duplicate_status: duplicate.status }, step.cost);
+
+  const company = { ...dispositionToCompanyInput(row), name: displayName, websiteOrDomain: parent.website };
+  const result = await safeClassify(
+    ctx.requestedIndustry
+      ? { ...company, currentIndustryId: ctx.requestedIndustry.id, currentIndustryName: null, requestedIndustryName: ctx.requestedIndustry.name }
+      : { ...company, requestedIndustryName: row.industry },
+    ctx.catalog,
+    ctx.active,
+    deps,
+  );
+  if (!result) return stays({ decision: 'classification_failed' }, step.cost);
+  await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
+  const cost = step.cost + (result.usage?.estimatedCostUsd ?? 0);
+
+  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true });
+  const decision = decideRescue(result, {
+    icpMinEmployees: official.minEmployees,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+    sizeAlreadyConfirmed: true,
+    officialSizeMeasured: true,
+  });
+  if (decision.kind !== 'admit' || !decision.sectorConfirmed) {
+    return stays({ sector_confirmed: false, decision: decision.kind }, cost);
+  }
+
+  const decidedAt = deps.nowIso();
+  const base = buildDispositionAdmissionOrigin(result, decision, official.minEmployees, decidedAt);
+  // Lo que Claude leyó en la web de la MATRIZ (sitio, empleados) no es de la filial.
+  const columns = withoutKeys(base.columns ?? {}, PARENT_PAGE_COLUMNS);
+  const metadata = withoutKeys(base.metadata, ['icp_size_gate']);
+  const candidateId = await deps.admitDisposition(row.id, {
+    ...base,
+    reviewNote: `Filial de grupo sin web propia (la web ${parent.domain} es de la matriz). Rescatada por Claude: ${
+      result.sector?.industryName ?? 'sector del lote'
+    }. Completar la web local.`,
+    metadata: { ...metadata, ...parentRef({ web_pending: true }) },
+    columns: { ...columns, name: displayName },
+  });
+  if (!candidateId) return { tag: 'failed', cost };
+  admittedIds.push(candidateId);
+  await markSent(deps, row.id, base.metadata);
+  return { tag: 'admitted', cost };
+}
+
 async function rescueDisposition(
   row: RescuableDispositionRow,
   ctx: RescueRunContext,
@@ -538,6 +673,7 @@ async function rescueDisposition(
     if (!deps.domainSearch) return { tag: 'skipped', cost: 0 };
     const step = await resolveDispositionWebsite(row, ctx, deps, deps.domainSearch);
     if (step.kind === 'done') return step.outcome;
+    if (step.kind === 'parent') return rescueParentGroupDisposition(row, ctx, deps, deps.domainSearch, admittedIds, step);
     found = step.found;
     searchCost = step.cost;
   }

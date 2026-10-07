@@ -25,6 +25,9 @@ import type { CreateDiscardedDispositionInput } from '@/modules/prospect-discard
 import type { CountrySourceCompany } from './country-source-types';
 import { FREE_SOURCE_OFFICIAL_WORKFORCE_EVIDENCE_KEY } from '@/modules/prospect-discards/official-workforce-from-disposition';
 
+/** Clave de la evidencia con el tamaño oficial por tramo. */
+export const FREE_SOURCE_OFFICIAL_SIZE_BAND_EVIDENCE_KEY = 'official_size_band';
+
 /** El MISMO código que el buscador de sitio de Claude recoge (`DOMAIN_SEARCH_REASON_CODE`). */
 export const FREE_SOURCE_MISSING_DOMAIN_REASON_CODE = 'missing_domain_final';
 
@@ -105,6 +108,15 @@ export function buildUnverifiedFreeDispositionRows(input: {
                     workers: c.officialWorkforce.workers,
                     year: c.officialWorkforce.year,
                     source_label: c.officialWorkforce.sourceLabel,
+                  },
+                }
+              : {}),
+            // AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — tamaño oficial por tramo («grande»).
+            ...(c.officialSizeBand?.band === 'large' && c.officialSizeBand.sourceLabel.trim()
+              ? {
+                  [FREE_SOURCE_OFFICIAL_SIZE_BAND_EVIDENCE_KEY]: {
+                    band: 'large',
+                    source_label: c.officialSizeBand.sourceLabel.trim(),
                   },
                 }
               : {}),
