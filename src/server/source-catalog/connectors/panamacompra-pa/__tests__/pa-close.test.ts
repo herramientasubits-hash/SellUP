@@ -304,6 +304,12 @@ describe('pa_ruc_registry y pa_ruc_name_alias', () => {
     const aliases = buildPaRucNameAliasRows({ registryRow: row, keys });
     assert.equal(aliases[0].source_key, 'pa_ruc_name_alias');
     assert.equal(aliases[0].record_identity_key, 'pa-name-alias:130-377-34706:COPA AIRLINES');
+    // Un consorcio que figura con el RUC de una socia nunca es alias de esa socia.
+    const transeo = entry({
+      ruc: '155665705-2-2018',
+      supplier: supplier({ ruc: '155665705-2-2018', name: 'TRANSPORTES, SERVICIOS DE ASEO PTY S.A. (TRANSEO PTY)', names: ['CONSORCIO ALIANZA POR SAN MIGUELITO', 'ASOCIACION ACCIDENTAL VIAL'] }),
+    });
+    assert.deepEqual(paEntryAliasKeys(transeo, 'TRANSPORTES SERVICIOS DE ASEO PTY'), ['TRANSEO PTY']);
     const mit = entry({ ruc: '42169-52-286856', supplier: null, largeTaxpayer: { ruc: '42169-52-286856', name: 'MANZANILLO INTERNATIONAL TERMINAL PMA SA' } });
     assert.deepEqual(paEntryAliasKeys(mit, 'MANZANILLO INTERNATIONAL TERMINAL PMA'), ['MANZANILLO INTERNATIONAL TERMINAL PANAMA', 'MANZANILLO INTERNATIONAL TERMINAL']);
     assert.deepEqual(paOwnNameKeys({ legal_name: 'MUNICIPIO DE ARRAIJAN', normalized_legal_name: 'MUNICIPIO DE ARRAIJAN' }), ['MUNICIPIO DE ARRAIJAN', 'MUNICIPIO ARRAIJAN']);
