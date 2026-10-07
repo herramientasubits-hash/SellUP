@@ -7,6 +7,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { HubSpotAccountResolutionDeps } from '@/modules/contact-enrichment/hubspot-account-resolver';
+import { syncAccountFromHubSpotProfile } from '@/modules/accounts/hubspot-company-profile-sync.server';
+import { scheduleAccountOfficialEnrichment } from '@/modules/accounts/account-official-enrichment.server';
 
 export type HubSpotAccountCreatedFrom =
   | 'contact_enrichment_approval'
@@ -28,6 +30,12 @@ export function buildHubSpotAccountResolutionDeps(
   admin: SupabaseClient,
   internalUserId: string,
   createdFrom: HubSpotAccountCreatedFrom,
+  /**
+   * HUBSPOT-ACCOUNT-SYNC-1 — quien buscó los contactos (`triggered_by` de la búsqueda).
+   * Queda como responsable si HubSpot no trae un dueño que sea usuario de SellUp. Por
+   * defecto, quien ejecuta la acción.
+   */
+  searcherUserId: string | null = internalUserId,
 ): HubSpotAccountResolutionDeps {
   const fromApproval = createdFrom === 'contact_enrichment_approval';
   const fromReassignment = createdFrom === 'contact_candidate_reassignment';
@@ -103,6 +111,16 @@ export function buildHubSpotAccountResolutionDeps(
         .update({ hubspot_company_id: hubspotId, updated_by: internalUserId })
         .eq('id', accountId);
     },
+    completeAccount: async (accountId, hubspotId) => {
+      await syncAccountFromHubSpotProfile(admin, {
+        accountId,
+        hubspotCompanyId: hubspotId,
+        searcherUserId,
+        actorUserId: internalUserId,
+        nowIso: new Date().toISOString(),
+      });
+      scheduleAccountOfficialEnrichment(accountId, internalUserId);
+    },
     updateAccountCountryCode: async (accountId, countryCode) => {
       await admin
         .from('accounts')
@@ -111,4 +129,31 @@ export function buildHubSpotAccountResolutionDeps(
         .is('country_code', null);
     },
   };
+}
+
+/**
+ * HUBSPOT-ACCOUNT-SYNC-1 — quien lanzó la búsqueda de contactos (`triggered_by` de la
+ * corrida). Se lee de la corrida o, si no hay, de la corrida del candidato. `null` si no
+ * se encuentra: el llamador cae en quien ejecuta la acción.
+ */
+export async function loadContactSearchTriggeredBy(
+  admin: SupabaseClient,
+  ref: { runId?: string | null; candidateId?: string | null },
+): Promise<string | null> {
+  let runId = ref.runId ?? null;
+  if (!runId && ref.candidateId) {
+    const { data } = await admin
+      .from('contact_enrichment_candidates')
+      .select('enrichment_run_id')
+      .eq('id', ref.candidateId)
+      .maybeSingle();
+    runId = (data?.enrichment_run_id as string | null | undefined) ?? null;
+  }
+  if (!runId) return null;
+  const { data } = await admin
+    .from('contact_enrichment_runs')
+    .select('triggered_by')
+    .eq('id', runId)
+    .maybeSingle();
+  return (data?.triggered_by as string | null | undefined) ?? null;
 }

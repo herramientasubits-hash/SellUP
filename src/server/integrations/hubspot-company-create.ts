@@ -12,6 +12,7 @@
  * - sentPropertyKeys y sentPropertiesAudit permiten auditoría sin exponer token.
  */
 
+import { resolveMacroIndustryByDisplayName } from '@/modules/macro-industry-catalog/macro-industries';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { ensureHubSpotSellUpCreatedPropertyCached } from './hubspot-property-ensure-cache';
 
@@ -476,25 +477,30 @@ export async function createHubSpotCompany(
     skippedProperties.push(`numberOfEmployees: could not parse "${input.numberOfEmployees}"`);
   }
 
-  // Industry verification / custom macro_industria fallback
+  // Industry: la taxonomía de SellUp ES la «Macro industria» de HubSpot
+  // (`industriaespecifica`, las mismas 12 opciones). HUBSPOT-ACCOUNT-SYNC-1: una macro va
+  // SIEMPRE a esa propiedad — antes se probaba primero la `industry` estándar y «Retail»
+  // caía allí, dejando la Macro industria vacía. Sólo un valor que no es macro se intenta
+  // contra la lista estándar en inglés.
   if (input.industry) {
+    const macro = resolveMacroIndustryByDisplayName(input.industry);
+    const macroIndustriaPropName = findPropertyInternalName(hubspotProps, {
+      names: ['industriaespecifica', 'macro_industria'],
+      labels: ['Macro industria', 'Macro-industria'],
+    });
     const standardIndustryProp = hubspotProps.find(p => p.name === 'industry');
     const matchedOption = standardIndustryProp?.options?.find(
       opt => opt.value.toLowerCase() === input.industry!.toLowerCase() ||
              opt.label.toLowerCase() === input.industry!.toLowerCase()
     );
-    if (matchedOption) {
+    if (macro && macroIndustriaPropName) {
+      properties[macroIndustriaPropName] = macro.displayName;
+    } else if (matchedOption) {
       properties.industry = matchedOption.value;
+    } else if (macroIndustriaPropName) {
+      properties[macroIndustriaPropName] = input.industry;
     } else {
-      const macroIndustriaPropName = findPropertyInternalName(hubspotProps, {
-        names: ['macro_industria'],
-        labels: ['Macro industria', 'Macro-industria']
-      });
-      if (macroIndustriaPropName) {
-        properties[macroIndustriaPropName] = input.industry;
-      } else {
-        skippedProperties.push(`industry: UBITS taxonomy "${input.industry}" doesn't match standard HubSpot options and macro_industria was not found`);
-      }
+      skippedProperties.push(`industry: UBITS taxonomy "${input.industry}" doesn't match standard HubSpot options and macro_industria was not found`);
     }
   }
 
@@ -516,7 +522,7 @@ export async function createHubSpotCompany(
     
     if (!isCO || taxIdVal.length >= 5) {
       const customTaxIdName = findPropertyInternalName(hubspotProps, {
-        names: ['identificacion_fiscal', 'nit', 'rfc', 'ruc', 'tax_id'],
+        names: ['identificaci_n_fiscal', 'identificacion_fiscal', 'nit', 'rfc', 'ruc', 'tax_id'],
         labels: ['Identificación Fiscal (NIT - RFC - RUC)', 'Identificación Fiscal', 'nit', 'rfc', 'ruc', 'tax id', 'tax_id']
       });
       if (customTaxIdName) {
