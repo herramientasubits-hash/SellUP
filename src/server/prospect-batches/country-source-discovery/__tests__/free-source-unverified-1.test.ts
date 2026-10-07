@@ -177,7 +177,9 @@ async function run(h: Harness, partialGapSupported = true) {
 }
 
 describe('§ 2 — la capa gratuita real', () => {
-  it('🔴 14 con sitio y 6 sin: se guardan 10 (tope), 6 van a Descartadas, la meta se cubre con las de sitio', async () => {
+  // AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — a Descartadas sólo van las sin
+  // sitio que caben bajo el tope; las demás siguen en la fuente para la próxima búsqueda.
+  it('🔴 14 con sitio y 6 sin: se guardan 10 (tope), ninguna a Descartadas (no cabe ninguna más), la meta se cubre', async () => {
     const list = [
       ...Array.from({ length: 14 }, (_, i) => company(i, `e${i}.com.mx`)),
       ...Array.from({ length: 6 }, (_, i) => company(100 + i, null)),
@@ -185,18 +187,30 @@ describe('§ 2 — la capa gratuita real', () => {
     const h = harness(list);
     const out = await run(h);
     assert.deepEqual(h.persisted, [10]);
-    assert.equal(h.discards.length, 1);
-    assert.equal(h.discards[0]!.length, 6);
+    assert.equal(h.discards.length, 0);
     assert.equal(out.residualGap, 0);
     assert.equal((out.telemetry as Record<string, unknown>).unverified_without_domain, 6);
-    assert.equal((out.telemetry as Record<string, unknown>).unverified_sent_to_discards, 6);
+    assert.equal((out.telemetry as Record<string, unknown>).unverified_sent_to_discards, 0);
+    assert.equal((out.telemetry as Record<string, unknown>).unverified_left_in_source, 6);
   });
 
-  it('🔴 el caso medido: 20 SIN sitio ⇒ no se guarda ninguna, 20 a Descartadas, y los de pago corren por TODO el objetivo', async () => {
+  it('🔴 4 con sitio y 10 sin: se guardan 4 y van a Descartadas las 6 que caben, en orden', async () => {
+    const list = [
+      ...Array.from({ length: 4 }, (_, i) => company(i, `e${i}.com.mx`)),
+      ...Array.from({ length: 10 }, (_, i) => company(100 + i, null)),
+    ];
+    const h = harness(list);
+    const out = await run(h);
+    assert.deepEqual(h.persisted, [4]);
+    assert.equal(h.discards[0]!.length, 6);
+    assert.equal((out.telemetry as Record<string, unknown>).unverified_left_in_source, 4);
+  });
+
+  it('🔴 el caso medido: 20 SIN sitio ⇒ no se guarda ninguna, 10 a Descartadas (las que caben), y los de pago corren por TODO el objetivo', async () => {
     const h = harness(Array.from({ length: 20 }, (_, i) => company(i, null)));
     const out = await run(h);
     assert.deepEqual(h.persisted, [], 'no se llama a guardar candidatas');
-    assert.equal(h.discards[0]!.length, 20);
+    assert.equal(h.discards[0]!.length, 10);
     assert.equal(out.residualGap, TARGET);
     assert.equal(out.acceptedBeforeProvider, 0);
     assert.equal(out.providerRequired, true);

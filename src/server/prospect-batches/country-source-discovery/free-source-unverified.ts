@@ -23,6 +23,7 @@
 
 import type { CreateDiscardedDispositionInput } from '@/modules/prospect-discards/types';
 import type { CountrySourceCompany } from './country-source-types';
+import { FREE_SOURCE_OFFICIAL_WORKFORCE_EVIDENCE_KEY } from '@/modules/prospect-discards/official-workforce-from-disposition';
 
 /** El MISMO código que el buscador de sitio de Claude recoge (`DOMAIN_SEARCH_REASON_CODE`). */
 export const FREE_SOURCE_MISSING_DOMAIN_REASON_CODE = 'missing_domain_final';
@@ -41,6 +42,22 @@ export function partitionFreeCompaniesByDomain<T extends Pick<CountrySourceCompa
   const withoutDomain: T[] = [];
   for (const company of companies) (hasVerifiableDomain(company) ? withDomain : withoutDomain).push(company);
   return { withDomain, withoutDomain };
+}
+
+/**
+ * AGENT1-FREE-LAYER-OVERFLOW-STAYS-IN-SOURCE-1 — cuáles de las sin web van a
+ * «Descartadas» en ESTA búsqueda: tantas como lugares deja libres la capa gratuita
+ * bajo el tope de entrega (el rescate con Claude nunca mete más). Las demás no se
+ * registran en ningún lado, así que la próxima búsqueda las vuelve a ofrecer en el
+ * mismo orden de la fuente (las más grandes primero). Sin tope ⇒ todas (como antes).
+ */
+export function selectUnverifiedForThisSearch<T>(
+  withoutDomain: readonly T[],
+  deliveryCap: number | null,
+  deliveredWithDomain: number,
+): T[] {
+  if (deliveryCap === null) return [...withoutDomain];
+  return withoutDomain.slice(0, Math.max(0, deliveryCap - deliveredWithDomain));
 }
 
 /**
@@ -80,6 +97,17 @@ export function buildUnverifiedFreeDispositionRows(input: {
             industry_code: c.industryCode,
             tax_identifier_present: Boolean(c.taxId),
             tax_identifier_type: c.taxIdentifierType,
+            // AGENT1-RESCUED-FREE-LAYER-KEEPS-DATA-1 — el tamaño oficial de la fuente
+            // viaja con la fila: si el rescate la manda a revisión, llega a la ficha.
+            ...(c.officialWorkforce
+              ? {
+                  [FREE_SOURCE_OFFICIAL_WORKFORCE_EVIDENCE_KEY]: {
+                    workers: c.officialWorkforce.workers,
+                    year: c.officialWorkforce.year,
+                    source_label: c.officialWorkforce.sourceLabel,
+                  },
+                }
+              : {}),
           },
         } satisfies CreateDiscardedDispositionInput,
       ];

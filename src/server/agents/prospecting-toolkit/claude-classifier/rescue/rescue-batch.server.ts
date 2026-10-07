@@ -185,6 +185,13 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
   checkDuplicate: checkDuplicateStrict,
 };
 
+/**
+ * PostgREST: `neq` deja fuera las filas SIN decisión (NULL), así que se pide
+ * explícitamente «sin decisión o distinta de reassign».
+ */
+export const NOT_REASSIGNED_FILTER =
+  'metadata->claude_rescue->>decision.is.null,metadata->claude_rescue->>decision.neq.reassign';
+
 export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatchDeps {
   const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
   const reasonCodes = domainSearchEnabled
@@ -208,6 +215,8 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     },
     // AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda: tope menos lo que ya está
     // vivo en el lote (los MISMOS estados que cuenta el escritor común).
+    // AGENT1-RESCUE-SLOTS-REQUESTED-INDUSTRY-1 — sin las de OTRA industria
+    // (`claude_rescue.decision = 'reassign'`): no ocupan lugar de la búsqueda.
     deliverySlots: async (batchId) => {
       const cap = resolveMaxDeliveredCandidates();
       if (cap === null) return null;
@@ -215,7 +224,8 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .from('prospect_candidates')
         .select('id', { count: 'exact', head: true })
         .eq('batch_id', batchId)
-        .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES]);
+        .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES])
+        .or(NOT_REASSIGNED_FILTER);
       if (error || count === null) return null;
       return Math.max(0, cap - count);
     },
