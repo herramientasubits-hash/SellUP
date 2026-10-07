@@ -79,6 +79,7 @@ import {
   canStartApolloAfterTavilyFirst,
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
+  isLotAtDeliveryCap,
   isTavilyFirstClosing,
   shouldReviewTavilyFirstInline,
   resolveInlineRescueWindowMs,
@@ -90,6 +91,7 @@ import {
   type TavilyFirstOutcome,
   type WriterTruthLike,
 } from './wizard-tavily-first';
+import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 // A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
 // sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
 // provider devolvía `skipped`; como la reconciliación es conservadora, eso
@@ -2322,15 +2324,33 @@ export async function executeProspectWizardGeneration(
             acceptedInLot,
           };
         } else {
-          tavilyFirstOutcome = {
-            outcome: 'apollo_completed',
-            reviewable: after,
-            reviewableBeforeClaude: before,
-            claudeReviewed,
-            target,
-            acceptedAfterClaude,
-            acceptedInLot,
-          };
+          // AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda: si el lote ya está en
+          // el tope, nada de lo que Apollo trajera cabría y lo pagaría para el banco.
+          const deliveryCap = resolveMaxDeliveredCandidates();
+          const lotReviewableNow = deliveryCap === null ? null : await countLotReviewable();
+          if (isLotAtDeliveryCap(lotReviewableNow, deliveryCap)) {
+            tavilyFirstOutcome = {
+              outcome: 'lot_at_delivery_cap',
+              reviewable: after,
+              reviewableBeforeClaude: before,
+              claudeReviewed,
+              target,
+              lotReviewable: lotReviewableNow as number,
+              deliveryCap: deliveryCap as number,
+              acceptedAfterClaude,
+              acceptedInLot,
+            };
+          } else {
+            tavilyFirstOutcome = {
+              outcome: 'apollo_completed',
+              reviewable: after,
+              reviewableBeforeClaude: before,
+              claudeReviewed,
+              target,
+              acceptedAfterClaude,
+              acceptedInLot,
+            };
+          }
         }
       }
     }
@@ -2351,7 +2371,8 @@ export async function executeProspectWizardGeneration(
   const tavilyFirstSatisfied =
     (tavilyFirstOutcome?.outcome === 'satisfied' ||
       tavilyFirstOutcome?.outcome === 'short_no_time' ||
-      tavilyFirstOutcome?.outcome === 'batch_reopen_failed') &&
+      tavilyFirstOutcome?.outcome === 'batch_reopen_failed' ||
+      tavilyFirstOutcome?.outcome === 'lot_at_delivery_cap') &&
     tavilyFirstResult !== null;
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
@@ -2650,6 +2671,8 @@ export async function executeProspectWizardGeneration(
     ? { executed: false, reason: 'tavily_first_time_budget' }
     : tavilyFirstOutcome?.outcome === 'batch_reopen_failed'
     ? { executed: false, reason: 'tavily_first_batch_reopen_failed' }
+    : tavilyFirstOutcome?.outcome === 'lot_at_delivery_cap'
+    ? { executed: false, reason: 'tavily_first_lot_at_delivery_cap' }
     : tavilyFirstSatisfied
     ? { executed: false, reason: 'tavily_first_reviewable_met' }
     : tavilyFirstOutcome?.outcome === 'apollo_completed' &&

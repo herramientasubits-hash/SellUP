@@ -926,3 +926,56 @@ describe('F. SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño medido por la fuente
   });
 });
 
+
+// ─── K. AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda ───────────────────
+
+describe('K. el rescate no pasa del tope de entrega', () => {
+  const three = [disposition({ id: 'd1' }), disposition({ id: 'd2', domain: 'b.pe' }), disposition({ id: 'd3', domain: 'c.pe' })];
+
+  it('con el lote lleno no revisa descartadas: cero gasto, se quedan en Descartadas', async () => {
+    const classified: Array<string | null | undefined> = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => three,
+      deliverySlots: async () => 0,
+      classify: async (company) => (classified.push(company.candidateId), result({ candidateId: company.candidateId })),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(classified.length, 0);
+    assert.equal(f.admitted.length, 0);
+    assert.equal(s.dispositionsCapped, 3);
+    assert.equal(s.remaining, 0, 'lo que no cabe no cuenta como pendiente: el rescate no se relanza por eso');
+    assert.equal(s.estimatedCostUsd, 0);
+  });
+
+  it('con un lugar libre admite una y deja las demás sin revisar', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => three,
+      deliverySlots: async () => 1,
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(f.admitted.length, 1);
+    assert.equal(s.dispositionsAdmitted, 1);
+    assert.equal(s.dispositionsCapped, 2);
+  });
+
+  it('los candidatos ya en revisión se siguen completando aunque el lote esté lleno (no ocupan lugar nuevo)', async () => {
+    const f = fakeDeps({ loadDispositions: async () => [], deliverySlots: async () => 0 });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.candidatesCompleted, 1);
+  });
+
+  it('sin tope o si no se puede leer, el rescate sigue como antes', async () => {
+    for (const deliverySlots of [async () => null, async () => { throw new Error('boom'); }]) {
+      const f = fakeDeps({ loadReviewCandidates: async () => [], loadDispositions: async () => three, deliverySlots });
+      const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+      assert.equal(s.ok && s.dispositionsAdmitted, 3);
+      assert.equal(s.ok && s.dispositionsCapped, 0);
+    }
+  });
+});

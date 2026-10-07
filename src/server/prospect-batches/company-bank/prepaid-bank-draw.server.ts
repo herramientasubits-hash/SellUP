@@ -91,6 +91,11 @@ export type BankFirstWriteInput = {
   requestedTarget: number;
   requestedByUserId: string;
   metadata: Record<string, unknown>;
+  /**
+   * AGENT1-DELIVERY-CAP-HARD-1 — origen de estas filas: `'apollo'` (escritas como
+   * de Apollo, como siempre) o `null` (sobrante de una búsqueda web: Tavily o Claude).
+   */
+  candidateProvenance: 'apollo' | null;
 };
 
 export type BankFirstDeps = {
@@ -177,13 +182,20 @@ export function buildBankPipelineOutput(input: {
   countryName: string;
   requestedTarget: number;
   candidates: ProspectingPipelineCandidate[];
+  /**
+   * AGENT1-DELIVERY-CAP-HARD-1 — `'tavily'` para lo que guardó una búsqueda web: el
+   * escritor la escribe como web (y la mide por la ruta de Tavily), no como Apollo.
+   * Ausente ⇒ Apollo, como siempre.
+   */
+  provider?: 'apollo_organizations' | 'tavily';
 }): ProspectingPipelineOutput {
+  const provider = input.provider ?? 'apollo_organizations';
   return {
     input: {
       country: input.countryName,
       countryCode: input.countryCode,
       industry: input.industryName,
-      webSearchProvider: 'apollo_organizations',
+      webSearchProvider: provider,
       mode: 'multi_query',
       targetCount: input.requestedTarget,
       subindustries: [],
@@ -196,7 +208,7 @@ export function buildBankPipelineOutput(input: {
     }),
     searchQuery: 'company_bank',
     webSearch: {
-      provider: 'apollo_organizations',
+      provider,
       query: 'company_bank',
       results: [],
       resultsCount: 0,
@@ -225,10 +237,25 @@ export function buildBankPipelineOutput(input: {
       // (`isApolloCompanyDiscoveryPath`). Con 'company_bank' las filas quedaban
       // sin medir, el banco aportaba 0 aceptadas y la corrida pagaba Apollo,
       // Tavily y Claude igual (medido 05-10, Chile × Salud, lote d92a12ec).
-      provider: 'apollo_organizations',
+      provider,
       search_mode: 'company_bank_first',
     },
   } as ProspectingPipelineOutput;
+}
+
+/** Lo que la búsqueda necesita de las escrituras del banco, sumado. */
+function combineBankWrites(outputs: readonly CandidateWriterOutput[]): {
+  candidatesCreated: number;
+  persistence: { completeValidCandidates: number } | null;
+  deliveryCappedCompanies: CandidateWriterOutput['deliveryCappedCompanies'];
+} {
+  return {
+    candidatesCreated: outputs.reduce((acc, o) => acc + Math.max(0, o.candidatesCreated ?? 0), 0),
+    persistence: outputs.some((o) => o.persistence)
+      ? { completeValidCandidates: outputs.reduce((acc, o) => acc + Math.max(0, o.persistence?.completeValidCandidates ?? 0), 0) }
+      : null,
+    deliveryCappedCompanies: outputs.flatMap((o) => o.deliveryCappedCompanies ?? []),
+  };
 }
 
 export function createBankFirstDrawer(deps: BankFirstDeps): BankFirstDrawer {
@@ -259,12 +286,18 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
   if (draw.status !== 'ok') return nothing({ status: 'unavailable', reason: draw.reason });
 
   const closing: CompanyBankSettleItem[] = [];
-  const usable: Array<{ id: string; domain: string; candidate: ProspectingPipelineCandidate }> = [];
+  const usable: Array<{
+    id: string;
+    domain: string;
+    candidate: ProspectingPipelineCandidate;
+    provenance: 'apollo' | null;
+  }> = [];
   for (const company of draw.companies) {
     const candidate = readBankPipelineCandidate(company.payload);
     const domain = candidate?.domain ? normalizeDomain(candidate.domain) : null;
     if (candidate && domain) {
-      usable.push({ id: company.id, domain, candidate });
+      // AGENT1-DELIVERY-CAP-HARD-1 — lo que guardó una búsqueda web vuelve como web.
+      usable.push({ id: company.id, domain, candidate, provenance: company.sourceProvider === 'apollo' ? 'apollo' : null });
     } else if (readApolloBankEvidence(company)) {
       // Sólo evidencia de Apollo: la ronda 1 de Apollo sabe reconstruirla.
       closing.push({ id: company.id, outcome: 'released' });
@@ -306,6 +339,8 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     countryCode: input.countryCode,
     countryName: input.countryName,
   });
+  // `refreshBankOfficialIdentity` conserva el orden: cada candidato sigue con su origen.
+  const provenanceOf = usable.map((entry) => entry.provenance);
 
   let batchId: string;
   try {
@@ -318,15 +353,30 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     return nothing({ ...baseTelemetry, status: 'batch_unavailable' });
   }
 
-  const written = await deps.write({
-    batchId,
-    candidates: withIdentity,
-    countryCode: input.countryCode,
-    countryName: input.countryName,
-    requestedTarget: input.requestedTarget,
-    requestedByUserId: input.requestedByUserId,
-    metadata: { [COMPANY_BANK_FIRST_METADATA_KEY]: { ...baseTelemetry, draw_id: drawId } },
-  });
+  // AGENT1-DELIVERY-CAP-HARD-1 — una escritura por origen (Apollo primero, como
+  // siempre); la segunda ya cuenta lo que dejó la primera para el tope.
+  const metadata = { [COMPANY_BANK_FIRST_METADATA_KEY]: { ...baseTelemetry, draw_id: drawId } };
+  const groups: Array<{ provenance: 'apollo' | null; candidates: ProspectingPipelineCandidate[] }> = [
+    { provenance: 'apollo', candidates: withIdentity.filter((_, i) => provenanceOf[i] === 'apollo') },
+    { provenance: null, candidates: withIdentity.filter((_, i) => provenanceOf[i] !== 'apollo') },
+  ];
+  const outputs: CandidateWriterOutput[] = [];
+  for (const group of groups) {
+    if (group.candidates.length === 0) continue;
+    outputs.push(
+      await deps.write({
+        batchId,
+        candidates: group.candidates,
+        countryCode: input.countryCode,
+        countryName: input.countryName,
+        requestedTarget: input.requestedTarget,
+        requestedByUserId: input.requestedByUserId,
+        metadata,
+        candidateProvenance: group.provenance,
+      }),
+    );
+  }
+  const written = combineBankWrites(outputs);
 
   const persistedCount = Math.max(0, written.candidatesCreated ?? 0);
   let acceptedCount = Math.min(
@@ -442,6 +492,7 @@ export function resolveProductionBankFirstDrawer(
           countryName: writeInput.countryName,
           requestedTarget: writeInput.requestedTarget,
           candidates: writeInput.candidates,
+          provider: writeInput.candidateProvenance === 'apollo' ? 'apollo_organizations' : 'tavily',
         }),
         triggeredByUserId: writeInput.requestedByUserId,
         ownerId: writeInput.requestedByUserId,
@@ -451,7 +502,7 @@ export function resolveProductionBankFirstDrawer(
         targetPersistibleCandidates: writeInput.requestedTarget,
         maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
         holdBatchStatus: true,
-        candidateProvenance: 'apollo',
+        candidateProvenance: writeInput.candidateProvenance,
         extraBatchMetadata: writeInput.metadata,
       }),
   });

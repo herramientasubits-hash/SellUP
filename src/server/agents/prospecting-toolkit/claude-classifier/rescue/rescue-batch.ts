@@ -157,6 +157,12 @@ export type RescueBatchDeps = {
      */
     officialNames?: (input: { countryCode: string; taxId: string }) => Promise<string[]>;
   };
+  /**
+   * AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote bajo el tope de entrega
+   * (máximo 10 por búsqueda): tope menos lo que ya está vivo en el lote. `null` =
+   * sin tope. Ausente = sin tope (como antes).
+   */
+  deliverySlots?: (batchId: string) => Promise<number | null>;
   nowIso: () => string;
   nowMs: () => number;
 };
@@ -174,6 +180,11 @@ export type RescueBatchSummary =
       failed: number;
       remaining: number;
       estimatedCostUsd: number;
+      /**
+       * AGENT1-DELIVERY-CAP-HARD-1 — descartadas que no se revisaron porque el lote ya
+       * estaba en el tope de entrega (sin gasto; se quedan en Descartadas).
+       */
+      dispositionsCapped?: number;
     }
   | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
 
@@ -182,7 +193,30 @@ type WorkItem =
   | { kind: 'disposition'; row: RescuableDispositionRow };
 
 type ItemOutcome =
-  | { tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped'; cost: number };
+  | {
+      tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped' | 'capped';
+      cost: number;
+    };
+
+/** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote (Infinity = sin tope). */
+type DeliverySlots = { remaining: number };
+
+/**
+ * Reserva un lugar ANTES de gastar en Claude; si la fila no termina en revisión, lo
+ * devuelve. Sin lugar ⇒ ni se revisa (cero gasto) y se queda en Descartadas.
+ */
+async function rescueDispositionWithinCap(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  admittedIds: string[],
+): Promise<ItemOutcome> {
+  if (ctx.slots.remaining <= 0) return { tag: 'capped', cost: 0 };
+  ctx.slots.remaining--;
+  const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
+  if (outcome.tag !== 'admitted' && outcome.tag !== 'reassigned') ctx.slots.remaining++;
+  return outcome;
+}
 
 function readIcpThreshold(metadata: Record<string, unknown> | null): number {
   const gate = metadata?.icp_size_gate as { threshold?: unknown } | undefined;
@@ -247,6 +281,8 @@ type RescueRunContext = {
    * no se empieza ninguna empresa más en esta corrida.
    */
   halt: { accountError: boolean };
+  /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
+  slots: DeliverySlots;
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -594,6 +630,7 @@ async function reassignStoredSectorMismatches(
   requestedIndustryName: string | null,
   deps: RescueBatchDeps,
   reopenedIds: string[],
+  slots: DeliverySlots,
 ): Promise<number> {
   if (!deps.loadSectorMismatchDiscards) return 0;
   let loaded: Awaited<ReturnType<NonNullable<RescueBatchDeps['loadSectorMismatchDiscards']>>>;
@@ -607,6 +644,9 @@ async function reassignStoredSectorMismatches(
   const decidedAt = deps.nowIso();
   if (deps.reopenDiscardedCandidate) {
     for (const row of loaded.candidates) {
+      // AGENT1-DELIVERY-CAP-HARD-1 — reabrir también ocupa un lugar en revisión.
+      if (slots.remaining <= 0) break;
+      slots.remaining--;
       const saved = await deps.reopenDiscardedCandidate(row.id, (metadata) => {
         const decision = decideStoredReassignment({
           stored: metadata,
@@ -619,6 +659,8 @@ async function reassignStoredSectorMismatches(
       if (saved) {
         reopenedIds.push(row.id);
         reassigned++;
+      } else {
+        slots.remaining++;
       }
     }
   }
@@ -631,12 +673,16 @@ async function reassignStoredSectorMismatches(
       sizePassedIcpGate: false,
     });
     if (!decision) continue;
+    if (slots.remaining <= 0) break;
+    slots.remaining--;
     const origin = buildStoredReassignDispositionOrigin(row.evidence, decision, decidedAt);
     const candidateId = await deps.admitDisposition(row.id, origin);
     if (candidateId) {
       reopenedIds.push(candidateId);
       await markSent(deps, row.id, origin.metadata);
       reassigned++;
+    } else {
+      slots.remaining++;
     }
   }
   return reassigned;
@@ -733,6 +779,8 @@ export async function rescueBatchWithClaude(
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
   const requestedIndustryId = await deps.loadBatchIndustryId(params.batchId).catch(() => null);
+  // AGENT1-DELIVERY-CAP-HARD-1 — si no se puede leer, el rescate sigue como antes.
+  const freeSlots = deps.deliverySlots ? await deps.deliverySlots(params.batchId).catch(() => null) : null;
   const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
   const ctx: RescueRunContext = {
     batchId: params.batchId,
@@ -743,6 +791,7 @@ export async function rescueBatchWithClaude(
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
     halt: { accountError: false },
+    slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
   };
   const admittedIds: string[] = [];
   const storedReassigned = await reassignStoredSectorMismatches(
@@ -750,6 +799,7 @@ export async function rescueBatchWithClaude(
     ctx.requestedIndustry?.name ?? null,
     deps,
     admittedIds,
+    ctx.slots,
   );
 
   const outcomes = await mapUntil(
@@ -757,7 +807,9 @@ export async function rescueBatchWithClaude(
     RESCUE_CONCURRENCY,
     () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
-      item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
+      item.kind === 'candidate'
+        ? rescueCandidate(item.row, ctx, deps)
+        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds),
   );
 
   // «Una empresa, un vendedor»: si otro vendedor ya la tiene, el reclamo la marca duplicada.
@@ -775,5 +827,6 @@ export async function rescueBatchWithClaude(
     failed: count('failed'),
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
+    dispositionsCapped: count('capped'),
   };
 }

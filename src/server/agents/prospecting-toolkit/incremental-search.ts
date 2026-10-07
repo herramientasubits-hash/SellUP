@@ -31,6 +31,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runProspectingPipeline } from './prospecting-pipeline';
 import { writeProspectingCandidates, type LinkedInSearchOverride } from './candidate-writer';
+import { depositWebSurplusToBank } from '@/server/prospect-batches/company-bank/web-company-bank-deposit.server';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import type { LinkedInSearchConfig } from './linkedin-company-search';
 import { createTavilyLinkedInSearchProvider } from './linkedin-company-search-tavily';
@@ -1586,6 +1587,18 @@ export async function runIncrementalProspectingSearch(
       );
 
       writerPersistenceOutcome = writerOutput.persistence;
+
+      // AGENT1-DELIVERY-CAP-HARD-1 — lo que no cupo en los 10 del vendedor va al
+      // banco (Apollo guarda el suyo en su propio runner). Best-effort.
+      if (!isApolloProvider && writerOutput.status !== 'failed') {
+        await depositWebSurplusToBank({
+          countryCode: input.countryCode,
+          industryName: input.industry,
+          sourceBatchId: writerOutput.batchId,
+          requestedSubindustries: input.subindustries ?? [],
+          capped: writerOutput.deliveryCappedCompanies,
+        });
+      }
 
       if (writerOutput.status === 'failed') {
         warnings.push(`Writer error: ${writerOutput.errors.join('; ')}`);
