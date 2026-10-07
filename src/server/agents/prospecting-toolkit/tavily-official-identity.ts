@@ -26,6 +26,7 @@ import {
 } from '@/server/agents/prospect-intake/source-enrichment';
 import type { ProspectSearchCriteria } from '@/server/agents/prospect-intake/types';
 import type { DuplicateCheckInput, DuplicateCheckResult, ProspectingPipelineCandidate } from './types';
+import { EC_INSTITUTION_NOT_HEAD_SIZE, isEcTavilyInstitutionNotHead } from '@/server/prospect-batches/ec-public-entity-size';
 
 /** Plazo total para EMPEZAR búsquedas nuevas dentro de la corrida. */
 export const TAVILY_OFFICIAL_IDENTITY_DEADLINE_MS = 25_000;
@@ -76,8 +77,20 @@ export async function withTavilyOfficialIdentity(
     typedColumns: buildOfficialSourceTypedColumns(enriched),
     strongIdentityAvailable: enriched.strongIdentityAvailable,
   };
+  // SOURCES-EC-GOV-HEAD-ONLY-1 — web .gob/.edu de Ecuador que no es una entidad cabeza
+  // (portal, programa, dependencia, municipio chico) ⇒ el filtro de tamaño la saca.
+  const strongTaxId = enriched.strongIdentityAvailable ? (enriched.taxIdentifier ?? null) : null;
+  const ecNotHead =
+    !candidate.companySize &&
+    isEcTavilyInstitutionNotHead({
+      countryCode: candidate.countryCode,
+      domain: candidate.domain,
+      taxId: strongTaxId,
+      legalName: enriched.legalName ?? null,
+    });
+  const sized = ecNotHead ? { ...candidate, companySize: EC_INSTITUTION_NOT_HEAD_SIZE } : candidate;
   if (!enriched.strongIdentityAvailable || !enriched.taxIdentifier) {
-    return { ...candidate, officialSourceIdentity };
+    return { ...sized, officialSourceIdentity };
   }
   // Con identificador fiscal, el MISMO chequeo de duplicado que Apollo: una
   // empresa ya en SellUp/HubSpot con ese NIT deja de verse como nueva.
@@ -92,7 +105,7 @@ export async function withTavilyOfficialIdentity(
       taxIdentifier: enriched.taxIdentifier,
     })
     .catch(() => null);
-  return { ...candidate, officialSourceIdentity, ...(recheck ? { duplicateCheck: recheck } : {}) };
+  return { ...sized, officialSourceIdentity, ...(recheck ? { duplicateCheck: recheck } : {}) };
 }
 
 /**
