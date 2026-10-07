@@ -49,7 +49,11 @@ import {
   macroHasArCoverage,
   resolveArActivityMacro,
 } from './ar-rns-macro-table';
-import { AR_PUBLIC_ENTITIES_TABLE_VERSION } from '@/server/source-catalog/connectors/rns-argentina/ar-public-entities';
+import {
+  AR_PUBLIC_ENTITIES_SOURCE_YEAR,
+  AR_PUBLIC_ENTITIES_TABLE_VERSION,
+} from '@/server/source-catalog/connectors/rns-argentina/ar-public-entities';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import type {
   CountrySourceAdapter,
   CountrySourceCompany,
@@ -97,6 +101,11 @@ export type ArRnsSnapshotReadRow = {
   website_domain?: string | null;
   /** SOURCES-AR-NO-RECYCLE-1 — ausente o `null` = SellUp no la vio. */
   prior_sighting?: ArRnsPriorSighting | null;
+  /**
+   * SOURCES-AR-PUBLIC-ENTITY-SIZE-1 — empleados oficiales de un organismo
+   * nacional (dotación del INDEC). Nunca la población de un municipio.
+   */
+  official_workers?: number | null;
 };
 
 /** Lectura inyectada: sólo lectura, fail-soft (vacío si falla). */
@@ -149,6 +158,11 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: isPublicEntity ? AR_PUBLIC_ENTITIES_TABLE_VERSION : AR_RNS_MACRO_TABLE_VERSION,
     },
+    // SOURCES-AR-PUBLIC-ENTITY-SIZE-1 — la dotación del INDEC llega a la ficha
+    // como tamaño oficial (igual que los servidores del SIGEP en Colombia).
+    officialWorkforce: isPublicEntity
+      ? buildCountrySourceOfficialWorkforce(row.official_workers, AR_PUBLIC_ENTITIES_SOURCE_YEAR, 'INDEC')
+      : null,
   };
 }
 
