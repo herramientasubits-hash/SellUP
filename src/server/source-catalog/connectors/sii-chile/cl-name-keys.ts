@@ -208,6 +208,64 @@ export function chilePublicEntityBySigla(
   return null;
 }
 
+/** Una marca de un grupo grande, con la sociedad que la opera según el SII. */
+export type ChileGroupBrand = {
+  rut: string;
+  /** Núcleo de su razón social en `cl_sii_registry`. */
+  legalName: string;
+  /** Webs oficiales de la marca: sin una de ellas, la marca nunca decide. */
+  domains: readonly string[];
+};
+
+/**
+ * SOURCES-CL-RETAIL-BRANDS-1 — marcas de los grupos grandes del comercio cuyo nombre no
+ * es el de la sociedad que las opera. Prod 07-10 (Chile × Retail, 070a2921): «Paris» es
+ * PARIS ADMINISTRADORA (Cencosud), pero el SII tiene otras 5 sociedades «PARIS» sin
+ * trabajadores. Cada RUT se leyó del SII el 07-10-2026 (la sociedad con más
+ * trabajadores de la marca). Son palabras comunes: SIEMPRE con su web oficial.
+ */
+export const CL_GROUP_BRANDS: Readonly<Record<string, ChileGroupBrand>> = Object.freeze({
+  PARIS: { rut: '96973670-5', legalName: 'PARIS ADMINISTRADORA', domains: ['paris.cl'] },
+  JUMBO: { rut: '76134941-4', legalName: 'ADMINISTRADORA DE SUPERMERCADOS HIPER', domains: ['jumbo.cl'] },
+  'SANTA ISABEL': { rut: '76134946-5', legalName: 'ADMINISTRADORA DE SUPERMERCADOS EXPRESS', domains: ['santaisabel.cl'] },
+  EASY: { rut: '77562427-2', legalName: 'EASY ADMINISTRADORA', domains: ['easy.cl'] },
+  LIDER: { rut: '76042014-K', legalName: 'WALMART CHILE', domains: ['lider.cl', 'walmartchile.cl'] },
+  UNIMARC: { rut: '81537600-5', legalName: 'RENDIC HERMANOS', domains: ['unimarc.cl'] },
+  TOTTUS: { rut: '78627210-6', legalName: 'HIPERMERCADOS TOTTUS', domains: ['tottus.cl'] },
+  RIPLEY: { rut: '83382700-6', legalName: 'COMERCIAL ECCSA', domains: ['ripley.cl'] },
+  'CRUZ VERDE': { rut: '89807200-2', legalName: 'FARMACIAS CRUZ VERDE', domains: ['cruzverde.cl'] },
+  AHUMADA: { rut: '76378831-8', legalName: 'FARMACIAS AHUMADA', domains: ['farmaciasahumada.cl'] },
+});
+
+/** Palabras de comercio que se quitan del principio para reconocer la marca («Supermercado Jumbo»). */
+const BRAND_LEADING_WORDS = /^(?:SUPERMERCADOS?|HIPERMERCADOS?|HIPER|TIENDAS?|FARMACIAS?)\s+/;
+
+/**
+ * La marca de un grupo grande, si alguna variante del nombre la es y la web del
+ * candidato es la oficial de esa marca. Sin web oficial, nunca.
+ */
+export function chileGroupBrandByDomain(
+  variants: readonly ChileNameVariant[],
+  domainOrUrl: string | null | undefined,
+): ChileGroupBrand | null {
+  const domain = plainDomain(domainOrUrl);
+  if (domain === null) return null;
+  for (const variant of variants) {
+    const brand = CL_GROUP_BRANDS[variant.core] ?? CL_GROUP_BRANDS[variant.core.replace(BRAND_LEADING_WORDS, '')];
+    if (!brand) continue;
+    if (brand.domains.some((d) => domain === d || domain.endsWith(`.${d}`))) return brand;
+  }
+  return null;
+}
+
+/**
+ * SOURCES-CL-RETAIL-BRANDS-1 — desempate de homónimos por tamaño: si un nombre exacto
+ * lo comparten varias sociedades y UNA sola informa este mínimo de trabajadores
+ * mientras las demás informan 0 o nada, es esa. Prod 07-10: «TRICOT» = TRICOT S.A.
+ * (130 trabajadores) y otra sociedad sin trabajadores.
+ */
+export const CL_HOMONYM_MIN_WORKERS = 50;
+
 /**
  * Trabajadores mínimos del dueño de un nombre comercial guardado como alias. Lo que
  * protege es la unicidad (la palabra sale en UNA sola sociedad); el mínimo sólo deja

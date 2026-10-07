@@ -1079,18 +1079,19 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Pendiente de carga (con autorización): scripts/source-catalog/run-cl-sii-name-alias-etl.ts lee cl_sii_registry y guarda la palabra final de la razón social como clave extra (dry-run por defecto; --apply con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=cl_sii_name_alias). Se recarga después de cada recarga de cl_sii_registry.',
+      'Cargada el 07-10-2026 (autorizado): 4.111 claves (palabra final de la razón social, única en todo cl_sii_registry, de sociedades con 10+ trabajadores; sin las razones sociales cortadas a 40 caracteres). Recarga después de cada recarga de cl_sii_registry: scripts/source-catalog/run-cl-sii-name-alias-etl.ts --apply (con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=cl_sii_name_alias).',
     countryCodes: ['CL'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
     automationLevel: 'high',
     recommendedUse:
-      'Clave de nombre extra para encontrar el RUT de la MISMA sociedad del SII cuando se la conoce por la palabra que cierra su razón social: «Transemel» es «EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A» (corrida Chile × Energía del 07-10-2026). Junto con esta fuente, el RUT por nombre de Chile prueba variantes del nombre (sin restos de la web, cada parte de un nombre doble, sin «Chile» al final) y reconoce las siglas de 55 organismos públicos y empresas del Estado (INJUV, Junaeb, SENDA, PDI con su web, CORFO…), con el RUT leído del SII.',
+      'Clave de nombre extra para encontrar el RUT de la MISMA sociedad del SII cuando se la conoce por la palabra que cierra su razón social: «Transemel» es «EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A» (corrida Chile × Energía del 07-10-2026). Junto con esta fuente, el RUT por nombre de Chile prueba variantes del nombre (sin restos de la web, cada parte de un nombre doble, sin «Chile» al final) y reconoce las siglas de 55 organismos públicos y empresas del Estado (INJUV, Junaeb, SENDA, PDI con su web, CORFO…), con el RUT leído del SII, y las marcas de los grupos grandes del comercio (Paris, Jumbo, Santa Isabel, Easy, Líder, Unimarc, Tottus, Ripley, Cruz Verde, Ahumada) siempre con su web oficial. Entre homónimos exactos gana la única sociedad con 50+ trabajadores si las demás informan 0 (Tricot).',
     limitations: [
       'Sólo la palabra final, de 5 o más letras, que no sea genérica y que salga en UNA sola sociedad de todo el registro.',
+      'Un alias sólo da RUT seguro si la web del candidato lleva esa palabra; si no, queda como señal.',
       'Sólo sociedades con 10 o más trabajadores informados al SII.',
       'Snapshot estático — se recarga junto con cl_sii_registry.',
     ],
