@@ -64,6 +64,26 @@ describe('objeto social: manda la actividad que aparece primero', () => {
   });
 });
 
+describe('razón social: «tecnología», «sistemas», «digital» sólo deciden si nada más lo hace (corrida 6a7af4ea)', () => {
+  it('el sector de la razón social gana a la palabra genérica', () => {
+    assert.equal(classifyBoliviaActivity('TECNOLOGIA EN PREFABRICADOS PARA LA CONSTRUCCION TECNOPRECO S.R.L.', null).macroIndustryKey, 'property_construction');
+    assert.equal(classifyBoliviaActivity('TECNOLOGIA EN ALIMENTOS S.A. "TECALIM S.A."', null).macroIndustryKey, 'consumer_goods');
+    assert.equal(classifyBoliviaActivity('TECNOLOGIAS METALURGICAS S.R.L.', null).macroIndustryKey, 'industry_manufacturing_chemicals_automotive');
+  });
+
+  it('comercio o consultoría + tecnología = mayorista o consultora informática (Tecnología, tabla AR v2)', () => {
+    const dismatec = classifyBoliviaActivity('DISTRIBUIDORA MAYORISTA DE TECNOLOGIA S.A. "DISMATEC S.A."', null);
+    assert.equal(dismatec.macroIndustryKey, 'technology');
+    assert.equal(dismatec.ciiu, '4651');
+    assert.equal(classifyBoliviaActivity('INTEGRADORES & CONSULTORES EN TECNOLOGIA S.R.L.', null).macroIndustryKey, 'technology');
+  });
+
+  it('sólo la palabra genérica ⇒ Tecnología, como antes', () => {
+    assert.equal(classifyBoliviaActivity('ALPHA SYSTEMS S.R.L.', null).macroIndustryKey, 'technology');
+    assert.equal(classifyBoliviaActivity('NEXUS TECHNOLOGY BOLIVIA S.A.', null).macroIndustryKey, 'technology');
+  });
+});
+
 describe('siglas oficiales por NIT (bo_name_alias)', () => {
   it('el país entre paréntesis no es sigla; una sigla de 3 letras detrás de la forma sí', () => {
     assert.deepEqual(boliviaLegalNameAliases('HUAWEI TECHNOLOGIES (BOLIVIA) S.R.L.'), []);
