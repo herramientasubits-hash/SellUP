@@ -29,6 +29,15 @@
  * código de actividad y sólo se ofrece si la tabla de HOY coincide con la macro
  * pedida: si la tabla cambia y la carga no se repite, no se ofrece nada de más.
  *
+ * ── Gobierno: directorio de entidades públicas (SOURCES-AR-PUBLIC-ENTITIES-1) ─
+ *
+ * Las sociedades del RNS y de ATP no son el Estado. Para la macro `government` se
+ * leen SÓLO las filas de `ar_public_entities` (origen `public_entity`):
+ * municipios ≥ 20.000 habitantes, organismos nacionales ≥ 200 empleados y
+ * universidades nacionales, con CUIT de ARCA y web oficial cuando la hay. No
+ * tienen código de actividad: su pertenencia a Gobierno la da el directorio
+ * mismo, igual que las entidades públicas de Colombia.
+ *
  * ── E/S ─────────────────────────────────────────────────────────────────────
  *
  * La lectura se INYECTA (`ArRnsDiscoveryReads`). Este módulo no construye
@@ -40,6 +49,7 @@ import {
   macroHasArCoverage,
   resolveArActivityMacro,
 } from './ar-rns-macro-table';
+import { AR_PUBLIC_ENTITIES_TABLE_VERSION } from '@/server/source-catalog/connectors/rns-argentina/ar-public-entities';
 import type {
   CountrySourceAdapter,
   CountrySourceCompany,
@@ -65,7 +75,10 @@ const LEGAL_ENTITY_CUIT = /^(30|33|34)\d{9}$/;
 export type ArRnsPriorSighting = 'candidate' | 'definitive_discard' | 'discard';
 
 /** De qué carga viene una fila. */
-export type ArRnsDiscoveryOrigin = 'procurement' | 'employer';
+export type ArRnsDiscoveryOrigin = 'procurement' | 'employer' | 'public_entity';
+
+/** Macros que se buscan SÓLO en el directorio de entidades públicas. */
+export const AR_PUBLIC_ENTITY_DISCOVERY_MACROS: ReadonlySet<string> = new Set(['government']);
 
 /** Fila `ar_rns` / `ar_atp_employers` acotada a lo que esta proyección usa. */
 export type ArRnsSnapshotReadRow = {
@@ -105,8 +118,14 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
   const legalName = row.legal_name?.trim() || null;
   const cuit = row.cuit?.trim() ?? '';
   if (legalName === null || !LEGAL_ENTITY_CUIT.test(cuit)) return null;
-  // La tabla de HOY manda: la macro guardada al cargar sólo sirvió para filtrar.
-  if (resolveArActivityMacro(row.activity_code) !== macroIndustryKey) return null;
+  const isPublicEntity = row.origin === 'public_entity';
+  if (isPublicEntity) {
+    // El directorio de entidades públicas sólo sirve para Gobierno.
+    if (!AR_PUBLIC_ENTITY_DISCOVERY_MACROS.has(macroIndustryKey)) return null;
+  } else if (resolveArActivityMacro(row.activity_code) !== macroIndustryKey) {
+    // La tabla de HOY manda: la macro guardada al cargar sólo sirvió para filtrar.
+    return null;
+  }
 
   return {
     recordIdentityKey: row.record_identity_key,
@@ -120,14 +139,15 @@ function toCompany(row: ArRnsSnapshotReadRow, macroIndustryKey: string): Country
     // 🔴 Ni el RNS ni ATP publican web. El único dominio es el que la carga sacó
     // del correo que la sociedad declaró en el SIPRO histórico, y sólo si se
     // parece a su razón social de entonces Y a la de hoy (`ar-sipro-domain.ts`).
-    // Sin él, no se fabrica ninguno.
+    // Las entidades públicas traen la web oficial de su directorio (ReFeGLo, Mapa
+    // del Estado, Wikidata). Sin ninguno, no se fabrica.
     domain: normalizeDomain(row.website_domain),
     declaredIndustry: row.sector?.trim() || null,
-    industryCode: row.activity_code?.trim() || null,
+    industryCode: isPublicEntity ? null : row.activity_code?.trim() || null,
     coarseSector: null,
     officialMacroIndustry: {
       macroIndustryKeys: [macroIndustryKey],
-      tableVersion: AR_RNS_MACRO_TABLE_VERSION,
+      tableVersion: isPublicEntity ? AR_PUBLIC_ENTITIES_TABLE_VERSION : AR_RNS_MACRO_TABLE_VERSION,
     },
   };
 }
@@ -161,12 +181,14 @@ export function interleaveByOrigin(
 ): ArRnsSnapshotReadRow[] {
   const procurement = rows.filter((row) => (row.origin ?? 'procurement') === 'procurement');
   const employer = rows.filter((row) => row.origin === 'employer');
+  // Las entidades públicas no se mezclan con sociedades: van tras ellas, en su orden.
+  const publicEntity = rows.filter((row) => row.origin === 'public_entity');
   const out: ArRnsSnapshotReadRow[] = [];
   for (let i = 0; i < Math.max(procurement.length, employer.length); i++) {
     if (i < procurement.length) out.push(procurement[i]);
     if (i < employer.length) out.push(employer[i]);
   }
-  return out;
+  return [...out, ...publicEntity];
 }
 
 /**

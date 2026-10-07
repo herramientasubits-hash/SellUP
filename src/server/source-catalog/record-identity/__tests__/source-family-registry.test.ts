@@ -22,6 +22,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'gt_rgae_proveedores',
   'co_siis',
   'ar_atp_employers',
+  'ar_public_entities',
   'ar_rns',
   'ar_rns_registry',
   'pe_sunat_registry',
