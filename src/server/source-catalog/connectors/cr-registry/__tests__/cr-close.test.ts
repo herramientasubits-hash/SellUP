@@ -699,3 +699,43 @@ describe('Hacienda «Grandes Contribuyentes Nacionales» (PDF de noviembre de 20
     assert.deepEqual(davibank?.raw_data.origins, ['sugef', 'hacienda_grandes_contribuyentes']);
   });
 });
+
+describe('tamaño oficial «grande» = lista de Grandes Contribuyentes Nacionales (aprobado 07-10-2026)', () => {
+  const registry: CrRegistryLookup = (cedula) =>
+    ({
+      '3102474379': { legalName: 'AMAZON SUPPORT SERVICES COSTA RICA SOCIEDAD DE RESPONSABILIDAD LIMITADA', meicSize: null, largeTaxpayer: true },
+      '3101233948': { legalName: 'S.T.T. GROUP DE CR SOCIEDAD ANONIMA', meicSize: null, largeTaxpayer: false },
+    })[cedula] ?? null;
+  const zf = (cedula: string, name: string) =>
+    buildCrZonaFrancaRow({
+      company: { cedula, name, activity: 'CAECR "8211 Actividades combinadas de servicios administrativos de oficina"', companyType: 'EMPRESA DE SERVICIOS', canton: null, province: null },
+      registry,
+      ...params,
+    });
+
+  it('la fila de Zona Franca de una gran contribuyente lleva la marca y su fuente; las demás no', () => {
+    const amazon = zf('3-102-474379', 'AMAZON SUPPORT SERVICES COSTA RICA S.R.L.');
+    assert.ok('row' in amazon);
+    assert.equal(amazon.row.raw_data.official_size_band, 'large');
+    assert.equal(amazon.row.raw_data.official_size_source, 'hacienda_grandes_contribuyentes');
+    const stt = zf('3-101-233948', 'S.T.T. GROUP DE CR SOCIEDAD ANONIMA');
+    assert.ok('row' in stt);
+    assert.equal(stt.row.raw_data.official_size_band, undefined);
+  });
+
+  it('también en proveedoras de SICOP y entidades públicas', () => {
+    const sicop = buildCrSicopSupplierRow({
+      summary: { cedula: '3102474379', amountByFamily: { '8111': 1 }, buyers: 3, offers: 3, lastOfferYear: 2024 },
+      registry,
+      ...params,
+    });
+    assert.ok('row' in sicop);
+    assert.equal(sicop.row.raw_data.official_size_band, 'large');
+    const ice = buildCrPublicEntityRow({
+      entity: { cedula: '4000042139', name: 'INSTITUTO COSTARRICENSE DE ELECTRICIDAD', purchaseRequests: 1, largeTaxpayer: true },
+      ...params,
+    });
+    assert.ok('row' in ice);
+    assert.equal(ice.row.raw_data.official_size_band, 'large');
+  });
+});

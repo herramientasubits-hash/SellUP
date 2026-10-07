@@ -70,6 +70,8 @@ export type CrFreeDirectorySnapshotReadRow = {
   activity_text: string | null;
   website_domain: string | null;
   meic_size: string | null;
+  /** «large» si la cédula está en la lista de Grandes Contribuyentes Nacionales. */
+  official_size_band?: string | null;
   priority_score: number | null;
 };
 

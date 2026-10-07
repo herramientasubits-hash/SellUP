@@ -109,10 +109,32 @@ export type CrPublicEntity = {
   /** Web de la ficha de MIDEPLAN, si se encontró por nombre. */
   website?: string | null;
   acronym?: string | null;
+  /** ¿Está en la lista de Grandes Contribuyentes Nacionales? */
+  largeTaxpayer?: boolean;
 };
 
 /** Lo que el registro sabe de una cédula (nombre y tramo del MEIC). */
-export type CrRegistryLookup = (cedula: string) => { legalName: string; meicSize: string | null } | null;
+export type CrRegistryLookup = (cedula: string) => {
+  legalName: string;
+  meicSize: string | null;
+  /** ¿Está en la lista de Grandes Contribuyentes Nacionales de Hacienda? */
+  largeTaxpayer?: boolean;
+} | null;
+
+/**
+ * Fuente del tamaño oficial «grande» de Costa Rica: la lista de Grandes
+ * Contribuyentes Nacionales de Hacienda (grande por ingresos y tributación, no por
+ * trabajadores). Aprobado por la dueña el 07-10-2026 como «empresa grande» para
+ * admitir sin web a una filial de multinacional (regla del rescate).
+ */
+export const CR_LARGE_TAXPAYER_SIZE_SOURCE = 'hacienda_grandes_contribuyentes' as const;
+
+/** La marca de tamaño que guarda la fila cuando la cédula está en esa lista. */
+function largeTaxpayerSizeBand(largeTaxpayer: boolean | undefined): Record<string, unknown> {
+  return largeTaxpayer === true
+    ? { official_size_band: 'large', official_size_source: CR_LARGE_TAXPAYER_SIZE_SOURCE }
+    : {};
+}
 
 export type CrFreeDirectoryExclusion =
   | 'invalid_cedula'
@@ -267,6 +289,7 @@ export function buildCrSicopSupplierRow(params: {
         offers: params.summary.offers,
         last_offer_year: params.summary.lastOfferYear,
         ...(meicSize !== null ? { cr_meic_size: meicSize } : {}),
+        ...largeTaxpayerSizeBand(known.largeTaxpayer),
       },
       sourceYear: params.sourceYear,
       importedAt: params.importedAt,
@@ -289,7 +312,8 @@ export function buildCrZonaFrancaRow(params: {
   const legalName = rawName !== null ? cleanText(currentCostaRicaName(rawName)) : null;
   if (legalName === null || costaRicaNameCore(legalName).length < 2) return { excluded: 'no_name' };
   if (isNumberedCompanyName(legalName)) return { excluded: 'numbered_name' };
-  const meicSize = params.registry(cedula)?.meicSize?.trim().toUpperCase() ?? null;
+  const known = params.registry(cedula);
+  const meicSize = known?.meicSize?.trim().toUpperCase() ?? null;
   if (meicSize !== null && SMALL_MEIC_SIZES.has(meicSize)) return { excluded: 'meic_small' };
   const main = mainZonaFrancaActivity(extractCaecrActivities(params.company.activity));
   const macro = main !== null ? resolveCrCaecrMacro(main.code) : null;
@@ -313,6 +337,7 @@ export function buildCrZonaFrancaRow(params: {
         plants: countZonaFrancaPlants(params.company.name),
         ...(sicopBuyers > 0 ? { buyers: sicopBuyers } : {}),
         ...(meicSize !== null ? { cr_meic_size: meicSize } : {}),
+        ...largeTaxpayerSizeBand(known?.largeTaxpayer),
       },
       sourceYear: params.sourceYear,
       importedAt: params.importedAt,
@@ -347,6 +372,7 @@ export function buildCrPublicEntityRow(params: {
         purchase_requests: params.entity.purchaseRequests,
         ...(cleanText(params.entity.acronym) ? { acronym: cleanText(params.entity.acronym) } : {}),
         ...(domain ? { website_domain: domain } : {}),
+        ...largeTaxpayerSizeBand(params.entity.largeTaxpayer),
       },
       sourceYear: params.sourceYear,
       importedAt: params.importedAt,
