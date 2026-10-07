@@ -29,7 +29,7 @@ import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
 import { existsSync } from 'node:fs';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
@@ -39,6 +39,7 @@ import {
   buildEcSriRegistryRows,
   EC_SRI_REGISTRY_SOURCE_KEY,
   EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY,
+  isCodeLikeTradeName,
   readEcSriLine,
   type EcSriEntry,
   type EcSriRegistryRow,
@@ -132,6 +133,39 @@ async function main(): Promise<void> {
     upserted += chunk.length;
   }
   console.log(`  rowsUpserted = ${upserted}`);
+  console.log(`  Nombres comerciales viejos que son un código (borrados): ${await pruneStaleCodeLikeTradeNames(client, importedAt)}`);
+}
+
+/**
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — las marcas de cargas anteriores que esta carga ya
+ * no produce se conservan (prefijos útiles como «KARAMBA»), salvo las que son un
+ * código y no una marca (`isCodeLikeTradeName`: RUC, fecha, número de chasis).
+ * Sólo filas de `ec_sri_trade_name_registry` anteriores a esta carga.
+ */
+const PRUNE_PAGE = 1000;
+
+async function pruneStaleCodeLikeTradeNames(client: SupabaseClient, importedAt: string): Promise<number> {
+  const stale: string[] = [];
+  for (let from = 0; ; from += PRUNE_PAGE) {
+    const { data, error } = await client
+      .from('source_company_snapshots')
+      .select('id, normalized_legal_name')
+      .eq('source_key', EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY)
+      .eq('country_code', 'EC')
+      .lt('imported_at', importedAt)
+      .order('id')
+      .range(from, from + PRUNE_PAGE - 1);
+    if (error) throw new Error(`prune_read_failed: ${error.message}`);
+    for (const row of data ?? []) {
+      if (isCodeLikeTradeName(String(row.normalized_legal_name ?? ''))) stale.push(String(row.id));
+    }
+    if ((data ?? []).length < PRUNE_PAGE) break;
+  }
+  for (let i = 0; i < stale.length; i += PRUNE_PAGE) {
+    const { error } = await client.from('source_company_snapshots').delete().in('id', stale.slice(i, i + PRUNE_PAGE));
+    if (error) throw new Error(`prune_delete_failed_at_${i}: ${error.message}`);
+  }
+  return stale.length;
 }
 
 main().catch((error: unknown) => {

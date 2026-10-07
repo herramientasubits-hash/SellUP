@@ -37,6 +37,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 
 /** `source_key` que esta proyección declara. */
 export const PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY = 'pe_sunat_directory_discovery' as const;
@@ -109,10 +110,9 @@ function toCompany(row: PeSunatDirectorySnapshotReadRow, macroIndustryKey: strin
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: PE_SUNAT_MACRO_TABLE_VERSION,
     },
-    // 🔴 Los trabajadores NO viajan al candidato: el writer común deja el tamaño
-    // como «por validar» y su procedencia es una lista cerrada. Aquí sólo
-    // garantizan que no se ofrece ninguna de menos de 200; el número queda en la
-    // fila de la fuente (`raw_data.workers`).
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los trabajadores del padrón SUNAT van a
+    // la ficha (antes quedaban «por validar» aunque la fuente los publica).
+    officialWorkforce: buildCountrySourceOfficialWorkforce(row.employees, row.metrics_year, 'SUNAT'),
   };
 }
 
