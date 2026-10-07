@@ -134,6 +134,7 @@ export function classifyBoPublicEntityKind(name: string): BoPublicEntityKind {
 export const BO_LARGE_MUNICIPALITY_CORES: ReadonlySet<string> = new Set([
   'GAM LA PAZ',
   'GAM EL ALTO',
+  'GAM EL ALTO DE LA PAZ',
   'GAM SANTA CRUZ DE LA SIERRA',
   'GAM COCHABAMBA',
   'GAM SUCRE',

@@ -80,8 +80,8 @@ export const BO_ACTIVITY_RULES: readonly BoActivityRule[] = [
   { ciiu: '4652', stems: ['EQUIPOS DE TELECOMUNICACION', 'EQUIPOS ELECTRONICOS'], label: 'mayoristas de electrónica y telecomunicaciones' },
   { ciiu: '62', stems: [], nameOnlyStems: ['TECHNOLOGY', 'TECHNOLOGIES', 'TECNOLOGIA', 'TECNOLOGIAS', 'SYSTEMS', 'SISTEMAS', 'SOLUTIONS', 'DIGITAL'], label: 'tecnología (por el nombre)' },
   // ── Energía, minería y ambiente (05-09, 19, 35-39) ──
-  { ciiu: '06', stems: ['PETROLER', 'HIDROCARBURO', 'PETROLEO'], label: 'hidrocarburos' },
-  { ciiu: '07', stems: ['MINERA', 'MINERIA', 'MINERO', 'MINERALES', 'CONCENTRADO DE MINERAL', 'METALURGIA EXTRACTIVA'], label: 'minería' },
+  { ciiu: '06', stems: ['PETROLER', 'PETROLIF', 'HIDROCARBURO', 'PETROLEO'], label: 'hidrocarburos' },
+  { ciiu: '07', stems: ['MINERA', 'MINERIA', 'MINERO', 'MINERALES', 'CONCENTRADO DE MINERAL', 'METALURGIA EXTRACTIVA', 'LITIO'], label: 'minería' },
   { ciiu: '35', stems: ['ELECTRICIDAD', 'ENERGIA ELECTRICA', 'GENERACION ELECTRICA', 'DISTRIBUIDORA DE ELECTRICIDAD', 'DISTRIBUIDORA DE GAS', 'GAS NATURAL'], nameOnlyStems: ['ELECTRICA', 'ENERGIA', 'HIDROELECTRICA'], label: 'electricidad y gas' },
   { ciiu: '36', stems: ['AGUA POTABLE', 'ALCANTARILLADO'], label: 'agua' },
   { ciiu: '38', stems: ['RESIDUOS', 'RECICLAJE', 'RECICLADO', 'SERVICIOS AMBIENTALES'], label: 'residuos y reciclaje' },
