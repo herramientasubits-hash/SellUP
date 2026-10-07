@@ -68,6 +68,11 @@ export type EcSriRecord = {
   ruc: string;
   legalName: string;
   status: string;
+  /**
+   * `TIPO_CONTRIBUYENTE` del SRI («SOCIEDAD» / «PERSONA NATURAL»). Vacío si el
+   * archivo no trae la columna.
+   */
+  taxpayerType: string;
   establishment: number | null;
   tradeName: string;
   /** El establecimiento está abierto (`ABI`); `CER` = cerrado. */
@@ -91,6 +96,7 @@ export function readEcSriLine(row: Readonly<Record<string, unknown>>): EcSriReco
     ruc,
     legalName,
     status: text(row['ESTADO_CONTRIBUYENTE']).toUpperCase(),
+    taxpayerType: text(row['TIPO_CONTRIBUYENTE']).toUpperCase(),
     establishment: Number.isInteger(establishment) && establishment > 0 ? establishment : null,
     tradeName: text(row['NOMBRE_FANTASIA_COMERCIAL']),
     establishmentOpen: text(row['ESTADO_ESTABLECIMIENTO']).toUpperCase() === 'ABI',
@@ -100,9 +106,18 @@ export function readEcSriLine(row: Readonly<Record<string, unknown>>): EcSriReco
   };
 }
 
-/** ¿Entra? ACTIVO + RUC de sociedad (privada o pública). */
+/**
+ * ¿Entra? ACTIVO + RUC de sociedad (privada o pública) + contribuyente SOCIEDAD.
+ *
+ * SOURCES-EC-SRI-NO-PERSONS-1 — el tercer dígito NO basta: el catastro tiene
+ * ~36.000 PERSONAS NATURALES extranjeras activas con RUC de tercer dígito 6 (el
+ * de las entidades públicas; p. ej. «0962420170001 … PERSONA NATURAL»). Medido el
+ * 07-10 al recargar: sin esta regla, `ec_sri_registry` habría pasado de 3.232 a
+ * 36.271 «públicas». La carga anterior estaba limpia porque los archivos se
+ * filtraron a mano; ahora lo garantiza el código.
+ */
 export function admitEcSriRecord(record: EcSriRecord): boolean {
-  return record.status === 'ACTIVO' && SOCIETY_RUC.test(record.ruc);
+  return record.status === 'ACTIVO' && record.taxpayerType === 'SOCIEDAD' && SOCIETY_RUC.test(record.ruc);
 }
 
 /** Cuántas marcas por RUC se guardan (SOURCES-EC-CLOSE-2). */

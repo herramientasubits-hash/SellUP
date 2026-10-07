@@ -206,6 +206,34 @@ describe('§ 2 — la capa gratuita real', () => {
     assert.equal((out.telemetry as Record<string, unknown>).unverified_left_in_source, 4);
   });
 
+  // AGENT1-FREE-LAYER-WINDOW-PER-BATCH-1 — Prod 07-10, Costa Rica × Tecnología (25fd9c3e):
+  // la capa gratuita corrió dos veces en la misma búsqueda y registró 10 + 10.
+  it('🔴 segunda pasada en el mismo lote: descuenta las sin web que ya esperan al rescate', async () => {
+    const h = harness(Array.from({ length: 20 }, (_, i) => company(i, null)));
+    const asked: string[] = [];
+    h.deps.countPendingUnverified = async (_client, batchId) => (asked.push(batchId), 10);
+    const out = await run(h);
+    assert.deepEqual(asked, ['b-1']);
+    assert.equal(h.discards.length, 0, 'ya hay 10 esperando: no cabe ninguna más');
+    assert.equal((out.telemetry as Record<string, unknown>).unverified_left_in_source, 20);
+  });
+
+  it('con 7 esperando y 0 con web, caben 3', async () => {
+    const h = harness(Array.from({ length: 20 }, (_, i) => company(i, null)));
+    h.deps.countPendingUnverified = async () => 7;
+    await run(h);
+    assert.equal(h.discards[0]!.length, 3);
+  });
+
+  it('si la lectura falla cuenta 0 (como antes)', async () => {
+    const h = harness(Array.from({ length: 20 }, (_, i) => company(i, null)));
+    h.deps.countPendingUnverified = async () => {
+      throw new Error('boom');
+    };
+    await run(h);
+    assert.equal(h.discards[0]!.length, 10);
+  });
+
   it('🔴 el caso medido: 20 SIN sitio ⇒ no se guarda ninguna, 10 a Descartadas (las que caben), y los de pago corren por TODO el objetivo', async () => {
     const h = harness(Array.from({ length: 20 }, (_, i) => company(i, null)));
     const out = await run(h);
