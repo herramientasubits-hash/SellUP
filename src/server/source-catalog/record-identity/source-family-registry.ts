@@ -72,7 +72,13 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
   do_dgii_size_registry: 'TAX_GRAIN',
   do_dgii_trade_name_registry: 'TAX_GRAIN',
+  // SOURCES-BO-CLOSE-1 — un NIT, una fila (grandes contribuyentes PRICO/GRACO y
+  // operadores PRIO/OEA, con nombre del SEPREC).
+  bo_large_taxpayers: 'TAX_GRAIN',
   pa_panamacompra_convenio: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-BO-CLOSE-1 — una fila por ficha de gob.bo (`gobbo:<slug>`): las entidades
+  // públicas no tienen NIT publicado.
+  bo_public_entities: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PE-CLOSE-1 — varias filas por RUC (una por clave de nombre: alias del
   // padrón, entidad pública, entidad contratante OECE): identidad `pe-name-alias:<RUC>:<clave>`.
   pe_sunat_name_alias: 'NATIVE_RECORD_GRAIN',

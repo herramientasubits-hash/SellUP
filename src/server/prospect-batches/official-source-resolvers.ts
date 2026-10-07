@@ -15,7 +15,7 @@
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry)
- * name→cédula jurídica, Bolivia (SEPREC, live) name→NIT and México
+ * name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
  * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
@@ -93,6 +93,8 @@ import {
   buildSeprecNameLiveQuery,
   normalizeBoliviaCompanyCore,
 } from '@/server/source-catalog/connectors/seprec-bolivia/seprec-name-live-query';
+import { boliviaDomainConfirmsName, boliviaNameCarriesLegalForm } from '@/server/source-catalog/connectors/seprec-bolivia/bo-company-name-core';
+import { BO_LARGE_TAXPAYERS_SOURCE_KEY } from '@/server/source-catalog/connectors/sin-bolivia/bo-large-taxpayer-rows';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import {
   buildRuesNameLiveQuery,
@@ -324,16 +326,36 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       normalizeCore: normalizeCostaRicaCompanyCore,
       querySnapshots: buildSnapshotNameQuery(snapshotClient, 'cr_company_registry', 'CR'),
     }),
-    // SOURCES-BO-NIT-BY-NAME-LIVE-1 — Bolivia no publica padrón: búsqueda EN VIVO en
-    // el registro de comercio (SEPREC), acotada en tiempo y en número de consultas.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'BO',
-      sourceKey: BO_SEPREC_LIVE_SOURCE_KEY,
-      taxIdentifierType: 'NIT',
-      validTaxId: /^\d{7,13}$/,
-      normalizeCore: normalizeBoliviaCompanyCore,
-      querySnapshots: buildSeprecNameLiveQuery(),
-      singleWordIsSignalOnly: true,
-    }),
+    // SOURCES-BO-CLOSE-1 — Bolivia: primero la lista de grandes contribuyentes ya
+    // cargada (PRICO/GRACO de Impuestos + PRIO/OEA de la Aduana, con nombre del
+    // SEPREC; trae la categoría al filtro de tamaño); si no da NIT seguro, la
+    // búsqueda EN VIVO en el SEPREC (SOURCES-BO-NIT-BY-NAME-LIVE-1), acotada en tiempo
+    // y en consultas. En los dos, una marca de una palabra o una marca dentro de la
+    // razón social sólo es segura si la web propia de la candidata la confirma.
+    createFallbackOfficialSourceResolver(
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'BO',
+        sourceKey: BO_LARGE_TAXPAYERS_SOURCE_KEY,
+        taxIdentifierType: 'NIT',
+        validTaxId: /^\d{7,13}$/,
+        normalizeCore: normalizeBoliviaCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, BO_LARGE_TAXPAYERS_SOURCE_KEY, 'BO', { withWorkforce: true }),
+        singleWordIsSignalOnly: true,
+        singleWordConfirmedByDomain: boliviaDomainConfirmsName,
+        nameCarriesLegalForm: boliviaNameCarriesLegalForm,
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'BO',
+        sourceKey: BO_SEPREC_LIVE_SOURCE_KEY,
+        taxIdentifierType: 'NIT',
+        validTaxId: /^\d{7,13}$/,
+        normalizeCore: normalizeBoliviaCompanyCore,
+        querySnapshots: buildSeprecNameLiveQuery(),
+        singleWordIsSignalOnly: true,
+        singleWordConfirmedByDomain: boliviaDomainConfirmsName,
+        nameCarriesLegalForm: boliviaNameCarriesLegalForm,
+        brandConfirmedByDomain: boliviaDomainConfirmsName,
+      }),
+    ),
   ];
 }

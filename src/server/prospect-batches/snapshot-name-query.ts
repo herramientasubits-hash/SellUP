@@ -63,10 +63,36 @@ export function workforceFromRawData(raw: unknown, source: string, fallbackYear:
   if (workers === undefined && record['stratification'] !== undefined) {
     return bandFromStratification(record, source, fallbackYear);
   }
+  if (workers === undefined && record['taxpayer_category'] !== undefined) {
+    return bandFromTaxpayerCategory(record, source, fallbackYear);
+  }
   if (typeof workers !== 'number' || !Number.isInteger(workers) || workers < 0) return null;
   if (typeof year !== 'number' || !Number.isInteger(year)) return null;
   const bracket = record['sales_bracket'];
   return { workers, year, source, salesBracket: typeof bracket === 'string' ? bracket : null };
+}
+
+/**
+ * SOURCES-BO-CLOSE-1 — categoría de contribuyente de Impuestos Nacionales de
+ * Bolivia: PRICO (principales) y GRACO (grandes) se eligen por impuestos y ventas,
+ * NO por trabajadores. Llega al filtro de tamaño como un tramo SIN piso ni techo de
+ * personas: queda registrado y explicado, pero no decide (ni aprueba por grande ni
+ * descarta por pequeña). «Lo grande no decide solo» (dueña, 06-10-2026).
+ */
+export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
+  PRICO: 'principal contribuyente (PRICO)',
+  GRACO: 'gran contribuyente (GRACO)',
+};
+
+function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {
+  const value = raw['taxpayer_category'];
+  if (typeof value !== 'string') return null;
+  const band = BO_TAXPAYER_CATEGORY_BANDS[value.trim().toUpperCase()];
+  if (!band) return null;
+  const yearValue = raw['metrics_year'];
+  const year = typeof yearValue === 'number' && Number.isInteger(yearValue) ? yearValue : fallbackYear;
+  if (year === null) return null;
+  return { workers: 0, year, source, maxWorkers: null, sizeBand: band };
 }
 
 /** Adapt a (service-role) client into a read-only name query for one source. */

@@ -58,6 +58,12 @@ import {
   PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type PeSunatDirectoryDiscoveryReads,
 } from './pe-sunat-directory-discovery-adapter';
+import {
+  BO_OFFICIAL_DISCOVERY_SOURCE_KEY,
+  buildBoOfficialDiscoveryAdapter,
+  macroHasBoDiscoveryCoverage,
+  type BoOfficialDiscoveryReads,
+} from './bo-official-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
@@ -94,8 +100,13 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * (actividad CIIU Rev. 4 + trabajadores) cruzado con el padrón reducido,
  * clasificado por la tabla CIIU (`pe-sunat-macro-table.ts`), sólo sociedades y
  * entidades activas y habidas de 200+ trabajadores.
+ *
+ * SOURCES-BO-CLOSE-1 — Bolivia entra con los grandes contribuyentes (PRICO/GRACO de
+ * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
+ * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
+ * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'BO'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -110,6 +121,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   EC: { countryCode: 'EC', sourceKey: EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -130,6 +142,7 @@ export function resolveCountrySourceCapability(
  * Ecuador: la macro tiene actividades CIIU del INEC en la tabla.
  * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
+ * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -144,6 +157,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
+  if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -167,6 +181,7 @@ export function buildCountrySourceAdapter(
     ecScvsDirectoryDiscoveryReads?: EcScvsDirectoryDiscoveryReads | null;
     clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
+    boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -194,6 +209,9 @@ export function buildCountrySourceAdapter(
     return deps.peSunatDirectoryDiscoveryReads
       ? buildPeSunatDirectoryDiscoveryAdapter(deps.peSunatDirectoryDiscoveryReads)
       : null;
+  }
+  if (capability.countryCode === 'BO') {
+    return deps.boOfficialDiscoveryReads ? buildBoOfficialDiscoveryAdapter(deps.boOfficialDiscoveryReads) : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;
   return buildCoSiisDiscoveryAdapter(deps.coSiisSnapshotQuery);

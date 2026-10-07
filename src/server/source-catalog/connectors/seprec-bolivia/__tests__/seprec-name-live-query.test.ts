@@ -25,7 +25,6 @@ import {
   parseSeprecDetailNit,
   parseSeprecSearch,
   sectorNameVariant,
-  withoutTrailingCountry,
 } from '../seprec-name-live-query';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import {
@@ -398,7 +397,7 @@ describe('marca dentro de la razón social (sólo pista)', () => {
   });
 });
 
-describe('nombre corto de sector: «X SAFI» y «X Seguros» (sólo pista)', () => {
+describe('nombre corto de sector: «X Seguros» (sólo pista); «X SAFI» ya lo resuelve el núcleo', () => {
   /** Fetch doble que responde cada búsqueda según su filtro. */
   function fakeBySearch(searches: Record<string, unknown[]>, details: Record<string, unknown>) {
     const urls: string[] = [];
@@ -415,28 +414,29 @@ describe('nombre corto de sector: «X SAFI» y «X Seguros» (sólo pista)', () 
   }
 
   it('la forma larga que usa el SEPREC; otros nombres no cambian', () => {
-    assert.equal(sectorNameVariant('CREDIFONDO SAFI'), 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION');
+    assert.equal(sectorNameVariant('CREDIFONDO SAFI'), null);
     assert.equal(sectorNameVariant('ALIANZA SEGUROS'), 'ALIANZA COMPANIA DE SEGUROS');
     assert.equal(sectorNameVariant('SEGUROS'), null);
     assert.equal(sectorNameVariant('SEGUROS ALIANZA'), null);
     assert.equal(sectorNameVariant('CERVECERIA BOLIVIANA NACIONAL'), null);
   });
 
-  it('«Credifondo SAFI»: 0 resultados → una búsqueda más con la forma larga → pista con su NIT', async () => {
+  it('«Credifondo SAFI»: el núcleo quita SAFI y la forma larga → coincidencia EXACTA a la primera búsqueda', async () => {
+    assert.equal(normalizeBoliviaCompanyCore('Credifondo SAFI'), 'CREDIFONDO');
+    assert.equal(normalizeBoliviaCompanyCore('CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.'), 'CREDIFONDO');
     const f = fakeBySearch(
-      { 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION': [hit('31', 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.')] },
+      { CREDIFONDO: [hit('31', 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.')] },
       { '31': detail('1020399029') },
     );
-    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CREDIFONDO SAFI');
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('CREDIFONDO');
     assert.deepEqual(rows, [
       {
         taxId: '1020399029',
         legalName: 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION S.A.',
-        normalizedLegalName: 'CREDIFONDO SOCIEDAD ADMINISTRADORA DE FONDOS DE INVERSION',
-        brandSignal: true,
+        normalizedLegalName: 'CREDIFONDO',
       },
     ]);
-    assert.equal(f.urls.filter((u) => u.includes('/buscarEmpresas?')).length, 2);
+    assert.equal(f.urls.filter((u) => u.includes('/buscarEmpresas?')).length, 1);
   });
 
   it('«Alianza Seguros» → ALIANZA COMPAÑIA DE SEGUROS Y REASEGUROS: el resolvedor da low_confidence_match y NO llena el NIT', async () => {
@@ -498,7 +498,7 @@ describe('nombre corto de sector: «X SAFI» y «X Seguros» (sólo pista)', () 
   });
 });
 
-describe('marca con el país o el dominio pegados (lote 0d4b77fb, sólo pista)', () => {
+describe('marca con el país o el dominio pegados (lote 0d4b77fb): los quita el núcleo', () => {
   function fakeBySearch(searches: Record<string, unknown[]>, details: Record<string, unknown>) {
     const urls: string[] = [];
     const fetchImpl = async (url: string) => {
@@ -513,37 +513,38 @@ describe('marca con el país o el dominio pegados (lote 0d4b77fb, sólo pista)',
     return { fetchImpl, urls };
   }
 
-  it('quita «Bolivia» y los dominios .com.bo / .org.bo / .net.bo / .bo al final; nada más', () => {
-    assert.equal(withoutTrailingCountry(normalizeBoliviaCompanyCore('Get Server Bolivia')), 'GET SERVER');
-    assert.equal(withoutTrailingCountry(normalizeBoliviaCompanyCore('Cognos.com.bo')), 'COGNOS');
-    assert.equal(withoutTrailingCountry('INNOVAEDU ORG BO'), 'INNOVAEDU');
-    assert.equal(withoutTrailingCountry('ALFA NET BO'), 'ALFA');
-    assert.equal(withoutTrailingCountry('ALFA BO'), 'ALFA');
-    assert.equal(withoutTrailingCountry('BOLIVIA'), null);
-    assert.equal(withoutTrailingCountry('CERVECERIA BOLIVIANA NACIONAL'), null);
-    assert.equal(withoutTrailingCountry('BANCO BOLIVIA CENTRAL'), null);
+  it('quita «Bolivia» y los dominios .com.bo / .org.bo / .net.bo / .bo al final; «de Bolivia» se queda', () => {
+    assert.equal(normalizeBoliviaCompanyCore('Get Server Bolivia'), 'GET SERVER');
+    assert.equal(normalizeBoliviaCompanyCore('Cognos.com.bo'), 'COGNOS');
+    assert.equal(normalizeBoliviaCompanyCore('innovaedu.org.bo'), 'INNOVAEDU');
+    assert.equal(normalizeBoliviaCompanyCore('Alfa.net.bo'), 'ALFA');
+    assert.equal(normalizeBoliviaCompanyCore('Alfa.bo'), 'ALFA');
+    assert.equal(normalizeBoliviaCompanyCore('Bolivia'), 'BOLIVIA');
+    assert.equal(normalizeBoliviaCompanyCore('Cervecería Boliviana Nacional'), 'CERVECERIA BOLIVIANA NACIONAL');
+    assert.equal(normalizeBoliviaCompanyCore('Banco Central de Bolivia'), 'BANCO CENTRAL DE BOLIVIA');
   });
 
-  it('«Get Server Bolivia»: 0 resultados → una búsqueda sin «Bolivia» → pista con su NIT', async () => {
+  it('«Get Server Bolivia»: una sola búsqueda, ya sin «Bolivia» → coincidencia exacta con su NIT', async () => {
     const f = fakeBySearch({ 'GET SERVER': [hit('71', 'GET SERVER S.R.L.')] }, { '71': detail('327520026') });
-    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('GET SERVER BOLIVIA');
-    assert.deepEqual(rows, [{ taxId: '327520026', legalName: 'GET SERVER S.R.L.', normalizedLegalName: 'GET SERVER', brandSignal: true }]);
-    assert.equal(f.urls.filter((u) => u.includes('/buscarEmpresas?')).length, 2);
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })(normalizeBoliviaCompanyCore('Get Server Bolivia'));
+    assert.deepEqual(rows, [{ taxId: '327520026', legalName: 'GET SERVER S.R.L.', normalizedLegalName: 'GET SERVER' }]);
+    assert.equal(f.urls.filter((u) => u.includes('/buscarEmpresas?')).length, 1);
   });
 
-  it('marca repetida tras quitar el dominio («Cognos»: 6 resultados) → nada', async () => {
+  it('«Cognos.com.bo» (6 resultados): sólo la que tiene EXACTAMENTE ese núcleo pide ficha', async () => {
     const many = ['COGNOS S.R.L.', 'COGNOS TEC', 'COGNOS SOLUCIONES S.R.L.', 'TERRACOGNOS SRL', 'COGNOSER', 'ARQ COGNOS'].map((n, i) => hit(String(80 + i), n));
     const f = fakeBySearch({ COGNOS: many }, { '80': detail('1013989026') });
-    assert.deepEqual(await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('COGNOS COM BO'), []);
-    assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, 0);
+    const rows = await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })(normalizeBoliviaCompanyCore('Cognos.com.bo'));
+    assert.deepEqual(rows, [{ taxId: '1013989026', legalName: 'COGNOS S.R.L.', normalizedLegalName: 'COGNOS' }]);
+    assert.equal(f.urls.filter((u) => u.includes('informacionBasicaEmpresa')).length, 1);
   });
 
-  it('país pegado gana sobre el sector: como mucho UNA búsqueda más', async () => {
+  it('con el país pegado y nombre de sector: la segunda búsqueda es la del sector', async () => {
     const f = fakeBySearch({}, {});
-    await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })('ALIANZA SEGUROS BOLIVIA');
+    await buildSeprecNameLiveQuery({ sleep: noSleep, fetchImpl: f.fetchImpl })(normalizeBoliviaCompanyCore('Alianza Seguros Bolivia'));
     assert.deepEqual(
       f.urls.filter((u) => u.includes('/buscarEmpresas?')).map((u) => new URL(u).searchParams.get('filtro')),
-      ['ALIANZA SEGUROS BOLIVIA', 'ALIANZA SEGUROS'],
+      ['ALIANZA SEGUROS', 'ALIANZA COMPANIA DE SEGUROS'],
     );
   });
 });
