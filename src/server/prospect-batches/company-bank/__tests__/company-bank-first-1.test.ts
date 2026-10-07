@@ -576,8 +576,11 @@ async function runWith(
   deps: PrePaidNoveltyDiscoveryDeps,
   bank: { persisted: number; accepted: number } | null,
   withCanonical = true,
+  rescue: ((batchId: string) => Promise<Record<string, unknown> | null>) | null = null,
 ) {
   let bankCalls = 0;
+  const bankTargets: number[] = [];
+  const order: string[] = [];
   const out = await runPrePaidNoveltyDiscovery(
     {} as unknown as SupabaseClient,
     {
@@ -589,10 +592,20 @@ async function runWith(
       requestedByUserId: 'u-1',
       partialGapSupported: true,
       ...(withCanonical ? { resolveBatchId: async () => 'b-canon' } : {}),
+      ...(rescue
+        ? {
+            rescueUnverifiedFreeLayer: async (batchId: string) => {
+              order.push('rescue');
+              return rescue(batchId);
+            },
+          }
+        : {}),
       ...(bank
         ? {
-            drawCompanyBank: async () => {
+            drawCompanyBank: async (drawInput: { requestedTarget: number }) => {
               bankCalls++;
+              order.push('bank');
+              bankTargets.push(drawInput.requestedTarget);
               return {
                 batchId: bank.persisted > 0 ? 'b-canon' : null,
                 persistedCount: bank.persisted,
@@ -605,45 +618,71 @@ async function runWith(
     } as Parameters<typeof runPrePaidNoveltyDiscovery>[1],
     deps,
   );
-  return { out, bankCalls };
+  return { out, bankCalls, bankTargets, order };
 }
 
-describe('§ 5 — primero el banco, después la capa gratuita', () => {
-  it('🔴 el banco cierra la meta ⇒ la capa gratuita no corre y ningún proveedor hace falta', async () => {
-    const h = freeHarness([freeCompany(1)]);
-    const { out } = await runWith(h.deps, { persisted: 6, accepted: 5 });
-    assert.equal(h.gateTargets.length, 0);
+/** Empresa del registro SIN web (va a Descartadas y la busca el rescate). */
+function freeCompanyWithoutWeb(i: number): CountrySourceCompany {
+  return { ...freeCompany(i), recordIdentityKey: `tax:90000000${i}`, taxId: `90000000${i}`, domain: null } as CountrySourceCompany;
+}
+
+describe('§ 5 — AGENT1-FREE-LAYER-FIRST-1: primero la capa gratuita oficial, después el banco (dueña 07-10)', () => {
+  it('🔴 la capa gratuita cierra la meta ⇒ el banco NO se consulta y ningún proveedor hace falta', async () => {
+    const h = freeHarness([1, 2, 3, 4, 5].map(freeCompany));
+    const { out, bankCalls } = await runWith(h.deps, { persisted: 6, accepted: 5 });
+    assert.equal(bankCalls, 0);
+    assert.deepEqual(h.gateTargets, [TARGET], 'la capa busca el objetivo entero');
     assert.equal(out.providerRequired, false);
-    assert.equal(out.residualGap, 0);
-    assert.equal(out.acceptedBeforeProvider, 5);
-    assert.equal(out.persistedCount, 6);
-    assert.equal(out.batchId, 'b-canon');
+    assert.equal(out.acceptedBeforeProvider, TARGET);
   });
 
-  it('🔴 aporte parcial ⇒ la capa gratuita busca SÓLO el hueco, en el mismo lote', async () => {
-    const h = freeHarness([freeCompany(1), freeCompany(2), freeCompany(3), freeCompany(4)]);
-    const { out } = await runWith({ ...h.deps, maxDeliveredCandidates: 10 }, { persisted: 4, accepted: 2 });
-    assert.deepEqual(h.gateTargets, [3], 'hueco = 5 − 2 aceptadas del banco');
-    assert.equal(h.persisted[0].batchId, 'b-canon');
-    assert.equal(out.requestedTarget, TARGET);
-    assert.equal(out.persistedCount, 4 + h.persisted[0].count);
-    assert.equal(out.acceptedBeforeProvider, Math.min(TARGET, 2 + 3));
-  });
-
-  it('las «por completar» del banco se entregan pero no cierran el hueco', async () => {
-    const h = freeHarness([]);
-    const { out } = await runWith(h.deps, { persisted: 7, accepted: 0 });
+  it('🔴 aporte parcial ⇒ el banco busca SÓLO el hueco, en el mismo lote, y los aportes se suman', async () => {
+    const h = freeHarness([1, 2].map(freeCompany));
+    const { out, bankTargets, order } = await runWith({ ...h.deps, maxDeliveredCandidates: 10 }, { persisted: 4, accepted: 2 });
     assert.deepEqual(h.gateTargets, [TARGET]);
-    assert.equal(out.persistedCount, 7);
-    assert.equal(out.acceptedBeforeProvider, 0);
+    assert.deepEqual(order, ['bank']);
+    assert.deepEqual(bankTargets, [TARGET - 2], 'hueco = 5 − 2 aceptadas de la capa');
+    assert.equal(out.persistedCount, 2 + 4);
+    assert.equal(out.acceptedBeforeProvider, 4);
+    assert.equal(out.residualGap, 1);
     assert.equal(out.providerRequired, true);
     assert.equal(out.batchId, 'b-canon');
   });
 
-  it('banco sin aporte ⇒ la capa gratuita de siempre (objetivo entero)', async () => {
+  it('🔴 Prod 7f36b6f9: la capa manda sin web a Descartadas ⇒ el rescate corre ANTES del banco, en el lote canónico', async () => {
+    const h = freeHarness([1, 2, 3].map(freeCompanyWithoutWeb));
+    const rescued: string[] = [];
+    const { out, order } = await runWith(
+      { ...h.deps, maxDeliveredCandidates: 10 },
+      { persisted: 2, accepted: 0 },
+      true,
+      async (batchId) => (rescued.push(batchId), { ran: true, admitted: 2, kept: 1 }),
+    );
+    assert.deepEqual(order, ['rescue', 'bank']);
+    assert.deepEqual(rescued, ['b-canon']);
+    assert.deepEqual(out.telemetry['free_layer_rescue_first'], { ran: true, admitted: 2, kept: 1 });
+    assert.equal(out.telemetry['unverified_sent_to_discards'], 3);
+  });
+
+  it('sin sin web en Descartadas el rescate no corre; un rescate que falla no rompe nada', async () => {
     const h = freeHarness([freeCompany(1)]);
-    await runWith(h.deps, { persisted: 0, accepted: 0 });
-    assert.deepEqual(h.gateTargets, [TARGET]);
+    const { order } = await runWith(h.deps, { persisted: 0, accepted: 0 }, true, async () => ({ ran: true }));
+    assert.deepEqual(order, ['bank']);
+    const h2 = freeHarness([freeCompanyWithoutWeb(1)]);
+    const { out } = await runWith(h2.deps, null, true, async () => {
+      throw new Error('caído');
+    });
+    assert.deepEqual(out.telemetry['free_layer_rescue_first'], { ran: false, reason: 'failed' });
+  });
+
+  it('las «por completar» del banco se entregan pero no cierran el hueco', async () => {
+    const h = freeHarness([]);
+    const { out, bankTargets } = await runWith(h.deps, { persisted: 7, accepted: 0 });
+    assert.deepEqual(bankTargets, [TARGET], 'sin aporte de la capa, el banco busca el objetivo entero');
+    assert.equal(out.persistedCount, 7);
+    assert.equal(out.acceptedBeforeProvider, 0);
+    assert.equal(out.providerRequired, true);
+    assert.equal(out.batchId, 'b-canon');
   });
 
   it('🔴 sin lote canónico (ruta Lusha) el banco NO se consulta', async () => {
