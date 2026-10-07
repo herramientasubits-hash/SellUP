@@ -196,20 +196,6 @@ export const CHILE_LEGAL_FORMS: readonly string[] = [
 ];
 
 /**
- * Formas societarias de Costa Rica, más largas primero. SOURCES-CR-CEDULA-BY-NAME-1.
- */
-export const COSTA_RICA_LEGAL_FORMS: readonly string[] = [
-  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
-  'SOCIEDAD ANONIMA',
-  'LIMITADA',
-  'S R L',
-  'S A',
-  'LTDA',
-  'SRL',
-  'SA',
-];
-
-/**
  * Formas societarias de Bolivia (SEPREC), más largas primero.
  * SOURCES-BO-NIT-BY-NAME-LIVE-1.
  */

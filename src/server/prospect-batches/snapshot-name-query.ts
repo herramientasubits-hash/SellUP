@@ -77,10 +77,34 @@ function bandFromParaguayMipymeSize(raw: Record<string, unknown>, source: string
   return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
 }
 
+/**
+ * SOURCES-CR-CLOSE-1 — tramo PYME del MEIC de Costa Rica (Ley 8262 y su
+ * reglamento: el índice combina personal, ventas y activos; en personas la
+ * micro llega a 10, la pequeña a 35 y la mediana a 100). Micro y pequeña quedan
+ * bajo el corte de pequeña del filtro de tamaño; la mediana no decide sola.
+ * Aprobado por la dueña el 06-10-2026.
+ */
+export const CR_MEIC_BANDS: Readonly<Record<string, { min: number; max: number; label: string }>> = {
+  MICRO: { min: 0, max: 10, label: 'micro' },
+  PEQUEÑA: { min: 11, max: 35, label: 'pequeña' },
+  PEQUENA: { min: 11, max: 35, label: 'pequeña' },
+  MEDIANA: { min: 36, max: 100, label: 'mediana' },
+};
+
+function bandFromCostaRicaMeicSize(raw: Record<string, unknown>, source: string): OfficialWorkforce | null {
+  const value = raw['cr_meic_size'];
+  const year = raw['cr_meic_size_year'];
+  if (typeof value !== 'string' || typeof year !== 'number' || !Number.isInteger(year)) return null;
+  const band = CR_MEIC_BANDS[value.trim().toUpperCase()];
+  if (!band) return null;
+  return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
+}
+
 export function workforceFromRawData(raw: unknown, source: string, fallbackYear: number | null = null): OfficialWorkforce | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
   if (record['py_mipyme_size'] !== undefined) return bandFromParaguayMipymeSize(record, source);
+  if (record['cr_meic_size'] !== undefined) return bandFromCostaRicaMeicSize(record, source);
   const workers = record['workers'];
   const year = record['metrics_year'];
   if (workers === undefined && record['stratification'] !== undefined) {

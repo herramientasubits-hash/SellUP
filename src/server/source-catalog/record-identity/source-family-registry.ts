@@ -71,6 +71,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   py_dncp_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
+  // SOURCES-CR-CLOSE-1 — una cédula, una fila (proveedoras SICOP, Zona Franca, entidades públicas).
+  cr_free_directory: 'TAX_GRAIN',
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
   do_dgii_size_registry: 'TAX_GRAIN',
   do_dgii_trade_name_registry: 'TAX_GRAIN',
@@ -81,6 +83,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-PY-CLOSE-1 — varias filas por RUC (sigla, partes del nombre, clave de
   // entidad pública del padrón de la DNIT): identidad `py-name-alias:<RUC>:<clave>`.
   py_set_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-CR-CLOSE-1 — varias filas por cédula (nombre anterior, siglas oficiales,
+  // otros nombres y clave de municipalidad): identidad `cr-name-alias:<cédula>:<clave>`.
+  cr_company_name_alias: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC: la 1.ª con clave tax:<RUC>, las demás

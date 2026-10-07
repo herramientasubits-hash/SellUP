@@ -63,6 +63,12 @@ import {
   PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type PyDncpDirectoryDiscoveryReads,
 } from './py-dncp-directory-discovery-adapter';
+import {
+  buildCrFreeDirectoryDiscoveryAdapter,
+  CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type CrFreeDirectoryDiscoveryReads,
+} from './cr-free-directory-discovery-adapter';
+import { macroHasCrCoverage } from './cr-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
@@ -105,8 +111,14 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * (adjudicaciones de la DNCP en datos abiertos), clasificadas por lo que venden
  * (UNSPSC, `py-dncp-macro-table.ts`), sin consorcios y sin las que declararon ser
  * micro, pequeña o mediana.
+ *
+ * SOURCES-CR-CLOSE-1 — Costa Rica entra con un directorio oficial: proveedoras
+ * del Estado (ofertas de SICOP, clasificadas por lo que venden con la tabla
+ * UNSPSC aprobada de Paraguay), empresas en Zona Franca (PROCOMER, por su
+ * actividad CAECR con la tabla CIIU aprobada) y entidades públicas (Gobierno);
+ * sin las que el MEIC registra como micro o pequeña.
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'CR'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -122,6 +134,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -143,6 +156,7 @@ export function resolveCountrySourceCapability(
  * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
  * Paraguay: la macro tiene clases UNSPSC en la tabla.
+ * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -158,6 +172,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
   if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
+  if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -182,6 +197,7 @@ export function buildCountrySourceAdapter(
     clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
     pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
+    crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -213,6 +229,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'PY') {
     return deps.pyDncpDirectoryDiscoveryReads
       ? buildPyDncpDirectoryDiscoveryAdapter(deps.pyDncpDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'CR') {
+    return deps.crFreeDirectoryDiscoveryReads
+      ? buildCrFreeDirectoryDiscoveryAdapter(deps.crFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

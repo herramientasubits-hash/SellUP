@@ -46,6 +46,8 @@ const TAX_GRAIN_SOURCE_KEYS = [
   // SOURCES-PY-CLOSE-1
   'py_dncp_directory',
   'cr_company_registry',
+  // SOURCES-CR-CLOSE-1
+  'cr_free_directory',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
 ] as const;
@@ -59,6 +61,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'py_set_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.
   'ec_sri_trade_name_registry',
+  // SOURCES-CR-CLOSE-1 — varias claves de nombre por cédula.
+  'cr_company_name_alias',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────
