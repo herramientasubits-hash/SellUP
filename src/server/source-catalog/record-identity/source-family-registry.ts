@@ -65,6 +65,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   ec_sri_registry: 'TAX_GRAIN',
   // SOURCES-CL-SII-FREE-DISCOVERY-1 — un RUT, una fila (personas jurídicas del SII con 100+ trabajadores).
   cl_sii_directory: 'TAX_GRAIN',
+  // SOURCES-CL-NAME-ALIAS-1 — una clave por (RUT, nombre comercial) del SII.
+  cl_sii_name_alias: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PE-FREE-DISCOVERY-1 — un RUC, una fila (sociedades y entidades de SUNAT con 200+ trabajadores).
   pe_sunat_directory: 'TAX_GRAIN',
   // SOURCES-PY-CLOSE-1 — un RUC, una fila (proveedores del Estado de la DNCP de Paraguay).

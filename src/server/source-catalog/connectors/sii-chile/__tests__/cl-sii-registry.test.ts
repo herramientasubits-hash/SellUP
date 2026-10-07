@@ -237,13 +237,16 @@ describe('trabajadores en la corrida (sólo con RUT fuerte)', () => {
     assert.equal(fake.selects[0], 'normalized_tax_id, legal_name, normalized_legal_name');
   });
 
-  it('cableado: Chile = SII primero y, si no hay RUT fuerte, el RES', () => {
+  it('cableado: Chile = SII primero (con alias y siglas) y, si no hay RUT fuerte, el RES', () => {
+    // SOURCES-CL-NAME-ALIAS-1 — el SII lo resuelve `createChileOfficialSourceResolver`,
+    // cuya lectura trae los trabajadores (`chile-snapshot-query.ts`).
     const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
-    const i = wiring.indexOf('sourceKey: CL_SII_REGISTRY_SOURCE_KEY');
+    const i = wiring.indexOf('createChileOfficialSourceResolver({');
     const j = wiring.indexOf("sourceKey: 'cl_res_registry'");
     assert.ok(i > 0 && j > i);
     assert.match(wiring.slice(i - 400, i), /createFallbackOfficialSourceResolver\(/);
-    assert.match(wiring.slice(i, j), /withWorkforce: true/);
+    const query = readFileSync(join(process.cwd(), 'src/server/prospect-batches/chile-snapshot-query.ts'), 'utf8');
+    assert.match(query, /workforceFromRawData\(row\['raw_data'\]/);
   });
 });
 
@@ -275,9 +278,9 @@ describe('organismos públicos con la forma del SII (SOURCES-CL-PUBLIC-ENTITY-AL
   });
 
   it('cableado: el resolvedor del SII usa el mismo núcleo que la carga', () => {
+    const keys = readFileSync(join(process.cwd(), 'src/server/source-catalog/connectors/sii-chile/cl-name-keys.ts'), 'utf8');
+    assert.match(keys, /const core = normalizeChileSiiCore\(text\);/);
     const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
-    const i = wiring.indexOf('sourceKey: CL_SII_REGISTRY_SOURCE_KEY');
-    assert.match(wiring.slice(i, i + 300), /normalizeCore: normalizeChileSiiCore,/);
     const j = wiring.indexOf("sourceKey: 'cl_res_registry'");
     assert.match(wiring.slice(j, j + 300), /normalizeCore: normalizeChileCompanyCore,/);
   });

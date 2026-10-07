@@ -1073,6 +1073,33 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'cl_sii_name_alias',
+    name: 'SII — nombre comercial dentro de la razón social, para el RUT (Chile)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Pendiente de carga (con autorización): scripts/source-catalog/run-cl-sii-name-alias-etl.ts lee cl_sii_registry y guarda la palabra final de la razón social como clave extra (dry-run por defecto; --apply con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=cl_sii_name_alias). Se recarga después de cada recarga de cl_sii_registry.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
+    automationLevel: 'high',
+    recommendedUse:
+      'Clave de nombre extra para encontrar el RUT de la MISMA sociedad del SII cuando se la conoce por la palabra que cierra su razón social: «Transemel» es «EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A» (corrida Chile × Energía del 07-10-2026). Junto con esta fuente, el RUT por nombre de Chile prueba variantes del nombre (sin restos de la web, cada parte de un nombre doble, sin «Chile» al final) y reconoce las siglas de 55 organismos públicos y empresas del Estado (INJUV, Junaeb, SENDA, PDI con su web, CORFO…), con el RUT leído del SII.',
+    limitations: [
+      'Sólo la palabra final, de 5 o más letras, que no sea genérica y que salga en UNA sola sociedad de todo el registro.',
+      'Sólo sociedades con 10 o más trabajadores informados al SII.',
+      'Snapshot estático — se recarga junto con cl_sii_registry.',
+    ],
+    riskNotes: [
+      'Una palabra que comparten varias sociedades (p. ej. «BANMEDICA», que está en el centro de servicios compartidos y en Banmédica Internacional) no se guarda.',
+      'El alias apunta siempre a la misma sociedad del registro: no es otra fuente de identidad.',
+    ],
+  },
+  {
     key: 'cl_sii_directory',
     name: 'SII — capa gratuita por industria (100+ trabajadores)',
     sellupUse: 'enrichment',
