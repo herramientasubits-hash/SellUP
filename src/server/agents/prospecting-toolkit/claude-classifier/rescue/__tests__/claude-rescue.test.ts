@@ -964,6 +964,24 @@ describe('K. el rescate no pasa del tope de entrega', () => {
     assert.equal(s.dispositionsCapped, 2);
   });
 
+  it('lugar apartado por una revisión que no entra: la siguiente espera y lo usa (Prod CR × Servicios bbc7a8ad)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => three,
+      deliverySlots: async () => 1,
+      classify: async (company) => {
+        if (company.candidateId !== 'd1') return result({ candidateId: company.candidateId });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null });
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(s.dispositionsAdmitted, 1, 'd1 no entra y su lugar pasa a otra');
+    assert.equal(s.dispositionsCapped, 1, 'el lote queda lleno: la tercera sí se queda sin revisar');
+  });
+
   it('los candidatos ya en revisión se siguen completando aunque el lote esté lleno (no ocupan lugar nuevo)', async () => {
     const f = fakeDeps({ loadDispositions: async () => [], deliverySlots: async () => 0 });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
