@@ -11,12 +11,14 @@
  * autoridad sobre el NOMBRE (el primero que trae una cédula pone la razón social;
  * los nombres de las demás fuentes quedan como alias):
  *
- *   1. Hacienda «Grandes Contribuyentes Nacionales» (cuando la dueña lo aporta).
+ *   1. SUGEF «Entidades supervisadas» (bancos, financieras, cooperativas; la
+ *      lista más reciente, con los cambios de nombre: Scotiabank → Davibank).
  *   2. PROCOMER «Empresas en Régimen de Zona Franca» (Excel oficial; trae el
  *      nombre anterior: «(antes …)»).
- *   3. SUGEF «Entidades supervisadas» (bancos, financieras, cooperativas).
- *   4. Instituciones compradoras de SICOP (Hacienda, datos.go.cr, CC-BY):
+ *   3. Instituciones compradoras de SICOP (Hacienda, datos.go.cr, CC-BY):
  *      ministerios, poderes, autónomas, municipalidades, universidades públicas.
+ *   4. Hacienda «Grandes Contribuyentes Nacionales» (PDF de noviembre de 2025,
+ *      aportado por la dueña: la descarga está bloqueada fuera de Costa Rica).
  *   5. MEIC «Lista de Pymes activas» (datos.go.cr, CC-BY): su TAMAÑO (micro,
  *      pequeña, mediana) viaja SIEMPRE, aunque el nombre venga de otra fuente.
  *   6. Hacienda SICOP «recursos» y «aclaraciones» 2022-2024 (proveedores con nombre;
@@ -60,10 +62,10 @@ export type CrRegistryOrigin =
 
 /** Orden de autoridad sobre el nombre (el menor gana). */
 const ORIGIN_RANK: Readonly<Record<CrRegistryOrigin, number>> = {
-  hacienda_grandes_contribuyentes: 0,
+  sugef: 0,
   procomer_zona_franca: 1,
-  sugef: 2,
-  sicop_institution: 3,
+  sicop_institution: 2,
+  hacienda_grandes_contribuyentes: 3,
   meic_pymes: 4,
   sicop_recursos: 5,
   sicop_aclaraciones: 6,
