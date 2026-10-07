@@ -66,6 +66,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pe_sunat_name_alias',
   // SOURCES-PY-CLOSE-1 — varias claves de nombre por RUC.
   'py_set_name_alias',
+  // SOURCES-CL-NAME-ALIAS-1 — una clave por (RUT, nombre comercial) del SII.
+  'cl_sii_name_alias',
   // SOURCES-GT-CLOSE-1 — varias claves de nombre por NIT.
   'gt_nit_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.

@@ -84,10 +84,8 @@ import {
 import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
 import { buildHondurasSnapshotNameQuery } from '@/server/prospect-batches/honduras-snapshot-query';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
-import {
-  CL_SII_REGISTRY_SOURCE_KEY,
-  normalizeChileSiiCore,
-} from '@/server/source-catalog/connectors/sii-chile/cl-sii-registry-rows';
+import { createChileOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/chile-official-source-resolver';
+import { buildChileSnapshotNameQuery } from '@/server/prospect-batches/chile-snapshot-query';
 import { createCostaRicaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/costa-rica-official-source-resolver';
 import { buildCostaRicaSnapshotNameQuery } from '@/server/prospect-batches/costa-rica-snapshot-query';
 import {
@@ -261,16 +259,11 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // SOURCES-CL-SII-REGISTRY-1 — personas jurídicas activas del SII (desde 1993,
     // con trabajadores informados); si no da RUT fuerte, el Registro de Empresas
     // y Sociedades (SOURCES-CL-RUT-BY-NAME-1, sólo constituidas desde 2013).
+    // SOURCES-CL-NAME-ALIAS-1 — con variantes del nombre, siglas de organismos
+    // públicos y el nombre comercial al final de la razón social (cl_sii_name_alias).
     createFallbackOfficialSourceResolver(
-      createSnapshotNameOfficialSourceResolver({
-        countryCode: 'CL',
-        sourceKey: CL_SII_REGISTRY_SOURCE_KEY,
-        taxIdentifierType: 'RUT',
-        validTaxId: /^\d{7,8}-[\dK]$/,
-        normalizeCore: normalizeChileSiiCore,
-        querySnapshots: buildSnapshotNameQuery(snapshotClient, CL_SII_REGISTRY_SOURCE_KEY, 'CL', {
-          withWorkforce: true,
-        }),
+      createChileOfficialSourceResolver({
+        querySnapshots: buildChileSnapshotNameQuery(snapshotClient),
       }),
       createSnapshotNameOfficialSourceResolver({
         countryCode: 'CL',
