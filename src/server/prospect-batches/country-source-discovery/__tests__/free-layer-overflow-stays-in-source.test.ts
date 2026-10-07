@@ -152,7 +152,7 @@ describe('2. una empresa de otra industria no ocupa lugar de la búsqueda', () =
 
   it('un candidato que pasa a otra industria libera su lugar; reabrir descartes por sector no ocupa lugares', () => {
     const rescue = source('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
-    assert.match(rescue, /if \(outcome\.tag === 'reassigned'\) ctx\.slots\.remaining\+\+/);
+    assert.match(rescue, /if \(outcome\.tag === 'reassigned'\) \{\s*ctx\.slots\.remaining\+\+;/);
     assert.match(rescue, /rescueCandidateFreeingSlot\(item\.row, ctx, deps\)/);
     const stored = /async function reassignStoredSectorMismatches[\s\S]*?\n\}\n/.exec(rescue)?.[0] ?? '';
     assert.ok(stored.length > 0);

@@ -212,7 +212,38 @@ type ItemOutcome =
     };
 
 /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote (Infinity = sin tope). */
-type DeliverySlots = { remaining: number };
+type DeliverySlots = {
+  remaining: number;
+  /** Lugares apartados por filas que Claude está revisando ahora mismo. */
+  reserved?: number;
+  /** Filas esperando a que una revisión en curso devuelva su lugar. */
+  waiters?: Array<() => void>;
+};
+
+/** Despierta a las filas que esperaban un lugar (cada una vuelve a mirar). */
+function releaseSlotWaiters(slots: DeliverySlots): void {
+  const waiters = slots.waiters ?? [];
+  slots.waiters = [];
+  for (const wake of waiters) wake();
+}
+
+/**
+ * AGENT1-RESCUE-WAITS-FOR-RESERVED-SLOTS-1 — sin lugar libre pero con lugares
+ * APARTADOS por revisiones en curso, la fila espera a que terminen: si esas no
+ * entran, el lugar vuelve y le toca. Sólo sin lugares libres NI apartados se queda
+ * en Descartadas. Prod 07-10 (Costa Rica × Servicios, bbc7a8ad): 3 lugares libres,
+ * 6 revisiones a la vez; las 3 primeras terminaron sin entrar y las otras 8 (con
+ * Concentrix y P&G) quedaron «capped» sin revisar.
+ */
+async function reserveDeliverySlot(slots: DeliverySlots): Promise<boolean> {
+  while (slots.remaining <= 0) {
+    if ((slots.reserved ?? 0) <= 0) return false;
+    await new Promise<void>((resolve) => (slots.waiters ??= []).push(resolve));
+  }
+  slots.remaining--;
+  slots.reserved = (slots.reserved ?? 0) + 1;
+  return true;
+}
 
 /**
  * Reserva un lugar ANTES de gastar en Claude; si la fila no termina en revisión, lo
@@ -230,11 +261,17 @@ async function rescueDispositionWithinCap(
   deps: RescueBatchDeps,
   admittedIds: string[],
 ): Promise<ItemOutcome> {
-  if (ctx.slots.remaining <= 0) return { tag: 'capped', cost: 0 };
-  ctx.slots.remaining--;
-  const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
-  if (!keepsDeliverySlot(outcome.tag)) ctx.slots.remaining++;
-  return outcome;
+  if (!(await reserveDeliverySlot(ctx.slots))) return { tag: 'capped', cost: 0 };
+  let kept = false;
+  try {
+    const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
+    kept = keepsDeliverySlot(outcome.tag);
+    return outcome;
+  } finally {
+    ctx.slots.reserved = (ctx.slots.reserved ?? 1) - 1;
+    if (!kept) ctx.slots.remaining++;
+    releaseSlotWaiters(ctx.slots);
+  }
 }
 
 /** Sólo una empresa de la industria pedida que entra a revisión ocupa uno de los lugares. */
@@ -249,7 +286,10 @@ async function rescueCandidateFreeingSlot(
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
   const outcome = await rescueCandidate(row, ctx, deps);
-  if (outcome.tag === 'reassigned') ctx.slots.remaining++;
+  if (outcome.tag === 'reassigned') {
+    ctx.slots.remaining++;
+    releaseSlotWaiters(ctx.slots);
+  }
   return outcome;
 }
 
