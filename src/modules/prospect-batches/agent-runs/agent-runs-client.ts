@@ -62,6 +62,17 @@ export async function continueApolloRoundViaRoute(batchId: string): Promise<Cont
   return (await postJson<{ outcome: ContinueApolloRoundResult }>('/api/prospect-batches/apollo-continuation', { batchId })).outcome;
 }
 
+/**
+ * AGENT1-STUCK-RUNS-CLOSE-1 — botón «Terminar»: cierra la continuación del lote y
+ * deja lo encontrado para revisar. No gasta créditos.
+ */
+export async function finishAgentRunViaRoute(batchId: string): Promise<{ closedJobs: number; batchStatus: string | null }> {
+  return (await postJson<{ result: { closedJobs: number; batchStatus: string | null } }>('/api/prospect-batches/finish-run', { batchId })).result;
+}
+
+/** Evento para que el Centro de procesos vuelva a conducir una continuación detenida. */
+export const APOLLO_CONTINUATION_RETRY_EVENT = 'sellup:apollo-continuation:retry';
+
 let singleton: AgentRunsStore | null = null;
 
 /** El almacén del navegador. En el servidor no existe (devuelve `null`). */

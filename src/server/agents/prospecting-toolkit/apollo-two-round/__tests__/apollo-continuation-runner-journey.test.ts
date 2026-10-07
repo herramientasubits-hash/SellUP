@@ -558,11 +558,13 @@ function conductorDeps(
       }
       return { assessmentDeadlineReached: paused, pendingOrganizationCount: pending };
     },
-    settleJob: async ({ jobId, leaseToken, status }) => {
+    settleJob: async ({ jobId, leaseToken, status, resetAttempts }) => {
       // § 3 — vallado por token: un dueño antiguo no cierra nada.
       const job = journey.queue.find((q) => q.id === jobId && q.leaseToken === leaseToken);
       if (!job) return;
       job.status = status;
+      // AGENT1-STUCK-RUNS-CLOSE-1 — igual que el servidor real.
+      if (resetAttempts) job.attempts = 0;
       job.leaseToken = null;
       job.leaseExpiresAtMs = null;
     },
