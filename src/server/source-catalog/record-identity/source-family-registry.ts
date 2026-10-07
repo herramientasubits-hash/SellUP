@@ -65,6 +65,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   ec_sri_registry: 'TAX_GRAIN',
   // SOURCES-CL-SII-FREE-DISCOVERY-1 — un RUT, una fila (personas jurídicas del SII con 100+ trabajadores).
   cl_sii_directory: 'TAX_GRAIN',
+  // SOURCES-CL-NAME-ALIAS-1 — una clave por (RUT, nombre comercial) del SII.
+  cl_sii_name_alias: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PE-FREE-DISCOVERY-1 — un RUC, una fila (sociedades y entidades de SUNAT con 200+ trabajadores).
   pe_sunat_directory: 'TAX_GRAIN',
   // SOURCES-PY-CLOSE-1 — un RUC, una fila (proveedores del Estado de la DNCP de Paraguay).
@@ -81,6 +83,11 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-CR-CLOSE-1 — una cédula, una fila (proveedoras SICOP, Zona Franca, entidades públicas).
   cr_free_directory: 'TAX_GRAIN',
+  // SOURCES-PA-CLOSE-1 — un RUC, una fila (registro unido de Panamá: proveedoras y
+  // entidades compradoras de PanamaCompra + Grandes Contribuyentes de la DGI; y la
+  // capa gratuita).
+  pa_ruc_registry: 'TAX_GRAIN',
+  pa_free_directory: 'TAX_GRAIN',
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
   do_dgii_size_registry: 'TAX_GRAIN',
   do_dgii_trade_name_registry: 'TAX_GRAIN',
@@ -111,6 +118,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-HN-CLOSE-1 — una fila por entidad compradora de ONCAE (`hn-oncae-ce:<código>`):
   // ONCAE no publica su RTN.
   hn_public_entities: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
+  // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
+  pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC: la 1.ª con clave tax:<RUC>, las demás

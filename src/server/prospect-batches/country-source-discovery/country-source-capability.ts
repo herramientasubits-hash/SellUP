@@ -76,6 +76,12 @@ import {
   type CrFreeDirectoryDiscoveryReads,
 } from './cr-free-directory-discovery-adapter';
 import { macroHasCrCoverage } from './cr-free-directory-macro-table';
+import {
+  buildPaFreeDirectoryDiscoveryAdapter,
+  PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type PaFreeDirectoryDiscoveryReads,
+} from './pa-free-directory-discovery-adapter';
+import { macroHasPaCoverage } from './pa-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -151,8 +157,13 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * clasificadas por lo que venden (UNSPSC con la tabla aprobada de Paraguay, u
  * objeto del gasto de SIAFI), sin consorcios ni «*MIPYME*», con al menos L 5
  * millones adjudicados; y con las entidades compradoras que tienen web (Gobierno).
+ *
+ * SOURCES-PA-CLOSE-1 — Panamá entra con un directorio oficial: sociedades a las que
+ * el Estado adjudicó al menos B/.1 millón en PanamaCompra (clasificadas por lo que
+ * venden con la tabla UNSPSC aprobada de Paraguay), Grandes Contribuyentes de la DGI
+ * (tabla revisada por la dueña) y entidades compradoras con RUC (Gobierno).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -172,6 +183,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
   CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   HN: { countryCode: 'HN', sourceKey: HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -216,6 +228,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
   if (capability.countryCode === 'HN') return macroHasHnHonducomprasCoverage(macroIndustryKey);
+  if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -244,6 +257,7 @@ export function buildCountrySourceAdapter(
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
     crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
     hnHonducomprasDirectoryDiscoveryReads?: HnHonducomprasDirectoryDiscoveryReads | null;
+    paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -293,6 +307,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'HN') {
     return deps.hnHonducomprasDirectoryDiscoveryReads
       ? buildHnHonducomprasDirectoryDiscoveryAdapter(deps.hnHonducomprasDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'PA') {
+    return deps.paFreeDirectoryDiscoveryReads
+      ? buildPaFreeDirectoryDiscoveryAdapter(deps.paFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

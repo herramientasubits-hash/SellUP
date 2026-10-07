@@ -53,6 +53,9 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'cr_company_registry',
   // SOURCES-CR-CLOSE-1
   'cr_free_directory',
+  // SOURCES-PA-CLOSE-1
+  'pa_ruc_registry',
+  'pa_free_directory',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
   // SOURCES-BO-CLOSE-1 — grandes contribuyentes de Bolivia.
@@ -61,11 +64,15 @@ const TAX_GRAIN_SOURCE_KEYS = [
 
 const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pa_panamacompra_convenio',
+  // SOURCES-PA-CLOSE-1 — varias claves de nombre por RUC.
+  'pa_ruc_name_alias',
   'co_fedesoft',
   'ec_scvs',
   'pe_sunat_name_alias',
   // SOURCES-PY-CLOSE-1 — varias claves de nombre por RUC.
   'py_set_name_alias',
+  // SOURCES-CL-NAME-ALIAS-1 — una clave por (RUT, nombre comercial) del SII.
+  'cl_sii_name_alias',
   // SOURCES-GT-CLOSE-1 — varias claves de nombre por NIT.
   'gt_nit_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.

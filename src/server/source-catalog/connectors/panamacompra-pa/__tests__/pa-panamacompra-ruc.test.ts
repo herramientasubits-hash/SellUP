@@ -124,23 +124,20 @@ describe('RUC por nombre dentro de la corrida', () => {
     assert.equal(enriched.taxIdentifierType, 'RUC');
   });
 
-  it('cableado: Panamá en la fábrica, con la regla de una palabra', () => {
+  it('cableado: SOURCES-PA-CLOSE-1 sustituye esta carga por el registro unido (pa_ruc_registry)', () => {
     const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
-    assert.match(
-      wiring,
-      /countryCode: 'PA',\s*sourceKey: PA_PANAMACOMPRA_RUC_SOURCE_KEY,\s*taxIdentifierType: 'RUC',[\s\S]{0,200}normalizeCore: normalizePanamaCompanyCore,[\s\S]{0,200}singleWordIsSignalOnly: true,/,
-    );
+    assert.doesNotMatch(wiring, /PA_PANAMACOMPRA_RUC_SOURCE_KEY/);
+    assert.match(wiring, /createPanamaOfficialSourceResolver\(/);
   });
 });
 
 describe('catálogo', () => {
-  it('cargada y verificada, fuera de las recomendaciones', () => {
+  it('sustituida por el registro unido (SOURCES-PA-CLOSE-1), fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'pa_panamacompra_ruc_registry');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['PA']);
-    assert.equal(s.aiFlowStatus, 'connected_identity_in_run');
-    assert.equal(s.operationalStatus, 'operational_verified');
-    assert.match(s.nextAction ?? '', /6\.700 .*cargadas/);
+    assert.equal(s.aiFlowStatus, 'snapshot_persisted');
+    assert.match(s.nextAction ?? '', /SUSTITUIDA .*pa_ruc_registry/);
     for (const depth of ['basic', 'standard', 'deep'] as const) {
       const ctx = getCatalogContext({ country: 'Panamá', countryCode: 'PA', industry: 'technology', searchDepth: depth });
       assert.equal(ctx.recommendedSources.some((r) => r.key === 'pa_panamacompra_ruc_registry'), false, depth);

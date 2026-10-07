@@ -24,6 +24,7 @@ import {
 } from '../domain-finder';
 import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
 import { CLAUDE_RESCUE_METADATA_KEY } from './rescue-patch';
+import { INSTITUTION_WEB_RULE_VERSION, institutionHostLabel, institutionWebMatchesName } from './institution-web-name-match';
 
 export const DOMAIN_SEARCH_REASON_CODE = 'missing_domain_final';
 export const CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY = 'claude_domain_search';
@@ -514,6 +515,35 @@ export function websiteNotFoundBeforeOfficialNames(
 }
 
 /**
+ * AGENT1-RESCUE-INSTITUTION-WEB-NAME-1 v2 — «sitio no encontrado» porque la regla de
+ * webs institucionales de una versión ANTERIOR rechazó la web que Claude propuso, y
+ * con la regla de hoy esa web sí corresponde: vale UNA vuelta más. Prod 07-10
+ * (9fc7fc7b): Relaciones Exteriores → cancilleria.gob.ec.
+ */
+export function websiteRejectedByOlderInstitutionRule(
+  row: Pick<DomainSearchRow, 'evidence' | 'name'>,
+): boolean {
+  const rescue = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
+  if (rescue?.decision !== 'website_not_found') return false;
+  const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as
+    | { reason?: unknown; claimed_url?: unknown; institution_web_rule?: unknown }
+    | undefined;
+  if (search?.reason !== 'identity_not_confirmed' || typeof search.claimed_url !== 'string') return false;
+  const version = typeof search.institution_web_rule === 'number' ? search.institution_web_rule : 1;
+  if (version >= INSTITUTION_WEB_RULE_VERSION) return false;
+  let host: string;
+  try {
+    host = new URL(search.claimed_url).hostname;
+  } catch {
+    return false;
+  }
+  if (institutionHostLabel(host) === null) return false;
+  const rawName = row.evidence?.provider_raw_name;
+  const names = [row.name ?? '', typeof rawName === 'string' ? rawName : ''];
+  return institutionWebMatchesName(host, names);
+}
+
+/**
  * Lo que ve el vendedor en «Validación del sitio web»: para una pista, «Inferido» + el
  * dominio, nunca «Verificado»; para la marca oficial del mismo RUC, «Verificado».
  */
@@ -592,6 +622,7 @@ export function buildDomainSearchStaysEvidence(
           claimed_url: params.outcome.claimedUrl ?? null,
           error_code: params.outcome.errorCode ?? null,
           ...(options.officialNamesChecked ? { official_names_checked: true } : {}),
+          institution_web_rule: INSTITUTION_WEB_RULE_VERSION,
         }
       : {
           ...(base[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as Evidence),
