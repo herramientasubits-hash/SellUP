@@ -2022,6 +2022,61 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Un nombre repetido o genérico no da un CUIT seguro; queda como señal.',
     ],
   },
+  {
+    key: 'ar_public_entities',
+    name: 'Entidades públicas de Argentina — CUIT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código: si el Registro Nacional de Sociedades no da un CUIT seguro, el Agente 1 busca el nombre de la candidata en este directorio (337 entidades armadas el 07-10 con fuentes oficiales: 222 municipios, 55 organismos nacionales y 60 universidades nacionales). La carga espera la autorización de la dueña: run-ar-public-entities-etl.ts.',
+    countryCodes: ['AR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.argentina.gob.ar/interior/observatorio-politico-electoral/refeglo',
+    automationLevel: 'high',
+    recommendedUse:
+      'Directorio de entidades públicas de Argentina armado cruzando fuentes oficiales gratuitas (scripts/source-catalog/extract-ar-public-entities.py): el Registro Federal de Gobiernos Locales (ReFeGLo: municipios, web y población del Censo 2022), el padrón de ARCA (CUIT por nombre), el SIPRO (organismos públicos con CUIT), la dotación del INDEC por organismo, el Mapa del Estado (web de cada organismo) y Wikidata (web de universidades). Ni el Registro Nacional de Sociedades ni ATP traen municipios u organismos: sin este directorio, una alcaldía o un ministerio argentino nunca tenía CUIT. «Municipio de», «Municipalidad de» y «Municipalidad del Partido de» se tratan como el mismo nombre; la sigla entre paréntesis se ignora.',
+    limitations: [
+      'Sólo municipios de 20.000 habitantes o más, organismos nacionales de 200 empleados o más (dotación INDEC) y universidades nacionales.',
+      'El CUIT de un municipio sale del padrón de ARCA por nombre: sólo coincidencias únicas o confirmadas por la provincia del SIPRO (32 municipios ambiguos y 38 sin coincidencia quedaron fuera).',
+      'Sin provincias ni organismos provinciales: no hay una fuente oficial gratuita que los liste con CUIT.',
+      'Un nombre de una sola palabra queda como pista, nunca como CUIT seguro.',
+      'Snapshot estático — se rearma desde las descargas públicas cuando se recargue.',
+    ],
+    riskNotes: [
+      'Un dominio compartido (argentina.gob.ar, redes sociales) nunca se guarda como web de una entidad.',
+      'No se guardan personas, autoridades, correos ni teléfonos: sólo CUIT, nombre, web y tamaño.',
+    ],
+  },
+  {
+    key: 'ar_public_entities_discovery',
+    name: 'Entidades públicas de Argentina — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código como capa gratuita de Gobierno para Argentina. Depende de la carga de ar_public_entities (337 entidades, 298 con web), que espera la autorización de la dueña.',
+    countryCodes: ['AR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.argentina.gob.ar/interior/observatorio-politico-electoral/refeglo',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita argentina para la industria Gobierno (aprobada por la dueña el 07-10-2026): antes de pagar a Apollo o Lusha, el Agente 1 propone sólo entidades de este directorio —municipios de 20.000 habitantes o más (por población), organismos nacionales de 200 empleados o más (por dotación) y universidades nacionales—, cada una con su CUIT y su web oficial. Las sociedades del Registro Nacional de Sociedades y de ATP ya no se ofrecen en Gobierno: eran 7 empresas del Estado, ninguna con web.',
+    limitations: [
+      'Sin provincias ni organismos provinciales.',
+      'Las entidades sin web (39 de 337) van a Descartadas como cualquier otra de la capa gratuita y dependen del rescate con Claude.',
+      'Nunca repite lo que SellUp ya tiene (candidatas o descartes por CUIT).',
+    ],
+    riskNotes: [
+      'Las entidades que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
 
   // ── Bolivia ─────────────────────────────────────────────────────────────────
   {
