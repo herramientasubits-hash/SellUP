@@ -334,6 +334,10 @@ export function paEntryAliasKeys(entry: PaRucEntry, mainCore: string): string[] 
     if (key.length >= 2 && key !== mainCore && !keys.includes(key)) keys.push(key);
   };
   for (const name of paAllNames(entry)) {
+    // Un consorcio o asociación accidental es OTRA entidad (varias socias): su
+    // nombre nunca es alias del RUC de una de ellas (visto en Prod el 07-10:
+    // «CONSORCIO ALIANZA POR SAN MIGUELITO» colgado del RUC de una socia).
+    if (CONSORTIUM_NAME.test(name)) continue;
     push(panamaNameCore(name));
     for (const key of panamaRegistryAliasKeys(name)) push(key);
   }

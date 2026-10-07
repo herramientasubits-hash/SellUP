@@ -12,6 +12,9 @@
  *     trabajadores.
  * Cada fila sale marcada con su origen; el adapter las intercala.
  *
+ * SOURCES-AR-PUBLIC-ENTITIES-1 — para Gobierno se lee SÓLO
+ * `ar_public_entities` (municipios, organismos nacionales, universidades).
+ *
  * Nunca inserta, actualiza ni borra. Cualquier error degrada a vacío (fail-soft),
  * fuente por fuente.
  *
@@ -20,6 +23,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { AR_PUBLIC_ENTITY_DISCOVERY_MACROS } from './ar-rns-discovery-adapter';
 import type {
   ArRnsDiscoveryOrigin,
   ArRnsDiscoveryReads,
@@ -40,6 +44,12 @@ export const AR_DISCOVERY_SOURCES: ReadonlyArray<{
   { sourceKey: 'ar_rns', origin: 'procurement' },
   { sourceKey: 'ar_atp_employers', origin: 'employer' },
 ];
+
+/** Fuente que se lee para las macros de entidades públicas (Gobierno). */
+export const AR_PUBLIC_ENTITY_DISCOVERY_SOURCES: ReadonlyArray<{
+  sourceKey: string;
+  origin: ArRnsDiscoveryOrigin;
+}> = [{ sourceKey: 'ar_public_entities', origin: 'public_entity' }];
 
 type SnapshotSelectRow = {
   record_identity_key: string;
@@ -183,8 +193,11 @@ export function buildArRnsDiscoveryReads(client: SupabaseClient): ArRnsDiscovery
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
       const readLimit = Math.min(limit * AR_DISCOVERY_READ_OVERSAMPLE, AR_DISCOVERY_READ_CAP);
+      const sources = AR_PUBLIC_ENTITY_DISCOVERY_MACROS.has(macroIndustryKey)
+        ? AR_PUBLIC_ENTITY_DISCOVERY_SOURCES
+        : AR_DISCOVERY_SOURCES;
       const perSource = await Promise.all(
-        AR_DISCOVERY_SOURCES.map(({ sourceKey, origin }) =>
+        sources.map(({ sourceKey, origin }) =>
           readOne(sourceKey, origin, macroIndustryKey, readLimit),
         ),
       );
