@@ -98,6 +98,12 @@ export interface OfficialWorkforce {
    */
   maxWorkers?: number | null;
   sizeBand?: string | null;
+  /**
+   * SOURCES-HN-CLOSE-1 — el tramo declarado queda entero bajo el umbral ICP aunque su
+   * techo pase del corte de pequeña (Honduras: «*MIPYME*» = hasta 150 personas). El
+   * filtro de tamaño lo descarta igual que una micro o pequeña (dueña, 07-10-2026).
+   */
+  declaredBelowIcp?: boolean;
 }
 
 export interface OfficialSourceEnrichmentResult {

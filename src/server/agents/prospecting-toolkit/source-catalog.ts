@@ -1791,7 +1791,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.195 personas jurídicas cargadas (ONCAE + SEFIN 2018-2026, carga autorizada el 05-10). Primera fuente de RTN de Honduras en cada corrida; si no da RTN seguro, sigue el snapshot piloto hn_contrataciones_abiertas (72 filas).',
+      'SOURCES-HN-CLOSE-1: recarga PENDIENTE de autorización con el núcleo nuevo: 6.195 RTN (6.010 con nombre único, 199 con la marca «*MIPYME*») + 1.712 alias (hn_rtn_name_alias). Hoy en Prod: 6.195 personas jurídicas cargadas el 05-10, pero el 23 % conserva la forma societaria en el núcleo («PUBLICITY S DE RL»). Recarga: extract-hn-ocds-parties.py sobre los JSONL anuales de data.open-contracting.org (publicaciones 122 y 123) y scripts/source-catalog/run-hn-sources-etl.ts --apply --only=registry y luego --only=alias.',
     countryCodes: ['HN'],
     sectors: [],
     priority: 'P1',
@@ -1800,14 +1800,16 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://data.open-contracting.org/en/publication/122',
     automationLevel: 'high',
     recommendedUse:
-      'Publicaciones OCDS de Honduras en el registro de Open Contracting (CC BY 4.0): ONCAE / HonduCompras y SEFIN. Cada versión nombra a sus proveedores con RTN. Se carga una fila por RTN de PERSONA JURÍDICA (2018-2026): 6.195 empresas, el 98,3 % con nombre único. RTN seguro sólo cuando exactamente un RTN tiene ese mismo núcleo de nombre.',
+      'RTN por nombre de Honduras en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Publicaciones OCDS de Honduras en el registro de Open Contracting (CC BY 4.0): ONCAE / HonduCompras y SEFIN / SIAFI 2018-2026; una fila por RTN de PERSONA JURÍDICA. El nombre se limpia por su estructura (la forma societaria escrita de cualquier manera, también cortada: «S DE RL», «SA DE CV», «S.U. DE R.L.», «… DE HOND»), con alias (sigla entre paréntesis, nombre comercial tras la forma, otros nombres del mismo RTN, sigla de la CNBS) y variantes del candidato (con o sin «(de) Honduras», «Hondureña», clave de alcaldía o secretaría). RTN seguro sólo cuando exactamente un RTN tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Con 105 nombres reales: 53 con RTN seguro (antes 31). Si HonduCompras marcó a la empresa como «*MIPYME*» en los últimos 3 años, el filtro de tamaño la descarta (hasta 150 personas, bajo el umbral 200).',
     limitations: [
-      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista.',
+      'Sólo quienes han participado en compras públicas: una empresa que no aparece no significa que no exista (Tigo, Claro, Diunsa, Walmart, Gildan, Hanes no están).',
+      'Las entidades públicas casi nunca están: ONCAE las publica con un código propio, no con su RTN (sólo unas 10 que también venden al Estado, como Hondutel o la UNAH).',
       'Persona jurídica = 14 dígitos con un 9 en la quinta posición; el RTN de una persona natural lleva ahí su año de nacimiento y nunca se guarda (tampoco cédulas ni pasaportes).',
-      'Se quitan las colas que HonduCompras pega al nombre («*MIPYME*», «* Compra Menor», «*CM»).',
+      'Sin tamaño oficial de lo grande: la única señal es la marca «*MIPYME*» (Ley MIPYME: hasta 150 personas).',
     ],
     riskNotes: [
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Algunas empresas tienen dos RTN en la fuente (p. ej. Corporación Dinant 0801… y 0810…): quedan como pista, nunca como RTN seguro.',
     ],
   },
   {
@@ -1845,6 +1847,63 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Nombres repetidos (homónimos) quedan como señal, nunca como RTN seguro.',
       'Los nombres genéricos nunca se buscan.',
       'Fuente pública vía OCP Data Registry — verificar disponibilidad antes de recargar.',
+    ],
+  },
+
+  {
+    key: 'hn_honducompras_directory',
+    name: 'Proveedores del Estado de Honduras (HonduCompras + SIAFI) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-HN-CLOSE-1: carga PENDIENTE de autorización: 1.272 personas jurídicas (441 con web de su correo corporativo; 141 dominios de grupo o bufete compartidos descartados) de 6.199 con RTN (fuera 3.022 poco relevantes, 1.584 sin industria dominante, 273 sin contrato propio, 35 consorcios y 13 entidades públicas). Carga: scripts/source-catalog/run-hn-sources-etl.ts --apply --only=directory.',
+    countryCodes: ['HN'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://data.open-contracting.org/en/publication/122',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita hondureña por industria: personas jurídicas a las que el Estado contrató (ONCAE / HonduCompras y SEFIN / SIAFI, datos abiertos OCDS 2018-2026, CC BY 4.0). La industria sale de lo que venden al Estado: el código UNSPSC de los artículos (la misma tabla aprobada para Paraguay) o, si sólo hay pagos de SIAFI, el objeto del gasto (tabla aprobada por la dueña el 07-10-2026). Sólo entran las relevantes: activas desde 2022, sin la marca «*MIPYME*», sin consorcios y con al menos L 5 millones adjudicados; primero las que venden a más entidades. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RTN, su razón social y, si lo tiene, el dominio de su correo corporativo como web.',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen contratos no aparecen.',
+      'No hay tamaño oficial de lo grande: la relevancia (monto adjudicado) no es un número de trabajadores.',
+      'La industria sale de lo que venden al Estado: imprenta, publicidad, protocolo, viajes y capacitación no se proponen.',
+      'Sin correo corporativo, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga para sumar contratos nuevos.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'hn_public_entities',
+    name: 'Entidades públicas compradoras de Honduras (ONCAE) — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-HN-CLOSE-1: carga PENDIENTE de autorización: 119 entidades con web propia (23 secretarías, 51 organismos nacionales, 12 alcaldías, 4 universidades u hospitales y 29 programas, comisiones y mancomunidades; 6 con RTN porque también venden al Estado) de 723 compradoras (591 sin web que las nombre, 13 ONG, fundaciones o sociedades fuera). Carga: scripts/source-catalog/run-hn-sources-etl.ts --apply --only=public.',
+    countryCodes: ['HN'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://oncae.gob.hn/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de Honduras: las entidades que compran en HonduCompras (secretarías de Estado, organismos y empresas públicas, universidades, hospitales y alcaldías), con la web que publica ONCAE o el dominio de su correo institucional. La web sólo se acepta si su dirección nombra a la entidad (su sigla, sus iniciales o una palabra distintiva de su nombre). Aprobado por la dueña el 07-10-2026: sólo las que tienen web.',
+    limitations: [
+      'Sin RTN: ONCAE publica a las entidades con un código propio; sólo llevan RTN las que también venden al Estado (Hondutel, UNAH…).',
+      'La mayoría de alcaldías no publica web en HonduCompras (sólo correos gratuitos): quedan fuera.',
+      'Sin tamaño ni presupuesto por entidad.',
+    ],
+    riskNotes: [
+      'Sin RTN, «una empresa, un vendedor» se apoya en la web de la entidad.',
+      'Del correo de contacto sólo se usa el dominio institucional, nunca la dirección.',
     ],
   },
 

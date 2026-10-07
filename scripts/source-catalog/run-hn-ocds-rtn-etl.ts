@@ -1,6 +1,8 @@
 /**
  * HN OCDS — ETL del RTN de personas jurídicas (SOURCES-HN-RTN-BY-NAME-1)
  *
+ * 🔴 REEMPLAZADO por `run-hn-sources-etl.ts` (SOURCES-HN-CLOSE-1): sólo dry-run.
+ *
  * Carga en `source_company_snapshots` (source_key='hn_ocds_rtn_registry') una fila
  * por RTN de PERSONA JURÍDICA que aparece como proveedor u oferente en las
  * publicaciones OCDS de Honduras (ONCAE y SEFIN) del registro de Open Contracting
@@ -48,7 +50,10 @@ async function main(): Promise<void> {
   if (!dirArg) throw new Error('config_invalid: falta --dir=<carpeta con los .jsonl.gz de Honduras>');
   const dir = dirArg.slice('--dir='.length);
   const apply = process.argv.includes('--apply');
-  console.log(`HN OCDS RTN ETL — ${apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
+  // SOURCES-HN-CLOSE-1 — reemplazado por run-hn-sources-etl.ts (núcleo por estructura,
+  // alias y marca MIPYME). Recargar desde aquí volvería al núcleo viejo.
+  if (apply) throw new Error('superseded: usa scripts/source-catalog/run-hn-sources-etl.ts --apply --only=registry');
+  console.log('HN OCDS RTN ETL — DRY-RUN (no escribe)');
 
   const files = readdirSync(dir).filter((file) => FILE_PATTERN.test(file)).sort();
   if (files.length === 0) throw new Error('config_invalid: no hay .jsonl.gz de Honduras en la carpeta');

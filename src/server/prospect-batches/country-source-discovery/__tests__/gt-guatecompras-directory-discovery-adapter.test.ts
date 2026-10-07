@@ -131,8 +131,8 @@ describe('capacidad por país', () => {
       sourceKey: 'gt_guatecompras_directory_discovery',
     });
     assert.equal(resolveCountrySourceCapability('PY')?.sourceKey, 'py_dncp_directory_discovery');
-    // Honduras y Panamá comparten la limpieza centroamericana, pero no tienen capa gratuita.
-    assert.equal(resolveCountrySourceCapability('HN'), null);
+    // Honduras tiene la suya (SOURCES-HN-CLOSE-1); Panamá aún no tiene capa gratuita.
+    assert.equal(resolveCountrySourceCapability('HN')?.sourceKey, 'hn_honducompras_directory_discovery');
     assert.equal(resolveCountrySourceCapability('PA'), null);
   });
 

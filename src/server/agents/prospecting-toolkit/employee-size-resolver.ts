@@ -71,6 +71,11 @@ export type OfficialRegistryWorkforce = {
   maxWorkers?: number | null;
   /** Nombre del tramo declarado, para explicar la decisión. */
   band?: string | null;
+  /**
+   * SOURCES-HN-CLOSE-1 — el tramo entero queda bajo el umbral ICP aunque su techo
+   * pase del corte de pequeña (Honduras «*MIPYME*», hasta 150): también descarta.
+   */
+  declaredBelowIcp?: boolean;
 };
 
 /**
@@ -242,6 +247,7 @@ export function extractOfficialRegistryWorkforce(candidate: unknown): OfficialRe
     source,
     ...(hasMax ? { maxWorkers } : {}),
     ...(typeof band === 'string' && band.trim().length > 0 ? { band: band.trim() } : {}),
+    ...(hasMax && w['declaredBelowIcp'] === true ? { declaredBelowIcp: true } : {}),
   };
 }
 
@@ -393,7 +399,10 @@ export function resolveEmployeeSizeForIcpGate(
     // pequeña (MICRO, PEQUEÑA) es una empresa pequeña: el gate la bloquea igual
     // que unos trabajadores informados bajo el corte.
     const bandMax = registry.maxWorkers ?? null;
-    if (isRecent && bandMax !== null && bandMax <= OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF) {
+    // SOURCES-HN-CLOSE-1 — o un tramo declarado entero bajo el umbral ICP (Honduras
+    // «*MIPYME*», hasta 150 personas, con umbral 200).
+    const wholeBandBelowIcp = registry.declaredBelowIcp === true && bandMax !== null && bandMax < floor;
+    if (isRecent && bandMax !== null && (bandMax <= OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF || wholeBandBelowIcp)) {
       const range = `${registry.workers}-${bandMax}`;
       const label = registry.band ?? range;
       attemptedSources.push({
@@ -412,7 +421,9 @@ export function resolveEmployeeSizeForIcpGate(
         selectedSource: 'official_registry_workers',
         selectedValue: range,
         confidence: 'medium',
-        reason: `Used ${registry.source} declared band ${label} (${range}, year ${registry.year}): at or below small cutoff ${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF}`,
+        reason: wholeBandBelowIcp && bandMax > OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF
+          ? `Used ${registry.source} declared band ${label} (${range}, year ${registry.year}): whole band below ICP threshold ${floor}`
+          : `Used ${registry.source} declared band ${label} (${range}, year ${registry.year}): at or below small cutoff ${OFFICIAL_REGISTRY_WORKERS_SMALL_CUTOFF}`,
         attemptedSources,
       };
     }
