@@ -87,10 +87,16 @@ describe('cableado', () => {
     }
   });
 
-  it('el factory construye Paraguay (RUC con dígito verificador) sobre el padrón de la SET', () => {
+  it('el factory construye Paraguay sobre el padrón de la SET y sus alias (SOURCES-PY-CLOSE-1)', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
-    assert.match(wiring, /countryCode: 'PY',\s*sourceKey: 'py_set_registry',\s*taxIdentifierType: 'RUC',\s*validTaxId: \/\^80\\d\{6\}-\\d\$\//);
-    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'py_set_registry', 'PY'\)/);
+    assert.match(
+      wiring,
+      /createParaguayOfficialSourceResolver\(\{\s*querySnapshots: buildParaguaySnapshotNameQuery\(snapshotClient\),\s*\}\)/,
+    );
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    for (const resolver of resolvers.filter((r) => r.countryCode === 'PY')) {
+      assert.equal(resolver.sourceKey, 'py_set_registry');
+    }
   });
 
   it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE', () => {

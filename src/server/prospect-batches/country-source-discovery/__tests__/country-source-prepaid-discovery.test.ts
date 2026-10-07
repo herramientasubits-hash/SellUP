@@ -190,8 +190,9 @@ test('§ 22(F) SOURCE FAILURE — el adapter lanza ⇒ fail-open sin conteos inv
 test('§ 22(G) COUNTRY WITHOUT SOURCE — la ruta de pago queda intacta y nada se marca intentado', async () => {
   const result = await runPrePaidNoveltyGate(
     // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — México ya tiene fuente (DENUE); el país
-    // sin fuente de este caso pasa a ser Paraguay.
-    { provider: 'lusha', countryCode: 'PY', macroIndustryKey: MACRO, requestedTarget: 5 },
+    // sin fuente de este caso pasó a ser Paraguay. SOURCES-PY-CLOSE-1 — Paraguay
+    // ya tiene fuente (DNCP); ahora es Uruguay.
+    { provider: 'lusha', countryCode: 'UY', macroIndustryKey: MACRO, requestedTarget: 5 },
     {
       countrySourceAdapter: buildCoSiisDiscoveryAdapter(async () => [row({ record_identity_key: '1' })]),
       checkCompanyDuplicate: async (i) => noMatch(i),

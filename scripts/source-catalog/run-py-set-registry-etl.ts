@@ -24,6 +24,16 @@
  *   - No toca accounts, prospect_candidates ni otras fuentes. No llama a la SET ni
  *     a proveedores: sólo lee archivos locales.
  *   - Reanudable: `--offset=<n>` salta las n primeras filas ya escritas.
+ *
+ * SOURCES-PY-CLOSE-1:
+ *   - El núcleo reconoce la forma societaria por su estructura (E.A.S., SAECA…) y
+ *     quita el paréntesis final: recargar actualiza `normalized_legal_name`.
+ *   - Escribe también `py_set_name_alias` (sigla, partes del nombre, clave de
+ *     entidad pública), sin claves que sean el nombre propio de otra sociedad.
+ *   - `--dncp-api=<fichero.jsonl>` (fichas de la API pública de la DNCP, de
+ *     `extract-py-dncp-suppliers.py`): el tamaño MIPYME declarado va a `raw_data`.
+ *   Escritura real: además SELLUP_CONFIRMED_SOURCE_KEY=py_set_registry; los alias
+ *   (< 25 k filas) no necesitan la valla de cargas masivas.
  */
 
 import { loadEnvConfig } from '@next/env';
@@ -32,22 +42,37 @@ loadEnvConfig(process.cwd());
 import { createReadStream, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
+import { readFileSync } from 'node:fs';
 import {
+  buildPySetNameAliasRows,
   buildPySetRegistryRow,
+  PY_SET_NAME_ALIAS_SOURCE_KEY,
   PY_SET_REGISTRY_SOURCE_KEY,
+  type ParaguayDeclaredSize,
+  type PySetNameAliasRow,
   type PySetRegistryRow,
 } from '../../src/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
+import {
+  paraguayOwnNameKeys,
+  paraguayRegistryAliasKeys,
+} from '../../src/server/source-catalog/connectors/set-paraguay/py-name-keys';
+import {
+  parsePyDncpSupplierProfile,
+  pyDncpDeclaredMipymeSize,
+  pyDncpProfileRuc,
+} from '../../src/server/source-catalog/connectors/set-paraguay/py-dncp-directory-row';
+import { dropAliasKeysOwnedByOthers } from '../../src/server/source-catalog/connectors/sunat-peru/pe-name-keys';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
 const UPSERT_CHUNK = 1000;
 const FILES = Array.from({ length: 10 }, (_, digit) => `ruc${digit}.txt`);
 
-type Config = { dir: string; apply: boolean; year: number; offset: number };
+type Config = { dir: string; apply: boolean; year: number; offset: number; dncpApi: string | null };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -61,7 +86,55 @@ function parseArgs(argv: readonly string[]): Config {
   if (!Number.isInteger(year) || !Number.isInteger(offset) || offset < 0) {
     throw new Error('config_invalid: --year y --offset deben ser enteros (offset ≥ 0)');
   }
-  return { dir, apply: argv.includes('--apply'), year, offset };
+  return { dir, apply: argv.includes('--apply'), year, offset, dncpApi: value('dncp-api') };
+}
+
+/** RUC → tamaño MIPYME declarado a la DNCP (sólo micro, pequeña o mediana). */
+function readDeclaredSizes(path: string | null, year: number): Map<string, ParaguayDeclaredSize> {
+  const sizes = new Map<string, ParaguayDeclaredSize>();
+  if (path === null) return sizes;
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    const raw: unknown = JSON.parse(line);
+    const ruc = pyDncpProfileRuc(raw);
+    const size = pyDncpDeclaredMipymeSize(parsePyDncpSupplierProfile(raw));
+    if (ruc !== null && size !== null) sizes.set(ruc, { size, year });
+  }
+  return sizes;
+}
+
+/** Alias de todas las sociedades, sin claves que sean el nombre propio de otra. */
+function buildAliasRows(rows: readonly PySetRegistryRow[]): PySetNameAliasRow[] {
+  const owners = new Map<string, Set<string>>();
+  for (const row of rows) {
+    for (const key of paraguayOwnNameKeys(row.normalized_legal_name)) {
+      owners.set(key, (owners.get(key) ?? new Set<string>()).add(row.tax_id));
+    }
+  }
+  return rows.flatMap((row) =>
+    buildPySetNameAliasRows({
+      registryRow: row,
+      keys: dropAliasKeysOwnedByOthers(paraguayRegistryAliasKeys(row.legal_name), row.tax_id, owners),
+    }),
+  );
+}
+
+async function upsertAll(
+  client: SupabaseClient,
+  rows: readonly (PySetRegistryRow | PySetNameAliasRow)[],
+  offset: number,
+): Promise<number> {
+  let upserted = 0;
+  for (let i = offset; i < rows.length; i += UPSERT_CHUNK) {
+    const chunk = rows.slice(i, i + UPSERT_CHUNK);
+    const { error } = await client
+      .from('source_company_snapshots')
+      .upsert(chunk, { onConflict: RECORD_IDENTITY_ON_CONFLICT });
+    if (error) throw new Error(`upsert_failed_at_offset_${i}: ${error.message}`);
+    upserted += chunk.length;
+    if ((i / UPSERT_CHUNK) % 20 === 0) console.log(`  … ${i + chunk.length}/${rows.length}`);
+  }
+  return upserted;
 }
 
 async function main(): Promise<void> {
@@ -72,6 +145,7 @@ async function main(): Promise<void> {
   if (missing.length > 0) throw new Error(`config_invalid: faltan ${missing.join(', ')}`);
 
   const importedAt = new Date().toISOString();
+  const declaredSizes = readDeclaredSizes(config.dncpApi, config.year);
   const byRuc = new Map<string, PySetRegistryRow>();
   let linesRead = 0;
   for (const file of FILES) {
@@ -81,7 +155,9 @@ async function main(): Promise<void> {
     });
     for await (const line of lines) {
       linesRead++;
-      const row = buildPySetRegistryRow(line, { sourceYear: config.year, importedAt });
+      const ruc = line.split('|')[0]?.trim() ?? '';
+      const declaredSize = declaredSizes.size > 0 ? lookupDeclaredSize(declaredSizes, ruc) : null;
+      const row = buildPySetRegistryRow(line, { sourceYear: config.year, importedAt, declaredSize });
       if (row !== null && row.record_identity_key !== null && !byRuc.has(row.normalized_tax_id)) {
         byRuc.set(row.normalized_tax_id, row);
       }
@@ -96,6 +172,9 @@ async function main(): Promise<void> {
   console.log(`  Líneas leídas: ${linesRead}`);
   console.log(`  Sociedades (RUC 80…) activas: ${rows.length}`);
   console.log(`  Con nombre único (RUC asignable con seguridad): ${unique} (${((100 * unique) / Math.max(rows.length, 1)).toFixed(1)} %)`);
+  const aliasRows = buildAliasRows(rows);
+  console.log(`  Alias (${PY_SET_NAME_ALIAS_SOURCE_KEY}): ${aliasRows.length}`);
+  console.log(`  Con tamaño MIPYME declarado a la DNCP: ${rows.filter((row) => row.raw_data['py_mipyme_size']).length}`);
 
   if (!config.apply) {
     console.log('  DRY-RUN: no se escribió nada. Usa --apply (con autorización) para persistir.');
@@ -115,17 +194,23 @@ async function main(): Promise<void> {
   ensureNode20WebSocketShim();
   const client = createClient(url, key);
 
-  let upserted = 0;
-  for (let i = config.offset; i < rows.length; i += UPSERT_CHUNK) {
-    const chunk = rows.slice(i, i + UPSERT_CHUNK);
-    const { error } = await client
-      .from('source_company_snapshots')
-      .upsert(chunk, { onConflict: RECORD_IDENTITY_ON_CONFLICT });
-    if (error) throw new Error(`upsert_failed_at_offset_${i}: ${error.message}`);
-    upserted += chunk.length;
-    if ((i / UPSERT_CHUNK) % 20 === 0) console.log(`  … ${i + chunk.length}/${rows.length}`);
+  assertLargeImportAllowed({
+    sourceKey: PY_SET_NAME_ALIAS_SOURCE_KEY,
+    countryCode: 'PY',
+    estimatedRows: aliasRows.length,
+    isDryRun: false,
+  });
+  console.log(`  rowsUpserted (${PY_SET_REGISTRY_SOURCE_KEY}) = ${await upsertAll(client, rows, config.offset)}`);
+  console.log(`  rowsUpserted (${PY_SET_NAME_ALIAS_SOURCE_KEY}) = ${await upsertAll(client, aliasRows, 0)}`);
+}
+
+/** El padrón trae el RUC sin dígito verificador; la ficha de la DNCP, con él. */
+function lookupDeclaredSize(sizes: Map<string, ParaguayDeclaredSize>, rucBody: string): ParaguayDeclaredSize | null {
+  for (let dv = 0; dv <= 9; dv++) {
+    const hit = sizes.get(`${rucBody}-${dv}`);
+    if (hit) return hit;
   }
-  console.log(`  rowsUpserted = ${upserted}`);
+  return null;
 }
 
 main().catch((error: unknown) => {
