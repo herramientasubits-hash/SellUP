@@ -121,6 +121,15 @@ describe('nombre comercial al final de la razón social', () => {
     assert.equal(built?.normalized_legal_name, 'TRANSEMEL');
     assert.equal(built?.normalized_tax_id, '96893220-9');
     assert.equal(built?.source_key, 'cl_sii_name_alias');
+    // Razón social cortada por el SII a 40 caracteres: la última palabra puede estar a medias.
+    assert.equal(
+      buildClSiiNameAliasRow(
+        { ...company, legalName: 'SUBSECRETARIA DEL MINISTERIO DE AGRICULT', core: 'SUBSECRETARIA DEL MINISTERIO DE AGRICULT' },
+        new Map([['AGRICULT', 1]]),
+        params,
+      ),
+      null,
+    );
     // Banmédica: la palabra sale en dos sociedades ⇒ no se guarda.
     assert.equal(buildClSiiNameAliasRow(company, new Map([['TRANSEMEL', 2]]), params), null);
     assert.equal(buildClSiiNameAliasRow({ ...company, workers: 6 }, unique, params), null);
@@ -167,6 +176,18 @@ describe('createChileOfficialSourceResolver', () => {
     assert.equal(out.taxIdentifier, '96893220-9');
     assert.equal(out.legalName, 'EMPRESA DE TRANSMISION ELECTRICA TRANSEMEL S A');
     assert.equal((out.safeMetadata as Record<string, unknown>).matchedAlias, true);
+  });
+
+  it('alias sin una web que lo confirme: sólo pista («LAETITIA» puede ser otra marca)', async () => {
+    const { query } = memoryQuery({
+      LAETITIA: [row('53333903-4', 'FUNDACION SOCIAL AMORIS LAETITIA', { normalizedLegalName: 'LAETITIA', alias: true })],
+    });
+    const resolver = createChileOfficialSourceResolver({ querySnapshots: query });
+    const sinWeb = await resolver.resolve(input('Laetitia'));
+    assert.equal(sinWeb.status, 'low_confidence_match');
+    assert.equal((sinWeb.safeMetadata as Record<string, unknown>).aliasNeedsDomain, true);
+    const otraWeb = await resolver.resolve(input('Laetitia', 'cosmeticos-luz.cl'));
+    assert.equal(otraWeb.status, 'low_confidence_match');
   });
 
   it('varios RUT: sólo pista', async () => {
