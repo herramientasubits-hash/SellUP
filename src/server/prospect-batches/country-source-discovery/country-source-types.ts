@@ -69,7 +69,37 @@ export type CountrySourceCompany = {
     sourceKey: string | null;
     confidence: number | null;
   } | null;
+  /**
+   * SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — trabajadores que la propia fuente oficial
+   * publica (número exacto, no un tramo). Viaja a la ficha del candidato
+   * (`employee_count`) en vez de quedar «por validar». Ausente cuando la fuente
+   * sólo da un tramo o nada.
+   */
+  officialWorkforce?: CountrySourceOfficialWorkforce | null;
 };
+
+/** SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño oficial exacto de una fuente. */
+export type CountrySourceOfficialWorkforce = {
+  workers: number;
+  /** Año del dato, si la fuente lo informa. */
+  year: number | null;
+  /** Nombre corto del registro para la ficha («SUNAT», «SII»…). */
+  sourceLabel: string;
+};
+
+/**
+ * Tamaño oficial válido o `null`: sólo enteros positivos. Un dato raro no se
+ * convierte en un tamaño confirmado.
+ */
+export function buildCountrySourceOfficialWorkforce(
+  workers: number | null | undefined,
+  year: number | null | undefined,
+  sourceLabel: string,
+): CountrySourceOfficialWorkforce | null {
+  if (typeof workers !== 'number' || !Number.isInteger(workers) || workers < 1) return null;
+  const validYear = typeof year === 'number' && Number.isInteger(year) && year >= 1900 && year <= 2100 ? year : null;
+  return { workers, year: validYear, sourceLabel };
+}
 
 /** Lo que una fuente de país devuelve para unos criterios. */
 export type CountrySourceDiscoveryResult = {

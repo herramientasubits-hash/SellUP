@@ -39,6 +39,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import { isRecycledCountrySourceCompany, type CountrySourcePriorSighting } from './country-source-prior-sightings';
 
 /** `source_key` que esta proyección declara. */
@@ -119,10 +120,9 @@ function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: EC_SCVS_MACRO_TABLE_VERSION,
     },
-    // 🔴 Los empleados NO viajan al candidato: el writer común deja el tamaño
-    // como «por validar» y su procedencia es una lista cerrada. Aquí sólo
-    // garantizan que no se ofrece ninguna compañía de menos de 200; el número
-    // queda en la fila de la fuente (`raw_data.workers`).
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los empleados de la Superintendencia de
+    // Compañías van a la ficha (antes quedaban «por validar»).
+    officialWorkforce: buildCountrySourceOfficialWorkforce(row.employees, row.metrics_year, 'Supercias'),
   };
 }
 

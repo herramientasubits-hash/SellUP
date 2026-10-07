@@ -200,9 +200,10 @@ export type StructuredSourceCandidateDraft = {
   // Fuente
   sourcePrimary: string;
 
-  // Tamaño (siempre unknown en primera pasada para fuentes estructuradas)
-  employeeCount: null;
-  employeeCountStatus: 'unknown_requires_manual_validation';
+  // Tamaño: unknown en primera pasada, salvo que la fuente oficial publique el
+  // número exacto (SOURCES-FREE-LAYER-OFFICIAL-SIZE-1, capa gratuita por país).
+  employeeCount: number | null;
+  employeeCountStatus: EmployeeCountStatus;
 
   // Clasificación inicial
   commercialFitStatus: 'needs_manual_review';
