@@ -84,6 +84,12 @@ import {
   type GtGuatecomprasDirectoryDiscoveryReads,
 } from './gt-guatecompras-directory-discovery-adapter';
 import { macroHasGtGuatecomprasCoverage } from './gt-guatecompras-macro-table';
+import {
+  buildHnHonducomprasDirectoryDiscoveryAdapter,
+  HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type HnHonducomprasDirectoryDiscoveryReads,
+} from './hn-honducompras-directory-discovery-adapter';
+import { macroHasHnHonducomprasCoverage } from './hn-honducompras-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
 import { macroHasCoSiisCoverage } from './co-siis-macro-table';
@@ -139,8 +145,14 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * UNSPSC aprobada de Paraguay), empresas en Zona Franca (PROCOMER, por su
  * actividad CAECR con la tabla CIIU aprobada) y entidades públicas (Gobierno);
  * sin las que el MEIC registra como micro o pequeña.
+ *
+ * SOURCES-HN-CLOSE-1 — Honduras entra con las personas jurídicas que venden al
+ * Estado (ONCAE / HonduCompras y SEFIN / SIAFI en datos abiertos OCDS),
+ * clasificadas por lo que venden (UNSPSC con la tabla aprobada de Paraguay, u
+ * objeto del gasto de SIAFI), sin consorcios ni «*MIPYME*», con al menos L 5
+ * millones adjudicados; y con las entidades compradoras que tienen web (Gobierno).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -159,6 +171,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   GT: { countryCode: 'GT', sourceKey: GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
   CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  HN: { countryCode: 'HN', sourceKey: HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -183,6 +196,7 @@ export function resolveCountrySourceCapability(
  * Guatemala: la macro tiene clases UNSPSC en la tabla (la misma de Paraguay).
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
+ * Honduras: la macro tiene clases UNSPSC u objetos del gasto en sus tablas, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -201,6 +215,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'GT') return macroHasGtGuatecomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
+  if (capability.countryCode === 'HN') return macroHasHnHonducomprasCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -228,6 +243,7 @@ export function buildCountrySourceAdapter(
     gtGuatecomprasDirectoryDiscoveryReads?: GtGuatecomprasDirectoryDiscoveryReads | null;
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
     crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
+    hnHonducomprasDirectoryDiscoveryReads?: HnHonducomprasDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -272,6 +288,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'CR') {
     return deps.crFreeDirectoryDiscoveryReads
       ? buildCrFreeDirectoryDiscoveryAdapter(deps.crFreeDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'HN') {
+    return deps.hnHonducomprasDirectoryDiscoveryReads
+      ? buildHnHonducomprasDirectoryDiscoveryAdapter(deps.hnHonducomprasDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

@@ -88,11 +88,13 @@ describe('versiones OCDS → una fila por RTN', () => {
 describe('cableado y catálogo', () => {
   it('Honduras: la carga OCDS primero y el piloto de 72 filas de respaldo', () => {
     const wiring = readFileSync(join(process.cwd(), 'src/server/prospect-batches/official-source-resolvers.ts'), 'utf8');
-    const i = wiring.indexOf('sourceKey: HN_OCDS_RTN_SOURCE_KEY');
+    // SOURCES-HN-CLOSE-1 — el registro OCDS se lee con el resolvedor propio de
+    // Honduras (alias, variantes y tramo MIPYME); el piloto sigue de respaldo.
+    const i = wiring.indexOf('createHondurasOfficialSourceResolver({');
     const j = wiring.indexOf("sourceKey: 'hn_contrataciones_abiertas'");
     assert.ok(i > 0 && j > i);
     assert.match(wiring.slice(i - 300, i), /createFallbackOfficialSourceResolver\(/);
-    assert.match(wiring.slice(i, j), /validTaxId: \/\^\\d\{4\}9\\d\{9\}\$\//);
+    assert.match(wiring.slice(i, j), /buildHondurasSnapshotNameQuery\(snapshotClient\)/);
   });
 
   it('catálogo: cargada y verificada, fuera de las recomendaciones', () => {

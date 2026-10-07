@@ -10,7 +10,7 @@
  * registry live) name→NIT, República Dominicana
  * (rd_dgii_bulk, then the DGII trade name as a signal only) name→RNC, Argentina (ar_rns_registry) name→CUIT, Ecuador
  * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_nit_registry + gt_nit_name_alias, then gt_rgae_proveedores) name→NIT and
- * Honduras (hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
+ * Honduras (hn_ocds_rtn_registry + hn_rtn_name_alias, then hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
  * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
@@ -81,10 +81,8 @@ import {
   normalizePanamaCompanyCore,
   PA_PANAMACOMPRA_RUC_SOURCE_KEY,
 } from '@/server/source-catalog/connectors/panamacompra-pa/pa-panamacompra-ruc-rows';
-import {
-  HN_OCDS_RTN_SOURCE_KEY,
-  normalizeHondurasCompanyCore,
-} from '@/server/source-catalog/connectors/hn-contrataciones-abiertas/hn-ocds-rtn-registry-rows';
+import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
+import { buildHondurasSnapshotNameQuery } from '@/server/prospect-batches/honduras-snapshot-query';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import {
   CL_SII_REGISTRY_SOURCE_KEY,
@@ -193,14 +191,11 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     ),
     // SOURCES-HN-RTN-BY-NAME-1 — personas jurídicas de ONCAE + SEFIN (OCDS, 2018-2026);
     // si no da RTN fuerte, el snapshot piloto de Contrataciones Abiertas (72 filas).
+    // SOURCES-HN-CLOSE-1 — con sus alias (hn_rtn_name_alias), variantes del nombre y
+    // el tramo «*MIPYME*» para el filtro de tamaño.
     createFallbackOfficialSourceResolver(
-      createSnapshotNameOfficialSourceResolver({
-        countryCode: 'HN',
-        sourceKey: HN_OCDS_RTN_SOURCE_KEY,
-        taxIdentifierType: 'RTN',
-        validTaxId: /^\d{4}9\d{9}$/,
-        normalizeCore: normalizeHondurasCompanyCore,
-        querySnapshots: buildSnapshotNameQuery(snapshotClient, HN_OCDS_RTN_SOURCE_KEY, 'HN'),
+      createHondurasOfficialSourceResolver({
+        querySnapshots: buildHondurasSnapshotNameQuery(snapshotClient),
       }),
       createSnapshotNameOfficialSourceResolver({
         countryCode: 'HN',
