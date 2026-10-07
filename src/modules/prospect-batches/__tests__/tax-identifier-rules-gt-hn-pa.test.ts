@@ -56,8 +56,14 @@ describe('Panamá — RUC', () => {
     }
   });
 
+  it('entidad pública: provincia-NT-tomo-asiento; sin DV ni ceros a la izquierda (SOURCES-PA-CLOSE-1)', () => {
+    assert.equal(validateTaxIdentifier('8-NT-2-4249-8', 'PA').normalized, '8-NT-2-4249');
+    assert.equal(validateTaxIdentifier('8-NT-01-12761', 'PA').normalized, '8-NT-1-12761');
+    assert.equal(validateTaxIdentifier('3-NT-2506-10982', 'PA').valid, true);
+  });
+
   it('rechaza formas rotas', () => {
-    for (const id of ['8NT2763992', '9--95-113', 'ABC-1-2', '263837-1-404979-1-404979']) {
+    for (const id of ['8NT2763992', '8-NT-12761', 'X-NT-1-2', '9--95-113', 'ABC-1-2', '263837-1-404979-1-404979']) {
       assert.equal(validateTaxIdentifier(id, 'PA').valid, false, id);
     }
     assert.match(validateTaxIdentifier('ABC-1-2', 'PA').error ?? '', /Panamá/);

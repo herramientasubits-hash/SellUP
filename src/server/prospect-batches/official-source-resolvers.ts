@@ -17,7 +17,7 @@
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry +
  * cr_company_name_alias) name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
- * (pa_panamacompra_ruc_registry, proveedores del Estado) name→RUC; Honduras uses
+ * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
@@ -77,10 +77,8 @@ import {
   normalizeMexicoCompanyCore,
 } from '@/server/source-catalog/connectors/compranet-mexico/mx-compranet-rfc-rows';
 import { MX_RFC_PUBLIC_LISTS_SOURCE_KEY } from '@/server/source-catalog/connectors/mx-rfc-public-lists/mx-rfc-public-lists-rows';
-import {
-  normalizePanamaCompanyCore,
-  PA_PANAMACOMPRA_RUC_SOURCE_KEY,
-} from '@/server/source-catalog/connectors/panamacompra-pa/pa-panamacompra-ruc-rows';
+import { createPanamaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/panama-official-source-resolver';
+import { buildPanamaSnapshotNameQuery } from '@/server/prospect-batches/panama-snapshot-query';
 import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
 import { buildHondurasSnapshotNameQuery } from '@/server/prospect-batches/honduras-snapshot-query';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
@@ -308,16 +306,12 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         singleWordIsSignalOnly: true,
       }),
     ),
-    // SOURCES-PA-RUC-BY-NAME-1 — personas jurídicas del buscador de proveedores de
-    // PanamaCompraEnCifras (sólo quienes participan en compras públicas).
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'PA',
-      sourceKey: PA_PANAMACOMPRA_RUC_SOURCE_KEY,
-      taxIdentifierType: 'RUC',
-      validTaxId: /^\d{3,}-\d{1,4}-\d{1,7}$/,
-      normalizeCore: normalizePanamaCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, PA_PANAMACOMPRA_RUC_SOURCE_KEY, 'PA'),
-      singleWordIsSignalOnly: true,
+    // SOURCES-PA-CLOSE-1 — registro unido de RUC de Panamá (proveedoras y entidades
+    // compradoras de PanamaCompra + Grandes Contribuyentes de la DGI) y sus alias,
+    // con limpieza propia de nombres, variantes con/sin «Panamá» y una palabra
+    // segura sólo si la web la confirma. Sustituye a pa_panamacompra_ruc_registry.
+    createPanamaOfficialSourceResolver({
+      querySnapshots: buildPanamaSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
     // SOURCES-CR-CLOSE-1 — más Zona Franca, SUGEF, instituciones públicas de SICOP

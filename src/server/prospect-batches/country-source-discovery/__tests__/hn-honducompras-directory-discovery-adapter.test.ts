@@ -128,7 +128,8 @@ describe('capacidad por país', () => {
       sourceKey: HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY,
     });
     assert.equal(resolveCountrySourceCapability('GT')?.sourceKey, 'gt_guatecompras_directory_discovery');
-    assert.equal(resolveCountrySourceCapability('PA'), null);
+    // SOURCES-PA-CLOSE-1 — Panamá también tiene la suya (su directorio, no el de Honduras).
+    assert.equal(resolveCountrySourceCapability('PA')?.sourceKey, 'pa_free_directory_discovery');
   });
 
   it('cobertura: UNSPSC, objeto del gasto y Gobierno', () => {

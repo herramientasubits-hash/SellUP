@@ -131,9 +131,9 @@ describe('capacidad por país', () => {
       sourceKey: 'gt_guatecompras_directory_discovery',
     });
     assert.equal(resolveCountrySourceCapability('PY')?.sourceKey, 'py_dncp_directory_discovery');
-    // Honduras tiene la suya (SOURCES-HN-CLOSE-1); Panamá aún no tiene capa gratuita.
+    // Honduras tiene la suya (SOURCES-HN-CLOSE-1) y Panamá también (SOURCES-PA-CLOSE-1).
     assert.equal(resolveCountrySourceCapability('HN')?.sourceKey, 'hn_honducompras_directory_discovery');
-    assert.equal(resolveCountrySourceCapability('PA'), null);
+    assert.equal(resolveCountrySourceCapability('PA')?.sourceKey, 'pa_free_directory_discovery');
   });
 
   it('la cobertura de Guatemala sale de SU tabla', () => {
