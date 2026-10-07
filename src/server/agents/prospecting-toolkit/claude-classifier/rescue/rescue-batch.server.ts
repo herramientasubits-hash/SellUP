@@ -32,6 +32,7 @@ import {
 } from '../classify-batch-candidates.server';
 import { CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
 import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-search';
+import { findKnownCompanyMatch, type KnownCompanyRow } from './known-company-guard';
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
 import { SECTOR_MISMATCH_DISCARD_REASON } from './reassign-stored';
@@ -183,7 +184,46 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
       buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES)),
     ),
   checkDuplicate: checkDuplicateStrict,
+  findKnownCompany,
 };
+
+/**
+ * AGENT1-RESCUE-KNOWN-COMPANY-GUARD-1 — candidatas del mismo lote (cualquier estado)
+ * y candidatas vivas con el mismo número fiscal. Sólo lectura, dos consultas acotadas.
+ */
+async function findKnownCompany(input: {
+  batchId: string;
+  taxId: string | null;
+  names: readonly string[];
+}): Promise<DomainDuplicateCheck | null> {
+  const client = createSupabaseAdminClient();
+  const batch = await client
+    .from('prospect_candidates')
+    .select('name, tax_identifier, status')
+    .eq('batch_id', input.batchId)
+    .limit(KNOWN_COMPANY_BATCH_ROWS);
+  if (batch.error) throw new Error(`known_company_batch_read_failed:${batch.error.message}`);
+  let taxRows: KnownCompanyRow[] = [];
+  if (input.taxId) {
+    const sameTax = await client
+      .from('prospect_candidates')
+      .select('name, tax_identifier, status')
+      .eq('tax_identifier', input.taxId)
+      .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES])
+      .limit(5);
+    if (sameTax.error) throw new Error(`known_company_tax_read_failed:${sameTax.error.message}`);
+    taxRows = (sameTax.data ?? []) as KnownCompanyRow[];
+  }
+  return findKnownCompanyMatch({
+    names: input.names,
+    taxId: input.taxId,
+    batchRows: (batch.data ?? []) as KnownCompanyRow[],
+    taxRows,
+  });
+}
+
+/** Un lote tiene a lo sumo decenas de candidatas; el tope sólo acota la lectura. */
+const KNOWN_COMPANY_BATCH_ROWS = 500;
 
 /**
  * PostgREST: `neq` deja fuera las filas SIN decisión (NULL), así que se pide

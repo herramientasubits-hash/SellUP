@@ -45,6 +45,9 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'pe_sunat_directory',
   // SOURCES-PY-CLOSE-1
   'py_dncp_directory',
+  // SOURCES-GT-CLOSE-1
+  'gt_nit_registry',
+  'gt_guatecompras_directory',
   'cr_company_registry',
   // SOURCES-CR-CLOSE-1
   'cr_free_directory',
@@ -59,6 +62,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pe_sunat_name_alias',
   // SOURCES-PY-CLOSE-1 — varias claves de nombre por RUC.
   'py_set_name_alias',
+  // SOURCES-GT-CLOSE-1 — varias claves de nombre por NIT.
+  'gt_nit_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.
   'ec_sri_trade_name_registry',
   // SOURCES-CR-CLOSE-1 — varias claves de nombre por cédula.
