@@ -107,27 +107,6 @@ export const COLOMBIA_LEGAL_FORMS: readonly string[] = [
 ];
 
 /**
- * Formas societarias de Paraguay (padrón de RUC de la SET/DNIT), más largas primero.
- * SOURCES-PY-RUC-BY-NAME-1. «S A E C A» = sociedad anónima emisora de capital abierto.
- */
-export const PARAGUAY_LEGAL_FORMS: readonly string[] = [
-  'SOCIEDAD ANONIMA EMISORA DE CAPITAL ABIERTO',
-  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
-  'EMPRESA INDIVIDUAL DE RESPONSABILIDAD LIMITADA',
-  'SOCIEDAD ANONIMA',
-  'S A E C A',
-  'E I R L',
-  'S R L',
-  'S A E',
-  'S A',
-  'SAECA',
-  'EIRL',
-  'SRL',
-  'SAE',
-  'SA',
-];
-
-/**
  * Formas societarias de Uruguay (RUPE), más largas primero. SOURCES-UY-RUT-BY-NAME-1.
  * También deciden qué filas del RUPE son EMPRESAS: sólo se carga una razón social
  * que termina en una de estas formas (así no se guardan personas físicas).

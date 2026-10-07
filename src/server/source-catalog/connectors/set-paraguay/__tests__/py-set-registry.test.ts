@@ -20,7 +20,7 @@ import {
   validateTaxIdentifier,
 } from '@/modules/prospect-batches/tax-identifier-rules';
 import { getSourceFamily } from '@/server/source-catalog/record-identity/source-family-registry';
-import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
+import { createParaguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/paraguay-official-source-resolver';
 import {
   DEFAULT_OFFICIAL_SOURCE_ENRICHMENT_POLICY,
   enrichNormalizedProspectWithOfficialSources,
@@ -110,12 +110,7 @@ describe('RUC por nombre dentro de la corrida', () => {
     buildPySetRegistryRow('80023325|FRIGORIFICO CONCEPCION S.A.|5|FCOA017150G|ACTIVO|', params),
   ].filter((row) => row !== null);
 
-  const resolver = createSnapshotNameOfficialSourceResolver({
-    countryCode: 'PY',
-    sourceKey: 'py_set_registry',
-    taxIdentifierType: 'RUC',
-    validTaxId: /^80\d{6}-\d$/,
-    normalizeCore: normalizeParaguayCompanyCore,
+  const resolver = createParaguayOfficialSourceResolver({
     querySnapshots: async (core) =>
       rows
         .filter((row) => row.normalized_legal_name === core)

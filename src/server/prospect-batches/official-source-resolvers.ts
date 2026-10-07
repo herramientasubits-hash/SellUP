@@ -65,7 +65,8 @@ import {
 } from '@/server/source-catalog/company-name-core';
 import { createPeruOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/peru-official-source-resolver';
 import { buildPeruSnapshotNameQuery } from '@/server/prospect-batches/peru-snapshot-query';
-import { normalizeParaguayCompanyCore } from '@/server/source-catalog/connectors/set-paraguay/py-set-registry-row';
+import { createParaguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/paraguay-official-source-resolver';
+import { buildParaguaySnapshotNameQuery } from '@/server/prospect-batches/paraguay-snapshot-query';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
@@ -208,13 +209,10 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       querySnapshots: buildPeruSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-PY-RUC-BY-NAME-1 — sociedades activas del padrón de RUC de la SET.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'PY',
-      sourceKey: 'py_set_registry',
-      taxIdentifierType: 'RUC',
-      validTaxId: /^80\d{6}-\d$/,
-      normalizeCore: normalizeParaguayCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'py_set_registry', 'PY'),
+    // SOURCES-PY-CLOSE-1 — con sus alias (py_set_name_alias), variantes del nombre,
+    // regla de una palabra y el tamaño MIPYME declarado a la DNCP.
+    createParaguayOfficialSourceResolver({
+      querySnapshots: buildParaguaySnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-UY-RUT-BY-NAME-1 — empresas activas del RUPE (proveedores del Estado).
     createSnapshotNameOfficialSourceResolver({

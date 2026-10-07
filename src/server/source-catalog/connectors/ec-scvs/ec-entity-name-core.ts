@@ -59,11 +59,34 @@ export function canonicalEcLocalGovernment(core: string): string | null {
 }
 
 /**
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — los hospitales públicos están en el SRI con su
+ * tipo («HOSPITAL PROVINCIAL GENERAL DOCENTE VICENTE CORRAL MOSCOSO») y Apollo los
+ * nombra sin él («Hospital Vicente Corral Moscoso»). Las dos formas llegan a
+ * «HOSPITAL VICENTE CORRAL MOSCOSO». Sólo se quita el TIPO; lo que distingue a
+ * una institución («IESS», «MILITAR», «DEL NIÑO») se queda. Dos hospitales que
+ * terminan con el mismo núcleo dan varios RUC: pista, nunca seguro.
+ */
+const HOSPITAL_TYPE_WORDS = /^(?:PROVINCIAL|GENERAL|DOCENTE|BASICO|REGIONAL|ESPECIALIZADO|DE ESPECIALIDADES)\s+/;
+
+export function canonicalEcHospital(core: string): string | null {
+  if (!core.startsWith('HOSPITAL ')) return null;
+  let rest = core.slice('HOSPITAL '.length);
+  let previous = '';
+  while (rest !== previous) {
+    previous = rest;
+    rest = rest.replace(HOSPITAL_TYPE_WORDS, '');
+  }
+  rest = rest.replace(/^(?:DE |DEL )/, '').trim();
+  if (rest.length < 3 || rest === core.slice('HOSPITAL '.length)) return null;
+  return `HOSPITAL ${rest}`;
+}
+
+/**
  * Núcleo para el catastro del SRI y para buscar en él: el de compañía y, si es
- * un gobierno local, su forma canónica.
+ * un gobierno local o un hospital, su forma canónica.
  */
 export function normalizeEcEntityCore(name: string | null | undefined): string {
   const core = normalizeEcCompanyCore(name);
   if (core.length === 0) return core;
-  return canonicalEcLocalGovernment(core) ?? core;
+  return canonicalEcLocalGovernment(core) ?? canonicalEcHospital(core) ?? core;
 }

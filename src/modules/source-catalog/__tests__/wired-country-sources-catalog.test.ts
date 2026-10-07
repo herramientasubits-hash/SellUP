@@ -31,6 +31,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'ar_rns_registry', country: 'AR', status: 'connected_identity_in_run' },
   { key: 'ar_rns', country: 'AR', status: 'connected_free_discovery' },
   { key: 'py_set_registry', country: 'PY', status: 'connected_identity_in_run' },
+  { key: 'py_dncp_directory', country: 'PY', status: 'connected_free_discovery' },
   { key: 'uy_rupe_registry', country: 'UY', status: 'connected_identity_in_run' },
   { key: 'us_sec_edgar_registry', country: 'US', status: 'connected_identity_in_run' },
   { key: 'us_irs_eo_registry', country: 'US', status: 'connected_identity_in_run' },
@@ -152,7 +153,7 @@ describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): cargada y verific
     assert.equal(s.connectionMode, 'read_only_snapshot');
     assert.equal(s.operationalStatus, 'operational_verified');
     assert.deepEqual(s.sectors, []);
-    assert.match(s.nextAction ?? '', /1\.082 compañías activas/);
+    assert.match(s.nextAction ?? '', /2\.041 compañías activas/);
     for (const industry of INDUSTRIES) {
       for (const depth of DEPTHS) {
         const ctx = getCatalogContext({ country: 'Ecuador', countryCode: 'EC', industry, searchDepth: depth });

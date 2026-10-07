@@ -24,6 +24,7 @@
  * añade la lectura que la taxonomía macro necesita.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { CatalogLoadError } from './loader';
 import type {
@@ -68,8 +69,15 @@ export type ActiveDiscoveryCatalog = ActiveIndustryCatalog & {
 
 // ─── Cargador ─────────────────────────────────────────────────────────────────
 
-export async function loadActiveDiscoveryCatalog(): Promise<ActiveDiscoveryCatalog> {
-  const supabase = await createClient();
+/**
+ * `client` (opcional): quien NO tiene sesión de usuario —el rescate con Claude que se
+ * relanza solo desde `/api/cron/claude-rescue-continuation`— pasa un cliente de
+ * servicio. Sin él, el de la sesión, como siempre: la vista es `security_invoker` y
+ * sus tablas sólo se leen como `authenticated` con acceso activo, así que sin sesión
+ * el catálogo volvía vacío (`empty_catalog`).
+ */
+export async function loadActiveDiscoveryCatalog(client?: SupabaseClient): Promise<ActiveDiscoveryCatalog> {
+  const supabase = client ?? (await createClient());
 
   const { data, error } = await supabase
     .from('active_macro_industry_catalog')

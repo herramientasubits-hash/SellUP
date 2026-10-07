@@ -43,6 +43,8 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'ec_sri_registry',
   'cl_sii_directory',
   'pe_sunat_directory',
+  // SOURCES-PY-CLOSE-1
+  'py_dncp_directory',
   'cr_company_registry',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
@@ -55,6 +57,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'co_fedesoft',
   'ec_scvs',
   'pe_sunat_name_alias',
+  // SOURCES-PY-CLOSE-1 — varias claves de nombre por RUC.
+  'py_set_name_alias',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC.
   'ec_sri_trade_name_registry',
   // SOURCES-BO-CLOSE-1 — una fila por ficha de gob.bo (sin NIT).

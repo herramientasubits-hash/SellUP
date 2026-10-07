@@ -280,3 +280,64 @@ describe('cadena de Ecuador (buildEcuadorOfficialSourceResolver)', () => {
     assert.equal(identity.strongIdentityAvailable, false);
   });
 });
+
+// ── SOURCES-EC-NAME-MATCH-GAPS-1 (Prod 07-10, Ecuador × Salud) ──────────────────
+
+describe('segundo intento sin «Ecuador» / «Ec» al final del nombre', () => {
+  it('«Farmacias Cuxibamba Ecuador» → «FARMACIAS CUXIBAMBA» por la sigla de la razón social, FUERTE (1.204 empleados)', async () => {
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Farmacias Cuxibamba Ecuador' }), [
+      {
+        ...scvs('1191751422001', 'FARMACIAS CUXIBAMBA FARMACUX CIA. LTDA.', 1204),
+        source_key: 'ec_scvs_alias_registry',
+        normalized_legal_name: 'FARMACIAS CUXIBAMBA',
+      },
+    ]);
+    assert.ok(asked.some(([s, core]) => s === 'ec_scvs_alias_registry' && core === 'FARMACIAS CUXIBAMBA'));
+    assert.equal(identity.strongIdentityAvailable, true);
+    assert.equal(identity.taxIdentifier, '1191751422001');
+  });
+
+  it('una palabra suelta tras quitar el país sigue la regla de palabra suelta: pista si es pequeña', async () => {
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Dibeal Ecuador' }), [
+      scvs('1790976343001', 'DIBEAL COMPAÑIA LIMITADA', 154),
+    ]);
+    assert.ok(asked.some(([s, core]) => s === 'ec_scvs_registry' && core === 'DIBEAL ECUADOR'));
+    assert.ok(asked.some(([s, core]) => s === 'ec_scvs_registry' && core === 'DIBEAL'));
+    assert.equal(identity.strongIdentityAvailable, false);
+    assert.equal(identity.officialSource.status, 'low_confidence_match');
+    assert.equal(identity.officialSource.taxIdentifier, '1790976343001');
+  });
+
+  it('…y fuerte si declara 200 o más empleados', async () => {
+    const { identity } = await enrich(makeCandidate({ canonicalName: 'Dibeal Ecuador' }), [
+      scvs('1790976343001', 'DIBEAL COMPAÑIA LIMITADA', 420),
+    ]);
+    assert.equal(identity.strongIdentityAvailable, true);
+    assert.equal(identity.taxIdentifier, '1790976343001');
+  });
+
+  it('si el nombre completo ya da un RUC seguro, no se pregunta de nuevo', async () => {
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Nestle Ecuador' }), [
+      scvs('1790011674001', 'NESTLE ECUADOR S.A.', 1500),
+    ]);
+    assert.equal(identity.taxIdentifier, '1790011674001');
+    assert.ok(!asked.some(([, core]) => core === 'NESTLE'));
+  });
+
+  it('el reintento nunca usa el snapshot de julio (mezcla compañías inactivas)', async () => {
+    const { identity, asked } = await enrich(makeCandidate({ canonicalName: 'Movistar Ecuador' }), [
+      { ...scvs('0991425756001', 'MOVISTAR S.A.', 12), source_key: 'ec_scvs' },
+    ]);
+    assert.ok(!asked.some(([s, core]) => s === 'ec_scvs' && core === 'MOVISTAR'));
+    assert.equal(identity.officialSource.status === 'matched' && identity.strongIdentityAvailable, false);
+  });
+
+  it('un hospital público por su nombre corto («Hospital Pablo Arturo Suárez»)', async () => {
+    const legal = 'HOSPITAL PROVINCIAL GENERAL PABLO ARTURO SUAREZ';
+    const { identity } = await enrich(makeCandidate({ canonicalName: 'Hospital Pablo Arturo Suarez' }), [
+      { source_key: 'ec_sri_registry', normalized_tax_id: '1768033550001', legal_name: legal, normalized_legal_name: normalizeEcEntityCore(legal) },
+    ]);
+    assert.equal(identity.strongIdentityAvailable, true);
+    assert.equal(identity.taxIdentifier, '1768033550001');
+  });
+});

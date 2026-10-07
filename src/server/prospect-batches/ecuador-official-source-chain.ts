@@ -22,16 +22,28 @@
  * A one-word name («Pronaca», «Movistar») is strong only when the ONE company
  * that carries it declared 200+ employees: a small homonym stays a signal.
  *
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — Apollo names many companies with the country
+ * at the end («Dibeal Ecuador», «Servident Ec»); the registries carry them
+ * without it («DIBEAL»). When the full name gives no strong RUC, the chain is
+ * asked AGAIN with the name without that ending (never the July `ec_scvs`
+ * snapshot, which mixes inactive companies). The retry sees the shorter name as
+ * the candidate's own, so a one-word result («DIBEAL») still follows the
+ * one-word rule: strong only for a 200+ company.
+ *
  * Read-only: every query is a bounded SELECT through `buildSnapshotNameQuery`.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake';
+import type { OfficialSourceResolverInput } from '@/server/agents/prospect-intake/source-enrichment';
 import { createFallbackOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/fallback-official-source-resolver';
 import { createSnapshotNameOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/snapshot-name-official-source-resolver';
 import { buildSnapshotNameQuery } from '@/server/prospect-batches/snapshot-name-query';
-import { normalizeEcCompanyCore } from '@/server/source-catalog/connectors/ec-scvs/ec-company-name-core';
+import {
+  normalizeEcCompanyCore,
+  stripEcCountrySuffix,
+} from '@/server/source-catalog/connectors/ec-scvs/ec-company-name-core';
 import { normalizeEcEntityCore } from '@/server/source-catalog/connectors/ec-scvs/ec-entity-name-core';
 import {
   EC_SCVS_ALIAS_REGISTRY_SOURCE_KEY,
@@ -70,17 +82,44 @@ export function buildEcuadorOfficialSourceResolver(snapshotClient: SupabaseClien
       ...(signalOnly ? { signalOnly: true } : {}),
     });
 
-  return createFallbackOfficialSourceResolver(
-    byName(EC_SCVS_REGISTRY_SOURCE_KEY, normalizeEcCompanyCore),
+  const current = (last: OfficialSourceResolver) =>
     createFallbackOfficialSourceResolver(
-      byName(EC_SCVS_ALIAS_REGISTRY_SOURCE_KEY, normalizeEcCompanyCore),
+      byName(EC_SCVS_REGISTRY_SOURCE_KEY, normalizeEcCompanyCore),
       createFallbackOfficialSourceResolver(
-        byName(EC_SRI_REGISTRY_SOURCE_KEY, normalizeEcEntityCore),
+        byName(EC_SCVS_ALIAS_REGISTRY_SOURCE_KEY, normalizeEcCompanyCore),
         createFallbackOfficialSourceResolver(
-          byName(EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY, normalizeEcEntityCore, true),
-          byName(EC_SCVS_LEGACY_SOURCE_KEY, normalizeEcCompanyCore),
+          byName(EC_SRI_REGISTRY_SOURCE_KEY, normalizeEcEntityCore),
+          last,
         ),
       ),
+    );
+  const tradeName = () => byName(EC_SRI_TRADE_NAME_REGISTRY_SOURCE_KEY, normalizeEcEntityCore, true);
+
+  return createFallbackOfficialSourceResolver(
+    current(
+      createFallbackOfficialSourceResolver(tradeName(), byName(EC_SCVS_LEGACY_SOURCE_KEY, normalizeEcCompanyCore)),
     ),
+    withoutCountrySuffix(current(tradeName())),
   );
+}
+
+/** The same lookup, asked with the candidate's name without «Ecuador» / «Ec» at the end. */
+export function withoutCountrySuffix(inner: OfficialSourceResolver): OfficialSourceResolver {
+  const renamed = (input: OfficialSourceResolverInput): OfficialSourceResolverInput | null => {
+    const shorter = stripEcCountrySuffix(input.candidate.canonicalName);
+    return shorter === null ? null : { ...input, candidate: { ...input.candidate, canonicalName: shorter } };
+  };
+  return {
+    countryCode: inner.countryCode,
+    sourceKey: inner.sourceKey,
+    canResolve(input) {
+      const next = renamed(input);
+      return next !== null && inner.canResolve(next);
+    },
+    resolve(input) {
+      const next = renamed(input);
+      if (next === null) throw new Error('ec_country_suffix_resolver_called_without_suffix');
+      return inner.resolve(next);
+    },
+  };
 }

@@ -157,6 +157,12 @@ export type RescueBatchDeps = {
      */
     officialNames?: (input: { countryCode: string; taxId: string }) => Promise<string[]>;
   };
+  /**
+   * AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote bajo el tope de entrega
+   * (máximo 10 por búsqueda): tope menos lo que ya está vivo en el lote. `null` =
+   * sin tope. Ausente = sin tope (como antes).
+   */
+  deliverySlots?: (batchId: string) => Promise<number | null>;
   nowIso: () => string;
   nowMs: () => number;
 };
@@ -174,6 +180,11 @@ export type RescueBatchSummary =
       failed: number;
       remaining: number;
       estimatedCostUsd: number;
+      /**
+       * AGENT1-DELIVERY-CAP-HARD-1 — descartadas que no se revisaron porque el lote ya
+       * estaba en el tope de entrega (sin gasto; se quedan en Descartadas).
+       */
+      dispositionsCapped?: number;
     }
   | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
 
@@ -182,7 +193,52 @@ type WorkItem =
   | { kind: 'disposition'; row: RescuableDispositionRow };
 
 type ItemOutcome =
-  | { tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped'; cost: number };
+  | {
+      tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped' | 'capped';
+      cost: number;
+    };
+
+/** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote (Infinity = sin tope). */
+type DeliverySlots = { remaining: number };
+
+/**
+ * Reserva un lugar ANTES de gastar en Claude; si la fila no termina en revisión, lo
+ * devuelve. Sin lugar ⇒ ni se revisa (cero gasto) y se queda en Descartadas.
+ *
+ * AGENT1-RESCUE-SLOTS-REQUESTED-INDUSTRY-1 — una empresa de OTRA industria
+ * (`reassigned`) vuelve a revisión con su industria corregida pero NO ocupa uno
+ * de los 10 lugares de la búsqueda: el lugar vuelve. Prod 07-10 (Ecuador ×
+ * Retail, 2aab8384): Proexpo (mariscos) y Olimpo Flowers ocuparon lugares de
+ * Retail y Kywi, Pycca o Eljuri se quedaron en Descartadas.
+ */
+async function rescueDispositionWithinCap(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  admittedIds: string[],
+): Promise<ItemOutcome> {
+  if (ctx.slots.remaining <= 0) return { tag: 'capped', cost: 0 };
+  ctx.slots.remaining--;
+  const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
+  if (!keepsDeliverySlot(outcome.tag)) ctx.slots.remaining++;
+  return outcome;
+}
+
+/** Sólo una empresa de la industria pedida que entra a revisión ocupa uno de los lugares. */
+export function keepsDeliverySlot(tag: ItemOutcome['tag']): boolean {
+  return tag === 'admitted';
+}
+
+/** Un candidato en revisión que resulta de OTRA industria deja libre su lugar. */
+async function rescueCandidateFreeingSlot(
+  row: ClassifiableCandidateRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+): Promise<ItemOutcome> {
+  const outcome = await rescueCandidate(row, ctx, deps);
+  if (outcome.tag === 'reassigned') ctx.slots.remaining++;
+  return outcome;
+}
 
 function readIcpThreshold(metadata: Record<string, unknown> | null): number {
   const gate = metadata?.icp_size_gate as { threshold?: unknown } | undefined;
@@ -247,6 +303,8 @@ type RescueRunContext = {
    * no se empieza ninguna empresa más en esta corrida.
    */
   halt: { accountError: boolean };
+  /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
+  slots: DeliverySlots;
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -588,6 +646,9 @@ async function markSent(deps: RescueBatchDeps, dispositionId: string, metadata: 
 /**
  * Descartes por sector YA guardados que encajan con UBITS → revisión con la
  * industria corregida. Sólo lee la clasificación guardada: costo cero.
+ *
+ * AGENT1-RESCUE-SLOTS-REQUESTED-INDUSTRY-1 — son de OTRA industria: no ocupan
+ * los lugares de la búsqueda (antes sí, y dejaban fuera a las de la industria pedida).
  */
 async function reassignStoredSectorMismatches(
   batchId: string,
@@ -733,6 +794,8 @@ export async function rescueBatchWithClaude(
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);
   const requestedIndustryId = await deps.loadBatchIndustryId(params.batchId).catch(() => null);
+  // AGENT1-DELIVERY-CAP-HARD-1 — si no se puede leer, el rescate sigue como antes.
+  const freeSlots = deps.deliverySlots ? await deps.deliverySlots(params.batchId).catch(() => null) : null;
   const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
   const ctx: RescueRunContext = {
     batchId: params.batchId,
@@ -743,6 +806,7 @@ export async function rescueBatchWithClaude(
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
     halt: { accountError: false },
+    slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
   };
   const admittedIds: string[] = [];
   const storedReassigned = await reassignStoredSectorMismatches(
@@ -757,7 +821,9 @@ export async function rescueBatchWithClaude(
     RESCUE_CONCURRENCY,
     () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
     (item) =>
-      item.kind === 'candidate' ? rescueCandidate(item.row, ctx, deps) : rescueDisposition(item.row, ctx, deps, admittedIds),
+      item.kind === 'candidate'
+        ? rescueCandidateFreeingSlot(item.row, ctx, deps)
+        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds),
   );
 
   // «Una empresa, un vendedor»: si otro vendedor ya la tiene, el reclamo la marca duplicada.
@@ -775,5 +841,6 @@ export async function rescueBatchWithClaude(
     failed: count('failed'),
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
+    dispositionsCapped: count('capped'),
   };
 }

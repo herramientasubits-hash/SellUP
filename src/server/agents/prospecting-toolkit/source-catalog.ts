@@ -249,7 +249,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.datos.gov.co/Funci-n-p-blica/Caracterizaci-n-del-Empleo-P-blico/h8rs-jxum',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita colombiana para la industria Gobierno (decisión de la dueña, 06-10-2026): antes de pagar a Apollo o Lusha, el Agente 1 propone entidades públicas de administración (alcaldías, gobernaciones, ministerios, departamentos administrativos, superintendencias, agencias, institutos y órganos autónomos) con 200 o más servidores públicos según el SIGEP II, de mayor a menor, con su NIT y su web. Las E.S.E. (hospitales públicos) y las empresas de servicios públicos quedan clasificadas en Salud y Energía pero no se ofrecen. El SIIS no sirve para Gobierno: sólo tiene 5 filas de administración pública, todas empresas privadas mal clasificadas.',
+      'Capa gratuita colombiana para la industria Gobierno (decisión de la dueña, 06-10-2026): antes de pagar a Apollo o Lusha, el Agente 1 propone entidades públicas de administración (alcaldías, gobernaciones, ministerios, departamentos administrativos, superintendencias, agencias, institutos y órganos autónomos) con 200 o más servidores públicos según el SIGEP II, de mayor a menor, con su NIT, su web y, desde el 07-10, sus servidores en la ficha del candidato («SIGEP», servidores de planta). Las E.S.E. (hospitales públicos) y las empresas de servicios públicos quedan clasificadas en Salud y Energía pero no se ofrecen. El SIIS no sirve para Gobierno: sólo tiene 5 filas de administración pública, todas empresas privadas mal clasificadas.',
     limitations: [
       'Sólo entidades con 200 o más servidores de planta en el SIGEP II: los municipios pequeños no se ofrecen.',
       'Universidades públicas, empresas industriales y comerciales del Estado y sociedades de economía mixta no tienen industria y no se ofrecen.',
@@ -1088,7 +1088,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sii.cl/sobre_el_sii/nominapersonasjuridicas.html',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita chilena por industria: personas jurídicas del SII con 100 o más trabajadores dependientes informados (2024) cuyo código de actividad (6 dígitos) y texto de actividad coinciden. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga, de más a menos trabajadores, según la tabla de actividades → industria aprobada por la dueña (05-10-2026): la misma por división que Argentina y Ecuador, más el cobre (división 04) en Energía y minería, mayoristas de medicamentos e instrumental médico, farmacias y ortopedias en Salud, mayoristas y tiendas de informática y telecomunicaciones en Tecnología, los «fondos y sociedades de inversión» sin industria salvo 25 holdings revisados a mano (Falabella y Cencosud en Comercio, Enel en Energía, Red Salud en Salud…), y Correos de Chile (registrada como telecomunicaciones) en Transporte. Cada empresa llega con su RUT; los trabajadores quedan en la fuente como estimado con su año.',
+      'Capa gratuita chilena por industria: personas jurídicas del SII con 100 o más trabajadores dependientes informados (2024) cuyo código de actividad (6 dígitos) y texto de actividad coinciden. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga, de más a menos trabajadores, según la tabla de actividades → industria aprobada por la dueña (05-10-2026): la misma por división que Argentina y Ecuador, más el cobre (división 04) en Energía y minería, mayoristas de medicamentos e instrumental médico, farmacias y ortopedias en Salud, mayoristas y tiendas de informática y telecomunicaciones en Tecnología, los «fondos y sociedades de inversión» sin industria salvo 25 holdings revisados a mano (Falabella y Cencosud en Comercio, Enel en Energía, Red Salud en Salud…), y Correos de Chile (registrada como telecomunicaciones) en Transporte. Cada empresa llega con su RUT y, desde el 07-10, con sus trabajadores en la ficha del candidato («SII» y el año, estimado oficial, no tamaño confirmado).',
     limitations: [
       'Sólo empresas con 100 o más trabajadores dependientes informados al SII en 2024; las que no informaron trabajadores no aparecen.',
       '«Trabajadores dependientes informados» es un estimado oficial con su año, no el tamaño confirmado.',
@@ -1407,7 +1407,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Las municipalidades llevan su web oficial del RENAMU del INEI (datos abiertos, ODbL; dominio que nombra al distrito o la provincia, nunca gob.pe genérico ni correo gratuito): 169 de las 655 entidades de Gobierno en el dry-run (pendiente de recarga autorizada). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory --renamu=<Base-Datos_AAAA.csv del RENAMU>, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
+      'Cargada el 06-10-2026 (autorizado): 3.069 sociedades y entidades activas y habidas con 200 o más trabajadores informados (Padrón RUC abierto de SUNAT, corte 2026-09, × padrón reducido). Capa gratuita de Perú: el Agente 1 propone de aquí antes de pagar a proveedores. 1.ª corrida (Salud, 06-10): 52 propuestas con RUC, todas sin web ⇒ dependen del rescate para encontrar su sitio. Las municipalidades llevan su web oficial del RENAMU del INEI (datos abiertos, ODbL; dominio que nombra al distrito o la provincia, nunca gob.pe genérico ni correo gratuito): 169 de las 655 entidades de Gobierno (recarga autorizada 07-10). Se ofrecen primero las que traen web oficial y después el resto, cada grupo de más a menos trabajadores (Perú × Gobierno 07-10: por trabajadores las 49 primeras eran UGEL y ministerios sin web). Recarga (mensual, con autorización): bajar padron_reducido_ruc.zip (www2.sunat.gob.pe), PadronRUC_AAAAMM.zip (datosabiertos.gob.pe, desde el navegador: el portal bloquea las descargas por terminal) y entidades_contratantes.csv (conosce.osce.gob.pe); correr scripts/source-catalog/run-pe-sunat-sources-etl.ts --apply --prune --only=directory --renamu=<Base-Datos_AAAA.csv del RENAMU>, luego --only=alias y --only=registry (estas dos con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<fuente>). --prune quita lo que el archivo ya no trae.',
     countryCodes: ['PE'],
     sectors: [],
     priority: 'P1',
@@ -1416,7 +1416,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.datosabiertos.gob.pe/dataset/padr%C3%B3n-ruc-superintendencia-nacional-de-aduanas-y-de-administraci%C3%B3n-tributaria-sunat',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita peruana por industria: sociedades y entidades (RUC 20) ACTIVAS y HABIDAS que SUNAT informa con 200 o más trabajadores en su Padrón RUC abierto (datos abiertos, licencia ODC-BY). Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU Rev. 4 → industria (la misma por división que Argentina, más informática del comercio en Tecnología y farmacias en Salud), de más a menos trabajadores. Cada empresa llega con su RUC y su razón social del padrón reducido.',
+      'Capa gratuita peruana por industria: sociedades y entidades (RUC 20) ACTIVAS y HABIDAS que SUNAT informa con 200 o más trabajadores en su Padrón RUC abierto (datos abiertos, licencia ODC-BY). Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU Rev. 4 → industria (la misma por división que Argentina, más informática del comercio en Tecnología y farmacias en Salud), de más a menos trabajadores. Cada empresa llega con su RUC, su razón social del padrón reducido y, desde el 07-10, con sus trabajadores en la ficha del candidato («SUNAT 2026», estimado oficial con su año, no tamaño confirmado).',
     limitations: [
       'Sólo sociedades y entidades con 200 o más trabajadores informados: SUNAT no informa trabajadores en el 59 % de las sociedades activas, que no aparecen.',
       'La industria sale de la tabla CIIU: actividades fuera de la tabla (hoteles, restaurantes, medios, educación, asociaciones) no se proponen.',
@@ -1552,7 +1552,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Capa gratuita de Ecuador. Cargadas hoy: 1.082 compañías con 200+ empleados (05-10). SOURCES-EC-CLOSE-1 baja el corte a 100+ (dueña 06-10, «como Chile»: 2.041 compañías, Tecnología 53) y añade el dominio declarado en SERCOP (86 de 2.041 con los años 2025-2026): la recarga espera la autorización de la dueña.',
+      'Capa gratuita de Ecuador. Cargadas 2.041 compañías activas con 100+ empleados (recarga autorizada 06-10, SOURCES-EC-CLOSE-1, «como Chile»; antes 1.082 con 200+), 86 con el dominio declarado en SERCOP 2025-2026. Próxima recarga: con el siguiente ranking anual.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1561,7 +1561,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 100 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria v2 (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud, y mayoristas y tiendas de computadoras, programas informáticos y telecomunicaciones en Tecnología). Cada empresa llega con su RUC y, si lo declaró en SERCOP y se parece a su razón social, con su dominio. No vuelve a proponer lo que SellUp ya tiene como candidata o descartó de forma definitiva; un descarte por falta de web vuelve sólo si ahora hay dominio.',
+      'Capa gratuita ecuatoriana por industria: compañías ACTIVAS del directorio de la Superintendencia de Compañías que en su último año del ranking empresarial declaran 100 o más empleados. Antes de pagar a Apollo o Lusha, el Agente 1 propone empresas de esta carga según la tabla CIIU → industria v2 (la misma por división que Argentina, más farmacias y distribuidoras de medicamentos y equipo médico en Salud, y mayoristas y tiendas de computadoras, programas informáticos y telecomunicaciones en Tecnología). Cada empresa llega con su RUC, con sus empleados en la ficha del candidato desde el 07-10 («Supercias» y el año, estimado oficial) y, si lo declaró en SERCOP y se parece a su razón social, con su dominio. No vuelve a proponer lo que SellUp ya tiene como candidata o descartó de forma definitiva; un descarte por falta de web vuelve sólo si ahora hay dominio.',
     limitations: [
       'Sólo compañías que reportan a la Superintendencia de Compañías: no incluye bancos, aseguradoras supervisadas por otra entidad, entidades públicas ni personas naturales.',
       'Sólo compañías con 100 o más empleados declarados en su último estado financiero: las que no presentaron balance no aparecen.',
@@ -1582,7 +1582,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código (SOURCES-EC-CLOSE-1) como primera fuente de RUC de Ecuador en cada corrida; la carga (182.941 compañías activas + 5.485 siglas, ≈104 MB) espera la autorización de la dueña. Hasta entonces la cadena sigue con ec_scvs.',
+      'Primera fuente de RUC de Ecuador en cada corrida (SOURCES-EC-CLOSE-1). Cargadas 182.941 compañías activas + 5.484 siglas (autorizado 06-10).',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1591,7 +1591,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.supercias.gob.ec/',
     automationLevel: 'high',
     recommendedUse:
-      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry).',
+      'Directorio de compañías × ranking empresarial de la Superintendencia de Compañías, SIN corte de tamaño: todas las compañías ACTIVAS con RUC de sociedad (182.941), 158.100 con los empleados declarados en su último año. A cualquier empresa de Apollo, Tavily o Claude le da su RUC por nombre y, con un RUC seguro, su tamaño oficial al gate ICP por el mismo camino que el SII de Chile: micro y pequeñas se descartan. Incluye la sigla que trae la razón social («… S.A. CONECEL», «(DIFARE)») como segundo nombre (ec_scvs_alias_registry), y el nombre sin la sigla final («FARMACIAS CUXIBAMBA FARMACUX» → «FARMACIAS CUXIBAMBA»). Si Apollo nombra a la empresa con el país al final («Dibeal Ecuador», «Servident Ec») y no hay RUC seguro, se busca otra vez sin él.',
     limitations: [
       'Sólo compañías de la Superintendencia de Compañías: bancos, cooperativas, entidades públicas y fundaciones están en ec_sri_registry.',
       'Los empleados son los declarados en el estado financiero: un estimado oficial con su año, nunca el tamaño confirmado; sólo viajan con un RUC seguro.',
@@ -1609,7 +1609,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Conectada en el código (SOURCES-EC-CLOSE-1) después de ec_scvs_registry; la carga del catastro del SRI (archivos por provincia publicados en enero de 2025) espera la autorización de la dueña.',
+      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.734 sociedades activas + nombres comerciales (autorizado 06-10).',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1618,12 +1618,13 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.sri.gob.ec/datasets',
     automationLevel: 'high',
     recommendedUse:
-      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales, universidades, empresas públicas, bancos, cooperativas y fundaciones. Además hasta 3 marcas por RUC, las que más establecimientos usan («SUPERMAXI», «AKI» → Corporación Favorita; «MI COMISARIATO» → El Rosado; «NETLIFE» → Megadatos), como otros nombres (ec_sri_trade_name_registry). En el rescate con Claude de Ecuador, una web que es exactamente esa marca o sigla oficial del mismo RUC cuenta como verificada (netlife.ec, claro.com.ec), y una que es la primera palabra propia de la razón social (huawei.com) llega como inferida.',
+      'Datos abiertos del Servicio de Rentas Internas: contribuyentes ACTIVOS con RUC de sociedad privada o pública. Da el RUC por nombre de lo que la Superintendencia no registra: municipios, prefecturas y juntas parroquiales (en forma canónica: «Municipio de Celica» = «GOBIERNO AUTONOMO DESCENTRALIZADO MUNICIPAL DEL CANTON CELICA»), ministerios, hospitales (en forma corta: «Hospital Pablo Arturo Suárez» = «HOSPITAL PROVINCIAL GENERAL PABLO ARTURO SUAREZ»), universidades, empresas públicas, bancos, cooperativas y fundaciones. Además hasta 3 marcas por RUC, las que más establecimientos usan («SUPERMAXI», «AKI» → Corporación Favorita; «MI COMISARIATO» → El Rosado; «NETLIFE» → Megadatos), como otros nombres (ec_sri_trade_name_registry). En el rescate con Claude de Ecuador, una web que es exactamente esa marca o sigla oficial del mismo RUC cuenta como verificada (netlife.ec, claro.com.ec), y una que es la primera palabra propia de la razón social (huawei.com) llega como inferida.',
     limitations: [
       'El nombre comercial es una pista: sólo da RUC seguro si la empresa es grande según la Superintendencia (200+ empleados).',
       'Nombres públicos genéricos que se repiten («GAD PARROQUIAL SAN JOSE», «CENTRO DE SALUD B») dan varios RUC y quedan como pista.',
       'Archivos publicados en enero de 2025: altas posteriores no aparecen hasta una recarga.',
       'Personas naturales nunca se cargan (su RUC es su cédula).',
+      'Los nombres comerciales que son un código (RUC, cédula, fecha, número de chasis) no se cargan.',
     ],
     riskNotes: [
       'Universidades, organismos públicos, municipios y fundaciones SÍ se cargan: también son clientes de UBITS.',
@@ -2347,7 +2348,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '97.727 sociedades activas (RUC 80…) del padrón público de RUC de la SET/DNIT cargadas. El Agente 1 completa el RUC por nombre en cada corrida.',
+      '97.727 sociedades activas (RUC 80…) del padrón público de RUC de la DNIT cargadas (30-09-2026). SOURCES-PY-CLOSE-1: recarga pendiente de autorización con el núcleo nuevo (forma societaria reconocida por su estructura: E.A.S., SAECA…; sin el paréntesis final), sus alias (py_set_name_alias: siglas como COPACO o ANDE, partes del nombre, clave de entidad pública) y el tamaño MIPYME declarado a la DNCP. Recarga: bajar ruc0..9.zip de dnit.gov.py («listado de RUC con sus equivalencias») y correr scripts/source-catalog/run-py-set-registry-etl.ts --dir=… --dncp-api=<fichas DNCP> --apply (con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=py_set_registry).',
     countryCodes: ['PY'],
     sectors: [],
     priority: 'P1',
@@ -2356,15 +2357,46 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.dnit.gov.py/',
     automationLevel: 'high',
     recommendedUse:
-      'Padrón público de RUC de la SET/DNIT de Paraguay: 97.727 sociedades activas (RUC 80…). En cada corrida del Agente 1 completa el RUC por nombre de empresa. El RUC se guarda con su dígito verificador (por ejemplo 80002201-7). El 97,8 % de los nombres es único. RUC seguro sólo cuando exactamente un RUC tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Padrón público de RUC de la DNIT de Paraguay: sociedades y entidades públicas activas (RUC 80…). En cada corrida del Agente 1 completa el RUC por nombre de empresa, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). El RUC se guarda con su dígito verificador (por ejemplo 80002201-7). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, sigla del padrón, con o sin «de Paraguay», clave de entidad pública que iguala «Gobernación de Central» con «GOBERNACION DEPARTAMENTO CENTRAL» y «Municipalidad de Asunción» con «MUNICIPALIDAD DE LA CIUDAD DE ASUNCION»). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Si la sociedad declaró a la DNCP ser micro, pequeña o mediana, ese tramo llega al filtro de tamaño.',
     limitations: [
-      'Sólo sociedades activas con RUC 80…: no incluye personas físicas.',
-      'El padrón no trae sector, actividad ni tamaño.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo RUC 80… activos: no incluye personas físicas.',
+      'El padrón no trae sector, actividad ni tamaño; el tamaño sólo llega si la sociedad lo declaró a la DNCP.',
+      'Las marcas que no son la razón social (Tigo, Stock, Superseis, Pechugón…) no se encuentran.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
-      'Un nombre repetido o genérico no da un RUC seguro; queda como señal.',
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUC seguro; queda como señal.',
+      'Los fideicomisos, sindicatos y asociaciones de funcionarios no aportan alias (no son la empresa que nombran).',
+    ],
+  },
+  {
+    key: 'py_dncp_directory',
+    name: 'Proveedores del Estado DNCP — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-PY-CLOSE-1 (tabla UNSPSC aprobada por la dueña el 06-10-2026): carga pendiente de autorización, 1.127 sociedades (dry-run 06-10 sobre 3.618 proveedoras de 2022-2026: fuera 1.200 MIPYME declaradas, 603 no activas, 590 consorcios o personas físicas, 98 sin industria dominante), 791 con web declarada o dominio del correo corporativo. Recarga: bajar awa-masivo.zip de cada año (contrataciones.gov.py/images/opendata-v3/final/ocds/<AÑO>/), correr scripts/source-catalog/extract-py-dncp-suppliers.py summary y profiles, y luego scripts/source-catalog/run-py-dncp-directory-etl.ts --suppliers=… --dncp-api=… --dir=<padrón DNIT> --apply.',
+    countryCodes: ['PY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://www.contrataciones.gov.py/datos/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita paraguaya por industria: sociedades (RUC 80…) activas en el padrón de la DNIT a las que el Estado adjudicó contratos entre 2022 y 2026 (datos abiertos OCDS de la DNCP, licencia CC BY 4.0). La industria sale de lo que venden al Estado (clase UNSPSC de lo adjudicado, tabla UNSPSC → industria) y se ordenan por cuántas entidades distintas les compran. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RUC, su razón social del padrón y, cuando la DNCP la publica, su web (o el dominio de su correo corporativo).',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
+      'Sin consorcios ni personas físicas, y sin las que declararon a la DNCP ser micro, pequeña o mediana (Ley 4457: hasta 50 trabajadores). Las grandes no declaran tamaño.',
+      'La industria sale de lo que venden al Estado: viajes, comida, alojamiento, educación y servicios comunitarios no se proponen; Gobierno tampoco (las entidades públicas son compradoras, no proveedoras).',
+      'Sin web declarada ni correo corporativo, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
     ],
   },
 

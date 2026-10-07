@@ -59,12 +59,18 @@ import {
   type PeSunatDirectoryDiscoveryReads,
 } from './pe-sunat-directory-discovery-adapter';
 import {
+  buildPyDncpDirectoryDiscoveryAdapter,
+  PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type PyDncpDirectoryDiscoveryReads,
+} from './py-dncp-directory-discovery-adapter';
+import {
   BO_OFFICIAL_DISCOVERY_SOURCE_KEY,
   buildBoOfficialDiscoveryAdapter,
   macroHasBoDiscoveryCoverage,
   type BoOfficialDiscoveryReads,
 } from './bo-official-discovery-adapter';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
+import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import { macroHasPeCoverage } from './pe-sunat-macro-table';
 import { macroHasEcCoverage } from './ec-scvs-macro-table';
 import { macroHasClCoverage } from './cl-sii-macro-table';
@@ -101,12 +107,17 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * clasificado por la tabla CIIU (`pe-sunat-macro-table.ts`), sólo sociedades y
  * entidades activas y habidas de 200+ trabajadores.
  *
+ * SOURCES-PY-CLOSE-1 — Paraguay entra con las sociedades que el Estado contrató
+ * (adjudicaciones de la DNCP en datos abiertos), clasificadas por lo que venden
+ * (UNSPSC, `py-dncp-macro-table.ts`), sin consorcios y sin las que declararon ser
+ * micro, pequeña o mediana.
+ *
  * SOURCES-BO-CLOSE-1 — Bolivia entra con los grandes contribuyentes (PRICO/GRACO de
  * Impuestos y PRIO/OEA de la Aduana, con nombre y objeto social del SEPREC),
  * clasificados por la tabla de palabras (`bo-activity-macro-table.ts`), y con las
  * entidades públicas del portal gob.bo (`bo-official-discovery-adapter.ts`).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'BO'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'BO'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -121,6 +132,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   EC: { countryCode: 'EC', sourceKey: EC_SCVS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   CL: { countryCode: 'CL', sourceKey: CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PE: { countryCode: 'PE', sourceKey: PE_SUNAT_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  PY: { countryCode: 'PY', sourceKey: PY_DNCP_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BO: { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY },
 });
 
@@ -142,6 +154,7 @@ export function resolveCountrySourceCapability(
  * Ecuador: la macro tiene actividades CIIU del INEC en la tabla.
  * Chile: la macro tiene actividades del SII en la tabla aprobada.
  * Perú: la macro tiene clases CIIU Rev. 4 en la tabla.
+ * Paraguay: la macro tiene clases UNSPSC en la tabla.
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
@@ -157,6 +170,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'EC') return macroHasEcCoverage(macroIndustryKey);
   if (capability.countryCode === 'CL') return macroHasClCoverage(macroIndustryKey);
   if (capability.countryCode === 'PE') return macroHasPeCoverage(macroIndustryKey);
+  if (capability.countryCode === 'PY') return macroHasPyDncpCoverage(macroIndustryKey);
   if (capability.countryCode === 'BO') return macroHasBoDiscoveryCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
@@ -181,6 +195,7 @@ export function buildCountrySourceAdapter(
     ecScvsDirectoryDiscoveryReads?: EcScvsDirectoryDiscoveryReads | null;
     clSiiDirectoryDiscoveryReads?: ClSiiDirectoryDiscoveryReads | null;
     peSunatDirectoryDiscoveryReads?: PeSunatDirectoryDiscoveryReads | null;
+    pyDncpDirectoryDiscoveryReads?: PyDncpDirectoryDiscoveryReads | null;
     boOfficialDiscoveryReads?: BoOfficialDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
@@ -208,6 +223,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'PE') {
     return deps.peSunatDirectoryDiscoveryReads
       ? buildPeSunatDirectoryDiscoveryAdapter(deps.peSunatDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'PY') {
+    return deps.pyDncpDirectoryDiscoveryReads
+      ? buildPyDncpDirectoryDiscoveryAdapter(deps.pyDncpDirectoryDiscoveryReads)
       : null;
   }
   if (capability.countryCode === 'BO') {

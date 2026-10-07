@@ -55,9 +55,32 @@ function bandFromStratification(raw: Record<string, unknown>, source: string, fa
   return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
 }
 
+/**
+ * SOURCES-PY-CLOSE-1 — tamaño MIPYME que una sociedad paraguaya declaró a la DNCP
+ * (Ley 4457/2012, art. 5): micro hasta 10 trabajadores, pequeña hasta 30, mediana
+ * hasta 50. Las tres quedan en o bajo el corte de pequeña del filtro de tamaño.
+ * Una grande no se categoriza: no hay tramo «grande».
+ */
+export const PY_MIPYME_BANDS: Readonly<Record<string, { min: number; max: number; label: string }>> = {
+  MICRO: { min: 0, max: 10, label: 'micro' },
+  PEQUEÑA: { min: 11, max: 30, label: 'pequeña' },
+  PEQUENA: { min: 11, max: 30, label: 'pequeña' },
+  MEDIANA: { min: 31, max: 50, label: 'mediana' },
+};
+
+function bandFromParaguayMipymeSize(raw: Record<string, unknown>, source: string): OfficialWorkforce | null {
+  const value = raw['py_mipyme_size'];
+  const year = raw['py_mipyme_size_year'];
+  if (typeof value !== 'string' || typeof year !== 'number' || !Number.isInteger(year)) return null;
+  const band = PY_MIPYME_BANDS[value.trim().toUpperCase()];
+  if (!band) return null;
+  return { workers: band.min, year, source, maxWorkers: band.max, sizeBand: band.label };
+}
+
 export function workforceFromRawData(raw: unknown, source: string, fallbackYear: number | null = null): OfficialWorkforce | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
+  if (record['py_mipyme_size'] !== undefined) return bandFromParaguayMipymeSize(record, source);
   const workers = record['workers'];
   const year = record['metrics_year'];
   if (workers === undefined && record['stratification'] !== undefined) {

@@ -4,7 +4,7 @@
  *
  * SOURCES-PE-FREE-DISCOVERY-1.
  *
- * Un único SELECT acotado sobre `source_company_snapshots`, filtrado a
+ * Dos SELECT acotados (primero las que traen web oficial) sobre `source_company_snapshots`, filtrados a
  * `pe_sunat_directory` / `PE` y a la macro pedida, ordenado por trabajadores
  * (`priority_score`) y, en los empates, por RUC para que dos
  * corridas idénticas lean las mismas filas.
@@ -65,23 +65,40 @@ function toRow(row: SnapshotSelectRow): PeSunatDirectorySnapshotReadRow {
   };
 }
 
-/** Adapta un cliente (de `service_role`) a la lectura de descubrimiento de Perú. */
+/**
+ * SOURCES-PE-FREE-LAYER-WEB-FIRST-1 — primero las que traen web oficial (hoy, las
+ * municipalidades con dominio del RENAMU) y después el resto, cada grupo de más a
+ * menos trabajadores. Perú × Gobierno (lote 656e6835, 07-10): por trabajadores las
+ * 49 primeras eran UGEL, ministerios y Fuerzas Armadas sin web; las 49 fueron a
+ * «Descartadas» y el rescate sólo recuperó 8, mientras las 169 municipalidades con
+ * web oficial nunca llegaban a ofrecerse.
+ */
 export function buildPeSunatDirectoryDiscoveryReads(client: SupabaseClient): PeSunatDirectoryDiscoveryReads {
+  const read = async (macroIndustryKey: string, limit: number, withWebsite: boolean): Promise<PeSunatDirectorySnapshotReadRow[]> => {
+    const base = client
+      .from('source_company_snapshots')
+      .select(SELECTED_COLUMNS)
+      .eq('source_key', 'pe_sunat_directory')
+      .eq('country_code', 'PE')
+      .eq('raw_data->>macro_industry_key', macroIndustryKey);
+    const filtered = withWebsite
+      ? base.not('raw_data->>website_domain', 'is', null)
+      : base.is('raw_data->>website_domain', null);
+    const { data, error } = await filtered
+      .order('priority_score', { ascending: false })
+      .order('normalized_tax_id', { ascending: true })
+      .limit(limit);
+    if (error || !Array.isArray(data)) throw new Error('pe_sunat_directory_read_failed');
+    return (data as unknown as SnapshotSelectRow[]).map(toRow);
+  };
   return {
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
       try {
-        const { data, error } = await client
-          .from('source_company_snapshots')
-          .select(SELECTED_COLUMNS)
-          .eq('source_key', 'pe_sunat_directory')
-          .eq('country_code', 'PE')
-          .eq('raw_data->>macro_industry_key', macroIndustryKey)
-          .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .limit(limit);
-        if (error || !Array.isArray(data)) return [];
-        return (data as unknown as SnapshotSelectRow[]).map(toRow);
+        const withWebsite = await read(macroIndustryKey, limit, true);
+        if (withWebsite.length >= limit) return withWebsite;
+        const rest = await read(macroIndustryKey, limit - withWebsite.length, false);
+        return [...withWebsite, ...rest];
       } catch {
         return [];
       }

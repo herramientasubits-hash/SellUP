@@ -40,6 +40,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 
 /** `source_key` que esta proyección declara. */
 export const CL_SII_DIRECTORY_DISCOVERY_SOURCE_KEY = 'cl_sii_directory_discovery' as const;
@@ -108,10 +109,9 @@ function toCompany(row: ClSiiDirectorySnapshotReadRow, macroIndustryKey: string)
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: CL_SII_MACRO_TABLE_VERSION,
     },
-    // 🔴 Los trabajadores NO viajan al candidato: el writer común deja el tamaño
-    // como «por validar» y su procedencia es una lista cerrada. Aquí sólo
-    // garantizan que no se ofrece ninguna empresa de menos de 100; el número
-    // queda en la fila de la fuente (`raw_data.workers`).
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los trabajadores informados al SII van a
+    // la ficha (antes quedaban «por validar»).
+    officialWorkforce: buildCountrySourceOfficialWorkforce(row.workers, row.metrics_year, 'SII'),
   };
 }
 

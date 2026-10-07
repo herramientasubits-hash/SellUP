@@ -39,6 +39,8 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import { isRecycledCountrySourceCompany, type CountrySourcePriorSighting } from './country-source-prior-sightings';
 
 /** `source_key` que esta proyección declara. */
@@ -111,18 +113,19 @@ function toCompany(row: EcScvsDirectorySnapshotReadRow, macroIndustryKey: string
     // declaró en SERCOP y se parece a su razón social (`ec-sercop-domain.ts`).
     // Sin él, no se fabrica ninguno.
     domain: normalizeDomain(row.website_domain),
-    // El directorio sólo trae el código CIIU, no su descripción.
-    declaredIndustry: null,
+    // El directorio sólo trae el código CIIU, no su descripción: la columna Industria
+    // muestra la industria de la tabla oficial (antes quedaba vacía; Prod 07-10:
+    // 0 de 8 candidatas directas de Ecuador con industria).
+    declaredIndustry: getMacroIndustryByKey(macroIndustryKey)?.displayName ?? null,
     industryCode: row.ciiu_code?.trim() || null,
     coarseSector: null,
     officialMacroIndustry: {
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: EC_SCVS_MACRO_TABLE_VERSION,
     },
-    // 🔴 Los empleados NO viajan al candidato: el writer común deja el tamaño
-    // como «por validar» y su procedencia es una lista cerrada. Aquí sólo
-    // garantizan que no se ofrece ninguna compañía de menos de 200; el número
-    // queda en la fila de la fuente (`raw_data.workers`).
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los empleados de la Superintendencia de
+    // Compañías van a la ficha (antes quedaban «por validar»).
+    officialWorkforce: buildCountrySourceOfficialWorkforce(row.employees, row.metrics_year, 'Supercias'),
   };
 }
 
