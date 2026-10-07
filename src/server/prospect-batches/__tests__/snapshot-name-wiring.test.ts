@@ -125,10 +125,16 @@ describe('cableado', () => {
     assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'cl_res_registry', 'CL'\)/);
   });
 
-  it('el factory construye Costa Rica (cédula jurídica) sobre PYMES MEIC + proveedores SICOP', () => {
+  it('el factory construye Costa Rica sobre el registro y sus alias (SOURCES-CR-CLOSE-1)', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
-    assert.match(wiring, /countryCode: 'CR',\s*sourceKey: 'cr_company_registry',\s*taxIdentifierType: 'cedula_juridica',\s*validTaxId: \/\^3\\d\{9\}\$\//);
-    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'cr_company_registry', 'CR'\)/);
+    assert.match(
+      wiring,
+      /createCostaRicaOfficialSourceResolver\(\{\s*querySnapshots: buildCostaRicaSnapshotNameQuery\(snapshotClient\),\s*\}\)/,
+    );
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    for (const resolver of resolvers.filter((r) => r.countryCode === 'CR')) {
+      assert.equal(resolver.sourceKey, 'cr_company_registry');
+    }
   });
 
   it('el resolvedor genérico es puro y la lectura no escribe', () => {

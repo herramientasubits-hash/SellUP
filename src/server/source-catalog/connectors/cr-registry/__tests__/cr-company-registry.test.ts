@@ -42,12 +42,15 @@ describe('cédula jurídica', () => {
     assert.equal(validateTaxIdentifier('310105262', 'CR').valid, false);
   });
 
-  it('sólo sociedades (3…): cédula física, DIMEX y entes estatales quedan fuera', () => {
+  it('sociedades (3…) y entes públicos (2…, 4…); cédula física y DIMEX quedan fuera (SOURCES-CR-CLOSE-1)', () => {
     assert.equal(normalizeCostaRicaCompanyCedula('3-101-052623'), '3101052623');
     assert.equal(normalizeCostaRicaCompanyCedula(3102124446), '3102124446');
     assert.equal(normalizeCostaRicaCompanyCedula('0105230456'), null);
     assert.equal(normalizeCostaRicaCompanyCedula('184001234567'), null);
-    assert.equal(normalizeCostaRicaCompanyCedula('4000042147'), null);
+    assert.equal(normalizeCostaRicaCompanyCedula('4000042147'), '4000042147');
+    assert.equal(normalizeCostaRicaCompanyCedula('2-100-042005'), '2100042005');
+    // Zona Franca escribe a veces un sufijo de planta.
+    assert.equal(normalizeCostaRicaCompanyCedula('3-101-028685-24'), '3101028685');
     assert.equal(normalizeCostaRicaCompanyCedula(null), null);
   });
 });
@@ -87,7 +90,14 @@ describe('combinación de los tres archivos', () => {
 
   it('las filas del MEIC conservan tamaño, provincia y CIIU; nunca se guarda el solicitante', () => {
     const zebra = rows.find((row) => row.tax_id === '3101052623');
-    assert.deepEqual(zebra?.raw_data, { origin: 'meic_pymes', size: 'Micro', province: 'SAN JOSE', ciiu: '2220' });
+    assert.deepEqual(zebra?.raw_data, {
+      origin: 'meic_pymes',
+      origins: ['meic_pymes'],
+      cr_meic_size: 'MICRO',
+      cr_meic_size_year: 2025,
+      province: 'SAN JOSE',
+      ciiu: '2220',
+    });
     assert.equal(JSON.stringify(rows).includes('MARIA PEREZ'), false);
     assert.equal(zebra?.record_identity_key, 'tax:3101052623');
     assert.equal(zebra?.normalized_legal_name, 'PLASTICOS ZEBRA');
@@ -116,7 +126,7 @@ describe('cédula por nombre dentro de la corrida', () => {
     countryCode: 'CR',
     sourceKey: 'cr_company_registry',
     taxIdentifierType: 'cedula_juridica',
-    validTaxId: /^3\d{9}$/,
+    validTaxId: /^[234]\d{9}$/,
     normalizeCore: normalizeCostaRicaCompanyCore,
     querySnapshots: async (core) =>
       rows
