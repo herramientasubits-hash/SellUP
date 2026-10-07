@@ -7,8 +7,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ecCompanyNameAlias, normalizeEcCompanyCore } from '../ec-company-name-core';
-import { canonicalEcLocalGovernment, normalizeEcEntityCore } from '../ec-entity-name-core';
+import { ecCompanyNameAlias, normalizeEcCompanyCore, stripEcCountrySuffix } from '../ec-company-name-core';
+import { canonicalEcHospital, canonicalEcLocalGovernment, normalizeEcEntityCore } from '../ec-entity-name-core';
 import {
   buildEcSercopDomainMap,
   ecCorporateDomainFromUrls,
@@ -27,6 +27,7 @@ import {
 import {
   accumulateEcSriEntry,
   ecTradeNameKeys,
+  isCodeLikeTradeName,
   pickEcTradeNames,
   admitEcSriRecord,
   buildEcSriRegistryRows,
@@ -417,5 +418,102 @@ describe('no volver a proponer lo ya visto (regla común)', () => {
     assert.equal(isRecycledCountrySourceCompany('discard', true), false);
     assert.equal(isRecycledCountrySourceCompany(null, false), false);
     assert.equal(isRecycledCountrySourceCompany(undefined, false), false);
+  });
+});
+
+// ── SOURCES-EC-NAME-MATCH-GAPS-1 (Prod 07-10, Ecuador × Salud) ──────────────────
+
+describe('la sigla al final de la razón social: el nombre sin ella', () => {
+  it('«Farmacias Cuxibamba» y «Clínica San Rafael» se encuentran por su nombre sin la sigla', () => {
+    assert.equal(ecCompanyNameAlias('FARMACIAS CUXIBAMBA FARMACUX CIA. LTDA.'), 'FARMACIAS CUXIBAMBA');
+    assert.equal(ecCompanyNameAlias('CLINICA SAN RAFAEL CLISANRA S.A.S.'), 'CLINICA SAN RAFAEL');
+    assert.equal(ecCompanyNameAlias('TEXTILES DE LOS ANDES TEXTIANDES CIA. LTDA.'), 'TEXTILES DE LOS ANDES');
+  });
+
+  it('una forma societaria antes de la sigla también sale del nombre', () => {
+    assert.equal(ecCompanyNameAlias('INMOBILIARIA FRATERNIDAD COMPANIA ANONIMA IFCA'), 'INMOBILIARIA FRATERNIDAD');
+  });
+
+  it('la última palabra que NO es sigla de las anteriores se queda (no hay otro nombre)', () => {
+    assert.equal(ecCompanyNameAlias('HOSPITAL DEL RIO S.A.'), null);
+    assert.equal(ecCompanyNameAlias('COMERCIAL KYWI S.A.'), null);
+    assert.equal(ecCompanyNameAlias('ALMACENES JUAN ELJURI CIA. LTDA.'), null);
+    // Sigla de UNA sola palabra: el resto sería una palabra suelta, demasiado amplia.
+    assert.equal(ecCompanyNameAlias('PRONACA PRON S.A.'), null);
+  });
+
+  it('las dos reglas anteriores siguen primero', () => {
+    assert.equal(ecCompanyNameAlias('CONSORCIO ECUATORIANO DE TELECOMUNICACIONES S.A. CONECEL'), 'CONECEL');
+    assert.equal(ecCompanyNameAlias('DISTRIBUIDORA FARMACEUTICA ECUATORIANA (DIFARE) S.A.'), 'DIFARE');
+  });
+
+  it('una compañía en liquidación nunca presta su nombre', () => {
+    assert.equal(ecCompanyNameAlias('FARMACIAS CUXIBAMBA FARMACUX EN LIQUIDACION'), null);
+  });
+});
+
+describe('el país al final del nombre de Apollo', () => {
+  it('«Dibeal Ecuador», «Servident Ec» → sin el país', () => {
+    assert.equal(stripEcCountrySuffix('Dibeal Ecuador'), 'Dibeal');
+    assert.equal(stripEcCountrySuffix('Servident Ec'), 'Servident');
+    assert.equal(stripEcCountrySuffix('World Vision Ecuador.'), 'World Vision');
+  });
+
+  it('«… del Ecuador» es parte del nombre oficial; sin país o sólo el país → null', () => {
+    assert.equal(stripEcCountrySuffix('Banco Central del Ecuador'), null);
+    assert.equal(stripEcCountrySuffix('Nestlé Ecuador S.A.'), null);
+    assert.equal(stripEcCountrySuffix('Kruger'), null);
+    assert.equal(stripEcCountrySuffix('Ecuador'), null);
+    assert.equal(stripEcCountrySuffix('AB Ecuador'), null);
+    assert.equal(stripEcCountrySuffix(null), null);
+  });
+
+  it('el núcleo guardado NO cambia («NESTLE ECUADOR S.A.» sigue siendo «NESTLE ECUADOR»)', () => {
+    assert.equal(normalizeEcCompanyCore('NESTLE ECUADOR S.A.'), 'NESTLE ECUADOR');
+  });
+});
+
+describe('hospitales públicos: el nombre del SRI y el de Apollo llegan al mismo núcleo', () => {
+  it('se quita el tipo de hospital, no lo que lo distingue', () => {
+    const same = 'HOSPITAL PABLO ARTURO SUAREZ';
+    assert.equal(normalizeEcEntityCore('HOSPITAL PROVINCIAL GENERAL PABLO ARTURO SUAREZ'), same);
+    assert.equal(normalizeEcEntityCore('Hospital Pablo Arturo Suárez'), same);
+    assert.equal(
+      normalizeEcEntityCore('HOSPITAL PROVINCIAL GENERAL DOCENTE VICENTE CORRAL MOSCOSO'),
+      normalizeEcEntityCore('Hospital Vicente Corral Moscoso'),
+    );
+    assert.equal(normalizeEcEntityCore('Hospital de Especialidades Eugenio Espejo'), 'HOSPITAL EUGENIO ESPEJO');
+    assert.equal(normalizeEcEntityCore('HOSPITAL GENERAL DEL IESS MACHALA'), 'HOSPITAL IESS MACHALA');
+  });
+
+  it('sin tipo, o sólo el tipo: sin forma canónica', () => {
+    assert.equal(canonicalEcHospital('HOSPITAL METROPOLITANO'), null);
+    assert.equal(canonicalEcHospital('HOSPITAL GENERAL'), null);
+    assert.equal(canonicalEcHospital('SINDICATO DEL HOSPITAL PABLO ARTURO SUAREZ'), null);
+  });
+
+  it('las compañías (Superintendencia) no cambian', () => {
+    assert.equal(normalizeEcCompanyCore('HOSPITAL GENERAL GUAYAQUIL S.A.'), 'HOSPITAL GENERAL GUAYAQUIL');
+  });
+});
+
+describe('nombres comerciales que son un código, no una marca', () => {
+  it('RUC, cédula, fecha o número de chasis: fuera', () => {
+    for (const code of [
+      'AA2 CUENCA HOSPITAL GENERAL VICENTE CORRAL MOSCOSOZCFCB35A6R55817032075',
+      '0501161124',
+      '0591714961001 ROADBOSS TRANSPORTE EXTRAPESADO',
+      '14 10 2020',
+    ]) {
+      assert.equal(isCodeLikeTradeName(code), true, code);
+      assert.deepEqual(ecTradeNameKeys(code), [], code);
+    }
+  });
+
+  it('una marca con números se conserva', () => {
+    for (const brand of ['1001CARROS', 'RADIO UNICA 94 5 FM', 'G4S', 'SUPERMAXI', '1 800 TIENDAS']) {
+      assert.equal(isCodeLikeTradeName(brand), false, brand);
+    }
+    assert.ok(ecTradeNameKeys('1001CARROS MANTA').includes('1001CARROS MANTA'));
   });
 });

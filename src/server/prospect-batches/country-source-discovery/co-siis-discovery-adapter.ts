@@ -41,6 +41,7 @@ import type {
   CountrySourceCriteria,
   CountrySourceDiscoveryResult,
 } from './country-source-types';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 
 /** `source_key` que esta proyección declara. NO es el de enriquecimiento. */
 export const CO_SIIS_DISCOVERY_SOURCE_KEY = 'co_siis_discovery' as const;
@@ -177,9 +178,9 @@ function toPublicEntityCompany(row: CoSiisSnapshotRow, macroIndustryKey: string)
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: CO_PUBLIC_ENTITY_MACRO_TABLE_VERSION,
     },
-    // 🔴 Los servidores NO viajan al candidato (igual que Chile): aquí sólo
-    // garantizan que no se ofrece ninguna entidad de menos de 200. El tamaño lo
-    // pone después el resolvedor oficial por NIT, que sí lo propaga.
+    // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — los servidores del SIGEP van a la ficha
+    // (antes quedaban «por validar» hasta el resolvedor oficial por NIT).
+    officialWorkforce: buildCountrySourceOfficialWorkforce(row.workers, null, 'SIGEP'),
   };
 }
 

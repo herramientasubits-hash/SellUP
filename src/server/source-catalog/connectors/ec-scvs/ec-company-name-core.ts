@@ -136,7 +136,9 @@ function usableAlias(alias: string, core: string): string | null {
  *   1. lo que va entre paréntesis (1 a 3 palabras);
  *   2. con una forma societaria en mitad del nombre: la palabra que la sigue si es
  *      UNA sola (la sigla); si la siguen varias, lo que va antes (1 a 3 palabras).
- * Si no hay ninguna de las dos, `null`. Nunca devuelve el núcleo completo ni una
+ *   3. la sigla al final de la razón social («FARMACIAS CUXIBAMBA FARMACUX»): el
+ *      nombre sin ella (ver `nameBeforeTrailingAcronym`).
+ * Si no hay ninguna, `null`. Nunca devuelve el núcleo completo ni una
  * forma societaria. Puro.
  */
 export function ecCompanyNameAlias(legalName: string | null | undefined): string | null {
@@ -160,7 +162,73 @@ export function ecCompanyNameAlias(legalName: string | null | undefined): string
     const alias = afterWords.length === 1 ? usableAlias(after, core) : usableAlias(before, core);
     if (alias !== null) return alias;
   }
-  return null;
+  return nameBeforeTrailingAcronym(core);
+}
+
+/** Conectores que una sigla puede saltarse («CLINICA DE LA MUJER» → CLIMU). */
+const ACRONYM_SKIPPABLE_WORDS: ReadonlySet<string> = new Set(['DE', 'DEL', 'LA', 'LAS', 'EL', 'LOS', 'Y', 'E']);
+const MIN_TRAILING_ACRONYM_LENGTH = 4;
+const MAX_NAME_BEFORE_ACRONYM_WORDS = 6;
+
+/**
+ * ¿`acronym` está hecha, en orden, de un comienzo de CADA palabra de `words`
+ * (los conectores pueden saltarse)? «FARMACUX» = FARMA·CU·X de «FARMACIAS
+ * CUXIBAMBA»; «CLISANRA» = CLI·SAN·RA de «CLINICA SAN RAFAEL». Puro.
+ */
+function isAcronymOfAllWords(acronym: string, words: readonly string[]): boolean {
+  const walk = (at: number, wordIndex: number): boolean => {
+    if (wordIndex === words.length) return at === acronym.length;
+    const word = words[wordIndex];
+    if (ACRONYM_SKIPPABLE_WORDS.has(word) && walk(at, wordIndex + 1)) return true;
+    for (let take = Math.min(word.length, acronym.length - at); take >= 1; take -= 1) {
+      if (acronym.slice(at, at + take) === word.slice(0, take) && walk(at + take, wordIndex + 1)) return true;
+    }
+    return false;
+  };
+  return walk(0, 0);
+}
+
+/**
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — 3.ª regla: la razón social termina en su propia
+ * sigla, SIN forma societaria en medio ni paréntesis:
+ *
+ *   «FARMACIAS CUXIBAMBA FARMACUX CIA. LTDA.» → «FARMACIAS CUXIBAMBA»
+ *   «CLINICA SAN RAFAEL CLISANRA S.A.S.»      → «CLINICA SAN RAFAEL»
+ *
+ * Apollo y Claude la nombran sin la sigla («Farmacias Cuxibamba»). Sólo cuando la
+ * última palabra está hecha, en orden, del comienzo de cada palabra anterior: así
+ * una última palabra que es parte del nombre («HOSPITAL DEL RIO») nunca se quita.
+ */
+function nameBeforeTrailingAcronym(core: string): string | null {
+  const words = core.split(' ').filter((w) => w.length > 0);
+  const acronym = words[words.length - 1];
+  const before = words.slice(0, -1);
+  const meaningful = before.filter((w) => !ACRONYM_SKIPPABLE_WORDS.has(w));
+  if (acronym === undefined || acronym.length < MIN_TRAILING_ACRONYM_LENGTH || !/^[A-Z]+$/.test(acronym)) return null;
+  if (meaningful.length < 2 || before.length > MAX_NAME_BEFORE_ACRONYM_WORDS || before.includes(acronym)) return null;
+  if (!isAcronymOfAllWords(acronym, before)) return null;
+  // «INMOBILIARIA FRATERNIDAD COMPANIA ANONIMA IFCA»: la forma que quedaba antes de la sigla también sale.
+  const name = normalizeEcCompanyCore(before.join(' '));
+  if (name.split(' ').length < 2 || EC_PLACE_ALIASES.has(name) || EC_LEGAL_FORMS.includes(name)) return null;
+  return name;
+}
+
+/**
+ * SOURCES-EC-NAME-MATCH-GAPS-1 — Apollo nombra a muchas compañías con el país al
+ * final: «Dibeal Ecuador», «Servident Ec», «World Vision Ecuador». El registro las
+ * tiene sin él («DIBEAL»). Devuelve el nombre sin ese final, o `null` si no lo
+ * lleva o no queda nada. NO se aplica al núcleo guardado: «NESTLE ECUADOR S.A.»
+ * sigue siendo «NESTLE ECUADOR»; es sólo un segundo intento de búsqueda.
+ */
+// «… DEL ECUADOR» es parte del nombre oficial («BANCO CENTRAL DEL ECUADOR»): no se toca.
+const EC_COUNTRY_SUFFIX = /\s+(?<!\b(?:DEL|DE)\s+)(?:ECUADOR|EC|ECU)\s*$/i;
+
+export function stripEcCountrySuffix(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+  const trimmed = name.replace(/[.\s]+$/, '').trim();
+  if (!EC_COUNTRY_SUFFIX.test(trimmed)) return null;
+  const stripped = trimmed.replace(EC_COUNTRY_SUFFIX, '').trim();
+  return normalizeEcCompanyCore(stripped).length >= 3 ? stripped : null;
 }
 
 /**
