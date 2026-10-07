@@ -19,6 +19,7 @@ import {
   DOMAIN_SEARCH_REASON_CODE,
   readFoundWebsite,
   websiteNotFoundBeforeOfficialNames,
+  websiteRejectedByOlderInstitutionRule,
   websiteNotFoundByAccountError,
   websiteNotFoundWithOlderSearch,
 } from './domain-search';
@@ -104,6 +105,7 @@ export function needsDispositionRescue(
   if (!row.domain && websiteNotFoundWithOlderSearch(row.evidence)) return true;
   if (!row.domain && websiteNotFoundByAccountError(row.evidence)) return true;
   if (!row.domain && websiteNotFoundBeforeOfficialNames(row)) return true;
+  if (!row.domain && websiteRejectedByOlderInstitutionRule(row)) return true;
   if (keptBeforeOfficialSizeRule(row)) return true;
   return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
 }

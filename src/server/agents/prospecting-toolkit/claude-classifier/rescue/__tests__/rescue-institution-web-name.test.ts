@@ -8,9 +8,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { institutionHostLabel, institutionWebMatchesName } from '../institution-web-name-match';
+import { INSTITUTION_WEB_RULE_VERSION, institutionHostLabel, institutionWebMatchesName } from '../institution-web-name-match';
+import { websiteRejectedByOlderInstitutionRule } from '../domain-search';
 import { rescueBatchWithClaude, type RescueBatchDeps } from '../rescue-batch';
-import type { RescuableDispositionRow } from '../rescue-dispositions';
+import { needsDispositionRescue, type RescuableDispositionRow } from '../rescue-dispositions';
 import type { DomainFinderOutcome } from '../../domain-finder';
 import type { CompanyClassificationResult } from '../../types';
 
@@ -142,5 +143,52 @@ describe('B. el rescate', () => {
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.dispositionsAdmitted, 1);
     assert.equal(f.dupChecks.length, 1);
+  });
+});
+
+describe('C. v2 — nombres de uso conocidos y una vuelta más (Prod 07-10, 9fc7fc7b)', () => {
+  const RREE = 'MINISTERIO DE RELACIONES EXTERIORES Y MOVILIDAD HUMANA';
+
+  it('Relaciones Exteriores → cancilleria.gob.ec corresponde', () => {
+    assert.equal(institutionWebMatchesName('cancilleria.gob.ec', [RREE]), true);
+    assert.equal(institutionWebMatchesName('cancilleria.gob.ec', ['MINISTERIO DE GOBIERNO']), false, 'el alias no vale para otra entidad');
+  });
+
+  function rejected(name: string, claimedUrl: string, version?: number): RescuableDispositionRow {
+    return {
+      ...ministry(),
+      name,
+      evidence: {
+        provider_raw_name: name,
+        tax_identifier_present: true,
+        claude_rescue: { decision: 'website_not_found', decided_at: '2026-10-07T19:01:38.510Z' },
+        claude_domain_search: {
+          found: false,
+          reason: 'identity_not_confirmed',
+          claimed_url: claimedUrl,
+          attempts: 1,
+          ...(version === undefined ? {} : { institution_web_rule: version }),
+        },
+      },
+    } as RescuableDispositionRow;
+  }
+
+  it('la que la regla anterior rechazó y hoy corresponde vuelve UNA vez', () => {
+    const now = Date.parse('2026-10-07T20:00:00.000Z');
+    assert.equal(websiteRejectedByOlderInstitutionRule(rejected(RREE, 'https://cancilleria.gob.ec')), true);
+    assert.equal(needsDispositionRescue(rejected(RREE, 'https://cancilleria.gob.ec'), now, true), true);
+    // Ya buscada con la regla de hoy: no se repite.
+    assert.equal(websiteRejectedByOlderInstitutionRule(rejected(RREE, 'https://cancilleria.gob.ec', INSTITUTION_WEB_RULE_VERSION)), false);
+    // Sigue sin corresponder: no vuelve.
+    assert.equal(websiteRejectedByOlderInstitutionRule(rejected('MINISTERIO DE GOBIERNO', 'https://registrocivil.gob.ec')), false);
+    // Web privada: no es asunto de esta regla.
+    assert.equal(websiteRejectedByOlderInstitutionRule(rejected('PYCCA S.A.', 'https://polipapel.com')), false);
+  });
+
+  it('toda búsqueda nueva guarda la versión de la regla (no se reabre en bucle)', async () => {
+    const f = fakeDeps('registrocivil.gob.ec');
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    const search = f.evidence.get('d1')!.claude_domain_search as { institution_web_rule: number };
+    assert.equal(search.institution_web_rule, INSTITUTION_WEB_RULE_VERSION);
   });
 });

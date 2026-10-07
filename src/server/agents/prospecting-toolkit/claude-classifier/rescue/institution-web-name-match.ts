@@ -27,6 +27,22 @@ const ACRONYM_SKIP = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', '
 
 const PREFIX_LENGTH = 5;
 
+/**
+ * Versión de la regla. Las búsquedas guardadas con una versión anterior que rechazó
+ * una web que hoy sí corresponde valen una vuelta más del rescate.
+ * v2 (07-10): nombres de uso conocidos.
+ */
+export const INSTITUTION_WEB_RULE_VERSION = 2;
+
+/**
+ * Nombres de USO de una entidad que no salen de su nombre oficial. Prod 07-10
+ * (EC × Gobierno, 9fc7fc7b): «MINISTERIO DE RELACIONES EXTERIORES Y MOVILIDAD
+ * HUMANA» → cancilleria.gob.ec quedaba en Descartadas.
+ */
+const KNOWN_USE_NAMES: ReadonlyArray<{ name: RegExp; labels: readonly string[] }> = [
+  { name: /\brelaciones exteriores\b/, labels: ['cancilleria'] },
+];
+
 function fold(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
@@ -44,6 +60,8 @@ export function institutionHostLabel(domain: string | null | undefined): string 
 }
 
 function nameMatchesLabel(name: string, label: string): boolean | null {
+  const folded = fold(name);
+  if (KNOWN_USE_NAMES.some((alias) => alias.name.test(folded) && alias.labels.some((l) => label.includes(l)))) return true;
   const all = words(name);
   const distinctive = all.filter((w) => !GENERIC_WORDS.has(w) && w.length >= 3);
   if (distinctive.length === 0) return null;
