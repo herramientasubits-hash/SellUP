@@ -14,10 +14,10 @@
  * mitad de su monto adjudicado; lo que no coincide con ninguna regla (fiestas,
  * papelería, publicidad, capacitación…) no se clasifica.
  *
- * 🔴 PROPUESTA: la dueña todavía NO aprobó esta tabla. Mientras
- * `SV_COMPRASAL_MACRO_TABLE_APPROVED` sea `false`, el ETL no carga la capa gratuita
- * de empresas (`--only=directory`). Cambiar la clasificación es una decisión de
- * producto: no se edita sin su visto bueno.
+ * Aprobada por la dueña el 07-10-2026 (junto con el umbral de US$ 50.000). Si
+ * `SV_COMPRASAL_MACRO_TABLE_APPROVED` fuera `false`, el ETL no cargaría la capa
+ * gratuita de empresas (`--only=directory`). Cambiar la clasificación es una
+ * decisión de producto: no se edita sin su visto bueno.
  *
  * ── Relevancia (no hay tamaño oficial vigente) ─────────────────────────────
  *
@@ -33,7 +33,7 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 export const SV_COMPRASAL_MACRO_TABLE_VERSION = 'sv-comprasal-proceso-palabras-macro-v1' as const;
 
 /** ¿Aprobó la dueña la tabla? Hasta entonces el ETL no carga la capa de empresas. */
-export const SV_COMPRASAL_MACRO_TABLE_APPROVED = false as const;
+export const SV_COMPRASAL_MACRO_TABLE_APPROVED: boolean = true;
 
 /** Las entidades públicas se ofrecen sólo para Gobierno. */
 export const SV_PUBLIC_ENTITY_MACRO: MacroIndustryKey = 'government';

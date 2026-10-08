@@ -171,7 +171,7 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  *
  * SOURCES-SV-CLOSE-1 — El Salvador entra con las proveedoras de COMPRASAL empatadas
  * a UN NIT de los listados de Hacienda (clasificadas por las palabras de lo que
- * venden, tabla PROPUESTA a la dueña), con al menos US$ 50.000 adjudicados; y con
+ * venden, tabla aprobada por la dueña el 07-10-2026), con al menos US$ 50.000 adjudicados; y con
  * las instituciones vigentes con web o NIT (Gobierno).
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [

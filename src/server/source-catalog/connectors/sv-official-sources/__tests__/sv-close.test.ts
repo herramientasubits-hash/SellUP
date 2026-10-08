@@ -442,9 +442,9 @@ function award(partial: Partial<SvComprasalAward> & { id: number }): SvComprasal
   };
 }
 
-describe('tabla de palabras de COMPRASAL (propuesta)', () => {
-  it('sigue sin aprobar', () => {
-    assert.equal(SV_COMPRASAL_MACRO_TABLE_APPROVED, false);
+describe('tabla de palabras de COMPRASAL (aprobada el 07-10-2026)', () => {
+  it('aprobada por la dueña', () => {
+    assert.equal(SV_COMPRASAL_MACRO_TABLE_APPROVED, true);
   });
 
   it('clasifica por lo que se compra; lo que no dice nada queda sin macro', () => {
