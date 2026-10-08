@@ -425,7 +425,7 @@ Costa Rica tiene el **Registro Nacional** como fuente de validación societaria.
 | **SICOP** — Sistema de Compras Públicas | [sicop.go.cr](https://www.sicop.go.cr/) | Señales comerciales | Tecnología, Salud, Educación, Seguridad | Proveedores del Estado con historial de contratos | Media | Confirmar estructura de datos abiertos | **P1** |
 | **MEIC — Sistema SIEC / Directorio PYMES** | [pymes.cr/siec](https://pymes.cr/siec/) | Discovery | Manufactura, Comercio, Servicios | Directorio de PYMES costarricenses | Media | Actualización variable | **P1** |
 | **PROCOMER** | [procomer.com](https://www.procomer.com/) · [datos abiertos](https://www.comex.go.cr/transparencia/datos-abiertos/) | Señales comerciales, Sectorial | Exportadores, Retail, Manufactura | Empresas exportadoras con actividad internacional verificada | Manual-Media | Solo exportadores | **P1** |
-| **Cámara de Industrias de Costa Rica** | [cicr.com](https://www.cicr.com/) | Sectorial | Manufactura / Industria | Gremio industrial. Socios y sectores | Manual | Afiliados | **P1** |
+| **Cámara de Industrias de Costa Rica** | [cicr.com/asociados](https://cicr.com/asociados/) | Sectorial | Manufactura / Industria | Página pública de ~700 socios con nombre, web y actividad (sin cédula). Se cruza por nombre con el registro de cédulas (SOURCES-CR-CICR-1): la web entra como alias `web:<dominio>` y los socios medianos/grandes entran a `cr_free_directory` (`directory_kind = cicr_member`) con la actividad que declaran, clasificada por una tabla de palabras clave **aprobada por la dueña el 08-10-2026** | Carga única (`extract-cr-cicr-members.py` + `--cicr` del ETL de CR); pendiente de autorización | Afiliados; sólo cédulas que el registro ya conoce; micro y pequeñas fuera | **P1** |
 
 ---
 
