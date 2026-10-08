@@ -103,7 +103,7 @@ const SPANISH_SECTOR_RULES: readonly { macro: MacroIndustryKey | null; pattern: 
   { macro: 'transport_logistics', pattern: /aerolin|aviacion|transporte|logistic|courier|mensajeria|paqueteria|aeroportuari|delivery|reparto|entrega a domicilio|movilidad/ },
   { macro: 'energy_mining_environment', pattern: /energi|petrole|hidrocarbur|combustible|gasolinera|miner|servicio petroler|residuos|medioambient|servicios publicos/ },
   { macro: 'consumer_goods', pattern: /aliment|bebida|consumo masivo|vino|vitivin|cosmetic|cuidado personal|belleza|higiene|aseo|limpieza y cuidado del hogar|mascotas/ },
-  { macro: 'agroindustry', pattern: /agro|forestal|pesca|acuicultura|cafetaler|ingenio|agricol|veterinari/ },
+  { macro: 'agroindustry', pattern: /agro|agrari|forestal|pesca|acuicultura|cafetaler|ingenio|agricol|veterinari/ },
   { macro: 'industry_manufacturing_chemicals_automotive', pattern: /cement|industri|manufactur|automotri|automocion|autopartist|quimic|sider|metalurg|plastico|papel|empaque|textil|confeccion|maquila|maquinaria/ },
   { macro: 'property_construction', pattern: /construccion|inmobili|bienes raices|infraestructur|concesiones viales|zonas? francas?|parques empresariales/ },
   { macro: 'services_company', pattern: /educacion|universidad|academi|formacion|abogad|legal|auditori|consultor|contabilidad|\bbpo\b|contact center|\bett\b|rrhh|rr\.hh|facility|seguridad|servicios de limpieza|publicid|publicitari|cajas de compensacion|cementerio|servicios varios|servicios de alimentacion/ },

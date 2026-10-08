@@ -19,6 +19,11 @@ Listas:
   ar_ssn        datosabiertos.ssn.gob.ar «entidades-activas.csv»: aseguradoras.
   cl_cmf_seguros  cmfchile.cl «descargar_consulta» de aseguradoras (CSV; varios con coma).
   ec_direx      sgrn.proecuadorb2b.com.ec DIREX «SearchResults» (HTML): exportadores.
+  py_cones      carpeta con cones.gov.py/{universidades,institutos-superiores}/page/N guardadas como
+                <tipo>_<N>.html: universidades e institutos habilitados (públicos si el
+                nombre dice «Nacional», es militar o policial, o la web es .mil/.gov/.gob.py).
+  pe_bvl        carpeta con las respuestas JSON de dataondemand.bvl.com.pe/v1/issuers/search
+                (una por letra): emisores de la Bolsa de Valores de Lima, sin fondos ni ETF.
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -147,6 +152,52 @@ def ec_direx(path: str) -> list[dict]:
     return out
 
 
+def py_cones(folder: str) -> list[dict]:
+    import glob
+    import os
+
+    out = []
+    for path in sorted(glob.glob(os.path.join(folder, "*.html"))):
+        page = open(path, encoding="utf-8", errors="ignore").read()
+        for card in re.findall(r'<div class="dc-card-body">(.*?)</div>', page, re.S):
+            name = re.search(r"<h3>(.*?)</h3>", card, re.S)
+            if not name:
+                continue
+            body = strip_tags(card)
+            city = re.search(r"Ciudad:\s*(.*?)\s*URL:", body)
+            web = re.search(r"URL:\s*(\S+)", body)
+            label = strip_tags(name.group(1))
+            out.append(entry(
+                country="PY", list="py_cones", list_label="CONES – educación superior habilitada", year=2026,
+                name=re.split(r"\s+[–-]\s+", label)[0], website=web.group(1) if web else None,
+                kind="university",
+                is_public=bool(
+                    re.search(r"\b(nacional|armada|militar|polic[ií]a|ej[eé]rcito|fuerza a[eé]rea|naval)", label, re.I)
+                    or re.search(r"\.(mil|gov|gob)\.py", web.group(1) if web else "")
+                ),
+                city=clean(city.group(1)) if city else None,
+            ))
+    return out
+
+
+def pe_bvl(folder: str) -> list[dict]:
+    import glob
+    import os
+
+    skip = {"fondos de inversión", "fondos de inversion", "etfs"}
+    out = []
+    for path in sorted(glob.glob(os.path.join(folder, "*.json"))):
+        for row in json.load(open(path, encoding="utf-8")):
+            sector = clean(row.get("sectorDescription"))
+            if not row.get("companyName") or (sector or "").lower() in skip:
+                continue
+            out.append(entry(
+                country="PE", list="pe_bvl", list_label="BVL – emisores", year=2026,
+                name=clean(row.get("companyName")), kind="listed_company", sector=sector,
+            ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -194,6 +245,8 @@ EXTRACTORS = {
     "cl_cmf_seguros": cl_cmf_seguros,
     "ec_direx": ec_direx,
     "merco": merco,
+    "py_cones": py_cones,
+    "pe_bvl": pe_bvl,
 }
 
 
