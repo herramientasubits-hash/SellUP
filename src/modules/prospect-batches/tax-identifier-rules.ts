@@ -576,6 +576,25 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '998592-1-535732',
     ruleVersion: 'PA-RUC-v1',
   },
+  // SOURCES-SV-CLOSE-1 — NIT homologado de 14 dígitos (municipio, fecha, correlativo
+  // y verificador). Sólo la forma, igual que Honduras: el verificador lo comprueban
+  // las cargas (`sv-nit.ts`), no la edición a mano.
+  SV: {
+    countryCode: 'SV',
+    label: 'NIT',
+    placeholder: 'Ej. 0614-010112-002-5',
+    helpText: 'Ingrese el NIT de 14 dígitos, con o sin guiones.',
+    minLength: 14,
+    maxLength: 17,
+    inputMode: 'numeric',
+    acceptedCharacters: /^[\d\s.-]*$/,
+    formatPattern: /^\d{14}$/,
+    validationLevel: 'format_only',
+    normalize: (val) => val.replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^\d{14}$/.test(val.replace(/[\s.-]/g, '')),
+    canonicalExample: '06140101120025',
+    ruleVersion: 'SV-NIT-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {
@@ -668,6 +687,7 @@ function getCountryNameByCode(code: string): string {
     GT: 'Guatemala',
     HN: 'Honduras',
     PA: 'Panamá',
+    SV: 'El Salvador',
   };
   return names[code.toUpperCase().trim()] ?? code;
 }

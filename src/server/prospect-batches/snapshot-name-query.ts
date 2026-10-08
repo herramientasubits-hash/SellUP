@@ -156,6 +156,12 @@ export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   // SOURCES-PA-CLOSE-1 — Grandes Contribuyentes de la DGI de Panamá (ingresos ≥
   // B/.20 M y activos ≥ B/.60 M). Mismo trato: «empresa grande» que no decide sola.
   PA_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Panamá)',
+  // SOURCES-SV-CLOSE-1 — Grandes (DGII 2019 o Hacienda 2012) y Medianos (2012)
+  // Contribuyentes de El Salvador: Hacienda clasifica por impuestos pagados y ventas
+  // (criterios de 2012), no por trabajadores, y la lista más reciente con NIT es de
+  // 2019. Mismo trato: queda en la ficha con su año y NO decide (no es vigente).
+  SV_GRAN_CONTRIBUYENTE: 'gran contribuyente (Hacienda El Salvador)',
+  SV_MEDIANO_CONTRIBUYENTE: 'mediano contribuyente (Hacienda El Salvador)',
 };
 
 function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {

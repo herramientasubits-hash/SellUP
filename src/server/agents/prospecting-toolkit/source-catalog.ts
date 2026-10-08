@@ -121,7 +121,9 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un RUC seguro.',
   ],
   SV: [
-    'Sin número fiscal por nombre: El Salvador no publica una fuente gratuita con razón social + NIT (COMPRASAL sólo da el nombre; el NIT de los contribuyentes es confidencial).',
+    'El Salvador no publica un padrón con NIT (Hacienda lo considera confidencial): el NIT por nombre sale de los listados de Hacienda que sí lo traían (Grandes Contribuyentes 2019, Grandes y Medianos 2012, Zonas Francas, entidades públicas y alcaldías 2014). Empresas nuevas o pequeñas no están.',
+    'El tramo «gran / mediano contribuyente» es de 2019 o 2012 y se decide por impuestos y ventas, no por trabajadores: queda en la ficha y no decide el tamaño.',
+    'Las personas naturales de esos listados nunca se guardan; nombres repetidos o genéricos no dan un NIT seguro.',
   ],
   NI: [
     'Sin número fiscal por nombre: Nicaragua no publica una fuente gratuita y accesible con razón social + RUC (DGI y SISCAE no responden desde fuera del país).',
@@ -2571,6 +2573,88 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No usar como fuente legal, fiscal ni de validación de identidad',
       'No usar para post-approval automático — sin NIT/NRC públicos',
       'No llamar /api/v1/procesos ni endpoints autenticados de personas',
+    ],
+  },
+  {
+    key: 'sv_nit_registry',
+    name: 'Listados de Hacienda con NIT (Grandes Contribuyentes 2019, Grandes y Medianos 2012, Zonas Francas y entidades 2014) — NIT por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-SV-CLOSE-1: CARGADO y verificado en Prod el 07-10-2026 (autorizado por la dueña): 3.241 NIT (3.237 con nombre único; 1.059 grandes y 1.611 medianos contribuyentes; 600 entidades públicas y alcaldías de 2014) + 567 alias (sv_nit_name_alias). Fuera: 482 NIT de personas naturales (nunca se guardan), 9 sucesiones/uniones de personas/consorcios y 1 NIT viejo de institución reemplazado. Con 111 nombres reales: 72 con NIT seguro, 0 ambiguos. Verificado por lectura: Banco Agrícola, AFP Confía, Ministerio de Salud, Telemóvil, Universidad Don Bosco, Superintendencia del Sistema Financiero y Pollo Campero dan un único NIT correcto. Recarga: extract-sv-official-sources.py sobre los textos de sv-pdf-text.swift y scripts/source-catalog/run-sv-sources-etl.ts --apply --only=registry --confirm y luego --only=alias --confirm.',
+    countryCodes: ['SV'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://web.archive.org/web/20190923155602/https://www.mh.gob.sv/downloads/pdf/700-DGII-AV-2018-20963.pdf',
+    automationLevel: 'high',
+    recommendedUse:
+      'NIT por nombre de El Salvador en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une los listados públicos de Hacienda que traían el NIT: Grandes Contribuyentes de la DGII al 15-01-2019 (copia de archive.org: ya no está en mh.gob.sv), Grandes y Medianos Contribuyentes al 31-07-2012, usuarias de Zonas Francas, DPA y Servicios Internacionales (2014), entidades del Gobierno Central, autónomas y hospitales (2014) y las 262 alcaldías (2014). Cada NIT pasa el dígito verificador. El nombre se limpia por su estructura («S.A. DE C.V.», «LTDA. DE C.V.», «DE R.L.», «S. EN C. DE C.V.», «S.E.M.», «SUCURSAL EL SALVADOR»…), con alias (nombre en otro listado, sigla entre paréntesis, «AFP X», ministerio por su primera palabra) y variantes del candidato (con o sin «(de) El Salvador», parte antes de la coma, clave de alcaldía o ministerio). NIT seguro sólo cuando exactamente un NIT tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme.',
+    limitations: [
+      'Sólo grandes y medianos contribuyentes (2012/2019), Zonas Francas y entidades públicas: una empresa más nueva o pequeña no aparece (Tigo, Claro, Walmart, Unicomer, Teleperformance no están con ese nombre).',
+      'El tramo de contribuyente se decide por impuestos y ventas (Hacienda, criterios de 2012), no por trabajadores, y no es vigente: queda en la ficha y no decide el tamaño.',
+      'Las 262 alcaldías son las anteriores a la reforma municipal de mayo de 2024 (hoy distritos de 44 municipios): su NIT puede no ser el del municipio nuevo.',
+      'Los listados mezclan personas naturales: su nombre y su NIT nunca se guardan.',
+    ],
+    riskNotes: [
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+      'Un NIT viejo de una institución (p. ej. la Superintendencia del Sistema Financiero antes de 2011) se descarta si la lista de entidades de 2014 le da otro.',
+    ],
+  },
+  {
+    key: 'sv_comprasal_directory',
+    name: 'Proveedores de COMPRASAL con NIT de Hacienda — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-SV-CLOSE-1: CARGADO y verificado en Prod el 07-10-2026 (tabla de palabras y carga aprobadas por la dueña): 157 empresas de 3.671 proveedoras de COMPRASAL 2025-2026 (fuera 1.921 sin NIT en los listados, 1.398 personas naturales, 158 sin industria dominante, 25 con menos de US$ 50.000, 8 entidades públicas y 3 consorcios); 53 de Salud, 21 de Tecnología. Carga: scripts/source-catalog/run-sv-sources-etl.ts --apply --only=directory --confirm.',
+    countryCodes: ['SV'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://www.comprasal.gob.sv',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita salvadoreña por industria: sociedades que el Estado contrató en COMPRASAL (API pública, adjudicaciones 2025-2026) y que llevan a UN solo NIT de los listados de Hacienda por su razón social. La industria sale de las palabras de lo que venden al Estado (medicamentos, software, construcción, combustibles, vigilancia…; tabla aprobada por la dueña el 07-10-2026). Sólo entran con al menos US$ 50.000 adjudicados; primero las que venden a más instituciones. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí.',
+    limitations: [
+      'COMPRASAL no publica NIT ni web del proveedor: sin NIT único en los listados de Hacienda la empresa no entra; todas llegan sin web (el rescate la busca).',
+      'Sólo empresas que venden al Estado y que ya eran grandes o medianas contribuyentes en 2012/2019.',
+      'La industria sale de lo que venden al Estado: fiestas, papelería, publicidad y capacitación no se proponen.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'De COMPRASAL no se guardan accionistas, beneficiarios ni personas naturales.',
+    ],
+  },
+  {
+    key: 'sv_public_entities',
+    name: 'Instituciones públicas de El Salvador (Portal de Transparencia + COMPRASAL, NIT de Hacienda 2014) — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-SV-CLOSE-1: CARGADO y verificado en Prod el 07-10-2026 (autorizado por la dueña): 161 instituciones vigentes (120 con web institucional, 112 con NIT; 14 ministerios, 105 organismos nacionales, 26 hospitales y universidades, 12 municipios nuevos). Fuera: 210 alcaldías anteriores a la reforma de 2024, 220 compradoras sin web ni NIT, 2 ONG y 1 registro de prueba. Carga: scripts/source-catalog/run-sv-sources-etl.ts --apply --only=public --confirm.',
+    countryCodes: ['SV'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://www.transparencia.gob.sv',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de El Salvador: las instituciones que hoy publican en el Portal de Transparencia o compran en COMPRASAL (ministerios, autónomas, hospitales, municipios de la reforma de 2024), con la web de su dominio institucional (sólo si la dirección las nombra: sigla, iniciales o una palabra distintiva) y, si su nombre o su sigla lleva a la lista de entidades de Hacienda de 2014, su NIT.',
+    limitations: [
+      'Los 44 municipios nuevos no tienen NIT publicado; muchos sólo publican correos gratuitos (quedan fuera si no hay web).',
+      'Los hospitales comparten salud.gob.sv: entran por su NIT, sin web propia.',
+      'El NIT de 2014 puede no reflejar reorganizaciones posteriores.',
+    ],
+    riskNotes: [
+      'Del Portal de Transparencia sólo se usa el dominio institucional; nunca el nombre ni el correo del oficial de información.',
     ],
   },
   {

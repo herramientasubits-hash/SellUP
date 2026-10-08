@@ -71,8 +71,9 @@ describe('Panamá — RUC', () => {
 });
 
 describe('países sin regla siguen avisando', () => {
-  it('El Salvador no tiene regla', () => {
-    assert.equal(getTaxIdentifierRule('SV'), undefined);
-    assert.equal(validateTaxIdentifier('0614-010101-101-1', 'SV').valid, false);
+  // SOURCES-SV-CLOSE-1: El Salvador ya tiene regla; Venezuela sigue sin ella.
+  it('Venezuela no tiene regla', () => {
+    assert.equal(getTaxIdentifierRule('VE'), undefined);
+    assert.equal(validateTaxIdentifier('J-12345678-9', 'VE').valid, false);
   });
 });
