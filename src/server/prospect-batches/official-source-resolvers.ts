@@ -17,7 +17,8 @@
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry +
  * cr_company_name_alias) name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
- * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC; Honduras uses
+ * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC, El Salvador
+ * (sv_nit_registry + sv_nit_name_alias: listados de Hacienda con NIT) name→NIT; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
@@ -83,6 +84,8 @@ import {
 import { MX_RFC_PUBLIC_LISTS_SOURCE_KEY } from '@/server/source-catalog/connectors/mx-rfc-public-lists/mx-rfc-public-lists-rows';
 import { createPanamaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/panama-official-source-resolver';
 import { buildPanamaSnapshotNameQuery } from '@/server/prospect-batches/panama-snapshot-query';
+import { createSalvadorOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/salvador-official-source-resolver';
+import { buildSalvadorSnapshotNameQuery } from '@/server/prospect-batches/salvador-snapshot-query';
 import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
 import { buildHondurasSnapshotNameQuery } from '@/server/prospect-batches/honduras-snapshot-query';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
@@ -323,6 +326,14 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // segura sólo si la web la confirma. Sustituye a pa_panamacompra_ruc_registry.
     createPanamaOfficialSourceResolver({
       querySnapshots: buildPanamaSnapshotNameQuery(snapshotClient),
+    }),
+    // SOURCES-SV-CLOSE-1 — registro unido de NIT de El Salvador (Grandes Contribuyentes
+    // de la DGII 2019, Grandes y Medianos 2012, Zonas Francas, entidades públicas y
+    // alcaldías 2014 de Hacienda; sin personas naturales) y sus alias, con limpieza
+    // propia de nombres, variantes con/sin «El Salvador» y una palabra segura sólo
+    // si la web la confirma.
+    createSalvadorOfficialSourceResolver({
+      querySnapshots: buildSalvadorSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
     // SOURCES-CR-CLOSE-1 — más Zona Franca, SUGEF, instituciones públicas de SICOP

@@ -48,7 +48,7 @@ describe('DO RNC rule', () => {
   });
 
   it('does not change any other country', () => {
-    assert.equal(validateTaxIdentifier('131735444', 'SV').valid, false);
+    assert.equal(validateTaxIdentifier('131735444', 'VE').valid, false);
     assert.equal(getTaxIdentifierRule('CO')?.label, 'NIT');
   });
 });

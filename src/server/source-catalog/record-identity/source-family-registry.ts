@@ -81,6 +81,10 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-HN-CLOSE-1 — un RTN, una fila (capa gratuita de personas jurídicas que
   // venden al Estado: ONCAE / HonduCompras y SEFIN / SIAFI).
   hn_honducompras_directory: 'TAX_GRAIN',
+  // SOURCES-SV-CLOSE-1 — un NIT, una fila (listados de Hacienda con NIT; proveedoras de
+  // COMPRASAL empatadas a UN NIT del registro).
+  sv_nit_registry: 'TAX_GRAIN',
+  sv_comprasal_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-CR-CLOSE-1 — una cédula, una fila (proveedoras SICOP, Zona Franca, entidades públicas).
@@ -120,6 +124,11 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-HN-CLOSE-1 — una fila por entidad compradora de ONCAE (`hn-oncae-ce:<código>`):
   // ONCAE no publica su RTN.
   hn_public_entities: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-SV-CLOSE-1 — varias filas por NIT (nombre de otro listado, siglas, clave
+  // pública: `sv-name-alias:<NIT>:<clave>`) e instituciones vigentes, con o sin NIT
+  // (`sv-public-entity:<clave pública>`).
+  sv_nit_name_alias: 'NATIVE_RECORD_GRAIN',
+  sv_public_entities: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
   // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
   pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',

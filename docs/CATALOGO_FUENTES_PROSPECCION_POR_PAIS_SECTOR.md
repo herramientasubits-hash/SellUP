@@ -498,7 +498,7 @@ RGAE ya está persistida y gobernada en Source Catalog tras Catálogo.GT.2B (sna
 
 ### Lectura general
 
-El **CNR** (Centro Nacional de Registros) es la fuente principal para validación. El portal **eCNR** permite consultas en línea pero sin API ni exportación masiva. Para discovery estructurado no se encontró una fuente pública robusta. **Comprasal** es el portal de compras públicas. El Salvador requiere investigación adicional antes de incluirlo en automatización. Para MVP: validación manual o Apollo.
+El **CNR** (Centro Nacional de Registros) es la fuente principal para validación legal, pero no tiene API ni descarga (Cloudflare). Hacienda no publica un padrón con NIT (lo considera confidencial), así que el Agente 1 (SOURCES-SV-CLOSE-1, 07-10-2026) usa los **listados de Hacienda que sí traían el NIT**: Grandes Contribuyentes de la DGII al 15-01-2019 (copia de archive.org), Grandes y Medianos 2012, usuarias de Zonas Francas y entidades públicas y alcaldías 2014. Con ellos da el NIT por nombre en cada corrida (`sv_nit_registry` + `sv_nit_name_alias`; 72 de 111 nombres reales con NIT seguro, 0 ambiguos) y arma una capa gratuita: proveedoras de **COMPRASAL** (API pública 2025-2026) empatadas a UN NIT, por industria según las palabras de lo que venden (`sv_comprasal_directory`, tabla propuesta a la dueña), e instituciones vigentes del **Portal de Transparencia** con web y/o NIT para Gobierno (`sv_public_entities`). Estado: medido en dry-run; cargas pendientes de autorización. No hay fuente abierta de trabajadores: el tramo «gran / mediano contribuyente» (2019/2012, por impuestos y ventas) queda en la ficha y no decide el tamaño.
 
 ### Fuentes recomendadas
 
@@ -506,11 +506,13 @@ El **CNR** (Centro Nacional de Registros) es la fuente principal para validació
 |---|---|---|---|---|---|---|---|
 | **CNR** — Centro Nacional de Registros | [cnr.gob.sv](https://www.cnr.gob.sv/) | Validación legal | Todos | Registro de comercio: sociedades, representantes legales. Portal eCNR disponible | Manual — portal eCNR | Sin API ni descarga masiva documentada | **P0** |
 | **MH** — Ministerio de Hacienda / NIT | [portaldgii.mh.gob.sv — NIT](https://portaldgii.mh.gob.sv/ssc/serviciosinclave/consulta/duinit/) | Validación tributaria | Todos | Validación puntual de NIT | Manual — posible captcha | Solo validación individual; no discovery | **P1** |
-| **Comprasal** | [comprasal.gob.sv](https://www.comprasal.gob.sv/) | Señales comerciales | Tecnología, Salud, Educación, Seguridad | Proveedores del Estado salvadoreño | Media | Confirmar estructura de datos abiertos | **P1** |
+| **Listados de Hacienda con NIT** (`sv_nit_registry`) | [Grandes Contribuyentes 2019 (archive.org)](https://web.archive.org/web/20190923155602/https://www.mh.gob.sv/downloads/pdf/700-DGII-AV-2018-20963.pdf), [mh.gob.sv PMHDC9225/9227/9230/9235/9236](https://www.mh.gob.sv/) | Validación tributaria | Todos | NIT por nombre en cada corrida (3.241 NIT sin personas naturales, 567 alias); verificador del NIT comprobado | Alta — snapshot | Sólo grandes y medianos (2012/2019), Zonas Francas y entidades 2014; alcaldías anteriores a la reforma de 2024 | **P1** |
+| **Comprasal** (`sv_comprasal_directory`) | [comprasal.gob.sv](https://www.comprasal.gob.sv/) | Discovery, Señales comerciales | Salud, Tecnología, Industria, Energía, Consumo | Capa gratuita por industria: 157 proveedoras con NIT único (≥ US$ 50.000) | Alta — snapshot | Sin NIT ni web en la API; tabla de palabras pendiente de aprobación | **P1** |
+| **Portal de Transparencia** (`sv_public_entities`) | [transparencia.gob.sv](https://www.transparencia.gob.sv/) | Discovery Gobierno | Gobierno | 161 instituciones vigentes (120 con web, 112 con NIT de Hacienda 2014) | Alta — snapshot | Municipios nuevos sin NIT; hospitales comparten salud.gob.sv | **P1** |
 | **Cámara de Comercio e Industria** | [camarasal.com](https://camarasal.com/) | Sectorial | Comercio, Industria, Retail | Directorio gremial | Manual | Afiliados | **P1** |
 | **ASI El Salvador** | [industriaelsalvador.com](https://www.industriaelsalvador.com/) | Sectorial | Manufactura / Industria | Asociación Salvadoreña Industrial. Publicaciones sectoriales | Manual | Afiliados | **P1** |
 
-> **Brecha:** El Salvador no tiene una fuente pública estructurada y descargable de empresas comparable a los países grandes de la región. No incluir en automatización MVP.
+> **Brecha:** El Salvador no publica un registro de empresas descargable (CNR) ni un padrón con NIT: la cobertura del NIT por nombre se limita a grandes y medianos contribuyentes de 2012/2019, Zonas Francas y entidades públicas. Fuera por falta de dato: PMHDC9231 (escaneado), 9232/9233 (sólo portada), 9228 (embajadas), 9237/9238 (presentaciones); DIGESTYC/ISSS/MTPS sólo publican agregados.
 
 ---
 
