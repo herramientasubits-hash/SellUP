@@ -36,8 +36,9 @@ Listas:
                 (del índice organizaciones-cert-sitemap*.xml): nombre, industria, ubicación, web y
                 tramo de tamaño (grande desde «500 a 4999»).
   gptw_carca    carpeta con las fichas de greatplacetoworkcarca.com/es/certificada/<slug>/ (índice
-                certificada-sitemap.xml): nombre e industria; el país sale del final del slug
-                (sólo CR, GT, SV, HN, NI, PA, DO).
+                certificada-sitemap.xml): nombre e industria; el país sale del final del slug o,
+                si no, del título y la descripción cuando nombran un solo país (sólo CR, GT, SV,
+                HN, NI, PA, DO; el resto del Caribe queda fuera).
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -320,6 +321,31 @@ CARCA_COUNTRY_BY_SLUG = {
     "republica-dominicana": "DO",
 }
 
+# País nombrado en el título o la descripción de la ficha (no en los enlaces a listados).
+CARCA_COUNTRY_WORDS = {
+    "CR": r"costa ?rica|costarricense",
+    "GT": r"guatemal",
+    "SV": r"el salvador|salvadoreñ",
+    "HN": r"honduras|hondureñ",
+    "NI": r"nicaragu",
+    "PA": r"panam[aá]|paname[ñn]",
+    "DO": r"rep[uú]blica dominicana|dominican",
+}
+CARCA_OTHER_COUNTRIES = r"jamaica|trinidad|tobago|barbados|bahamas|puerto rico|cura[cç]ao|aruba|hait[ií]|cuba|belice|guyana"
+
+
+def _carca_country(slug: str, page: str) -> str | None:
+    for suffix, code in CARCA_COUNTRY_BY_SLUG.items():
+        if slug.endswith(suffix):
+            return code
+    title = re.search(r"<title>(.*?)</title>", page, re.S)
+    description = re.search(r'<meta name="description" content="([^"]*)"', page)
+    text = " ".join(m.group(1) for m in (title, description) if m).lower()
+    if re.search(CARCA_OTHER_COUNTRIES, text):
+        return None
+    found = [code for code, words in CARCA_COUNTRY_WORDS.items() if re.search(words, text)]
+    return found[0] if len(found) == 1 else None
+
 
 def gptw_carca(folder: str) -> list[dict]:
     import glob
@@ -328,10 +354,10 @@ def gptw_carca(folder: str) -> list[dict]:
     out = []
     for path in sorted(glob.glob(os.path.join(folder, "*.html"))):
         slug = os.path.basename(path)[:-5]
-        country = next((cc for suffix, cc in CARCA_COUNTRY_BY_SLUG.items() if slug.endswith(suffix)), None)
+        page = open(path, encoding="utf-8", errors="ignore").read()
+        country = _carca_country(slug, page)
         if country is None:
             continue
-        page = open(path, encoding="utf-8", errors="ignore").read()
         title = re.search(r"<title>(.*?)</title>", page, re.S)
         if not title:
             continue
