@@ -96,6 +96,9 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // capa gratuita).
   pa_ruc_registry: 'TAX_GRAIN',
   pa_free_directory: 'TAX_GRAIN',
+  // SOURCES-LATAM-CURATED-1 — capa común de listas curadas: identidad país + nombre
+  // normalizado (varias listas no publican número fiscal; se completa en la corrida).
+  latam_curated_directory: 'NATIVE_RECORD_GRAIN',
   // SOURCES-NI-CLOSE-2 — un RUC, una fila (registro unido de Nicaragua: Grandes
   // Contribuyentes de la DGI + licencias del MINSA; y la capa gratuita con RUC).
   ni_ruc_registry: 'TAX_GRAIN',

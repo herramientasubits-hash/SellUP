@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""
+LATAM — extractores de la capa común de listas curadas (SOURCES-LATAM-CURATED-1).
+
+Cada lista pública ya descargada (curl con User-Agent de navegador) se convierte
+en entradas JSONL con la forma de `LatamCuratedEntry`
+(src/server/source-catalog/connectors/latam-curated/latam-curated-rows.ts):
+
+  {"country", "list", "list_label", "year", "name", "tax_id", "tax_type",
+   "website", "kind", "is_public", "sector", "size_large", "workers",
+   "city", "region"}
+
+Uso:
+  python3 extract_lists.py <lista> --input=<archivo> --out=<jsonl>
+
+Listas:
+  co_snies      datos.gov.co n5yy-8nav (JSON de la API): instituciones de educación superior.
+  pe_sunedu     sunedu.gob.pe «lista de universidades licenciadas» (HTML).
+  ar_ssn        datosabiertos.ssn.gob.ar «entidades-activas.csv»: aseguradoras.
+  cl_cmf_seguros  cmfchile.cl «descargar_consulta» de aseguradoras (CSV; varios con coma).
+  ec_direx      sgrn.proecuadorb2b.com.ec DIREX «SearchResults» (HTML): exportadores.
+
+Sólo lee archivos locales; no sale a la red. NO escribe teléfonos, correos,
+direcciones ni nombres de personas.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import html
+import io
+import json
+import re
+import sys
+
+
+def clean(value: object) -> str | None:
+    if value is None:
+        return None
+    text = re.sub(r"\s+", " ", html.unescape(str(value))).strip()
+    return text or None
+
+
+def strip_tags(fragment: str) -> str:
+    return clean(re.sub(r"<[^>]+>", " ", fragment)) or ""
+
+
+def entry(**fields: object) -> dict:
+    return {key: value for key, value in fields.items() if value is not None}
+
+
+def co_snies(path: str) -> list[dict]:
+    rows = json.load(open(path, encoding="utf-8"))
+    out = []
+    for row in rows:
+        if "activa" not in (row.get("estado") or "").lower():
+            continue
+        web = clean(row.get("p_gina_web"))
+        out.append(entry(
+            country="CO", list="co_snies", list_label="SNIES – MinEducación", year=2025,
+            name=clean(row.get("nombre_instituci_n")),
+            tax_id=clean(row.get("n_mero_identificaci_n")), tax_type="NIT",
+            website=web if web and web.upper() not in {"NA", "N/A"} else None,
+            kind="university",
+            is_public=(row.get("sector") or "").strip().lower() == "oficial",
+            sector=clean(row.get("car_cter_acad_mico")),
+            city=clean(row.get("municipio_domicilio")), region=clean(row.get("departamento_domicilio")),
+        ))
+    return out
+
+
+def pe_sunedu(path: str) -> list[dict]:
+    page = open(path, encoding="utf-8", errors="ignore").read()
+    out = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", page, re.S):
+        cells = [strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+        if len(cells) < 5 or not cells[0]:
+            continue
+        department, _, province = cells[3].partition("/")
+        out.append(entry(
+            country="PE", list="pe_sunedu", list_label="SUNEDU – universidades licenciadas", year=2026,
+            name=cells[0], kind="university", is_public=cells[4].lower().startswith("pública") or cells[4].lower().startswith("publica"),
+            city=clean(province), region=clean(department),
+        ))
+    return out
+
+
+def ar_ssn(path: str) -> list[dict]:
+    text = open(path, encoding="utf-8-sig", errors="ignore").read()
+    out = []
+    for row in csv.DictReader(io.StringIO(text)):
+        if (row.get("cia_pais_id") or "").strip() not in {"", "ARG"}:
+            continue
+        out.append(entry(
+            country="AR", list="ar_ssn", list_label="SSN – aseguradoras activas", year=2026,
+            name=clean(row.get("cia_denominacion")), tax_id=clean(row.get("cia_cuit")), tax_type="CUIT",
+            kind="insurer", sector=clean(row.get("cia_actividad_principal")),
+        ))
+    return out
+
+
+def cl_cmf_seguros(paths: str) -> list[dict]:
+    out = []
+    for path in paths.split(","):
+        text = open(path, encoding="utf-8-sig", errors="ignore").read()
+        for row in csv.reader(io.StringIO(text)):
+            if len(row) < 3 or not re.match(r"^\d{6,9}-[\dK]$", row[0].strip().upper()):
+                continue
+            if "vigente" not in row[2].lower():
+                continue
+            out.append(entry(
+                country="CL", list="cl_cmf_seguros", list_label="CMF – aseguradoras vigentes", year=2026,
+                name=clean(row[1]), tax_id=row[0].strip().upper(), tax_type="RUT", kind="insurer",
+                size_large=None,
+            ))
+    return out
+
+
+def ec_direx(path: str) -> list[dict]:
+    page = open(path, encoding="utf-8", errors="ignore").read()
+    out = []
+    for block in re.findall(r'<div class="resultado"[^>]*>(.*?)</div>\s*</div>', page, re.S):
+        name = re.search(r'class="razonsocial[^"]*">\s*Raz(?:&oacute;|ó)n Social:\s*(.*?)</p>', block, re.S)
+        ruc = re.search(r"<strong>RUC:</strong>\s*(\d{13})", block)
+        if not name or not ruc:
+            continue
+        sectors = [strip_tags(s) for s in re.findall(r'<p class="subsector">(.*?)</p>', block, re.S)]
+        web = re.search(r'<a href="(https?://[^"]+)"', block)
+        place = None
+        for para in re.findall(r"<p\s*>(.*?)</p>", block, re.S):
+            text = strip_tags(para)
+            if " - " in text and text.isupper() and not text.startswith("KM"):
+                place = text
+                break
+        city, _, region = (place or "").partition(" - ")
+        out.append(entry(
+            country="EC", list="ec_direx", list_label="Pro Ecuador – directorio de exportadores", year=2026,
+            name=strip_tags(name.group(1)).rstrip("."), tax_id=ruc.group(1), tax_type="RUC",
+            website=web.group(1) if web else None, kind="exporter",
+            sector=sectors[0] if sectors else None,
+            city=clean(city), region=clean(region),
+        ))
+    return out
+
+
+EXTRACTORS = {
+    "co_snies": co_snies,
+    "pe_sunedu": pe_sunedu,
+    "ar_ssn": ar_ssn,
+    "cl_cmf_seguros": cl_cmf_seguros,
+    "ec_direx": ec_direx,
+}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("list", choices=sorted(EXTRACTORS))
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args()
+    entries = [e for e in EXTRACTORS[args.list](args.input) if e.get("name")]
+    with open(args.out, "w", encoding="utf-8") as fh:
+        for item in entries:
+            fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+    print(f"{args.list}: {len(entries)} entradas", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
