@@ -159,7 +159,7 @@ describe('useTableConfig', () => {
 
     window.localStorage.setItem(
       'sellup:table:t1',
-      JSON.stringify({ mode: 'raro', hidden: ['name', 'inexistente', 7], order: ['country', 'name'] }),
+      JSON.stringify({ mode: 'raro', hidden: ['name', 'inexistente', 7], order: ['country', 'name', 'notes'] }),
     );
     render(<ConfigHarness tableId="t1" />);
     assert.equal(
@@ -169,9 +169,46 @@ describe('useTableConfig', () => {
     );
     assert.equal(latest.mode, 'lazy');
   });
+
+  it('una columna nueva que arranca oculta no le aparece a quien ya tenía la tabla configurada', () => {
+    // Guardado antes de que existiera «notes»: no está en su orden.
+    window.localStorage.setItem('sellup:table:t1', JSON.stringify({ hidden: [], order: ['country', 'name'] }));
+    render(<ConfigHarness tableId="t1" />);
+    assert.equal(screen.getByTestId('order').textContent, 'country,name');
+    assert.equal(latest.hidden.has('notes'), true);
+
+    // Y en cuanto la persona la pide, queda pedida.
+    React.act(() => latest.toggleVisibility('notes'));
+    assert.equal(latest.hidden.has('notes'), false);
+    assert.equal(screen.getByTestId('order').textContent, 'country,name,notes');
+  });
 });
 
 describe('TableConfigButton', () => {
+  it('agrupa bajo su objeto las columnas que declaran grupo; las demás van arriba', async () => {
+    const specs: TableColumnSpec[] = [
+      { id: 'name', label: 'Nombre', hideable: false },
+      { id: 'email', label: 'Correo', group: 'Contacto', hiddenByDefault: true },
+      { id: 'domain', label: 'Dominio de la empresa', group: 'Empresa', hiddenByDefault: true },
+      { id: 'phone', label: 'Teléfono', group: 'Contacto', hiddenByDefault: true },
+    ];
+    render(<ConfigHarness tableId="grouped" specs={specs} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Configurar la tabla' }));
+    await screen.findByText('Configurar tabla');
+
+    const contacto = screen.getByText('Contacto').closest('li');
+    const empresa = screen.getByText('Empresa').closest('li');
+    assert.ok(contacto && empresa);
+    const labelsIn = (el: Element) =>
+      Array.from(el.querySelectorAll('li[data-column]')).map((li) => li.getAttribute('data-column'));
+    assert.deepEqual(labelsIn(contacto), ['email', 'phone']);
+    assert.deepEqual(labelsIn(empresa), ['domain']);
+    assert.equal(screen.getByTestId('order').textContent, 'name', 'las agrupadas arrancan ocultas');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar la columna Correo' }));
+    assert.equal(screen.getByTestId('order').textContent, 'name,email');
+  });
+
   it('lista las columnas fijas con candado y arrastrar una fila del panel cambia el orden', async () => {
     render(<ConfigHarness tableId="t1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Configurar la tabla' }));

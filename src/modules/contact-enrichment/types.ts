@@ -392,4 +392,10 @@ export interface PendingContactCandidate {
   company_domain: string | null;
   account_id: string | null;
   hubspot_company_id: string | null;
+  /**
+   * Página web de la empresa asociada EN ESTE MOMENTO (la cuenta SellUp a la que apunta el
+   * candidato, reasignación incluida). Sólo la conoce la cuenta: el run no la guarda.
+   * OPCIONAL a propósito: aditivo, así que fixtures y proyecciones previas siguen valiendo.
+   */
+  company_website?: string | null;
 }

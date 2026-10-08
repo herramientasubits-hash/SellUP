@@ -217,7 +217,11 @@ const MINIMAL_PROPERTIES = [
 // Helpers de soporte HubSpot
 // ============================================================
 
-async function getHubSpotPortalId(): Promise<string | null> {
+/**
+ * Hub ID (portal) de la cuenta HubSpot conectada; `null` si no hay conexión o no se conoce.
+ * Sirve para construir enlaces a fichas de HubSpot.
+ */
+export async function getHubSpotPortalId(): Promise<string | null> {
   try {
     const admin = getAdminClient();
     const { data: integration } = await admin

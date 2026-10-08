@@ -30,6 +30,14 @@ export type DataTableColumnMeta = {
    * de valores (p. ej. un rango de fechas).
    */
   filterChipLabel?: (value: unknown) => string;
+  /**
+   * El objeto al que pertenece el dato («Contacto», «Empresa»…). En «Configurar
+   * tabla» las columnas con grupo se listan bajo su encabezado; sin grupo van
+   * arriba, como siempre.
+   */
+  group?: string;
+  /** Arranca oculta: se pide desde «Configurar tabla». */
+  hiddenByDefault?: boolean;
   /** @deprecated Sin efecto: el embudo siempre es de selección múltiple. */
   enableMultiSelectFilter?: boolean;
   /** @deprecated Sin efecto: el buscador del embudo aparece solo con más de 8 opciones. */

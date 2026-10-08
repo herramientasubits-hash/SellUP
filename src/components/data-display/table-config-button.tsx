@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useColumnDrag } from "./use-column-drag";
 import type {
+  TableColumnSpec,
   TableConfig,
   TableRowControl,
   TableRowsMode,
@@ -176,6 +177,109 @@ export function TableConfigButton({
 }: TableConfigButtonProps) {
   const drag = useColumnDrag({ axis: "y", onReorder: config.moveColumn });
 
+  const renderColumn = (column: TableColumnSpec) => {
+    const isHidden = config.hidden.has(column.id);
+    const isPinned = config.pinned.has(column.id);
+    const canHide = column.hideable !== false;
+    const side = drag.dropSideFor(column.id);
+    return (
+      <li
+        key={column.id}
+        {...drag.dropTargetProps(column.id)}
+        data-drag-cell=""
+        data-column={column.id}
+        className={cn(
+          "relative flex items-center gap-2 rounded-md px-1 py-1.5 transition-colors hover:bg-surface-muted",
+          drag.draggingId === column.id && "opacity-40",
+          side === "before" &&
+            "before:absolute before:inset-x-1 before:top-0 before:h-0.5 before:rounded-full before:bg-primary before:content-['']",
+          side === "after" &&
+            "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary after:content-['']",
+        )}
+      >
+        <span
+          {...drag.dragHandleProps(column.id)}
+          role="button"
+          tabIndex={-1}
+          aria-label={`Mover ${column.label}`}
+          className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-text-muted transition-colors hover:text-foreground active:cursor-grabbing"
+        >
+          <GripVertical aria-hidden className="size-3.5" />
+        </span>
+
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs",
+            isHidden ? "text-muted-foreground line-through" : "text-foreground",
+          )}
+        >
+          {column.label}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => config.togglePin(column.id)}
+          aria-label={`${isPinned ? "Soltar" : "Fijar"} la columna ${column.label}`}
+          aria-pressed={isPinned}
+          title={
+            isPinned
+              ? "Soltar: vuelve a desplazarse con la tabla"
+              : "Fijar: se queda quieta al desplazarte de lado"
+          }
+          className={cn(
+            ICON_BUTTON,
+            isPinned
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-surface-subtle hover:text-foreground",
+          )}
+        >
+          {isPinned ? (
+            <Pin aria-hidden className="size-3.5" />
+          ) : (
+            <PinOff aria-hidden className="size-3.5" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => config.toggleVisibility(column.id)}
+          disabled={!canHide}
+          aria-label={`${isHidden ? "Mostrar" : "Ocultar"} la columna ${column.label}`}
+          aria-pressed={!isHidden}
+          title={canHide ? undefined : "Esta columna siempre se muestra"}
+          className={cn(
+            ICON_BUTTON,
+            "disabled:cursor-not-allowed disabled:opacity-40",
+            isHidden
+              ? "text-muted-foreground hover:bg-surface-subtle hover:text-foreground"
+              : "text-primary enabled:hover:bg-primary/10",
+          )}
+        >
+          {isHidden ? (
+            <EyeOff aria-hidden className="size-3.5" />
+          ) : (
+            <Eye aria-hidden className="size-3.5" />
+          )}
+        </button>
+      </li>
+    );
+  };
+
+  // Con grupos (Contacto, Empresa…) cada objeto lleva su encabezado; las
+  // columnas sin grupo van arriba, como siempre. El orden dentro de cada
+  // grupo es el elegido: arrastrar sigue moviendo el mismo estado.
+  const ungroupedColumns = config.movableColumns.filter((column) => !column.group);
+  const columnGroups = config.movableColumns.reduce<{ name: string; columns: TableColumnSpec[] }[]>(
+    (groups, column) => {
+      if (!column.group) return groups;
+      const existing = groups.find((group) => group.name === column.group);
+      if (existing) existing.columns.push(column);
+      else groups.push({ name: column.group, columns: [column] });
+      return groups;
+    },
+    [],
+  );
+
   return (
     <Popover>
       <PopoverTrigger
@@ -260,93 +364,14 @@ export function TableConfigButton({
               </li>
             ))}
 
-            {config.movableColumns.map((column) => {
-              const isHidden = config.hidden.has(column.id);
-              const isPinned = config.pinned.has(column.id);
-              const canHide = column.hideable !== false;
-              const side = drag.dropSideFor(column.id);
-              return (
-                <li
-                  key={column.id}
-                  {...drag.dropTargetProps(column.id)}
-                  data-drag-cell=""
-                  data-column={column.id}
-                  className={cn(
-                    "relative flex items-center gap-2 rounded-md px-1 py-1.5 transition-colors hover:bg-surface-muted",
-                    drag.draggingId === column.id && "opacity-40",
-                    side === "before" &&
-                      "before:absolute before:inset-x-1 before:top-0 before:h-0.5 before:rounded-full before:bg-primary before:content-['']",
-                    side === "after" &&
-                      "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary after:content-['']",
-                  )}
-                >
-                  <span
-                    {...drag.dragHandleProps(column.id)}
-                    role="button"
-                    tabIndex={-1}
-                    aria-label={`Mover ${column.label}`}
-                    className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-text-muted transition-colors hover:text-foreground active:cursor-grabbing"
-                  >
-                    <GripVertical aria-hidden className="size-3.5" />
-                  </span>
+            {ungroupedColumns.map(renderColumn)}
 
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate text-xs",
-                      isHidden ? "text-muted-foreground line-through" : "text-foreground",
-                    )}
-                  >
-                    {column.label}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => config.togglePin(column.id)}
-                    aria-label={`${isPinned ? "Soltar" : "Fijar"} la columna ${column.label}`}
-                    aria-pressed={isPinned}
-                    title={
-                      isPinned
-                        ? "Soltar: vuelve a desplazarse con la tabla"
-                        : "Fijar: se queda quieta al desplazarte de lado"
-                    }
-                    className={cn(
-                      ICON_BUTTON,
-                      isPinned
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-surface-subtle hover:text-foreground",
-                    )}
-                  >
-                    {isPinned ? (
-                      <Pin aria-hidden className="size-3.5" />
-                    ) : (
-                      <PinOff aria-hidden className="size-3.5" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => config.toggleVisibility(column.id)}
-                    disabled={!canHide}
-                    aria-label={`${isHidden ? "Mostrar" : "Ocultar"} la columna ${column.label}`}
-                    aria-pressed={!isHidden}
-                    title={canHide ? undefined : "Esta columna siempre se muestra"}
-                    className={cn(
-                      ICON_BUTTON,
-                      "disabled:cursor-not-allowed disabled:opacity-40",
-                      isHidden
-                        ? "text-muted-foreground hover:bg-surface-subtle hover:text-foreground"
-                        : "text-primary enabled:hover:bg-primary/10",
-                    )}
-                  >
-                    {isHidden ? (
-                      <EyeOff aria-hidden className="size-3.5" />
-                    ) : (
-                      <Eye aria-hidden className="size-3.5" />
-                    )}
-                  </button>
-                </li>
-              );
-            })}
+            {columnGroups.map((group) => (
+              <li key={`group:${group.name}`} className="mt-2 flex flex-col">
+                <p className="px-1 pb-1 pt-1.5 text-xs font-semibold text-muted-foreground">{group.name}</p>
+                <ul className="flex flex-col">{group.columns.map(renderColumn)}</ul>
+              </li>
+            ))}
           </ul>
         </section>
 
