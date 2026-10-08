@@ -774,10 +774,14 @@ describe('la migración 128 — su contrato', () => {
     // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
     // `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del catálogo,
     // ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '144_wizard_budget_concurrent_executions.sql');
+    // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
+    // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
+    // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '145_prospect_candidate_assignment.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 144);
-    assert.equal(files.length, 144, 'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 145);
+    assert.equal(files.length, 145,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

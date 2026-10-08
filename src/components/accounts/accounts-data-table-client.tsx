@@ -17,6 +17,7 @@ import {
   Search,
   Sparkles,
   SendHorizonal,
+  UserPlus,
 } from "@/icons";
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -55,7 +56,8 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import { archiveAccounts, updateAccount } from '@/modules/accounts/actions';
+import { archiveAccounts, assignAccountsToUser, updateAccount } from '@/modules/accounts/actions';
+import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -166,6 +168,8 @@ export function AccountsDataTableClient({
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
+  // «Asignar a…»: las empresas a las que se les cambia el responsable.
+  const [assignRows, setAssignRows] = React.useState<Row[]>([]);
 
   const dataTableRef = React.useRef<DataTableHandle>(null);
 
@@ -404,6 +408,12 @@ export function AccountsDataTableClient({
             onClick: () => setEditingId(row.id),
           },
           {
+            id: 'assign',
+            label: 'Asignar a…',
+            icon: UserPlus,
+            onClick: () => setAssignRows([row]),
+          },
+          {
             id: 'enrich-contacts',
             label: 'Buscar contactos de esta empresa',
             icon: UserSearch,
@@ -482,6 +492,13 @@ export function AccountsDataTableClient({
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
+      },
+      {
+        id: 'assign',
+        label: 'Asignar a…',
+        icon: UserPlus,
+        disabled: (rows) => rows.length === 0,
+        onClick: (rows) => setAssignRows(rows),
       },
       {
         id: 'open-websites',
@@ -672,6 +689,20 @@ export function AccountsDataTableClient({
         open={!!enrichCompany}
         onOpenChange={(v) => !v && setEnrichCompany(null)}
         preloadedCompany={enrichCompany}
+      />
+
+      <AssignOwnerDrawer
+        open={assignRows.length > 0}
+        onOpenChange={(open) => !open && setAssignRows([])}
+        kind="accounts"
+        items={assignRows.map((r) => ({ id: r.id, name: r.name, currentOwnerId: r.owner_id }))}
+        users={users}
+        currentUserId={scopeFilterOptions?.currentUserId}
+        onAssign={assignAccountsToUser}
+        onAssigned={() => {
+          dataTableRef.current?.clearSelection();
+          router.refresh();
+        }}
       />
 
       {/* Bulk enrichment drawer (Agente 2A · 17A.10G) */}

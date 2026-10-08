@@ -552,8 +552,12 @@ describe('4O-E4.1 estático — alcance', () => {
       // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
       // catálogo, ni de BR, ni de CUT3B4; no ASIGNA `mobile_phone` ni introduce procedencia del
       // escalar móvil. AUTORADA y NO APLICADA.
-      144,
-      'la 144 (varias ejecuciones activas por usuario en la reserva del piloto, AGENT1-PARALLEL-RUNS-PHASE2-1) es la última',
+      // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos).
+      // No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      145,
+      'la 145 (asignar prospectos por revisar a otra persona, BULK-COMPANY-ASSIGNMENT-1) es la última',
     );
   });
 

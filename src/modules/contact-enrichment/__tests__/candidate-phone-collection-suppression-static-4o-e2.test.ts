@@ -275,6 +275,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // del catálogo, ni de BR, ni de CUT3B4, y no nombra ninguna tabla, columna ni función de las
       // cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '144_wizard_budget_concurrent_executions.sql',
+      // 🔴 BULK-COMPANY-ASSIGNMENT-1 reclamó después la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos).
+      // No es de teléfono, no es del catálogo, ni de BR, ni de CUT3B4, y no nombra ninguna tabla,
+      // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
     ]);
   });
 

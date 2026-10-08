@@ -6350,3 +6350,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run UI experience tests
         run: npm run test:ui-experience
+
+      # BULK-COMPANY-ASSIGNMENT-1 - «Asignar a…» en Empresas y Por revisar:
+      # validacion de la peticion, responsable efectivo (asignado o dueno del
+      # lote), a nombre de quien queda la empresa al aprobar y el aviso.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run bulk company assignment tests
+        run: npm run test:bulk-company-assignment

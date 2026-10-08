@@ -727,7 +727,12 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA. El proxy «el siguiente número está
     // libre» se mueve por tanto de la 144 a la 145, y el barrido de AUTORÍA se ENSANCHA para
     // incluir la 144.
-    assert.equal(migrations.filter((f) => f.startsWith('145')).length, 0);
+    // 🔴 BULK-COMPANY-ASSIGNMENT-1 reclamó después la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de su
+    // auditoría; ninguna fila de datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4.
+    // AUTORADA y NO APLICADA. El proxy se mueve de la 145 a la 146, y el barrido de AUTORÍA se
+    // ENSANCHA para incluir la 145.
+    assert.equal(migrations.filter((f) => f.startsWith('146')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -750,7 +755,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('141') ||
         f.startsWith('142') ||
         f.startsWith('143') ||
-        f.startsWith('144'),
+        f.startsWith('144') ||
+        f.startsWith('145'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

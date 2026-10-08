@@ -655,7 +655,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
       // catálogo, ni de BR, ni de CUT3B4; no crea contacto ni escribe `phone_source`. AUTORADA y NO
       // APLICADA.
-      '144_wizard_budget_concurrent_executions.sql',
+      // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos).
+      // No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no crea contacto ni escribe
+      // `phone_source`. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

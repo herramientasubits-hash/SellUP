@@ -325,8 +325,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // que lee `max_active_executions_per_user`; ninguna fila de datos). No es tabla ni función de
       // la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO
       // APLICADA.
-      '144_wizard_budget_concurrent_executions.sql',
-      'el techo conocido es la 144: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida) y la 144 (varias ejecuciones activas por usuario en la reserva del piloto) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No
+      // es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de
+      // CUT3B4. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
+      'el techo conocido es la 145: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto) y la 145 (la asignación de prospectos a otra persona) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -372,15 +377,19 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // reserva del piloto: índice no único + paso 9 de `try_reserve_wizard_credits`; ninguna fila
       // de datos). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida
       // sube a la 145 y superiores.
+      // BULK-COMPANY-ASSIGNMENT-1 declara la 145 (asignar prospectos por revisar a otra persona:
+      // columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de su auditoría;
+      // ninguna fila de datos). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 146 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      files.some((file) => /^14[5-9]/.test(file) || /^1[5-9]\d/.test(file)),
+      files.some((file) => /^14[6-9]/.test(file) || /^1[5-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 145 o superior',
+      'ninguna migración 146 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

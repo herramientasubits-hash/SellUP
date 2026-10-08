@@ -449,7 +449,12 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA. El proxy se mueve de la 144 a la
     // 145, y el barrido de AUTORÍA se ENSANCHA para incluir la 144.
-      migrations.filter((f) => f.startsWith('145')).length,
+    // 🔴 BULK-COMPANY-ASSIGNMENT-1 reclamó después la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de su
+    // auditoría; ninguna fila de datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4.
+    // AUTORADA y NO APLICADA. El proxy se mueve de la 145 a la 146, y el barrido de AUTORÍA se
+    // ENSANCHA para incluir la 145.
+      migrations.filter((f) => f.startsWith('146')).length,
       0,
       'este corte no añade migración',
     );
@@ -475,7 +480,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('141') ||
         f.startsWith('142') ||
         f.startsWith('143') ||
-        f.startsWith('144'),
+        f.startsWith('144') ||
+        f.startsWith('145'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
