@@ -94,6 +94,10 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // capa gratuita).
   pa_ruc_registry: 'TAX_GRAIN',
   pa_free_directory: 'TAX_GRAIN',
+  // SOURCES-NI-CLOSE-2 — un RUC, una fila (registro unido de Nicaragua: Grandes
+  // Contribuyentes de la DGI + licencias del MINSA; y la capa gratuita con RUC).
+  ni_ruc_registry: 'TAX_GRAIN',
+  ni_free_directory: 'TAX_GRAIN',
   // SOURCES-DO-SIZE-SIGNAL-1 — un RNC, una fila (empresas con señal de tamaño; nombres comerciales).
   do_dgii_size_registry: 'TAX_GRAIN',
   do_dgii_trade_name_registry: 'TAX_GRAIN',
@@ -132,6 +136,11 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
   // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
   pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-NI-CLOSE-2 — varias filas por RUC (nombre comercial, sigla, nombre en la
+  // otra fuente): identidad `ni-name-alias:<RUC>:<clave>`; y la capa gratuita sin RUC
+  // (Zona Franca, CONAMI, entidades públicas): identidad `ni-web:<dominio>`.
+  ni_ruc_name_alias: 'NATIVE_RECORD_GRAIN',
+  ni_free_directory_web: 'NATIVE_RECORD_GRAIN',
   co_fedesoft: 'NATIVE_RECORD_GRAIN',
   ec_scvs: 'NATIVE_RECORD_GRAIN',
   // SOURCES-EC-CLOSE-2 — hasta 3 marcas por RUC: la 1.ª con clave tax:<RUC>, las demás

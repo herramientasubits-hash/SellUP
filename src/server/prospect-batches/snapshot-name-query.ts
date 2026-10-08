@@ -162,6 +162,9 @@ export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   // 2019. Mismo trato: queda en la ficha con su año y NO decide (no es vigente).
   SV_GRAN_CONTRIBUYENTE: 'gran contribuyente (Hacienda El Salvador)',
   SV_MEDIANO_CONTRIBUYENTE: 'mediano contribuyente (Hacienda El Salvador)',
+  // SOURCES-NI-CLOSE-2 — Grandes Contribuyentes de la DGI de Nicaragua (lista de
+  // 2019-2020 del Internet Archive). Mismo trato: «empresa grande» que no decide sola.
+  NI_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Nicaragua)',
 };
 
 function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {

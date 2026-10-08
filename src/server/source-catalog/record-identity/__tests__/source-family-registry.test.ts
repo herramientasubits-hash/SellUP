@@ -60,6 +60,9 @@ const TAX_GRAIN_SOURCE_KEYS = [
   // SOURCES-PA-CLOSE-1
   'pa_ruc_registry',
   'pa_free_directory',
+  // SOURCES-NI-CLOSE-2
+  'ni_ruc_registry',
+  'ni_free_directory',
   'do_dgii_size_registry',
   'do_dgii_trade_name_registry',
   // SOURCES-BO-CLOSE-1 — grandes contribuyentes de Bolivia.
@@ -70,6 +73,9 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pa_panamacompra_convenio',
   // SOURCES-PA-CLOSE-1 — varias claves de nombre por RUC.
   'pa_ruc_name_alias',
+  // SOURCES-NI-CLOSE-2 — varias claves de nombre por RUC; capa gratuita sin RUC por web.
+  'ni_ruc_name_alias',
+  'ni_free_directory_web',
   'co_fedesoft',
   'ec_scvs',
   'pe_sunat_name_alias',

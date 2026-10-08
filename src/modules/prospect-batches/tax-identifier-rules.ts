@@ -576,6 +576,25 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '998592-1-535732',
     ruleVersion: 'PA-RUC-v1',
   },
+  // SOURCES-NI-CLOSE-2 — formatos medidos en la lista de Grandes Contribuyentes de la
+  // DGI y en las licencias sanitarias del MINSA (07-10-2026).
+  NI: {
+    countryCode: 'NI',
+    label: 'RUC',
+    placeholder: 'Ej. J0310000003750',
+    helpText:
+      'Ingrese el RUC: «J» y 13 dígitos para empresas e instituciones (J0310000003750), o la cédula para personas (0010101800001A). Con o sin espacios ni guiones.',
+    minLength: 14,
+    maxLength: 20,
+    inputMode: 'text',
+    acceptedCharacters: /^[\dA-Za-z\s.-]*$/,
+    formatPattern: /^(?:[JR]\d{13}|\d{13}[A-Z])$/,
+    validationLevel: 'format_only',
+    normalize: (val) => val.toUpperCase().replace(/[\s.-]/g, ''),
+    validateFormat: (val) => /^(?:[JR]\d{13}|\d{13}[A-Z])$/.test(val.toUpperCase().replace(/[\s.-]/g, '')),
+    canonicalExample: 'J0310000003750',
+    ruleVersion: 'NI-RUC-v1',
+  },
   // SOURCES-SV-CLOSE-1 — NIT homologado de 14 dígitos (municipio, fecha, correlativo
   // y verificador). Sólo la forma, igual que Honduras: el verificador lo comprueban
   // las cargas (`sv-nit.ts`), no la edición a mano.
@@ -687,6 +706,7 @@ function getCountryNameByCode(code: string): string {
     GT: 'Guatemala',
     HN: 'Honduras',
     PA: 'Panamá',
+    NI: 'Nicaragua',
     SV: 'El Salvador',
   };
   return names[code.toUpperCase().trim()] ?? code;
