@@ -29,6 +29,9 @@ Listas:
                 web (CC0). Pública si Wikidata lo dice o el nombre lo indica; sin campus sueltos.
   co_ips_camas  datos.gov.co s2ru-bqt6 agregado por NIT (camas ≥ 50; consulta en el README de
                 la carpeta): IPS de Colombia con su número de camas. Sin gerente, correo ni teléfono.
+  statista_mx   rankings.statista.com «Mejores empleadores de México <año>» (HTML): sólo
+                nombres (≥250 empleados), sin sector ⇒ suma marca de grande a lo que otra lista
+                ya clasificó.
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -241,6 +244,33 @@ def co_ips_camas(path: str) -> list[dict]:
     return out
 
 
+def statista_mx(path: str) -> list[dict]:
+    page = open(path, encoding="utf-8", errors="ignore").read()
+    # Los datos de la página (Nuxt) son una lista plana de valores referenciados por
+    # posición: el objeto {"name": i, "industry": j} apunta a la lista de índices de
+    # los nombres. La industria es sólo el filtro de la página, no la de cada empresa.
+    block = re.search(r'<script[^>]*id="__NUXT_DATA__"[^>]*>(.*?)</script>', page, re.S)
+    if not block:
+        return []
+    data = json.loads(block.group(1))
+    names: list = []
+    for value in data:
+        if isinstance(value, dict) and "name" in value and "industry" in value:
+            ref = data[value["name"]]
+            if isinstance(ref, list):
+                names = [data[i] for i in ref if isinstance(i, int)]
+                break
+    year = re.search(r"mejores-empleadores-mexico-(\d{4})", page)
+    out = []
+    for name in names:
+        if isinstance(name, str) and clean(name):
+            out.append(entry(
+                country="MX", list="statista_mx", list_label="Forbes/Statista – Mejores empleadores de México",
+                year=int(year.group(1)) if year else None, name=clean(name), kind="ranking", size_large=True,
+            ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -292,6 +322,7 @@ EXTRACTORS = {
     "pe_bvl": pe_bvl,
     "wikidata_universities": wikidata_universities,
     "co_ips_camas": co_ips_camas,
+    "statista_mx": statista_mx,
 }
 
 
