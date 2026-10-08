@@ -673,7 +673,7 @@ describe('cableado y familias de fuente', () => {
     assert.equal(getSourceFamily('ni_free_directory_web'), 'NATIVE_RECORD_GRAIN');
   });
 
-  it('catálogo: estado honesto (conectada, pendiente de carga) y fuera de las recomendaciones', () => {
+  it('catálogo: estado honesto (conectada y cargada) y fuera de las recomendaciones', () => {
     const expected = {
       ni_ruc_registry: 'connected_identity_in_run',
       ni_free_directory: 'connected_free_discovery',
@@ -685,7 +685,7 @@ describe('cableado y familias de fuente', () => {
       assert.deepEqual(source.countryCodes, ['NI']);
       assert.equal(source.aiFlowStatus, status);
       assert.equal(source.connectionMode, 'read_only_snapshot');
-      assert.equal(source.operationalStatus, 'pending_validation', `${key}: no está cargada todavía`);
+      assert.equal(source.operationalStatus, 'operational_verified', `${key}: cargada y verificada en Prod el 08-10-2026`);
       assert.deepEqual(source.sectors, []);
       for (const depth of ['basic', 'standard', 'deep'] as const) {
         for (const industry of ['technology', 'health_pharma', 'government']) {
