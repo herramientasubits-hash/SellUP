@@ -87,6 +87,60 @@ export function isContentPageName(name: string): boolean {
   return CONTENT_PAGE_NAME_PATTERNS.some((p) => p.test(name.trim()));
 }
 
+// ─── Artículo sobre empresas (AGENT1-TAVILY-ARTICLE-PAGE-1) ───────────────────
+//
+// Prod 08-10-2026 (SV×Tecnología, lote 6ff3a1b5): Tavily trajo como «empresas» una
+// nota de diario («El Salvador tiene siete empresas dedicadas a la IA»), una
+// publicación de la UES, una cartelera de la UCA y la página de un servicio en un
+// directorio. Ninguna dirección traía /blog/ ni /articulo/: la señal es la FORMA.
+//
+// Una página interna es un artículo sobre otras empresas cuando su último tramo es
+// un título largo (5 palabras o más separadas por «-» o «_») o la nota lleva un
+// número de artículo (5+ cifras), Y el título de la página no nombra al sitio. Las
+// páginas internas de una empresa («/servicios/desarrollo-web») o sus propios
+// artículos («… | ACME») pasan.
+
+const ARTICLE_SLUG_MIN_WORDS = 5;
+const SERVICE_HOST_LABELS = new Set(['www', 'com', 'org', 'net', 'edu', 'gob', 'gov', 'co', 'sv', 'mx', 'es']);
+
+function foldForCompare(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** ¿Es la página de la que salió la candidata un artículo sobre empresas? */
+export function isArticleAboutCompaniesPage(sourceUrl: string | null | undefined, sourceTitle: string | null | undefined): boolean {
+  if (!sourceUrl) return false;
+  let url: URL;
+  try {
+    url = new URL(sourceUrl.startsWith('http') ? sourceUrl : `https://${sourceUrl}`);
+  } catch {
+    return false;
+  }
+  const segments = url.pathname.split('/').filter((segment) => segment.length > 0);
+  if (segments.length === 0) return false;
+  const words = (segment: string): number => segment.split(/[-_]+/).filter((w) => /[a-z]/i.test(w)).length;
+  const longSlug = segments.some((segment) => words(decodeURIComponent(segment)) >= ARTICLE_SLUG_MIN_WORDS);
+  const articleId = segments.length >= 3 && segments.some((segment) => /^\d{5,}$/.test(segment));
+  if (!longSlug && !articleId) return false;
+  // El título nombra al sitio («… | ACME»): es una página de la propia empresa. Sólo
+  // cuenta el nombre REGISTRADO (`solutekla` de elsalvador.solutekla.com): un
+  // subdominio geográfico («elsalvador») no es la marca.
+  const brand = registeredLabel(url.hostname);
+  return brand === null || !foldForCompare(sourceTitle ?? '').includes(foldForCompare(brand));
+}
+
+/** «data.inve.fce.ues.edu.sv» → «ues»; «elsalvador.solutekla.com» → «solutekla». */
+function registeredLabel(hostname: string): string | null {
+  const parts = hostname.toLowerCase().split('.').filter((part) => part.length > 0);
+  const secondLevel = parts.length >= 3 && parts[parts.length - 1].length === 2 && SERVICE_HOST_LABELS.has(parts[parts.length - 2]);
+  const label = parts[parts.length - (secondLevel ? 3 : 2)] ?? null;
+  return label !== null && label.length >= 2 ? label : null;
+}
+
 // ─── Path depth helper ────────────────────────────────────────────────────────
 
 /**
