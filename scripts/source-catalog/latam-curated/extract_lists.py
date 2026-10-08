@@ -27,6 +27,8 @@ Listas:
   wikidata_universities  respuesta JSON de query.wikidata.org (consulta en
                 scripts/source-catalog/latam-curated/wikidata-universities.rq): universidades con
                 web (CC0). Pública si Wikidata lo dice o el nombre lo indica; sin campus sueltos.
+  co_ips_camas  datos.gov.co s2ru-bqt6 agregado por NIT (camas ≥ 50; consulta en el README de
+                la carpeta): IPS de Colombia con su número de camas. Sin gerente, correo ni teléfono.
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -221,6 +223,24 @@ def wikidata_universities(path: str) -> list[dict]:
     return out
 
 
+def co_ips_camas(path: str) -> list[dict]:
+    out = []
+    for row in json.load(open(path, encoding="utf-8")):
+        nit = clean(row.get("nit_ips"))
+        beds = row.get("camas")
+        if not nit:
+            continue
+        dv = clean(row.get("dv"))
+        out.append(entry(
+            country="CO", list="co_reps_camas", list_label="MinSalud REPS – IPS con 50+ camas", year=2022,
+            name=clean(row.get("nombre")), tax_id=f"{nit}-{dv}" if dv else nit, tax_type="NIT",
+            kind="health_provider", is_public=(row.get("naturaleza") or "").startswith("P\u00fablica"),
+            sector=f"Prestador de salud ({int(float(beds))} camas)" if beds else "Prestador de salud",
+            city=clean(row.get("municipio")), region=clean(row.get("departamento")),
+        ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -271,6 +291,7 @@ EXTRACTORS = {
     "py_cones": py_cones,
     "pe_bvl": pe_bvl,
     "wikidata_universities": wikidata_universities,
+    "co_ips_camas": co_ips_camas,
 }
 
 
