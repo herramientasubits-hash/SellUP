@@ -384,8 +384,13 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // que lee `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del
       // catálogo, ni de BR, ni de CUT3B4; no escribe `mobile_phone` ni inventa vocabulario de
       // procedencia del escalar móvil. AUTORADA y NO APLICADA.
-      '144_wizard_budget_concurrent_executions.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida y la 144 de varias ejecuciones activas por usuario en la reserva del piloto, no este hito',
+      // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No
+      // es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no escribe `mobile_phone` ni
+      // inventa vocabulario de procedencia del escalar móvil. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida, la 144 de varias ejecuciones activas por usuario en la reserva del piloto y la 145 de la asignación de prospectos a otra persona, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -447,15 +452,19 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // reserva del piloto: índice no único + paso 9 de `try_reserve_wizard_credits`; ninguna fila
       // de datos). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida
       // sube a la 145 y superiores.
+      // BULK-COMPANY-ASSIGNMENT-1 declara la 145 (asignar prospectos por revisar a otra persona:
+      // columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de su auditoría;
+      // ninguna fila de datos). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana
+      // prohibida sube a la 146 y superiores.
       // La guarda no se relaja: sigue impidiendo que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      numbered.some((f) => /^14[5-9]/.test(f) || /^1[5-9]\d/.test(f)),
+      numbered.some((f) => /^14[6-9]/.test(f) || /^1[5-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 145 o superior',
+      'ninguna migración 146 o superior',
     );
   });
 

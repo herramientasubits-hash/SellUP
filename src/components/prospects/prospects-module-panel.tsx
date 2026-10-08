@@ -15,6 +15,9 @@ import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-
 import { ProspectsScreenActions } from '@/components/prospects/prospects-screen-actions';
 import type { GenerateProspectsAgent } from '@/components/prospects/generate-prospects-agent';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
+import { getActiveUsers } from '@/modules/accounts/actions';
+import { createClient } from '@/lib/supabase/server';
+import { hasCandidateAssignmentColumn } from '@/modules/assignment/assignment.server';
 import { DiscardedProspectsPanel } from '@/components/prospects/discarded-prospects-panel';
 import {
   EMPRESAS_TAB_DESCRIPTIONS,
@@ -144,10 +147,18 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
 
   // Scope refinement: resolve ownerUserIds from userId/groupId URL params.
   // resolveScopeOwnerFilter enforces commercial scope — cannot widen visibility.
-  const [scopeFilterOptions, ownerUserIds] = await Promise.all([
+  const [scopeFilterOptions, ownerUserIds, activeUsers, assignmentEnabled] = await Promise.all([
     getCommercialScopeFilterOptions(),
     resolveScopeOwnerFilter(params.userId, params.groupId),
+    // BULK-COMPANY-ASSIGNMENT-1 — a quién se puede asignar (cualquier usuario activo).
+    // Si la lectura falla, «Por revisar» sale igual, sólo sin la acción de asignar.
+    getActiveUsers().catch(() => []),
+    // Sin la migración 145 la acción no se ofrece: la pantalla queda como hoy.
+    createClient()
+      .then((supabase) => hasCandidateAssignmentColumn(supabase))
+      .catch(() => false),
   ]);
+  const assignableUsers = assignmentEnabled ? activeUsers : [];
 
   // Los indicadores de la cabecera ya no se cuentan aparte en el servidor: la
   // tabla los calcula sobre estas mismas filas y los ofrece como filtros de un
@@ -201,6 +212,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         sourceId={sourceId ?? undefined}
         sourceBatchType={sourceBatchType ?? undefined}
         scopeFilterOptions={scopeFilterOptions}
+        assignableUsers={assignableUsers}
         currentUserId={params.userId ?? ''}
         currentGroupId={params.groupId ?? ''}
         hasUrlFilters={hasUrlFilters}

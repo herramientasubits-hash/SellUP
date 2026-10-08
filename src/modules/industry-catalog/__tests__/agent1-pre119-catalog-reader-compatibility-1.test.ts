@@ -1040,7 +1040,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // `max_active_executions_per_user`; ninguna fila de datos). No es tabla ni vista del catálogo
     // de industrias, ni de teléfono, ni de BR, ni de CUT3B4, y el barrido de abajo lo comprueba
     // sobre su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^144_/);
+    // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de
+    // `prospect_candidate_audit`; ninguna fila de datos). No es tabla ni vista del catálogo de
+    // industrias, ni de teléfono, ni de BR, ni de CUT3B4, y el barrido de abajo lo comprueba
+    // sobre su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^145_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1181,6 +1186,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // que lee `max_active_executions_per_user`; ninguna fila de datos). No es tabla ni vista del
       // catálogo de industrias. AUTORADA y NO APLICADA.
       '144_wizard_budget_concurrent_executions.sql',
+      // 🔴 BULK-COMPANY-ASSIGNMENT-1 reclamó después la 145: asignar prospectos por revisar a otra
+      // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+      // + `candidate_assigned` en el CHECK de su auditoría; ninguna fila de datos). No es tabla ni
+      // vista del catálogo de industrias. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

@@ -58,7 +58,9 @@ export type CandidateAuditAction =
   // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — human override that sends a
   // discarded disposition (with or without a pre-existing candidate row)
   // back to needs_review. Migration 138 widens the DB CHECK constraint.
-  | 'candidate_sent_to_review';
+  | 'candidate_sent_to_review'
+  // BULK-COMPANY-ASSIGNMENT-1 — «Asignar a…» en Por revisar. Migración 145.
+  | 'candidate_assigned';
 
 // ── Tipos para candidatos estructurados ───────────────────────
 
@@ -192,10 +194,25 @@ export interface ProspectCandidate {
   commercial_trace: Record<string, unknown> | null;
   commercial_fit_status: string | null;
   legal_status: string | null;
+  // BULK-COMPANY-ASSIGNMENT-1 — responsable asignado a mano (migración 145).
+  // Opcional: no existe en la base hasta que se aplique la 145.
+  assigned_to?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+}
+
+/** Responsable efectivo de un prospecto: el asignado o, si no hay, el del lote. */
+export interface CandidateResponsible {
+  id: string;
+  name: string;
+  /** Cierto si alguien lo asignó a mano (no es el dueño del lote). */
+  isAssigned: boolean;
 }
 
 export interface ProspectCandidateWithReviewer extends ProspectCandidate {
   reviewer: { id: string; full_name: string | null; email: string } | null;
+  /** Lo rellena la lista global de «Por revisar»; ausente en otras lecturas. */
+  responsible?: CandidateResponsible | null;
 }
 
 export interface ProspectCandidateAudit {
