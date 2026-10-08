@@ -2724,11 +2724,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-SV-LARGE-TAXPAYERS-1: tabla NIT → industria APROBADA por la dueña el 08-10-2026; carga PENDIENTE de autorización: 581 de los 860 Grandes Contribuyentes de 2019 que no venden al Estado (137 Industria, 116 Finanzas y seguros, 66 Consumo, 59 Energía, 42 Construcción e inmuebles, 35 Agro, 34 Retail, 29 Transporte, 23 Servicios, 20 Salud, 20 Tecnología), 72 con web comprobada; 279 sin industria segura. Carga: scripts/source-catalog/load-sv-large-taxpayer-directory.mts --apply --confirm (con autorización de la dueña).',
+      'SOURCES-SV-LARGE-TAXPAYERS-1: tabla NIT → industria APROBADA por la dueña el 08-10-2026; carga AUTORIZADA y HECHA el 08-10-2026 (581 filas, verificadas por lectura en Prod): 581 de los 860 Grandes Contribuyentes de 2019 que no venden al Estado (137 Industria, 116 Finanzas y seguros, 66 Consumo, 59 Energía, 42 Construcción e inmuebles, 35 Agro, 34 Retail, 29 Transporte, 23 Servicios, 20 Salud, 20 Tecnología), 72 con web comprobada; 279 sin industria segura. Siguiente: una corrida SV×Retail o SV×Finanzas tras el merge.',
     countryCodes: ['SV'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'dry_run_validated',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://web.archive.org/web/20190923155602/https://www.mh.gob.sv/downloads/pdf/700-DGII-AV-2018-20963.pdf',
     automationLevel: 'high',
