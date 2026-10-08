@@ -21,6 +21,7 @@
  *
  * Escritura REAL (sólo con autorización explícita de la dueña para ESA carga):
  *   … --apply --only=registry|alias|public|directory --confirm
+ *   --web-map=<fichero>  (opcional) webs comprobadas por NIT (`discover-sv-company-webs.mts`)
  *   … --apply --only=<clave> --confirm --prune-stale   (además borra las filas de ESA
  *     clave que la carga nueva ya no trae: un nombre corregido cambia la identidad)
  *
@@ -43,7 +44,8 @@ import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim'
 
 import {
   aggregateSvComprasalSuppliers,
-  buildSvComprasalDirectoryRow,
+  buildSvComprasalDirectoryRows,
+  parseSvCompanyWebLine,
   buildSvPublicEntityRow,
   buildSvRegistryAndAliasRows,
   parseSvComprasalAward,
@@ -58,7 +60,6 @@ import {
   SV_NIT_REGISTRY_SOURCE_KEY,
   SV_PUBLIC_ENTITIES_SOURCE_KEY,
   type SvComprasalAward,
-  type SvDirectoryExclusion,
   type SvPublicEntityExclusion,
   type SvSnapshotRow,
   type SvTransparenciaInstitution,
@@ -73,7 +74,7 @@ const UPSERT_CHUNK = 1000;
 const ONLY_VALUES = ['registry', 'alias', 'public', 'directory'] as const;
 type Only = (typeof ONLY_VALUES)[number];
 
-type Config = { inDir: string; apply: boolean; only: Only | null; pruneStale: boolean };
+type Config = { inDir: string; webMap: string | null; apply: boolean; only: Only | null; pruneStale: boolean };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -94,7 +95,7 @@ function parseArgs(argv: readonly string[]): Config {
   }
   const pruneStale = argv.includes('--prune-stale');
   if (pruneStale && !apply) throw new Error('config_invalid: --prune-stale sólo vale con --apply');
-  return { inDir, apply, only: only as Only | null, pruneStale };
+  return { inDir, webMap: value('web-map'), apply, only: only as Only | null, pruneStale };
 }
 
 function readJsonl(path: string): unknown[] {
@@ -205,6 +206,12 @@ async function main(): Promise<void> {
   console.log(`  Leídos: ${entries.length} filas de listados ${JSON.stringify(Object.fromEntries(byList))}, ${institutions.length} instituciones, ${awards.length} adjudicaciones`);
 
   const importedAt = new Date().toISOString();
+  const webByNit = new Map(
+    (config.webMap ? readJsonl(config.webMap) : [])
+      .map(parseSvCompanyWebLine)
+      .filter((line) => line !== null)
+      .map((line) => [line.nit, line.web] as const),
+  );
 
   // 1-2. Registro y alias.
   const { registryRows, aliasRows, excluded: registryExcluded } = buildSvRegistryAndAliasRows(entries, { importedAt });
@@ -235,24 +242,18 @@ async function main(): Promise<void> {
   console.log(`  ${SV_PUBLIC_ENTITIES_SOURCE_KEY}: ${publicRows.length} (con web ${withWeb}, con NIT ${withNit}) — ${JSON.stringify(Object.fromEntries(byKind))} — dominios compartidos ${[...sharedDomains].join(', ')}`);
   console.log(`  Fuera de Gobierno: ${JSON.stringify(Object.fromEntries(publicExcluded))}`);
 
-  // 4. Capa gratuita de empresas.
-  const registryByNit = new Map(registryRows.map((row) => [row.tax_id!, row]));
-  const ambiguousKeys = new Set([...cores].filter(([, n]) => n > 1).map(([core]) => core));
+  // 4. Capa gratuita de empresas (con la web comprobada si se pasa --web-map).
   const suppliers = aggregateSvComprasalSuppliers(awards);
-  const directoryRows: SvSnapshotRow[] = [];
-  const directoryExcluded = new Map<SvDirectoryExclusion, number>();
-  const seenNit = new Set<string>();
-  for (const supplier of suppliers) {
-    const result = buildSvComprasalDirectoryRow(supplier, { importedAt, nitByKey, registryByNit, ambiguousKeys });
-    if ('excluded' in result) countBy(directoryExcluded, result.excluded);
-    else if (result.row.record_identity_key !== null && !seenNit.has(result.row.tax_id!)) {
-      seenNit.add(result.row.tax_id!);
-      directoryRows.push(result.row);
-    }
-  }
-  directoryRows.sort((a, b) => b.priority_score - a.priority_score || (a.tax_id ?? '').localeCompare(b.tax_id ?? ''));
+  const { rows: directoryRows, excluded: directoryExcluded } = buildSvComprasalDirectoryRows({
+    suppliers,
+    registryRows,
+    aliasRows,
+    importedAt,
+    webByNit,
+  });
   console.log(`  ${SV_COMPRASAL_DIRECTORY_SOURCE_KEY}: ${directoryRows.length} de ${suppliers.length} proveedoras (tabla aprobada: ${SV_COMPRASAL_MACRO_TABLE_APPROVED ? 'sí' : 'NO — propuesta'})`);
   console.log(`  Fuera de la capa gratuita: ${JSON.stringify(Object.fromEntries(directoryExcluded))}`);
+  console.log(`  Con web comprobada: ${directoryRows.filter((r) => r.raw_data['website_domain'] !== undefined).length} (mapa de webs: ${webByNit.size} NIT)`);
   const byMacro = new Map<string, number>();
   for (const row of directoryRows) countBy(byMacro, String(row.raw_data['macro_industry_key']));
   for (const [macro, n] of [...byMacro].sort((a, b) => b[1] - a[1])) console.log(`    ${macro}: ${n}`);
