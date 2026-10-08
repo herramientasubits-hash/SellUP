@@ -60,7 +60,7 @@ import {
 } from '@/components/prospects/prospect-table-cells';
 import { buildProspectQuickFilters } from '@/components/prospects/prospect-quick-filters';
 import { isAssignableCandidateStatus } from '@/modules/assignment/assignment-core';
-import { AssignOwnerDialog, type AssignableUser } from '@/components/assignment/assign-owner-dialog';
+import { AssignOwnerDrawer, type AssignableUser } from '@/components/assignment/assign-owner-drawer';
 import { assignCandidatesToUser } from '@/modules/prospect-review/assign-actions';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
@@ -631,6 +631,11 @@ export function ProspectsDataTableClient({
             onMarkDuplicateOverride={() =>
               openCandidateDetail(row.original, { duplicateIntent: true })
             }
+            onAssign={
+              canAssign && isAssignableCandidateStatus(row.original.status)
+                ? () => setAssignRows([row.original])
+                : undefined
+            }
           />
         ),
         size: 48,
@@ -641,7 +646,7 @@ export function ProspectsDataTableClient({
         meta: { label: 'Acciones', disableFilter: true, disableSort: true },
       },
     ],
-    [openCandidateDetail, responsibleFilterOptions],
+    [openCandidateDetail, responsibleFilterOptions, canAssign],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -885,13 +890,18 @@ export function ProspectsDataTableClient({
                 onApproveOverride={() => openCandidateDetail(row, { approveIntent: true })}
                 onDiscardOverride={() => openCandidateDetail(row, { discardIntent: true })}
                 onMarkDuplicateOverride={() => openCandidateDetail(row, { duplicateIntent: true })}
+                onAssign={
+                  canAssign && isAssignableCandidateStatus(row.status)
+                    ? () => setAssignRows([row])
+                    : undefined
+                }
               />
             )
           }
         />
       );
     },
-    [openCandidateDetail],
+    [openCandidateDetail, canAssign],
   );
 
   // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
@@ -1045,7 +1055,7 @@ export function ProspectsDataTableClient({
         />
       </div>
 
-      <AssignOwnerDialog
+      <AssignOwnerDrawer
         open={assignRows.length > 0}
         onOpenChange={(open) => !open && setAssignRows([])}
         kind="candidates"

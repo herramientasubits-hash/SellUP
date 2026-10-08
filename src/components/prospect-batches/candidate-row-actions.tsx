@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   ClipboardCheck,
   RotateCcw,
+  UserPlus,
 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
@@ -97,6 +98,11 @@ interface CandidateRowActionsProps {
    * preserved verbatim.
    */
   onMarkDuplicateOverride?: () => void;
+  /**
+   * BULK-COMPANY-ASSIGNMENT-1 — en Prospectos abre «Asignar a…» para esta fila.
+   * Sin definir (p. ej. en prospect-batches) la entrada no aparece.
+   */
+  onAssign?: () => void;
 }
 
 export function CandidateRowActions({
@@ -105,6 +111,7 @@ export function CandidateRowActions({
   onApproveOverride,
   onDiscardOverride,
   onMarkDuplicateOverride,
+  onAssign,
 }: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
@@ -414,6 +421,13 @@ export function CandidateRowActions({
                   Aprobar{!onApproveOverride && isPossibleDuplicate ? '…' : ''}
                 </DropdownMenuItem>
               )
+            )}
+
+            {onAssign && (
+              <DropdownMenuItem onClick={onAssign}>
+                <UserPlus className="mr-2 h-3.5 w-3.5 text-primary" />
+                Asignar a…
+              </DropdownMenuItem>
             )}
 
             {canRollback && (

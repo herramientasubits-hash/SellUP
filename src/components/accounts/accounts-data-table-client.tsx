@@ -57,7 +57,7 @@ import {
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { archiveAccounts, assignAccountsToUser, updateAccount } from '@/modules/accounts/actions';
-import { AssignOwnerDialog } from '@/components/assignment/assign-owner-dialog';
+import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -691,7 +691,7 @@ export function AccountsDataTableClient({
         preloadedCompany={enrichCompany}
       />
 
-      <AssignOwnerDialog
+      <AssignOwnerDrawer
         open={assignRows.length > 0}
         onOpenChange={(open) => !open && setAssignRows([])}
         kind="accounts"

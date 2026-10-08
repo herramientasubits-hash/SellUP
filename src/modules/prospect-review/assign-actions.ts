@@ -52,6 +52,22 @@ function batchOf(row: CandidateAssignmentRow): { owner_id: string | null; create
   return Array.isArray(row.batch) ? (row.batch[0] ?? null) : row.batch;
 }
 
+/**
+ * Misma regla de visibilidad que la lista de «Por revisar»: lo asignado a
+ * alguien del alcance o, sin asignar, lo de un lote cuyo dueño o creador está
+ * en el alcance.
+ */
+function isVisibleToScope(
+  row: { assignedTo: string | null; batchOwnerId: string | null; batchCreatedBy: string | null },
+  visibleUserIds: Set<string>,
+): boolean {
+  if (row.assignedTo) return visibleUserIds.has(row.assignedTo);
+  return (
+    (row.batchOwnerId !== null && visibleUserIds.has(row.batchOwnerId)) ||
+    (row.batchCreatedBy !== null && visibleUserIds.has(row.batchCreatedBy))
+  );
+}
+
 /** ids de usuario que quien asigna puede ver; null = sin restricción. */
 async function resolveVisibleUserIds(): Promise<Set<string> | null> {
   if (!isCommercialScopeEnabled()) return null;
@@ -104,6 +120,9 @@ export async function assignCandidatesToUser(
           id: row.id,
           name: row.name ?? '',
           batchId: row.batch_id,
+          assignedTo: row.assigned_to,
+          batchOwnerId: batch?.owner_id ?? null,
+          batchCreatedBy: batch?.created_by ?? null,
           currentOwnerId: resolveCandidateResponsibleId({
             assignedTo: row.assigned_to,
             batchOwnerId: batch?.owner_id,
@@ -111,11 +130,7 @@ export async function assignCandidatesToUser(
           }),
         };
       })
-      .filter(
-        (row) =>
-          visibleUserIds === null ||
-          (row.currentOwnerId !== null && visibleUserIds.has(row.currentOwnerId)),
-      );
+      .filter((row) => visibleUserIds === null || isVisibleToScope(row, visibleUserIds));
 
     const { toChange, alreadyOwned } = partitionByCurrentOwner(candidates, target.id);
 
