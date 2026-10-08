@@ -19,8 +19,8 @@
  *   - Entidades públicas (instituciones compradoras de SICOP): Gobierno, como en
  *     Colombia.
  *   - Socios de la Cámara de Industrias (CICR): por la actividad que declaran, con
- *     la tabla de palabras clave de `cr-cicr-macro-table.ts` (v2, PROPUESTA
- *     pendiente del visto bueno de la dueña).
+ *     la tabla de palabras clave de `cr-cicr-macro-table.ts` (v2, aprobada
+ *     por la dueña el 08-10-2026).
  *
  * La dueña del producto aprobó reutilizar las dos tablas el 06-10-2026. Cambiar la
  * clasificación es una decisión de producto: no se edita sin su visto bueno.

@@ -17,12 +17,12 @@
  *
  *   - Socios de la Cámara de Industrias (CICR): la cédula sale del cruce por nombre
  *     con el registro (`cr-cicr-members.ts`); la actividad es la que el socio
- *     declara y se clasifica con la tabla de palabras clave de CICR (PROPUESTA
- *     pendiente del visto bueno de la dueña); trae su web propia.
+ *     declara y se clasifica con la tabla de palabras clave de CICR (aprobada por
+ *     la dueña el 08-10-2026); trae su web propia.
  *
  * Una fila por cédula. Si una empresa está en varias fuentes manda la entidad
  * pública, después Zona Franca (declaró su actividad), después SICOP y por último
- * CICR (su tabla es la única aún sin aprobar); la web de CICR se conserva.
+ * CICR (su tabla se aprobó la última); la web de CICR se conserva.
  *
  * Quedan FUERA:
  *   - las que el MEIC registra como micro o pequeña (decisión de la dueña,

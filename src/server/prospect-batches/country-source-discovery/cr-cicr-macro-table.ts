@@ -4,7 +4,7 @@
  *
  * SOURCES-CR-CICR-1.
  *
- * ── 🔴 TABLA NUEVA — PROPUESTA, PENDIENTE DEL VISTO BUENO DE LA DUEÑA ───────
+ * ── 🔴 TABLA NUEVA — APROBADA POR LA DUEÑA EL 08-10-2026 ────────────────────
  *
  * CICR publica la actividad en texto libre («Industria alimentaria», «Venta y
  * alquiler de montacargas»), sin código. No hay una tabla aprobada para texto, así

@@ -110,7 +110,7 @@ describe('alias web de CICR en el registro', () => {
   });
 });
 
-describe('tabla de actividades de CICR (propuesta)', () => {
+describe('tabla de actividades de CICR (aprobada 08-10-2026)', () => {
   const cases: Array<[string, string | null]> = [
     ['Industria alimentaria', 'consumer_goods'],
     ['Metalmecánica', 'industry_manufacturing_chemicals_automotive'],
