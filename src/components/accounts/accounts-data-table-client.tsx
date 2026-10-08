@@ -55,7 +55,7 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import { updateAccount } from '@/modules/accounts/actions';
+import { archiveAccounts, updateAccount } from '@/modules/accounts/actions';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -497,6 +497,34 @@ export function AccountsDataTableClient({
         },
       },
       {
+        id: 'archive-accounts',
+        label: 'Archivar',
+        icon: Archive,
+        variant: 'destructive',
+        countInLabel: true,
+        disabled: (rows) => rows.length === 0,
+        confirm: {
+          title: 'Archivar empresas',
+          description: (rows) =>
+            rows.length === 1
+              ? `«${rows[0].name}» sale del listado y del pipeline activo. Solo un administrador puede hacerlo y queda registrado en auditoría.`
+              : `${rows.length} empresas salen del listado y del pipeline activo. Solo un administrador puede hacerlo y queda registrado en auditoría.`,
+          confirmLabel: 'Archivar',
+        },
+        onClick: async (rows) => {
+          const result = await archiveAccounts(rows.map((r) => r.id));
+          if (!result.success) {
+            toast.error(result.error);
+            return;
+          }
+          toast.success(
+            result.archived === 1 ? 'Empresa archivada' : `${result.archived} empresas archivadas`,
+          );
+          dataTableRef.current?.clearSelection();
+          router.refresh();
+        },
+      },
+      {
         id: 'bulk-enrich-contacts',
         label: 'Buscar contactos en lote',
         icon: UserSearch,
@@ -520,7 +548,7 @@ export function AccountsDataTableClient({
         },
       },
     ],
-    [openDetail],
+    [openDetail, router],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

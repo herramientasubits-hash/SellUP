@@ -128,6 +128,7 @@ export function workforceFromRawData(raw: unknown, source: string, fallbackYear:
   if (record['hn_mipyme_year'] !== undefined) return bandFromHondurasMipyme(record, source);
   if (record['py_mipyme_size'] !== undefined) return bandFromParaguayMipymeSize(record, source);
   if (record['cr_meic_size'] !== undefined) return bandFromCostaRicaMeicSize(record, source);
+  if (record['sat_iva_agent'] === true) return bandFromGuatemalaIvaAgent(record, source, fallbackYear);
   const workers = record['workers'];
   const year = record['metrics_year'];
   if (workers === undefined && record['stratification'] !== undefined) {
@@ -166,6 +167,23 @@ function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, 
   const year = typeof yearValue === 'number' && Number.isInteger(yearValue) ? yearValue : fallbackYear;
   if (year === null) return null;
   return { workers: 0, year, source, maxWorkers: null, sizeBand: band };
+}
+
+/**
+ * SOURCES-GT-SIZE-1 — agente de retención del IVA de la SAT de Guatemala. La SAT sólo
+ * designa como agentes a contribuyentes grandes (por ventas e impuestos, NO por
+ * trabajadores). Mismo trato que los grandes contribuyentes de Bolivia y Panamá: un
+ * tramo «grande» SIN piso ni techo de personas, que queda en la ficha y no decide
+ * solo. No estar en la lista no prueba nada: `sat_iva_agent: false` no da tramo.
+ */
+export const GT_SAT_IVA_AGENT_BAND = 'agente de retención del IVA (SAT Guatemala)';
+
+function bandFromGuatemalaIvaAgent(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {
+  const listDate = raw['sat_list_date'];
+  const listYear = typeof listDate === 'string' ? Number.parseInt(listDate.slice(0, 4), 10) : Number.NaN;
+  const year = Number.isInteger(listYear) ? listYear : fallbackYear;
+  if (year === null) return null;
+  return { workers: 0, year, source, maxWorkers: null, sizeBand: GT_SAT_IVA_AGENT_BAND };
 }
 
 /** Adapt a (service-role) client into a read-only name query for one source. */
