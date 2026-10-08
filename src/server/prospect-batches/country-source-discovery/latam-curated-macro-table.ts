@@ -95,18 +95,18 @@ const PRO_ECUADOR_SECTOR_MACRO: Readonly<Record<string, MacroIndustryKey | null>
  * Servicios (decisión de la dueña, 08-10-2026). Texto ya en minúsculas sin tildes.
  */
 const SPANISH_SECTOR_RULES: readonly { macro: MacroIndustryKey | null; pattern: RegExp }[] = [
-  { macro: null, pattern: /hotel|turism|restaurant|comida rapida|gastronom|medios de comunicacion|editorial|entretenimiento|\bocio\b|parque tematico|gimnasio|asociacion|fundacion|sin fines de lucro|holding|conglomerad|grupo empresarial|empresarial corporativo|agencias de promocion/ },
-  { macro: 'retail', pattern: /cadenas? de farmacias|^farmacias?$|supermercad|autoservicio|departamental|tiendas|grandes superficies|retail|ferreter|electrodomestic|electronica de consumo|electronica y hogar|equipamiento (del|para el) hogar|\bmoda\b|joyeria|librer|calzado|deportes|repuestos|comercializacion de automoviles|comercio electronico|e-?comerc|comercio al por mayor|distribucion|distribuidora|centros? comercial|shopping/ },
+  { macro: null, pattern: /hotel|hospitalidad|\bmedios\b|turism|restaurant|comida rapida|gastronom|medios de comunicacion|editorial|entretenimiento|\bocio\b|parque tematico|gimnasio|asociacion|fundacion|sin fines de lucro|holding|conglomerad|grupo empresarial|empresarial corporativo|agencias de promocion/ },
+  { macro: 'retail', pattern: /cadenas? de farmacias|venta al por menor|venta minorista|^farmacias?$|supermercad|autoservicio|departamental|tiendas|grandes superficies|retail|ferreter|electrodomestic|electronica de consumo|electronica y hogar|equipamiento (del|para el) hogar|\bmoda\b|joyeria|librer|calzado|deportes|repuestos|comercializacion de automoviles|comercio electronico|e-?comerc|comercio al por mayor|distribucion|distribuidora|centros? comercial|shopping/ },
   { macro: 'health_pharma', pattern: /farmac|laboratorio|salud|clinica|hospital|dispositivos medicos|equipo medico|isapre|medicina prepagada|drogueria/ },
   { macro: 'insurance_financial_services', pattern: /asegurador|seguros|\bafp\b|banc|financ|fintech|fondos?\b|tarjeta|pensiones|cooperativa$|entidades financieras/ },
   { macro: 'technology', pattern: /telecomunic|tecnolog|informatic|software|internet|satelital|\bcrm\b|informacion y comunicacion|servicios electronicos/ },
   { macro: 'transport_logistics', pattern: /aerolin|aviacion|transporte|logistic|courier|mensajeria|paqueteria|aeroportuari|delivery|reparto|entrega a domicilio|movilidad/ },
   { macro: 'energy_mining_environment', pattern: /energi|petrole|hidrocarbur|combustible|gasolinera|miner|servicio petroler|residuos|medioambient|servicios publicos/ },
   { macro: 'consumer_goods', pattern: /aliment|bebida|consumo masivo|vino|vitivin|cosmetic|cuidado personal|belleza|higiene|aseo|limpieza y cuidado del hogar|mascotas/ },
-  { macro: 'agroindustry', pattern: /agro|agrari|forestal|pesca|acuicultura|cafetaler|ingenio|agricol|veterinari/ },
-  { macro: 'industry_manufacturing_chemicals_automotive', pattern: /cement|industri|manufactur|automotri|automocion|autopartist|quimic|sider|metalurg|plastico|papel|empaque|textil|confeccion|maquila|maquinaria/ },
+  { macro: 'agroindustry', pattern: /agro|agrari|agricultur|forestal|pesca|acuicultura|cafetaler|ingenio|agricol|veterinari/ },
+  { macro: 'industry_manufacturing_chemicals_automotive', pattern: /cement|industri|manufactur|fabricaci|automotri|automocion|autopartist|quimic|sider|metalurg|plastico|papel|empaque|textil|confeccion|maquila|maquinaria/ },
   { macro: 'property_construction', pattern: /construccion|inmobili|bienes raices|infraestructur|concesiones viales|zonas? francas?|parques empresariales/ },
-  { macro: 'services_company', pattern: /educacion|universidad|academi|formacion|abogad|legal|auditori|consultor|contabilidad|\bbpo\b|contact center|\bett\b|rrhh|rr\.hh|facility|seguridad|servicios de limpieza|publicid|publicitari|cajas de compensacion|cementerio|servicios varios|servicios de alimentacion/ },
+  { macro: 'services_company', pattern: /educacion|universidad|servicios profesionales|academi|formacion|abogad|legal|auditori|consultor|contabilidad|\bbpo\b|contact center|\bett\b|rrhh|rr\.hh|facility|seguridad|servicios de limpieza|publicid|publicitari|cajas de compensacion|cementerio|servicios varios|servicios de alimentacion/ },
 ];
 
 function plain(text: string): string {

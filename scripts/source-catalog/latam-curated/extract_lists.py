@@ -32,6 +32,9 @@ Listas:
   statista_mx   rankings.statista.com «Mejores empleadores de México <año>» (HTML): sólo
                 nombres (≥250 empleados), sin sector ⇒ suma marca de grande a lo que otra lista
                 ya clasificó.
+  gptw_mx       carpeta con las fichas de greatplacetowork.com.mx/organizaciones-certificadas/<slug>/
+                (del índice organizaciones-cert-sitemap*.xml): nombre, industria, ubicación, web y
+                tramo de tamaño (grande desde «500 a 4999»).
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -271,6 +274,39 @@ def statista_mx(path: str) -> list[dict]:
     return out
 
 
+def _gptw_field(page: str, label: str) -> str | None:
+    """Texto del bloque que sigue a la etiqueta («Industria», «Ubicación»…)."""
+    match = re.search(
+        r"<p>\s*" + re.escape(label) + r"\s*</p>.*?<div class=\"elementor-widget-container\">\s*(.*?)\s*</div>",
+        page,
+        re.S,
+    )
+    return clean(strip_tags(match.group(1))) if match else None
+
+
+def gptw_mx(folder: str) -> list[dict]:
+    import glob
+    import os
+
+    out = []
+    for path in sorted(glob.glob(os.path.join(folder, "*.html"))):
+        page = open(path, encoding="utf-8", errors="ignore").read()
+        title = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        if not title:
+            continue
+        size = _gptw_field(page, "Tamaño de la organización") or ""
+        low = re.match(r"(\d[\d.,]*)", size)
+        lower = int(re.sub(r"[.,]", "", low.group(1))) if low else 0
+        web = re.search(r'href="(https?://[^"]+)"[^>]*>\s*<span class="elementor-screen-only">Globe</span>', page)
+        out.append(entry(
+            country="MX", list="gptw_mx", list_label="Great Place to Work México – certificadas", year=2026,
+            name=strip_tags(title.group(1)), website=web.group(1) if web else None, kind="ranking",
+            sector=_gptw_field(page, "Industria"), size_large=lower >= 500,
+            region=_gptw_field(page, "Ubicación"),
+        ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -323,6 +359,7 @@ EXTRACTORS = {
     "wikidata_universities": wikidata_universities,
     "co_ips_camas": co_ips_camas,
     "statista_mx": statista_mx,
+    "gptw_mx": gptw_mx,
 }
 
 

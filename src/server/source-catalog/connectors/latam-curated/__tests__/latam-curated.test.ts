@@ -99,6 +99,14 @@ describe('macro de la capa curada', () => {
       ['HOTELERÍA', null],
       ['MEDIOS DE COMUNICACIÓN', null],
       ['HOLDING', null],
+      // Great Place to Work México
+      ['Servicios profesionales', 'services_company'],
+      ['Venta al por menor', 'retail'],
+      ['Fabricación y producción', 'industry_manufacturing_chemicals_automotive'],
+      ['Biotecnología y productos farmacéuticos', 'health_pharma'],
+      ['Agricultura', 'agroindustry'],
+      ['Hospitalidad', null],
+      ['Medios', null],
     ];
     for (const [sector, macro] of cases) assert.equal(resolveLatamCuratedSectorMacro(sector), macro, sector);
   });
