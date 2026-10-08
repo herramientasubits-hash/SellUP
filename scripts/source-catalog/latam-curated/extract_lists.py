@@ -35,6 +35,9 @@ Listas:
   gptw_mx       carpeta con las fichas de greatplacetowork.com.mx/organizaciones-certificadas/<slug>/
                 (del índice organizaciones-cert-sitemap*.xml): nombre, industria, ubicación, web y
                 tramo de tamaño (grande desde «500 a 4999»).
+  gptw_carca    carpeta con las fichas de greatplacetoworkcarca.com/es/certificada/<slug>/ (índice
+                certificada-sitemap.xml): nombre e industria; el país sale del final del slug
+                (sólo CR, GT, SV, HN, NI, PA, DO).
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -307,6 +310,40 @@ def gptw_mx(folder: str) -> list[dict]:
     return out
 
 
+CARCA_COUNTRY_BY_SLUG = {
+    "costa-rica": "CR",
+    "guatemala": "GT",
+    "el-salvador": "SV",
+    "honduras": "HN",
+    "nicaragua": "NI",
+    "panama": "PA",
+    "republica-dominicana": "DO",
+}
+
+
+def gptw_carca(folder: str) -> list[dict]:
+    import glob
+    import os
+
+    out = []
+    for path in sorted(glob.glob(os.path.join(folder, "*.html"))):
+        slug = os.path.basename(path)[:-5]
+        country = next((cc for suffix, cc in CARCA_COUNTRY_BY_SLUG.items() if slug.endswith(suffix)), None)
+        if country is None:
+            continue
+        page = open(path, encoding="utf-8", errors="ignore").read()
+        title = re.search(r"<title>(.*?)</title>", page, re.S)
+        if not title:
+            continue
+        name = strip_tags(title.group(1)).replace("- GPTW CARCA", "").strip(" -")
+        industry = re.search(r'/industrias/[^/"]+/">([^<]+)</a>', page)
+        out.append(entry(
+            country=country, list="gptw_carca", list_label="Great Place to Work Centroamérica y Caribe – certificadas",
+            year=2026, name=name, kind="ranking", sector=strip_tags(industry.group(1)) if industry else None,
+        ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -360,6 +397,7 @@ EXTRACTORS = {
     "co_ips_camas": co_ips_camas,
     "statista_mx": statista_mx,
     "gptw_mx": gptw_mx,
+    "gptw_carca": gptw_carca,
 }
 
 
