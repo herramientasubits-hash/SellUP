@@ -42,6 +42,9 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'cr_free_directory', country: 'CR', status: 'connected_free_discovery' },
   { key: 'pa_ruc_registry', country: 'PA', status: 'connected_identity_in_run' },
   { key: 'pa_free_directory', country: 'PA', status: 'connected_free_discovery' },
+  { key: 'ni_ruc_registry', country: 'NI', status: 'connected_identity_in_run' },
+  { key: 'ni_free_directory', country: 'NI', status: 'connected_free_discovery' },
+  { key: 'ni_free_directory_web', country: 'NI', status: 'connected_free_discovery' },
   // SOURCES-SV-CLOSE-1
   { key: 'sv_nit_registry', country: 'SV', status: 'connected_identity_in_run' },
   { key: 'sv_comprasal_directory', country: 'SV', status: 'connected_free_discovery' },
