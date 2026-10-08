@@ -16,6 +16,7 @@ import {
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
+import { getHubSpotPortalId } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
 import {
   isApolloPhoneRevealEnabled,
   isLushaPhoneRevealFallbackEnabled,
@@ -52,7 +53,7 @@ export async function ContactCandidatesPanel({
   const isDuplicateQueue = queue === 'duplicates';
   const view = queue === 'duplicates' ? 'duplicates' : queue === 'rejected' ? 'rejected' : 'candidates';
 
-  const [candidates, accountsList, accounts, scopeFilterOptions, currentUser] =
+  const [candidates, accountsList, accounts, scopeFilterOptions, currentUser, hubspotPortalId] =
     await Promise.all([
       // 4O-H3-B-R1: dos colas, dos lecturas. Los duplicados NO se mezclan en el listado de
       // pendientes: un duplicado ya tiene veredicto y lo que espera es otra decisión.
@@ -65,6 +66,8 @@ export async function ContactCandidatesPanel({
       getActiveAccountsForPicker(),
       getCommercialScopeFilterOptions(),
       getCurrentUser(),
+      // Para que «HubSpot ID empresa» abra la ficha en el portal correcto. Sin conexión: null.
+      getHubSpotPortalId(),
     ]);
 
   // Gobierno del reveal de teléfono (PHONE-3D.4): el flag y el rol se resuelven
@@ -129,6 +132,7 @@ export async function ContactCandidatesPanel({
         lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
         phoneRevealWaterfallEnabled={phoneRevealWaterfallEnabled}
         phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
+        hubspotPortalId={hubspotPortalId}
       />
     </DataTablePage>
     </ListActionRailProvider>

@@ -3,7 +3,7 @@
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Mail, RotateCcw, Sparkles, UserSearch } from "@/icons";
+import { Link2, Building2, Globe, Mail, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,12 @@ import {
   useWideViewport,
   type QuickFilterDefinition,
 } from '@/components/filters/quick-filter-strip';
-import { EmptyCell, ExternalIconLink, RowTitleButton } from '@/components/shared/table-cells';
+import {
+  EmptyCell,
+  ExternalIconLink,
+  ExternalLinkCell,
+  RowTitleButton,
+} from '@/components/shared/table-cells';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
 import type {
@@ -35,6 +40,7 @@ import type {
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
+import { hubspotCompanyUrl } from './hubspot-company-url';
 import { SEND_TO_REVIEW_LABEL, useSendRejectedToReview } from './contact-candidate-rejected-actions';
 export { rejectionInfo } from './contact-candidate-rejection-info';
 import {
@@ -200,6 +206,146 @@ function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
   );
 }
 
+// ── Columnas por objeto (Contacto / Empresa) ───────────────────
+// Salen ocultas y se piden desde «Configurar tabla», agrupadas por el objeto al
+// que pertenece el dato. La empresa es la asociada al candidato EN ESTE MOMENTO
+// (reasignación incluida), completada con la cuenta SellUp.
+
+const CONTACT_GROUP = 'Contacto';
+const COMPANY_GROUP = 'Empresa';
+
+/** Quita protocolo, `www.` y barra final: lo que se lee de una página web. */
+function displayWebsite(value: string): string {
+  return value.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+}
+
+function EmailCell({ candidate }: { candidate: PendingContactCandidate }) {
+  if (!candidate.email) return <EmptyCell label="Sin correo" />;
+  return (
+    <a
+      href={`mailto:${candidate.email}`}
+      title={candidate.email}
+      onClick={(e) => e.stopPropagation()}
+      className="block truncate rounded-sm text-xs text-foreground underline-offset-4 outline-none hover:text-primary hover:underline focus-visible:ring-3 focus-visible:ring-ring/40"
+    >
+      {candidate.email}
+    </a>
+  );
+}
+
+function PhoneCell({ candidate }: { candidate: PendingContactCandidate }) {
+  if (!candidate.phone) return <EmptyCell label="Sin teléfono" />;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground" title={candidate.phone}>
+      <Phone aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      <span className="truncate tabular-nums">{candidate.phone}</span>
+    </span>
+  );
+}
+
+const PHONE_REVEAL_STATUS_LABELS: Partial<Record<NonNullable<PendingContactCandidate['phone_reveal_status']>, string>> = {
+  requested: 'En proceso',
+  pending: 'En proceso',
+  revealed: 'Revelado',
+  no_phone_found: 'Sin teléfono',
+};
+
+/**
+ * «Revelar teléfono» desde la tabla. Revelar gasta créditos y tiene su propio gobierno
+ * (flag, rol, identidad, waterfall, confirmación): todo eso vive en el detalle del
+ * candidato. Por eso el botón de la celda abre ese detalle, donde está el botón real.
+ */
+function PhoneRevealCell({
+  candidate,
+  canReveal,
+  onOpen,
+}: {
+  candidate: PendingContactCandidate;
+  canReveal: boolean;
+  onOpen: (candidate: PendingContactCandidate) => void;
+}) {
+  const status = candidate.phone_reveal_status;
+  const label = status ? PHONE_REVEAL_STATUS_LABELS[status] : undefined;
+  if (label) {
+    return <span className="block truncate text-xs text-muted-foreground">{label}</span>;
+  }
+  if (!canReveal) return <EmptyCell label="Revelar teléfono no disponible" />;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      title={status === 'error' ? 'El intento anterior falló: abre el detalle para reintentar' : 'Abre el detalle para revelar el teléfono'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(candidate);
+      }}
+    >
+      <PhoneCall aria-hidden />
+      {status === 'error' ? 'Reintentar' : 'Revelar'}
+    </Button>
+  );
+}
+
+/** LinkedIn: sólo se indica que existe; el enlace no se muestra, se abre en otra pestaña. */
+function LinkedinCell({ candidate }: { candidate: PendingContactCandidate }) {
+  if (!candidate.linkedin_url) return <EmptyCell label="Sin LinkedIn" />;
+  const name = candidate.full_name || 'este contacto';
+  return (
+    <ExternalLinkCell
+      href={candidate.linkedin_url}
+      icon={Link2}
+      label={`Abrir el LinkedIn de ${name}`}
+    >
+      Ver perfil
+    </ExternalLinkCell>
+  );
+}
+
+function CompanyDomainCell({ candidate }: { candidate: PendingContactCandidate }) {
+  if (!candidate.company_domain) return <EmptyCell label="Sin dominio" />;
+  return (
+    <span className="block truncate text-xs text-muted-foreground" title={candidate.company_domain}>
+      {candidate.company_domain}
+    </span>
+  );
+}
+
+function CompanyWebsiteCell({ candidate }: { candidate: PendingContactCandidate }) {
+  const website = candidate.company_website;
+  if (!website) return <EmptyCell label="Sin página web" />;
+  return (
+    <ExternalLinkCell
+      href={website}
+      icon={Globe}
+      label={`Abrir la página web de ${candidate.company_name ?? 'la empresa'}`}
+    >
+      {displayWebsite(website)}
+    </ExternalLinkCell>
+  );
+}
+
+/** Sólo el número; al pulsarlo abre la empresa en HubSpot en otra pestaña. */
+function HubspotCompanyIdCell({
+  candidate,
+  portalId,
+}: {
+  candidate: PendingContactCandidate;
+  portalId: string | null | undefined;
+}) {
+  const companyId = candidate.hubspot_company_id?.trim();
+  if (!companyId) return <EmptyCell label="No existe en HubSpot" />;
+  return (
+    <ExternalLinkCell
+      href={hubspotCompanyUrl(companyId, portalId)}
+      label={`Abrir ${candidate.company_name ?? 'la empresa'} en HubSpot`}
+      className="tabular-nums"
+    >
+      {companyId}
+    </ExternalLinkCell>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────
 
 interface ContactCandidatesDataTableClientProps {
@@ -237,6 +383,11 @@ interface ContactCandidatesDataTableClientProps {
    * waterfall no tiene permiso de rol propio; su interruptor es el flag.
    */
   phoneRevealWaterfallAuthorized?: boolean;
+  /**
+   * Hub ID de la cuenta HubSpot conectada, resuelto server-side. Arma el enlace de la
+   * columna «HubSpot ID empresa»; `null` si no se conoce.
+   */
+  hubspotPortalId?: string | null;
 }
 
 export function ContactCandidatesDataTableClient({
@@ -250,6 +401,7 @@ export function ContactCandidatesDataTableClient({
   lushaPhoneFallbackAuthorized = false,
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
+  hubspotPortalId = null,
 }: ContactCandidatesDataTableClientProps) {
   // AGENT2A-P0-R2: título, descripción y estado vacío se derivan de la cola. Antes estaban
   // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
@@ -327,6 +479,9 @@ export function ContactCandidatesDataTableClient({
     ],
     [openDetail, isRejectedQueue, sendToReview],
   );
+
+  // Mismo gobierno que el detalle: sin flag o sin rol, la columna no ofrece el botón.
+  const canRevealPhone = phoneRevealEnabled && phoneRevealAuthorized;
 
   const columns: ColumnDef<PendingContactCandidate, unknown>[] = React.useMemo(
     () => [
@@ -458,8 +613,99 @@ export function ContactCandidatesDataTableClient({
         // Fecha: solo se ordena.
         meta: { label: 'Creado', popoverTitle: 'Fecha de creación', disableFilter: true },
       },
+      // ── Contacto ──
+      {
+        id: 'contact_email',
+        accessorFn: (row) => row.email ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Correo" />,
+        cell: ({ row }) => <EmailCell candidate={row.original} />,
+        size: 200,
+        minSize: 150,
+        meta: { label: 'Correo', popoverTitle: 'Correo', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+      },
+      {
+        id: 'contact_phone',
+        accessorFn: (row) => row.phone ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Teléfono" />,
+        cell: ({ row }) => <PhoneCell candidate={row.original} />,
+        size: 150,
+        minSize: 120,
+        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+      },
+      {
+        id: 'contact_phone_reveal',
+        accessorFn: (row) => row.phone_reveal_status ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Revelar teléfono" />,
+        cell: ({ row }) => (
+          <PhoneRevealCell candidate={row.original} canReveal={canRevealPhone} onOpen={openDetail} />
+        ),
+        size: 140,
+        minSize: 120,
+        meta: {
+          label: 'Revelar teléfono',
+          popoverTitle: 'Revelar teléfono',
+          group: CONTACT_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'contact_linkedin',
+        accessorFn: (row) => (row.linkedin_url ? 1 : 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LinkedIn" />,
+        cell: ({ row }) => <LinkedinCell candidate={row.original} />,
+        size: 110,
+        minSize: 100,
+        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+      },
+      // ── Empresa ──
+      {
+        id: 'company_domain',
+        accessorFn: (row) => row.company_domain ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Dominio de la empresa" />,
+        cell: ({ row }) => <CompanyDomainCell candidate={row.original} />,
+        size: 170,
+        minSize: 130,
+        meta: {
+          label: 'Dominio de la empresa',
+          popoverTitle: 'Dominio de la empresa',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'company_website',
+        accessorFn: (row) => row.company_website ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Página web de la empresa" />,
+        cell: ({ row }) => <CompanyWebsiteCell candidate={row.original} />,
+        size: 190,
+        minSize: 140,
+        meta: {
+          label: 'Página web de la empresa',
+          popoverTitle: 'Página web de la empresa',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'company_hubspot_id',
+        accessorFn: (row) => row.hubspot_company_id ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="HubSpot ID empresa" />,
+        cell: ({ row }) => <HubspotCompanyIdCell candidate={row.original} portalId={hubspotPortalId} />,
+        size: 150,
+        minSize: 120,
+        meta: {
+          label: 'HubSpot ID empresa',
+          popoverTitle: 'HubSpot ID empresa',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
     ],
-    [openDetail],
+    [openDetail, canRevealPhone, hubspotPortalId],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

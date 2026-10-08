@@ -44,6 +44,11 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import { applyCandidateCompanyReassignment } from './candidate-company-reassignment-core';
+import {
+  collectCandidateAccountIds,
+  mergeCandidateAccountContext,
+  type CandidateAccountContextRow,
+} from './candidate-account-context';
 import type {
   Agent2AInput,
   CompanyCandidate,
@@ -408,6 +413,28 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
 }
 
 /**
+ * Completa cada candidato con la empresa asociada EN ESTE MOMENTO (página web, y dominio /
+ * HubSpot ID cuando el run no los trae), para las columnas «Empresa» de la tabla de revisión.
+ * Un fallo aquí no tumba el listado: las columnas simplemente salen vacías.
+ */
+async function withCandidateAccountContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  candidates: PendingContactCandidate[],
+): Promise<PendingContactCandidate[]> {
+  const accountIds = collectCandidateAccountIds(candidates);
+  if (accountIds.length === 0) return candidates;
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('id, website, domain, hubspot_company_id')
+    .in('id', accountIds);
+  if (error) {
+    console.error('[withCandidateAccountContext] read_failed', { code: error.code });
+    return candidates;
+  }
+  return mergeCandidateAccountContext(candidates, (data ?? []) as CandidateAccountContextRow[]);
+}
+
+/**
  * Candidatos en `pending_review` con el contexto de empresa de su run.
  * Proyección de solo lectura para revisión humana — sin payloads crudos.
  */
@@ -426,7 +453,7 @@ export async function getPendingContactCandidates(
 
   if (error) throw new Error(`getPendingContactCandidates: ${error.message}`);
 
-  return (data ?? []).map(mapPendingContactCandidate);
+  return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
 }
 
 /**
@@ -545,7 +572,7 @@ export async function getDuplicateContactCandidates(
 
   if (error) throw new Error(`getDuplicateContactCandidates: ${error.message}`);
 
-  return (data ?? []).map(mapPendingContactCandidate);
+  return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
 }
 
 /**
@@ -570,7 +597,7 @@ export async function getRejectedContactCandidates(
 
   if (error) throw new Error(`getRejectedContactCandidates: ${error.message}`);
 
-  return (data ?? []).map(mapPendingContactCandidate);
+  return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
 }
 
 /** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */

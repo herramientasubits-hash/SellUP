@@ -45,6 +45,8 @@ export interface TableColumnSpec {
   hideable?: boolean;
   /** Arranca oculta y se pide desde el panel. */
   hiddenByDefault?: boolean;
+  /** El objeto al que pertenece («Contacto», «Empresa»): agrupa la lista del panel. */
+  group?: string;
 }
 
 /** Lo que se guarda por tabla entre sesiones. */
@@ -243,7 +245,16 @@ export function useTableConfig(
       const spec = specById.get(id);
       return spec !== undefined && spec.hideable !== false;
     };
-    const hidden = (saved?.hidden ?? defaultHidden).filter(canHide);
+    // Una columna que la tabla estrena después de que la persona guardó su
+    // configuración no está en su `order` guardado: si arranca oculta, se
+    // respeta eso en vez de aparecerle de golpe en la tabla.
+    const savedOrder = saved?.order;
+    const unseenDefaultHidden = savedOrder
+      ? defaultHidden.filter((id) => !savedOrder.includes(id))
+      : [];
+    const hidden = (saved?.hidden ? [...saved.hidden, ...unseenDefaultHidden] : defaultHidden).filter(
+      (id, index, all) => canHide(id) && all.indexOf(id) === index,
+    );
     return {
       order: reconcileOrder(saved?.order ?? [], specIds),
       hidden,

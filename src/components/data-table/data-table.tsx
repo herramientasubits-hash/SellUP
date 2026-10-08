@@ -152,6 +152,8 @@ function DataTableInner<TData>(
         label: columnLabel(column, id),
         fixed: pinnedColumnIds.includes(id),
         hideable: column.enableHiding !== false,
+        group: column.meta?.group,
+        hiddenByDefault: column.meta?.hiddenByDefault,
       });
     }
     return specs;
