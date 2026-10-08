@@ -358,8 +358,42 @@ export async function fillEmptyHubSpotContactProperties(
 }
 
 /**
- * Crea un contacto en HubSpot con propiedades estándar mínimas.
- * No envía LinkedIn (sin mapeo de escritura validado en este hito).
+ * Cuerpo `properties` del POST de creación. Pura: sólo claves con valor (nunca cadena vacía).
+ * El LinkedIn viaja en `hs_linkedin_url` (AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE).
+ */
+export function buildHubSpotContactCreateBody(
+  input: HubSpotContactCreateInput,
+  markSellUpCreated: boolean,
+): Record<string, string> {
+  const properties: Record<string, string> = { email: input.email };
+  if (input.firstname) properties.firstname = input.firstname;
+  if (input.lastname) properties.lastname = input.lastname;
+  if (input.jobtitle) properties.jobtitle = input.jobtitle;
+  if (input.phone) properties.phone = input.phone;
+  if (input.mobilePhone) properties.mobilephone = input.mobilePhone;
+  if (input.linkedinUrl) properties.hs_linkedin_url = input.linkedinUrl;
+  if (markSellUpCreated) properties.sellup_created = 'true';
+  return properties;
+}
+
+/**
+ * Envía la creación y, si HubSpot responde 400 (validación de propiedades) con el LinkedIn en
+ * el cuerpo, reintenta UNA vez sin él: un LinkedIn que HubSpot no acepte nunca debe impedir que
+ * el contacto llegue al CRM.
+ */
+export async function postHubSpotContactCreateWithLinkedinFallback(
+  properties: Record<string, string>,
+  post: (body: Record<string, string>) => Promise<Response>,
+): Promise<Response> {
+  const response = await post(properties);
+  if (response.status !== 400 || !('hs_linkedin_url' in properties)) return response;
+  const withoutLinkedin = { ...properties };
+  delete withoutLinkedin.hs_linkedin_url;
+  return post(withoutLinkedin);
+}
+
+/**
+ * Crea un contacto en HubSpot con propiedades estándar mínimas, LinkedIn incluido.
  */
 export async function createHubSpotContact(
   input: HubSpotContactCreateInput,
@@ -372,25 +406,21 @@ export async function createHubSpotContact(
     fetchImpl: fetch,
   });
 
-  const properties: Record<string, string> = { email: input.email };
-  if (input.firstname) properties.firstname = input.firstname;
-  if (input.lastname) properties.lastname = input.lastname;
-  if (input.jobtitle) properties.jobtitle = input.jobtitle;
-  if (input.phone) properties.phone = input.phone;
-  if (input.mobilePhone) properties.mobilephone = input.mobilePhone;
-  // Sólo se manda el campo si la verificación/creación tuvo éxito: sin permiso de esquema, el
-  // contacto se crea igual, simplemente sin esta marca.
-  if (propertyEnsure.ok) properties.sellup_created = 'true';
+  // `sellup_created` sólo se manda si la verificación/creación de la propiedad tuvo éxito: sin
+  // permiso de esquema, el contacto se crea igual, simplemente sin esta marca.
+  const properties = buildHubSpotContactCreateBody(input, propertyEnsure.ok);
 
   try {
-    const response = await fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ properties }),
-    });
+    const response = await postHubSpotContactCreateWithLinkedinFallback(properties, (body) =>
+      fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ properties: body }),
+      }),
+    );
 
     if (!response.ok) {
       // No exponer payload crudo ni token. Solo el código de estado.

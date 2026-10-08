@@ -133,7 +133,7 @@ test('splitContactName usa campos explícitos y cae a full_name', () => {
   );
 });
 
-test('buildHubSpotContactProperties omite LinkedIn y manda los DOS teléfonos', () => {
+test('buildHubSpotContactProperties manda el LinkedIn y los DOS teléfonos', () => {
   const props = buildHubSpotContactProperties(makeContact(), 'ana@empresa.com');
   assert.equal(props.email, 'ana@empresa.com');
   assert.equal(props.jobtitle, 'Gerente de RRHH');
@@ -141,8 +141,32 @@ test('buildHubSpotContactProperties omite LinkedIn y manda los DOS teléfonos', 
   // cada uno a su propio campo. Antes se colapsaban en uno solo con prioridad al móvil.
   assert.equal(props.phone, '+57 1 555 0000');
   assert.equal(props.mobilePhone, '+57 300 555 0000');
+  // AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE: el LinkedIn viaja al CREAR (antes sólo al vincular).
+  assert.equal(props.linkedinUrl, 'https://linkedin.com/in/anaperez');
   assert.ok(!('linkedin_url' in props));
-  assert.ok(!('hs_linkedin_url' in props));
+});
+
+test('buildHubSpotContactProperties: LinkedIn con ñ viaja intacto y sin protocolo se completa', () => {
+  const encoded = buildHubSpotContactProperties(
+    makeContact({ linkedin_url: 'https://www.linkedin.com/in/juancamiloherrerani%C3%B1o' }),
+    'ana@empresa.com',
+  );
+  assert.equal(encoded.linkedinUrl, 'https://www.linkedin.com/in/juancamiloherrerani%C3%B1o');
+
+  const raw = buildHubSpotContactProperties(
+    makeContact({ linkedin_url: '  https://www.linkedin.com/in/juancamiloherreraniño  ' }),
+    'ana@empresa.com',
+  );
+  assert.equal(raw.linkedinUrl, 'https://www.linkedin.com/in/juancamiloherreraniño');
+
+  const noProtocol = buildHubSpotContactProperties(
+    makeContact({ linkedin_url: 'www.linkedin.com/in/ana' }),
+    'ana@empresa.com',
+  );
+  assert.equal(noProtocol.linkedinUrl, 'https://www.linkedin.com/in/ana');
+
+  const none = buildHubSpotContactProperties(makeContact({ linkedin_url: '   ' }), 'ana@empresa.com');
+  assert.equal(none.linkedinUrl, null);
 });
 
 test('buildHubSpotContactProperties manda solo el que exista cuando falta uno', () => {
@@ -191,6 +215,7 @@ test('HubSpotContactCreateInput y HubSpotContactUpdateInput aceptan mobilePhone'
     jobtitle: null,
     phone: '+57 1 555 0000',
     mobilePhone: '+57 300 000 0000',
+    linkedinUrl: null,
   };
   const updateInput: import('../contact-hubspot-sync-core').HubSpotContactUpdateInput = {
     phone: '+57 1 555 0000',

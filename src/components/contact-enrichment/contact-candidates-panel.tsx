@@ -11,6 +11,7 @@ import { ContactCandidatesDataTableClient } from '@/components/contact-enrichmen
 import {
   getDuplicateContactCandidates,
   getPendingContactCandidates,
+  getRejectedContactCandidates,
 } from '@/modules/contact-enrichment/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
@@ -49,12 +50,17 @@ export async function ContactCandidatesPanel({
   queue = 'pending',
 }: ContactCandidatesPanelProps = {}) {
   const isDuplicateQueue = queue === 'duplicates';
+  const view = queue === 'duplicates' ? 'duplicates' : queue === 'rejected' ? 'rejected' : 'candidates';
 
   const [candidates, accountsList, accounts, scopeFilterOptions, currentUser] =
     await Promise.all([
       // 4O-H3-B-R1: dos colas, dos lecturas. Los duplicados NO se mezclan en el listado de
       // pendientes: un duplicado ya tiene veredicto y lo que espera es otra decisión.
-      isDuplicateQueue ? getDuplicateContactCandidates() : getPendingContactCandidates(),
+      isDuplicateQueue
+        ? getDuplicateContactCandidates()
+        : queue === 'rejected'
+          ? getRejectedContactCandidates()
+          : getPendingContactCandidates(),
       getAccountsList(),
       getActiveAccountsForPicker(),
       getCommercialScopeFilterOptions(),
@@ -97,11 +103,11 @@ export async function ContactCandidatesPanel({
     <ListActionRailProvider label="Acciones de contactos" gender="m">
     <DataTablePage
       compact
-      title={CONTACTOS_VIEW_TITLES[isDuplicateQueue ? 'duplicates' : 'candidates']}
-      description={CONTACTOS_TAB_DESCRIPTIONS[isDuplicateQueue ? 'duplicates' : 'candidates']}
+      title={CONTACTOS_VIEW_TITLES[view]}
+      description={CONTACTOS_TAB_DESCRIPTIONS[view]}
       // 4O-H3-B-R1 (§ 11): cada cola cuenta lo suyo en el título de su tabla;
       // los duplicados nunca se suman a «Por revisar».
-      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(isDuplicateQueue ? 'duplicates' : 'candidates') ?? []} />}
+      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(view) ?? []} />}
       actions={<ContactsScreenActions accounts={accounts} />}
     >
       <ContactCandidatesDataTableClient

@@ -100,7 +100,27 @@ const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCand
 
 /** El estado del flujo, en texto: todas las filas de una cola comparten el suyo. */
 function workflowStatusLabel(candidate: PendingContactCandidate): string {
-  return candidate.status === 'duplicate' ? 'Duplicado' : 'Por revisar';
+  if (candidate.status === 'duplicate') return 'Duplicado';
+  if (candidate.status === 'discarded') return 'Rechazado';
+  return 'Por revisar';
+}
+
+/**
+ * AGENT2A-CONTACTOS-RECHAZADOS — motivo y fecha del rechazo. Viven en
+ * `enrichment_metadata.review` (los escribe `runDiscardCandidate`); se leen con
+ * guardas porque el bloque es `unknown` para el tipo de la proyección.
+ */
+export function rejectionInfo(candidate: PendingContactCandidate): {
+  reason: string | null;
+  reviewedAt: string | null;
+} {
+  const review = candidate.enrichment_metadata?.review;
+  if (!review || typeof review !== 'object') return { reason: null, reviewedAt: null };
+  const { reason, reviewed_at: reviewedAt } = review as Record<string, unknown>;
+  return {
+    reason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+    reviewedAt: typeof reviewedAt === 'string' && reviewedAt ? reviewedAt : null,
+  };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -128,7 +148,8 @@ function NameCell({
   onOpen,
 }: {
   candidate: PendingContactCandidate;
-  onOpen: (candidate: PendingContactCandidate) => void;
+  /** Sin `onOpen` (vista de rechazados) el nombre es texto: no hay detalle que abrir. */
+  onOpen?: (candidate: PendingContactCandidate) => void;
 }) {
   // Una sola línea: el nombre abre el detalle y a su lado van, como iconos, el
   // correo y LinkedIn. El detalle completo vive en el panel del candidato.
@@ -136,10 +157,16 @@ function NameCell({
   const isNew = candidate.created_at ? isCandidateCreatedToday(candidate.created_at) : false;
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <RowTitleButton onClick={() => onOpen(candidate)} title={name}>
-        {name}
-      </RowTitleButton>
-      {isNew && (
+      {onOpen ? (
+        <RowTitleButton onClick={() => onOpen(candidate)} title={name}>
+          {name}
+        </RowTitleButton>
+      ) : (
+        <span className="block min-w-0 truncate text-sm font-semibold text-foreground" title={name}>
+          {name}
+        </span>
+      )}
+      {isNew && onOpen && (
         <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
           Nuevo
         </Badge>
@@ -251,6 +278,10 @@ export function ContactCandidatesDataTableClient({
   // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
   // la pill «Duplicados».
   const queueCopy = CONTACT_CANDIDATES_QUEUE_COPY[queue];
+  // AGENT2A-CONTACTOS-RECHAZADOS: la vista de rechazados es de sólo consulta. El panel de
+  // revisión sólo carga candidatos revisables (`pending_review`/`duplicate`), así que aquí no se
+  // abre: motivo y fecha del rechazo se leen en la propia tabla.
+  const isRejectedQueue = queue === 'rejected';
 
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
@@ -295,7 +326,7 @@ export function ContactCandidatesDataTableClient({
   };
 
   const bulkActions = React.useMemo<DataTableBulkAction<PendingContactCandidate>[]>(
-    () => [
+    () => isRejectedQueue ? [] : [
       {
         id: 'view-detail',
         // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
@@ -306,7 +337,7 @@ export function ContactCandidatesDataTableClient({
         onClick: (rows) => openDetail(rows[0]),
       },
     ],
-    [openDetail],
+    [openDetail, isRejectedQueue],
   );
 
   const columns: ColumnDef<PendingContactCandidate, unknown>[] = React.useMemo(
@@ -315,7 +346,9 @@ export function ContactCandidatesDataTableClient({
         id: 'full_name',
         accessorKey: 'full_name',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Nombre" />,
-        cell: ({ row }) => <NameCell candidate={row.original} onOpen={openDetail} />,
+        cell: ({ row }) => (
+          <NameCell candidate={row.original} onOpen={isRejectedQueue ? undefined : openDetail} />
+        ),
         size: 220,
         minSize: 180,
         enableHiding: false,
@@ -422,6 +455,47 @@ export function ContactCandidatesDataTableClient({
         enableColumnFilter: false,
         meta: { label: 'Estado', popoverTitle: 'Estado', disableFilter: true },
       },
+      ...(isRejectedQueue
+        ? ([
+            {
+              id: 'rejection_reason',
+              accessorFn: (row) => rejectionInfo(row).reason ?? '',
+              header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo del rechazo" />,
+              cell: ({ row }) => {
+                const { reason } = rejectionInfo(row.original);
+                return reason ? (
+                  <span className="block truncate text-xs text-foreground" title={reason}>
+                    {reason}
+                  </span>
+                ) : (
+                  <EmptyCell label="Sin motivo registrado" />
+                );
+              },
+              size: 200,
+              minSize: 150,
+              // Enumerable: el embudo ofrece los motivos que aparecen en la vista.
+              meta: { label: 'Motivo del rechazo', popoverTitle: 'Motivo del rechazo' },
+            },
+            {
+              id: 'rejected_at',
+              accessorFn: (row) => rejectionInfo(row).reviewedAt ?? '',
+              header: ({ column }) => <DataTableColumnHeader column={column} title="Rechazado" />,
+              cell: ({ row }) => {
+                const { reviewedAt } = rejectionInfo(row.original);
+                return reviewedAt ? (
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatDate(reviewedAt)}
+                  </span>
+                ) : (
+                  <EmptyCell label="Sin fecha" />
+                );
+              },
+              size: 120,
+              minSize: 110,
+              meta: { label: 'Rechazado', popoverTitle: 'Fecha del rechazo', disableFilter: true },
+            },
+          ] satisfies ColumnDef<PendingContactCandidate, unknown>[])
+        : []),
       {
         id: 'created_at',
         accessorKey: 'created_at',
@@ -440,7 +514,7 @@ export function ContactCandidatesDataTableClient({
         meta: { label: 'Creado', popoverTitle: 'Fecha de creación', disableFilter: true },
       },
     ],
-    [openDetail],
+    [openDetail, isRejectedQueue],
   );
 
   // ── Vista de lista ────────────────────────────────────────────
@@ -452,14 +526,22 @@ export function ContactCandidatesDataTableClient({
           selected={state.selected}
           leading={state.checkbox}
           title={
-            <RowTitleButton onClick={() => openDetail(row)}>{row.full_name || 'Sin nombre'}</RowTitleButton>
+            isRejectedQueue ? (
+              <span className="block min-w-0 truncate text-sm font-semibold text-foreground">
+                {row.full_name || 'Sin nombre'}
+              </span>
+            ) : (
+              <RowTitleButton onClick={() => openDetail(row)}>{row.full_name || 'Sin nombre'}</RowTitleButton>
+            )
           }
           description={
             [row.title, row.company_name, row.email ?? row.phone].filter(Boolean).join(' · ') ||
             'Sin cargo, empresa ni datos de contacto'
           }
           meta={
-            relevance ? (
+            isRejectedQueue ? (
+              `Rechazado · ${rejectionInfo(row).reason ?? 'sin motivo'}`
+            ) : relevance ? (
               <span className="flex items-center gap-1.5 text-xs text-foreground">
                 <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${RELEVANCE_DOTS[relevance]}`} />
                 Relevancia {(RELEVANCE_LABELS[relevance] ?? relevance).toLowerCase()}
@@ -472,7 +554,7 @@ export function ContactCandidatesDataTableClient({
         />
       );
     },
-    [openDetail],
+    [openDetail, isRejectedQueue],
   );
 
   // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
@@ -522,14 +604,20 @@ export function ContactCandidatesDataTableClient({
           {...quickFilterGroup}
           icon={UserSearch}
           total={quick.total}
-          noun={queue === 'duplicates' ? ['candidato duplicado', 'candidatos duplicados'] : ['candidato por revisar', 'candidatos por revisar']}
+          noun={
+            queue === 'duplicates'
+              ? ['candidato duplicado', 'candidatos duplicados']
+              : queue === 'rejected'
+                ? ['contacto rechazado', 'contactos rechazados']
+                : ['candidato por revisar', 'candidatos por revisar']
+          }
           className="shrink-0"
         />
       )}
 
       <DataTable
         ref={dataTableRef}
-        tableId="contact-candidates"
+        tableId={isRejectedQueue ? 'contact-candidates-rejected' : 'contact-candidates'}
         noun="candidatos"
         getRowLabel={(row) => row.full_name ?? 'candidato'}
         columns={columns}
@@ -550,17 +638,18 @@ export function ContactCandidatesDataTableClient({
             )}
           </>
         }
-        enableRowSelection
+        enableRowSelection={!isRejectedQueue}
         bulkActions={bulkActions}
         enableColumnReorder
         initialPageSize={20}
         fillHeight
-        rowClickable
-        onRowClick={openDetail}
+        rowClickable={!isRejectedQueue}
+        onRowClick={isRejectedQueue ? undefined : openDetail}
         renderListItem={renderListItem}
         emptyState={emptyState}
       />
     </div>
+    {!isRejectedQueue && (
     <ContactCandidateDetailSheet
       candidateId={detailId}
       open={detailOpen}
@@ -572,6 +661,7 @@ export function ContactCandidatesDataTableClient({
       phoneRevealWaterfallEnabled={phoneRevealWaterfallEnabled}
       phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
     />
+    )}
     </>
   );
 }

@@ -546,6 +546,31 @@ export async function getDuplicateContactCandidates(
   return (data ?? []).map(mapPendingContactCandidate);
 }
 
+/**
+ * AGENT2A-CONTACTOS-RECHAZADOS — candidatos RECHAZADOS en la revisión (`discarded`).
+ *
+ * Vista de sólo consulta: el más reciente primero por fecha de rechazo. El motivo y la fecha
+ * viajan en `enrichment_metadata.review`, que la proyección ya incluye.
+ */
+export async function getRejectedContactCandidates(
+  limit = 500,
+): Promise<PendingContactCandidate[]> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_SELECT)
+    .eq('status', 'discarded')
+    .order('reviewed_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`getRejectedContactCandidates: ${error.message}`);
+
+  return (data ?? []).map(mapPendingContactCandidate);
+}
+
 /** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */
 export async function getDuplicateContactCandidatesCount(): Promise<number> {
   await requireActiveUserForEnrichment();

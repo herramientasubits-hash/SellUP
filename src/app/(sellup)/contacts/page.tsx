@@ -26,12 +26,19 @@ const SKELETON_NOUN: Record<ContactsTabId, string> = {
   approved: 'contactos',
   candidates: 'candidatos por revisar',
   duplicates: 'candidatos duplicados',
+  rejected: 'contactos rechazados',
 };
 
 export default async function ContactsPage({ searchParams }: ContactsPageProps) {
   const { tab } = await searchParams;
   const activeTab: ContactsTabId =
-    tab === 'candidates' ? 'candidates' : tab === 'duplicates' ? 'duplicates' : 'approved';
+    tab === 'candidates'
+      ? 'candidates'
+      : tab === 'duplicates'
+        ? 'duplicates'
+        : tab === 'rejected'
+          ? 'rejected'
+          : 'approved';
 
   // Mientras llegan los datos se ve la pantalla con su forma (cabecera,
   // tabla fantasma) en vez de la pantalla anterior congelada.
@@ -67,6 +74,11 @@ function ContactsTabPanel({ tab }: { tab?: string }) {
   // abrirlos: la cola de pendientes filtra `pending_review` y los dejaba fuera para siempre.
   if (tab === 'duplicates') {
     return <ContactCandidatesPanel queue="duplicates" />;
+  }
+
+  // «Contactos rechazados» (AGENT2A-CONTACTOS-RECHAZADOS) — candidatos que un humano rechazó.
+  if (tab === 'rejected') {
+    return <ContactCandidatesPanel queue="rejected" />;
   }
 
   // Pestaña por defecto: «Contactos» (comportamiento histórico de /contacts).
