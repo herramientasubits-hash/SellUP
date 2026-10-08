@@ -9,8 +9,8 @@
  * y por eso tienen industria; las otras 860 no se ofrecían en la capa gratuita.
  * Esta tabla, una fila por NIT, la armó Claude el 08-10-2026 con la razón social, lo
  * que se sabe de cada empresa y, cuando su web sale de su nombre (88 de 860, la
- * página la nombra), lo que dice su portada. Igual que la de Panamá: la REVISA la
- * dueña antes de cargarla (`SV_LARGE_TAXPAYER_MACRO_TABLE_APPROVED`).
+ * página la nombra), lo que dice su portada. Igual que la de Panamá: APROBADA por la
+ * dueña el 08-10-2026 («apruebo la tabla»). Cambiarla es una decisión de producto.
  *
  * Sin macro, a propósito, los que no se pueden clasificar con seguridad (holdings,
  * «Inversiones X», siglas opacas) y los que no tienen macro en el catálogo
@@ -301,8 +301,8 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 
 export const SV_LARGE_TAXPAYER_MACRO_TABLE_VERSION = 'sv-dgii-large-taxpayer-macro-v1' as const;
 
-/** ¿Aprobó la dueña la tabla? Hasta entonces la carga de la capa gratuita se niega. */
-export const SV_LARGE_TAXPAYER_MACRO_TABLE_APPROVED: boolean = false;
+/** ¿Aprobó la dueña la tabla? Si no, la carga de la capa gratuita se niega. */
+export const SV_LARGE_TAXPAYER_MACRO_TABLE_APPROVED: boolean = true;
 
 /** NIT → [macro, web comprobada o null]. */
 export const SV_LARGE_TAXPAYER_TABLE: Readonly<Record<string, readonly [MacroIndustryKey, string | null]>> = Object.freeze({

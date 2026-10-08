@@ -53,8 +53,8 @@ function registryRow(nit: string, name: string, core: string): SvSnapshotRow {
 }
 
 describe('tabla de Grandes Contribuyentes por NIT', () => {
-  it('sigue sin aprobar', () => {
-    assert.equal(SV_LARGE_TAXPAYER_MACRO_TABLE_APPROVED, false);
+  it('aprobada por la dueña (08-10-2026)', () => {
+    assert.equal(SV_LARGE_TAXPAYER_MACRO_TABLE_APPROVED, true);
   });
 
   it('cada NIT pasa el verificador, cada macro es del catálogo y cada web tiene forma de dominio', () => {
