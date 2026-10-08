@@ -13,4 +13,10 @@
  * servidor. Un módulo sin runtime —sólo un tipo— lo pueden importar los dos lados sin arrastrar
  * nada.
  */
-export type ContactCandidatesQueue = 'pending' | 'duplicates';
+export type ContactCandidatesQueue = 'pending' | 'duplicates' | 'rejected';
+
+/*
+ * AGENT2A-CONTACTOS-RECHAZADOS — `rejected` es la vista de candidatos que un humano RECHAZÓ
+ * (`status = 'discarded'`). Es de sólo consulta: un rechazado ya tiene veredicto, así que la
+ * vista no abre el panel de revisión ni ofrece aprobar/descartar; muestra motivo y fecha.
+ */

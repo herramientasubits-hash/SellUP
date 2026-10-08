@@ -89,7 +89,7 @@ describe('Menú lateral — Configuración no es un módulo', () => {
     );
     assert.deepEqual(
       nav.find((root) => root.href === '/contacts')?.children?.map((child) => child.label),
-      ['Contactos', 'Por revisar'],
+      ['Contactos', 'Por revisar', 'Contactos rechazados'],
     );
   });
 });

@@ -11,6 +11,7 @@ import { ContactCandidatesDataTableClient } from '@/components/contact-enrichmen
 import {
   getDuplicateContactCandidates,
   getPendingContactCandidates,
+  getRejectedContactCandidates,
 } from '@/modules/contact-enrichment/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
@@ -49,12 +50,17 @@ export async function ContactCandidatesPanel({
   queue = 'pending',
 }: ContactCandidatesPanelProps = {}) {
   const isDuplicateQueue = queue === 'duplicates';
+  const view = queue === 'duplicates' ? 'duplicates' : queue === 'rejected' ? 'rejected' : 'candidates';
 
   const [candidates, accountsList, accounts, scopeFilterOptions, currentUser] =
     await Promise.all([
       // 4O-H3-B-R1: dos colas, dos lecturas. Los duplicados NO se mezclan en el listado de
       // pendientes: un duplicado ya tiene veredicto y lo que espera es otra decisión.
-      isDuplicateQueue ? getDuplicateContactCandidates() : getPendingContactCandidates(),
+      isDuplicateQueue
+        ? getDuplicateContactCandidates()
+        : queue === 'rejected'
+          ? getRejectedContactCandidates()
+          : getPendingContactCandidates(),
       getAccountsList(),
       getActiveAccountsForPicker(),
       getCommercialScopeFilterOptions(),
@@ -64,13 +70,16 @@ export async function ContactCandidatesPanel({
   // Gobierno del reveal de teléfono (PHONE-3D.4): el flag y el rol se resuelven
   // aquí (server component) y viajan como booleanos planos. Con el flag OFF
   // (default de producción) el botón "Revelar teléfono" no se renderiza.
-  const phoneRevealEnabled = isApolloPhoneRevealEnabled();
+  // AGENT2A-CONTACTOS-RECHAZADOS: sobre un rechazado no se gastan créditos; para revelar,
+  // primero se envía a revisar. Por eso en esa cola los botones de reveal no existen.
+  const isRejectedQueue = queue === 'rejected';
+  const phoneRevealEnabled = !isRejectedQueue && isApolloPhoneRevealEnabled();
   const phoneRevealAuthorized = isPhoneRevealRoleAuthorized(currentUser?.role_key ?? null);
 
   // Gobierno del fallback Lusha (LUSHA-PHONE-FALLBACK-1): flag + rol se
   // resuelven aquí (server component) y viajan como booleanos planos. Con el
   // flag OFF (default de producción) el botón no se renderiza en ningún caso.
-  const lushaPhoneFallbackEnabled = isLushaPhoneRevealFallbackEnabled();
+  const lushaPhoneFallbackEnabled = !isRejectedQueue && isLushaPhoneRevealFallbackEnabled();
   const lushaPhoneFallbackAuthorized =
     !!currentUser?.role_key &&
     LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
@@ -84,7 +93,7 @@ export async function ContactCandidatesPanel({
   // `phoneRevealWaterfallAuthorized` se DERIVA de `phoneRevealAuthorized` en vez de
   // recalcularse: es literalmente la misma pregunta, y recalcularla es lo que
   // permitiría que las dos respuestas volvieran a divergir.
-  const phoneRevealWaterfallEnabled = isPhoneRevealWaterfallEnabled();
+  const phoneRevealWaterfallEnabled = !isRejectedQueue && isPhoneRevealWaterfallEnabled();
   const phoneRevealWaterfallAuthorized = phoneRevealAuthorized;
 
   const accountOwners = new Map(
@@ -97,12 +106,14 @@ export async function ContactCandidatesPanel({
     <ListActionRailProvider label="Acciones de contactos" gender="m">
     <DataTablePage
       compact
-      title={CONTACTOS_VIEW_TITLES[isDuplicateQueue ? 'duplicates' : 'candidates']}
-      description={CONTACTOS_TAB_DESCRIPTIONS[isDuplicateQueue ? 'duplicates' : 'candidates']}
+      title={CONTACTOS_VIEW_TITLES[view]}
+      description={CONTACTOS_TAB_DESCRIPTIONS[view]}
       // 4O-H3-B-R1 (§ 11): cada cola cuenta lo suyo en el título de su tabla;
       // los duplicados nunca se suman a «Por revisar».
-      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(isDuplicateQueue ? 'duplicates' : 'candidates') ?? []} />}
-      actions={<ContactsScreenActions accounts={accounts} />}
+      breadcrumbs={<Breadcrumbs items={contactosViewCrumbs(view) ?? []} />}
+      // AGENT2A-CONTACTOS-RECHAZADOS: en «Contactos rechazados» no se crea ni se busca: la barra
+      // sólo ofrece «Enviar a revisar» sobre lo que se marque o abra.
+      actions={queue === 'rejected' ? undefined : <ContactsScreenActions accounts={accounts} />}
     >
       <ContactCandidatesDataTableClient
         candidates={candidates}
