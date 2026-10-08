@@ -18,6 +18,9 @@
  *     Rev. 4 adaptada, con la tabla de Perú/Argentina (`pe-sunat-macro-table.ts`).
  *   - Entidades públicas (instituciones compradoras de SICOP): Gobierno, como en
  *     Colombia.
+ *   - Socios de la Cámara de Industrias (CICR): por la actividad que declaran, con
+ *     la tabla de palabras clave de `cr-cicr-macro-table.ts` (v2, PROPUESTA
+ *     pendiente del visto bueno de la dueña).
  *
  * La dueña del producto aprobó reutilizar las dos tablas el 06-10-2026. Cambiar la
  * clasificación es una decisión de producto: no se edita sin su visto bueno.
@@ -33,17 +36,18 @@ import {
   resolvePyUnspscMacro,
   resolvePyUnspscRubro,
 } from './py-dncp-macro-table';
+import { CR_CICR_ACTIVITY_TABLE_VERSION, resolveCrCicrActivityMacro } from './cr-cicr-macro-table';
 import { macroHasPeCoverage, PE_SUNAT_MACRO_TABLE_VERSION, resolvePeActivityMacro } from './pe-sunat-macro-table';
 
 /** Versión de la clasificación de Costa Rica (las dos tablas que reutiliza). */
 export const CR_FREE_DIRECTORY_MACRO_TABLE_VERSION =
-  `cr-free-directory-v1(${PY_DNCP_MACRO_TABLE_VERSION}+${PE_SUNAT_MACRO_TABLE_VERSION})` as const;
+  `cr-free-directory-v2(${PY_DNCP_MACRO_TABLE_VERSION}+${PE_SUNAT_MACRO_TABLE_VERSION}+${CR_CICR_ACTIVITY_TABLE_VERSION})` as const;
 
 /** Las entidades públicas se ofrecen sólo para Gobierno. */
 export const CR_PUBLIC_ENTITY_MACRO: MacroIndustryKey = 'government';
 
 /** Por qué fuente se clasificó la fila. */
-export type CrDirectoryKind = 'sicop_supplier' | 'zona_franca' | 'public_entity';
+export type CrDirectoryKind = 'sicop_supplier' | 'zona_franca' | 'public_entity' | 'cicr_member';
 
 /** Macro de una proveedora de SICOP por monto ofertado por familia UNSPSC (≥ 50 %). */
 export function resolveCrSicopSupplierMacro(
@@ -65,6 +69,8 @@ export function resolveCrDirectoryMacro(
   if (kind === 'public_entity') return CR_PUBLIC_ENTITY_MACRO;
   if (kind === 'zona_franca') return resolveCrCaecrMacro(code);
   if (kind === 'sicop_supplier') return resolvePyUnspscMacro(code);
+  // Socios de CICR: no traen código, la actividad declarada va en el segundo argumento.
+  if (kind === 'cicr_member') return resolveCrCicrActivityMacro(code);
   return null;
 }
 

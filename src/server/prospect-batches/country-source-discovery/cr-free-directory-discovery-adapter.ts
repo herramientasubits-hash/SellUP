@@ -100,7 +100,9 @@ function toCompany(row: CrFreeDirectorySnapshotReadRow, macroIndustryKey: string
   if (legalName === null || !JURIDICAL_CEDULA.test(cedula)) return null;
   if (SMALL_MEIC_SIZES.has(row.meic_size?.trim().toUpperCase() ?? '')) return null;
   // La clasificación de HOY manda: la macro guardada al cargar sólo sirvió para filtrar.
-  if (resolveCrDirectoryMacro(row.directory_kind, row.activity_code) !== macroIndustryKey) return null;
+  // Los socios de CICR no traen código: se clasifican por la actividad que declaran.
+  const classifier = row.directory_kind === 'cicr_member' ? row.activity_text : row.activity_code;
+  if (resolveCrDirectoryMacro(row.directory_kind, classifier) !== macroIndustryKey) return null;
 
   return {
     recordIdentityKey: row.record_identity_key,
@@ -111,8 +113,8 @@ function toCompany(row: CrFreeDirectorySnapshotReadRow, macroIndustryKey: string
     countryCode: 'CR',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
-    // Sólo las entidades públicas traen web (ficha de MIDEPLAN). Sin web la empresa
-    // va a Descartadas y el rescate con Claude la busca.
+    // Traen web las entidades públicas (ficha de MIDEPLAN) y los socios de CICR. Sin
+    // web la empresa va a Descartadas y el rescate con Claude la busca.
     domain: normalizeDomain(row.website_domain),
     declaredIndustry: declaredIndustry(row),
     industryCode: row.activity_code?.trim() || null,

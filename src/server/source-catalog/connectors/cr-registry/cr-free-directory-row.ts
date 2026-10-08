@@ -15,8 +15,14 @@
  *     municipalidades, universidades públicas y empresas públicas; la web sale de
  *     la ficha de MIDEPLAN («Organización del Sector Público Costarricense»).
  *
+ *   - Socios de la Cámara de Industrias (CICR): la cédula sale del cruce por nombre
+ *     con el registro (`cr-cicr-members.ts`); la actividad es la que el socio
+ *     declara y se clasifica con la tabla de palabras clave de CICR (PROPUESTA
+ *     pendiente del visto bueno de la dueña); trae su web propia.
+ *
  * Una fila por cédula. Si una empresa está en varias fuentes manda la entidad
- * pública, después Zona Franca (declaró su actividad) y después SICOP.
+ * pública, después Zona Franca (declaró su actividad), después SICOP y por último
+ * CICR (su tabla es la única aún sin aprobar); la web de CICR se conserva.
  *
  * Quedan FUERA:
  *   - las que el MEIC registra como micro o pequeña (decisión de la dueña,
@@ -32,6 +38,7 @@ import {
   CR_FREE_DIRECTORY_MACRO_TABLE_VERSION,
   CR_PUBLIC_ENTITY_MACRO,
   resolveCrCaecrMacro,
+  resolveCrDirectoryMacro,
   resolveCrSicopSupplierMacro,
   type CrDirectoryKind,
 } from '@/server/prospect-batches/country-source-discovery/cr-free-directory-macro-table';
@@ -58,6 +65,9 @@ const SMALL_MEIC_SIZES: ReadonlySet<string> = new Set(['MICRO', 'PEQUEÑA', 'PEQ
 
 /** Relevancia de base de Zona Franca: van delante de las proveedoras de SICOP. */
 export const CR_ZONA_FRANCA_PRIORITY_BASE = 500_000;
+
+/** Relevancia de un socio de CICR: detrás de Zona Franca y de las grandes proveedoras de SICOP. */
+export const CR_CICR_PRIORITY_BASE = 200_000;
 
 /** Relevancia de base de una entidad pública. */
 export const CR_PUBLIC_ENTITY_PRIORITY_BASE = 500_000;
@@ -345,6 +355,55 @@ export function buildCrZonaFrancaRow(params: {
   };
 }
 
+/** Un socio de CICR que el registro cruzó con su cédula única. */
+export type CrCicrMemberInput = {
+  cedula: string;
+  activity: string | null | undefined;
+  /** Web propia del socio (dominio sin esquema). */
+  domain: string | null | undefined;
+};
+
+/** Fila de un socio de la Cámara de Industrias, o por qué no entra. */
+export function buildCrCicrMemberRow(params: {
+  member: CrCicrMemberInput;
+  registry: CrRegistryLookup;
+  sourceYear: number;
+  importedAt: string;
+}): { row: CrFreeDirectoryRow } | { excluded: CrFreeDirectoryExclusion } {
+  const cedula = normalizeCostaRicaCompanyCedula(params.member.cedula);
+  if (cedula === null) return { excluded: 'invalid_cedula' };
+  if (!PROSPECT_COMPANY_CEDULA.test(cedula)) return { excluded: 'not_prospect_company' };
+  const known = params.registry(cedula);
+  if (known === null || costaRicaNameCore(known.legalName).length < 2) return { excluded: 'no_name' };
+  if (isNumberedCompanyName(known.legalName)) return { excluded: 'numbered_name' };
+  const meicSize = known.meicSize?.trim().toUpperCase() ?? null;
+  if (meicSize !== null && SMALL_MEIC_SIZES.has(meicSize)) return { excluded: 'meic_small' };
+  const activity = cleanText(params.member.activity);
+  const kind: CrDirectoryKind = 'cicr_member';
+  const macro = resolveCrDirectoryMacro(kind, activity);
+  if (activity === null || macro === null) return { excluded: 'no_dominant_macro' };
+  const domain = costaRicaWebsiteDomain(params.member.domain ?? null);
+  return {
+    row: baseRow({
+      cedula,
+      legalName: known.legalName,
+      city: null,
+      region: null,
+      priority: CR_CICR_PRIORITY_BASE,
+      raw: {
+        directory_kind: kind,
+        macro_industry_key: macro,
+        activity_text: activity,
+        ...(domain ? { website_domain: domain } : {}),
+        ...(meicSize !== null ? { cr_meic_size: meicSize } : {}),
+        ...largeTaxpayerSizeBand(known.largeTaxpayer),
+      },
+      sourceYear: params.sourceYear,
+      importedAt: params.importedAt,
+    }),
+  };
+}
+
 /** Fila de una entidad pública, o por qué no entra. */
 export function buildCrPublicEntityRow(params: {
   entity: CrPublicEntity;
@@ -385,12 +444,23 @@ export function buildCrPublicEntityRow(params: {
  * SICOP (las demás fuentes de la misma cédula se descartan).
  */
 export function mergeCrFreeDirectoryRows(rows: readonly CrFreeDirectoryRow[]): CrFreeDirectoryRow[] {
-  const rank: Record<string, number> = { public_entity: 0, zona_franca: 1, sicop_supplier: 2 };
+  const rank: Record<string, number> = { public_entity: 0, zona_franca: 1, sicop_supplier: 2, cicr_member: 3 };
+  const rankOf = (row: CrFreeDirectoryRow) => rank[String(row.raw_data.directory_kind)] ?? 9;
   const byCedula = new Map<string, CrFreeDirectoryRow>();
+  const webByCedula = new Map<string, unknown>();
   for (const row of rows) {
     const current = byCedula.get(row.tax_id);
-    const r = rank[String(row.raw_data.directory_kind)] ?? 9;
-    if (current === undefined || r < (rank[String(current.raw_data.directory_kind)] ?? 9)) byCedula.set(row.tax_id, row);
+    if (current === undefined || rankOf(row) < rankOf(current)) byCedula.set(row.tax_id, row);
+    // La web de un socio de CICR se conserva aunque otra fuente decida la industria.
+    if (row.raw_data.directory_kind === 'cicr_member' && row.raw_data.website_domain) {
+      webByCedula.set(row.tax_id, row.raw_data.website_domain);
+    }
   }
-  return [...byCedula.values()].sort((a, b) => a.tax_id.localeCompare(b.tax_id));
+  return [...byCedula.values()]
+    .map((row) =>
+      !row.raw_data.website_domain && webByCedula.has(row.tax_id)
+        ? { ...row, raw_data: { ...row.raw_data, website_domain: webByCedula.get(row.tax_id) } }
+        : row,
+    )
+    .sort((a, b) => a.tax_id.localeCompare(b.tax_id));
 }

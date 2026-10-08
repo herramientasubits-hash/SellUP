@@ -21,6 +21,9 @@
  *   --sicop-suppliers=<jsonl> y --sicop-institutions=<jsonl>
  *                             salida de `extract-cr-sicop-suppliers.py`.
  *   --mideplan=<jsonl>        fichas de MIDEPLAN ({name, web}) para siglas y web.
+ *   --cicr=<jsonl>            socios de la Cámara de Industrias (`extract-cr-cicr-members.py`):
+ *                             su web pasa a alias `web:<dominio>` de la cédula que el
+ *                             registro conoce por nombre (SOURCES-CR-CICR-1).
  * (datos.go.cr exige un User-Agent de navegador para descargar y a veces da 522.)
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
@@ -51,6 +54,7 @@ import {
   type CrNamedCedula,
   type CrSourceRecords,
 } from '../../src/server/source-catalog/connectors/cr-registry/cr-company-registry-rows';
+import { matchCrCicrMembers, type CrCicrMember } from '../../src/server/source-catalog/connectors/cr-registry/cr-cicr-members';
 import {
   matchCrMideplanInstitutions,
   parseCrLargeTaxpayersListText,
@@ -58,6 +62,7 @@ import {
   type CrMideplanInstitution,
 } from '../../src/server/source-catalog/connectors/cr-registry/cr-official-lists';
 import {
+  buildCrCicrMemberRow,
   buildCrPublicEntityRow,
   buildCrSicopSupplierRow,
   buildCrZonaFrancaRow,
@@ -139,7 +144,20 @@ async function main(): Promise<void> {
   };
   const year = Number(value(argv, 'year') ?? new Date().getUTCFullYear());
   const importedAt = new Date().toISOString();
-  const { registry: allRegistry, aliases: allAliases } = buildCrCompanyRegistry(records, { sourceYear: year, importedAt });
+  const cicrMembers = readJsonl<CrCicrMember>(path('cicr'));
+  let built = buildCrCompanyRegistry(records, { sourceYear: year, importedAt });
+  let cicrReport: ReturnType<typeof matchCrCicrMembers>['report'] | null = null;
+  let cicrMatches: ReturnType<typeof matchCrCicrMembers>['matches'] = [];
+  if (cicrMembers.length > 0) {
+    // Las webs de MIDEPLAN mandan; CICR sólo completa las cédulas que no tienen web.
+    const cicr = matchCrCicrMembers(cicrMembers, built.registry);
+    cicrReport = cicr.report;
+    cicrMatches = cicr.matches;
+    const merged = new Map<string, string>(cicr.websitesByCedula);
+    for (const [cedula, web] of websitesByCedula) merged.set(cedula, web);
+    built = buildCrCompanyRegistry({ ...records, websitesByCedula: merged }, { sourceYear: year, importedAt });
+  }
+  const { registry: allRegistry, aliases: allAliases } = built;
   const registry = allRegistry.filter((row) => row.record_identity_key !== null);
   const aliases = allAliases.filter((row) => row.record_identity_key !== null);
 
@@ -211,6 +229,12 @@ async function main(): Promise<void> {
       'public',
     );
   }
+  for (const { cedula, member } of cicrMatches) {
+    take(
+      buildCrCicrMemberRow({ member: { cedula, activity: member.activity, domain: member.domain }, registry: lookup, sourceYear: year, importedAt }),
+      'cicr',
+    );
+  }
   const directory = mergeCrFreeDirectoryRows(directoryCandidates).filter((row) => row.record_identity_key !== null);
 
   // Informe.
@@ -222,6 +246,10 @@ async function main(): Promise<void> {
   );
   console.log(`  Registro: ${registry.length} cédulas — por origen ${JSON.stringify(countBy(registry, (r) => String(r.raw_data.origin)))}`);
   console.log(`  Registro: por prefijo ${JSON.stringify(countBy(registry, (r) => r.tax_id.slice(0, 1)))} · tramo MEIC ${JSON.stringify(countBy(registry, (r) => String(r.raw_data['cr_meic_size'] ?? '-')))}`);
+  if (cicrReport !== null) {
+    const webAliases = aliases.filter((a) => a.normalized_legal_name.startsWith('web:')).length;
+    console.log(`  CICR: ${cicrReport.matched}/${cicrReport.total} socios con cédula única · alias web en total ${webAliases} · exclusiones ${JSON.stringify(cicrReport.excluded)}`);
+  }
   console.log(`  Con nombre único: ${unique} (${((100 * unique) / Math.max(registry.length, 1)).toFixed(1)} %) · alias ${aliases.length}`);
   console.log(`  Directorio: ${directory.length} — por fuente ${JSON.stringify(countBy(directory, (r) => String(r.raw_data.directory_kind)))}`);
   console.log(`  Directorio por macro: ${JSON.stringify(countBy(directory, (r) => String(r.raw_data.macro_industry_key)))}`);
