@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildCrCompanyRegistry } from '../cr-company-registry-rows';
-import { matchCrCicrMembers, type CrCicrMember } from '../cr-cicr-members';
+import { buildCrCicrWebAliasRows, matchCrCicrMembers, type CrCicrMember } from '../cr-cicr-members';
 import {
   buildCrCicrMemberRow,
   buildCrSicopSupplierRow,
@@ -214,5 +214,37 @@ describe('directorio gratuito con socios de CICR', () => {
     assert.equal(consumer.companies[0]?.declaredIndustry, 'Industria alimentaria');
     const retail = await adapter({ countryCode: 'CR', macroIndustryKey: 'retail', limit: 10 } as never);
     assert.deepEqual(retail.companies, []);
+  });
+});
+
+describe('alias de web de CICR sobre filas ya cargadas', () => {
+  const rows = buildCrCompanyRegistry(
+    {
+      pymes: [
+        { NOMBRE: 'ALFA SOCIEDAD ANONIMA', IDENTIFICACION: '3101000001', TAMAÑO: 'Mediana', PROVINCIA: 'SAN JOSE', 'ACTIVIDAD CIIU': '2220' },
+        { NOMBRE: 'BETA SOCIEDAD ANONIMA', IDENTIFICACION: '3101000002', TAMAÑO: 'Mediana', PROVINCIA: 'SAN JOSE', 'ACTIVIDAD CIIU': '2220' },
+      ],
+    },
+    { sourceYear: 2026, importedAt: '2026-10-08T00:00:00.000Z' },
+  ).registry;
+
+  it('crea un alias por cédula con su web', () => {
+    const out = buildCrCicrWebAliasRows({ registry: rows, websitesByCedula: new Map([['3101000001', 'https://alfa.cr/']]) });
+    assert.deepEqual(out.map((a) => [a.tax_id, a.normalized_legal_name]), [['3101000001', 'web:alfa.cr']]);
+    assert.equal(out[0].source_key, 'cr_company_name_alias');
+    assert.ok(out[0].record_identity_key);
+  });
+
+  it('no asigna una web compartida por dos cédulas ni una que ya es de otra', () => {
+    const shared = new Map([
+      ['3101000001', 'https://grupo.cr/'],
+      ['3101000002', 'https://grupo.cr/'],
+    ]);
+    assert.deepEqual(buildCrCicrWebAliasRows({ registry: rows, websitesByCedula: shared }), []);
+    const taken = new Map([['web:alfa.cr', '3101000002']]);
+    assert.deepEqual(
+      buildCrCicrWebAliasRows({ registry: rows, websitesByCedula: new Map([['3101000001', 'https://alfa.cr/']]), takenWebKeys: taken }),
+      [],
+    );
   });
 });

@@ -17,6 +17,13 @@
  * sin web propia y los nombres que apuntan a más de una cédula.
  */
 
+import { buildRecordIdentityKey } from '../../record-identity';
+import {
+  CR_COMPANY_NAME_ALIAS_SOURCE_KEY,
+  CR_NAME_ALIAS_IDENTITY_NAMESPACE,
+  type CrCompanyNameAliasRow,
+  type CrCompanyRegistryRow,
+} from './cr-company-registry-rows';
 import { costaRicaCandidateNameVariants, endsWithCostaRicaLegalForm } from './cr-name-keys';
 import { costaRicaWebAliasKey } from './cr-domain';
 
@@ -105,4 +112,41 @@ export function matchCrCicrMembers(
   }
 
   return { websitesByCedula: webs, matches, report: { total: members.length, matched, excluded } };
+}
+
+/**
+ * Alias `web:<dominio>` de las cédulas que CICR cruzó, a partir de filas de registro
+ * ya cargadas. Una web que aparece en dos cédulas del lote no identifica a ninguna,
+ * y una web que ya es alias de OTRA cédula (`takenWebKeys`: clave → cédula) tampoco.
+ */
+export function buildCrCicrWebAliasRows(params: {
+  registry: readonly CrCompanyRegistryRow[];
+  websitesByCedula: ReadonlyMap<string, string>;
+  takenWebKeys?: ReadonlyMap<string, string>;
+}): CrCompanyNameAliasRow[] {
+  const byCedula = new Map(params.registry.map((row) => [row.tax_id, row]));
+  const cedulasByKey = new Map<string, string[]>();
+  for (const [cedula, url] of params.websitesByCedula) {
+    const key = costaRicaWebAliasKey(url);
+    if (key === null || !byCedula.has(cedula)) continue;
+    cedulasByKey.set(key, [...(cedulasByKey.get(key) ?? []), cedula]);
+  }
+
+  const aliases: CrCompanyNameAliasRow[] = [];
+  for (const [key, cedulas] of cedulasByKey) {
+    if (cedulas.length !== 1) continue;
+    const cedula = cedulas[0];
+    const owner = params.takenWebKeys?.get(key);
+    if (owner !== undefined && owner !== cedula) continue;
+    const row = byCedula.get(cedula)!;
+    const identity = buildRecordIdentityKey(CR_NAME_ALIAS_IDENTITY_NAMESPACE, `${cedula}:${key}`);
+    aliases.push({
+      ...row,
+      source_key: CR_COMPANY_NAME_ALIAS_SOURCE_KEY,
+      normalized_legal_name: key,
+      raw_data: { ...row.raw_data, alias_of: row.normalized_legal_name },
+      record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
+    });
+  }
+  return aliases.sort((a, b) => a.tax_id.localeCompare(b.tax_id));
 }
