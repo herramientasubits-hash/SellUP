@@ -5,6 +5,17 @@ import { redirect } from 'next/navigation';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
+import { revalidatePath } from 'next/cache';
+import {
+  partitionByCurrentOwner,
+  validateAssignmentRequest,
+  type AssignmentActionResult,
+} from '@/modules/assignment/assignment-core';
+import {
+  assignmentUserName,
+  loadActiveAssignmentUser,
+  notifyAssignment,
+} from '@/modules/assignment/assignment.server';
 import type {
   Account,
   AccountWithOwner,
@@ -533,6 +544,110 @@ export async function archiveAccounts(
   );
 
   return { success: true, archived: archivedIds.length };
+}
+
+// ============================================================
+// assignAccountsToUser — «Asignar a…» (BULK-COMPANY-ASSIGNMENT-1)
+// ============================================================
+
+/**
+ * Cambia el responsable de una o varias empresas. Decisión de la dueña 08-10:
+ * cualquier usuario activo puede asignar, a cualquier usuario activo. Con el
+ * alcance comercial encendido, solo se asigna lo que quien asigna puede ver.
+ * Cada empresa que cambia queda en auditoría y quien recibe tiene un aviso en la
+ * campanita. No escribe en HubSpot.
+ */
+export async function assignAccountsToUser(
+  accountIds: string[],
+  targetUserId: string,
+): Promise<AssignmentActionResult> {
+  const { internalUserId } = await requireActiveUser();
+
+  const request = validateAssignmentRequest({ ids: accountIds, targetUserId });
+  if (!request.ok) return { success: false, error: request.error };
+
+  const supabase = await createClient();
+  const [target, actor] = await Promise.all([
+    loadActiveAssignmentUser(supabase, request.targetUserId),
+    loadActiveAssignmentUser(supabase, internalUserId),
+  ]);
+  if (!target) return { success: false, error: 'La persona elegida no es un usuario activo.' };
+
+  const { data: rows, error: loadError } = await supabase
+    .from('accounts')
+    .select('id, name, owner_id, created_by')
+    .in('id', request.ids)
+    .is('archived_at', null);
+  if (loadError) return { success: false, error: loadError.message };
+
+  const scopeIds = await resolveAccountScopeIds();
+  const allowed = scopeIds === null ? null : new Set(scopeIds);
+  const visible = (rows ?? []).filter(
+    (row) =>
+      allowed === null ||
+      (row.owner_id != null && allowed.has(row.owner_id as string)) ||
+      (row.created_by != null && allowed.has(row.created_by as string)),
+  );
+
+  const { toChange, alreadyOwned } = partitionByCurrentOwner(
+    visible.map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      currentOwnerId: (row.owner_id as string | null) ?? null,
+    })),
+    target.id,
+  );
+
+  let changed: typeof toChange = [];
+  if (toChange.length > 0) {
+    const { data: updated, error: updateError } = await supabase
+      .from('accounts')
+      .update({ owner_id: target.id, updated_by: internalUserId })
+      .in('id', toChange.map((row) => row.id))
+      .is('archived_at', null)
+      .select('id');
+    if (updateError) return { success: false, error: updateError.message };
+
+    const updatedIds = new Set((updated ?? []).map((row) => row.id as string));
+    changed = toChange.filter((row) => updatedIds.has(row.id));
+
+    if (changed.length > 0) {
+      const { error: auditError } = await supabase.from('account_audit').insert(
+        changed.map((row) => ({
+          account_id: row.id,
+          actor_user_id: internalUserId,
+          action_type: 'account_owner_changed' as const,
+          details: {
+            from: row.currentOwnerId,
+            to: target.id,
+            via: 'assign_action',
+            selection_size: request.ids.length,
+          },
+        })),
+      );
+      if (auditError) {
+        console.error('[assignAccountsToUser] audit insert failed:', auditError.message);
+      }
+    }
+  }
+
+  await notifyAssignment({
+    kind: 'accounts',
+    actor,
+    target,
+    count: changed.length,
+    sampleNames: changed.map((row) => row.name),
+  });
+
+  revalidatePath('/accounts');
+
+  return {
+    success: true,
+    assigned: changed.length,
+    alreadyOwned: alreadyOwned.length,
+    skipped: request.ids.length - changed.length - alreadyOwned.length,
+    targetName: assignmentUserName(target),
+  };
 }
 
 // ============================================================

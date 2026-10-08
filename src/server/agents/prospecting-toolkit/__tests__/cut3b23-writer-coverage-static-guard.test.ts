@@ -379,12 +379,19 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // de BR, ni de CUT3B4, y no referencia `prospect_candidates`/`prospect_batches`; su autoría se
 // policía por CONTENIDO en la prueba dedicada de abajo, igual que la 140, la 141, la 142 y la 143.
 // AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '144_wizard_budget_concurrent_executions.sql';
+// 🔴 BULK-COMPANY-ASSIGNMENT-1 subió el techo a la 145: asignar prospectos por revisar a otra
+// persona (columnas NULAS `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
+// `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es de
+// teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no toca el registro de identidad del lote ni
+// la valla; su autoría se policía por CONTENIDO en la prueba dedicada de abajo, igual que la 140 a
+// la 144. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '145_prospect_candidate_assignment.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
 const RUN_PROGRESS_MIGRATION = '143_agent1_run_progress.sql';
 const CONCURRENT_EXECUTIONS_MIGRATION = '144_wizard_budget_concurrent_executions.sql';
+const CANDIDATE_ASSIGNMENT_MIGRATION = '145_prospect_candidate_assignment.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -536,6 +543,25 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     }
   });
 
+  it('la 145 existe, es de BULK-COMPANY-ASSIGNMENT-1 y NO de este corte', () => {
+    // BULK-COMPANY-ASSIGNMENT-1 tomó la 145 (asignar prospectos por revisar a otra persona:
+    // columnas nulas en `prospect_candidates` + `candidate_assigned` en el CHECK de su auditoría;
+    // ninguna fila de datos) de forma independiente. La afirmación de CUT-3B23 —«yo no aporto
+    // migración»— se conserva y se comprueba por AUTORÍA, exactamente como con la 140 a la 144:
+    // se exige que la 145 sea EXACTAMENTE la de la asignación y que no nombre ningún símbolo de
+    // B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('145')),
+      [CANDIDATE_ASSIGNMENT_MIGRATION],
+      'la 145 tiene que ser la de asignar prospectos a otra persona, y sólo ella',
+    );
+    const sql = executableSql(CANDIDATE_ASSIGNMENT_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 145 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
   it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
     // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE) de forma independiente,
     // mientras BR-SOURCE CUT A.1 seguía en revisión. La afirmación de CUT-3B23 —«yo no
@@ -584,7 +610,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 144 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 145 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -609,13 +635,16 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // policiada igual por AUTORÍA en su prueba dedicada.
     // AGENT1-PARALLEL-RUNS-PHASE2-1 lo movió a la 144 (varias ejecuciones activas por usuario en
     // la reserva del piloto), policiada igual por AUTORÍA en su prueba dedicada.
-    assert.ok(last.startsWith('144'), `última migración inesperada: ${last}`);
+    // BULK-COMPANY-ASSIGNMENT-1 lo movió a la 145 (asignar prospectos por revisar a otra
+    // persona), policiada igual por AUTORÍA en su prueba dedicada.
+    assert.ok(last.startsWith('145'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
     assert.ok(migrations.includes(COMPANY_BANK_MIGRATION));
     assert.ok(migrations.includes(RUN_PROGRESS_MIGRATION));
     assert.ok(migrations.includes(CONCURRENT_EXECUTIONS_MIGRATION));
+    assert.ok(migrations.includes(CANDIDATE_ASSIGNMENT_MIGRATION));
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));

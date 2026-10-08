@@ -313,8 +313,13 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // gratuita sigue sin necesitar esquema, que es lo único que esta guarda afirma. AUTORADA y NO
       // APLICADA.
       '144_wizard_budget_concurrent_executions.sql',
+      // BULK-COMPANY-ASSIGNMENT-1 reclamó la 145: asignar prospectos por revisar a otra persona
+      // (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
+      // `candidate_assigned` en el CHECK de su auditoría; ninguna fila de datos). No reserva nada y
+      // la capa gratuita sigue sin necesitar esquema. AUTORADA y NO APLICADA.
+      '145_prospect_candidate_assignment.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida y varias ejecuciones activas por usuario en la reserva del piloto',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto y la asignación de prospectos a otra persona',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

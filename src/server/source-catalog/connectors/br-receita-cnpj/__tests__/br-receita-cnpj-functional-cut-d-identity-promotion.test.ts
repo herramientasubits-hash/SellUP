@@ -1426,7 +1426,11 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // en la reserva del piloto (índice no único + paso 9 de `try_reserve_wizard_credits` que lee
     // `max_active_executions_per_user`; ninguna fila de datos). No es de teléfono, ni del catálogo,
     // ni de BR, ni de CUT3B4: tampoco es autoría de BR-SOURCE ni de CUT D. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '144_wizard_budget_concurrent_executions.sql');
+    // BULK-COMPANY-ASSIGNMENT-1 mueve el techo a la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
+    // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
+    // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '145_prospect_candidate_assignment.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

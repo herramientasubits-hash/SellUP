@@ -1009,9 +1009,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 144 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 145 o superior, se llame como se llame.
+    // 🔴 BULK-COMPANY-ASSIGNMENT-1 reclamó después la 145: asignar prospectos por revisar a otra
+    // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
+    // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No
+    // es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con
+    // la 137–144. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^145_/.test(f)),
+      ['145_prospect_candidate_assignment.sql'],
+      'la 145 tiene que ser la de asignar prospectos a otra persona, y sólo ella',
+    );
+    const candidateAssignment = read('supabase/migrations/145_prospect_candidate_assignment.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        candidateAssignment.includes(foreign),
+        false,
+        `la 145 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 146 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[5-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[6-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });
