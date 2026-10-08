@@ -156,6 +156,7 @@ import {
   readApolloBankEvidence,
   type DrawnBankCompany,
 } from '@/server/prospect-batches/company-bank/apollo-company-bank-bridge';
+import { readBankPipelineCandidate } from '@/server/prospect-batches/company-bank/pipeline-candidate-bank-payload';
 import {
   resolveApolloCompanyBankPort,
   type ApolloCompanyBankPort,
@@ -1302,7 +1303,15 @@ export async function runApolloTwoRoundWizardDiscovery(
       const evidence = readApolloBankEvidence(company);
       const domain = evidence?.domain ? normalizeDomain(evidence.domain) : null;
       if (!evidence || !domain) {
-        bankDraw.unreadable.push({ id: company.id, outcome: 'invalidated', reason: 'unreadable_payload' });
+        // AGENT1-COMPANY-BANK-RELEASE-FOREIGN-1 — una empresa COMPLETA guardada por
+        // otro camino (Tavily, Claude) no trae evidencia de Apollo, pero no es
+        // ilegible: la saca el banco-primero de otra corrida. Se devuelve al banco.
+        // Prod 08-10 (SV×Tecnología): 75 empresas de Tavily invalidadas así.
+        bankDraw.unreadable.push(
+          readBankPipelineCandidate(company.payload) !== null
+            ? { id: company.id, outcome: 'released' }
+            : { id: company.id, outcome: 'invalidated', reason: 'unreadable_payload' },
+        );
         continue;
       }
       const organization = toRawDiscoveredOrganization(
@@ -3503,7 +3512,9 @@ export async function runApolloTwoRoundWizardDiscovery(
               company_bank: {
                 drawn: bankDraw.drawn.length + bankDraw.unreadable.length,
                 reinjected: bankDraw.drawn.length,
-                unreadable: bankDraw.unreadable.length,
+                unreadable: bankDraw.unreadable.filter((item) => item.outcome === 'invalidated').length,
+                // AGENT1-COMPANY-BANK-RELEASE-FOREIGN-1 — de otro camino, devueltas al banco.
+                released_foreign: bankDraw.unreadable.filter((item) => item.outcome === 'released').length,
               },
             }
           : {}),

@@ -661,6 +661,58 @@ export function aggregateSvComprasalSuppliers(awards: readonly SvComprasalAward[
     .sort((x, y) => x.supplierId - y.supplierId);
 }
 
+/** Web de una empresa del directorio, comprobada con su propia página. */
+export type SvCompanyWeb = { domain: string; check: 'page_names_company' | 'blocked_exact_name' };
+
+/** Una línea del mapa de webs (`discover-sv-company-webs.mts`), o `null`. */
+export function parseSvCompanyWebLine(raw: unknown): { nit: string; web: SvCompanyWeb } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const nit = normalizeSalvadoranNit(typeof r['nit'] === 'string' ? r['nit'] : null);
+  const domain = typeof r['domain'] === 'string' ? r['domain'].trim().toLowerCase() : '';
+  const check = r['check'];
+  if (nit === null || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
+  if (check !== 'page_names_company' && check !== 'blocked_exact_name') return null;
+  return { nit, web: { domain, check } };
+}
+
+/**
+ * La capa gratuita de empresas completa: una fila por NIT, la de más relevancia
+ * primero. Es lo MISMO que carga el ETL y lo que recorre el buscador de webs.
+ */
+export function buildSvComprasalDirectoryRows(params: {
+  suppliers: readonly SvComprasalSupplier[];
+  registryRows: readonly SvSnapshotRow[];
+  aliasRows: readonly SvSnapshotRow[];
+  importedAt: string;
+  webByNit?: ReadonlyMap<string, SvCompanyWeb>;
+}): { rows: SvSnapshotRow[]; excluded: Map<SvDirectoryExclusion, number>; supplierByNit: Map<string, SvComprasalSupplier> } {
+  const nitByKey = svUniqueNitByKey(params.registryRows, params.aliasRows);
+  const registryByNit = new Map(params.registryRows.map((row) => [row.tax_id!, row]));
+  const cores = new Map<string, number>();
+  for (const row of params.registryRows) cores.set(row.normalized_legal_name, (cores.get(row.normalized_legal_name) ?? 0) + 1);
+  const ambiguousKeys = new Set([...cores].filter(([, n]) => n > 1).map(([core]) => core));
+  const rows: SvSnapshotRow[] = [];
+  const excluded = new Map<SvDirectoryExclusion, number>();
+  const supplierByNit = new Map<string, SvComprasalSupplier>();
+  for (const supplier of params.suppliers) {
+    const result = buildSvComprasalDirectoryRow(supplier, {
+      importedAt: params.importedAt,
+      nitByKey,
+      registryByNit,
+      ambiguousKeys,
+      webByNit: params.webByNit,
+    });
+    if ('excluded' in result) excluded.set(result.excluded, (excluded.get(result.excluded) ?? 0) + 1);
+    else if (result.row.record_identity_key !== null && !supplierByNit.has(result.row.tax_id!)) {
+      supplierByNit.set(result.row.tax_id!, supplier);
+      rows.push(result.row);
+    }
+  }
+  rows.sort((a, b) => b.priority_score - a.priority_score || (a.tax_id ?? '').localeCompare(b.tax_id ?? ''));
+  return { rows, excluded, supplierByNit };
+}
+
 /** Por qué una proveedora no entra en la capa gratuita. */
 export type SvDirectoryExclusion =
   | 'natural_person'
@@ -691,6 +743,11 @@ export function buildSvComprasalDirectoryRow(
     nitByKey: ReadonlyMap<string, string>;
     registryByNit: ReadonlyMap<string, SvSnapshotRow>;
     ambiguousKeys: ReadonlySet<string>;
+    /**
+     * SOURCES-SV-COMPANY-WEB-1 — web por NIT encontrada desde el nombre y comprobada
+     * con su propia página (`sv-company-web.ts`).
+     */
+    webByNit?: ReadonlyMap<string, SvCompanyWeb>;
   },
 ): { row: SvSnapshotRow } | { excluded: SvDirectoryExclusion } {
   const names = Object.keys(supplier.names);
@@ -741,6 +798,9 @@ export function buildSvComprasalDirectoryRow(
         ...(tradeCore.length >= 3 && tradeCore !== registry.normalized_legal_name ? { trade_name: tradeName } : {}),
         ...(registry.raw_data['taxpayer_category'] !== undefined
           ? { taxpayer_category: registry.raw_data['taxpayer_category'], metrics_year: registry.raw_data['metrics_year'] }
+          : {}),
+        ...(params.webByNit?.get(nit)
+          ? { website_domain: params.webByNit.get(nit)!.domain, website_origin: 'name_domain_verified', website_check: params.webByNit.get(nit)!.check }
           : {}),
       },
       imported_at: params.importedAt,

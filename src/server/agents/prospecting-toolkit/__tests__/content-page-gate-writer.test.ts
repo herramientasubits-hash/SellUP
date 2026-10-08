@@ -401,3 +401,33 @@ describe('Fixture D — Skipped counts reflect precision_gate counters', () => {
     assert.equal(result.candidatesCreated, 0, 'dryRun must not persist anything');
   });
 });
+
+// AGENT1-TAVILY-ARTICLE-PAGE-1 — Prod 08-10 (SV×Tecnología): una nota de diario
+// sobre «siete empresas de IA» entró como candidata «Diario.elmundo».
+describe('Fixture E — artículo sobre empresas: el writer lo omite como content_page', () => {
+  it('nota de diario con título largo en la dirección y sin la marca del sitio en el título', async () => {
+    const article = makeCandidate({
+      name: 'Diario.elmundo',
+      domain: 'diario.elmundo.sv',
+      website: 'https://diario.elmundo.sv',
+      sourceUrl: 'https://diario.elmundo.sv/economia/el-salvador-tiene-siete-empresas-dedicadas-a-la-inteligencia-artificial',
+      sourceTitle: 'El Salvador tiene siete empresas dedicadas a la inteligencia ...',
+    });
+    const company = makeCandidate({ name: 'STB Group', domain: 'stbgroup.com.sv', website: 'https://stbgroup.com.sv', sourceUrl: 'https://stbgroup.com.sv', sourceTitle: 'STB Group' });
+    const result = await writeProspectingCandidates(
+      {
+        pipelineOutput: makePipelineOutput([article, company]),
+        triggeredByUserId: null,
+        ownerId: null,
+        batchName: null,
+        source: 'agent_1',
+        dryRun: false,
+        extraBatchMetadata: null,
+      },
+      makeFakeAdminClient(),
+    );
+    const skippedNames = result.skipped.filter((s) => s.reason === 'content_page').map((s) => s.name);
+    assert.deepEqual(skippedNames, ['Diario.elmundo']);
+  });
+});
+

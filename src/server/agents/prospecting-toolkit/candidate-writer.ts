@@ -22,6 +22,7 @@ import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
 // ranking, la dedupe intra-lote y el orden del cupo viven fuera de este archivo
 // para que el evaluador PRE-writer invoque LAS MISMAS funciones, no una copia.
 import {
+  isArticleAboutCompaniesPage,
   isContentPageUrl,
   isContentPageName,
   isDirectorySourceDomain,
@@ -1758,7 +1759,13 @@ export async function writeProspectingCandidates(
 
     // ── Content-page gate (Hito 16AB.43.28) ──────────────────────────────────
     // Bloquea páginas de contenido/artículo/caso de éxito que no son empresas.
-    if (isContentPageUrl(candidate.website) || isContentPageName(candidate.name)) {
+    // AGENT1-TAVILY-ARTICLE-PAGE-1 — o la página de la que salió es un artículo
+    // SOBRE empresas (nota de diario, publicación, página de un directorio).
+    if (
+      isContentPageUrl(candidate.website) ||
+      isContentPageName(candidate.name) ||
+      isArticleAboutCompaniesPage(candidate.sourceUrl, candidate.sourceTitle)
+    ) {
       skipped.push({ name: candidate.name, reason: 'content_page', searchTrace: candidate.searchTrace ?? undefined });
       precisionGate.contentPageCount++;
       captureOmittedSample(candidate, effectiveDomain, 'content_page', 'content_page');
