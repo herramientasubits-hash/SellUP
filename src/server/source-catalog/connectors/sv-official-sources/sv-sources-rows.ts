@@ -34,6 +34,11 @@ import {
   SV_COMPRASAL_MACRO_TABLE_VERSION,
   SV_PUBLIC_ENTITY_MACRO,
 } from '@/server/prospect-batches/country-source-discovery/sv-comprasal-macro-table';
+import {
+  resolveSvLargeTaxpayerMacro,
+  resolveSvLargeTaxpayerWebsite,
+  SV_LARGE_TAXPAYER_MACRO_TABLE_VERSION,
+} from '@/server/prospect-batches/country-source-discovery/sv-large-taxpayer-macro-table';
 import { normalizeSalvadoranNit } from './sv-nit';
 import {
   classifySalvadorTaxpayerName,
@@ -48,6 +53,8 @@ export const SV_NIT_REGISTRY_SOURCE_KEY = 'sv_nit_registry' as const;
 export const SV_NIT_NAME_ALIAS_SOURCE_KEY = 'sv_nit_name_alias' as const;
 export const SV_PUBLIC_ENTITIES_SOURCE_KEY = 'sv_public_entities' as const;
 export const SV_COMPRASAL_DIRECTORY_SOURCE_KEY = 'sv_comprasal_directory' as const;
+/** SOURCES-SV-LARGE-TAXPAYERS-1 — Grandes Contribuyentes que no venden al Estado. */
+export const SV_LARGE_TAXPAYER_DIRECTORY_SOURCE_KEY = 'sv_large_taxpayer_directory' as const;
 
 /** Espacio de nombres de la identidad de un alias (`sv-name-alias:<NIT>:<clave>`). */
 export const SV_NAME_ALIAS_IDENTITY_NAMESPACE = 'sv-name-alias' as const;
@@ -802,6 +809,48 @@ export function buildSvComprasalDirectoryRow(
         ...(params.webByNit?.get(nit)
           ? { website_domain: params.webByNit.get(nit)!.domain, website_origin: 'name_domain_verified', website_check: params.webByNit.get(nit)!.check }
           : {}),
+      },
+      imported_at: params.importedAt,
+      record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
+    },
+  };
+}
+
+// ─── sv_large_taxpayer_directory ──────────────────────────────────────────
+
+/**
+ * Fila de la capa gratuita de un Gran Contribuyente (DGII 2019) que no vende al
+ * Estado, con la macro y la web de la tabla por NIT (`sv-large-taxpayer-macro-table.ts`,
+ * revisada por la dueña), o `no_macro` si la tabla no lo clasifica. Va detrás de las
+ * proveedoras de COMPRASAL de la misma macro (que traen lo que venden de verdad).
+ */
+export function buildSvLargeTaxpayerDirectoryRow(
+  registryRow: SvSnapshotRow,
+  params: { importedAt: string },
+): { row: SvSnapshotRow } | { excluded: 'no_macro' | 'no_nit' } {
+  const nit = normalizeSalvadoranNit(registryRow.tax_id);
+  if (nit === null) return { excluded: 'no_nit' };
+  const macro = resolveSvLargeTaxpayerMacro(nit);
+  if (macro === null) return { excluded: 'no_macro' };
+  const website = resolveSvLargeTaxpayerWebsite(nit);
+  const identity = deriveTaxRecordIdentity(nit);
+  return {
+    row: {
+      ...registryRow,
+      source_key: SV_LARGE_TAXPAYER_DIRECTORY_SOURCE_KEY,
+      tax_id: nit,
+      normalized_tax_id: nit,
+      priority_score: website !== null ? 1 : 0,
+      raw_data: {
+        directory_kind: 'large_taxpayer',
+        macro_industry_key: macro,
+        macro_table_version: SV_LARGE_TAXPAYER_MACRO_TABLE_VERSION,
+        activity_code: nit,
+        tax_identifier_type: 'NIT',
+        ...(registryRow.raw_data['taxpayer_category'] !== undefined
+          ? { taxpayer_category: registryRow.raw_data['taxpayer_category'], metrics_year: registryRow.raw_data['metrics_year'] }
+          : {}),
+        ...(website !== null ? { website_domain: website, website_origin: 'name_domain_verified' } : {}),
       },
       imported_at: params.importedAt,
       record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,

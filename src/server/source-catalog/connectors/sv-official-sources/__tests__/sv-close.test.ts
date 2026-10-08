@@ -486,7 +486,9 @@ describe('tabla de palabras de COMPRASAL (aprobada el 07-10-2026)', () => {
     assert.equal(isSvComprasalRelevant({ awardedUsd: 50_000, lastYear: 2025 }), true);
     assert.equal(isSvComprasalRelevant({ awardedUsd: 49_999, lastYear: 2026 }), false);
     assert.equal(macroHasSvCoverage('government'), true);
-    assert.equal(macroHasSvCoverage('retail'), false);
+    // SOURCES-SV-LARGE-TAXPAYERS-1: Retail ya tiene cobertura (Grandes Contribuyentes).
+    assert.equal(macroHasSvCoverage('retail'), true);
+    assert.equal(macroHasSvCoverage('no_such_macro'), false);
     assert.equal(resolveSvDirectoryMacro('comprasal_supplier', 'medicamentos'), 'health_pharma');
     assert.equal(resolveSvDirectoryMacro('public_entity', null), 'government');
   });

@@ -28,6 +28,7 @@
  */
 
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
+import { macroHasSvLargeTaxpayerCoverage, resolveSvLargeTaxpayerMacro } from './sv-large-taxpayer-macro-table';
 
 /** Versión de la tabla de palabras de COMPRASAL. */
 export const SV_COMPRASAL_MACRO_TABLE_VERSION = 'sv-comprasal-proceso-palabras-macro-v1' as const;
@@ -174,19 +175,25 @@ export function resolveSvComprasalSupplierMacro(
 }
 
 /** Por qué tabla se clasificó la fila. */
-export type SvDirectoryKind = 'comprasal_supplier' | 'public_entity';
+export type SvDirectoryKind = 'comprasal_supplier' | 'large_taxpayer' | 'public_entity';
 
 /** Macro de una fila del directorio según su tipo y su regla, o `null`. */
 export function resolveSvDirectoryMacro(kind: string | null | undefined, ruleKey: string | null | undefined): MacroIndustryKey | null {
   if (kind === 'public_entity') return SV_PUBLIC_ENTITY_MACRO;
   if (kind === 'comprasal_supplier') return resolveSvProcessRuleMacro(ruleKey);
+  // SOURCES-SV-LARGE-TAXPAYERS-1 — el «código» de un Gran Contribuyente es su NIT.
+  if (kind === 'large_taxpayer') return resolveSvLargeTaxpayerMacro(ruleKey);
   return null;
 }
 
 /** ¿Tiene esta macro alguna fuente salvadoreña clasificada? */
 export function macroHasSvCoverage(macroIndustryKey: string | null | undefined): boolean {
   if (typeof macroIndustryKey !== 'string') return false;
-  return macroIndustryKey === SV_PUBLIC_ENTITY_MACRO || SV_PROCESS_RULES.some((rule) => rule.macro === macroIndustryKey);
+  return (
+    macroIndustryKey === SV_PUBLIC_ENTITY_MACRO ||
+    SV_PROCESS_RULES.some((rule) => rule.macro === macroIndustryKey) ||
+    macroHasSvLargeTaxpayerCoverage(macroIndustryKey)
+  );
 }
 
 /** ¿Es la empresa lo bastante relevante para la capa gratuita? */
