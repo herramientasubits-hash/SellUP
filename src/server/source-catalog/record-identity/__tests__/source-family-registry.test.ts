@@ -54,6 +54,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   // SOURCES-SV-CLOSE-1
   'sv_nit_registry',
   'sv_comprasal_directory',
+  'sv_large_taxpayer_directory',
   'cr_company_registry',
   // SOURCES-CR-CLOSE-1
   'cr_free_directory',

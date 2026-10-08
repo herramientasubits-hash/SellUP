@@ -85,6 +85,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // COMPRASAL empatadas a UN NIT del registro).
   sv_nit_registry: 'TAX_GRAIN',
   sv_comprasal_directory: 'TAX_GRAIN',
+  // SOURCES-SV-LARGE-TAXPAYERS-1 — un NIT, una fila (Grandes Contribuyentes sin COMPRASAL).
+  sv_large_taxpayer_directory: 'TAX_GRAIN',
   // SOURCES-CR-CEDULA-BY-NAME-1 — una cédula jurídica, una fila (PYMES MEIC + proveedores SICOP con nombre).
   cr_company_registry: 'TAX_GRAIN',
   // SOURCES-CR-CLOSE-1 — una cédula, una fila (proveedoras SICOP, Zona Franca, entidades públicas).

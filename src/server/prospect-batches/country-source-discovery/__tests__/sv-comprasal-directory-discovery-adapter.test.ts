@@ -102,7 +102,7 @@ describe('descubrimiento gratuito de El Salvador', () => {
 
   it('una macro sin cobertura no consulta; el tope es 200', async () => {
     const calls: string[] = [];
-    const empty = await adapterOver([row()], calls)(criteria('retail'));
+    const empty = await adapterOver([row()], calls)(criteria('no_such_macro'));
     assert.equal(empty.companies.length, 0);
     assert.deepEqual(calls, []);
     await adapterOver([row()], calls)(criteria('health_pharma', 10_000));
@@ -119,11 +119,12 @@ describe('capacidad por país', () => {
     assert.equal(resolveCountrySourceCapability('PA')?.sourceKey, 'pa_free_directory_discovery');
   });
 
-  it('cobertura: palabras del proceso y Gobierno; sin regla de comercio, no hay Retail', () => {
+  it('cobertura: palabras del proceso, Grandes Contribuyentes (también Retail) y Gobierno', () => {
     for (const macro of ['government', 'technology', 'property_construction', 'health_pharma', 'energy_mining_environment']) {
       assert.equal(countrySourceMacroHasCoverage('SV', macro), true, macro);
     }
-    assert.equal(countrySourceMacroHasCoverage('SV', 'retail'), false);
+    assert.equal(countrySourceMacroHasCoverage('SV', 'retail'), true);
+    assert.equal(countrySourceMacroHasCoverage('SV', 'no_such_macro'), false);
   });
 
   it('sin lectura inyectada no hay adapter (fail-open hacia el pago)', () => {

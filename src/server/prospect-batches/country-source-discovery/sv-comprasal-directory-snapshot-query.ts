@@ -18,6 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   SV_COMPRASAL_DIRECTORY_SOURCE_KEY,
+  SV_LARGE_TAXPAYER_DIRECTORY_SOURCE_KEY,
   SV_PUBLIC_ENTITIES_SOURCE_KEY,
 } from '@/server/source-catalog/connectors/sv-official-sources/sv-sources-rows';
 import type {
@@ -74,7 +75,7 @@ export function buildSvComprasalDirectoryDiscoveryReads(client: SupabaseClient):
         const { data, error } = await client
           .from('source_company_snapshots')
           .select(SELECTED_COLUMNS)
-          .in('source_key', [SV_COMPRASAL_DIRECTORY_SOURCE_KEY, SV_PUBLIC_ENTITIES_SOURCE_KEY])
+          .in('source_key', [SV_COMPRASAL_DIRECTORY_SOURCE_KEY, SV_LARGE_TAXPAYER_DIRECTORY_SOURCE_KEY, SV_PUBLIC_ENTITIES_SOURCE_KEY])
           .eq('country_code', 'SV')
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })
