@@ -16,6 +16,7 @@ import type {
   GuatemalaNameQuery,
   GuatemalaNameRow,
 } from '@/server/agents/prospect-intake/resolvers/guatemala-official-source-resolver';
+import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
 import {
   GT_NIT_NAME_ALIAS_SOURCE_KEY,
   GT_NIT_REGISTRY_SOURCE_KEY,
@@ -23,6 +24,12 @@ import {
 
 /** Tope de filas por consulta (homónimos, más los alias de cada uno). */
 export const GUATEMALA_NAME_QUERY_LIMIT = 20;
+
+/** Procedencia del tramo «grande» (listado de agentes de retención del IVA de la SAT). */
+export const GT_IVA_AGENT_SIZE_SOURCE = 'gt_sat_iva_agent' as const;
+
+/** Año del listado de la SAT cargado (01-04-2026) si la fila no trae su fecha. */
+const GT_IVA_AGENT_LIST_YEAR = 2026;
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
@@ -36,7 +43,7 @@ export function buildGuatemalaSnapshotNameQuery(client: SupabaseClient): Guatema
     try {
       const { data, error } = await client
         .from('source_company_snapshots')
-        .select('source_key, normalized_tax_id, legal_name, normalized_legal_name')
+        .select('source_key, normalized_tax_id, legal_name, normalized_legal_name, raw_data')
         .in('source_key', [GT_NIT_REGISTRY_SOURCE_KEY, GT_NIT_NAME_ALIAS_SOURCE_KEY])
         .eq('country_code', 'GT')
         .eq('normalized_legal_name', key)
@@ -47,6 +54,7 @@ export function buildGuatemalaSnapshotNameQuery(client: SupabaseClient): Guatema
           taxId: text(row['normalized_tax_id']),
           legalName: text(row['legal_name']),
           normalizedLegalName: text(row['normalized_legal_name']),
+          workforce: workforceFromRawData(row['raw_data'], GT_IVA_AGENT_SIZE_SOURCE, GT_IVA_AGENT_LIST_YEAR),
           alias: row['source_key'] === GT_NIT_NAME_ALIAS_SOURCE_KEY,
         }),
       );

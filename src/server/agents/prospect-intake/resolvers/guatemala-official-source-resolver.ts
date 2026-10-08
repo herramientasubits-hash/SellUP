@@ -39,6 +39,7 @@ import type {
   OfficialSourceEnrichmentResult,
   OfficialSourceResolver,
   OfficialSourceResolverInput,
+  OfficialWorkforce,
 } from '../source-enrichment';
 import {
   SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
@@ -50,6 +51,8 @@ export interface GuatemalaNameRow {
   taxId: string | null;
   legalName: string | null;
   normalizedLegalName: string | null;
+  /** Tramo «grande» si el NIT es agente de retención del IVA de la SAT. */
+  workforce?: OfficialWorkforce | null;
   /** `true` si la fila es un alias (`gt_nit_name_alias`). */
   alias?: boolean;
 }
@@ -77,17 +80,18 @@ async function pickFirstVariantWithRows(
   return null;
 }
 
-/** Un NIT, una fila: la razón social del registro (no la del alias). */
+/** Un NIT, una fila: la razón social del registro (no la del alias) y su tramo. */
 function distinctByNit(rows: readonly GuatemalaNameRow[]): GuatemalaNameRow[] {
   const groups = new Map<string, GuatemalaNameRow[]>();
   for (const row of rows) {
     const nit = canonicalGuatemalaNit(row.taxId)!;
     groups.set(nit, [...(groups.get(nit) ?? []), row]);
   }
-  return [...groups.entries()].map(([taxId, group]) => ({
-    ...(group.find((row) => row.alias !== true) ?? group[0]),
-    taxId,
-  }));
+  return [...groups.entries()].map(([taxId, group]) => {
+    const shown = group.find((row) => row.alias !== true) ?? group[0];
+    const workforce = group.find((row) => row.workforce)?.workforce ?? null;
+    return { ...shown, taxId, workforce };
+  });
 }
 
 /** Construye el resolvedor de NIT por nombre de Guatemala. */
@@ -182,6 +186,7 @@ export function createGuatemalaOfficialSourceResolver(
         status: 'matched',
         confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
         safeMetadata: domainConfirms ? { ...metadata, singleWordConfirmedByDomain: true } : metadata,
+        ...(best.workforce ? { workforce: { ...best.workforce } } : {}),
       };
     },
   };
