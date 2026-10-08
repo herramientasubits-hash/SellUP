@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { EllipsisTooltip } from "@/components/ui/ellipsis-tooltip";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -11,7 +12,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <TooltipProvider>{children}</TooltipProvider>
+      <TooltipProvider>
+        {children}
+        <EllipsisTooltip />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }

@@ -48,6 +48,7 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   // SOURCES-SV-CLOSE-1
   { key: 'sv_nit_registry', country: 'SV', status: 'connected_identity_in_run' },
   { key: 'sv_comprasal_directory', country: 'SV', status: 'connected_free_discovery' },
+  { key: 'sv_large_taxpayer_directory', country: 'SV', status: 'connected_free_discovery' },
   { key: 'sv_public_entities', country: 'SV', status: 'connected_free_discovery' },
 ];
 
