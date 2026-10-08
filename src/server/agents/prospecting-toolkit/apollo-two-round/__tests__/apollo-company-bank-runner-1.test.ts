@@ -461,6 +461,31 @@ describe('AGENT1-COMPANY-BANK — la corrida de Apollo usa el banco', () => {
     ]);
   });
 
+  // AGENT1-COMPANY-BANK-RELEASE-FOREIGN-1 — Prod 08-10 (SV×Tecnología, lote
+  // 6ff3a1b5): Tavily guardó 16 empresas en el banco y, segundos después, la ronda 1
+  // de Apollo sacó 10 y las INVALIDÓ por «ilegibles» (75 en todo Prod). Una empresa
+  // completa de otro proveedor no es ilegible: Apollo no la usa y la devuelve.
+  test('una empresa completa de Tavily sin evidencia de Apollo vuelve al banco (no se invalida)', async () => {
+    const fresh = ambiguousCompany({ id: 'org-fresh-1', name: 'Fresca SAS', domain: 'fresca.com.co' });
+    const fromTavily: CompanyBankDrawnCompany = {
+      ...bankRow('bank-t', fresh),
+      sourceProvider: 'tavily',
+      payload: {
+        kind: 'pipeline_candidate_v1',
+        candidate: { name: 'Halaxia', domain: 'halaxia.com', countryCode: 'SV' },
+        requestedSubindustries: [],
+      },
+    };
+    const bank = fakeBank({ drawn: [fromTavily] });
+    const { deps, recorder } = buildDeps({
+      rounds: [searchOutput([fresh]), searchOutput([])],
+      enrichmentConfirms: ['fresca.com.co'],
+    });
+    await runApolloTwoRoundWizardDiscovery(runInput(RETAIL), { ...deps, companyBank: bank.port });
+    assert.deepEqual(recorder.persistedCandidateNames, ['Fresca SAS']);
+    assert.deepEqual(bank.recorder.settles[0]?.outcomes, [{ id: 'bank-t', outcome: 'released' }]);
+  });
+
   test('sin macro industria reconocible no se toca el banco', async () => {
     const fresh = ambiguousCompany({ id: 'org-fresh-1', name: 'Fresca SAS', domain: 'fresca.com.co' });
     const bank = fakeBank({});
