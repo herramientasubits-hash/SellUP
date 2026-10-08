@@ -4,6 +4,7 @@ import {
   ACCOUNTS_EMPRESAS_ROUTE,
   CONTACTS_APPROVED_ROUTE,
   CONTACTS_CANDIDATES_ROUTE,
+  CONTACTS_REJECTED_ROUTE,
   PROSPECTOS_DISCARDED_TAB_ROUTE,
   PROSPECTOS_TAB_ROUTE,
   getVisibleNavItems,
@@ -49,6 +50,7 @@ const MODULE_VIEWS: Readonly<Record<string, readonly SidebarNavChild[]>> = {
   "/contacts": [
     { id: "contacts-contactos", label: "Contactos", href: CONTACTS_APPROVED_ROUTE },
     { id: "contacts-por-revisar", label: "Por revisar", href: CONTACTS_CANDIDATES_ROUTE },
+    { id: "contacts-rechazados", label: "Contactos rechazados", href: CONTACTS_REJECTED_ROUTE },
   ],
 };
 

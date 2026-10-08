@@ -58,6 +58,7 @@ import { buildCrFreeDirectoryDiscoveryReads } from './cr-free-directory-snapshot
 import { buildHnHonducomprasDirectoryDiscoveryReads } from './hn-honducompras-directory-snapshot-query';
 import { buildPaFreeDirectoryDiscoveryReads } from './pa-free-directory-snapshot-query';
 import { buildNiFreeDirectoryDiscoveryReads } from './ni-free-directory-snapshot-query';
+import { buildSvComprasalDirectoryDiscoveryReads } from './sv-comprasal-directory-snapshot-query';
 import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
@@ -233,6 +234,7 @@ export async function runProductionPrePaidNoveltyGate(
           hnHonducomprasDirectoryDiscoveryReads: buildHnHonducomprasDirectoryDiscoveryReads(adminClient),
           paFreeDirectoryDiscoveryReads: buildPaFreeDirectoryDiscoveryReads(adminClient),
           niFreeDirectoryDiscoveryReads: buildNiFreeDirectoryDiscoveryReads(adminClient),
+          svComprasalDirectoryDiscoveryReads: buildSvComprasalDirectoryDiscoveryReads(adminClient),
           // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — DENUE en vivo (gratuito); la clave sale
           // de la bóveda de secretos y sólo se pide si la corrida es de México.
           mxDenueDiscoveryReads: buildMxDenueLiveReads({

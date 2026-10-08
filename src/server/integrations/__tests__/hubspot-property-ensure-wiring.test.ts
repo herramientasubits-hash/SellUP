@@ -154,6 +154,7 @@ describe('createHubSpotContact / createHubSpotCompany — cablean sellup_created
       jobtitle: null,
       phone: null,
       mobilePhone: null,
+      linkedinUrl: null,
     });
 
     assert.ok('id' in result, `expected success, got ${JSON.stringify(result)}`);
@@ -179,6 +180,7 @@ describe('createHubSpotContact / createHubSpotCompany — cablean sellup_created
       jobtitle: null,
       phone: null,
       mobilePhone: null,
+      linkedinUrl: null,
     });
 
     assert.ok('id' in result, `un ensure fallido NUNCA debe bloquear la creación, got ${JSON.stringify(result)}`);

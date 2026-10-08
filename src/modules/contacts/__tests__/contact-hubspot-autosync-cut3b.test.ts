@@ -688,6 +688,7 @@ describe('14-15. el payload de creación usa el contrato de teléfono que ya exi
       'firstname',
       'jobtitle',
       'lastname',
+      'linkedinUrl',
       'mobilePhone',
       'phone',
     ]);
@@ -715,12 +716,12 @@ describe('17. sin email NO hay recurso alternativo: ni LinkedIn ni nombre', () =
     assert.deepEqual(spy.hubspotCalls, []);
   });
 
-  it('LinkedIn tampoco viaja en el payload cuando SÍ hay email', async () => {
+  it('con email, el LinkedIn SÍ viaja al crear (AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE)', async () => {
     const spy = makeSpy();
     await runContactHubSpotAutoSync(CONTACT_ID, makeAutoSyncDeps(spy));
     const props = spy.created[0] as unknown as Record<string, unknown>;
+    assert.equal(props.linkedinUrl, 'https://linkedin.com/in/ana');
     assert.equal('linkedin_url' in props, false);
-    assert.equal('hs_linkedin_url' in props, false);
     assert.equal('website' in props, false);
   });
 });

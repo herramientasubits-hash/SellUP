@@ -80,6 +80,11 @@ export const CONTACTS_CANDIDATES_ROUTE = "/contacts?tab=candidates";
  * la detección lo movía a `duplicate` y ninguna vista de la UI volvía a mirar ese estado.
  */
 export const CONTACTS_DUPLICATES_ROUTE = "/contacts?tab=duplicates";
+/**
+ * AGENT2A-CONTACTOS-RECHAZADOS — candidatos rechazados en la revisión (`status = 'discarded'`).
+ * Sin esta ruta un rechazado desaparecía de la UI: ninguna vista volvía a mirar ese estado.
+ */
+export const CONTACTS_REJECTED_ROUTE = "/contacts?tab=rejected";
 
 /**
  * «Catálogo de fuentes» es un MÓDULO con ruta propia. Antes era una sección de

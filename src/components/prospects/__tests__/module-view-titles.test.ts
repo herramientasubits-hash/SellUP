@@ -46,14 +46,19 @@ describe('Contactos — el título dice la vista', () => {
       approved: 'Contactos',
       candidates: 'Por revisar',
       duplicates: 'Duplicados',
+      rejected: 'Contactos rechazados',
     });
-    assert.deepEqual(viewLabels('/contacts'), ['Contactos', 'Por revisar']);
+    assert.deepEqual(viewLabels('/contacts'), ['Contactos', 'Por revisar', 'Contactos rechazados']);
   });
 
   it('las migas: «Contactos › Por revisar» y «Contactos › Duplicados»', () => {
     assert.equal(contactosViewCrumbs('approved'), null);
     assert.deepEqual(contactosViewCrumbs('candidates'), [{ label: 'Contactos', href: '/contacts' }, 'Por revisar']);
     assert.deepEqual(contactosViewCrumbs('duplicates'), [{ label: 'Contactos', href: '/contacts' }, 'Duplicados']);
+    assert.deepEqual(contactosViewCrumbs('rejected'), [
+      { label: 'Contactos', href: '/contacts' },
+      'Contactos rechazados',
+    ]);
   });
 
   it('cada vista conserva su descripción', () => {
