@@ -24,6 +24,9 @@ Listas:
                 nombre dice «Nacional», es militar o policial, o la web es .mil/.gov/.gob.py).
   pe_bvl        carpeta con las respuestas JSON de dataondemand.bvl.com.pe/v1/issuers/search
                 (una por letra): emisores de la Bolsa de Valores de Lima, sin fondos ni ETF.
+  wikidata_universities  respuesta JSON de query.wikidata.org (consulta en
+                scripts/source-catalog/latam-curated/wikidata-universities.rq): universidades con
+                web (CC0). Pública si Wikidata lo dice o el nombre lo indica; sin campus sueltos.
   merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
                 <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
                 de las tablas sectoriales. Todas son empresas grandes (size_large).
@@ -198,6 +201,26 @@ def pe_bvl(folder: str) -> list[dict]:
     return out
 
 
+PUBLIC_NAME = re.compile(r"\b(nacional|estatal|p[uú]blica|polit[eé]cnic[oa]|benem[eé]rita|del estado de)\b", re.I)
+
+
+def wikidata_universities(path: str) -> list[dict]:
+    out = []
+    for row in json.load(open(path, encoding="utf-8"))["results"]["bindings"]:
+        name = clean(row.get("name", {}).get("value"))
+        country = clean(row.get("cc", {}).get("value"))
+        if not name or not country or re.search(r"\bcampus\b", name, re.I):
+            continue
+        flagged_public = row.get("isPublic", {}).get("value") == "1"
+        flagged_private = row.get("isPrivate", {}).get("value") == "1"
+        out.append(entry(
+            country=country.upper(), list="wikidata_universities", list_label="Wikidata – universidades", year=2026,
+            name=name, website=clean(row.get("site", {}).get("value")), kind="university",
+            is_public=flagged_public or (not flagged_private and bool(PUBLIC_NAME.search(name))),
+        ))
+    return out
+
+
 def merco(folder: str) -> list[dict]:
     import glob
     import os
@@ -247,6 +270,7 @@ EXTRACTORS = {
     "merco": merco,
     "py_cones": py_cones,
     "pe_bvl": pe_bvl,
+    "wikidata_universities": wikidata_universities,
 }
 
 
