@@ -181,7 +181,7 @@ describe('AGENT2A-CONTACTOS-RECHAZADOS — vista de contactos rechazados', () =>
     assert.equal(REJECTED.showEnrichmentCta, false);
   });
 
-  it('C. cada fila muestra el motivo del rechazo', () => {
+  it('C. misma tabla que «Por revisar»: mismas columnas, estado «Rechazado»', () => {
     render(
       React.createElement(ContactCandidatesDataTableClient, {
         candidates: [makeRejected()],
@@ -189,7 +189,9 @@ describe('AGENT2A-CONTACTOS-RECHAZADOS — vista de contactos rechazados', () =>
       }),
     );
     assert.ok(textPresent('Persona Ficticia Rechazada'));
-    assert.ok(textPresent('Cargo no relevante'), 'el motivo del rechazo debe verse en la fila');
+    assert.ok(textPresent('Rechazado'));
+    // El nombre abre el mismo panel que en «Por revisar».
+    assert.equal(screen.queryAllByRole('button', { name: 'Persona Ficticia Rechazada' }).length, 1);
   });
 
   it('C2. rejectionInfo lee motivo y fecha con guardas', () => {
@@ -207,17 +209,19 @@ describe('AGENT2A-CONTACTOS-RECHAZADOS — vista de contactos rechazados', () =>
     );
   });
 
-  it('D. sólo consulta: el nombre no es un botón que abra el panel de revisión', () => {
-    render(
-      React.createElement(ContactCandidatesDataTableClient, {
-        candidates: [makeRejected()],
-        queue: 'rejected',
-      }),
+  it('D. la barra sólo ofrece «Enviar a revisar»; sin «Crear contacto» ni «Buscar contactos con IA»', () => {
+    const root = join(process.cwd(), 'src/components/contact-enrichment');
+    const table = readFileSync(join(root, 'contact-candidates-data-table-client.tsx'), 'utf8');
+    // En la cola de rechazados la ÚNICA acción de la barra es enviar a revisar.
+    assert.match(
+      table,
+      /isRejectedQueue \? \[\s*\{\s*id: 'send-to-review',\s*label: SEND_TO_REVIEW_LABEL,[\s\S]{0,200}\},\s*\] :/,
     );
-    assert.equal(
-      screen.queryAllByRole('button', { name: 'Persona Ficticia Rechazada' }).length,
-      0,
-    );
+    const sheet = readFileSync(join(root, 'contact-candidate-detail-sheet.tsx'), 'utf8');
+    // El panel de un rechazado pinta RejectedCandidateActions en lugar de Aprobar/Rechazar.
+    assert.match(sheet, /candidate && isRejectedVariant \? \(\s*<RejectedCandidateActions/);
+    const panel = readFileSync(join(root, 'contact-candidates-panel.tsx'), 'utf8');
+    assert.match(panel, /actions=\{queue === 'rejected' \? undefined : <ContactsScreenActions/);
   });
 
   it('E. ?tab=rejected → cola rejected → status discarded', () => {

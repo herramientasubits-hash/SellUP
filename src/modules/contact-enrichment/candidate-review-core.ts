@@ -1132,6 +1132,84 @@ export async function runDiscardCandidate(
   return { ok: true, message: MSG.discarded };
 }
 
+// ── Orquestación: enviar a revisar un RECHAZADO (AGENT2A-CONTACTOS-RECHAZADOS) ──
+
+/** Patch que devuelve un rechazado a «Por revisar»: borra el veredicto, conserva el rastro. */
+export interface RestoreToReviewPatch {
+  status: 'pending_review';
+  review_notes: null;
+  reviewed_by: null;
+  reviewed_at: null;
+  enrichment_metadata: Record<string, unknown>;
+}
+
+export interface RestoreToReviewDeps {
+  actorId: string;
+  nowIso: string;
+  loadCandidate: (id: string) => Promise<CandidateRecord | null>;
+  updateCandidate: (id: string, patch: RestoreToReviewPatch) => Promise<{ error?: string }>;
+}
+
+export const RESTORE_TO_REVIEW_MESSAGES = {
+  invalid: 'Candidato inválido.',
+  notFound: 'El candidato no existe.',
+  notRejected: 'Este candidato ya no está rechazado.',
+  failed: 'No fue posible enviar el candidato a revisión.',
+  restored: 'Candidato enviado a «Por revisar».',
+} as const;
+
+/**
+ * Metadata tras devolver a revisión: el veredicto vigente (`review`) se retira —«Por revisar»
+ * no puede llevar un rechazo encima— y se archiva en `review_history` junto con quién y cuándo
+ * lo devolvió, para que la decisión anterior no se pierda. Pura.
+ */
+export function buildRestoreToReviewMetadata(
+  existing: Record<string, unknown> | null | undefined,
+  actorId: string,
+  nowIso: string,
+): Record<string, unknown> {
+  const { review, ...rest } = (existing ?? {}) as Record<string, unknown>;
+  const history = Array.isArray(rest.review_history) ? [...(rest.review_history as unknown[])] : [];
+  history.push({
+    ...(review && typeof review === 'object' ? (review as Record<string, unknown>) : {}),
+    restored_to_review_at: nowIso,
+    restored_to_review_by: actorId,
+  });
+  return { ...rest, review_history: history };
+}
+
+/**
+ * Devuelve un candidato RECHAZADO (`discarded`) a `pending_review`. Sólo actúa sobre
+ * rechazados: un aprobado o un duplicado tienen su propio flujo y no se reabren desde aquí.
+ * No crea contactos, no llama proveedores ni escribe en HubSpot.
+ */
+export async function runRestoreCandidateToReview(
+  candidateId: string,
+  deps: RestoreToReviewDeps,
+): Promise<DiscardResult> {
+  const M = RESTORE_TO_REVIEW_MESSAGES;
+  if (typeof candidateId !== 'string' || !candidateId.trim()) return { ok: false, error: M.invalid };
+
+  const candidate = await deps.loadCandidate(candidateId.trim());
+  if (!candidate) return { ok: false, error: M.notFound };
+  if (candidate.status !== 'discarded') return { ok: false, error: M.notRejected };
+
+  const updateResult = await deps.updateCandidate(candidate.id, {
+    status: 'pending_review',
+    review_notes: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    enrichment_metadata: buildRestoreToReviewMetadata(
+      candidate.enrichment_metadata,
+      deps.actorId,
+      deps.nowIso,
+    ),
+  });
+  if (updateResult.error) return { ok: false, error: M.failed };
+
+  return { ok: true, message: M.restored };
+}
+
 // ── Orquestación: fusionar en un contacto EXISTENTE (4O-H3-B) ───
 //
 // La TERCERA decisión humana sobre un candidato, junto a aprobar y rechazar, y la única que

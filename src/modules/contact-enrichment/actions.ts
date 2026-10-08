@@ -19,6 +19,8 @@ import {
   resolveExistingContactMergeOffer,
   runApproveCandidate,
   runDiscardCandidate,
+  runRestoreCandidateToReview,
+  type RestoreToReviewPatch,
   runMergeCandidateIntoExistingContact,
   type CandidateRecord,
   type CandidateReviewPatch,
@@ -1342,6 +1344,93 @@ export async function discardContactCandidate(
     const message = err instanceof Error ? err.message : 'Error rechazando el candidato';
     return { ok: false, error: message };
   }
+}
+
+/**
+ * AGENT2A-CONTACTOS-RECHAZADOS — devuelve candidatos RECHAZADOS a «Por revisar».
+ *
+ * Acepta uno o varios ids (la barra de la tabla permite marcar varios). Cada uno pasa por la
+ * misma regla pura (`runRestoreCandidateToReview`): sólo un `discarded` vuelve a revisión.
+ * No crea contactos, no llama proveedores, no escribe en HubSpot.
+ */
+export async function sendRejectedCandidatesToReview(
+  candidateIds: string[],
+): Promise<{ ok: boolean; restored: number; failed: number; message: string }> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+    const admin = getServiceRoleClient();
+    const supabase = await createClient();
+    const nowIso = new Date().toISOString();
+
+    const ids = Array.from(new Set((candidateIds ?? []).filter((id) => typeof id === 'string' && id.trim())));
+    let restored = 0;
+    let lastError: string | null = null;
+
+    for (const id of ids) {
+      const result = await runRestoreCandidateToReview(id, {
+        actorId: internalUserId,
+        nowIso,
+        loadCandidate: async (candidateId) => {
+          const { data, error } = await supabase
+            .from('contact_enrichment_candidates')
+            .select(CANDIDATE_REVIEW_SELECT)
+            .eq('id', candidateId)
+            .maybeSingle();
+          if (error) throw new Error(error.message);
+          return data ? mapCandidateRecord(data) : null;
+        },
+        updateCandidate: async (candidateId, patch: RestoreToReviewPatch) => {
+          const { error } = await admin
+            .from('contact_enrichment_candidates')
+            .update(patch)
+            .eq('id', candidateId)
+            .eq('status', 'discarded');
+          return { error: error?.message };
+        },
+      });
+      if (result.ok) restored += 1;
+      else lastError = result.error;
+    }
+
+    const failed = ids.length - restored;
+    const message =
+      failed === 0
+        ? restored === 1
+          ? 'Candidato enviado a «Por revisar».'
+          : `${restored} candidatos enviados a «Por revisar».`
+        : lastError ?? 'No fue posible enviar los candidatos a revisión.';
+    return { ok: failed === 0 && restored > 0, restored, failed, message };
+  } catch (err) {
+    if (isNextControlFlowSignal(err)) throw err;
+    return {
+      ok: false,
+      restored: 0,
+      failed: candidateIds?.length ?? 0,
+      message: err instanceof Error ? err.message : 'No fue posible enviar a revisión.',
+    };
+  }
+}
+
+/**
+ * AGENT2A-CONTACTOS-RECHAZADOS — detalle de un candidato RECHAZADO para el panel lateral de
+ * «Contactos rechazados». Misma proyección que el detalle de revisión; `null` si ya no está
+ * rechazado (p. ej. alguien lo acaba de enviar a revisar).
+ */
+export async function getRejectedContactCandidateById(
+  candidateId: string,
+): Promise<PendingContactCandidate | null> {
+  await requireActiveUserForEnrichment();
+  const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
+  if (!trimmedId) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_SELECT)
+    .eq('id', trimmedId)
+    .eq('status', 'discarded')
+    .maybeSingle();
+  if (error) throw new Error(`getRejectedContactCandidateById: ${error.message}`);
+  return data ? mapPendingContactCandidate(data) : null;
 }
 
 // ── Bulk Run Status (Hito 17A.10K) ────────────────────────────────────────────
