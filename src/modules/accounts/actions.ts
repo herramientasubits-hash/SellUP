@@ -481,6 +481,60 @@ export async function archiveAccount(
   return { success: true };
 }
 
+/** Tope de una selección en lote: la tabla nunca muestra más de 200 empresas. */
+const ARCHIVE_ACCOUNTS_MAX = 200;
+
+/**
+ * Archiva varias empresas de una vez (barra de selección de la tabla). Mismas reglas
+ * que `archiveAccount`: sólo admin, salen del pipeline activo y cada una queda en
+ * auditoría. Las que ya estaban archivadas no cuentan.
+ */
+export async function archiveAccounts(
+  ids: string[],
+): Promise<{ success: true; archived: number } | { success: false; error: string }> {
+  let internalUserId: string;
+  try {
+    ({ internalUserId } = await requireAdmin());
+  } catch {
+    return { success: false, error: 'Se requiere rol admin para archivar cuentas' };
+  }
+
+  const uniqueIds = [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (uniqueIds.length === 0) return { success: false, error: 'No hay empresas seleccionadas' };
+  if (uniqueIds.length > ARCHIVE_ACCOUNTS_MAX) {
+    return { success: false, error: `Puedes archivar hasta ${ARCHIVE_ACCOUNTS_MAX} empresas a la vez` };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('accounts')
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_by: internalUserId,
+      pipeline_status: 'archived',
+      updated_by: internalUserId,
+    })
+    .in('id', uniqueIds)
+    .is('archived_at', null)
+    .select('id');
+
+  if (error) return { success: false, error: error.message };
+
+  const archivedIds = (data ?? []).map((row) => row.id as string);
+  await Promise.all(
+    archivedIds.map((accountId) =>
+      logAccountAudit({
+        accountId,
+        actorUserId: internalUserId,
+        actionType: 'account_archived',
+        details: { bulk: true, selection_size: uniqueIds.length },
+      }),
+    ),
+  );
+
+  return { success: true, archived: archivedIds.length };
+}
+
 // ============================================================
 // logAccountAudit — interno
 // ============================================================
