@@ -94,7 +94,7 @@ export function salvadorDomainNamesEntity(domain: string, entityName: string, ac
 
 /**
  * La web de una ENTIDAD PÚBLICA a partir de lo que publica Transparencia: primero
- * la dirección de su portal propio, si no el dominio del correo institucional; en
+ * el dominio del correo institucional, si no la dirección de su portal propio; en
  * los dos casos sólo si la dirección nombra a la entidad. Nunca un correo gratuito.
  * Un `.gob.sv` se guarda entero sin el prefijo de servicio («asamblea.gob.sv»).
  */
@@ -104,11 +104,13 @@ export function salvadorPublicEntityDomain(input: {
   siteUrl: string | null;
   emailDomain: string | null;
 }): string | null {
+  // El dominio del correo institucional primero: la dirección «propia» que publica
+  // Transparencia suele ser su portal de transparencia (informacionpublicapgr.gob.sv).
   const hosts: string[] = [];
-  const site = normalizeWebsiteHost(input.siteUrl);
-  if (site !== null) hosts.push(site);
   const fromEmail = input.emailDomain !== null ? emailDomain(`x@${input.emailDomain}`) : null;
   if (fromEmail !== null) hosts.push(fromEmail);
+  const site = normalizeWebsiteHost(input.siteUrl);
+  if (site !== null) hosts.push(site);
   for (const host of hosts) {
     if (isSalvadorPersonalEmailDomain(host)) continue;
     const domain = isSalvadorPublicSectorDomain(host) ? host.replace(SERVICE_PREFIX, '') : registrableSalvadorDomain(host);

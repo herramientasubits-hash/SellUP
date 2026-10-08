@@ -484,11 +484,19 @@ export type SvPublicEntityCandidate = {
 /** Fideicomisos y cuentas especiales: no son una entidad a prospectar. */
 const FUND_OR_TRUST = /^(FIDEICOMISO|FONDO DE ACTIVIDADES ESPECIALES|FONDO CIRCULANTE|PATRIMONIO ESPECIAL)\b/;
 
+/** «Portal de Tranparencia del Instituto …» (con su errata) → «Instituto …»; sin el punto final. */
+function cleanTransparenciaName(name: string): string {
+  return name
+    .replace(/^portal\s+de\s+tran?s?parencia\s+(?:del|de\s+la|de\s+los|de)\s+/i, '')
+    .replace(/[\s.]+$/, '')
+    .trim();
+}
+
 /** Una institución de Transparencia como candidata a Gobierno. */
 export function svTransparenciaCandidate(institution: SvTransparenciaInstitution): SvPublicEntityCandidate {
   return {
     origin: 'transparencia',
-    name: institution.name,
+    name: cleanTransparenciaName(institution.name),
     acronym: institution.acronym !== null && /^[A-Za-z]{2,12}$/.test(institution.acronym) ? institution.acronym : null,
     kind: SV_TRANSPARENCIA_CATEGORY_KIND[institution.categoryId] ?? 'other',
     siteUrl: institution.siteUrl,

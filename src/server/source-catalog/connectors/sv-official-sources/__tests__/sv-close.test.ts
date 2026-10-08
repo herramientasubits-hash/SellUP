@@ -235,6 +235,16 @@ describe('web de las instituciones', () => {
       'asamblea.gob.sv',
     );
     assert.equal(salvadorPublicEntityDomain({ name: 'Alcaldía Municipal de Sesori', acronym: null, siteUrl: null, emailDomain: 'gmail.com' }), null);
+    // El correo institucional va antes que el portal de transparencia (Prod 07-10: PGR).
+    assert.equal(
+      salvadorPublicEntityDomain({ name: 'Procuraduría General de la República', acronym: 'PGR', siteUrl: 'https://informacionpublicapgr.gob.sv', emailDomain: 'pgr.gob.sv' }),
+      'pgr.gob.sv',
+    );
+  });
+
+  it('el nombre de Transparencia sin «Portal de Transparencia del» ni el punto final', () => {
+    const candidate = svTransparenciaCandidate({ categoryId: 2, id: 1, acronym: 'IPSFA', name: 'Portal de Tranparencia del Instituto de Previsión Social de la Fuerza Armada.', emailDomain: 'ipsfa.gob.sv', siteUrl: null });
+    assert.equal(candidate.name, 'Instituto de Previsión Social de la Fuerza Armada');
   });
 
   it('una palabra sólo la confirma su propia web', () => {

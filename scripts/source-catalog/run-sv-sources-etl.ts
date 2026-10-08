@@ -21,6 +21,8 @@
  *
  * Escritura REAL (sólo con autorización explícita de la dueña para ESA carga):
  *   … --apply --only=registry|alias|public|directory --confirm
+ *   … --apply --only=<clave> --confirm --prune-stale   (además borra las filas de ESA
+ *     clave que la carga nueva ya no trae: un nombre corregido cambia la identidad)
  *
  * Guardrails:
  *   - Dry-run por defecto; `--apply` exige `--only=` (una clave cada vez) y `--confirm`.
@@ -71,7 +73,7 @@ const UPSERT_CHUNK = 1000;
 const ONLY_VALUES = ['registry', 'alias', 'public', 'directory'] as const;
 type Only = (typeof ONLY_VALUES)[number];
 
-type Config = { inDir: string; apply: boolean; only: Only | null };
+type Config = { inDir: string; apply: boolean; only: Only | null; pruneStale: boolean };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -90,7 +92,9 @@ function parseArgs(argv: readonly string[]): Config {
   if (apply && only === 'directory' && !SV_COMPRASAL_MACRO_TABLE_APPROVED) {
     throw new Error('config_invalid: la tabla de palabras de COMPRASAL no está aprobada por la dueña');
   }
-  return { inDir, apply, only: only as Only | null };
+  const pruneStale = argv.includes('--prune-stale');
+  if (pruneStale && !apply) throw new Error('config_invalid: --prune-stale sólo vale con --apply');
+  return { inDir, apply, only: only as Only | null, pruneStale };
 }
 
 function readJsonl(path: string): unknown[] {
@@ -111,6 +115,31 @@ async function upsertAll(client: SupabaseClient, rows: readonly SvSnapshotRow[])
     console.log(`  … ${i + chunk.length}/${rows.length}`);
   }
   return upserted;
+}
+
+/** Borra las filas de la clave que la carga nueva no trae (identidad + año). */
+async function pruneStaleRows(client: SupabaseClient, sourceKey: string, rows: readonly SvSnapshotRow[]): Promise<number> {
+  const keep = new Set(rows.map((row) => `${row.record_identity_key}|${row.source_year}`));
+  const stale: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await client
+      .from('source_company_snapshots')
+      .select('id, record_identity_key, source_year')
+      .eq('source_key', sourceKey)
+      .eq('country_code', 'SV')
+      .range(from, from + 999);
+    if (error) throw new Error(`prune_read_failed: ${error.message}`);
+    if (!data || data.length === 0) break;
+    for (const row of data as Array<{ id: string; record_identity_key: string; source_year: number }>) {
+      if (!keep.has(`${row.record_identity_key}|${row.source_year}`)) stale.push(row.id);
+    }
+    if (data.length < 1000) break;
+  }
+  for (let i = 0; i < stale.length; i += 500) {
+    const { error } = await client.from('source_company_snapshots').delete().in('id', stale.slice(i, i + 500)).eq('source_key', sourceKey).eq('country_code', 'SV');
+    if (error) throw new Error(`prune_delete_failed_at_${i}: ${error.message}`);
+  }
+  return stale.length;
 }
 
 function countBy<T extends string>(map: Map<T, number>, key: T): void {
@@ -160,7 +189,7 @@ function buildPublic(
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
-  console.log(`SV SOURCES ETL — ${config.apply ? `APPLY (${config.only})` : 'DRY-RUN (no escribe)'}`);
+  console.log(`SV SOURCES ETL — ${config.apply ? `APPLY (${config.only}${config.pruneStale ? ' + prune-stale' : ''})` : 'DRY-RUN (no escribe)'}`);
 
   const entries = readJsonl(join(config.inDir, 'sv_tax_lists.jsonl'))
     .map(parseSvTaxListEntry)
@@ -251,6 +280,7 @@ async function main(): Promise<void> {
   ensureNode20WebSocketShim();
   const client = createClient(url, key);
   console.log(`  rowsUpserted (${sourceKey}) = ${await upsertAll(client, rows)}`);
+  if (config.pruneStale) console.log(`  rowsPruned (${sourceKey}) = ${await pruneStaleRows(client, sourceKey, rows)}`);
 }
 
 main().catch((error: unknown) => {
