@@ -2696,7 +2696,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-SV-CLOSE-1: CARGADO y verificado en Prod el 07-10-2026 (tabla de palabras y carga aprobadas por la dueña): 157 empresas de 3.671 proveedoras de COMPRASAL 2025-2026 (fuera 1.921 sin NIT en los listados, 1.398 personas naturales, 158 sin industria dominante, 25 con menos de US$ 50.000, 8 entidades públicas y 3 consorcios); 53 de Salud, 21 de Tecnología. Carga: scripts/source-catalog/run-sv-sources-etl.ts --apply --only=directory --confirm.',
+      'SOURCES-SV-CLOSE-1: CARGADO y verificado en Prod el 07-10-2026 (tabla de palabras y carga aprobadas por la dueña): 157 empresas de 3.671 proveedoras de COMPRASAL 2025-2026 (fuera 1.921 sin NIT en los listados, 1.398 personas naturales, 158 sin industria dominante, 25 con menos de US$ 50.000, 8 entidades públicas y 3 consorcios); 53 de Salud, 21 de Tecnología. Carga: scripts/source-catalog/run-sv-sources-etl.ts --apply --only=directory --confirm. SOURCES-SV-COMPANY-WEB-1 (08-10, autorizado): 36 de las 157 con web comprobada (la dirección sale de su nombre y su propia página la nombra; scripts/source-catalog/discover-sv-company-webs.mts), escrita en Prod y verificada por lectura.',
     countryCodes: ['SV'],
     sectors: [],
     priority: 'P1',
@@ -2707,7 +2707,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Capa gratuita salvadoreña por industria: sociedades que el Estado contrató en COMPRASAL (API pública, adjudicaciones 2025-2026) y que llevan a UN solo NIT de los listados de Hacienda por su razón social. La industria sale de las palabras de lo que venden al Estado (medicamentos, software, construcción, combustibles, vigilancia…; tabla aprobada por la dueña el 07-10-2026). Sólo entran con al menos US$ 50.000 adjudicados; primero las que venden a más instituciones. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí.',
     limitations: [
-      'COMPRASAL no publica NIT ni web del proveedor: sin NIT único en los listados de Hacienda la empresa no entra; todas llegan sin web (el rescate la busca).',
+      'COMPRASAL no publica NIT ni web del proveedor: sin NIT único en los listados de Hacienda la empresa no entra; sólo 36 de 157 llevan web (comprobada por su nombre), el resto depende del rescate.',
       'Sólo empresas que venden al Estado y que ya eran grandes o medianas contribuyentes en 2012/2019.',
       'La industria sale de lo que venden al Estado: fiestas, papelería, publicidad y capacitación no se proponen.',
       'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
