@@ -97,6 +97,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   // SOURCES-HN-CLOSE-1 — varias claves de nombre por RTN y entidades sin RTN.
   'hn_rtn_name_alias',
   'hn_public_entities',
+  // SOURCES-LATAM-CURATED-1 — capa común de listas curadas (país + nombre).
+  'latam_curated_directory',
   // SOURCES-SV-CLOSE-1 — varias claves de nombre por NIT e instituciones sin NIT.
   'sv_nit_name_alias',
   'sv_public_entities',

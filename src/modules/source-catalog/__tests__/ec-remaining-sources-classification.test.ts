@@ -163,10 +163,11 @@ describe('SCVS sigue como única fuente operativa de enrichment de Ecuador', () 
     );
     // SOURCES-EC-FREE-DISCOVERY-1 sumó ec_scvs_directory (directorio × ranking de la
     // misma Superintendencia); SOURCES-EC-CLOSE-1 sumó los registros de RUC por nombre
-    // de la Superintendencia y del SRI.
+    // de la Superintendencia y del SRI. SOURCES-LATAM-CURATED-1 sumó la capa común de
+    // listas curadas (exportadores de Pro Ecuador, universidades, rankings).
     assert.deepEqual(
       operativasEc.map((s) => s.key).sort(),
-      ['ec_scvs', 'ec_scvs_directory', 'ec_scvs_registry', 'ec_sri_registry'],
+      ['ec_scvs', 'ec_scvs_directory', 'ec_scvs_registry', 'ec_sri_registry', 'latam_curated_directory'],
     );
   });
 });

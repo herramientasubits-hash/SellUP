@@ -82,6 +82,14 @@ export type CountrySourceCompany = {
    * Rica). Ausente cuando no hay ese dato.
    */
   officialSizeBand?: CountrySourceOfficialSizeBand | null;
+  /**
+   * SOURCES-LATAM-CURATED-1 — la empresa no viene de la fuente del país sino de la
+   * capa común de listas curadas (universidades, reguladores, rankings). Ausente
+   * cuando viene de la fuente del país: la traza usa la del país.
+   */
+  originSourceKey?: string | null;
+  /** SOURCES-LATAM-CURATED-1 — listas en las que aparece («SNIES», «Merco Empresas 2025»…). */
+  curatedOrigins?: readonly string[] | null;
 };
 
 /** Tamaño oficial por tramo: hoy sólo «grande», con la fuente que lo dice. */
