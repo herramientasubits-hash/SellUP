@@ -82,6 +82,12 @@ import {
   type PaFreeDirectoryDiscoveryReads,
 } from './pa-free-directory-discovery-adapter';
 import { macroHasPaCoverage } from './pa-free-directory-macro-table';
+import {
+  buildNiFreeDirectoryDiscoveryAdapter,
+  NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type NiFreeDirectoryDiscoveryReads,
+} from './ni-free-directory-discovery-adapter';
+import { macroHasNiCoverage } from './ni-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -162,8 +168,14 @@ import { macroHasArCoverage } from './ar-rns-macro-table';
  * el Estado adjudicó al menos B/.1 millón en PanamaCompra (clasificadas por lo que
  * venden con la tabla UNSPSC aprobada de Paraguay), Grandes Contribuyentes de la DGI
  * (tabla revisada por la dueña) y entidades compradoras con RUC (Gobierno).
+ *
+ * SOURCES-NI-CLOSE-2 — Nicaragua entra con lo que se alcanza desde fuera del país:
+ * Grandes Contribuyentes de la DGI (tabla empresa → industria), empresas con
+ * licencia sanitaria vigente del MINSA (por tipo de licencia), el Directorio
+ * Industrial de Zonas Francas (por sección), microfinancieras de la CONAMI y
+ * entidades públicas con web oficial (Gobierno).
  */
-export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA'] as const;
+export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = ['CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA', 'NI'] as const;
 
 export type CountrySourceCapability = {
   countryCode: string;
@@ -184,6 +196,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   CR: { countryCode: 'CR', sourceKey: CR_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   HN: { countryCode: 'HN', sourceKey: HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  NI: { countryCode: 'NI', sourceKey: NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -229,6 +242,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'CR') return macroHasCrCoverage(macroIndustryKey);
   if (capability.countryCode === 'HN') return macroHasHnHonducomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
+  if (capability.countryCode === 'NI') return macroHasNiCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -258,6 +272,7 @@ export function buildCountrySourceAdapter(
     crFreeDirectoryDiscoveryReads?: CrFreeDirectoryDiscoveryReads | null;
     hnHonducomprasDirectoryDiscoveryReads?: HnHonducomprasDirectoryDiscoveryReads | null;
     paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
+    niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
   },
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
@@ -312,6 +327,11 @@ export function buildCountrySourceAdapter(
   if (capability.countryCode === 'PA') {
     return deps.paFreeDirectoryDiscoveryReads
       ? buildPaFreeDirectoryDiscoveryAdapter(deps.paFreeDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'NI') {
+    return deps.niFreeDirectoryDiscoveryReads
+      ? buildNiFreeDirectoryDiscoveryAdapter(deps.niFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

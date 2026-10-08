@@ -124,7 +124,10 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Sin número fiscal por nombre: El Salvador no publica una fuente gratuita con razón social + NIT (COMPRASAL sólo da el nombre; el NIT de los contribuyentes es confidencial).',
   ],
   NI: [
-    'Sin número fiscal por nombre: Nicaragua no publica una fuente gratuita y accesible con razón social + RUC (DGI y SISCAE no responden desde fuera del país).',
+    'Las fuentes oficiales de Nicaragua (DGI, SISCAE, Registro Público, CETREX) no responden desde fuera del país: el RUC por nombre sale de la lista de Grandes Contribuyentes de la DGI (copias 2019-2020 del Internet Archive) y de las licencias sanitarias del MINSA (salud, farmacéuticas, dispositivos médicos y alimentos).',
+    'Una empresa mediana que no es Gran Contribuyente ni tiene licencia sanitaria no aparece: queda sin RUC.',
+    'El RUC de persona jurídica es «J» + 13 dígitos; las cédulas de personas naturales nunca se guardan.',
+    'Nombres repetidos o genéricos no dan un RUC seguro.',
   ],
   VE: [
     'Sin número fiscal por nombre: el SENIAT exige captcha y busca por RIF, no por nombre; el RNC sólo cubre contratistas del Estado y no tiene descarga masiva.',
@@ -2502,6 +2505,89 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: [
       'Holdings, hoteles, casinos, universidades y nombres que no identifican el negocio quedan sin industria a propósito.',
+    ],
+  },
+  // ── Nicaragua ──────────────────────────────────────────────────────────────
+  {
+    key: 'ni_ruc_registry',
+    name: 'Registro unido de RUC de Nicaragua (Grandes Contribuyentes DGI + licencias sanitarias MINSA) — RUC por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-NI-CLOSE-2: código listo, PENDIENTE DE CARGA autorizada por la dueña (0 filas en Prod). Prueba en seco del 07-10-2026: 1.295 RUC (1.285 con nombre único) — 505 Grandes Contribuyentes de la DGI y 947 personas jurídicas con licencia sanitaria del MINSA (157 en las dos) — más 1.022 alias (nombre comercial, sigla, nombre en la otra fuente). Con 90 nombres reales escritos como los dan Apollo, Tavily o Claude: 65 con RUC seguro y 3 pistas. Carga: extract-ni-dgi-large-taxpayers.py + extract-ni-minsa-licenses.py y run-ni-sources-etl.ts --apply --only=registry y luego --only=alias.',
+    countryCodes: ['NI'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://karplus.minsa.net.ni/kp-public/consultapublica/registroestablecimiento/indexConsultaLicencia.xhtml',
+    automationLevel: 'high',
+    recommendedUse:
+      'RUC por nombre de Nicaragua en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RUC la «Consulta Grandes Contribuyentes» de la DGI (las tres copias que guardó el Internet Archive, septiembre de 2019 a marzo de 2020: el sitio de la DGI rechaza las conexiones desde fuera del país) y la consulta pública de licencias sanitarias del MINSA (KARPLUS, en vivo, sin captcha). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera o cortada por la DGI a 50 caracteres, sigla o marca entre paréntesis o tras un guion, con o sin «Nicaragua»). RUC seguro sólo cuando exactamente un RUC tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme. Un Gran Contribuyente llega a la ficha como «gran contribuyente (DGI Nicaragua)», sin número de personas: no decide solo el filtro de tamaño.',
+    limitations: [
+      'Sólo Grandes Contribuyentes (2019-2020) y empresas con licencia sanitaria del MINSA: una empresa mediana de otro sector no aparece (Nicaragua no publica un padrón de RUC alcanzable desde fuera).',
+      'La lista de la DGI tiene seis años: altas posteriores no están y alguna empresa puede haber cerrado.',
+      'La DGI corta la razón social a 50 caracteres; cuando el MINSA trae la entera, se guarda la del MINSA.',
+      'No trae trabajadores: ninguna fuente alcanzable de Nicaragua los publica por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUC seguro; queda como señal.',
+      'Las licencias de personas naturales (cédula) nunca se guardan.',
+    ],
+  },
+  {
+    key: 'ni_free_directory',
+    name: 'Directorio oficial de Nicaragua (Grandes Contribuyentes DGI + MINSA + Zonas Francas + CONAMI + entidades públicas) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-NI-CLOSE-2: código listo, PENDIENTE DE CARGA autorizada por la dueña (0 filas en Prod). Prueba en seco del 07-10-2026: 996 empresas con RUC (Salud 459, Consumo 238, Industria 52, Agroindustria 54, Retail 49, Construcción 33, Energía 33, Financieras 27, Transporte 17, Servicios 13, Tecnología 19, Gobierno 2), 441 con tamaño oficial «grande». La tabla empresa → industria de los Grandes Contribuyentes (415 de 505) la armó Claude y la REVISA la dueña. Carga: run-ni-sources-etl.ts --apply --only=directory.',
+    countryCodes: ['NI'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://cnzf.gob.ni/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita del Agente 1 para Nicaragua: propone, por industria y antes de pagar a Apollo, empresas con RUC (Grandes Contribuyentes de la DGI primero, luego empresas de Zona Franca y las que tienen más licencias sanitarias vigentes). La industria sale de lo que la fuente oficial dice de la empresa: la sección del Directorio Industrial de la Comisión Nacional de Zonas Francas (2025), el tipo de licencia sanitaria del MINSA (medicamentos, dispositivos médicos y establecimientos de salud → Salud; alimentos y bebidas → Consumo), el registro de la CONAMI (microfinanzas) o una tabla empresa → industria para los Grandes Contribuyentes. Los Grandes Contribuyentes llevan el tamaño oficial «grande».',
+    limitations: [
+      'Sin trabajadores por empresa: micro y pequeña no se pueden marcar (no hay fuente alcanzable).',
+      'Las empresas del MINSA no traen web: la mayoría depende del rescate.',
+      'Holdings, hoteles, restaurantes, medios, consorcios y nombres que no identifican el negocio quedan sin industria a propósito.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
+  {
+    key: 'ni_free_directory_web',
+    name: 'Zonas Francas, microfinancieras y entidades públicas de Nicaragua con web — capa gratuita (sin RUC)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-NI-CLOSE-2: código listo, PENDIENTE DE CARGA autorizada por la dueña (0 filas en Prod). Prueba en seco del 07-10-2026: 201 entidades con web propia y sin RUC conocido — 97 entidades públicas (Gobierno), 82 empresas del Directorio Industrial de Zonas Francas y 22 microfinancieras de la CONAMI. Carga: run-ni-sources-etl.ts --apply --only=directory_web.',
+    countryCodes: ['NI'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.conami.gob.ni/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Nicaragua para quien no tiene un RUC alcanzable pero sí web propia: empresas del Directorio Industrial de la CNZF (por su sección; la web sale del dominio de su correo corporativo, nunca el correo), microfinancieras registradas en la CONAMI (con la web que publica la CONAMI) y entidades públicas con web oficial .gob.ni o .edu.ni (ministerios, entes autónomos, empresas del Estado, alcaldías y universidades públicas; tabla del 07-10-2026 con DNS vigente).',
+    limitations: [
+      'Sin RUC: «una empresa, un vendedor» se apoya en la web.',
+      'Sin web propia una ficha no entra (no hay forma segura de identificarla): quedan fuera 175 fichas (microfinancieras sin web y fichas de Zona Franca sin dominio propio).',
+      'Muchas webs del Estado no responden desde fuera de Nicaragua aunque existan.',
+    ],
+    riskNotes: [
+      'Un dominio usado por dos o más entidades (correo de grupo) no se usa.',
+      'Nunca se guardan correos, contactos ni teléfonos.',
     ],
   },
   {

@@ -156,6 +156,9 @@ export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   // SOURCES-PA-CLOSE-1 — Grandes Contribuyentes de la DGI de Panamá (ingresos ≥
   // B/.20 M y activos ≥ B/.60 M). Mismo trato: «empresa grande» que no decide sola.
   PA_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Panamá)',
+  // SOURCES-NI-CLOSE-2 — Grandes Contribuyentes de la DGI de Nicaragua (lista de
+  // 2019-2020 del Internet Archive). Mismo trato: «empresa grande» que no decide sola.
+  NI_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Nicaragua)',
 };
 
 function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {
