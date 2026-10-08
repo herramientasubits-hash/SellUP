@@ -2718,6 +2718,33 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'sv_large_taxpayer_directory',
+    name: 'Grandes Contribuyentes de El Salvador (DGII 2019) sin COMPRASAL — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-SV-LARGE-TAXPAYERS-1: medido el 08-10-2026, PENDIENTE de que la dueña revise la tabla NIT → industria y autorice la carga: 581 de los 860 Grandes Contribuyentes de 2019 que no venden al Estado (137 Industria, 116 Finanzas y seguros, 66 Consumo, 59 Energía, 42 Construcción e inmuebles, 35 Agro, 34 Retail, 29 Transporte, 23 Servicios, 20 Salud, 20 Tecnología), 72 con web comprobada; 279 sin industria segura. Carga: scripts/source-catalog/load-sv-large-taxpayer-directory.mts --apply --confirm (se niega sin la tabla aprobada).',
+    countryCodes: ['SV'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'dry_run_validated',
+    type: 'official_registry',
+    url: 'https://web.archive.org/web/20190923155602/https://www.mh.gob.sv/downloads/pdf/700-DGII-AV-2018-20963.pdf',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita salvadoreña por industria para las empresas grandes que NO venden al Estado (bancos, cooperativas, maquilas, alimentos, retail, energía, telecomunicaciones): la lista de Grandes Contribuyentes de la DGII (2019) con NIT, clasificada por NIT en una tabla que Claude armó con la razón social, lo que se sabe de cada empresa y su web cuando sale de su nombre, revisada por la dueña (como la de Panamá). Va detrás de las proveedoras de COMPRASAL de la misma industria.',
+    limitations: [
+      'La lista es de 2019: algunas empresas pueden haber cambiado de nombre, fusionado o cerrado.',
+      'Gran contribuyente es por impuestos y ventas, no por trabajadores: el filtro de tamaño y el rescate deciden.',
+      'Sólo 72 de 581 con web comprobada; el resto depende del rescate para encontrar su sitio.',
+      'Sin industria segura (279): holdings, «Inversiones X», siglas opacas, hoteles, restaurantes, medios, universidades.',
+    ],
+    riskNotes: [
+      'La industria es una clasificación por NIT revisada a mano, no un dato oficial de actividad.',
+    ],
+  },
+  {
     key: 'sv_public_entities',
     name: 'Instituciones públicas de El Salvador (Portal de Transparencia + COMPRASAL, NIT de Hacienda 2014) — capa gratuita de Gobierno',
     sellupUse: 'enrichment',

@@ -13,6 +13,9 @@
  *     solo NIT del registro de Hacienda, sin consorcios, con al menos US$ 50.000
  *     adjudicados y una macro dominante por las palabras de sus procesos. Sin web:
  *     COMPRASAL no publica correos (el rescate con Claude la busca).
+ *   - `sv_large_taxpayer_directory`: Grandes Contribuyentes de la DGII (2019) que no
+ *     venden al Estado, con la industria de la tabla por NIT revisada por la dueña
+ *     (SOURCES-SV-LARGE-TAXPAYERS-1); van detrás de las proveedoras de su macro.
  *   - `sv_public_entities`: instituciones vigentes (Portal de Transparencia o
  *     compradoras de COMPRASAL) con web que las nombra y/o NIT de Hacienda; sólo
  *     Gobierno.
@@ -49,6 +52,9 @@ import type {
 
 /** `source_key` que esta proyección declara. */
 export const SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY = 'sv_comprasal_directory_discovery' as const;
+
+/** Lo que el vendedor ve en «Industria» para un Gran Contribuyente (la macro va aparte). */
+export const SV_LARGE_TAXPAYER_DECLARED_INDUSTRY = 'Gran contribuyente (Hacienda)' as const;
 
 /** Techo de empresas devueltas por consulta (igual que el resto de países). */
 export const SV_COMPRASAL_DIRECTORY_DISCOVERY_MAX_ROWS = 200;
@@ -91,10 +97,15 @@ function toCompany(row: SvComprasalDirectorySnapshotReadRow, macroIndustryKey: s
   if (resolveSvDirectoryMacro(row.directory_kind, row.activity_code) !== macroIndustryKey) return null;
   const nit = normalizeSalvadoranNit(row.nit);
   const publicEntity = row.directory_kind === 'public_entity';
+  const largeTaxpayer = row.directory_kind === 'large_taxpayer';
   const domain = normalizeDomain(row.website_domain);
   if (publicEntity) {
     // La institución se identifica por su web o por su NIT de Hacienda.
     if (domain === null && nit === null) return null;
+  } else if (largeTaxpayer) {
+    // SOURCES-SV-LARGE-TAXPAYERS-1 — Gran Contribuyente: su NIT basta (no vende al
+    // Estado, no hay monto que comprobar).
+    if (nit === null) return null;
   } else {
     if (nit === null) return null;
     if (!isSvComprasalRelevant({ awardedUsd: row.awarded_usd ?? 0, lastYear: row.last_award_year })) return null;
@@ -112,8 +123,12 @@ function toCompany(row: SvComprasalDirectorySnapshotReadRow, macroIndustryKey: s
     // Sólo las instituciones traen web (la de Transparencia). Sin web la empresa va a
     // Descartadas y el rescate con Claude la busca.
     domain,
-    declaredIndustry: publicEntity ? 'Entidad pública' : resolveSvProcessRuleLabel(row.activity_code),
-    industryCode: publicEntity ? null : row.activity_code?.trim() || null,
+    declaredIndustry: publicEntity
+      ? 'Entidad pública'
+      : largeTaxpayer
+        ? SV_LARGE_TAXPAYER_DECLARED_INDUSTRY
+        : resolveSvProcessRuleLabel(row.activity_code),
+    industryCode: publicEntity || largeTaxpayer ? null : row.activity_code?.trim() || null,
     coarseSector: null,
     officialMacroIndustry: {
       macroIndustryKeys: [macroIndustryKey],
