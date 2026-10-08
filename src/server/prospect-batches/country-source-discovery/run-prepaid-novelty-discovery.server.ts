@@ -304,19 +304,47 @@ export async function runPrePaidNoveltyDiscovery(
   const resolveCanonical = input.resolveBatchId;
   const sentToDiscards = free.telemetry['unverified_sent_to_discards'];
   let rescueTelemetry: Record<string, unknown> | null = null;
+  let rescueBatchId: string | null = null;
   if (input.rescueUnverifiedFreeLayer && typeof sentToDiscards === 'number' && sentToDiscards > 0) {
     const batchId = free.batchId ?? (resolveCanonical ? await resolveCanonical().catch(() => null) : null);
+    rescueBatchId = batchId;
     rescueTelemetry = batchId
       ? await input.rescueUnverifiedFreeLayer(batchId).catch(() => ({ ran: false, reason: 'failed' }))
       : { ran: false, reason: 'no_batch' };
   }
   const freeTelemetry = rescueTelemetry ? { ...free.telemetry, free_layer_rescue_first: rescueTelemetry } : free.telemetry;
 
-  const freeAccepted = Math.min(Math.max(0, free.acceptedBeforeProvider), input.requestedTarget);
+  // AGENT1-FREE-LAYER-RESCUE-COUNTS-1 — lo que el rescate admitió (la web de la sin
+  // web encontrada y la empresa ya en revisión) también es aporte de la capa
+  // gratuita. Prod 08-10 (SV×Tecnología d3eb3324): 3 con web + 2 rescatadas = meta,
+  // y aun así se pagó Tavily, Claude y Apollo por un hueco de 2 ya cubierto.
+  const rescueAdmitted =
+    rescueBatchId !== null &&
+    rescueTelemetry !== null &&
+    rescueTelemetry['ran'] === true &&
+    rescueTelemetry['ok'] === true &&
+    typeof rescueTelemetry['admitted'] === 'number'
+      ? Math.max(0, Math.trunc(rescueTelemetry['admitted'] as number))
+      : 0;
+  const freeAccepted = Math.min(Math.max(0, free.acceptedBeforeProvider) + rescueAdmitted, input.requestedTarget);
   const remaining = Math.max(0, input.requestedTarget - freeAccepted);
+  // Las rescatadas ya son filas del lote (el rescate las pasa de Descartadas a
+  // revisión): cuentan también como escritas, o el tope por filas del asistente
+  // (`resolveAcceptedForTarget`) las volvería a recortar.
+  const freeWithRescue: PrePaidNoveltyDiscoveryOutcome =
+    rescueAdmitted > 0 && rescueBatchId !== null
+      ? {
+          ...free,
+          acceptedBeforeProvider: freeAccepted,
+          residualGap: remaining,
+          providerRequired: remaining > 0,
+          batchId: free.batchId ?? rescueBatchId,
+          persistedCount: free.persistedCount + rescueAdmitted,
+        }
+      : free;
   // Sin hueco, o sin lote canónico (ruta Lusha), el banco no se consulta.
   if (remaining === 0 || !resolveCanonical || !input.drawCompanyBank) {
-    return { ...free, telemetry: freeTelemetry };
+    return { ...freeWithRescue, telemetry: freeTelemetry };
   }
 
   const bank = await input
@@ -331,7 +359,7 @@ export async function runPrePaidNoveltyDiscovery(
     .catch(() => null);
   if (!bank || bank.persistedCount <= 0) {
     return {
-      ...free,
+      ...freeWithRescue,
       telemetry: bank ? { ...freeTelemetry, company_bank_first: bank.telemetry } : freeTelemetry,
     };
   }

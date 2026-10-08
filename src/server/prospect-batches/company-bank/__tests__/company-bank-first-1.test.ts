@@ -664,6 +664,46 @@ describe('§ 5 — AGENT1-FREE-LAYER-FIRST-1: primero la capa gratuita oficial, 
     assert.equal(out.telemetry['unverified_sent_to_discards'], 3);
   });
 
+  // AGENT1-FREE-LAYER-RESCUE-COUNTS-1 — Prod 08-10 (SV×Tecnología d3eb3324): la capa
+  // dio 3 con web, el rescate admitió 2 más (5 = meta) y aun así se pagó Tavily,
+  // Claude y Apollo por un hueco de 2 que ya estaba cubierto.
+  it('🔴 lo que el rescate admite descuenta del hueco: el banco y el pago sólo buscan lo que falta', async () => {
+    const h = freeHarness([1, 2, 3].map(freeCompanyWithoutWeb));
+    const { out, bankTargets } = await runWith(
+      { ...h.deps, maxDeliveredCandidates: 10 },
+      { persisted: 1, accepted: 1 },
+      true,
+      async () => ({ ran: true, ok: true, admitted: 2, kept: 1 }),
+    );
+    assert.deepEqual(bankTargets, [TARGET - 2], 'hueco = 5 − 2 rescatadas');
+    assert.equal(out.acceptedBeforeProvider, 3);
+    assert.equal(out.residualGap, TARGET - 3);
+    assert.equal(out.providerRequired, true);
+  });
+
+  it('🔴 si el rescate cierra la meta, ni banco ni proveedor de pago', async () => {
+    const h = freeHarness([1, 2, 3, 4, 5].map(freeCompanyWithoutWeb));
+    const { out, bankCalls } = await runWith(
+      { ...h.deps, maxDeliveredCandidates: 10 },
+      { persisted: 3, accepted: 3 },
+      true,
+      async () => ({ ran: true, ok: true, admitted: 5, kept: 0 }),
+    );
+    assert.equal(bankCalls, 0);
+    assert.equal(out.acceptedBeforeProvider, TARGET);
+    assert.equal(out.residualGap, 0);
+    assert.equal(out.providerRequired, false);
+    // Las rescatadas ya son filas del lote: el tope por filas del asistente no las recorta.
+    assert.ok(out.persistedCount >= TARGET, `persistedCount ${out.persistedCount}`);
+    assert.equal(out.batchId, 'b-canon');
+  });
+
+  it('un rescate que no corrió o falló no descuenta nada', async () => {
+    const h = freeHarness([1, 2].map(freeCompanyWithoutWeb));
+    const { bankTargets } = await runWith(h.deps, { persisted: 0, accepted: 0 }, true, async () => ({ ran: false, reason: 'no_time', admitted: 2 }));
+    assert.deepEqual(bankTargets, [TARGET]);
+  });
+
   it('sin sin web en Descartadas el rescate no corre; un rescate que falla no rompe nada', async () => {
     const h = freeHarness([freeCompany(1)]);
     const { order } = await runWith(h.deps, { persisted: 0, accepted: 0 }, true, async () => ({ ran: true }));
