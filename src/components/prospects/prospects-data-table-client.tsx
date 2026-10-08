@@ -12,6 +12,7 @@ import {
   X,
   Info,
   CheckCircle2,
+  UserPlus,
 } from "@/icons";
 import { Alert, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/feedback/spinner';
@@ -58,6 +59,9 @@ import {
   type ProspectRow,
 } from '@/components/prospects/prospect-table-cells';
 import { buildProspectQuickFilters } from '@/components/prospects/prospect-quick-filters';
+import { isAssignableCandidateStatus } from '@/modules/assignment/assignment-core';
+import { AssignOwnerDrawer, type AssignableUser } from '@/components/assignment/assign-owner-drawer';
+import { assignCandidatesToUser } from '@/modules/prospect-review/assign-actions';
 import { CandidateRowActions } from '@/components/prospect-batches/candidate-row-actions';
 import { CandidateDetailSheet } from '@/components/prospect-batches/candidate-detail-sheet';
 import { getCandidateLinkedInUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
@@ -178,6 +182,8 @@ interface ProspectsDataTableClientProps {
   sourceId?: string;
   sourceBatchType?: string;
   scopeFilterOptions?: ScopeFilterOptions;
+  /** BULK-COMPANY-ASSIGNMENT-1 — usuarios activos a quienes se puede asignar. */
+  assignableUsers?: AssignableUser[];
   currentUserId?: string;
   currentGroupId?: string;
   /**
@@ -198,6 +204,7 @@ export function ProspectsDataTableClient({
   sourceId,
   sourceBatchType,
   scopeFilterOptions,
+  assignableUsers = [],
   currentUserId = '',
   currentGroupId = '',
   emptyActions,
@@ -225,6 +232,22 @@ export function ProspectsDataTableClient({
   // MARK-DUPLICATE confirmation armed. Approve / discard / duplicate intents are
   // mutually exclusive per open.
   const [duplicateIntent, setDuplicateIntent] = React.useState(false);
+  // BULK-COMPANY-ASSIGNMENT-1 — prospectos que se van a asignar a otra persona.
+  const [assignRows, setAssignRows] = React.useState<Row[]>([]);
+  const canAssign = assignableUsers.length > 0;
+
+  // Responsables presentes en la lista, para el embudo de la columna.
+  const responsibleFilterOptions = React.useMemo(() => {
+    const names = new Map<string, string>();
+    for (const row of rows) {
+      if (row.responsible && !names.has(row.responsible.id)) {
+        names.set(row.responsible.id, row.responsible.name);
+      }
+    }
+    return Array.from(names, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label, 'es'),
+    );
+  }, [rows]);
 
   // Q3F-5AZ.2E-1-UX1 — the side panel and the selection action bar must never
   // both be visible: opening the detail (from a row click, the row menu, the
@@ -466,6 +489,38 @@ export function ProspectsDataTableClient({
         },
       },
       {
+        // BULK-COMPANY-ASSIGNMENT-1 — el asignado o, si no hay, quien buscó.
+        id: 'responsible',
+        accessorFn: (row) => row.responsible?.name ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Responsable" />
+        ),
+        cell: ({ row }) => {
+          const responsible = row.original.responsible;
+          if (!responsible) return <EmptyCell label="Sin responsable" />;
+          return (
+            <span
+              className="block truncate text-xs text-muted-foreground"
+              title={responsible.isAssigned ? `${responsible.name} (asignada)` : responsible.name}
+            >
+              {responsible.name}
+            </span>
+          );
+        },
+        size: 140,
+        minSize: 100,
+        filterFn: (row, _columnId, filterValue: string[]) => {
+          if (!filterValue || filterValue.length === 0) return true;
+          const id = row.original.responsible?.id;
+          return !!id && filterValue.includes(id);
+        },
+        meta: {
+          label: 'Responsable',
+          popoverTitle: 'Responsable',
+          filterOptions: responsibleFilterOptions,
+        },
+      },
+      {
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => (
@@ -576,6 +631,11 @@ export function ProspectsDataTableClient({
             onMarkDuplicateOverride={() =>
               openCandidateDetail(row.original, { duplicateIntent: true })
             }
+            onAssign={
+              canAssign && isAssignableCandidateStatus(row.original.status)
+                ? () => setAssignRows([row.original])
+                : undefined
+            }
           />
         ),
         size: 48,
@@ -586,7 +646,7 @@ export function ProspectsDataTableClient({
         meta: { label: 'Acciones', disableFilter: true, disableSort: true },
       },
     ],
-    [openCandidateDetail],
+    [openCandidateDetail, responsibleFilterOptions, canAssign],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -599,6 +659,16 @@ export function ProspectsDataTableClient({
           icon: Info,
           onClick: () => openCandidateDetail(row),
         },
+        ...(canAssign && isAssignableCandidateStatus(row.status)
+          ? [
+              {
+                id: 'assign',
+                label: 'Asignar a…',
+                icon: UserPlus,
+                onClick: () => setAssignRows([row]),
+              },
+            ]
+          : []),
         // "Aprobar" never approves directly from the menu — it opens the
         // drawer with the inline confirmation armed; real eligibility is
         // evaluated there. Hidden only for unambiguous terminal states.
@@ -658,7 +728,7 @@ export function ProspectsDataTableClient({
           : []),
       ],
     }),
-    [openCandidateDetail],
+    [openCandidateDetail, canAssign],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -740,6 +810,19 @@ export function ProspectsDataTableClient({
           })),
         ],
       },
+      ...(canAssign
+        ? [
+            {
+              // BULK-COMPANY-ASSIGNMENT-1 — repartir prospectos: uno o varios.
+              id: 'assign',
+              label: 'Asignar a…',
+              icon: UserPlus,
+              disabled: (rows: Row[]) => !rows.some((r) => isAssignableCandidateStatus(r.status)),
+              onClick: (rows: Row[]) =>
+                setAssignRows(rows.filter((r) => isAssignableCandidateStatus(r.status))),
+            },
+          ]
+        : []),
       {
         id: 'open-websites',
         label: 'Abrir sitios web',
@@ -758,7 +841,7 @@ export function ProspectsDataTableClient({
         },
       },
     ],
-    [openCandidateDetail],
+    [openCandidateDetail, canAssign],
   );
 
   const isSourceFiltered = !!sourceId;
@@ -807,13 +890,18 @@ export function ProspectsDataTableClient({
                 onApproveOverride={() => openCandidateDetail(row, { approveIntent: true })}
                 onDiscardOverride={() => openCandidateDetail(row, { discardIntent: true })}
                 onMarkDuplicateOverride={() => openCandidateDetail(row, { duplicateIntent: true })}
+                onAssign={
+                  canAssign && isAssignableCandidateStatus(row.status)
+                    ? () => setAssignRows([row])
+                    : undefined
+                }
               />
             )
           }
         />
       );
     },
-    [openCandidateDetail],
+    [openCandidateDetail, canAssign],
   );
 
   // ── Vacíos: cada uno dice por qué no hay filas y qué hacer ────
@@ -966,6 +1054,24 @@ export function ProspectsDataTableClient({
           emptyState={emptyState}
         />
       </div>
+
+      <AssignOwnerDrawer
+        open={assignRows.length > 0}
+        onOpenChange={(open) => !open && setAssignRows([])}
+        kind="candidates"
+        items={assignRows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          currentOwnerId: r.responsible?.id ?? null,
+        }))}
+        users={assignableUsers}
+        currentUserId={scopeFilterOptions?.currentUserId}
+        onAssign={assignCandidatesToUser}
+        onAssigned={() => {
+          dataTableRef.current?.clearSelection();
+          router.refresh();
+        }}
+      />
 
       <CandidateDetailSheet
         key={detailCandidate?.id ?? 'empty'}

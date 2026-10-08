@@ -85,12 +85,20 @@ import {
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import { completeConvertedAccount } from '@/modules/accounts/complete-converted-account.server';
 import {
+  buildCandidateOwnershipOrClause,
+  intersectOptionalUserIds,
+  resolveCandidateResponsibleId,
+  resolveConversionOwnerUserId,
+} from '@/modules/assignment/assignment-core';
+import { hasCandidateAssignmentColumn } from '@/modules/assignment/assignment.server';
+import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
   type ProspectBatch,
   type ProspectBatchWithMeta,
   type ProspectCandidate,
   type ProspectCandidateWithReviewer,
+  type CandidateResponsible,
   type ProspectCandidateAudit,
   type BatchesSummary,
   type BatchDetailSummary,
@@ -471,6 +479,20 @@ export async function resolveAllowedBatchIds(): Promise<string[] | null> {
     .select('id')
     .or(orClause);
   return (data ?? []).map((b: { id: string }) => b.id as string);
+}
+
+/**
+ * BULK-COMPANY-ASSIGNMENT-1 — personas cuyos prospectos ve el usuario actual,
+ * para el alcance por responsable (asignado o dueño del lote).
+ *  - `null` → sin restricción (alcance apagado, o admin).
+ *  - `[]`   → nada visible.
+ */
+async function resolveCandidateScopeUserIds(): Promise<string[] | null> {
+  if (!isCommercialScopeEnabled()) return null;
+  const scope = await resolveCommercialScope();
+  if (!scope) return [];
+  if (scope.canViewAll) return null;
+  return scope.allowedUserIds;
 }
 
 // ── Detalle de lote ───────────────────────────────────────────
@@ -2130,12 +2152,18 @@ export async function approveAndConvertCandidateAction(
   }
 
   // HUBSPOT-ACCOUNT-SYNC-1 — quien lanzó la búsqueda del Agente 1 (creador del lote).
+  // BULK-COMPANY-ASSIGNMENT-1 — si alguien asignó el prospecto a otra persona,
+  // la empresa queda a nombre del asignado (la apruebe quien la apruebe).
   const batchRaw = (candidate as Record<string, unknown>).batch;
   const batchRow = (Array.isArray(batchRaw) ? batchRaw[0] : batchRaw) as
     | { created_by?: string | null }
     | null
     | undefined;
-  const searcherUserId: string = batchRow?.created_by ?? internalUserId;
+  const searcherUserId: string = resolveConversionOwnerUserId({
+    assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
+    batchCreatedBy: batchRow?.created_by,
+    approverUserId: internalUserId,
+  });
 
   // 4. Resolver sincronización / vinculación a HubSpot
   const validation = (candidate.metadata?.validation || {}) as Record<string, unknown>;
@@ -3973,7 +4001,8 @@ export interface GlobalCandidatesFilters {
   search?: string;
   limit?: number;
   offset?: number;
-  /** Restrict to candidates belonging to batches owned/created by these user ids.
+  /** Restrict to candidates whose responsible is one of these user ids (the
+   *  assignee, or the batch owner/creator when unassigned — migration 145).
    *  Always intersected with commercial scope — cannot widen visibility. */
   ownerUserIds?: string[];
 }
@@ -3981,7 +4010,14 @@ export interface GlobalCandidatesFilters {
 export interface GlobalCandidatesResult {
   candidates: (ProspectCandidate & {
     reviewer: { id: string; full_name: string | null; email: string } | null;
-    batch: { name: string; source: string; created_at: string } | null;
+    batch: {
+      name: string;
+      source: string;
+      created_at: string;
+      owner_id?: string | null;
+      created_by?: string | null;
+    } | null;
+    responsible?: CandidateResponsible | null;
   })[];
   total: number;
 }
@@ -4077,36 +4113,65 @@ export async function getGlobalCandidatesList(
   await requireActiveUser();
   const supabase = await createClient();
 
-  // Commercial scope: restrict candidates to batches inside the viewer's reach.
-  // null = no constraint (admin / flag off); [] = nothing visible.
-  const allowedBatchIds = await resolveAllowedBatchIds();
-  if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
-    return { candidates: [], total: 0 };
-  }
-  let allowedBatchSet =
-    allowedBatchIds !== null ? new Set(allowedBatchIds) : null;
+  // BULK-COMPANY-ASSIGNMENT-1 — con la migración 145 aplicada, el responsable de
+  // un prospecto es el asignado o, si no hay, el del lote: el alcance y el
+  // filtro por persona se aplican sobre ese responsable. Sin la 145, igual que
+  // antes (por lote).
+  const assignmentEnabled = await hasCandidateAssignmentColumn(supabase);
 
-  // ownerUserIds filter: narrow to batches belonging to specific users, always
-  // intersected with scope so it can never widen visibility.
-  if (filters.ownerUserIds && filters.ownerUserIds.length > 0) {
-    const orClause = BATCH_OWNER_COLUMNS.map(
-      (col) => `${col}.in.(${filters.ownerUserIds!.join(',')})`,
-    ).join(',');
-    const { data: ownerBatches } = await supabase
-      .from('prospect_batches')
-      .select('id')
-      .or(orClause);
-    const ownerBatchIds = (ownerBatches ?? []).map((b: { id: string }) => b.id);
-    const ownerSet = new Set(ownerBatchIds);
-    if (allowedBatchSet) {
-      // Intersect: only batches that are both in scope and match the owner filter.
-      const intersected = ownerBatchIds.filter((id) => allowedBatchSet!.has(id));
-      if (intersected.length === 0) return { candidates: [], total: 0 };
-      allowedBatchSet = new Set(intersected);
-    } else {
-      // Admin (no scope constraint): restrict to owner-matching batches only.
-      if (ownerSet.size === 0) return { candidates: [], total: 0 };
-      allowedBatchSet = ownerSet;
+  let ownershipClause: string | null = null;
+  let allowedBatchSet: Set<string> | null = null;
+
+  if (assignmentEnabled) {
+    const userIds = intersectOptionalUserIds(
+      await resolveCandidateScopeUserIds(),
+      filters.ownerUserIds && filters.ownerUserIds.length > 0 ? filters.ownerUserIds : null,
+    );
+    if (userIds !== null) {
+      if (userIds.length === 0) return { candidates: [], total: 0 };
+      const orClause = BATCH_OWNER_COLUMNS.map(
+        (col) => `${col}.in.(${userIds.join(',')})`,
+      ).join(',');
+      const { data: ownedBatches } = await supabase
+        .from('prospect_batches')
+        .select('id')
+        .or(orClause);
+      ownershipClause = buildCandidateOwnershipOrClause(
+        userIds,
+        (ownedBatches ?? []).map((b: { id: string }) => b.id),
+      );
+    }
+  } else {
+    // Commercial scope: restrict candidates to batches inside the viewer's reach.
+    // null = no constraint (admin / flag off); [] = nothing visible.
+    const allowedBatchIds = await resolveAllowedBatchIds();
+    if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
+      return { candidates: [], total: 0 };
+    }
+    allowedBatchSet = allowedBatchIds !== null ? new Set(allowedBatchIds) : null;
+
+    // ownerUserIds filter: narrow to batches belonging to specific users, always
+    // intersected with scope so it can never widen visibility.
+    if (filters.ownerUserIds && filters.ownerUserIds.length > 0) {
+      const orClause = BATCH_OWNER_COLUMNS.map(
+        (col) => `${col}.in.(${filters.ownerUserIds!.join(',')})`,
+      ).join(',');
+      const { data: ownerBatches } = await supabase
+        .from('prospect_batches')
+        .select('id')
+        .or(orClause);
+      const ownerBatchIds = (ownerBatches ?? []).map((b: { id: string }) => b.id);
+      const ownerSet = new Set(ownerBatchIds);
+      if (allowedBatchSet) {
+        // Intersect: only batches that are both in scope and match the owner filter.
+        const intersected = ownerBatchIds.filter((id) => allowedBatchSet!.has(id));
+        if (intersected.length === 0) return { candidates: [], total: 0 };
+        allowedBatchSet = new Set(intersected);
+      } else {
+        // Admin (no scope constraint): restrict to owner-matching batches only.
+        if (ownerSet.size === 0) return { candidates: [], total: 0 };
+        allowedBatchSet = ownerSet;
+      }
     }
   }
 
@@ -4115,8 +4180,10 @@ export async function getGlobalCandidatesList(
     .select(`
       *,
       reviewer:internal_users!prospect_candidates_reviewed_by_fkey(id, full_name, email),
-      batch:prospect_batches!prospect_candidates_batch_id_fkey(name, source, created_at)
+      batch:prospect_batches!prospect_candidates_batch_id_fkey(name, source, created_at, owner_id, created_by)
     `, { count: 'exact' });
+
+  if (ownershipClause) query = query.or(ownershipClause);
 
   // 1. Filtrar por batch_id (deep link). Honra el scope: un batch fuera de
   //    alcance no devuelve filas.
@@ -4206,13 +4273,57 @@ export async function getGlobalCandidatesList(
     throw new Error(`Error al consultar candidatos globales: ${error.message}`);
   }
 
+  const candidates = (data ?? []) as GlobalCandidatesResult['candidates'];
   return {
-    candidates: (data ?? []) as (ProspectCandidate & {
-      reviewer: { id: string; full_name: string | null; email: string } | null;
-      batch: { name: string; source: string; created_at: string } | null;
-    })[],
+    candidates: await attachCandidateResponsibles(supabase, candidates),
     total: count ?? 0,
   };
+}
+
+/**
+ * BULK-COMPANY-ASSIGNMENT-1 — responsable efectivo de cada prospecto (el
+ * asignado o el del lote) con su nombre, para la columna «Responsable». Una
+ * sola lectura de nombres; si falla, la lista sale igual sin la columna.
+ */
+async function attachCandidateResponsibles(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  candidates: GlobalCandidatesResult['candidates'],
+): Promise<GlobalCandidatesResult['candidates']> {
+  const withIds = candidates.map((candidate) => ({
+    candidate,
+    responsibleId: resolveCandidateResponsibleId({
+      assignedTo: candidate.assigned_to,
+      batchOwnerId: candidate.batch?.owner_id,
+      batchCreatedBy: candidate.batch?.created_by,
+    }),
+  }));
+  const userIds = [...new Set(withIds.map((row) => row.responsibleId).filter((id): id is string => !!id))];
+  if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null }));
+
+  const { data: users, error } = await supabase
+    .from('internal_users')
+    .select('id, full_name, email')
+    .in('id', userIds);
+  if (error) {
+    console.error('[getGlobalCandidatesList] responsible names read failed:', error.message);
+    return candidates;
+  }
+  const names = new Map(
+    (users ?? []).map((u: { id: string; full_name: string | null; email: string | null }) => [
+      u.id,
+      u.full_name?.trim() || u.email || 'Sin nombre',
+    ]),
+  );
+  return withIds.map(({ candidate, responsibleId }) => ({
+    ...candidate,
+    responsible: responsibleId
+      ? {
+          id: responsibleId,
+          name: names.get(responsibleId) ?? 'Sin nombre',
+          isAssigned: !!candidate.assigned_to,
+        }
+      : null,
+  }));
 }
 
 export interface ProspectsKPIs {
