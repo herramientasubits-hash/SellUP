@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { formatInAppZone } from '@/lib/format-date';
 import { toast } from 'sonner';
 import {
   UserSearch,
@@ -26,6 +27,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/feedback/spinner';
 import {
   getReviewableContactCandidateById,
+  getRejectedContactCandidateById,
   getDuplicateCandidateMergeOffer,
 } from '@/modules/contact-enrichment/actions';
 // Las secciones de solo lectura, la revisión humana y la auditoría del waterfall salieron
@@ -55,6 +57,8 @@ import {
 } from './contact-candidate-review-sections';
 import { CandidateWaterfallAuditSection } from './contact-candidate-waterfall-audit-section';
 import { useCandidateReviewDecision } from './use-candidate-review-decision';
+import { RejectedCandidateActions } from './contact-candidate-rejected-actions';
+import { rejectionInfo } from './contact-candidate-rejection-info';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 import { PHONE_REVEAL_PROCESSING_BASIS as SHARED_PHONE_REVEAL_PROCESSING_BASIS } from '@/modules/contact-enrichment/phone-reveal-processing-basis';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
@@ -268,6 +272,11 @@ const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis =
 const PHONE_REVEAL_IN_FLIGHT_BASE_COPY =
   'Apollo puede tardar. SellUp revisará automáticamente el resultado';
 
+/** Fecha del rechazo en la zona de la app (es-CO). */
+function formatRejectedAt(iso: string): string {
+  return formatInAppZone(new Date(iso), { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CO');
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 interface ContactCandidateDetailSheetProps {
@@ -313,6 +322,12 @@ interface ContactCandidateDetailSheetProps {
    * es el flag. Resuelto server-side; el server revalida el rol de todas formas.
    */
   phoneRevealWaterfallAuthorized?: boolean;
+  /**
+   * AGENT2A-CONTACTOS-RECHAZADOS — `rejected` abre el MISMO panel para un candidato rechazado:
+   * lo lee con `getRejectedContactCandidateById` y su barra inferior ofrece únicamente
+   * «Enviar a revisar». Por defecto `review` (comportamiento histórico).
+   */
+  variant?: 'review' | 'rejected';
 }
 
 /**
@@ -332,7 +347,13 @@ export function ContactCandidateDetailSheet({
   lushaPhoneFallbackAuthorized = false,
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
+  variant = 'review',
 }: ContactCandidateDetailSheetProps) {
+  const isRejectedVariant = variant === 'rejected';
+  // La misma proyección de sólo lectura; cambia únicamente el estado que se admite.
+  const loadCandidateById = isRejectedVariant
+    ? getRejectedContactCandidateById
+    : getReviewableContactCandidateById;
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
   /**
@@ -787,7 +808,7 @@ export function ContactCandidateDetailSheet({
           // § 4.1: SIEMPRE se relee el candidato desde SellUp al abrir. No se
           // confía en el snapshot de la tabla padre, que puede ser anterior al
           // webhook. Lectura de solo lectura: 0 llamadas a proveedor, 0 créditos.
-          const result = await getReviewableContactCandidateById(candidateId);
+          const result = await loadCandidateById(candidateId);
           if (cancelled) return;
           if (!result) {
             // La lectura SÍ funcionó: el candidato ya no está en un estado revisable.
@@ -859,6 +880,7 @@ export function ContactCandidateDetailSheet({
     reloadDurableMergeOffer,
     resetTransientCandidateState,
     resetInFlightGuards,
+    loadCandidateById,
   ]);
 
   /**
@@ -877,7 +899,7 @@ export function ContactCandidateDetailSheet({
     if (inFlight) return inFlight;
     const request = (async () => {
       try {
-        const fresh = await getReviewableContactCandidateById(candidateId);
+        const fresh = await loadCandidateById(candidateId);
         if (fresh && currentCandidateIdRef.current === candidateId) setCandidate(fresh);
       } catch {
         // Silencioso: mantenemos la vista actual si el refetch falla.
@@ -910,6 +932,7 @@ export function ContactCandidateDetailSheet({
     }
   }, [
     candidateId,
+    loadCandidateById,
     reloadWaterfallAudit,
     reloadWaterfallAuthorizationPreview,
     reloadLegacyAuthorizationPreview,
@@ -1848,6 +1871,10 @@ export function ContactCandidateDetailSheet({
                 <Badge variant="neutral" className="shrink-0">
                   Duplicado
                 </Badge>
+              ) : candidate.status === 'discarded' ? (
+                <Badge variant="destructive" className="shrink-0">
+                  Rechazado
+                </Badge>
               ) : (
                 <Badge variant="warning" className="shrink-0">
                   Por revisar
@@ -1875,7 +1902,10 @@ export function ContactCandidateDetailSheet({
         // Su veredicto ya está tomado; lo único que queda es la decisión de duplicado, que vive
         // en el cuerpo del drawer. Presentarlo con la barra de aprobación normal era justamente
         // mezclarlo con una aprobación pendiente.
-        candidate && candidate.status !== 'duplicate' ? (
+        // AGENT2A-CONTACTOS-RECHAZADOS: un rechazado sólo puede volver a «Por revisar».
+        candidate && isRejectedVariant ? (
+          <RejectedCandidateActions candidateId={candidate.id} onClose={onClose} />
+        ) : candidate && candidate.status !== 'duplicate' ? (
           <CandidateReviewActions
             candidate={candidate}
             review={review}
@@ -1907,6 +1937,17 @@ export function ContactCandidateDetailSheet({
         <div className="space-y-4">
           {/* 4O-H3-B-R1 — aviso DURADERO de duplicado. Vive en el cuerpo del drawer, no en
               un diálogo, y por eso sigue ahí después de cerrar, refrescar o navegar. */}
+          {candidate.status === 'discarded' ? (
+            <Alert variant="destructive" role="note" className="p-3">
+              <span className="text-xs leading-relaxed">
+                {(() => {
+                  const { reason, reviewedAt } = rejectionInfo(candidate);
+                  return `Rechazado${reviewedAt ? ` el ${formatRejectedAt(reviewedAt)}` : ''} · Motivo: ${reason ?? 'sin motivo registrado'}. Para aprobarlo, primero envíalo a revisar.`;
+                })()}
+              </span>
+            </Alert>
+          ) : null}
+
           {candidate.status === 'duplicate' ? (
             <CandidateDuplicateNotice
               mergeOffer={durableMergeOffer}

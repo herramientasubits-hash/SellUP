@@ -61,4 +61,12 @@ export const CONTACT_CANDIDATES_QUEUE_COPY: Record<
       'Cuando la detección marque un candidato como duplicado de un contacto existente, aparecerá aquí.',
     showEnrichmentCta: false,
   },
+  rejected: {
+    title: 'Contactos rechazados',
+    description:
+      'Candidatos que alguien del equipo rechazó durante la revisión, con el motivo y la fecha del rechazo. No se crearon como contactos ni viajaron a HubSpot.',
+    emptyTitle: 'No hay contactos rechazados.',
+    emptyBody: 'Cuando se rechace un candidato desde «Por revisar», aparecerá aquí con su motivo.',
+    showEnrichmentCta: false,
+  },
 };

@@ -7,7 +7,7 @@ import { CONTACTS_ROUTE } from '@/config/navigation';
  * (`?tab=duplicates`) conserva su ruta y se llega a ella por enlace. Las rutas
  * son las de siempre; la página ya no lleva pestañas propias.
  */
-export type ContactsTabId = 'approved' | 'candidates' | 'duplicates';
+export type ContactsTabId = 'approved' | 'candidates' | 'duplicates' | 'rejected';
 
 /** El nombre del módulo: el del menú y el primer tramo de las migas. */
 export const CONTACTOS_MODULE_TITLE = 'Contactos';
@@ -21,6 +21,7 @@ export const CONTACTOS_VIEW_TITLES: Record<ContactsTabId, string> = {
   approved: 'Contactos',
   candidates: 'Por revisar',
   duplicates: 'Duplicados',
+  rejected: 'Contactos rechazados',
 };
 
 export const CONTACTOS_TAB_DESCRIPTIONS: Record<ContactsTabId, string> = {
@@ -29,6 +30,7 @@ export const CONTACTOS_TAB_DESCRIPTIONS: Record<ContactsTabId, string> = {
   // mismo que se lee aquí, para que cabecera y cola no digan cosas distintas.
   candidates: CONTACT_CANDIDATES_QUEUE_COPY.pending.description,
   duplicates: CONTACT_CANDIDATES_QUEUE_COPY.duplicates.description,
+  rejected: CONTACT_CANDIDATES_QUEUE_COPY.rejected.description,
 };
 
 /** Las migas de una vista: «Contactos › Por revisar». La vista raíz no lleva. */

@@ -409,7 +409,7 @@ describe('Menú lateral — secciones plegables', () => {
       within(screen.getByRole('group', { name: 'Contactos' }))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-      ['/contacts?tab=approved', '/contacts?tab=candidates'],
+      ['/contacts?tab=approved', '/contacts?tab=candidates', '/contacts?tab=rejected'],
     );
 
     fireEvent.click(head);

@@ -61,6 +61,16 @@ export interface HubSpotContactCreateInput {
   jobtitle: string | null;
   phone: string | null;
   mobilePhone: string | null;
+  /**
+   * URL del perfil de LinkedIn → propiedad `hs_linkedin_url` de HubSpot.
+   *
+   * AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE: hasta este corte el LinkedIn sólo viajaba cuando el
+   * contacto YA existía en HubSpot (completar vacíos), así que todo contacto CREADO por SellUp
+   * llegaba al CRM sin él. El mapeo `hs_linkedin_url` ya estaba validado por ese camino.
+   * La URL viaja tal cual se guardó (p. ej. `…/herrerani%C3%B1o`): el percent-encoding de
+   * caracteres como la ñ es la forma canónica de la URL y LinkedIn la resuelve igual.
+   */
+  linkedinUrl: string | null;
 }
 
 /**
@@ -180,7 +190,7 @@ export function buildHubSpotFillEmptyProperties(
     jobtitle: cleanString(contact.job_title),
     phone: cleanString(contact.phone),
     mobilephone: cleanString(contact.mobile_phone),
-    hs_linkedin_url: cleanString(contact.linkedin_url),
+    hs_linkedin_url: normalizeLinkedinUrlForHubSpot(contact.linkedin_url),
   };
 
   const fill: HubSpotContactFillProperties = {};
@@ -290,9 +300,22 @@ export function splitContactName(contact: ContactForSync): {
 }
 
 /**
+ * Normaliza la URL de LinkedIn que viaja a HubSpot: recorta espacios y añade `https://`
+ * cuando llega sin protocolo (`linkedin.com/in/…`, `www.linkedin.com/in/…`). No toca el
+ * percent-encoding. Devuelve `null` si no hay valor — nunca cadena vacía (en HubSpot BORRA).
+ */
+export function normalizeLinkedinUrlForHubSpot(value: string | null | undefined): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  if (/^https?:\/\//i.test(cleaned)) return cleaned;
+  if (/^([a-z]{2,3}\.|www\.)?linkedin\.com\//i.test(cleaned)) return `https://${cleaned}`;
+  return cleaned;
+}
+
+/**
  * Construye las propiedades estándar y seguras para crear un contacto en HubSpot.
- * Se omite LinkedIn deliberadamente (sin mapeo de escritura validado en este hito):
- * se conserva solo en SellUp.
+ * Incluye el LinkedIn (`hs_linkedin_url`) cuando el contacto lo tiene
+ * (AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE).
  */
 export function buildHubSpotContactProperties(
   contact: ContactForSync,
@@ -310,6 +333,7 @@ export function buildHubSpotContactProperties(
     // porque HubSpot ahora tiene un campo propio (`mobilephone`) para el celular.
     phone: cleanString(contact.phone),
     mobilePhone: cleanString(contact.mobile_phone),
+    linkedinUrl: normalizeLinkedinUrlForHubSpot(contact.linkedin_url),
   };
 }
 

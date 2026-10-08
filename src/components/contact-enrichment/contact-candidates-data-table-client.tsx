@@ -3,7 +3,7 @@
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Mail, Sparkles, UserSearch } from "@/icons";
+import { Link2, Building2, Mail, RotateCcw, Sparkles, UserSearch } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,8 @@ import type {
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
+import { SEND_TO_REVIEW_LABEL, useSendRejectedToReview } from './contact-candidate-rejected-actions';
+export { rejectionInfo } from './contact-candidate-rejection-info';
 import {
   EMPTY_SCOPE_FILTER,
   TeamFilterButton,
@@ -100,7 +102,9 @@ const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCand
 
 /** El estado del flujo, en texto: todas las filas de una cola comparten el suyo. */
 function workflowStatusLabel(candidate: PendingContactCandidate): string {
-  return candidate.status === 'duplicate' ? 'Duplicado' : 'Por revisar';
+  if (candidate.status === 'duplicate') return 'Duplicado';
+  if (candidate.status === 'discarded') return 'Rechazado';
+  return 'Por revisar';
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -251,6 +255,10 @@ export function ContactCandidatesDataTableClient({
   // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
   // la pill «Duplicados».
   const queueCopy = CONTACT_CANDIDATES_QUEUE_COPY[queue];
+  // AGENT2A-CONTACTOS-RECHAZADOS: «Contactos rechazados» ES esta misma tabla —mismas columnas,
+  // filtros y panel—; cualquier cambio visual de «Por revisar» le llega igual. Lo único que
+  // cambia son las acciones: la barra sólo ofrece «Enviar a revisar».
+  const isRejectedQueue = queue === 'rejected';
 
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
@@ -275,6 +283,10 @@ export function ContactCandidatesDataTableClient({
     setDetailOpen(true);
   }, []);
 
+  const { send: sendToReview } = useSendRejectedToReview(() =>
+    dataTableRef.current?.clearSelection(),
+  );
+
   const quick = useQuickFilter(filteredCandidates, CANDIDATE_QUICK_FILTERS);
   const toggleQuickFilter = React.useCallback(
     (id: string) => {
@@ -295,7 +307,14 @@ export function ContactCandidatesDataTableClient({
   };
 
   const bulkActions = React.useMemo<DataTableBulkAction<PendingContactCandidate>[]>(
-    () => [
+    () => isRejectedQueue ? [
+      {
+        id: 'send-to-review',
+        label: SEND_TO_REVIEW_LABEL,
+        icon: RotateCcw,
+        onClick: (rows) => sendToReview(rows.map((row) => row.id)),
+      },
+    ] : [
       {
         id: 'view-detail',
         // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
@@ -306,7 +325,7 @@ export function ContactCandidatesDataTableClient({
         onClick: (rows) => openDetail(rows[0]),
       },
     ],
-    [openDetail],
+    [openDetail, isRejectedQueue, sendToReview],
   );
 
   const columns: ColumnDef<PendingContactCandidate, unknown>[] = React.useMemo(
@@ -522,7 +541,13 @@ export function ContactCandidatesDataTableClient({
           {...quickFilterGroup}
           icon={UserSearch}
           total={quick.total}
-          noun={queue === 'duplicates' ? ['candidato duplicado', 'candidatos duplicados'] : ['candidato por revisar', 'candidatos por revisar']}
+          noun={
+            queue === 'duplicates'
+              ? ['candidato duplicado', 'candidatos duplicados']
+              : queue === 'rejected'
+                ? ['contacto rechazado', 'contactos rechazados']
+                : ['candidato por revisar', 'candidatos por revisar']
+          }
           className="shrink-0"
         />
       )}
@@ -571,6 +596,7 @@ export function ContactCandidatesDataTableClient({
       lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
       phoneRevealWaterfallEnabled={phoneRevealWaterfallEnabled}
       phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
+      variant={isRejectedQueue ? 'rejected' : 'review'}
     />
     </>
   );
