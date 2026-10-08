@@ -102,7 +102,8 @@ function toSourceDiscoveryCandidate(
     sourcePrimary: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
     sourceTrace: {
       sourceProvider: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
-      sourceKey,
+      // SOURCES-LATAM-CURATED-1 — lo que viene de la capa común lleva su propia fuente.
+      sourceKey: company.originSourceKey ?? sourceKey,
       sourceRecordId: company.recordIdentityKey,
       industryCode: company.industryCode,
     },
@@ -117,6 +118,9 @@ function toSourceDiscoveryCandidate(
       // guarda (el writer la lee de aquí y deriva el dominio) en vez de tirarla.
       website: company.domain ? `https://${company.domain}` : null,
       website_available: company.domain !== null,
+      ...(company.curatedOrigins && company.curatedOrigins.length > 0
+        ? { curated_origins: [...company.curatedOrigins] }
+        : {}),
       // SOURCES-MX-FREE-LAYER-RFC-1 — el número fiscal lo puso el registro oficial
       // por nombre (la fuente no lo publica). Ausente ⇒ venía de la fuente.
       ...(company.officialTaxIdLookup?.sourceKey

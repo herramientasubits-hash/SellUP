@@ -1,0 +1,11 @@
+SELECT ?u (SAMPLE(?label) AS ?name) (SAMPLE(?iso) AS ?cc) (SAMPLE(?web) AS ?site) (MAX(?pub) AS ?isPublic) (MAX(?priv) AS ?isPrivate) WHERE {
+  VALUES ?country { wd:Q96 wd:Q298 wd:Q414 wd:Q736 wd:Q750 wd:Q774 wd:Q800 wd:Q804 wd:Q786 wd:Q792 wd:Q783 wd:Q811 wd:Q77 wd:Q733 }
+  VALUES ?t { wd:Q3918 wd:Q875538 wd:Q902104 wd:Q15936437 wd:Q1371037 }
+  ?u wdt:P31 ?t ; wdt:P17 ?country .
+  ?country wdt:P297 ?iso .
+  OPTIONAL { ?u wdt:P856 ?web }
+  BIND(IF(?t = wd:Q875538, 1, 0) AS ?pub)
+  BIND(IF(?t = wd:Q902104, 1, 0) AS ?priv)
+  FILTER NOT EXISTS { ?u wdt:P576 ?dissolved }
+  ?u rdfs:label ?label . FILTER(LANG(?label) = "es")
+} GROUP BY ?u

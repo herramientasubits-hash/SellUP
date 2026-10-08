@@ -114,6 +114,11 @@ import { macroHasCoSiisCoverage } from './co-siis-macro-table';
 import { CO_PUBLIC_ENTITY_DISCOVERY_MACROS } from './co-siis-discovery-adapter';
 import { macroHasDgiiCoverage } from './do-dgii-macro-table';
 import { macroHasArCoverage } from './ar-rns-macro-table';
+import {
+  buildLatamCuratedDiscoveryAdapter,
+  withLatamCuratedLayer,
+  type LatamCuratedDiscoveryReads,
+} from './latam-curated-discovery-adapter';
 
 /**
  * Países con descubrimiento gratuito consciente de criterios.
@@ -272,9 +277,7 @@ export function countrySourceMacroHasCoverage(
  * la lectura que necesita no fue inyectada — ausencia de credencial/cliente NO es
  * un fallo silencioso, es «sin fuente», que es fail-open hacia el pago.
  */
-export function buildCountrySourceAdapter(
-  countryCode: string | null | undefined,
-  deps: {
+export type CountrySourceAdapterDeps = {
     coSiisSnapshotQuery?: CoSiisSnapshotQuery | null;
     doDgiiDiscoveryReads?: DoDgiiDiscoveryReads | null;
     arRnsDiscoveryReads?: ArRnsDiscoveryReads | null;
@@ -290,7 +293,27 @@ export function buildCountrySourceAdapter(
     paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
     niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
     svComprasalDirectoryDiscoveryReads?: SvComprasalDirectoryDiscoveryReads | null;
-  },
+    /** SOURCES-LATAM-CURATED-1 — capa común de listas curadas, sumada detrás del país. */
+    latamCuratedDiscoveryReads?: LatamCuratedDiscoveryReads | null;
+};
+
+/**
+ * Construye el adapter del país y, si hay lectura de la capa común de listas
+ * curadas (SOURCES-LATAM-CURATED-1), le suma lo curado detrás. `null` igual que
+ * antes: sin fuente del país no hay capa gratuita.
+ */
+export function buildCountrySourceAdapter(
+  countryCode: string | null | undefined,
+  deps: CountrySourceAdapterDeps,
+): CountrySourceAdapter | null {
+  const primary = buildPrimaryCountrySourceAdapter(countryCode, deps);
+  if (primary === null || !deps.latamCuratedDiscoveryReads) return primary;
+  return withLatamCuratedLayer(primary, buildLatamCuratedDiscoveryAdapter(deps.latamCuratedDiscoveryReads));
+}
+
+function buildPrimaryCountrySourceAdapter(
+  countryCode: string | null | undefined,
+  deps: CountrySourceAdapterDeps,
 ): CountrySourceAdapter | null {
   const capability = resolveCountrySourceCapability(countryCode);
   if (capability === null) return null;

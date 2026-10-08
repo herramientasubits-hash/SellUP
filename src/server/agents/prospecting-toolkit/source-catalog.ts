@@ -2391,6 +2391,35 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'latam_curated_directory',
+    name: 'Listas curadas gratuitas por país (universidades, reguladores, bolsas, exportadores, rankings) — capa común',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-LATAM-CURATED-1 (investigación 08-10-2026; decisiones de la dueña 08-10: educación privada → Compañía de Servicios, uso autorizado de Merco, Great Place to Work, Statista, datosperu.org y Google News). Se suma detrás de la capa gratuita de cada país. Listas: SNIES e IPS con 50+ camas (CO), SUNEDU y emisores BVL (PE), aseguradoras SSN (AR), aseguradoras CMF (CL), exportadores de Pro Ecuador (EC), CONES (PY), universidades de Wikidata (14 países), Merco Empresas y Talento (15 países), Great Place to Work certificadas (MX y Centroamérica) y Forbes/Statista Mejores empleadores (MX, sólo marca de grande). Fuera: Pacto Global ONU (su robots.txt prohíbe rastrear el buscador), datosperu.org (Perú ya usa los trabajadores de SUNAT), MICI SEM y emisores CNV/CMF (sin sector). Carga: los extractores de scripts/source-catalog/latam-curated/ (ver README) escriben entradas JSONL y scripts/source-catalog/run-latam-curated-etl.ts --entries=… las une (dry-run por defecto; --apply con autorización).',
+    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'public_dataset',
+    url: 'https://www.datos.gov.co/',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Suma a la capa gratuita de cada país entidades que sus registros no ofrecen por industria: universidades y colegios (públicos en Gobierno, privados en Compañía de Servicios), aseguradoras, bancos y prestadores de salud de los reguladores, emisores en bolsa, exportadores, multinacionales y empresas de rankings (Merco, Great Place to Work, Pacto Global). Trae web cuando la lista la publica y marca empresa grande cuando la lista lo implica.',
+    limitations: [
+      'Varias listas no publican número fiscal: lo pone en la corrida el registro oficial del país por nombre, sólo con coincidencia fuerte.',
+      'Lo que no tiene industria por el tipo de lista ni por el sector publicado no se ofrece.',
+      'Uruguay no tiene capa gratuita todavía: sus listas no se ofrecen hasta que la tenga.',
+      'Snapshot estático — requiere recarga anual de cada lista.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos de personas.',
+      'Rankings privados (Merco, GPTW, Statista): sólo nombre, sector y tamaño implícito; se revisan sus términos antes de cada carga.',
+    ],
+  },
+  {
     key: 'cr_sicop',
     name: 'SICOP Costa Rica (datos.go.cr)',
     sellupUse: 'commercial_signal',

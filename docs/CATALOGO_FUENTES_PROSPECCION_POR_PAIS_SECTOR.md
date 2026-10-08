@@ -841,3 +841,26 @@ Argentina, Uruguay, Paraguay, Bolivia, Costa Rica, Panamá, Guatemala, El Salvad
 *Documento consolidado el 2026-05-21. Versión 0.2.*  
 *Todas las fuentes citadas son reales y verificables al momento de la investigación. Disponibilidad, cobertura y condiciones de uso pueden cambiar.*  
 *Próximo paso: priorizar países y sectores comercialmente relevantes para UBITS, resolver brechas del §28, y hacer commit de este catálogo junto con el documento del Agente 1.*
+
+## Capa común de listas curadas (SOURCES-LATAM-CURATED-1, 08-10-2026)
+
+Una sola fuente (`latam_curated_directory`) que se suma detrás de la capa gratuita de cada país. Educación privada → Compañía de Servicios y pública → Gobierno (decisión de la dueña, 08-10-2026). Carga con `scripts/source-catalog/latam-curated/` + `scripts/source-catalog/run-latam-curated-etl.ts` (dry-run por defecto).
+
+| Lista | Países | Qué aporta | Estado |
+|---|---|---|---|
+| SNIES (MinEducación) | CO | Instituciones de educación superior con NIT, oficial/privada y web | Extractor listo |
+| MinSalud REPS – IPS con 50+ camas | CO | Clínicas y hospitales con NIT y número de camas | Extractor listo |
+| SUNEDU – universidades licenciadas | PE | Pública/privada, departamento | Extractor listo |
+| BVL – emisores | PE | Emisores con sector (sin fondos ni ETF) | Extractor listo |
+| SSN – aseguradoras activas | AR | Aseguradoras con CUIT | Extractor listo |
+| CMF – aseguradoras vigentes | CL | Aseguradoras con RUT | Extractor listo |
+| Pro Ecuador – directorio de exportadores | EC | RUC, web y sector (tabla de sectores cerrada) | Extractor listo |
+| CONES – educación superior habilitada | PY | Universidades e institutos con web | Extractor listo |
+| Wikidata – universidades (CC0) | 14 países | Universidades con web | Extractor listo |
+| Merco Empresas y Talento | 15 países | Empresas grandes con sector (tablas sectoriales) | Extractor listo |
+| Great Place to Work – certificadas | MX, Centroamérica | Industria, web y tramo de tamaño | Extractor listo |
+| Forbes/Statista – Mejores empleadores | MX | Sólo nombres (≥250 empleados): marca de grande | Extractor listo |
+| Pacto Global ONU | — | — | Fuera: su robots.txt prohíbe rastrear el buscador |
+| datosperu.org | — | — | Fuera: Perú ya usa trabajadores de SUNAT |
+| MICI SEM (PA), emisores CNV (AR) y CMF (CL), DIAN OEA (CO) | — | — | Fuera por ahora: sin sector |
+
