@@ -20,7 +20,7 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 import { CR_CICR_ACTIVITY_TABLE_VERSION, resolveCrCicrActivityMacro } from './cr-cicr-macro-table';
 
-export const LATAM_CURATED_MACRO_TABLE_VERSION = `latam-curated-v1+proecuador(${CR_CICR_ACTIVITY_TABLE_VERSION})` as const;
+export const LATAM_CURATED_MACRO_TABLE_VERSION = `latam-curated-v1+proecuador+merco(${CR_CICR_ACTIVITY_TABLE_VERSION})` as const;
 
 /** Qué es la entidad según la lista que la publica. */
 export type LatamCuratedKind =
@@ -86,6 +86,29 @@ const PRO_ECUADOR_SECTOR_MACRO: Readonly<Record<string, MacroIndustryKey | null>
   sombreros: null,
 };
 
+/**
+ * Sectores cortos en español de los rankings (Merco Empresas y Talento, y otras
+ * listas con el mismo estilo: «BANCARIO», «CEMENTERAS», «TRANSPORTE DE
+ * VIAJEROS»). Reglas en orden: la primera que acierta decide. Alineadas con la
+ * tabla CIIU por división aprobada; como en ella, hoteles, restaurantes, medios,
+ * entretenimiento, asociaciones y holdings quedan SIN macro. Educación va a
+ * Servicios (decisión de la dueña, 08-10-2026). Texto ya en minúsculas sin tildes.
+ */
+const SPANISH_SECTOR_RULES: readonly { macro: MacroIndustryKey | null; pattern: RegExp }[] = [
+  { macro: null, pattern: /hotel|turism|restaurant|comida rapida|gastronom|medios de comunicacion|editorial|entretenimiento|\bocio\b|parque tematico|gimnasio|asociacion|fundacion|sin fines de lucro|holding|conglomerad|grupo empresarial|empresarial corporativo|agencias de promocion/ },
+  { macro: 'retail', pattern: /cadenas? de farmacias|^farmacias?$|supermercad|autoservicio|departamental|tiendas|grandes superficies|retail|ferreter|electrodomestic|electronica de consumo|electronica y hogar|equipamiento (del|para el) hogar|\bmoda\b|joyeria|librer|calzado|deportes|repuestos|comercializacion de automoviles|comercio electronico|e-?comerc|comercio al por mayor|distribucion|distribuidora|centros? comercial|shopping/ },
+  { macro: 'health_pharma', pattern: /farmac|laboratorio|salud|clinica|hospital|dispositivos medicos|equipo medico|isapre|medicina prepagada|drogueria/ },
+  { macro: 'insurance_financial_services', pattern: /asegurador|seguros|\bafp\b|banc|financ|fintech|fondos?\b|tarjeta|pensiones|cooperativa$|entidades financieras/ },
+  { macro: 'technology', pattern: /telecomunic|tecnolog|informatic|software|internet|satelital|\bcrm\b|informacion y comunicacion|servicios electronicos/ },
+  { macro: 'transport_logistics', pattern: /aerolin|aviacion|transporte|logistic|courier|mensajeria|paqueteria|aeroportuari|delivery|reparto|entrega a domicilio|movilidad/ },
+  { macro: 'energy_mining_environment', pattern: /energi|petrole|hidrocarbur|combustible|gasolinera|miner|servicio petroler|residuos|medioambient|servicios publicos/ },
+  { macro: 'consumer_goods', pattern: /aliment|bebida|consumo masivo|vino|vitivin|cosmetic|cuidado personal|belleza|higiene|aseo|limpieza y cuidado del hogar|mascotas/ },
+  { macro: 'agroindustry', pattern: /agro|forestal|pesca|acuicultura|cafetaler|ingenio|agricol|veterinari/ },
+  { macro: 'industry_manufacturing_chemicals_automotive', pattern: /cement|industri|manufactur|automotri|automocion|autopartist|quimic|sider|metalurg|plastico|papel|empaque|textil|confeccion|maquila|maquinaria/ },
+  { macro: 'property_construction', pattern: /construccion|inmobili|bienes raices|infraestructur|concesiones viales|zonas? francas?|parques empresariales/ },
+  { macro: 'services_company', pattern: /educacion|universidad|academi|formacion|abogad|legal|auditori|consultor|contabilidad|\bbpo\b|contact center|\bett\b|rrhh|rr\.hh|facility|seguridad|servicios de limpieza|publicid|publicitari|cajas de compensacion|cementerio|servicios varios|servicios de alimentacion/ },
+];
+
 function plain(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -96,6 +119,7 @@ export function resolveLatamCuratedSectorMacro(sector: string | null | undefined
   const text = plain(sector);
   const first = text.split(',')[0]?.trim() ?? '';
   if (first in PRO_ECUADOR_SECTOR_MACRO) return PRO_ECUADOR_SECTOR_MACRO[first] ?? null;
+  for (const rule of SPANISH_SECTOR_RULES) if (rule.pattern.test(text)) return rule.macro;
   const english = new Set<MacroIndustryKey>();
   for (const rule of ENGLISH_SECTOR_RULES) if (rule.pattern.test(text)) english.add(rule.macro);
   if (english.size === 1) return [...english][0];

@@ -84,6 +84,25 @@ describe('macro de la capa curada', () => {
     assert.equal(resolveLatamCuratedMacro({ kind: 'ranking', sector: null }), null);
   });
 
+  it('sectores cortos de los rankings (Merco): primera regla que acierta', () => {
+    const cases: Array<[string, string | null]> = [
+      ['BANCARIO', 'insurance_financial_services'],
+      ['CEMENTERAS', 'industry_manufacturing_chemicals_automotive'],
+      ['TRANSPORTE DE VIAJEROS', 'transport_logistics'],
+      ['CADENA DE FARMACIAS', 'retail'],
+      ['FARMACÉUTICO', 'health_pharma'],
+      ['EDUCACIÓN SUPERIOR', 'services_company'],
+      ['AGROINDUSTRIAL', 'agroindustry'],
+      ['ALIMENTACIÓN Y BEBIDAS', 'consumer_goods'],
+      ['SUPERMERCADOS / DISTRIBUCIÓN DE ALIMENTOS', 'retail'],
+      ['TELECOMUNICACIONES', 'technology'],
+      ['HOTELERÍA', null],
+      ['MEDIOS DE COMUNICACIÓN', null],
+      ['HOLDING', null],
+    ];
+    for (const [sector, macro] of cases) assert.equal(resolveLatamCuratedSectorMacro(sector), macro, sector);
+  });
+
   it('Pro Ecuador: sector cerrado, cuenta el primero; servicios y artesanías sin macro', () => {
     assert.equal(resolveLatamCuratedSectorMacro('FLORES Y PLANTAS'), 'agroindustry');
     assert.equal(resolveLatamCuratedSectorMacro('ALIMENTOS PROCESADOS,BANANO Y PLATANO'), 'consumer_goods');

@@ -19,6 +19,9 @@ Listas:
   ar_ssn        datosabiertos.ssn.gob.ar «entidades-activas.csv»: aseguradoras.
   cl_cmf_seguros  cmfchile.cl «descargar_consulta» de aseguradoras (CSV; varios con coma).
   ec_direx      sgrn.proecuadorb2b.com.ec DIREX «SearchResults» (HTML): exportadores.
+  merco         carpeta con merco.info/<pais>/ranking-merco-{empresas,talento} guardados como
+                <pais>_{empresas,talento}.html (curl con cookies): ranking general + sector
+                de las tablas sectoriales. Todas son empresas grandes (size_large).
 
 Sólo lee archivos locales; no sale a la red. NO escribe teléfonos, correos,
 direcciones ni nombres de personas.
@@ -144,12 +147,53 @@ def ec_direx(path: str) -> list[dict]:
     return out
 
 
+def merco(folder: str) -> list[dict]:
+    import glob
+    import os
+
+    out = []
+    for path in sorted(glob.glob(os.path.join(folder, "*_*.html"))):
+        country, _, kind = os.path.basename(path)[:-5].partition("_")
+        page = open(path, encoding="utf-8", errors="ignore").read()
+        tables = re.findall(r"<table[^>]*>(.*?)</table>", page, re.S)
+        if not tables:
+            continue
+        year_match = re.search(r'edicion=(\d{4})"\s*class="selected"', page)
+        year = int(year_match.group(1)) if year_match else None
+        sector_by_name: dict[str, str] = {}
+        start = page.find('id="ranking-sectorial"')
+        end = page.find('id="ranking-documentos"')
+        if start >= 0:
+            heading = ""
+            for part in re.split(r"(<table[^>]*>.*?</table>)", page[start:end if end > 0 else None], flags=re.S):
+                if part.startswith("<table"):
+                    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", part, re.S):
+                        cells = [strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+                        if len(cells) >= 2 and cells[1]:
+                            sector_by_name.setdefault(cells[1].upper(), heading)
+                else:
+                    heading = strip_tags(part).split(">")[-1].strip()
+        label = "Merco Empresas" if kind == "empresas" else "Merco Talento"
+        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", tables[0], re.S):
+            cells = [strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+            if len(cells) < 2 or not cells[0].isdigit() or not cells[1]:
+                continue
+            out.append(entry(
+                country=country.upper(), list=f"merco_{kind}_{country}_{year}",
+                list_label=f"{label} {year}" if year else label, year=year,
+                name=cells[1], kind="ranking", sector=sector_by_name.get(cells[1].upper()) or None,
+                size_large=True,
+            ))
+    return out
+
+
 EXTRACTORS = {
     "co_snies": co_snies,
     "pe_sunedu": pe_sunedu,
     "ar_ssn": ar_ssn,
     "cl_cmf_seguros": cl_cmf_seguros,
     "ec_direx": ec_direx,
+    "merco": merco,
 }
 
 
