@@ -2515,7 +2515,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-NI-CLOSE-2: código listo, PENDIENTE DE CARGA autorizada por la dueña (0 filas en Prod). Prueba en seco del 07-10-2026: 1.295 RUC (1.285 con nombre único) — 505 Grandes Contribuyentes de la DGI y 947 personas jurídicas con licencia sanitaria del MINSA (157 en las dos) — más 1.022 alias (nombre comercial, sigla, nombre en la otra fuente). Con 90 nombres reales escritos como los dan Apollo, Tavily o Claude: 65 con RUC seguro y 3 pistas. Carga: extract-ni-dgi-large-taxpayers.py + extract-ni-minsa-licenses.py y run-ni-sources-etl.ts --apply --only=registry y luego --only=alias.',
+      'SOURCES-NI-CLOSE-2: código listo, PENDIENTE DE CARGA autorizada por la dueña (0 filas en Prod). Prueba en seco del 07-10-2026: 1.295 RUC (1.287 con nombre único) — 505 Grandes Contribuyentes de la DGI y 947 personas jurídicas con licencia sanitaria del MINSA (157 en las dos) — más 976 alias (nombre comercial, sigla, nombre en la otra fuente; nunca el nombre de un establecimiento como «Farmacia San José»). Con 90 nombres reales escritos como los dan Apollo, Tavily o Claude: 65 con RUC seguro y 3 pistas. Carga: extract-ni-dgi-large-taxpayers.py + extract-ni-minsa-licenses.py y run-ni-sources-etl.ts --apply --only=registry y luego --only=alias.',
     countryCodes: ['NI'],
     sectors: [],
     priority: 'P1',

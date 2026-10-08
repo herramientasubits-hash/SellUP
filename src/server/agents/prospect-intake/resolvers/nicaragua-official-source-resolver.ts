@@ -10,7 +10,8 @@
  *      pública: `nicaraguaCandidateNameVariants`). La PRIMERA variante con alguna
  *      fila decide. Cada variante es una igualdad exacta: nada difuso.
  *   2. UNA PALABRA. Un nombre de una sola palabra sin forma societaria («Cemex»,
- *      «Tropigas») sólo da un RUC fuerte si la web de la candidata lo confirma
+ *      «Tropigas»), o una variante de una palabra («Distribuidora de Nicaragua» →
+ *      DISTRIBUIDORA), sólo da un RUC fuerte si la web de la candidata lo confirma
  *      («cemex.com.ni» ↔ CEMEX). Si no, queda como pista.
  *
  * Fuerte (`matched`, 0.85) sólo con UN RUC distinto. Varios → `low_confidence_match`
@@ -158,12 +159,16 @@ export function createNicaraguaOfficialSourceResolver(config: NicaraguaOfficialS
         };
       }
 
-      // Una palabra: el nombre del candidato (sin «Nicaragua» añadido) es UNA palabra.
+      // Una palabra: el nombre del candidato (sin «Nicaragua» añadido) es UNA palabra, o
+      // la variante que encontró la fila lo es («Distribuidora de Nicaragua» →
+      // DISTRIBUIDORA). Sin forma societaria, sólo la web la confirma.
       const ownCore = nicaraguaNameCore(name);
-      const singleWord = ownCore.split(' ').length === 1 && !endsWithNicaraguaLegalForm(name);
+      const matchedOneWord = pick.variant.core.split(' ').length === 1;
+      const singleWord = (ownCore.split(' ').length === 1 || matchedOneWord) && !endsWithNicaraguaLegalForm(name);
+      const confirmWord = matchedOneWord ? pick.variant.core : ownCore;
       const domainConfirms =
         singleWord &&
-        nicaraguaSingleWordConfirmedByDomain(input.candidate.domain ?? input.candidate.websiteUrl ?? null, ownCore, {
+        nicaraguaSingleWordConfirmedByDomain(input.candidate.domain ?? input.candidate.websiteUrl ?? null, confirmWord, {
           publicEntity: isNicaraguaPublicEntityCore(nicaraguaNameCore(best.legalName)),
         });
       if (singleWord && !domainConfirms) {

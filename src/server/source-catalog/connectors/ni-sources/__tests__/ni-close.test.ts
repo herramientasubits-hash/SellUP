@@ -178,6 +178,29 @@ describe('núcleo del nombre', () => {
     assert.deepEqual(nicaraguaRegistryAliasKeys('HOLCIM (NICARAGUA) SOCIEDAD ANONIMA'), []);
   });
 
+  it('un guion pegado es parte de la palabra; tras un guion sólo hay sigla si delante va la forma', () => {
+    assert.equal(nicaraguaNameCore('INDUSTRIAS AGRO-PECUARIAS S.A.'), 'INDUSTRIAS AGRO PECUARIAS');
+    assert.equal(nicaraguaNameCore('MULTI-SERVICIOS S.A.'), 'MULTI SERVICIOS');
+    assert.equal(nicaraguaNameCore('Multi-Servicios'), 'MULTI SERVICIOS');
+    assert.notEqual(nicaraguaNameCore('TRANSPORTES-ABC S.A.'), nicaraguaNameCore('TRANSPORTES-XYZ S.A.'));
+    assert.equal(nicaraguaNameCore('INVERSIONES 3-M S.A.'), 'INVERSIONES 3 M');
+    assert.equal(nicaraguaNameCore('ALMACENES - TIENDAS EL GALLO S.A.'), 'ALMACENES TIENDAS EL GALLO');
+    assert.equal(nicaraguaNameCore('Procesadora de Tabacos, S.A. -PROTASA'), 'PROCESADORA DE TABACOS');
+    assert.deepEqual(nicaraguaRegistryAliasKeys('Procesadora de Tabacos, S.A. -PROTASA'), ['PROTASA']);
+  });
+
+  it('sólo se quitan cortes de «ANÓNIMA», no palabras que empiezan igual; «SPA» no es forma', () => {
+    assert.equal(nicaraguaNameCore('CLUB SOCIEDAD'), 'CLUB SOCIEDAD');
+    assert.equal(nicaraguaNameCore('PROMOTORA SOCIEDAD ANDINA'), 'PROMOTORA SOCIEDAD ANDINA');
+    assert.equal(nicaraguaNameCore('HOTEL Y SPA'), 'HOTEL Y SPA');
+  });
+
+  it('un estado o una sucursal entre paréntesis no es alias', () => {
+    assert.deepEqual(nicaraguaRegistryAliasKeys('EMPRESA X S.A. (EN LIQUIDACION)'), []);
+    assert.deepEqual(nicaraguaRegistryAliasKeys('FARMACIA SAN JOSE (SUC. 2)'), []);
+    assert.deepEqual(nicaraguaRegistryAliasKeys('INVERSIONES Y S.A. (ANTES COMERCIAL Z)'), []);
+  });
+
   it('sólo la forma no deja núcleo; una forma en medio no se toca', () => {
     assert.equal(nicaraguaNameCore('S.A.'), '');
     assert.equal(nicaraguaNameCore('SA COMERCIAL DE NICARAGUA'), 'SA COMERCIAL DE NICARAGUA');
@@ -223,6 +246,13 @@ describe('dominios', () => {
     assert.equal(nicaraguaCompanyDomain('x@yahoo.es'), null);
     assert.equal(nicaraguaCompanyDomain('x@minsa.gob.ni'), null);
     assert.equal(isNicaraguaPersonalEmailDomain('hotmail.com'), true);
+  });
+
+  it('redes sociales y alojamiento gratuito no son la web de la empresa', () => {
+    for (const url of ['https://www.facebook.com/CrediFacilNic', 'credifacil.wixsite.com', 'x.blogspot.com', 'sites.google.com/view/x', 'linktr.ee/x', 'wa.me/50588888888', 'tienda.business.site']) {
+      assert.equal(nicaraguaCompanyDomain(url), null, url);
+    }
+    assert.equal(nicaraguaCompanyDomain('www.fdl.org.ni'), 'fdl.org.ni');
   });
 
   it('una palabra sólo se confirma con la etiqueta exacta del dominio', () => {
@@ -298,6 +328,18 @@ describe('ni_ruc_registry y ni_ruc_name_alias', () => {
     assert.equal(alias.source_key, 'ni_ruc_name_alias');
     assert.equal(alias.record_identity_key, 'ni-name-alias:J0310000001812:SINSA');
     assert.equal(alias.raw_data['alias_of'], 'SILVA INTERNACIONAL');
+  });
+
+  it('el nombre de un establecimiento del MINSA («Farmacia San José») no es alias; una marca sí', () => {
+    const { aliasRows } = build({
+      licenses: [
+        lic('J0310000777777', 'DISTRIBUIDORA FARMACEUTICA X, S.A.', 'farmacia', 'VIGENTE', 'FARMACIA SAN JOSE'),
+        lic('J0310000777777', 'DISTRIBUIDORA FARMACEUTICA X, S.A.', 'farmacia', 'VIGENTE', 'MEDIFARMA'),
+      ],
+    });
+    const keys = aliasRows.map((r) => r.normalized_legal_name);
+    assert.ok(!keys.includes('FARMACIA SAN JOSE'));
+    assert.ok(keys.includes('MEDIFARMA'));
   });
 
   it('un consorcio no presta su nombre como alias, y un alias nunca es el nombre propio de otro RUC', () => {
@@ -405,6 +447,13 @@ describe('resolvedor de RUC por nombre (ni_ruc_registry)', () => {
     assert.equal(withWeb.safeMetadata?.['singleWordConfirmedByDomain'], true);
   });
 
+  it('una variante de UNA palabra («Distribuidora de Nicaragua» → DISTRIBUIDORA) necesita la web', async () => {
+    const rows = { DISTRIBUIDORA: [{ taxId: 'J0310000000055', legalName: 'DISTRIBUIDORA S.A.', normalizedLegalName: 'DISTRIBUIDORA' }] };
+    const result = await resolverWith(rows).resolver.resolve(candidate('Distribuidora de Nicaragua'));
+    assert.equal(result.status, 'low_confidence_match');
+    assert.equal(result.safeMetadata?.['singleWordName'], true);
+  });
+
   it('sólo Nicaragua; un RUC con forma rara se ignora', async () => {
     const { resolver } = resolverWith({ 'CASA PELLAS': [{ taxId: '0010101800001A', legalName: 'X', normalizedLegalName: 'CASA PELLAS' }] });
     assert.equal(resolver.canResolve(candidate('Casa Pellas', null, 'HN')), false);
@@ -489,6 +538,18 @@ describe('filas de la capa gratuita', () => {
     const ministry = webRows.find((r) => r.record_identity_key === 'ni-web:minsa.gob.ni')!;
     assert.equal(ministry.raw_data['macro_industry_key'], 'government');
     assert.equal(ministry.raw_data['website_origin'], 'official_site');
+  });
+
+  it('un Gran Contribuyente con licencias sanitarias sigue en la industria de su tabla', () => {
+    const colonia: NiLargeTaxpayer = { ruc: 'J0310000003858', name: 'CASA COMERCIAL MANTICA SOCIEDAD ANONIMA', tradeName: 'SUPERMERCADOS LA COLONIA', snapshots: [] };
+    const { taxRows } = build({ largeTaxpayers: [colonia], licenses: [lic(colonia.ruc, colonia.name, 'alimentos_bebidas')] });
+    assert.equal(taxRows[0].raw_data['directory_kind'], 'large_taxpayer');
+    assert.equal(taxRows[0].raw_data['macro_industry_key'], 'retail');
+  });
+
+  it('una microfinanciera cuya «web» es su página de Facebook no entra sin RUC', () => {
+    const { webRows } = build({ conami: [{ name: 'X', legalName: 'MICROFINANCIERA X, S.A.', url: 'https://www.facebook.com/x', category: 'B' }] });
+    assert.equal(webRows.length, 0);
   });
 
   it('un dominio compartido por dos fichas no identifica a ninguna', () => {

@@ -22,6 +22,19 @@ export const NI_NON_CORPORATE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
 /** Primer nivel del dominio de los correos gratuitos, con cualquier terminación. */
 const FREE_MAIL_LABEL = /^(gmail|gmaill|googlemail|hotmail|outlook|live|msn|yahoo|ymail|aol|icloud|me|mail|protonmail|proton|zoho|gmx)$/;
 
+/**
+ * Redes sociales, enlaces y alojamiento gratuito: la «web» es de la plataforma, no de
+ * la empresa («facebook.com/CrediFacilNic», «x.wixsite.com», «sites.google.com/…»).
+ */
+const PLATFORM_HOST =
+  /(^|\.)(facebook|fb|instagram|twitter|x|tiktok|youtube|youtu|linkedin|whatsapp|wa|linktr|google|goo|blogspot|blogger|wordpress|wixsite|wix|weebly|jimdo|jimdofree|site123|webnode|godaddysites|carrd|bit|tinyurl)\.[a-z.]+$/;
+
+/** ¿Host de una red social o de un alojamiento gratuito? */
+export function isNicaraguaPlatformHost(host: string): boolean {
+  const lower = host.toLowerCase();
+  return PLATFORM_HOST.test(lower) || /(^|\.)(linktr\.ee|wa\.me|bit\.ly|business\.site|negocio\.site)$/.test(lower);
+}
+
 /** Dominios del Estado de Nicaragua (`.gob.ni`, `.mil.ni`). */
 const NI_PUBLIC_SECTOR_DOMAIN = /(^|\.)(gob|mil)\.ni$/;
 
@@ -62,6 +75,7 @@ export function nicaraguaCompanyDomain(raw: string | null | undefined): string |
   if (typeof raw !== 'string' || raw.trim().length === 0) return null;
   const host = raw.includes('@') ? emailDomain(raw) : normalizeWebsiteHost(raw);
   if (host === null || isNicaraguaPersonalEmailDomain(host) || isNicaraguaPublicSectorDomain(host)) return null;
+  if (isNicaraguaPlatformHost(host)) return null;
   return registrableNicaraguaDomain(host);
 }
 

@@ -70,7 +70,6 @@ const NI_LEGAL_FORM_TAILS: readonly string[] = [
   'CORP',
   'GMBH',
   'S P A',
-  'SPA',
   'S R L',
   'SRL',
   'R L',
@@ -87,8 +86,12 @@ const NI_LEGAL_FORM_TAILS: readonly string[] = [
   'SUCURSAL',
 ];
 
-/** «SOCIEDAD ANÓNIMA» cortada a 50 caracteres o con erratas («SOCIEDAD ANONI», «SOCIEDAD A», «SOC ANONIMA», «ANON1M»). */
-const ANONIMA_CUT_TAIL = /\s(?:SOCIEDAD|SOCIEDA|SOC)(?:\s(?:AN[A-Z0-9]{0,6}|A))?$/;
+/**
+ * «SOCIEDAD ANÓNIMA» cortada a 50 caracteres o con erratas («SOCIEDAD ANONI»,
+ * «SOCIEDAD A», «SOC ANONIMA», «ANON1M»). Sólo cortes de «ANONIMA»: «CLUB SOCIEDAD»
+ * o «PROMOTORA SOCIEDAD ANDINA» no se tocan.
+ */
+const ANONIMA_CUT_TAIL = /\s(?:SOCIEDAD|SOCIEDA|SOC)\s(?:A|AN|ANO|ANON|ANONI|ANONIM|ANONIMA|ANON1M|ANON1MA|ANOMIMA|ANOMINA)$/;
 
 function stripLegalFormTails(upper: string): string {
   let core = upper;
@@ -119,14 +122,27 @@ function stripLegalFormTails(upper: string): string {
   return core;
 }
 
-/** Sigla final entre paréntesis (cerrado o no) o tras un guion: «… (ADC)», «… - MUNDOTEX», «… -TANISA». */
-const TRAILING_TAG = /^(.*\S)\s*(?:\(\s*([^()]{2,80}?)\s*\)?|\s-\s*([^-()]{2,40})|\s*-\s*([A-Z0-9][A-Z0-9 .&]{1,30}))\s*\.?\s*$/;
+/**
+ * Sigla final entre paréntesis (cerrado o no) o tras un guion con espacio delante:
+ * «… (ADC)», «… S.A. - MUNDOTEX», «… S.A. -TANISA». Un guion pegado es parte de la
+ * palabra («AGRO-PECUARIAS», «MULTI-SERVICIOS»).
+ */
+const TRAILING_TAG = /^(.*\S)\s*(?:\(\s*([^()]{2,80}?)\s*\)?|\s+-\s*([^-()]{2,40}))\s*\.?\s*$/;
+
+/** ¿Termina el texto en una forma societaria (sin mirar siglas)? */
+function endsWithLegalFormText(text: string): boolean {
+  const upper = plainUpperNicaragua(text);
+  return stripLegalFormTails(upper) !== upper;
+}
 
 function splitTrailingTag(name: string): { head: string; tag: string | null } {
   const match = TRAILING_TAG.exec(name.trim());
   if (match === null) return { head: name, tag: null };
   const head = match[1];
-  const tag = (match[2] ?? match[3] ?? match[4] ?? '').trim();
+  const tag = (match[2] ?? match[3] ?? '').trim();
+  // Tras un guion, sólo es sigla si delante va la razón social completa («… S.A. - X»):
+  // «ALMACENES - TIENDAS EL GALLO» es un solo nombre.
+  if (match[3] !== undefined && !endsWithLegalFormText(head)) return { head: name, tag: null };
   return plainUpperNicaragua(head).length >= 2 && tag.length > 0 ? { head, tag } : { head: name, tag: null };
 }
 
@@ -191,8 +207,9 @@ export function nicaraguaPublicEntityKey(name: string): string | null {
 /** Filas cuyos alias nunca se guardan (no son la entidad que nombran). */
 const NO_ALIAS_NAME_START = /^(CONSORCIO|ASOCIACION MOMENTANEA|ASOC SOLIDARISTA|ASOCIACION SOLIDARISTA|FIDEICOMISO|SINDICATO)\b/;
 
-/** Lo que nunca es un alias: el país, una forma suelta o una palabra de relleno. */
-const NOT_AN_ALIAS = /^(NICARAGUA|NIC|REPUBLICA DE NICARAGUA|S A|SA|CIA LTDA|LTDA|INC|SUCURSAL|SUC NIC)$/;
+/** Lo que nunca es un alias: el país, una forma suelta, un estado o una sucursal. */
+const NOT_AN_ALIAS =
+  /^(NICARAGUA|NIC|REPUBLICA DE NICARAGUA|S A|SA|CIA LTDA|LTDA|INC|SUCURSAL|SUC NIC|EN LIQUIDACION|EN DISOLUCION|EN QUIEBRA|(SUC|SUCURSAL|SEDE|MODULO|BODEGA)( NO)? \d+.*|ANTES .*|ANTERIORMENTE .*)$/;
 
 function pushKey(keys: string[], core: string, exclude: string): void {
   if (core.length < 3 || core === exclude || keys.includes(core) || NOT_AN_ALIAS.test(core)) return;

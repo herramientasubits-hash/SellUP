@@ -203,12 +203,24 @@ export function niPreferredLegalName(entry: NiRucEntry): string | null {
   return dgi;
 }
 
+/**
+ * Nombre de un ESTABLECIMIENTO (no de la empresa): «Farmacia San José», «Clínica
+ * Santa Fe», «Sucursal Linda Vista». El nombre comercial de una licencia del MINSA
+ * con esta forma no es alias del RUC: un homónimo de otra persona daría su RUC.
+ */
+const ESTABLISHMENT_NAME =
+  /^(FARMACIA|FARMACIAS|CLINICA|CLINICAS|CONSULTORIO|CENTRO|LABORATORIO|LABORATORIOS|OPTICA|BOTICA|DROGUERIA|HOSPITAL|SUCURSAL|BODEGA|MODULO|SALA|UNIDAD|PUESTO|TIENDA|DISTRIBUIDORA|PLANTA)\b/;
+
 /** Todos los nombres que las fuentes dan a un RUC (sin repetir). */
 export function niAllNames(entry: NiRucEntry): string[] {
+  const minsaTradeNames = entry.licenses
+    .map((l) => l.tradeName)
+    .filter((name) => name !== null && !ESTABLISHMENT_NAME.test(nicaraguaNameCore(name)));
   const names = [
     entry.largeTaxpayer?.name,
     entry.largeTaxpayer?.tradeName,
-    ...entry.licenses.flatMap((l) => [l.name, l.tradeName]),
+    ...entry.licenses.map((l) => l.name),
+    ...minsaTradeNames,
   ]
     .map((name) => cleanText(name))
     .filter((name): name is string => name !== null);
@@ -453,9 +465,9 @@ function dominantLicenseType(activeByType: Readonly<Record<string, number>>): st
 type Classification = { kind: NiDirectoryKind; code: string | null };
 
 /**
- * Clasificación de una entidad con RUC: lo que dice la fuente oficial de ella
- * (sección de la CNZF, entidad pública, licencia sanitaria, CONAMI) y, si no, la
- * tabla de Grandes Contribuyentes. `null` si nada la clasifica.
+ * Clasificación de una entidad con RUC: entidad pública, sección de la CNZF, tabla
+ * de Grandes Contribuyentes, licencia sanitaria y CONAMI, en ese orden. `null` si
+ * nada la clasifica.
  */
 function classifyWithRuc(entry: NiRucEntry | null, listings: readonly NiWebListing[]): Classification | null {
   const candidates: Classification[] = [];
@@ -465,10 +477,13 @@ function classifyWithRuc(entry: NiRucEntry | null, listings: readonly NiWebListi
   for (const listing of listings) {
     if (listing.kind === 'cnzf' && listing.code !== null) candidates.push({ kind: 'cnzf', code: listing.code });
   }
+  // La tabla de Grandes Contribuyentes (una fila por RUC, revisada) va antes que la
+  // licencia sanitaria: una cadena de supermercados con licencias de alimentos o
+  // de farmacia sigue siendo Retail.
+  if (entry?.largeTaxpayer) candidates.push({ kind: 'large_taxpayer', code: entry.ruc });
   const license = entry ? dominantLicenseType(licenseSummary(entry).activeByType) : null;
   if (license !== null) candidates.push({ kind: 'minsa_license', code: license });
   if (listings.some((l) => l.kind === 'conami_imf')) candidates.push({ kind: 'conami_imf', code: null });
-  if (entry?.largeTaxpayer) candidates.push({ kind: 'large_taxpayer', code: entry.ruc });
   return candidates.find((c) => resolveNiDirectoryMacro(c.kind, c.code) !== null) ?? null;
 }
 
