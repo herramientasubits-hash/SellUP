@@ -148,7 +148,7 @@ export function spainDomainNamesEntity(domain: string, entityName: string): bool
     .split('.')
     .filter((part) => !['WWW', 'GOB', 'EDU', 'ORG', 'COM', 'NET', 'ES', 'EUS', 'CAT', 'GAL', 'INFO', 'EU'].includes(part))
     .join('');
-  if (label.length < 3) return false;
+  if (label.length < 2) return false;
   const plain = entityName.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   const tags = [...plain.matchAll(/\(([^()]{2,20})\)/g)].map((m) => m[1].replace(/[^A-Z0-9]/g, '')).filter((t) => t.length >= 3);
   const words = plain.replace(/\([^()]*\)/g, ' ').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 0);
@@ -156,6 +156,9 @@ export function spainDomainNamesEntity(domain: string, entityName: string): bool
   const initials = content.map((w) => w[0]).join('');
   if (tags.some((tag) => label.includes(tag))) return true;
   if (initials.length >= 3 && label.includes(initials)) return true;
+  // Siglas de dos letras sólo si son TODA la etiqueta («Universidad de Alicante» ↔ ua.es).
+  if (initials.length === 2 && label === initials) return true;
+  if (label.length < 3) return false;
   return content
     .filter((w) => w.length >= 5 && !GENERIC_ENTITY_WORDS.has(w))
     .some((w) => label.includes(w.slice(0, 5)));

@@ -330,7 +330,7 @@ export function spainCandidateNameVariants(name: string | null | undefined): Spa
       add(variant.core.slice(0, -suffix.length), 'without_spain');
       continue;
     }
-    if (PUBLIC_START.test(variant.core)) continue;
+    if (PUBLIC_START.test(variant.core) || spainPublicEntityKey(variant.core) !== null) continue;
     for (const s of WITH_SPAIN) add(`${variant.core}${s}`, 'with_spain');
   }
   for (const variant of [...variants]) {
