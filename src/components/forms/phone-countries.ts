@@ -75,7 +75,13 @@ function flagOf(code: string): string {
  * Un país del catálogo sin fila en `DIALING` no se ofrece (no se inventa un
  * prefijo).
  */
-export const PHONE_COUNTRIES: readonly Country[] = LATAM_COUNTRIES.flatMap((country) => {
+/**
+ * Estados Unidos ya no es un país elegible para prospectar (dueña, 13-10-2026),
+ * pero un contacto puede tener teléfono de allá: el +1 se queda en el teléfono.
+ */
+const PHONE_ONLY_COUNTRIES: readonly { code: string; name: string }[] = [{ code: "US", name: "Estados Unidos" }]
+
+export const PHONE_COUNTRIES: readonly Country[] = [...LATAM_COUNTRIES, ...PHONE_ONLY_COUNTRIES].flatMap((country) => {
   const dialing = DIALING[country.code]
   return dialing ? [{ code: country.code, name: country.name, flag: flagOf(country.code), ...dialing }] : []
 })

@@ -11,10 +11,10 @@ import { LATAM_COUNTRIES as PROSPECT_COUNTRIES } from '../../../modules/prospect
 import { DEFAULT_PHONE_COUNTRY, DIALING, PHONE_COUNTRIES, findCountry, parseE164 } from '../phone-countries';
 
 describe('PHONE_COUNTRIES — derivada del catálogo de países de SellUp', () => {
-  it('son exactamente los países del catálogo, con su nombre y en su orden', () => {
+  it('son los países del catálogo, con su nombre y en su orden, más el +1 de Estados Unidos', () => {
     assert.deepEqual(
       PHONE_COUNTRIES.map((country) => [country.code, country.name]),
-      LATAM_COUNTRIES.map((country) => [country.code, country.name]),
+      [...LATAM_COUNTRIES, { code: 'US', name: 'Estados Unidos' }].map((country) => [country.code, country.name]),
     );
   });
 
@@ -25,7 +25,8 @@ describe('PHONE_COUNTRIES — derivada del catálogo de países de SellUp', () =
   });
 
   it('la tabla de prefijos no trae países que SellUp no maneja', () => {
-    const catalog = new Set(LATAM_COUNTRIES.map((country) => country.code));
+    // Estados Unidos ya no se prospecta (13-10-2026) pero su +1 se queda para los contactos.
+    const catalog = new Set([...LATAM_COUNTRIES.map((country) => country.code), 'US']);
     assert.deepEqual(Object.keys(DIALING).filter((code) => !catalog.has(code)), []);
   });
 
