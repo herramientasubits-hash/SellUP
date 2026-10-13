@@ -218,7 +218,7 @@ export function esPreferredLegalName(names: Readonly<Record<string, number>>): s
   let best: { name: string; count: number; form: boolean } | null = null;
   for (const [raw, count] of Object.entries(names)) {
     const name = raw.replace(/\s+/g, ' ').trim();
-    if (name.length === 0 || spainNameCore(name).length < 2 || isEsMultiCompanyName(name)) continue;
+    if (name.length === 0 || spainNameCore(name).length < 2 || isEsMultiCompanyName(name) || JOINT_VENTURE.test(name)) continue;
     const form = endsWithSpainLegalForm(name);
     const better =
       best === null ||
@@ -352,8 +352,8 @@ export function esAliasKeysForNames(names: readonly string[], ownCore: string): 
  */
 export function isEsMultiCompanyName(name: string): boolean {
   const upper = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-  const forms = upper.match(/\bS\.?\s?[AL]\.?(?:\s?U\.?)?(?=[\s,.;\-–]|$)/g) ?? [];
-  return forms.length >= 2 && /\bS\.?\s?[AL]\.?(?:\s?U\.?)?\s*[-–,;/]\s*[A-Z]{3,}/.test(upper);
+  const forms = upper.match(/\bS\.?\s?[AL]\.?(?:\s?[ULP]\.?)?(?=[\s,.;\-–]|$)/g) ?? [];
+  return forms.length >= 2 && /\bS\.?\s?[AL]\.?(?:\s?[ULP]\.?)?\s*[-–,;/]\s*[A-Z]{3,}/.test(upper);
 }
 
 /** Filas de alias de un NIF (ya sin las claves que son el nombre propio de otro NIF). */
