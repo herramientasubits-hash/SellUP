@@ -43,7 +43,14 @@ import {
   brazilNameMayHaveAliases,
   brazilPublicEntityKey,
 } from './br-name-keys';
-import { brazilCompanyDomainFromEmail, brazilDomainLookupKey, isBrazilPublicSectorDomain } from './br-domain';
+import {
+  brazilCompanyDomainFromEmail,
+  brazilDomainFitsName,
+  brazilDomainLabel,
+  brazilDomainLookupKey,
+  brazilEmailDomainCountKey,
+  isBrazilPublicSectorDomain,
+} from './br-domain';
 import {
   brCnaeAllowedInDiscovery,
   BR_RECEITA_MACRO_TABLE_VERSION,
@@ -70,6 +77,25 @@ export const BR_DIRECTORY_MIN_ACTIVE_BRANCHES = 3;
 /** Capital o sucursales desde los que una empresa cuenta como «grande» para desempatar. */
 export const BR_LARGE_CAPITAL_BRL = 10_000_000;
 export const BR_LARGE_ACTIVE_BRANCHES = 10;
+
+/**
+ * Empresas del Estado con forma privada: empresa pública (201-1) y sociedade de
+ * economia mista (203-8). Su web es `.gov.br` (CONAB, CETESB, CDHU…).
+ */
+const STATE_COMPANY_NATUREZAS: ReadonlySet<string> = new Set(['2011', '2038']);
+
+/** Tecnología: software y servicios informáticos (CNAE 62 y 63) antes que telecomunicaciones (61). */
+export const BR_TECH_SOFTWARE_PRIORITY_BOOST = 100_000;
+
+/**
+ * Gobierno: los entes públicos no tienen capital («MUNICIPIO DE SAO PAULO» declara 0);
+ * se ordenan por nivel: federal, estatal y municipal (y luego por sucursales).
+ */
+const PUBLIC_LEVEL_PRIORITY: ReadonlyArray<[ReadonlySet<string>, number]> = [
+  [new Set(['1015', '1040', '1074', '1104', '1139', '1163', '1252', '1287', '1317']), 30_000],
+  [new Set(['1023', '1058', '1082', '1112', '1147', '1171', '1236', '1260', '1295']), 25_000],
+  [new Set(['1031', '1066', '1120', '1155', '1180', '1244', '1279', '1309']), 20_000],
+];
 
 /** Empresário individual: la razón social es el nombre de una persona. */
 const INDIVIDUAL_ENTREPRENEUR_NATUREZA = '2135';
@@ -131,6 +157,14 @@ export function isBrazilPublicNatureza(natureza: string): boolean {
   return /^1\d{3}$/.test(natureza);
 }
 
+/** ¿Es una empresa del Estado (empresa pública o sociedade de economia mista)? */
+export function isBrazilStateCompanyNatureza(natureza: string): boolean {
+  return STATE_COMPANY_NATUREZAS.has(natureza);
+}
+
+/** Cuántas empresas del subconjunto usan cada dominio de correo (lo arma la carga). */
+export type BrEmailDomainUsers = ReadonlyMap<string, number>;
+
 /** ¿Entra esta matriz al registro? (privada DEMAIS o pública; nunca personas). */
 export function brReceitaRecordEligible(record: BrReceitaCompanyRecord): boolean {
   if (isBrazilPublicNatureza(record.naturezaJuridica)) return true;
@@ -151,21 +185,33 @@ export function formatBrazilCnpj(normalized: string): string {
   return `${normalized.slice(0, 2)}.${normalized.slice(2, 5)}.${normalized.slice(5, 8)}/${normalized.slice(8, 12)}-${normalized.slice(12)}`;
 }
 
-/** La web de la empresa: la de la CVM si la hay, si no la del correo del cadastro (siempre que encaje). */
-export function brReceitaCompanyDomain(record: BrReceitaCompanyRecord, cvm: BrCvmListing | null): string | null {
+/**
+ * La web de la empresa: la de la CVM si la hay; si no, la del correo del cadastro
+ * cuando encaja con el nombre o cuando ninguna otra empresa usa ese dominio.
+ */
+export function brReceitaCompanyDomain(
+  record: BrReceitaCompanyRecord,
+  cvm: BrCvmListing | null,
+  emailDomainUsers: BrEmailDomainUsers | null = null,
+): { domain: string; source: 'cvm_cadastro' | 'receita_email_domain' | 'receita_email_domain_only_owner' } | null {
   const names = [record.legalName, record.tradeName, cvm?.tradeName ?? null];
-  const publicEntity = isBrazilPublicNatureza(record.naturezaJuridica);
-  for (const candidate of [cvm?.domain ?? null, record.emailDomain]) {
-    const domain = brazilCompanyDomainFromEmail({ email: candidate, names, publicEntity });
-    if (domain !== null) return domain;
-  }
-  return null;
+  const publicEntity = isBrazilPublicNatureza(record.naturezaJuridica) || isBrazilStateCompanyNatureza(record.naturezaJuridica);
+  const fromCvm = brazilCompanyDomainFromEmail({ email: cvm?.domain ?? null, names, publicEntity });
+  if (fromCvm !== null) return { domain: fromCvm, source: 'cvm_cadastro' };
+  const countKey = brazilEmailDomainCountKey(record.emailDomain);
+  const onlyOwner = countKey !== null && emailDomainUsers?.get(countKey) === 1;
+  const fromEmail = brazilCompanyDomainFromEmail({ email: record.emailDomain, names, publicEntity, onlyOwner });
+  if (fromEmail === null) return null;
+  return {
+    domain: fromEmail,
+    source: brazilDomainFitsName(fromEmail, names) ? 'receita_email_domain' : 'receita_email_domain_only_owner',
+  };
 }
 
 function registryRawData(
   record: BrReceitaCompanyRecord,
   cvm: BrCvmListing | null,
-  domain: string | null,
+  web: ReturnType<typeof brReceitaCompanyDomain>,
   params: BrReceitaRowParams,
 ) {
   return {
@@ -179,8 +225,9 @@ function registryRawData(
     cnae_principal: record.cnae,
     ...(record.cnaeDescription ? { activity_text: record.cnaeDescription } : {}),
     opening_date: record.openingDate,
-    ...(domain !== null ? { website_domain: domain, website_domain_source: cvm?.domain ? 'cvm_cadastro' : 'receita_email_domain' } : {}),
+    ...(web !== null ? { website_domain: web.domain, website_domain_source: web.source } : {}),
     ...(isBrazilPublicNatureza(record.naturezaJuridica) ? { public_entity: true } : {}),
+    ...(isBrazilStateCompanyNatureza(record.naturezaJuridica) ? { state_company: true } : {}),
     ...(cvm !== null ? { cvm_listed: true } : {}),
   };
 }
@@ -190,6 +237,7 @@ export function buildBrReceitaRegistryRow(
   record: BrReceitaCompanyRecord,
   params: BrReceitaRowParams,
   cvm: BrCvmListing | null = null,
+  emailDomainUsers: BrEmailDomainUsers | null = null,
 ): BrReceitaSnapshotRow | null {
   if (!brReceitaRecordEligible(record)) return null;
   const cnpj = normalizeBrazilCnpj(record.cnpj);
@@ -198,7 +246,7 @@ export function buildBrReceitaRegistryRow(
   const core = brazilNameCore(legalName);
   if (core.length < 2) return null;
   const identity = deriveTaxRecordIdentity(cnpj.normalized);
-  const domain = brReceitaCompanyDomain(record, cvm);
+  const web = brReceitaCompanyDomain(record, cvm, emailDomainUsers);
   return {
     source_key: BR_RECEITA_REGISTRY_SOURCE_KEY,
     country_code: BR_COUNTRY_CODE,
@@ -212,7 +260,7 @@ export function buildBrReceitaRegistryRow(
     city: record.municipality,
     region: record.uf,
     priority_score: null,
-    raw_data: registryRawData(record, cvm, domain, params),
+    raw_data: registryRawData(record, cvm, web, params),
     imported_at: params.importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
   };
@@ -271,6 +319,49 @@ export function brReceitaDirectoryPriority(capital: number, activeBranches: numb
   return capitalScore + Math.min(Math.max(0, activeBranches), 1000) * 20;
 }
 
+/** Prioridad de un ente público: su nivel (federal > estatal > municipal) y sus sucursales. */
+export function brReceitaPublicEntityPriority(natureza: string, activeBranches: number): number {
+  const level = PUBLIC_LEVEL_PRIORITY.find(([set]) => set.has(natureza))?.[1] ?? 15_000;
+  return level + brReceitaDirectoryPriority(0, activeBranches);
+}
+
+/** Prioridad final de una fila del buscador (con software antes que telecomunicaciones). */
+export function brReceitaDirectoryRowPriority(record: BrReceitaCompanyRecord, macro: string): number {
+  if (isBrazilPublicNatureza(record.naturezaJuridica)) {
+    return brReceitaPublicEntityPriority(record.naturezaJuridica, record.activeBranches);
+  }
+  const division = record.cnae?.slice(0, 2) ?? '';
+  const softwareBoost = macro === 'technology' && (division === '62' || division === '63') ? BR_TECH_SOFTWARE_PRIORITY_BOOST : 0;
+  return brReceitaDirectoryPriority(record.capitalSocial, record.activeBranches) + softwareBoost;
+}
+
+/** Una candidata al buscador, reducida a lo que decide quién encabeza su web. */
+export type BrDirectoryHeadCandidate = { cnpj: string; domain: string | null; priority: number; cvmListed: boolean };
+
+/**
+ * Una empresa por web en el buscador (corrida BR × Tecnología del 13-10-2026: CLARO
+ * S.A. y CLARO NXT entraron las dos con claro.com.br). Por etiqueta de dominio gana
+ * la cotizada en la CVM; si no, la de más prioridad; en empate, el CNPJ menor. Las
+ * empresas sin web no compiten. Devuelve los CNPJ que se quedan fuera.
+ */
+export function brReceitaDirectorySiblingsToDrop(candidates: readonly BrDirectoryHeadCandidate[]): Set<string> {
+  const heads = new Map<string, BrDirectoryHeadCandidate>();
+  const better = (a: BrDirectoryHeadCandidate, b: BrDirectoryHeadCandidate): boolean =>
+    a.cvmListed !== b.cvmListed ? a.cvmListed : a.priority !== b.priority ? a.priority > b.priority : a.cnpj < b.cnpj;
+  for (const candidate of candidates) {
+    const label = candidate.domain ? brazilDomainLabel(candidate.domain) : '';
+    if (label.length < 2) continue;
+    const current = heads.get(label);
+    if (current === undefined || better(candidate, current)) heads.set(label, candidate);
+  }
+  const drop = new Set<string>();
+  for (const candidate of candidates) {
+    const label = candidate.domain ? brazilDomainLabel(candidate.domain) : '';
+    if (label.length >= 2 && heads.get(label)?.cnpj !== candidate.cnpj) drop.add(candidate.cnpj);
+  }
+  return drop;
+}
+
 /** Cabezas de entes públicos que el buscador ofrece en Gobierno o Salud. */
 const PUBLIC_HEAD_START = /^(MUNICIPIO|PREFEITURA|ESTADO|GOVERNO|MINISTERIO|UNIVERSIDADE|INSTITUTO FEDERAL|HOSPITAL|TRIBUNAL|ASSEMBLEIA LEGISLATIVA|CAMARA MUNICIPAL|SECRETARIA DE ESTADO|DEFENSORIA|MINISTERIO PUBLICO|AGENCIA NACIONAL|BANCO CENTRAL)\b/;
 
@@ -322,7 +413,7 @@ export function buildBrReceitaDirectoryRow(
   return {
     ...registryRow,
     source_key: BR_RECEITA_DIRECTORY_SOURCE_KEY,
-    priority_score: publicEntity ? brReceitaDirectoryPriority(0, record.activeBranches) : brReceitaDirectoryPriority(record.capitalSocial, record.activeBranches),
+    priority_score: brReceitaDirectoryRowPriority(record, macro),
     raw_data: {
       ...registryRow.raw_data,
       macro_industry_key: macro,
