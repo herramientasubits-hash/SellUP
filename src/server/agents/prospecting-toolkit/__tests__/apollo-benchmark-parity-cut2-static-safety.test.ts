@@ -732,7 +732,13 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // auditoría; ninguna fila de datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4.
     // AUTORADA y NO APLICADA. El proxy se mueve de la 145 a la 146, y el barrido de AUTORÍA se
     // ENSANCHA para incluir la 145.
-    assert.equal(migrations.filter((f) => f.startsWith('146')).length, 0);
+    // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    // El proxy se mueve de la 146 a la 147, y el barrido de AUTORÍA se ENSANCHA para incluir la
+    // 146.
+    assert.equal(migrations.filter((f) => f.startsWith('147')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -756,7 +762,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('142') ||
         f.startsWith('143') ||
         f.startsWith('144') ||
-        f.startsWith('145'),
+        f.startsWith('145') ||
+        f.startsWith('146'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

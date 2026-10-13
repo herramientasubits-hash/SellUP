@@ -573,7 +573,11 @@ describe('4O-G — alcance', () => {
     // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
     // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
     // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 145);
+    // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 146);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -602,7 +606,8 @@ describe('4O-G — alcance', () => {
     // 143 archivos para los números 001-143: la 143 tampoco deja hueco.
     // 144 archivos para los números 001-144: la 144 tampoco deja hueco.
     // 145 archivos para los números 001-145: la 145 tampoco deja hueco.
-    assert.equal(numbered.length, 145);
+    // 146 archivos para los números 001-146: la 146 tampoco deja hueco.
+    assert.equal(numbered.length, 146);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

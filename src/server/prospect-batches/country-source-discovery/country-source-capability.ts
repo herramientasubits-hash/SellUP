@@ -94,6 +94,12 @@ import {
   type SvComprasalDirectoryDiscoveryReads,
 } from './sv-comprasal-directory-discovery-adapter';
 import { macroHasSvCoverage } from './sv-comprasal-macro-table';
+import {
+  buildVeFreeDirectoryDiscoveryAdapter,
+  VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type VeFreeDirectoryDiscoveryReads,
+} from './ve-free-directory-discovery-adapter';
+import { macroHasVeCoverage } from './ve-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -190,10 +196,16 @@ import {
  * licencia sanitaria vigente del MINSA (por tipo de licencia), el Directorio
  * Industrial de Zonas Francas (por sección), microfinancieras de la CONAMI y
  * entidades públicas con web oficial (Gobierno).
+ *
+ * SOURCES-VE-CLOSE-1 — Venezuela entra sin padrón oficial (el RNC prohíbe el rastreo
+ * y el SENIAT bloquea las consultas): empresas que cotizan o emiten valores (Bolsa de
+ * Caracas y SUNAVAL, tabla empresa → industria), reguladas por la SUDEASEG, casas de
+ * bolsa, empresas y universidades con web propia comprobada y entes públicos (Gobierno).
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA',
   'SV', 'NI',
+  'VE',
 ] as const;
 
 export type CountrySourceCapability = {
@@ -217,6 +229,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   NI: { countryCode: 'NI', sourceKey: NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   SV: { countryCode: 'SV', sourceKey: SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  VE: { countryCode: 'VE', sourceKey: VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -264,6 +277,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
   if (capability.countryCode === 'NI') return macroHasNiCoverage(macroIndustryKey);
   if (capability.countryCode === 'SV') return macroHasSvCoverage(macroIndustryKey);
+  if (capability.countryCode === 'VE') return macroHasVeCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -293,6 +307,7 @@ export type CountrySourceAdapterDeps = {
     paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
     niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
     svComprasalDirectoryDiscoveryReads?: SvComprasalDirectoryDiscoveryReads | null;
+    veFreeDirectoryDiscoveryReads?: VeFreeDirectoryDiscoveryReads | null;
     /** SOURCES-LATAM-CURATED-1 — capa común de listas curadas, sumada detrás del país. */
     latamCuratedDiscoveryReads?: LatamCuratedDiscoveryReads | null;
 };
@@ -377,6 +392,11 @@ function buildPrimaryCountrySourceAdapter(
   if (capability.countryCode === 'SV') {
     return deps.svComprasalDirectoryDiscoveryReads
       ? buildSvComprasalDirectoryDiscoveryAdapter(deps.svComprasalDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'VE') {
+    return deps.veFreeDirectoryDiscoveryReads
+      ? buildVeFreeDirectoryDiscoveryAdapter(deps.veFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

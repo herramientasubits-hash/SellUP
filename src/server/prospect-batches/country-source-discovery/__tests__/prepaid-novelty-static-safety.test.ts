@@ -318,8 +318,14 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // `candidate_assigned` en el CHECK de su auditoría; ninguna fila de datos). No reserva nada y
       // la capa gratuita sigue sin necesitar esquema. AUTORADA y NO APLICADA.
       '145_prospect_candidate_assignment.sql',
+      // SOURCES-VE-CLOSE-1 reclamó la 146: los tipos de identificador fiscal aceptan 'RIF' (amplía
+      // los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No reserva nada y la capa gratuita sigue sin necesitar esquema. AUTORADA y NO
+      // APLICADA.
+      '146_tax_identifier_type_rif.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto y la asignación de prospectos a otra persona',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona y la ampliación de tipos fiscales con RIF',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

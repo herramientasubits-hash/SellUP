@@ -19,7 +19,8 @@
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
  * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC, El Salvador
  * (sv_nit_registry + sv_nit_name_alias: listados de Hacienda con NIT) name→NIT, Nicaragua
- * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC; Honduras uses
+ * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC, Venezuela
+ * (ve_rif_registry + ve_rif_name_alias: Bolsa de Caracas, SUDEASEG, SUNAVAL, GLEIF y webs oficiales) name→RIF; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
@@ -87,6 +88,8 @@ import { createPanamaOfficialSourceResolver } from '@/server/agents/prospect-int
 import { buildPanamaSnapshotNameQuery } from '@/server/prospect-batches/panama-snapshot-query';
 import { createNicaraguaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/nicaragua-official-source-resolver';
 import { buildNicaraguaSnapshotNameQuery } from '@/server/prospect-batches/nicaragua-snapshot-query';
+import { createVenezuelaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/venezuela-official-source-resolver';
+import { buildVenezuelaSnapshotNameQuery } from '@/server/prospect-batches/venezuela-snapshot-query';
 import { createSalvadorOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/salvador-official-source-resolver';
 import { buildSalvadorSnapshotNameQuery } from '@/server/prospect-batches/salvador-snapshot-query';
 import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
@@ -344,6 +347,13 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // una palabra segura sólo si la web la confirma.
     createNicaraguaOfficialSourceResolver({
       querySnapshots: buildNicaraguaSnapshotNameQuery(snapshotClient),
+    }),
+    // SOURCES-VE-CLOSE-1 — registro unido de RIF de Venezuela (Bolsa de Caracas,
+    // SUDEASEG, SUNAVAL, GLEIF y webs oficiales que muestran su RIF) y sus alias, con
+    // limpieza propia de nombres (forma societaria al principio o en medio),
+    // variantes con/sin «Venezuela» y una palabra segura sólo si la web la confirma.
+    createVenezuelaOfficialSourceResolver({
+      querySnapshots: buildVenezuelaSnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-CR-CEDULA-BY-NAME-1 — PYMES activas del MEIC + proveedores SICOP con nombre.
     // SOURCES-CR-CLOSE-1 — más Zona Franca, SUGEF, instituciones públicas de SICOP

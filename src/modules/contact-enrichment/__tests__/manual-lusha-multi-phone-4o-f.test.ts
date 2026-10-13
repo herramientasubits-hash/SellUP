@@ -1196,7 +1196,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
     // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
     // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 145, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 146, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.
