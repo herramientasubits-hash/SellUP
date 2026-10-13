@@ -108,10 +108,11 @@ describe('cableado', () => {
     }
   });
 
-  it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE', () => {
+  it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE y sus alias', () => {
+    // SOURCES-UY-CLOSE-1 — resolvedor propio (variantes, alias, regla de una palabra).
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
-    assert.match(wiring, /countryCode: 'UY',\s*sourceKey: 'uy_rupe_registry',\s*taxIdentifierType: 'RUT',\s*validTaxId: \/\^\\d\{12\}\$\//);
-    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
+    assert.match(wiring, /createUruguayOfficialSourceResolver\(\{\s*querySnapshots: buildUruguaySnapshotNameQuery\(snapshotClient\),\s*\}\)/);
+    assert.doesNotMatch(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
   });
 
   it('el factory construye Estados Unidos (EIN): la SEC primero y, detrás, el IRS', () => {
