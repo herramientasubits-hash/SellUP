@@ -19,7 +19,7 @@
  */
 
 import { deriveTaxRecordIdentity, type RecordIdentityKey } from '../../record-identity';
-import { normalizeCompanyNameCore, SPAIN_LEGAL_FORMS } from '../../company-name-core';
+import { spainNameCore } from './es-name-keys';
 import { calculateSpainCompanyNifControl } from '@/modules/prospect-batches/tax-identifier-rules';
 
 export const ES_PLACSP_REGISTRY_SOURCE_KEY = 'es_placsp_registry' as const;
@@ -43,9 +43,12 @@ export type EsPlacspRegistryRow = {
   record_identity_key: RecordIdentityKey | null;
 };
 
-/** Núcleo del nombre español: el MISMO que calcula el resolvedor de la corrida. */
+/**
+ * Núcleo del nombre español: el MISMO que calcula el resolvedor de la corrida.
+ * SOURCES-ES-CLOSE-1: formas por estructura y apiladas (es-name-keys.ts).
+ */
 export function normalizeSpainCompanyCore(name: string | null | undefined): string {
-  return normalizeCompanyNameCore(name, SPAIN_LEGAL_FORMS);
+  return spainNameCore(name);
 }
 
 function decodeXmlText(value: string): string {

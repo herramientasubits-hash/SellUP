@@ -3011,7 +3011,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '22.705 sociedades adjudicatarias con NIF de sociedad válido cargadas (contratos de junio a septiembre de 2026). El Agente 1 completa el NIF por nombre en cada corrida.',
+      'SOURCES-ES-CLOSE-1: recarga PENDIENTE de autorización con el núcleo nuevo (formas por estructura: S.M.E., SOCIMI, S.Coop., «S.A. de Seguros»…) y los meses nuevos (contratos menores y plataformas autonómicas de enero a septiembre de 2026, licitaciones de julio a septiembre), conservando los 22.705 ya cargados. Recarga: scripts/source-catalog/extract-es-sources.py y run-es-sources-etl.ts --apply --only=placsp-registry y luego --only=alias.',
     countryCodes: ['ES'],
     sectors: [],
     priority: 'P1',
@@ -3020,15 +3020,97 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://contrataciondelestado.es/',
     automationLevel: 'high',
     recommendedUse:
-      'Sociedades adjudicatarias de la Plataforma de Contratación del Sector Público con NIF de sociedad válido: 22.705 cargadas (contratos de junio a septiembre de 2026). España no publica el NIF de las empresas en ningún registro abierto, así que esta es la vía disponible. En cada corrida del Agente 1 completa el NIF por nombre de empresa. NIF seguro sólo cuando exactamente un NIF tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Sociedades adjudicatarias de la Plataforma de Contratación del Sector Público (licitaciones, contratos menores y plataformas autonómicas agregadas) con NIF de sociedad válido. España no publica el NIF de las empresas en ningún registro abierto, así que esta es la vía principal. En cada corrida del Agente 1 completa el NIF por nombre de empresa, junto con es_official_nif_registry y los alias (es_nif_name_alias): prueba variantes del nombre (con y sin «España»), un nombre de una sola palabra sólo vale si la web lo confirma, y los homónimos quedan como señal.',
     limitations: [
       'Sólo cubre empresas que ganaron contratos públicos: las demás no aparecen.',
-      'Carga de un periodo corto (junio–septiembre de 2026).',
+      'Carga de un periodo corto (2026).',
       'España no publica el NIF de las empresas en ningún registro abierto.',
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
     ],
     riskNotes: [
       'Un nombre repetido o genérico no da un NIF seguro; queda como señal.',
+    ],
+  },
+  {
+    key: 'es_official_nif_registry',
+    name: 'Ayudas de Estado (BDNS), INVENTE y Banco de España — NIF por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-ES-CLOSE-1: carga PENDIENTE de autorización. Sociedades con NIF de las ayudas de Estado de la BDNS (2024-2025), de INVENTE y del registro del Banco de España. Carga: scripts/source-catalog/extract-es-sources.py y run-es-sources-etl.ts --apply --only=official-registry.',
+    countryCodes: ['ES'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.infosubvenciones.es/bdnstrans/GE/es/index',
+    automationLevel: 'high',
+    recommendedUse:
+      'NIF por nombre de las sociedades que no ganan contratos públicos: beneficiarias de ayudas de Estado de la Base de Datos Nacional de Subvenciones (Origen de los datos: Intervención General de la Administración del Estado), entes del Inventario de Entes del Sector Público (INVENTE, Hacienda) y bancos y financieras del registro del Banco de España. Trae el tamaño cuando lo hay: la plantilla de INVENTE (número exacto) o «GRAN EMPRESA» de la BDNS (tramo «grande» que queda en la ficha y no decide solo).',
+    limitations: [
+      'La BDNS sólo publica cada ayuda cuatro años: empresas sin ayudas recientes no aparecen.',
+      '«GRAN EMPRESA» la declara el órgano que concede: a veces la misma empresa sale como PYME en otra ayuda.',
+      'Las cabeceras de grupo (Inditex, Ferrovial, ACS…) rara vez aparecen: piden ayudas y ganan contratos sus filiales.',
+      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Sólo personas jurídicas: los beneficiarios personas físicas vienen enmascarados y nunca se cargan.',
+      'Un nombre repetido o genérico no da un NIF seguro; queda como señal.',
+    ],
+  },
+  {
+    key: 'es_free_directory',
+    name: 'Empresas con NIF de fuentes oficiales de España — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-ES-CLOSE-1: carga PENDIENTE de autorización. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=directory.',
+    countryCodes: ['ES'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.pap.hacienda.gob.es/invente2/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita española por industria (tablas aprobadas por la dueña el 13-10-2026): entes públicos empresariales de INVENTE (CNAE, plantilla y web), bancos y financieras del Banco de España (web), sociedades marcadas «GRAN EMPRESA» en las ayudas de Estado de la BDNS (CNAE, con la misma tabla por división aprobada para Argentina más la letra de sección) y adjudicatarias de la Plataforma de Contratación con 1 millón de euros o más adjudicado (por la división CPV que más contratos les da). Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su NIF, su razón social y, si la fuente la publica, su web.',
+    limitations: [
+      'La mayoría de adjudicatarias y beneficiarias no trae web: van a Descartadas y dependen del rescate para encontrar su sitio.',
+      'La industria de una adjudicataria sale de lo que vende al Estado, no de su actividad registrada.',
+      'Hoteles, I+D, educación y la sección C (industria) del CNAE no se proponen por actividad.',
+      'Snapshot estático — requiere recarga para sumar meses nuevos.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'es_public_entities',
+    name: 'Entidades públicas de España con NIF y web — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-ES-CLOSE-1: carga PENDIENTE de autorización. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=public.',
+    countryCodes: ['ES'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://contrataciondelestado.es/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de España: los órganos de contratación de la Plataforma de Contratación con NIF de entidad pública (P, Q o S: ayuntamientos, diputaciones, ministerios, consejerías, universidades, organismos) y los entes públicos de INVENTE (organismos autónomos, agencias, universidades públicas, entes públicos). Con NIF y la web que publican, que sólo se acepta si su dirección nombra a la entidad; un dominio regional compartido («juntadeandalucia.es», «gva.es») sólo vale con un subdominio que la nombre.',
+    limitations: [
+      'Muchos ayuntamientos pequeños no publican web (sólo correos gratuitos): quedan fuera.',
+      'Los órganos que comparten la web de su consejería o ministerio quedan fuera.',
+      'Sin presupuesto por entidad; la plantilla sólo para los entes de INVENTE.',
+    ],
+    riskNotes: [
+      'Del correo de contacto sólo se usa el dominio institucional, nunca la dirección.',
     ],
   },
 

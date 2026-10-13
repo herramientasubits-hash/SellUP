@@ -50,6 +50,12 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   us_irs_eo_registry: 'TAX_GRAIN',
   // SOURCES-ES-NIF-BY-NAME-1 — un NIF, una fila (sociedades adjudicatarias en España).
   es_placsp_registry: 'TAX_GRAIN',
+  // SOURCES-ES-CLOSE-1 — un NIF, una fila (BDNS, INVENTE, Banco de España; capa
+  // gratuita de empresas y de Gobierno); una clave por (NIF, nombre) en los alias.
+  es_official_nif_registry: 'TAX_GRAIN',
+  es_free_directory: 'TAX_GRAIN',
+  es_public_entities: 'TAX_GRAIN',
+  es_nif_name_alias: 'NATIVE_RECORD_GRAIN',
   mx_compranet_rfc_registry: 'TAX_GRAIN',
   // SOURCES-MX-RFC-PUBLIC-LISTS-1 — un RFC, una fila (importadores, donatarias SAT, proveedores NL).
   mx_rfc_public_lists_registry: 'TAX_GRAIN',

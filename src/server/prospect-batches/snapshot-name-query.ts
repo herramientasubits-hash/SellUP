@@ -165,6 +165,10 @@ export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   // SOURCES-NI-CLOSE-2 — Grandes Contribuyentes de la DGI de Nicaragua (lista de
   // 2019-2020 del Internet Archive). Mismo trato: «empresa grande» que no decide sola.
   NI_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Nicaragua)',
+  // SOURCES-ES-CLOSE-1 — «GRAN EMPRESA» en las ayudas de Estado de la BDNS (definición
+  // de la UE: 250+ personas o ventas y balance altos). La declara el órgano que
+  // concede y a veces la misma empresa sale como PYME: «grande» que no decide sola.
+  ES_BDNS_GRAN_EMPRESA: 'gran empresa (ayudas de Estado BDNS)',
 };
 
 function bandFromTaxpayerCategory(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {

@@ -58,6 +58,7 @@ import { buildCrFreeDirectoryDiscoveryReads } from './cr-free-directory-snapshot
 import { buildHnHonducomprasDirectoryDiscoveryReads } from './hn-honducompras-directory-snapshot-query';
 import { buildPaFreeDirectoryDiscoveryReads } from './pa-free-directory-snapshot-query';
 import { buildNiFreeDirectoryDiscoveryReads } from './ni-free-directory-snapshot-query';
+import { buildEsFreeDirectoryDiscoveryReads } from './es-free-directory-snapshot-query';
 import { buildSvComprasalDirectoryDiscoveryReads } from './sv-comprasal-directory-snapshot-query';
 import { buildLatamCuratedDiscoveryReads } from './latam-curated-discovery-adapter';
 import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
@@ -235,6 +236,7 @@ export async function runProductionPrePaidNoveltyGate(
           hnHonducomprasDirectoryDiscoveryReads: buildHnHonducomprasDirectoryDiscoveryReads(adminClient),
           paFreeDirectoryDiscoveryReads: buildPaFreeDirectoryDiscoveryReads(adminClient),
           niFreeDirectoryDiscoveryReads: buildNiFreeDirectoryDiscoveryReads(adminClient),
+          esFreeDirectoryDiscoveryReads: buildEsFreeDirectoryDiscoveryReads(adminClient),
           svComprasalDirectoryDiscoveryReads: buildSvComprasalDirectoryDiscoveryReads(adminClient),
           latamCuratedDiscoveryReads: buildLatamCuratedDiscoveryReads(adminClient),
           // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — DENUE en vivo (gratuito); la clave sale
