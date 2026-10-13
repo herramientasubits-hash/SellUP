@@ -2954,7 +2954,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-UY-CLOSE-1 (13-10-2026): carga pendiente de la aprobación de la tabla del catálogo SICE (uy-arce-macro-table.ts) y de la autorización de la dueña. Dry-run: 2.308 organizaciones de 16.716 proveedores adjudicados 2022-2025 (fuera 8.509 no vigentes en el RUPE o personas, 4.915 con menos de US$ 50.000, 744 sin industria dominante, 191 sin adjudicación desde 2024, 49 entes del Estado). Web: la del Directorio de Empresas Industriales del MIEM, la de los prestadores del MSP o la comprobada por su nombre (scripts/source-catalog/discover-uy-company-webs.mts). Carga: extract-uy-ocds-suppliers.py sobre ocds-2022..2025.zip (catalogodatos.gub.uy, «arce-datos-historicos-de-compras») y el catálogo imp_catalogo.tgz, y luego scripts/source-catalog/run-uy-sources-etl.ts --apply --confirm --only=directory.',
+      'SOURCES-UY-CLOSE-1 (13-10-2026): carga pendiente de autorización (tabla del catálogo SICE y corte aprobados por la dueña). Dry-run: 2.308 organizaciones de 16.716 proveedores adjudicados 2022-2025 (fuera 8.509 no vigentes en el RUPE o personas, 4.915 con menos de US$ 50.000, 744 sin industria dominante, 191 sin adjudicación desde 2024, 49 entes del Estado). Web: 567 de 2.308 (Tecnología 72/223, Salud 99/326, Industria 118/348, Construcción 95/377, Servicios 95/595): la del Directorio de Empresas Industriales del MIEM, la de los prestadores del MSP o la comprobada por su nombre (485; su propia página la nombra, un nombre débil sólo junto a su forma societaria; scripts/source-catalog/discover-uy-company-webs.mts). El resto la busca el rescate con Claude en la corrida (opción B elegida por la dueña). Tabla y corte APROBADOS por la dueña el 13-10-2026. Carga: extract-uy-ocds-suppliers.py sobre ocds-2022..2025.zip (catalogodatos.gub.uy, «arce-datos-historicos-de-compras») y el catálogo imp_catalogo.tgz, y luego scripts/source-catalog/run-uy-sources-etl.ts --apply --confirm --only=directory.',
     countryCodes: ['UY'],
     sectors: [],
     priority: 'P1',
@@ -2966,7 +2966,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Capa gratuita uruguaya por industria: organizaciones vigentes del RUPE a las que el Estado adjudicó al menos US$ 50.000 entre 2022 y 2025 (datos abiertos OCDS de ARCE), con alguna adjudicación desde 2024. La industria sale de lo que venden al Estado (familia, subfamilia y clase del catálogo SICE, tabla catálogo → industria) y se ordenan por cuántos organismos distintos les compran. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RUT, su razón social del RUPE y, cuando se conoce, su web.',
     limitations: [
       'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
-      'ARCE no publica correo ni web de sus proveedores: sin web comprobada la empresa va a Descartadas y depende del rescate.',
+      'ARCE no publica correo ni web de sus proveedores: sólo 567 de 2.308 llevan web (MIEM, MSP o comprobada por su nombre); el resto va a Descartadas y depende del rescate.',
       'La industria sale de lo que venden al Estado: «otros servicios», «otros materiales», viáticos y tasas no se proponen; seguros y finanzas casi no aparecen.',
       'Uruguay no publica tamaño por empresa: el monto adjudicado ordena por relevancia, no decide el tamaño.',
       'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
