@@ -586,7 +586,7 @@ describe('cableado y familias de fuente', () => {
     assert.equal(getSourceFamily('uy_public_entities'), 'NATIVE_RECORD_GRAIN');
   });
 
-  it('catálogo: estado honesto (conectada; RUPE cargado, capa gratuita y Gobierno por cargar) y fuera de las recomendaciones', () => {
+  it('catálogo: estado honesto (conectada, cargada y verificada en Prod) y fuera de las recomendaciones', () => {
     const expected = {
       uy_rupe_registry: 'connected_identity_in_run',
       uy_arce_directory: 'connected_free_discovery',
@@ -599,6 +599,7 @@ describe('cableado y familias de fuente', () => {
       assert.equal(source.aiFlowStatus, status);
       assert.equal(source.connectionMode, 'read_only_snapshot');
       assert.deepEqual(source.sectors, []);
+      assert.equal(source.operationalStatus, 'operational_verified', `${key}: cargada y verificada en Prod el 13-10-2026`);
       for (const depth of ['basic', 'standard', 'deep'] as const) {
         for (const industry of ['technology', 'health_pharma', 'government']) {
           const ctx = getCatalogContext({ country: 'UY', countryCode: 'UY', industry, searchDepth: depth });
