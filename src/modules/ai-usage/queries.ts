@@ -10,6 +10,31 @@ import type {
   ProviderUsageLog,
 } from '@/modules/usage-tracking/types';
 import { resolveUsageCredits } from '@/modules/usage-tracking/credits-display';
+import {
+  fetchAllPages,
+  fetchAllPagesInChunks,
+  IN_FILTER_CHUNK_SIZE,
+} from '@/lib/supabase/paginated-read';
+import {
+  canonicalStatusKey,
+  resolvePeriodStart,
+  resolveStatusFilter,
+} from './usage-filter-semantics';
+import {
+  aggregateAgentStats,
+  aggregateProviderStats,
+  aggregateUsageSummary,
+  aggregateUserConsumption,
+  consumerIds,
+  indexRunsById,
+  selectLogsInScope,
+  selectRunsInScope,
+  type UsageLogRow,
+  type UsagePerson,
+  type UsageRunRow,
+  type UsageScope,
+  type UserConsumptionRow,
+} from './usage-aggregators';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,20 +64,6 @@ export interface UsageFilters {
 
 // Status considered "active" in internal_users (mirrors AccessStatus).
 const ACTIVE_USER_STATUS = 'active';
-
-function periodStart(period: UsageFilters['period']): string | null {
-  const now = new Date();
-  if (period === '7d') {
-    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  }
-  if (period === '30d') {
-    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  }
-  if (period === 'current_month') {
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  }
-  return null;
-}
 
 function emptySummary(): AiUsageSummary {
   return {
@@ -284,60 +295,141 @@ async function resolveUserScope(
 }
 
 // ============================================================
-// Agent-scope resolution (Q3F-8B)
+// Lectura del universo filtrado (paginada, una sola regla para todo)
 //
-// UsageFilters.agent carries an agent_key (e.g. "prospect_generation"), NOT a
-// run id. provider_usage_logs has no agent_key column — it only has
-// agent_run_id. So filtering provider logs by Agent means resolving the key to
-// its agent_runs.id[] first, then constraining agent_run_id ∈ those ids.
-//
-// The chain: agent_runs.agent_key → agent_runs.id → provider_usage_logs.agent_run_id
+// Todas las cifras de la página salen de aquí:
+//   - agent_runs completo (paginado): conteos, estados y el mapa
+//     agent_run_id → agente. Se lee entero porque una consulta del periodo
+//     puede pertenecer a una ejecución creada antes del periodo.
+//   - provider_usage_logs del ámbito (paginado): TODO el dinero.
+// Agente y «estado sólo de ejecución» se resuelven en memoria por
+// agent_run_id (provider_usage_logs no tiene agent_key), con las funciones
+// puras de usage-aggregators.ts.
 // ============================================================
 
-/**
- * Resolve an agent_key to the set of agent_runs.id it produced.
- *
- * Selects only `id` (no unnecessary columns) and touches agent_runs only —
- * provider_usage_logs scoping happens in the caller. Never mixes role / group /
- * user scope; it is orthogonal to resolveUserScope.
- *
- * Return contract:
- *   - key with runs    → [id, id, ...]
- *   - key with no runs → []
- *   - query error      → [] (fail-closed, mirroring getActiveUserIdsForRoleKey:
- *                        an unresolvable scope contributes an empty id set
- *                        rather than silently widening results)
- */
-async function resolveAgentRunIds(
-  admin: AdminClient,
-  agentKey: string,
-): Promise<string[]> {
-  const { data } = await admin
-    .from('agent_runs')
-    .select('id')
-    .eq('agent_key', agentKey);
-  return (data ?? []).map((r) => r.id as string);
+const RUN_COLUMNS =
+  'id, agent_key, agent_name, status, triggered_by, created_at, results_generated, results_approved';
+const LOG_COLUMNS =
+  'id, agent_run_id, provider_key, operation_key, status, triggered_by, credits_used, input_tokens, output_tokens, results_returned, estimated_cost_usd, created_at';
+
+/** Un fallo de lectura: nunca se convierte en «no hubo consumo». */
+export class UsageReadError extends Error {
+  constructor(table: string, detail: string) {
+    super(`ai-usage: no se pudo leer ${table}: ${detail}`);
+    this.name = 'UsageReadError';
+  }
 }
 
-// The single Agent-scope decision shared by getProviderStats,
-// getProviderOperationStats and getRecentProviderLogs. Kept pure (no Supabase
-// client) so the three-case boundary is unit-testable directly, matching this
-// module's aggregateOperationStats testing approach.
-//   - disabled                → no filters.agent → do NOT constrain agent_run_id
-//   - enabled, runIds.length>0 → constrain agent_run_id ∈ runIds
-//   - enabled, runIds.length=0 → Agent selected but 0 matching runs → EMPTY
-//     (the caller must short-circuit; it must NOT fall through to an
-//     unconstrained provider_usage_logs query, which would wrongly show all data)
-export type AgentRunScope =
-  | { enabled: false }
-  | { enabled: true; runIds: string[] };
+type PageResult<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
 
-export function createAgentRunScope(
-  agentKey: string | undefined,
-  resolvedIds: string[] | null,
-): AgentRunScope {
-  if (!agentKey) return { enabled: false };
-  return { enabled: true, runIds: resolvedIds ?? [] };
+function buildUsageScope(filters: UsageFilters, userScope: UserScope): UsageScope {
+  return {
+    since: resolvePeriodStart(filters.period),
+    providerKey: filters.provider || undefined,
+    agentKey: filters.agent || undefined,
+    status: resolveStatusFilter(filters.status),
+    userIds: userScope.mode === 'ids' ? userScope.ids : null,
+  };
+}
+
+function fetchAllRuns(admin: AdminClient) {
+  return fetchAllPages<UsageRunRow>(
+    (from, to) =>
+      admin
+        .from('agent_runs')
+        .select(RUN_COLUMNS)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to) as unknown as PageResult<UsageRunRow>,
+  );
+}
+
+/**
+ * Consultas del ámbito, con los filtros que la base de datos puede aplicar
+ * (periodo, proveedor, estado del log, personas). El resto se aplica en
+ * memoria en selectLogsInScope.
+ */
+function scopedLogsQuery(admin: AdminClient, scope: UsageScope, columns: string) {
+  let query = admin.from('provider_usage_logs').select(columns);
+  if (scope.since) query = query.gte('created_at', scope.since);
+  if (scope.providerKey) query = query.eq('provider_key', scope.providerKey);
+  if (scope.status.logStatuses) query = query.in('status', scope.status.logStatuses);
+  // Una lista de personas muy larga no cabe en la URL: entonces se filtra sólo
+  // en memoria (selectLogsInScope), que aplica la misma regla.
+  if (scope.userIds && scope.userIds.length <= IN_FILTER_CHUNK_SIZE) {
+    query = query.in('triggered_by', scope.userIds);
+  }
+  return query;
+}
+
+interface UsageDataset {
+  runsById: Map<string, UsageRunRow>;
+  runsInScope: UsageRunRow[];
+  logsInScope: UsageLogRow[];
+  truncated: boolean;
+}
+
+async function loadUsageDataset(
+  admin: AdminClient,
+  filters: UsageFilters,
+  userScope: UserScope,
+): Promise<UsageDataset> {
+  const scope = buildUsageScope(filters, userScope);
+  const [runsRead, logsRead] = await Promise.all([
+    fetchAllRuns(admin),
+    fetchAllPages<UsageLogRow>(
+      (from, to) =>
+        scopedLogsQuery(admin, scope, LOG_COLUMNS)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to) as unknown as PageResult<UsageLogRow>,
+    ),
+  ]);
+  if (runsRead.error) throw new UsageReadError('agent_runs', runsRead.error);
+  if (logsRead.error) throw new UsageReadError('provider_usage_logs', logsRead.error);
+
+  const runsById = indexRunsById(runsRead.rows);
+  const logsInScope = selectLogsInScope(logsRead.rows, runsById, scope);
+  const runsInScope = selectRunsInScope(runsRead.rows, logsInScope, scope);
+  return {
+    runsById,
+    runsInScope,
+    logsInScope,
+    truncated: runsRead.truncated || logsRead.truncated,
+  };
+}
+
+type PreparedAccess =
+  | { kind: 'denied' }
+  | { kind: 'empty' }
+  | { kind: 'ready'; admin: AdminClient; userScope: UserScope };
+
+/** Acceso + personas del ámbito. 'empty' = los filtros no dejan a nadie. */
+async function prepareAccess(filters: UsageFilters): Promise<PreparedAccess> {
+  const access = await resolveAiUsageAccess();
+  if (access.mode === 'denied') return { kind: 'denied' };
+  const admin = getAdminClient();
+  const baseIds = access.mode === 'ids' ? access.ids : null;
+  const userScope = await resolveUserScope(admin, filters, baseIds);
+  if (userScope.mode === 'ids' && userScope.ids.length === 0) return { kind: 'empty' };
+  return { kind: 'ready', admin, userScope };
+}
+
+/**
+ * Personas a las que se limitan las cifras (persona ∩ rol ∩ grupo ∩ alcance
+ * comercial), para superficies que no leen provider_usage_logs directamente
+ * (el panel del Agente 1 filtra prospect_batches.created_by con esto).
+ *   - 'denied' → sin acceso
+ *   - null     → sin restricción de personas
+ *   - string[] → sólo esas personas ([] = nadie)
+ */
+export async function resolveUsagePeopleScope(
+  filters: UsageFilters,
+): Promise<'denied' | string[] | null> {
+  const prepared = await prepareAccess(filters);
+  if (prepared.kind === 'denied') return 'denied';
+  if (prepared.kind === 'empty') return [];
+  return prepared.userScope.mode === 'ids' ? prepared.userScope.ids : null;
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
@@ -364,29 +456,38 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     .order('full_name', { ascending: true });
   if (allowedUserIds !== null) usersQuery = usersQuery.in('id', allowedUserIds);
 
-  const [logsResult, runsResult, usersResult, rolesResult, groupsResult] =
-    await Promise.all([
-      admin.from('provider_usage_logs').select('provider_key, status, triggered_by'),
-      admin.from('agent_runs').select('agent_key, agent_name, triggered_by, status'),
-      usersQuery,
-      admin.from('roles').select('id, key, name'),
-      admin
-        .from('organization_groups')
-        .select('id, name, parent_group_id'),
-    ]);
+  type OptionLogRow = { provider_key: string; status: string; triggered_by: string | null };
+  const [logsRead, runsRead, usersResult, rolesResult, groupsResult] = await Promise.all([
+    // Paginado: con una sola petición sólo se veían los proveedores y estados
+    // de las primeras 1.000 consultas.
+    fetchAllPages<OptionLogRow>(
+      (from, to) =>
+        admin
+          .from('provider_usage_logs')
+          .select('provider_key, status, triggered_by')
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to) as unknown as PageResult<OptionLogRow>,
+    ),
+    fetchAllRuns(admin),
+    usersQuery,
+    admin.from('roles').select('id, key, name'),
+    admin.from('organization_groups').select('id, name, parent_group_id'),
+  ]);
+  if (logsRead.error) throw new UsageReadError('provider_usage_logs', logsRead.error);
+  if (runsRead.error) throw new UsageReadError('agent_runs', runsRead.error);
 
-  const logs = logsResult.data ?? [];
-  const runs = runsResult.data ?? [];
+  const logs = logsRead.rows;
+  const runs = runsRead.rows;
   const internalUsers = usersResult.data ?? [];
   const roles = rolesResult.data ?? [];
   const orgGroups = groupsResult.data ?? [];
 
   const providers = [...new Set(logs.map((l) => l.provider_key))].sort();
+  // Un solo vocabulario en el filtro: «Correcto» (success) y «Completado»
+  // (completed) son la misma opción; ver usage-filter-semantics.ts.
   const statuses = [
-    ...new Set([
-      ...logs.map((l) => l.status),
-      ...runs.map((r) => r.status as string),
-    ]),
+    ...new Set([...logs.map((l) => l.status), ...runs.map((r) => r.status)].map(canonicalStatusKey)),
   ].sort();
 
   const agentMap = new Map<string, string | null>();
@@ -459,239 +560,131 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
 }
 
 // ============================================================
-// getAiUsageSummary — with filters
-// ============================================================
-
-export async function getAiUsageSummary(
-  filters: UsageFilters = {},
-): Promise<AiUsageSummary | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
-
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-
-  // A user/group filter that resolves to zero users → empty metrics.
-  if (scope.mode === 'ids' && scope.ids.length === 0) {
-    return emptySummary();
-  }
-
-  let runsQuery = admin.from('agent_runs').select('status, estimated_cost_usd');
-  if (since) runsQuery = runsQuery.gte('created_at', since);
-  if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
-  if (filters.status) runsQuery = runsQuery.eq('status', filters.status);
-  if (scope.mode === 'ids') runsQuery = runsQuery.in('triggered_by', scope.ids);
-
-  let logsQuery = admin
-    .from('provider_usage_logs')
-    .select('status, estimated_cost_usd, provider_key');
-  if (since) logsQuery = logsQuery.gte('created_at', since);
-  if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
-  if (filters.status) logsQuery = logsQuery.eq('status', filters.status);
-  if (scope.mode === 'ids') logsQuery = logsQuery.in('triggered_by', scope.ids);
-
-  const [runsResult, logsResult] = await Promise.all([runsQuery, logsQuery]);
-
-  const runs = runsResult.data ?? [];
-  const logs = logsResult.data ?? [];
-
-  const total_executions = runs.length;
-  const running_executions = runs.filter((r) => r.status === 'running').length;
-  const failed_executions = runs.filter((r) => r.status === 'failed').length;
-  const total_provider_calls = logs.length;
-  const error_provider_calls = logs.filter(
-    (l) => l.status === 'error' || l.status === 'rate_limited' || l.status === 'quota_exceeded',
-  ).length;
-  // Known-cost subtotal only. A NULL estimated_cost_usd means unknown cost —
-  // it is excluded from the sum (never coerced to 0) and flagged via
-  // has_unknown_cost so total_estimated_cost_usd is never mislabeled as a
-  // complete total (17B.4X.5).
-  let total_estimated_cost_usd = 0;
-  let has_unknown_cost = false;
-  for (const l of logs) {
-    if (l.estimated_cost_usd == null) {
-      has_unknown_cost = true;
-    } else {
-      total_estimated_cost_usd += Number(l.estimated_cost_usd);
-    }
-  }
-  const distinct_providers = new Set(logs.map((l) => l.provider_key)).size;
-  const avg_cost_per_run =
-    total_executions > 0 ? total_estimated_cost_usd / total_executions : null;
-
-  return {
-    total_executions,
-    running_executions,
-    failed_executions,
-    total_provider_calls,
-    error_provider_calls,
-    total_estimated_cost_usd,
-    has_unknown_cost,
-    distinct_providers,
-    avg_cost_per_run,
-  };
-}
-
-// ============================================================
-// getAgentStats — with filters
-// ============================================================
-
-export async function getAgentStats(
-  filters: UsageFilters = {},
-): Promise<AgentStat[] | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
-
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
-
-  let query = admin
-    .from('agent_runs')
-    .select(
-      'agent_key, agent_name, status, results_generated, results_approved, estimated_cost_usd, created_at',
-    )
-    .order('created_at', { ascending: false });
-
-  if (since) query = query.gte('created_at', since);
-  if (filters.agent) query = query.eq('agent_key', filters.agent);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
-
-  const { data, error } = await query;
-  if (error) return [];
-
-  const map = new Map<string, AgentStat>();
-
-  for (const row of data ?? []) {
-    const existing: AgentStat = map.get(row.agent_key) ?? {
-      agent_key: row.agent_key,
-      agent_name: (row.agent_name as string | null) ?? null,
-      total_executions: 0,
-      completed_executions: 0,
-      failed_executions: 0,
-      total_results_generated: 0,
-      total_results_approved: 0,
-      total_estimated_cost_usd: 0,
-      last_run_at: null,
-    };
-
-    existing.total_executions++;
-    if (row.status === 'completed') existing.completed_executions++;
-    if (row.status === 'failed') existing.failed_executions++;
-    existing.total_results_generated += Number(row.results_generated ?? 0);
-    existing.total_results_approved += Number(row.results_approved ?? 0);
-    existing.total_estimated_cost_usd += Number(row.estimated_cost_usd ?? 0);
-
-    if (!existing.last_run_at || (row.created_at as string) > existing.last_run_at) {
-      existing.last_run_at = row.created_at as string;
-    }
-
-    map.set(row.agent_key, existing);
-  }
-
-  return Array.from(map.values()).sort(
-    (a, b) => b.total_estimated_cost_usd - a.total_estimated_cost_usd,
-  );
-}
-
-// ============================================================
-// getProviderStats — with filters
+// Cifras de la página — todas desde el mismo universo filtrado
+//
+// Dinero: SÓLO provider_usage_logs (ver usage-aggregators.ts). Un fallo de
+// lectura lanza UsageReadError; nunca devuelve una lista vacía que parezca
+// «sin consumo».
 // ============================================================
 
 export async function getProviderStats(
   filters: UsageFilters = {},
 ): Promise<ProviderStat[] | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
+  const prepared = await prepareAccess(filters);
+  if (prepared.kind === 'denied') return null;
+  if (prepared.kind === 'empty') return [];
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  return aggregateProviderStats(data.logsInScope);
+}
 
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
+export type { UserConsumptionRow } from './usage-aggregators';
 
-  // Agent scope: resolve agent_key → agent_runs.id[] and constrain
-  // provider_usage_logs.agent_run_id. An active Agent filter with no matching
-  // runs yields an empty universe (never an unconstrained query).
-  const agentScope = createAgentRunScope(
-    filters.agent,
-    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
+async function readPeople(
+  admin: AdminClient,
+  ids: string[] | null,
+  onlyActive: boolean,
+): Promise<UsagePerson[]> {
+  const build = (chunk: string[] | null) => (from: number, to: number) => {
+    let query = admin.from('internal_users').select('id, full_name, email');
+    if (onlyActive) query = query.eq('access_status', ACTIVE_USER_STATUS);
+    if (chunk) query = query.in('id', chunk);
+    return query.order('id', { ascending: true }).range(from, to) as unknown as PageResult<UsagePerson>;
+  };
+  const read =
+    ids === null
+      ? await fetchAllPages<UsagePerson>(build(null))
+      : await fetchAllPagesInChunks<string, UsagePerson>(ids, IN_FILTER_CHUNK_SIZE, build);
+  if (read.error) throw new UsageReadError('internal_users', read.error);
+  return read.rows;
+}
+
+async function buildUserConsumption(
+  admin: AdminClient,
+  userScope: UserScope,
+  data: UsageDataset,
+): Promise<UserConsumptionRow[]> {
+  // Plantilla: personas activas del ámbito (también las que están en cero).
+  const activeUsers = await readPeople(
+    admin,
+    userScope.mode === 'ids' ? userScope.ids : null,
+    true,
   );
-  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
+  // Quien consumió sin ser persona activa (p. ej. suspendida) también sale,
+  // para que ningún costo real desaparezca.
+  const activeIds = new Set(activeUsers.map((u) => u.id));
+  const otherIds = consumerIds(data.runsInScope, data.logsInScope).filter((id) => !activeIds.has(id));
+  const otherUsers = otherIds.length > 0 ? await readPeople(admin, otherIds, false) : [];
+  return aggregateUserConsumption(data.runsInScope, data.logsInScope, activeUsers, otherUsers);
+}
 
-  let query = admin
-    .from('provider_usage_logs')
-    .select(
-      'provider_key, status, credits_used, input_tokens, output_tokens, results_returned, estimated_cost_usd, created_at',
-    );
+// ============================================================
+// getAiUsageOverview — todo lo de /ai-usage con UNA lectura
+//
+// Lee el universo una vez y deriva KPIs, agentes, proveedores y personas de
+// las mismas filas, así los totales cuadran entre sí. No lanza: un fallo de
+// lectura vuelve como dataQuality.readError para que la página lo diga.
+// ============================================================
 
-  if (since) query = query.gte('created_at', since);
-  if (filters.provider) query = query.eq('provider_key', filters.provider);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
-  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
+export interface UsageDataQuality {
+  /** Había más filas que el tope de seguridad: las cifras pueden quedarse cortas. */
+  truncated: boolean;
+  /** Alguna lectura falló: las cifras mostradas no son fiables. */
+  readError: boolean;
+}
 
-  const { data, error } = await query;
-  if (error) return [];
+export interface AiUsageOverview {
+  summary: AiUsageSummary;
+  agentStats: AgentStat[];
+  providerStats: ProviderStat[];
+  userConsumption: UserConsumptionRow[];
+  recentLogs: ProviderUsageLog[];
+  dataQuality: UsageDataQuality;
+}
 
-  const map = new Map<string, ProviderStat>();
+function emptyOverview(dataQuality: UsageDataQuality): AiUsageOverview {
+  return {
+    summary: emptySummary(),
+    agentStats: [],
+    providerStats: [],
+    userConsumption: [],
+    recentLogs: [],
+    dataQuality,
+  };
+}
 
-  for (const row of data ?? []) {
-    const existing: ProviderStat = map.get(row.provider_key) ?? {
-      provider_key: row.provider_key,
-      total_calls: 0,
-      success_calls: 0,
-      error_calls: 0,
-      total_credits_used: null,
-      unknown_credit_operations: 0,
-      has_unknown_credits: false,
-      total_input_tokens: 0,
-      total_output_tokens: 0,
-      total_results_returned: 0,
-      total_estimated_cost_usd: 0,
-      has_unknown_cost: false,
-      last_used_at: null,
-    };
-
-    existing.total_calls++;
-    if (row.status === 'success') existing.success_calls++;
-    else existing.error_calls++;
-
-    // Known-credit subtotal only. A NULL credits_used means the consumption is
-    // indeterminate — it is counted as a pending operation, never folded in as
-    // a confirmed zero. See modules/usage-tracking/credits-display.ts.
-    const credits = resolveUsageCredits(row.credits_used);
-    if (credits.state === 'unknown') {
-      existing.unknown_credit_operations++;
-      existing.has_unknown_credits = true;
-    } else {
-      existing.total_credits_used = (existing.total_credits_used ?? 0) + credits.credits;
-    }
-    existing.total_input_tokens += Number(row.input_tokens ?? 0);
-    existing.total_output_tokens += Number(row.output_tokens ?? 0);
-    existing.total_results_returned += Number(row.results_returned ?? 0);
-    // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
-    if (row.estimated_cost_usd == null) {
-      existing.has_unknown_cost = true;
-    } else {
-      existing.total_estimated_cost_usd += Number(row.estimated_cost_usd);
-    }
-
-    if (!existing.last_used_at || (row.created_at as string) > existing.last_used_at) {
-      existing.last_used_at = row.created_at as string;
-    }
-
-    map.set(row.provider_key, existing);
+export async function getAiUsageOverview(
+  filters: UsageFilters = {},
+  recentLimit = 25,
+): Promise<AiUsageOverview | null> {
+  let prepared: PreparedAccess;
+  try {
+    prepared = await prepareAccess(filters);
+  } catch (err) {
+    console.error('[ai-usage] overview access check failed:', err);
+    return null;
   }
+  if (prepared.kind === 'denied') return null;
+  if (prepared.kind === 'empty') return emptyOverview({ truncated: false, readError: false });
 
-  return Array.from(map.values()).sort(
-    (a, b) => b.total_estimated_cost_usd - a.total_estimated_cost_usd,
-  );
+  try {
+    const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+    const [userConsumption, recentLogs] = await Promise.all([
+      buildUserConsumption(prepared.admin, prepared.userScope, data),
+      readRecentProviderLogs(prepared.admin, recentLimit, filters, prepared.userScope),
+    ]);
+    return {
+      summary: aggregateUsageSummary(data.runsInScope, data.logsInScope),
+      agentStats: aggregateAgentStats(data.runsInScope, data.logsInScope, data.runsById),
+      providerStats: aggregateProviderStats(data.logsInScope),
+      userConsumption,
+      recentLogs,
+      dataQuality: { truncated: data.truncated, readError: false },
+    };
+  } catch (err) {
+    // El detalle queda en el servidor; la página muestra un aviso genérico.
+    console.error('[ai-usage] overview read failed:', err);
+    return emptyOverview({ truncated: false, readError: true });
+  }
 }
 
 // ============================================================
@@ -722,8 +715,8 @@ export interface OperationStat {
 interface OperationLogRow {
   operation_key: string | null;
   status: string | null;
-  credits_used: number | null;
-  estimated_cost_usd: number | null;
+  credits_used: number | string | null;
+  estimated_cost_usd: number | string | null;
 }
 
 /**
@@ -811,275 +804,72 @@ export function resolveOperationLogRowsOrThrow(
 export async function getProviderOperationStats(
   filters: UsageFilters = {},
 ): Promise<OperationStat[] | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
+  const prepared = await prepareAccess(filters);
+  if (prepared.kind === 'denied') return null;
+  if (prepared.kind === 'empty') return [];
 
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
-
-  // Same Agent scope as getProviderStats: resolve agent_key → agent_runs.id[]
-  // and constrain provider_usage_logs.agent_run_id, so the breakdown and the
-  // Q3F-7 KPIs describe the identical filtered universe.
-  const agentScope = createAgentRunScope(
-    filters.agent,
-    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
-  );
-  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
-
-  let query = admin
-    .from('provider_usage_logs')
-    .select('operation_key, status, credits_used, estimated_cost_usd, created_at');
-
-  if (since) query = query.gte('created_at', since);
-  if (filters.provider) query = query.eq('provider_key', filters.provider);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
-  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
-
-  const { data, error } = await query;
-  // Unlike getProviderStats/getRecentProviderLogs, a Supabase query error here
-  // must NOT collapse into a valid-looking empty result: it needs to surface
-  // as a thrown exception so provider-consumption-actions.ts's `operation_stats`
-  // try/catch can classify it and the UI can show the contained-error banner
-  // instead of a false "Sin consumo por operación" empty state (Q3F-8E).
-  const rows = resolveOperationLogRowsOrThrow(data as OperationLogRow[] | null, error);
-
-  return aggregateOperationStats(rows);
+  // Mismo universo que getProviderStats, así el desglose y los KPIs describen
+  // exactamente las mismas consultas. Un fallo de lectura lanza (UsageReadError)
+  // para que provider-consumption-actions.ts muestre el aviso de error en vez
+  // de un falso «Sin consumo por operación» (Q3F-8E).
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  return aggregateOperationStats(data.logsInScope);
 }
 
 // ============================================================
 // getRecentProviderLogs — with filters
 // ============================================================
 
+async function readRecentProviderLogs(
+  admin: AdminClient,
+  limit: number,
+  filters: UsageFilters,
+  userScope: UserScope,
+): Promise<ProviderUsageLog[]> {
+  const scope = buildUsageScope(filters, userScope);
+  // Agente y «estado sólo de ejecución» necesitan el mapa de ejecuciones.
+  let runsById = new Map<string, UsageRunRow>();
+  if (scope.agentKey || scope.status.logsByRunStatus) {
+    const runsRead = await fetchAllRuns(admin);
+    if (runsRead.error) throw new UsageReadError('agent_runs', runsRead.error);
+    runsById = indexRunsById(runsRead.rows);
+  }
+
+  // De la más nueva a la más antigua, página a página, hasta tener `limit`
+  // filas del ámbito.
+  const read = await fetchAllPages<ProviderUsageLog>(
+    (from, to) =>
+      scopedLogsQuery(admin, scope, '*')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to) as unknown as PageResult<ProviderUsageLog>,
+    {
+      keep: (row) =>
+        selectLogsInScope([row as unknown as UsageLogRow], runsById, scope).length === 1,
+      stopAfterKept: limit,
+    },
+  );
+  if (read.error) throw new UsageReadError('provider_usage_logs', read.error);
+  return read.rows;
+}
+
 export async function getRecentProviderLogs(
   limit = 25,
   filters: UsageFilters = {},
 ): Promise<ProviderUsageLog[] | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
-
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
-
-  // Same Agent scope as getProviderStats / getProviderOperationStats: recent
-  // logs include only rows whose agent_run_id belongs to runs of the selected
-  // agent_key. An active Agent filter with no matching runs yields no logs.
-  const agentScope = createAgentRunScope(
-    filters.agent,
-    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
-  );
-  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
-
-  let query = admin
-    .from('provider_usage_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (since) query = query.gte('created_at', since);
-  if (filters.provider) query = query.eq('provider_key', filters.provider);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
-  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
-
-  const { data, error } = await query;
-  if (error) return [];
-  return (data ?? []) as ProviderUsageLog[];
-}
-
-// ============================================================
-// getUserConsumption
-// Returns per-user aggregate if triggered_by is populated.
-// ============================================================
-
-export interface UserConsumptionRow {
-  triggered_by: string;
-  full_name: string | null;
-  email: string | null;
-  executions: number;
-  provider_calls: number;
-  /** Distinct provider keys used by this user within the active filters. */
-  providers: string[];
-  /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
-  estimated_cost_usd: number;
-  /** True when at least one aggregated provider log has estimated_cost_usd = NULL (unknown cost). */
-  has_unknown_cost: boolean;
-  last_activity_at: string | null;
-}
-
-// Max rows rendered in the "Consumo por usuario" table. Consumers are
-// surfaced first, so a long roster of zero-consumption users never hides
-// real activity.
-const USER_CONSUMPTION_LIMIT = 100;
-
-interface UserAgg {
-  executions: number;
-  provider_calls: number;
-  providers: Set<string>;
-  cost: number;
-  hasUnknownCost: boolean;
-  last_at: string | null;
-}
-
-function newAgg(): UserAgg {
-  return {
-    executions: 0,
-    provider_calls: 0,
-    providers: new Set(),
-    cost: 0,
-    hasUnknownCost: false,
-    last_at: null,
-  };
-}
-
-export async function getUserConsumption(
-  filters: UsageFilters = {},
-): Promise<UserConsumptionRow[] | null> {
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
-
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
-
-  // Display roster: active users, scoped to the selected user/group.
-  let usersQuery = admin
-    .from('internal_users')
-    .select('id, full_name, email')
-    .eq('access_status', ACTIVE_USER_STATUS);
-  if (scope.mode === 'ids') usersQuery = usersQuery.in('id', scope.ids);
-
-  let runsQuery = admin
-    .from('agent_runs')
-    .select('triggered_by, estimated_cost_usd, created_at');
-  if (since) runsQuery = runsQuery.gte('created_at', since);
-  if (filters.agent) runsQuery = runsQuery.eq('agent_key', filters.agent);
-  if (scope.mode === 'ids') runsQuery = runsQuery.in('triggered_by', scope.ids);
-
-  let logsQuery = admin
-    .from('provider_usage_logs')
-    .select('triggered_by, provider_key, estimated_cost_usd, created_at');
-  if (since) logsQuery = logsQuery.gte('created_at', since);
-  if (filters.provider) logsQuery = logsQuery.eq('provider_key', filters.provider);
-  if (scope.mode === 'ids') logsQuery = logsQuery.in('triggered_by', scope.ids);
-
-  const [usersResult, runsResult, logsResult] = await Promise.all([
-    usersQuery,
-    runsQuery,
-    logsQuery,
-  ]);
-
-  const activeUsers = (usersResult.data ?? []) as {
-    id: string;
-    full_name: string | null;
-    email: string | null;
-  }[];
-  const runs = (runsResult.data ?? []).filter((r) => r.triggered_by != null);
-  const logs = (logsResult.data ?? []).filter((l) => l.triggered_by != null);
-
-  // Aggregate consumption by user id.
-  const byUser = new Map<string, UserAgg>();
-  for (const r of runs) {
-    const uid = r.triggered_by as string;
-    const cur = byUser.get(uid) ?? newAgg();
-    cur.executions++;
-    cur.cost += Number(r.estimated_cost_usd ?? 0);
-    if (!cur.last_at || (r.created_at as string) > cur.last_at) cur.last_at = r.created_at as string;
-    byUser.set(uid, cur);
-  }
-  for (const l of logs) {
-    const uid = l.triggered_by as string;
-    const cur = byUser.get(uid) ?? newAgg();
-    cur.provider_calls++;
-    if (l.provider_key) cur.providers.add(l.provider_key as string);
-    // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
-    if (l.estimated_cost_usd == null) {
-      cur.hasUnknownCost = true;
-    } else {
-      cur.cost += Number(l.estimated_cost_usd);
-    }
-    if (!cur.last_at || (l.created_at as string) > cur.last_at) cur.last_at = l.created_at as string;
-    byUser.set(uid, cur);
-  }
-
-  // One row per active user (zero consumption included for adoption visibility).
-  const activeIds = new Set(activeUsers.map((u) => u.id));
-  const rows: UserConsumptionRow[] = activeUsers.map((u) => {
-    const agg = byUser.get(u.id);
-    return {
-      triggered_by: u.id,
-      full_name: u.full_name,
-      email: u.email,
-      executions: agg?.executions ?? 0,
-      provider_calls: agg?.provider_calls ?? 0,
-      providers: agg ? [...agg.providers] : [],
-      estimated_cost_usd: agg?.cost ?? 0,
-      has_unknown_cost: agg?.hasUnknownCost ?? false,
-      last_activity_at: agg?.last_at ?? null,
-    };
-  });
-
-  // Preserve consumption from ids that are not active users (e.g. suspended)
-  // so real cost is never silently dropped.
-  const orphanIds = [...byUser.keys()].filter((id) => !activeIds.has(id));
-  if (orphanIds.length > 0) {
-    const { data: orphanUsers } = await admin
-      .from('internal_users')
-      .select('id, full_name, email')
-      .in('id', orphanIds);
-    const orphanMap = new Map(
-      (orphanUsers ?? []).map((u) => [
-        u.id as string,
-        u as { id: string; full_name: string | null; email: string | null },
-      ]),
-    );
-    for (const id of orphanIds) {
-      const agg = byUser.get(id)!;
-      const u = orphanMap.get(id);
-      rows.push({
-        triggered_by: id,
-        full_name: u?.full_name ?? null,
-        email: u?.email ?? null,
-        executions: agg.executions,
-        provider_calls: agg.provider_calls,
-        providers: [...agg.providers],
-        estimated_cost_usd: agg.cost,
-        has_unknown_cost: agg.hasUnknownCost,
-        last_activity_at: agg.last_at,
-      });
-    }
-  }
-
-  // Consumers first (by cost desc), then zero-consumption users by name.
-  rows.sort((a, b) => {
-    const aActive = a.executions + a.provider_calls > 0 ? 1 : 0;
-    const bActive = b.executions + b.provider_calls > 0 ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    if (b.estimated_cost_usd !== a.estimated_cost_usd) {
-      return b.estimated_cost_usd - a.estimated_cost_usd;
-    }
-    const an = a.full_name ?? a.email ?? a.triggered_by;
-    const bn = b.full_name ?? b.email ?? b.triggered_by;
-    return an.localeCompare(bn);
-  });
-
-  return rows.slice(0, USER_CONSUMPTION_LIMIT);
+  const prepared = await prepareAccess(filters);
+  if (prepared.kind === 'denied') return null;
+  if (prepared.kind === 'empty') return [];
+  return readRecentProviderLogs(prepared.admin, limit, filters, prepared.userScope);
 }
 
 // ============================================================
 // getProviderUserConsumption (Q3F-9) — per-user breakdown scoped to a
 // single provider. Answers "who consumes THIS provider?" using
 // provider_usage_logs as the sole metric source (never agent_runs, never a
-// full active-user roster). Distinct from getUserConsumption, which mixes
-// agent_runs + provider_usage_logs across every provider.
+// full active-user roster). Distinct from the /ai-usage team table
+// (getAiUsageOverview), which covers every provider and includes the full
+// active-user roster.
 // ============================================================
 
 export type ProviderScopedUsageFilters = UsageFilters & {
@@ -1106,8 +896,8 @@ export interface ProviderUserConsumptionRow {
 
 interface ProviderUserLogRow {
   triggered_by: string | null;
-  credits_used: number | null;
-  estimated_cost_usd: number | null;
+  credits_used: number | string | null;
+  estimated_cost_usd: number | string | null;
   created_at: string;
 }
 
@@ -1224,41 +1014,15 @@ export async function getProviderUserConsumption(
     throw new TypeError('getProviderUserConsumption requires filters.provider');
   }
 
-  const access = await resolveAiUsageAccess();
-  if (access.mode === 'denied') return null;
+  const prepared = await prepareAccess(filters);
+  if (prepared.kind === 'denied') return null;
+  if (prepared.kind === 'empty') return [];
 
-  const admin = getAdminClient();
-  const since = periodStart(filters.period);
-  const baseIds = access.mode === 'ids' ? access.ids : null;
-  const scope = await resolveUserScope(admin, filters, baseIds);
-  if (scope.mode === 'ids' && scope.ids.length === 0) return [];
-
-  // Same Agent scope as getProviderStats / getProviderOperationStats: resolve
-  // agent_key → agent_runs.id[] and constrain provider_usage_logs.agent_run_id.
-  const agentScope = createAgentRunScope(
-    filters.agent,
-    filters.agent ? await resolveAgentRunIds(admin, filters.agent) : null,
-  );
-  if (agentScope.enabled && agentScope.runIds.length === 0) return [];
-
-  let query = admin
-    .from('provider_usage_logs')
-    .select('triggered_by, credits_used, estimated_cost_usd, created_at')
-    .eq('provider_key', filters.provider);
-
-  if (since) query = query.gte('created_at', since);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (scope.mode === 'ids') query = query.in('triggered_by', scope.ids);
-  if (agentScope.enabled) query = query.in('agent_run_id', agentScope.runIds);
-
-  const { data, error } = await query;
-  // Mirrors getProviderOperationStats (Q3F-8E): a Supabase query error must
-  // NOT collapse into a valid-looking empty result — it must propagate so
-  // the caller's try/catch can classify it instead of a false "Sin consumo
-  // por usuario" empty state.
-  const rows = resolveProviderUserLogRowsOrThrow(data as ProviderUserLogRow[] | null, error);
-
-  const aggregated = aggregateProviderUserConsumption(rows);
+  // Mismo universo que getProviderStats / getProviderOperationStats (el filtro
+  // de proveedor es obligatorio aquí). Un fallo de lectura lanza para que el
+  // llamador lo clasifique en vez de un falso «Sin consumo por usuario».
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  const aggregated = aggregateProviderUserConsumption(data.logsInScope);
 
   const uniqueIds = [
     ...new Set(
@@ -1268,18 +1032,8 @@ export async function getProviderUserConsumption(
 
   let enriched = aggregated;
   if (uniqueIds.length > 0) {
-    const { data: users, error: usersError } = await admin
-      .from('internal_users')
-      .select('id, full_name, email')
-      .in('id', uniqueIds);
-    if (usersError) throw usersError;
-
-    const userMap = new Map(
-      (users ?? []).map((u) => [
-        u.id as string,
-        u as { id: string; full_name: string | null; email: string | null },
-      ]),
-    );
+    const users = await readPeople(prepared.admin, uniqueIds, false);
+    const userMap = new Map(users.map((u) => [u.id, u]));
 
     enriched = aggregated.map((row) => {
       if (row.triggered_by === null) return row;

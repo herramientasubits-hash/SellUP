@@ -2,22 +2,33 @@
 // filtros y el panel del Agente 1 tienen que llamar igual a lo mismo.
 
 import type { StatusType } from '@/components/data-display';
+import { UNATTRIBUTED_AGENT_KEY } from '@/modules/ai-usage/usage-aggregators';
 
+// Claves que el código escribe en provider_usage_logs.provider_key (o en
+// pantallas de proveedor). Una clave sin traducción se muestra cruda.
 const PROVIDER_NAMES: Record<string, string> = {
   tavily: 'Tavily',
   anthropic: 'Anthropic (Claude)',
+  claude: 'Anthropic (Claude)',
   openai: 'OpenAI',
+  google: 'Google (Gemini)',
+  gemini: 'Google (Gemini)',
   apollo: 'Apollo',
+  apollo_organizations: 'Apollo',
   lusha: 'Lusha',
   hubspot: 'HubSpot',
   samu_ia: 'Samu IA',
 };
 
+// Claves de agent_runs.agent_key que crean ejecuciones hoy, más las previstas.
 const AGENT_NAMES: Record<string, string> = {
   prospect_generation: 'Generación de prospectos',
+  candidate_enrichment: 'Enriquecimiento de candidatos',
+  agent_2a_contact_enrichment: 'Enriquecimiento de contactos',
   account_intelligence: 'Inteligencia de cuenta',
   commercial_speech: 'Speech comercial',
   post_meeting_followup: 'Seguimiento post-reunión',
+  [UNATTRIBUTED_AGENT_KEY]: 'Sin agente asignado',
 };
 
 interface StatusPresentation {

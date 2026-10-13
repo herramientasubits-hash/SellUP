@@ -181,18 +181,39 @@ export async function finishAgentRunStep(
 // provider_usage_logs
 // ============================================================
 
+/** Snapshot de rol y grupo de quien consumió, al momento del consumo. */
+export type ProviderUsageUserSnapshot = { roleKey: string | null; groupId: string | null };
+
+/**
+ * Superficie mínima de lectura que necesita el snapshot. El cliente admin real
+ * la cumple; una prueba la cumple sin base de datos.
+ */
+export type ProviderUsageSnapshotReadClient = {
+  from(table: string): {
+    select(columns: string): {
+      eq(
+        column: string,
+        value: unknown,
+      ): { single(): PromiseLike<{ data: unknown; error: unknown }> };
+    };
+  };
+};
+
 /**
  * Resuelve el role_key y group_id del usuario al momento del consumo.
  * Devuelve nulls si triggered_by está ausente, el usuario no existe, o el
  * lookup falla. Nunca lanza — el log no debe fallar por un snapshot faltante.
  * Usa dos queries simples para evitar dependencia de tipos generados del join.
+ *
+ * Exportado para que el motor correlacionado (Apollo / Lusha) escriba el mismo
+ * snapshot que este logger genérico.
  */
-async function resolveUserSnapshot(
-  admin: ReturnType<typeof getAdminClient>,
+export async function resolveProviderUsageUserSnapshot(
+  admin: ProviderUsageSnapshotReadClient | null,
   triggeredBy: string | null | undefined,
-): Promise<{ roleKey: string | null; groupId: string | null }> {
+): Promise<ProviderUsageUserSnapshot> {
   const empty = { roleKey: null, groupId: null };
-  if (!triggeredBy) return empty;
+  if (!triggeredBy || !admin) return empty;
 
   try {
     const { data: user, error: userError } = await admin
@@ -201,24 +222,36 @@ async function resolveUserSnapshot(
       .eq('id', triggeredBy)
       .single();
 
-    if (userError || !user) return empty;
+    const userRow = user as { role_id?: unknown; group_id?: unknown } | null;
+    if (userError || !userRow) return empty;
 
-    const groupId = typeof user.group_id === 'string' ? user.group_id : null;
+    const groupId = typeof userRow.group_id === 'string' ? userRow.group_id : null;
 
-    if (!user.role_id) return { roleKey: null, groupId };
+    if (!userRow.role_id) return { roleKey: null, groupId };
 
     const { data: role, error: roleError } = await admin
       .from('roles')
       .select('key')
-      .eq('id', user.role_id)
+      .eq('id', userRow.role_id)
       .single();
 
-    const roleKey = !roleError && role && typeof role.key === 'string' ? role.key : null;
+    const roleRow = role as { key?: unknown } | null;
+    const roleKey = !roleError && roleRow && typeof roleRow.key === 'string' ? roleRow.key : null;
 
     return { roleKey, groupId };
   } catch {
     return empty;
   }
+}
+
+function resolveUserSnapshot(
+  admin: ReturnType<typeof getAdminClient>,
+  triggeredBy: string | null | undefined,
+): Promise<ProviderUsageUserSnapshot> {
+  return resolveProviderUsageUserSnapshot(
+    admin as unknown as ProviderUsageSnapshotReadClient,
+    triggeredBy,
+  );
 }
 
 /**

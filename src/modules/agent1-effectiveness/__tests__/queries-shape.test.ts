@@ -35,10 +35,11 @@ describe('queries — no write/RPC operations (static scan)', () => {
     });
   }
 
-  it('only uses read verbs (.from/.select/.eq/.in/.gte/.lt/.limit)', () => {
+  it('only uses read verbs (.from/.select/.eq/.in/.gte/.lt/.range)', () => {
     assert.ok(QUERIES_SRC.includes('.select('));
     assert.ok(QUERIES_SRC.includes('.from('));
-    assert.ok(QUERIES_SRC.includes('.limit('));
+    // Paginado con .range(): una sola petición se cortaba en 1.000 filas.
+    assert.ok(QUERIES_SRC.includes('.range('));
   });
 
   it('references the three canonical tables and not agent_runs as source', () => {

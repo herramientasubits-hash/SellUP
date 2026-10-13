@@ -151,7 +151,15 @@ export function AgentUsageSection({ agents }: { agents: AgentStat[] }) {
                     <span className="block text-right text-xs text-muted-foreground">Sin prospectos aún</span>
                   )}
                 </TableCell>
-                <TableCell className={NUMERIC_CELL}>{formatUsd(agent.total_estimated_cost_usd)}</TableCell>
+                <TableCell className={NUMERIC_CELL}>
+                  <CostValue
+                    display={resolveCostDisplay({
+                      valueUsd: agent.total_estimated_cost_usd,
+                      costTruth: toCostTruth(agent.has_unknown_cost === true),
+                      formatUsd: (value) => formatUsd(value),
+                    })}
+                  />
+                </TableCell>
                 <TableCell className={NUMERIC_CELL}>
                   {costPerApproved !== null ? formatUsd(costPerApproved, 4) : DASH}
                 </TableCell>
@@ -225,8 +233,18 @@ const PROVIDER_COLUMNS: readonly Column[] = [
   { label: 'Consumo' },
   { label: 'Resultados' },
   { label: 'Costo estimado' },
+  { label: 'Sin tarifa' },
   { label: 'Último uso' },
 ];
+
+/** Consultas sin costo conocido: se cuentan aparte, nunca se suman como $0. */
+function UnknownCostCount({ count }: { count: number }) {
+  return count > 0 ? (
+    <span className="font-medium text-warning">{formatCount(count)}</span>
+  ) : (
+    <span className="text-text-muted">0</span>
+  );
+}
 
 export function ProviderUsageSection({ providers }: { providers: ProviderStat[] }) {
   return (
@@ -237,7 +255,7 @@ export function ProviderUsageSection({ providers }: { providers: ProviderStat[] 
         <InfoHint showLabel>
           Los buscadores y las bases de contactos cobran por crédito o consulta; los modelos de
           IA, por tokens. El costo es estimado con la tarifa configurada: el valor real sale de
-          la factura.
+          la factura. «Sin tarifa» son consultas cuyo costo aún no se conoce.
         </InfoHint>
       }
       empty={providers.length === 0}
@@ -281,6 +299,9 @@ export function ProviderUsageSection({ providers }: { providers: ProviderStat[] 
                     })}
                   />
                 )}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                <UnknownCostCount count={provider.unknown_cost_operations ?? 0} />
               </TableCell>
               <TableCell className="text-right text-muted-foreground">
                 {formatRelativeTime(provider.last_used_at)}
@@ -434,7 +455,8 @@ export function RecentActivitySection({ logs, limit }: { logs: ProviderUsageLog[
         <TableBody>
           {logs.map((log) => {
             const status = statusPresentation(log.status);
-            const cost = Number(log.estimated_cost_usd);
+            // NULL = costo desconocido («sin tarifa»), nunca un $0 ni un guion.
+            const cost = log.estimated_cost_usd == null ? null : Number(log.estimated_cost_usd);
             return (
               <TableRow key={log.id}>
                 <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
@@ -452,7 +474,15 @@ export function RecentActivitySection({ logs, limit }: { logs: ProviderUsageLog[
                   </div>
                 </TableCell>
                 <TableCell className={NUMERIC_CELL}>{logConsumption(log)}</TableCell>
-                <TableCell className={NUMERIC_CELL}>{cost > 0 ? formatUsd(cost, 4) : DASH}</TableCell>
+                <TableCell className={NUMERIC_CELL}>
+                  {cost === null ? (
+                    <span className="font-medium text-warning">Sin tarifa</span>
+                  ) : cost > 0 ? (
+                    formatUsd(cost, 4)
+                  ) : (
+                    DASH
+                  )}
+                </TableCell>
               </TableRow>
             );
           })}
