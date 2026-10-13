@@ -56,6 +56,11 @@ function parseArgs(argv: readonly string[]): Config {
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
+  // SOURCES-UY-CLOSE-1 — reemplazado por run-uy-sources-etl.ts (alias, cooperativas,
+  // mutualistas, entes y «en ingreso»): este ETL ya no escribe.
+  if (config.apply) {
+    throw new Error('blocked: usa scripts/source-catalog/run-uy-sources-etl.ts --only=registry (SOURCES-UY-CLOSE-1)');
+  }
   console.log(`UY RUPE REGISTRY ETL — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
   const importedAt = new Date().toISOString();

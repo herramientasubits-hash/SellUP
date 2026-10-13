@@ -145,9 +145,9 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan una cédula segura.',
   ],
   UY: [
-    'El RUT por nombre sólo cubre empresas que alguna vez fueron proveedoras del Estado (RUPE).',
-    'Empresas que nunca vendieron al Estado no aparecen.',
-    'Nombres repetidos o genéricos no dan un RUT seguro.',
+    'El RUT por nombre sólo cubre organizaciones que alguna vez se inscribieron como proveedoras del Estado (RUPE).',
+    'Las marcas que no son la razón social no dan RUT; nombres repetidos o genéricos tampoco.',
+    'La capa gratuita sólo ofrece a quien le vende al Estado; ARCE no publica webs y Uruguay no publica tamaño por empresa.',
   ],
   US: [
     'No existe un registro público de EIN para todas las empresas: sólo cubre empresas que presentan ante la SEC y organizaciones sin ánimo de lucro grandes del IRS.',
@@ -2398,7 +2398,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     connectionMode: 'read_only_snapshot',
     nextAction:
       'SOURCES-LATAM-CURATED-1 (investigación 08-10-2026; decisiones de la dueña 08-10: educación privada → Compañía de Servicios, uso autorizado de Merco, Great Place to Work, Statista, datosperu.org y Google News). Se suma detrás de la capa gratuita de cada país. Listas: SNIES e IPS con 50+ camas (CO), SUNEDU y emisores BVL (PE), aseguradoras SSN (AR), aseguradoras CMF (CL), exportadores de Pro Ecuador (EC), CONES (PY), universidades de Wikidata (14 países), Merco Empresas y Talento (15 países), Great Place to Work certificadas (MX y Centroamérica) y Forbes/Statista Mejores empleadores (MX, sólo marca de grande). Fuera: Pacto Global ONU (su robots.txt prohíbe rastrear el buscador), datosperu.org (Perú ya usa los trabajadores de SUNAT), MICI SEM y emisores CNV/CMF (sin sector). Carga: los extractores de scripts/source-catalog/latam-curated/ (ver README) escriben entradas JSONL y scripts/source-catalog/run-latam-curated-etl.ts --entries=… las une (dry-run por defecto; --apply con autorización).',
-    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO'],
+    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO', 'UY'],
     sectors: [],
     priority: 'P1',
     operationalStatus: 'pending_validation',
@@ -2410,7 +2410,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Varias listas no publican número fiscal: lo pone en la corrida el registro oficial del país por nombre, sólo con coincidencia fuerte.',
       'Lo que no tiene industria por el tipo de lista ni por el sector publicado no se ofrece.',
-      'Uruguay no tiene capa gratuita todavía: sus listas no se ofrecen hasta que la tenga.',
       'Snapshot estático — requiere recarga anual de cada lista.',
     ],
     riskNotes: [
@@ -2926,7 +2925,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '17.785 empresas activas con forma societaria del RUPE (ARCE, catalogodatos.gub.uy) cargadas. El Agente 1 completa el RUT por nombre en cada corrida.',
+      'SOURCES-UY-CLOSE-1: RECARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña; 17 filas viejas borradas) con el RUPE de setiembre de 2026 completo: 30.315 organizaciones vigentes (20.451 activas y 9.864 en ingreso; antes 17.785, sólo activas con S.A./S.R.L./SAS/Ltda.) — suma cooperativas, mutualistas, asociaciones y entes del Estado; fuera personas, consorcios y disueltas — más 2.282 alias (uy_rupe_name_alias: sigla, partes del nombre, nombre de la mutualista antes del descriptor y siglas oficiales de los entes: UTE, OSE, ANCAP, BROU, BPS…). Medido con 106 empresas grandes uruguayas: RUT fuerte 20 → 26, más 14 de una sola palabra que se vuelven fuertes cuando su web lo confirma. Recarga: bajar rupe-<mes>-<año>.csv (catalogodatos.gub.uy, «arce-registro-unico-de-proveedores-del-estado-rupe-<año>») y correr scripts/source-catalog/run-uy-sources-etl.ts --rupe=… --apply --confirm --only=registry --prune-stale (SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=uy_rupe_registry) y luego --only=alias.',
     countryCodes: ['UY'],
     sectors: [],
     priority: 'P1',
@@ -2935,15 +2934,73 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://catalogodatos.gub.uy/',
     automationLevel: 'high',
     recommendedUse:
-      'Registro Único de Proveedores del Estado de Uruguay (RUPE, de ARCE, publicado en catalogodatos.gub.uy): 17.785 empresas activas con forma societaria. En cada corrida del Agente 1 completa el RUT por nombre de empresa. RUT seguro sólo cuando exactamente un RUT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Registro Único de Proveedores del Estado de Uruguay (RUPE, de ARCE, publicado en catalogodatos.gub.uy): organizaciones vigentes (empresas, cooperativas, mutualistas, asociaciones y entes del Estado). En cada corrida del Agente 1 completa el RUT por nombre de empresa, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, sigla del RUPE, con o sin «(del) Uruguay», nombre de la mutualista sin su descriptor, sigla oficial del ente). RUT seguro sólo cuando exactamente un RUT tiene esa clave; un nombre de una sola palabra necesita que su web lo confirme y que sea una sociedad anónima o una institución (no una S.R.L. homónima), salvo la sigla oficial de un ente.',
     limitations: [
-      'Sólo empresas que alguna vez fueron proveedoras del Estado: las demás no aparecen.',
-      'Sólo empresas con forma societaria; no se guardan personas ni domicilios.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo organizaciones que alguna vez se inscribieron como proveedoras del Estado: las demás no aparecen.',
+      'Las marcas que no son la razón social (Tienda Inglesa, Disco, Movistar, Montes del Plata…) no se encuentran.',
+      'No se guardan personas físicas ni domicilios; Uruguay no publica tamaño por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
-      'Un nombre repetido o genérico no da un RUT seguro; queda como señal.',
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUT seguro; queda como señal.',
+      'Los sindicatos, clubes y asociaciones de funcionarios no aportan alias (no son la empresa que nombran).',
+    ],
+  },
+  {
+    key: 'uy_arce_directory',
+    name: 'Proveedores adjudicados de ARCE (OCDS 2022-2025) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (tabla del catálogo SICE, corte y carga aprobados por la dueña): 2.315 organizaciones de 16.716 proveedores adjudicados 2022-2025 (fuera 8.509 no vigentes en el RUPE o personas, 4.915 con menos de US$ 50.000, 737 sin industria dominante, 191 sin adjudicación desde 2024, 49 entes del Estado). Web: 567 de 2.315 (Tecnología 69/211, Salud 99/326, Industria 121/367, Construcción 95/377, Servicios 95/595): la del Directorio de Empresas Industriales del MIEM, la de los prestadores del MSP o la comprobada por su nombre (485; su propia página la nombra, un nombre débil sólo junto a su forma societaria; scripts/source-catalog/discover-uy-company-webs.mts). El resto la busca el rescate con Claude en la corrida (opción B elegida por la dueña). Tabla y corte APROBADOS por la dueña el 13-10-2026; recarga del 13-10 con dos decisiones suyas: primero las que tienen web y «equipos de servicio eléctrico» (4-2-6) en Industria. Carga: extract-uy-ocds-suppliers.py sobre ocds-2022..2025.zip (catalogodatos.gub.uy, «arce-datos-historicos-de-compras») y el catálogo imp_catalogo.tgz, y luego scripts/source-catalog/run-uy-sources-etl.ts --apply --confirm --only=directory.',
+    countryCodes: ['UY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://catalogodatos.gub.uy/dataset/arce-datos-historicos-de-compras',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita uruguaya por industria: organizaciones vigentes del RUPE a las que el Estado adjudicó al menos US$ 50.000 entre 2022 y 2025 (datos abiertos OCDS de ARCE), con alguna adjudicación desde 2024. La industria sale de lo que venden al Estado (familia, subfamilia y clase del catálogo SICE, tabla catálogo → industria) y se ordenan primero las que tienen web y luego por cuántos organismos distintos les compran. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RUT, su razón social del RUPE y, cuando se conoce, su web.',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
+      'ARCE no publica correo ni web de sus proveedores: sólo 567 de 2.315 llevan web (MIEM, MSP o comprobada por su nombre); el resto va a Descartadas y depende del rescate.',
+      'La industria sale de lo que venden al Estado: «otros servicios», «otros materiales», viáticos y tasas no se proponen; seguros y finanzas casi no aparecen.',
+      'Uruguay no publica tamaño por empresa: el monto adjudicado ordena por relevancia, no decide el tamaño.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'uy_public_entities',
+    name: 'Entidades públicas de Uruguay (UAIP + intendencias, RUT del RUPE) — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña): 108 entidades (107 con web oficial, 55 con RUT del RUPE): ministerios, entes autónomos y servicios descentralizados (UTE, ANTEL, OSE, ANCAP, BPS, BROU, ASSE…), UdelaR, ANEP, UTEC, personas públicas no estatales (LATU, INIA, Ceibal…) y las 19 intendencias. Carga: referentes_ta-tp_v2023.csv de la UAIP (catalogodatos.gub.uy, «uaip-responsables_transparencia_uaip») y scripts/source-catalog/run-uy-sources-etl.ts --referentes=… --apply --confirm --only=public.',
+    countryCodes: ['UY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://catalogodatos.gub.uy/dataset/uaip-responsables_transparencia_uaip',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de Uruguay: los organismos que publican referentes de transparencia en la UAIP (un ministerio o ente por inciso; intendencias, juntas y personas públicas no estatales por unidad) más las 19 intendencias, con la web de su dominio institucional (sólo si la dirección los nombra: sigla, iniciales o una palabra distintiva) y su RUT cuando el RUPE lo tiene por su nombre o su sigla oficial.',
+    limitations: [
+      'Los municipios (tercer nivel de gobierno) no entran salvo los que publican referente con web propia.',
+      'Muchos organismos no se inscribieron en el RUPE: llegan sólo con su web.',
+      'Las juntas departamentales que sólo publican correos gratuitos quedan fuera.',
+    ],
+    riskNotes: [
+      'De la lista de la UAIP sólo se usa el dominio institucional; nunca el nombre, el teléfono ni el correo del referente.',
+      'El RUT nunca sale de una sigla libre: «MEF S.R.L.» no es el Ministerio de Economía.',
     ],
   },
 
