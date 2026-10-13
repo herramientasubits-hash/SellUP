@@ -52,6 +52,7 @@ import { buildEcScvsDirectoryDiscoveryReads } from './ec-scvs-directory-snapshot
 import { buildClSiiDirectoryDiscoveryReads } from './cl-sii-directory-snapshot-query';
 import { buildPeSunatDirectoryDiscoveryReads } from './pe-sunat-directory-snapshot-query';
 import { buildPyDncpDirectoryDiscoveryReads } from './py-dncp-directory-snapshot-query';
+import { buildBrReceitaDirectoryDiscoveryReads } from './br-receita-directory-snapshot-query';
 import { buildGtGuatecomprasDirectoryDiscoveryReads } from './gt-guatecompras-directory-snapshot-query';
 import { buildBoOfficialDiscoveryReads } from './bo-official-discovery-snapshot-query';
 import { buildCrFreeDirectoryDiscoveryReads } from './cr-free-directory-snapshot-query';
@@ -230,6 +231,7 @@ export async function runProductionPrePaidNoveltyGate(
           clSiiDirectoryDiscoveryReads: buildClSiiDirectoryDiscoveryReads(adminClient),
           peSunatDirectoryDiscoveryReads: buildPeSunatDirectoryDiscoveryReads(adminClient),
           pyDncpDirectoryDiscoveryReads: buildPyDncpDirectoryDiscoveryReads(adminClient),
+          brReceitaDirectoryDiscoveryReads: buildBrReceitaDirectoryDiscoveryReads(adminClient),
           gtGuatecomprasDirectoryDiscoveryReads: buildGtGuatecomprasDirectoryDiscoveryReads(adminClient),
           boOfficialDiscoveryReads: buildBoOfficialDiscoveryReads(adminClient),
           crFreeDirectoryDiscoveryReads: buildCrFreeDirectoryDiscoveryReads(adminClient),

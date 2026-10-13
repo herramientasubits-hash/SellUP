@@ -43,6 +43,10 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   pe_sunat_registry: 'TAX_GRAIN',
   // SOURCES-PY-RUC-BY-NAME-1 — un RUC, una fila (sociedades activas del padrón de la SET).
   py_set_registry: 'TAX_GRAIN',
+  // SOURCES-BR-LIGHT-1 — un CNPJ, una fila (matrices activas DEMAIS y entes públicos de
+  // la Receita) y el buscador gratuito de Brasil.
+  br_receita_registry: 'TAX_GRAIN',
+  br_receita_directory: 'TAX_GRAIN',
   // SOURCES-UY-RUT-BY-NAME-1 — un RUT, una fila (empresas activas del RUPE de Uruguay).
   uy_rupe_registry: 'TAX_GRAIN',
   // SOURCES-UY-CLOSE-1 — un RUT, una fila (organizaciones a las que ARCE adjudicó compras).
@@ -123,6 +127,10 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-PY-CLOSE-1 — varias filas por RUC (sigla, partes del nombre, clave de
   // entidad pública del padrón de la DNIT): identidad `py-name-alias:<RUC>:<clave>`.
   py_set_name_alias: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-BR-LIGHT-1 — varias filas por CNPJ: alias (nome fantasia, CVM, partes,
+  // clave pública) `br-name-alias:<CNPJ>:<clave>` y web `br-domain-key:<CNPJ>:@<etiqueta>`.
+  br_receita_name_alias: 'NATIVE_RECORD_GRAIN',
+  br_receita_domain_key: 'NATIVE_RECORD_GRAIN',
   // SOURCES-GT-CLOSE-1 — varias filas por NIT (sigla, nombre comercial, nombre de otra
   // fuente, clave de municipalidad): identidad `gt-name-alias:<NIT>:<clave>`.
   gt_nit_name_alias: 'NATIVE_RECORD_GRAIN',

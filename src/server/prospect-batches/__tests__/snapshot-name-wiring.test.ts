@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US', 'ES', 'CL', 'CR', 'BO'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'BR', 'UY', 'US', 'ES', 'CL', 'CR', 'BO'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -96,6 +96,15 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     for (const resolver of resolvers.filter((r) => r.countryCode === 'PY')) {
       assert.equal(resolver.sourceKey, 'py_set_registry');
+    }
+  });
+
+  it('el factory construye Brasil sobre el subconjunto liviano de la Receita (SOURCES-BR-LIGHT-1)', () => {
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /createBrazilOfficialSourceResolver\(\{\s*reads: buildBrazilSnapshotReads\(snapshotClient\),\s*\}\)/);
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    for (const resolver of resolvers.filter((r) => r.countryCode === 'BR')) {
+      assert.equal(resolver.sourceKey, 'br_receita_registry');
     }
   });
 
