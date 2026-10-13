@@ -45,6 +45,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   py_set_registry: 'TAX_GRAIN',
   // SOURCES-UY-RUT-BY-NAME-1 — un RUT, una fila (empresas activas del RUPE de Uruguay).
   uy_rupe_registry: 'TAX_GRAIN',
+  // SOURCES-UY-CLOSE-1 — un RUT, una fila (organizaciones a las que ARCE adjudicó compras).
+  uy_arce_directory: 'TAX_GRAIN',
   // SOURCES-US-EIN-BY-NAME-1 — un EIN, una fila (empresas activas de la SEC; ONG del IRS).
   us_sec_edgar_registry: 'TAX_GRAIN',
   us_irs_eo_registry: 'TAX_GRAIN',
@@ -138,6 +140,11 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // (`sv-public-entity:<clave pública>`).
   sv_nit_name_alias: 'NATIVE_RECORD_GRAIN',
   sv_public_entities: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-UY-CLOSE-1 — varias filas por RUT (sigla, partes, siglas oficiales de los
+  // entes: `uy-name-alias:<RUT>:<clave>`) y una fila por entidad pública de la UAIP
+  // o intendencia (`uy-public-entity:<inciso o unidad>`), tenga o no RUT.
+  uy_rupe_name_alias: 'NATIVE_RECORD_GRAIN',
+  uy_public_entities: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
   // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
   pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',

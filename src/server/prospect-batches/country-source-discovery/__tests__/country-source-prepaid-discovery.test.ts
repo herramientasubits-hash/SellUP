@@ -191,8 +191,9 @@ test('§ 22(G) COUNTRY WITHOUT SOURCE — la ruta de pago queda intacta y nada s
   const result = await runPrePaidNoveltyGate(
     // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — México ya tiene fuente (DENUE); el país
     // sin fuente de este caso pasó a ser Paraguay. SOURCES-PY-CLOSE-1 — Paraguay
-    // ya tiene fuente (DNCP); ahora es Uruguay.
-    { provider: 'lusha', countryCode: 'UY', macroIndustryKey: MACRO, requestedTarget: 5 },
+    // ya tiene fuente (DNCP); ahora es Uruguay. SOURCES-UY-CLOSE-1 — Uruguay ya
+    // tiene fuente (ARCE); ahora es Venezuela.
+    { provider: 'lusha', countryCode: 'VE', macroIndustryKey: MACRO, requestedTarget: 5 },
     {
       countrySourceAdapter: buildCoSiisDiscoveryAdapter(async () => [row({ record_identity_key: '1' })]),
       checkCompanyDuplicate: async (i) => noMatch(i),
