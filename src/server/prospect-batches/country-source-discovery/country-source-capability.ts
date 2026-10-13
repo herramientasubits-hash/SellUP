@@ -94,6 +94,12 @@ import {
   type SvComprasalDirectoryDiscoveryReads,
 } from './sv-comprasal-directory-discovery-adapter';
 import { macroHasSvCoverage } from './sv-comprasal-macro-table';
+import {
+  buildUyArceDirectoryDiscoveryAdapter,
+  UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type UyArceDirectoryDiscoveryReads,
+} from './uy-arce-directory-discovery-adapter';
+import { macroHasUyArceCoverage } from './uy-arce-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
 import {
@@ -190,10 +196,16 @@ import {
  * licencia sanitaria vigente del MINSA (por tipo de licencia), el Directorio
  * Industrial de Zonas Francas (por sección), microfinancieras de la CONAMI y
  * entidades públicas con web oficial (Gobierno).
+ *
+ * SOURCES-UY-CLOSE-1 — Uruguay entra con las organizaciones del RUPE a las que el
+ * Estado les adjudicó al menos US$ 50.000 entre 2022 y 2025 (ARCE, clasificadas por
+ * lo que venden con el catálogo SICE) y con las entidades públicas de la UAIP y las
+ * intendencias, con su web oficial (Gobierno).
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA',
   'SV', 'NI',
+  'UY',
 ] as const;
 
 export type CountrySourceCapability = {
@@ -217,6 +229,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   NI: { countryCode: 'NI', sourceKey: NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   SV: { countryCode: 'SV', sourceKey: SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  UY: { countryCode: 'UY', sourceKey: UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -242,6 +255,7 @@ export function resolveCountrySourceCapability(
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
  * Honduras: la macro tiene clases UNSPSC u objetos del gasto en sus tablas, o es Gobierno.
+ * Uruguay: la macro tiene clases del catálogo SICE en la tabla, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -264,6 +278,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
   if (capability.countryCode === 'NI') return macroHasNiCoverage(macroIndustryKey);
   if (capability.countryCode === 'SV') return macroHasSvCoverage(macroIndustryKey);
+  if (capability.countryCode === 'UY') return macroHasUyArceCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -293,6 +308,7 @@ export type CountrySourceAdapterDeps = {
     paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
     niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
     svComprasalDirectoryDiscoveryReads?: SvComprasalDirectoryDiscoveryReads | null;
+    uyArceDirectoryDiscoveryReads?: UyArceDirectoryDiscoveryReads | null;
     /** SOURCES-LATAM-CURATED-1 — capa común de listas curadas, sumada detrás del país. */
     latamCuratedDiscoveryReads?: LatamCuratedDiscoveryReads | null;
 };
@@ -377,6 +393,11 @@ function buildPrimaryCountrySourceAdapter(
   if (capability.countryCode === 'SV') {
     return deps.svComprasalDirectoryDiscoveryReads
       ? buildSvComprasalDirectoryDiscoveryAdapter(deps.svComprasalDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'UY') {
+    return deps.uyArceDirectoryDiscoveryReads
+      ? buildUyArceDirectoryDiscoveryAdapter(deps.uyArceDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

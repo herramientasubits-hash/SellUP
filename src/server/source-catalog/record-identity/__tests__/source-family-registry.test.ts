@@ -28,6 +28,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'pe_sunat_registry',
   'py_set_registry',
   'uy_rupe_registry',
+  'uy_arce_directory',
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
   'es_placsp_registry',
@@ -102,6 +103,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   // SOURCES-SV-CLOSE-1 — varias claves de nombre por NIT e instituciones sin NIT.
   'sv_nit_name_alias',
   'sv_public_entities',
+  'uy_rupe_name_alias',
+  'uy_public_entities',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────
