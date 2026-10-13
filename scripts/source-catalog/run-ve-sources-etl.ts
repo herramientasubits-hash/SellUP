@@ -15,6 +15,7 @@
  *   --dir=<carpeta> con ve_bvc_issuers.jsonl, ve_bvc_members.jsonl, ve_sudeaseg.jsonl,
  *   ve_sunaval.jsonl y ve_gleif.jsonl (`extract-ve-official-sources.py`). Las webs
  *   comprobadas son tablas del código (`ve-web-entities.ts`, `ve-public-entities.ts`).
+ *   --web-map=<webs.jsonl> (opcional): webs por nombre comprobadas (`discover-ve-company-webs.mts`).
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-ve-sources-etl.ts --dir=…
@@ -44,6 +45,7 @@ import {
   buildVeFreeDirectoryRows,
   buildVeRegistryAndAliasRows,
   mergeVenezuelaRifSources,
+  parseVeCompanyWebLine,
   veWebListings,
   VE_FREE_DIRECTORY_SOURCE_KEY,
   VE_FREE_DIRECTORY_WEB_SOURCE_KEY,
@@ -68,7 +70,7 @@ const UPSERT_CHUNK = 1000;
 const ONLY_VALUES = ['registry', 'alias', 'directory', 'directory_web'] as const;
 type Only = (typeof ONLY_VALUES)[number];
 
-type Config = { dir: string; apply: boolean; only: Only | null; year: number };
+type Config = { dir: string; apply: boolean; only: Only | null; year: number; webMap: string | null };
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -85,7 +87,7 @@ function parseArgs(argv: readonly string[]): Config {
   if (apply && only === null) throw new Error('config_invalid: --apply exige --only= (una carga cada vez)');
   const year = Number(value('year') ?? new Date().getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year debe ser entero');
-  return { dir, apply, only: only as Only | null, year };
+  return { dir, apply, only: only as Only | null, year, webMap: value('web-map') };
 }
 
 function readJsonl(path: string): unknown[] {
@@ -163,7 +165,11 @@ async function main(): Promise<void> {
   console.log(`  ${VE_RIF_NAME_ALIAS_SOURCE_KEY}: ${aliasRows.length}`);
 
   // 3. Capa gratuita.
-  const { taxRows, webRows, excluded } = buildVeFreeDirectoryRows({ entries, registryRows, aliasRows, listings, ...params });
+  const webByRif = new Map(
+    (config.webMap ? readJsonl(config.webMap) : []).map(parseVeCompanyWebLine).filter(notNull).map((line) => [line.rif, line.web] as const),
+  );
+  if (config.webMap) console.log(`  Webs por nombre comprobadas (--web-map): ${webByRif.size}`);
+  const { taxRows, webRows, excluded } = buildVeFreeDirectoryRows({ entries, registryRows, aliasRows, listings, webByRif, ...params });
   taxRows.sort((a, b) => b.priority_score - a.priority_score || a.normalized_tax_id!.localeCompare(b.normalized_tax_id!));
   webRows.sort((a, b) => b.priority_score - a.priority_score || String(a.record_identity_key).localeCompare(String(b.record_identity_key)));
   console.log(`  ${VE_FREE_DIRECTORY_SOURCE_KEY}: ${taxRows.length} · ${VE_FREE_DIRECTORY_WEB_SOURCE_KEY}: ${webRows.length}`);

@@ -314,6 +314,19 @@ export function veListingRif(listing: VeWebListing, index: ReadonlyMap<string, R
   return hits !== undefined && hits.size === 1 ? [...hits][0] : null;
 }
 
+/** Una web encontrada por el nombre y comprobada con su propia página. */
+export type VeCompanyWebMatch = { domain: string; check: string };
+
+/** Una línea del mapa de webs (`{ rif, domain, check }`), o `null`. */
+export function parseVeCompanyWebLine(raw: unknown): { rif: string; web: VeCompanyWebMatch } | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const rif = canonicalVenezuelaRif(typeof record['rif'] === 'string' ? record['rif'] : null);
+  const domain = venezuelaCompanyDomain(typeof record['domain'] === 'string' ? record['domain'] : null);
+  const check = typeof record['check'] === 'string' ? record['check'] : null;
+  return rif !== null && domain !== null && check !== null ? { rif, web: { domain, check } } : null;
+}
+
 /** Por qué una entidad no entra en la capa gratuita. */
 export type VeDirectoryExclusion = 'no_name' | 'not_relevant' | 'no_macro' | 'no_rif_no_web';
 
@@ -406,6 +419,8 @@ export function buildVeFreeDirectoryRows(params: {
   registryRows: readonly VeSnapshotRow[];
   aliasRows: readonly VeSnapshotRow[];
   listings: readonly VeWebListing[];
+  /** Webs encontradas por nombre y comprobadas (`discover-ve-company-webs.mts`), por RIF. */
+  webByRif?: ReadonlyMap<string, VeCompanyWebMatch>;
   sourceYear: number;
   importedAt: string;
 }): { taxRows: VeSnapshotRow[]; webRows: VeSnapshotRow[]; excluded: Record<VeDirectoryExclusion, number> } {
@@ -449,12 +464,16 @@ export function buildVeFreeDirectoryRows(params: {
       excluded.no_macro++;
       continue;
     }
-    const domain = entryDomain(entry, listings, usableDomain);
+    const sourceDomain = entryDomain(entry, listings, usableDomain);
+    const nameWeb = sourceDomain === null ? params.webByRif?.get(rif) ?? null : null;
+    const domain = sourceDomain ?? (nameWeb !== null ? usableDomain(nameWeb.domain) : null);
+    const raw = directoryRaw({ classification, entry, listings, domain });
     taxRows.push({
       ...registry,
       source_key: VE_FREE_DIRECTORY_SOURCE_KEY,
       priority_score: veFreeDirectoryPriorityScore({ kind: classification.kind, publicKind: classification.publicKind, hasDomain: domain !== null }),
-      raw_data: directoryRaw({ classification, entry, listings, domain }),
+      raw_data:
+        nameWeb !== null && domain !== null ? { ...raw, website_origin: 'name_domain_verified', website_check: nameWeb.check } : raw,
     });
   }
 

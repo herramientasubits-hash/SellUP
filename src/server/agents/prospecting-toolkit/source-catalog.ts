@@ -132,7 +132,10 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un RUC seguro.',
   ],
   VE: [
-    'Sin número fiscal por nombre: el SENIAT exige captcha y busca por RIF, no por nombre; el RNC sólo cubre contratistas del Estado y no tiene descarga masiva.',
+    'Venezuela no publica un padrón de empresas con RIF alcanzable: el RNC prohíbe el rastreo (robots.txt), el SENIAT bloquea las consultas desde fuera del país y no publica la lista de contribuyentes especiales. El RIF por nombre sale de la Bolsa de Caracas, la SUDEASEG, la SUNAVAL (copia de 2022), GLEIF y las webs oficiales que lo muestran: cubre sobre todo finanzas, seguros, empresas que cotizan y entes públicos.',
+    'Una empresa privada que no cotiza ni está regulada (Polar, Farmatodo, las petroleras mixtas) no aparece: queda sin RIF.',
+    'No hay tamaño oficial por empresa: ninguna fuente alcanzable publica trabajadores ni la condición de contribuyente especial.',
+    'Nombres repetidos o genéricos no dan un RIF seguro.',
   ],
   PY: [
     'El padrón público de RUC (SET/DNIT) sólo trae sociedades activas con RUC 80…; no indica sector ni tamaño.',
@@ -2618,6 +2621,88 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: [
       'Un dominio usado por dos o más entidades (correo de grupo) no se usa.',
+      'Nunca se guardan correos, contactos ni teléfonos.',
+    ],
+  },
+  // ── Venezuela ──────────────────────────────────────────────────────────────
+  {
+    key: 've_rif_registry',
+    name: 'Registro unido de RIF de Venezuela (Bolsa de Caracas + SUDEASEG + SUNAVAL + GLEIF + webs oficiales) — RIF por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE de autorización (y antes, la migración 146 aplicada). Dry-run 13-10-2026: 576 RIF con verificador (568 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 35 webs que muestran su RIF; más 63 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sudeaseg.gob.ve/sujetos-regulados',
+    automationLevel: 'high',
+    recommendedUse:
+      'RIF por nombre de Venezuela en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RIF las emisoras y casas de bolsa de la Bolsa de Caracas (consulta pública de su web), los sujetos regulados personas jurídicas de la SUDEASEG (aseguradoras, medicina prepagada, corretaje, reaseguro), los registros de la SUNAVAL (copia del Internet Archive de 2022), GLEIF y las webs oficiales que muestran su RIF. Se prueban variantes del nombre en orden (forma societaria al principio, en medio o al final, «Banco Universal» o «Casa de Bolsa» detrás, sigla entre paréntesis, con o sin «Venezuela», sin «Corporación»). RIF seguro sólo cuando exactamente un RIF tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme.',
+    limitations: [
+      'Sólo empresas que cotizan o emiten valores, reguladas del sector asegurador y del mercado de valores, personas jurídicas con LEI y webs que muestran su RIF: una empresa privada fuera de esas listas no aparece.',
+      'La copia de la SUNAVAL es de 2022: altas posteriores no están y alguna puede haber cerrado.',
+      'No trae trabajadores: ninguna fuente alcanzable de Venezuela los publica por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RIF seguro; queda como señal.',
+      'Las personas naturales de la SUDEASEG (agentes y corredores) nunca se leen ni se guardan.',
+    ],
+  },
+  {
+    key: 've_free_directory',
+    name: 'Directorio de Venezuela con RIF (Bolsa de Caracas + SUDEASEG + SUNAVAL + webs oficiales) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE: requiere la migración 146 aplicada, que la dueña APRUEBE las tablas empresa → industria (cotizadas y empresas con web) y autorice la carga. Dry-run 13-10-2026: 513 entidades con RIF — Financieras 337, Servicios 79, Industria 25, Consumo 25, Tecnología 17, Agroindustria 16, Salud 13, Retail 13, Transporte 13, Construcción 8, Energía 4. Con web de la fuente o comprobada por nombre (34 más). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.bolsadecaracas.com/emisoras/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
+    limitations: [
+      'Sin tamaño oficial: el filtro de tamaño decide con lo que traigan los demás pasos.',
+      'Muy cargada hacia Seguros y Servicios Financieros; en Retail, Tecnología o Salud son pocas decenas.',
+      'Las reguladas de la SUDEASEG casi nunca traen web: dependen de la búsqueda por nombre o del rescate.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'Holdings y empresas cuyo objeto social no identifica el negocio quedan sin industria a propósito.',
+    ],
+  },
+  {
+    key: 've_free_directory_web',
+    name: 'Entes públicos, universidades y empresas de Venezuela con web propia — capa gratuita (sin RIF)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE (migración 146, aprobación de las tablas y autorización de la carga). Entes públicos (ministerios, entes autónomos, gobernaciones, alcaldías, universidades públicas, hospitales y empresas del Estado) con web .gob.ve u oficial que responde, universidades privadas y empresas de Wikidata con web propia comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'public_dataset',
+    url: 'https://www.wikidata.org/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Venezuela para quien no tiene un RIF alcanzable pero sí web propia: entes públicos (Gobierno), universidades privadas (Compañía de Servicios) y empresas con web comprobada (tabla empresa → industria). Cada web se abrió una vez y sólo entra si responde y es de la entidad (fuera dominios en venta, webs de otro país, redes sociales, medios, clubes, ONG y gremios).',
+    limitations: [
+      'Sin RIF: «una empresa, un vendedor» se apoya en la web.',
+      'Muchas webs del Estado venezolano no responden desde fuera del país: quedan fuera aunque el ente exista.',
+    ],
+    riskNotes: [
+      'Un dominio usado por dos o más entidades no se usa.',
       'Nunca se guardan correos, contactos ni teléfonos.',
     ],
   },

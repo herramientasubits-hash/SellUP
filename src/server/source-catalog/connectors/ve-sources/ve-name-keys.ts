@@ -190,6 +190,7 @@ export function venezuelaPublicEntityKey(name: string): string | null {
     .replace(/^MUNICIPIO( DEL?)? /, 'ALCALDIA DE ')
     .replace(/\bPODER POPULAR\b/g, ' ')
     .replace(/\bBOLIVARIAN[OA]\b/g, ' ')
+    .replace(/\s+/g, ' ')
     .replace(/^(ALCALDIA|GOBERNACION)( MUNICIPAL)?( DEL?)?( (MUNICIPIO|ESTADO))? /, '$1 ')
     .split(' ')
     .filter((word) => word.length > 0 && !LINK_WORDS.has(word))

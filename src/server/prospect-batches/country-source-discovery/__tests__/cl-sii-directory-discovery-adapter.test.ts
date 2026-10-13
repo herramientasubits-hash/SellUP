@@ -174,7 +174,7 @@ describe('capacidad por país', () => {
     });
     assert.equal(resolveCountrySourceCapability('EC')?.sourceKey, 'ec_scvs_directory_discovery');
     assert.equal(resolveCountrySourceCapability('CO')?.sourceKey, 'co_siis_discovery');
-    assert.equal(resolveCountrySourceCapability('VE'), null);
+    assert.equal(resolveCountrySourceCapability('XX'), null);
   });
 
   it('la cobertura de Chile sale de SU tabla', () => {
