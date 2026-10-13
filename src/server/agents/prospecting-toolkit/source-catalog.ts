@@ -145,7 +145,7 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   UY: [
     'El RUT por nombre sólo cubre organizaciones que alguna vez se inscribieron como proveedoras del Estado (RUPE).',
     'Las marcas que no son la razón social no dan RUT; nombres repetidos o genéricos tampoco.',
-    'La capa gratuita sólo ofrece a quien le vende al Estado; ARCE no publica webs y Uruguay no publica tamaño por empresa.',
+    'La capa gratuita sólo ofrece a quien le vende al Estado; ARCE no publica webs y Uruguay no publica tamaño por empresa (sólo Gobierno lleva funcionarios de la ONSC).',
   ],
   ES: [
     'España no publica el NIF de las empresas en ningún registro abierto.',
@@ -3056,7 +3056,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña): 108 entidades (107 con web oficial, 55 con RUT del RUPE): ministerios, entes autónomos y servicios descentralizados (UTE, ANTEL, OSE, ANCAP, BPS, BROU, ASSE…), UdelaR, ANEP, UTEC, personas públicas no estatales (LATU, INIA, Ceibal…) y las 19 intendencias. Carga: referentes_ta-tp_v2023.csv de la UAIP (catalogodatos.gub.uy, «uaip-responsables_transparencia_uaip») y scripts/source-catalog/run-uy-sources-etl.ts --referentes=… --apply --confirm --only=public.',
+      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña): 108 entidades (107 con web oficial, 55 con RUT del RUPE): ministerios, entes autónomos y servicios descentralizados (UTE, ANTEL, OSE, ANCAP, BPS, BROU, ASSE…), UdelaR, ANEP, UTEC, personas públicas no estatales (LATU, INIA, Ceibal…) y las 19 intendencias. SOURCES-UY-PUBLIC-ENTITY-SIZE-1 (13-10, dueña «adelante»): 59 de las 108 llevan a la ficha sus funcionarios según la ONSC (vínculos con el Estado, corte 31-12-2020) como tamaño oficial, igual que la dotación del INDEC en Argentina; RECARGADO y verificado en Prod el 13-10-2026 (autorizado). Recarga: --onsc=<evolucin-de-vnculos-con-el-estado-.csv> --apply --confirm --only=public. Carga: referentes_ta-tp_v2023.csv de la UAIP (catalogodatos.gub.uy, «uaip-responsables_transparencia_uaip») y scripts/source-catalog/run-uy-sources-etl.ts --referentes=… --apply --confirm --only=public.',
     countryCodes: ['UY'],
     sectors: [],
     priority: 'P1',
@@ -3070,6 +3070,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Los municipios (tercer nivel de gobierno) no entran salvo los que publican referente con web propia.',
       'Muchos organismos no se inscribieron en el RUPE: llegan sólo con su web.',
       'Las juntas departamentales que sólo publican correos gratuitos quedan fuera.',
+      'Tamaño oficial sólo para ministerios, entes, intendencias y organismos únicos de su inciso (59 de 108): funcionarios de la ONSC al 31-12-2020. Juntas, municipios, personas públicas no estatales y organismos creados después (Ministerio de Ambiente) quedan sin tamaño.',
     ],
     riskNotes: [
       'De la lista de la UAIP sólo se usa el dominio institucional; nunca el nombre, el teléfono ni el correo del referente.',

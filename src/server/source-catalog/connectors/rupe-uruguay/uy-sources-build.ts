@@ -20,6 +20,7 @@ import {
   buildUyPublicEntityRow,
   groupUyPublicEntities,
   mergeUyPublicEntities,
+  type UyOnscHeadcount,
   type UyPublicEntityRow,
   type UyTransparencyReferent,
 } from './uy-public-entities';
@@ -142,6 +143,8 @@ export function buildUyArceDirectory(params: {
 export function buildUyPublicEntityRows(params: {
   referents: readonly UyTransparencyReferent[];
   registry: UyRegistryBuild;
+  /** Funcionarios por inciso (ONSC), si se cargó el archivo. */
+  onsc?: ReadonlyMap<number, UyOnscHeadcount>;
   sourceYear: number;
   importedAt: string;
 }): UyPublicEntityRow[] {
@@ -150,7 +153,8 @@ export function buildUyPublicEntityRows(params: {
   const seen = new Set<string>();
   for (const entity of entities) {
     const rut = publicEntityRut(params.registry, entity.name, entity.acronyms);
-    const row = buildUyPublicEntityRow({ entity, rut, sourceYear: params.sourceYear, importedAt: params.importedAt });
+    const workforce = entity.onscInciso != null ? params.onsc?.get(entity.onscInciso) ?? null : null;
+    const row = buildUyPublicEntityRow({ entity, rut, workforce, sourceYear: params.sourceYear, importedAt: params.importedAt });
     if (row === null) continue;
     // Una entidad, una fila: dos nombres con el mismo RUT o la misma web no se repiten.
     const key = row.tax_id ?? `web:${row.raw_data['website_domain']}`;
