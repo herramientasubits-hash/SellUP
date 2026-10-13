@@ -28,6 +28,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'pe_sunat_registry',
   'py_set_registry',
   'uy_rupe_registry',
+  'uy_arce_directory',
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
   'es_placsp_registry',
@@ -46,6 +47,9 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'pe_sunat_directory',
   // SOURCES-PY-CLOSE-1
   'py_dncp_directory',
+  // SOURCES-BR-LIGHT-1 — un CNPJ, una fila.
+  'br_receita_registry',
+  'br_receita_directory',
   // SOURCES-GT-CLOSE-1
   'gt_nit_registry',
   'gt_guatecompras_directory',
@@ -88,6 +92,9 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'pe_sunat_name_alias',
   // SOURCES-PY-CLOSE-1 — varias claves de nombre por RUC.
   'py_set_name_alias',
+  // SOURCES-BR-LIGHT-1 — alias y web por CNPJ.
+  'br_receita_name_alias',
+  'br_receita_domain_key',
   // SOURCES-CL-NAME-ALIAS-1 — una clave por (RUT, nombre comercial) del SII.
   'cl_sii_name_alias',
   // SOURCES-GT-CLOSE-1 — varias claves de nombre por NIT.
@@ -108,6 +115,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   // SOURCES-SV-CLOSE-1 — varias claves de nombre por NIT e instituciones sin NIT.
   'sv_nit_name_alias',
   'sv_public_entities',
+  'uy_rupe_name_alias',
+  'uy_public_entities',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────

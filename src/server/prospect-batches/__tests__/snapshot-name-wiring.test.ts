@@ -65,7 +65,7 @@ describe('cableado', () => {
     const resolvers = buildColombiaOfficialSourceResolvers();
     assert.ok(Array.isArray(resolvers));
     for (const resolver of resolvers) {
-      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'UY', 'US', 'ES', 'CL', 'CR', 'BO'].includes(resolver.countryCode), resolver.countryCode);
+      assert.ok(['CO', 'DO', 'AR', 'EC', 'GT', 'HN', 'PE', 'PY', 'BR', 'UY', 'US', 'ES', 'CL', 'CR', 'BO'].includes(resolver.countryCode), resolver.countryCode);
     }
   });
 
@@ -99,10 +99,20 @@ describe('cableado', () => {
     }
   });
 
-  it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE', () => {
+  it('el factory construye Brasil sobre el subconjunto liviano de la Receita (SOURCES-BR-LIGHT-1)', () => {
     const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
-    assert.match(wiring, /countryCode: 'UY',\s*sourceKey: 'uy_rupe_registry',\s*taxIdentifierType: 'RUT',\s*validTaxId: \/\^\\d\{12\}\$\//);
-    assert.match(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
+    assert.match(wiring, /createBrazilOfficialSourceResolver\(\{\s*reads: buildBrazilSnapshotReads\(snapshotClient\),\s*\}\)/);
+    const resolvers = buildColombiaOfficialSourceResolvers();
+    for (const resolver of resolvers.filter((r) => r.countryCode === 'BR')) {
+      assert.equal(resolver.sourceKey, 'br_receita_registry');
+    }
+  });
+
+  it('el factory construye Uruguay (RUT de 12 dígitos) sobre el RUPE y sus alias', () => {
+    // SOURCES-UY-CLOSE-1 — resolvedor propio (variantes, alias, regla de una palabra).
+    const wiring = read('src/server/prospect-batches/official-source-resolvers.ts');
+    assert.match(wiring, /createUruguayOfficialSourceResolver\(\{\s*querySnapshots: buildUruguaySnapshotNameQuery\(snapshotClient\),\s*\}\)/);
+    assert.doesNotMatch(wiring, /buildSnapshotNameQuery\(snapshotClient, 'uy_rupe_registry', 'UY'\)/);
   });
 
   it('el factory construye Estados Unidos (EIN): la SEC primero y, detrás, el IRS', () => {

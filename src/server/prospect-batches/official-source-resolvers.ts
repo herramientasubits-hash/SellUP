@@ -12,14 +12,15 @@
  * (SCVS registry with employees, its acronyms, the SRI registry, then ec_scvs) name→RUC, Guatemala (gt_nit_registry + gt_nit_name_alias, then gt_rgae_proveedores) name→NIT and
  * Honduras (hn_ocds_rtn_registry + hn_rtn_name_alias, then hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
  * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
- * (uy_rupe_registry) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
+ * (uy_rupe_registry + uy_rupe_name_alias) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
  * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry +
  * cr_company_name_alias) name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
  * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC, El Salvador
  * (sv_nit_registry + sv_nit_name_alias: listados de Hacienda con NIT) name→NIT, Nicaragua
- * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC, Venezuela
+ * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC, Brasil
+ * (br_receita_registry + br_receita_name_alias + br_receita_domain_key: cadastro CNPJ de la Receita) name→CNPJ, Venezuela
  * (ve_rif_registry + ve_rif_name_alias: Bolsa de Caracas, SUDEASEG, SUNAVAL, GLEIF y webs oficiales) name→RIF; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
@@ -74,9 +75,12 @@ import { createPeruOfficialSourceResolver } from '@/server/agents/prospect-intak
 import { buildPeruSnapshotNameQuery } from '@/server/prospect-batches/peru-snapshot-query';
 import { createParaguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/paraguay-official-source-resolver';
 import { buildParaguaySnapshotNameQuery } from '@/server/prospect-batches/paraguay-snapshot-query';
+import { createBrazilOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/brazil-official-source-resolver';
+import { buildBrazilSnapshotReads } from '@/server/prospect-batches/brazil-snapshot-query';
 import { createGuatemalaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/guatemala-official-source-resolver';
 import { buildGuatemalaSnapshotNameQuery } from '@/server/prospect-batches/guatemala-snapshot-query';
-import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
+import { createUruguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/uruguay-official-source-resolver';
+import { buildUruguaySnapshotNameQuery } from '@/server/prospect-batches/uruguay-snapshot-query';
 import { normalizeUsCompanyCore } from '@/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
 import { normalizeSpainCompanyCore } from '@/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import {
@@ -241,14 +245,16 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     createParaguayOfficialSourceResolver({
       querySnapshots: buildParaguaySnapshotNameQuery(snapshotClient),
     }),
-    // SOURCES-UY-RUT-BY-NAME-1 — empresas activas del RUPE (proveedores del Estado).
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'UY',
-      sourceKey: 'uy_rupe_registry',
-      taxIdentifierType: 'RUT',
-      validTaxId: /^\d{12}$/,
-      normalizeCore: normalizeUruguayCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'uy_rupe_registry', 'UY'),
+    // SOURCES-BR-LIGHT-1 — matrices activas DEMAIS y entes públicos del cadastro CNPJ
+    // de la Receita, con sus alias (nome fantasia, CVM) y la búsqueda por dominio.
+    createBrazilOfficialSourceResolver({
+      reads: buildBrazilSnapshotReads(snapshotClient),
+    }),
+    // SOURCES-UY-RUT-BY-NAME-1 — organizaciones vigentes del RUPE (proveedores del Estado).
+    // SOURCES-UY-CLOSE-1 — con sus alias (uy_rupe_name_alias: sigla, partes, siglas
+    // oficiales de los entes), variantes del nombre y la regla de una palabra.
+    createUruguayOfficialSourceResolver({
+      querySnapshots: buildUruguaySnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-US-EIN-BY-NAME-1 — empresas activas de la SEC primero; si no dan EIN
     // fuerte, organizaciones sin ánimo de lucro grandes del IRS. Requiere la

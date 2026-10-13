@@ -208,7 +208,6 @@ export const LATAM_COUNTRIES: { code: string; name: string }[] = [
   { code: 'CR', name: 'Costa Rica' },
   { code: 'PA', name: 'Panamá' },
   { code: 'DO', name: 'Rep. Dominicana' },
-  { code: 'US', name: 'Estados Unidos' },
   { code: 'ES', name: 'España' },
 ];
 
