@@ -2329,6 +2329,86 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Tercero no oficial sobre datos de Receita Federal'],
     riskNotes: ['Validar TOS y SLA antes de usar en producción'],
   },
+  // SOURCES-BR-LIGHT-1 — opción A (subconjunto liviano) aprobada por la dueña el
+  // 13-10-2026. NO reemplaza ni enciende br_receita_dados_abertos (la carga nacional
+  // pesada sigue congelada): son claves de fuente distintas en source_company_snapshots.
+  {
+    key: 'br_receita_registry',
+    name: 'Receita Federal — CNPJ por nombre (matrices activas DEMAIS y entes públicos)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1: carga pendiente de autorización. Medido sobre el cadastro CNPJ de 2026-09: 1.359.535 sociedades privadas DEMAIS y 65.900 entes públicos (matriz activa), con sus alias (br_receita_name_alias: nome fantasia, nombre comercial de la CVM, partes de la razón social, clave pública de municipios y estados) y su web cuando encaja con el nombre (br_receita_domain_key). Carga: bajar Empresas0..9, Estabelecimentos0..9, Cnaes y Municipios de arquivos.receitafederal.gov.br (Dados/Cadastros/CNPJ/<AAAA-MM>), correr scripts/source-catalog/extract-br-receita-light.py y luego scripts/source-catalog/run-br-receita-light-etl.ts --subset=… --cvm=… --apply (con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=br_receita_registry; repetir con br_receita_name_alias y br_receita_domain_key).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P0',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://arquivos.receitafederal.gov.br/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Cadastro CNPJ de la Receita Federal (datos abiertos), sólo la parte que el Agente 1 usa: la matriz activa de las sociedades privadas con porte DEMAIS (ni ME ni EPP) y de los entes públicos. En cada corrida completa el CNPJ por nombre para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Prueba el nombre (sin LTDA, S.A., S/A, EIRELI, ME, EPP, «& Cia», «em recuperação judicial»…), sin «Grupo» y sin «Brasil», contra la razón social, el nome fantasia y el nombre comercial de la CVM; si la candidata trae web, la usa para elegir dentro de un grupo («ambev.com.br» → AMBEV S.A.) y, si el nombre no alcanza, busca por la web entre las empresas grandes cuyo nombre contiene el de la candidata («petrobras.com.br» → PETROLEO BRASILEIRO S A PETROBRAS). El porte llega al filtro de tamaño: ME y EPP se descartan; DEMAIS no decide.',
+    limitations: [
+      'Sólo matrices activas DEMAIS y entes públicos: una ME o una EPP no se encuentra, así que no se descarta por esta vía.',
+      'DEMAIS significa «ni ME ni EPP» por facturación: no prueba 200 o más empleados.',
+      'Las marcas que no son ni razón social ni nome fantasia (Vivo, Nubank, Americanas…) sólo se encuentran por su web.',
+      'Medido con 100 grandes brasileñas: ~60 con CNPJ, de las cuales ~10 caen en otra empresa del mismo grupo; por eso dos empresas del grupo con la misma web nunca dan un CNPJ seguro.',
+      'Snapshot estático — la Receita publica cada mes; requiere recarga.',
+    ],
+    riskNotes: [
+      'Del correo del cadastro sólo se guarda el dominio y sólo si encaja con el nombre (512 mil correos son de la contadora o del grupo); nunca correos, teléfonos, socios ni direcciones.',
+      'Fondos, condominios, SPE y consorcios no aportan alias (no son la empresa que nombran).',
+    ],
+  },
+  {
+    key: 'br_receita_directory',
+    name: 'Receita Federal — capa gratuita por industria (DEMAIS con capital ≥ R$ 1 M o 3+ sucursales)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1 (tabla CNAE → industria aprobada por la dueña el 13-10-2026): carga pendiente de autorización. Medido sobre 2026-09: 131.728 sociedades privadas tras quitar holdings, fondos y SPE inmobiliarias (91.261 con web que encaja con el nombre) más las cabezas de entes públicos con web .gov.br (2.109). Se carga con el mismo script que br_receita_registry (SELLUP_CONFIRMED_SOURCE_KEY=br_receita_directory).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P0',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://arquivos.receitafederal.gov.br/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita brasileña por industria: matrices activas de sociedades privadas DEMAIS con capital social de R$ 1 M o más o con 3 o más sucursales activas (el corte que da más empresas gratis), clasificadas por su CNAE principal con la misma tabla por división que Argentina, Perú y Ecuador (farmacias y mayoristas de medicamentos → Salud; informática al por mayor y al por menor → Tecnología). Se ofrecen de más a menos capital y sucursales. Gobierno y Salud suman las cabezas de entes públicos (municipios, estados, ministerios, universidades, hospitales) con su web .gov.br. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí; cada empresa llega con su CNPJ y, cuando encaja con su nombre, su web.',
+    limitations: [
+      'El capital y las sucursales no son empleados: muchas empresas propuestas no llegan a 200 personas y las descarta el filtro de tamaño.',
+      'Hoteles, restaurantes, medios, educación privada y asociaciones no se proponen (sin macro), igual que en Argentina.',
+      'Sin web que encaje con el nombre, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'br_cvm_cia_aberta',
+    name: 'CVM — cadastro de companhias abertas (nombre comercial y web de las cotizadas)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1: 756 compañías activas (723 con correo de relación con inversores). No tiene carga propia: se cruza por CNPJ al cargar br_receita_registry (--cvm=cad_cia_aberta.csv de dados.cvm.gov.br/dados/CIA_ABERTA/CAD/DADOS/).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://dados.cvm.gov.br/dataset/cia_aberta-cad',
+    automationLevel: 'high',
+    recommendedUse:
+      'Cadastro abierto de la CVM con las empresas que cotizan en bolsa. Aporta su nombre comercial como alias («TELEFÔNICA BRASIL», «CELESC») y el dominio de su correo de relación con inversores como web, y marca a la cotizada para elegir dentro de un grupo cuando varias empresas comparten la misma web («bradesco.com.br» → BANCO BRADESCO S.A.).',
+    limitations: ['Sólo las ~760 empresas activas con acciones o deuda registrada en la CVM.'],
+    riskNotes: ['Del correo sólo se guarda el dominio.'],
+  },
 
   // ── Costa Rica ──────────────────────────────────────────────────────────────
   {

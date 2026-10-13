@@ -19,7 +19,8 @@
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
  * (pa_ruc_registry + pa_ruc_name_alias: PanamaCompra y Grandes Contribuyentes de la DGI) name→RUC, El Salvador
  * (sv_nit_registry + sv_nit_name_alias: listados de Hacienda con NIT) name→NIT, Nicaragua
- * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC; Honduras uses
+ * (ni_ruc_registry + ni_ruc_name_alias: Grandes Contribuyentes de la DGI y licencias del MINSA) name→RUC, Brasil
+ * (br_receita_registry + br_receita_name_alias + br_receita_domain_key: cadastro CNPJ de la Receita) name→CNPJ; Honduras uses
  * hn_ocds_rtn_registry (ONCAE + SEFIN) before the 72-row pilot. No promise for
  * other countries is made here;
  * unsupported countries fall through to the shared "unsupported" result (soft
@@ -73,6 +74,8 @@ import { createPeruOfficialSourceResolver } from '@/server/agents/prospect-intak
 import { buildPeruSnapshotNameQuery } from '@/server/prospect-batches/peru-snapshot-query';
 import { createParaguayOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/paraguay-official-source-resolver';
 import { buildParaguaySnapshotNameQuery } from '@/server/prospect-batches/paraguay-snapshot-query';
+import { createBrazilOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/brazil-official-source-resolver';
+import { buildBrazilSnapshotReads } from '@/server/prospect-batches/brazil-snapshot-query';
 import { createGuatemalaOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/guatemala-official-source-resolver';
 import { buildGuatemalaSnapshotNameQuery } from '@/server/prospect-batches/guatemala-snapshot-query';
 import { normalizeUruguayCompanyCore } from '@/server/source-catalog/connectors/rupe-uruguay/uy-rupe-registry-row';
@@ -237,6 +240,11 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     // regla de una palabra y el tamaño MIPYME declarado a la DNCP.
     createParaguayOfficialSourceResolver({
       querySnapshots: buildParaguaySnapshotNameQuery(snapshotClient),
+    }),
+    // SOURCES-BR-LIGHT-1 — matrices activas DEMAIS y entes públicos del cadastro CNPJ
+    // de la Receita, con sus alias (nome fantasia, CVM) y la búsqueda por dominio.
+    createBrazilOfficialSourceResolver({
+      reads: buildBrazilSnapshotReads(snapshotClient),
     }),
     // SOURCES-UY-RUT-BY-NAME-1 — empresas activas del RUPE (proveedores del Estado).
     createSnapshotNameOfficialSourceResolver({
