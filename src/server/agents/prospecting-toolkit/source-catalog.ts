@@ -2632,7 +2632,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE de autorización (y antes, la migración 146 aplicada). Dry-run 13-10-2026: 576 RIF con verificador (568 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 35 webs que muestran su RIF; más 63 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE de autorización (y antes, la migración 146 aplicada). Dry-run 13-10-2026: 636 RIF con verificador (628 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 93 webs oficiales que muestran su RIF (entes públicos, universidades y empresas); más 138 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',
@@ -2660,7 +2660,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE: requiere la migración 146 aplicada, que la dueña APRUEBE las tablas empresa → industria (cotizadas y empresas con web) y autorice la carga. Dry-run 13-10-2026: 513 entidades con RIF — Financieras 337, Servicios 79, Industria 25, Consumo 25, Tecnología 17, Agroindustria 16, Salud 13, Retail 13, Transporte 13, Construcción 8, Energía 4. Con web de la fuente o comprobada por nombre (34 más). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE: requiere la migración 146 aplicada, que la dueña APRUEBE las tablas empresa → industria (cotizadas y empresas con web) y autorice la carga. Dry-run 13-10-2026: 573 entidades con RIF — Financieras 335, Servicios 58, Gobierno 71, Consumo 24, Industria 24, Agroindustria 16, Tecnología 11, Salud 10, Retail 10, Transporte 8, Construcción 4, Energía 2; con web de la fuente, de su web oficial o comprobada por nombre (34). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',
@@ -2687,7 +2687,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE (migración 146, aprobación de las tablas y autorización de la carga). Entes públicos (ministerios, entes autónomos, gobernaciones, alcaldías, universidades públicas, hospitales y empresas del Estado) con web .gob.ve u oficial que responde, universidades privadas y empresas de Wikidata con web propia comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
+      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE (migración 146, aprobación de las tablas y autorización de la carga). Dry-run 13-10-2026: 155 entidades — 113 de Gobierno (171 entes públicos con web viva de 645 dominios comprobados; los que muestran RIF van con RIF a ve_free_directory) y 42 universidades privadas y empresas con web comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',

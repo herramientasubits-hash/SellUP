@@ -332,6 +332,13 @@ describe('ve_rif_registry y ve_rif_name_alias', () => {
     assert.equal(row.raw_data['tax_identifier_type'], 'RIF');
   });
 
+  it('un banco que cotiza: núcleo sin «Banco Universal» y Financieras por la tabla', () => {
+    const { registryRows, taxRows } = build({ bvcIssuers: [BNC] });
+    assert.equal(registryRows[0].normalized_legal_name, 'BANCO NACIONAL DE CREDITO');
+    assert.equal(taxRows[0].raw_data['macro_industry_key'], 'insurance_financial_services');
+    assert.equal(taxRows[0].raw_data['website_domain'], 'bncenlinea.com');
+  });
+
   it('alias: la sigla, el nombre en otra fuente y «sin Corporación»', () => {
     const { aliasRows } = build({ bvcIssuers: [COBECA], gleif: [DIGITEL_GLEIF] });
     const keys = aliasRows.map((r) => `${r.tax_id}:${r.normalized_legal_name}`).sort();
