@@ -36,8 +36,6 @@ const WIRED: ReadonlyArray<{ key: string; country: string; status: AiFlowStatus 
   { key: 'br_receita_directory', country: 'BR', status: 'connected_free_discovery' },
   { key: 'br_cvm_cia_aberta', country: 'BR', status: 'connected_identity_in_run' },
   { key: 'uy_rupe_registry', country: 'UY', status: 'connected_identity_in_run' },
-  { key: 'us_sec_edgar_registry', country: 'US', status: 'connected_identity_in_run' },
-  { key: 'us_irs_eo_registry', country: 'US', status: 'connected_identity_in_run' },
   { key: 'es_placsp_registry', country: 'ES', status: 'connected_identity_in_run' },
   { key: 'cl_res_registry', country: 'CL', status: 'connected_identity_in_run' },
   { key: 'cl_sii_registry', country: 'CL', status: 'connected_identity_in_run' },
@@ -142,9 +140,10 @@ describe('Catálogo — entradas nuevas de fuentes conectadas por país', () => 
 });
 
 describe('Catálogo — identificadores y nombres de país', () => {
-  it('FISCAL_IDENTIFIERS incluye US = EIN y ES = NIF', () => {
-    assert.equal(FISCAL_IDENTIFIERS.US, 'EIN');
+  it('FISCAL_IDENTIFIERS incluye ES = NIF; Estados Unidos salió del catálogo (dueña, 13-10-2026)', () => {
+    assert.equal(FISCAL_IDENTIFIERS.US, undefined);
     assert.equal(FISCAL_IDENTIFIERS.ES, 'NIF');
+    assert.equal(CATALOG_SOURCES.some((source) => (source.countryCodes ?? []).includes('US')), false);
   });
 
   it('COUNTRY_LABELS incluye US = Estados Unidos y ES = España', () => {
@@ -152,8 +151,8 @@ describe('Catálogo — identificadores y nombres de país', () => {
     assert.equal(COUNTRY_LABELS.ES, 'España');
   });
 
-  it('getCatalogContext expone el identificador fiscal de US y ES', () => {
-    assert.equal(getCatalogContext({ country: 'Estados Unidos', countryCode: 'US', industry: 'technology' }).fiscalIdentifierLabel, 'EIN');
+  it('getCatalogContext expone el identificador fiscal de ES y ya no el de US', () => {
+    assert.notEqual(getCatalogContext({ country: 'Estados Unidos', countryCode: 'US', industry: 'technology' }).fiscalIdentifierLabel, 'EIN');
     assert.equal(getCatalogContext({ country: 'España', countryCode: 'ES', industry: 'technology' }).fiscalIdentifierLabel, 'NIF');
   });
 });
