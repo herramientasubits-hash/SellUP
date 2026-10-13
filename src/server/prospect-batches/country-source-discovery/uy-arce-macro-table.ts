@@ -23,9 +23,9 @@
  *
  * Medida el 13-10-2026 sobre los proveedores adjudicados 2022-2025 (OCDS de ARCE):
  * 2.118 organizaciones con ≥ USD 50.000 y alguna adjudicación desde 2024 quedan
- * clasificadas. Cambiarla es una decisión de producto: no se edita sin el visto
- * bueno de la dueña. Hasta que la apruebe, `UY_ARCE_MACRO_TABLE_APPROVED` es `false`
- * y el ETL se niega a cargar la capa gratuita.
+ * clasificadas. La dueña APROBÓ la tabla y el corte (US$ 50.000 en 2022-2025 y alguna
+ * adjudicación desde 2024) el 13-10-2026 («adelante»). Cambiarla es una decisión de
+ * producto: no se edita sin su visto bueno.
  *
  * Puro: sin env, sin I/O, sin DB, sin reloj.
  */
@@ -36,7 +36,7 @@ import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-in
 export const UY_ARCE_MACRO_TABLE_VERSION = 'uy-sice-arce-macro-v1' as const;
 
 /** La dueña aprobó la tabla (sólo entonces el ETL carga la capa gratuita). */
-export const UY_ARCE_MACRO_TABLE_APPROVED = false;
+export const UY_ARCE_MACRO_TABLE_APPROVED = true;
 
 /** Peso mínimo del rubro dominante (monto) para clasificar a la empresa. */
 export const UY_ARCE_DOMINANT_MIN_SHARE = 0.5;
