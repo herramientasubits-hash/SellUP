@@ -97,6 +97,16 @@ describe('Brasil — buscador gratuito (br_receita_directory)', () => {
     assert.equal(result.companies[0].domain, 'candoi.pr.gov.br');
   });
 
+  it('una empresa por web aunque quede una fila vieja del mismo grupo', async () => {
+    const { adapter } = adapterWith([
+      readRow({ cnpj: cnpj('404325440001'), legal_name: 'CLARO S.A.', cnae: '6110801', website_domain: 'claro.com.br' }),
+      readRow({ cnpj: cnpj('669702290001'), legal_name: 'CLARO NXT TELECOMUNICACOES S/A', cnae: '6110801', website_domain: 'claro.com.br' }),
+      readRow({ cnpj: cnpj('317481740001'), legal_name: 'VERO S.A.', cnae: '6110801', website_domain: null }),
+    ]);
+    const result = await adapter(criteria('technology'));
+    assert.deepEqual(result.companies.map((c) => c.legalName), ['CLARO S.A.', 'VERO S.A.']);
+  });
+
   it('una macro sin actividades no consulta; el tope es 200', async () => {
     const empty = adapterWith([readRow()]);
     const none = await empty.adapter(criteria('education'));
