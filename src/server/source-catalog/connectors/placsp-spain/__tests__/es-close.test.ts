@@ -77,6 +77,9 @@ describe('núcleo del nombre español por estructura', () => {
     assert.equal(spainNameCore('NAVANTIA S.A. S.M.E.'), 'NAVANTIA');
     assert.equal(spainNameCore('Correos y Telégrafos S.A. S.M.E.'), 'CORREOS Y TELEGRAFOS');
     assert.equal(spainNameCore('Consum S.Coop. V.'), 'CONSUM');
+    assert.equal(spainNameCore('TALLERES ATIENZA S. COOP DE C-LM'), 'TALLERES ATIENZA');
+    assert.equal(spainNameCore('Radio Taxi Principado S.Coop.Asturiana'), 'RADIO TAXI PRINCIPADO');
+    assert.equal(spainNameCore('Cooperativa del Campo San Isidro'), 'COOPERATIVA DEL CAMPO SAN ISIDRO');
     assert.equal(spainNameCore('Merlin Properties SOCIMI, S.A.'), 'MERLIN PROPERTIES');
     assert.equal(spainNameCore('UNION ALCOYANA SOCIEDAD ANONIMA DE SEGUROS Y REASEGUROS'), 'UNION ALCOYANA');
     assert.equal(spainNameCore('Sanitas S.A. de Seguros'), 'SANITAS');

@@ -147,9 +147,16 @@ function trailingFormWords(words: readonly string[]): number {
   return 0;
 }
 
+/**
+ * Cooperativa con su variante autonómica detrás: «S COOP DE C LM», «S COOP ASTURIANA»,
+ * «S COOP PEQUENA», «SOCIEDAD COOPERATIVA ANDALUZA DE …». Desde la forma hasta el
+ * final (5 palabras como mucho) es la forma.
+ */
+const COOPERATIVE_TAIL = /\s(?:S\s?COOP|SOCIEDAD COOPERATIVA|SOCIETAT COOPERATIVA)(?:\s+\S+){0,5}$/;
+
 /** Quita formas societarias del final (apiladas: «S A S M E», «S A SOCIEDAD UNIPERSONAL»). */
 function stripLegalFormTails(upper: string): string {
-  let words = upper.split(' ').filter((w) => w.length > 0);
+  let words = upper.replace(COOPERATIVE_TAIL, '').split(' ').filter((w) => w.length > 0);
   for (;;) {
     const k = trailingFormWords(words);
     if (k === 0) break;
