@@ -41,16 +41,21 @@ import {
   BR_RECEITA_NAME_ALIAS_SOURCE_KEY,
   BR_RECEITA_REGISTRY_SOURCE_KEY,
   brReceitaDirectoryExclusion,
+  brReceitaDirectorySiblingsToDrop,
+  brReceitaRecordEligible,
   buildBrReceitaDirectoryRow,
   buildBrReceitaDomainKeyRow,
   buildBrReceitaNameAliasRows,
   buildBrReceitaRegistryRow,
   type BrCvmListing,
+  type BrDirectoryHeadCandidate,
+  type BrEmailDomainUsers,
   type BrReceitaCompanyRecord,
   type BrReceitaSnapshotRow,
 } from '../../src/server/source-catalog/connectors/receita-brasil/br-receita-rows';
 import { parseBrReceitaLightLine, parseCvmCadastro } from '../../src/server/source-catalog/connectors/receita-brasil/br-receita-input';
 import { brazilRegistryAliasKeys } from '../../src/server/source-catalog/connectors/receita-brasil/br-name-keys';
+import { brazilEmailDomainCountKey } from '../../src/server/source-catalog/connectors/receita-brasil/br-domain';
 import { dropAliasKeysOwnedByOthers } from '../../src/server/source-catalog/connectors/sunat-peru/pe-name-keys';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
@@ -97,9 +102,11 @@ function rowsFor(
   params: { sourceYear: number; sourcePeriod: string; importedAt: string },
   cvm: Map<string, BrCvmListing>,
   owners: ReadonlyMap<string, ReadonlySet<string>> | null,
+  emailDomainUsers: BrEmailDomainUsers,
+  siblingsToDrop: ReadonlySet<string> | null,
 ): { registry: BrReceitaSnapshotRow; alias: BrReceitaSnapshotRow[]; domain: BrReceitaSnapshotRow | null; directory: BrReceitaSnapshotRow | null } | null {
   const listing = cvm.get(record.cnpj.replace(/[^0-9A-Za-z]/g, '').toUpperCase()) ?? null;
-  const registry = buildBrReceitaRegistryRow(record, params, listing);
+  const registry = buildBrReceitaRegistryRow(record, params, listing, emailDomainUsers);
   if (registry === null) return null;
   const keys = brazilRegistryAliasKeys({ legalName: record.legalName, tradeName: record.tradeName, cvmTradeName: listing?.tradeName ?? null });
   const ownedKeys = owners === null ? keys : dropAliasKeysOwnedByOthers(keys, registry.normalized_tax_id, owners);
@@ -107,7 +114,10 @@ function rowsFor(
     registry,
     alias: buildBrReceitaNameAliasRows(registry, ownedKeys),
     domain: buildBrReceitaDomainKeyRow(registry),
-    directory: buildBrReceitaDirectoryRow(record, registry),
+    directory:
+      siblingsToDrop !== null && siblingsToDrop.has(registry.normalized_tax_id)
+        ? null
+        : buildBrReceitaDirectoryRow(record, registry),
   };
 }
 
@@ -128,29 +138,51 @@ async function main(): Promise<void> {
   const cvm = config.cvm ? parseCvmCadastro(new TextDecoder('latin1').decode(readFileSync(config.cvm))) : new Map();
   const params = { sourceYear: Number(config.period.slice(0, 4)), sourcePeriod: config.period, importedAt: new Date().toISOString() };
 
-  // Pasada 1: nombres propios (núcleo → CNPJ) y conteos.
+  // Pasada 0: cuántas empresas del subconjunto usan cada dominio de correo.
+  const emailDomainUsers = new Map<string, number>();
+  for await (const record of records(config.subset)) {
+    if (!brReceitaRecordEligible(record)) continue;
+    const key = brazilEmailDomainCountKey(record.emailDomain);
+    if (key !== null) emailDomainUsers.set(key, (emailDomainUsers.get(key) ?? 0) + 1);
+  }
+
+  // Pasada 1: nombres propios (núcleo → CNPJ), candidatas del buscador por web y conteos.
   const owners = new Map<string, Set<string>>();
+  const headCandidates: BrDirectoryHeadCandidate[] = [];
   let read = 0;
   let rejected = 0;
   for await (const record of records(config.subset)) {
     read++;
-    const built = rowsFor(record, params, cvm, null);
+    const built = rowsFor(record, params, cvm, null, emailDomainUsers, null);
     if (built === null) {
       rejected++;
       continue;
     }
     const core = built.registry.normalized_legal_name;
     owners.set(core, (owners.get(core) ?? new Set()).add(built.registry.normalized_tax_id));
+    if (built.directory) {
+      const domain = built.directory.raw_data['website_domain'];
+      headCandidates.push({
+        cnpj: built.directory.normalized_tax_id,
+        domain: typeof domain === 'string' ? domain : null,
+        priority: built.directory.priority_score ?? 0,
+        cvmListed: built.directory.raw_data['cvm_listed'] === true,
+      });
+    }
   }
+  const siblingsToDrop = brReceitaDirectorySiblingsToDrop(headCandidates);
 
   const counts: Record<Target, number> = { registry: 0, alias: 0, domain: 0, directory: 0 };
   const exclusions = new Map<string, number>();
   const byMacro = new Map<string, { total: number; withDomain: number }>();
   let cvmMatched = 0;
+  const webSources = new Map<string, number>();
   for await (const record of records(config.subset)) {
-    const built = rowsFor(record, params, cvm, owners);
+    const built = rowsFor(record, params, cvm, owners, emailDomainUsers, siblingsToDrop);
     if (built === null) continue;
     counts.registry++;
+    const webSource = built.registry.raw_data['website_domain_source'];
+    if (typeof webSource === 'string') webSources.set(webSource, (webSources.get(webSource) ?? 0) + 1);
     counts.alias += built.alias.length;
     if (built.domain) counts.domain++;
     if (built.registry.raw_data['cvm_listed'] === true) cvmMatched++;
@@ -162,13 +194,16 @@ async function main(): Promise<void> {
       if (built.directory.raw_data['website_domain']) entry.withDomain++;
       byMacro.set(macro, entry);
     } else {
-      const reason = brReceitaDirectoryExclusion(record, built.registry) ?? 'unknown';
+      const reason = siblingsToDrop.has(built.registry.normalized_tax_id)
+        ? 'same_web_as_group_head'
+        : (brReceitaDirectoryExclusion(record, built.registry) ?? 'unknown');
       exclusions.set(reason, (exclusions.get(reason) ?? 0) + 1);
     }
   }
 
   console.log(`  Matrices leídas: ${read} (rechazadas por forma, CNPJ o elegibilidad: ${rejected})`);
   console.log(`  Cotizadas de la CVM cruzadas: ${cvmMatched} de ${cvm.size}`);
+  for (const [source, count] of [...webSources.entries()].sort()) console.log(`  Web por ${source}: ${count}`);
   for (const target of Object.keys(TARGETS) as Target[]) console.log(`  Filas ${TARGETS[target]}: ${counts[target]}`);
   for (const [reason, count] of [...exclusions.entries()].sort()) console.log(`  Fuera del buscador — ${reason}: ${count}`);
   for (const [macro, entry] of [...byMacro.entries()].sort((a, b) => b[1].total - a[1].total)) {
@@ -199,7 +234,7 @@ async function main(): Promise<void> {
     buffer = [];
   };
   for await (const record of records(config.subset)) {
-    const built = rowsFor(record, params, cvm, owners);
+    const built = rowsFor(record, params, cvm, owners, emailDomainUsers, siblingsToDrop);
     if (built === null) continue;
     buffer.push(built.registry, ...built.alias);
     if (built.domain) buffer.push(built.domain);

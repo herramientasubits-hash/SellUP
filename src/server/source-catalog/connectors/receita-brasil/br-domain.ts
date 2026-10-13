@@ -118,15 +118,29 @@ export function brazilDomainFitsName(domain: string | null | undefined, names: r
   return false;
 }
 
+/** Clave para contar cuántas empresas usan un dominio de correo: el registrable. */
+export function brazilEmailDomainCountKey(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+  const host = raw.includes('@') ? emailDomain(raw) : normalizeWebsiteHost(raw);
+  return host === null ? null : registrableBrazilDomain(host);
+}
+
 /**
  * La web de una empresa a partir del correo del cadastro: el dominio registrable
  * cuando es corporativo y ENCAJA con su nombre. Un dominio del Estado sólo vale
- * para un ente público. `null` en cualquier otro caso.
+ * para un ente público (o una empresa del Estado). `null` en cualquier otro caso.
+ *
+ * `onlyOwner`: el dominio no lo usa NINGUNA otra empresa del subconjunto. Medido el
+ * 13-10-2026: 6.931 empresas del buscador tienen un dominio propio que no encaja
+ * con el nombre y casi siempre es su web real («bmw.com» de BMW DO BRASIL,
+ * «daftrucks.com», «gru.com.br» del aeropuerto de Guarulhos). Un dominio que
+ * comparten varias es de la contadora o del grupo y sigue sin valer.
  */
 export function brazilCompanyDomainFromEmail(input: {
   email: string | null | undefined;
   names: readonly (string | null | undefined)[];
   publicEntity: boolean;
+  onlyOwner?: boolean;
 }): string | null {
   const raw = input.email?.includes('@') ? emailDomain(input.email) : normalizeWebsiteHost(input.email ?? null);
   if (raw === null) return null;
@@ -134,7 +148,8 @@ export function brazilCompanyDomainFromEmail(input: {
   if (isNonCorporateDomain(registrable) || isNonCorporateDomain(raw)) return null;
   if (BR_NON_CORPORATE_EMAIL_DOMAINS.has(registrable)) return null;
   if (isBrazilPublicSectorDomain(registrable) && !input.publicEntity) return null;
-  return brazilDomainFitsName(registrable, input.names) ? registrable : null;
+  if (brazilDomainFitsName(registrable, input.names)) return registrable;
+  return input.onlyOwner === true && brazilDomainLabel(registrable).length >= 3 ? registrable : null;
 }
 
 /** Clave de búsqueda por dominio guardada en `normalized_legal_name`: «@magazineluiza». */

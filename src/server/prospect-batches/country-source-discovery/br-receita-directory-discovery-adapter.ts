@@ -126,13 +126,17 @@ export function buildBrReceitaDirectoryDiscoveryAdapter(reads: BrReceitaDirector
 
     const rows = await reads.readCompaniesByMacro({ macroIndustryKey: criteria.macroIndustryKey, limit });
 
-    // Un CNPJ, una empresa: la primera fila válida gana (la lectura ya viene ordenada).
+    // Un CNPJ, una empresa; y una empresa por web (la carga ya deja sólo la cabeza
+    // del grupo; esto la protege si quedara una fila vieja). La lectura ya viene ordenada.
     const seen = new Set<string>();
+    const seenDomains = new Set<string>();
     const companies: CountrySourceCompany[] = [];
     for (const row of rows) {
       const company = toCompany(row, criteria.macroIndustryKey);
       if (company === null || company.taxId === null || seen.has(company.taxId)) continue;
+      if (company.domain !== null && seenDomains.has(company.domain)) continue;
       seen.add(company.taxId);
+      if (company.domain !== null) seenDomains.add(company.domain);
       companies.push(company);
     }
 
