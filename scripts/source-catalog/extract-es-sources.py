@@ -31,6 +31,12 @@ from xml.etree import ElementTree as ET
 
 COMPANY_NIF = re.compile(r'^[A-HJNPQRSUVW]\d{7}[0-9A-J]$')
 
+# Programas cuya marca «GRAN EMPRESA» no dice nada del tamaño de la sociedad: la
+# retribución específica de las renovables la cobran miles de sociedades de una sola
+# planta (solar, eólica) que pertenecen a grupos grandes (medido 13-10-2026: 8.368
+# NIF en 2024-2025). Siguen dando NIF por nombre; sólo no marcan «grande».
+LARGE_FLAG_IGNORED_PROGRAMS = re.compile(r'^\s*Retribuci[oó]n espec[ií]fica', re.I)
+
 
 def clean_nif(raw):
     nif = (raw or '').upper().replace('-', '').replace(' ', '').replace('.', '')
@@ -115,7 +121,8 @@ def extract_bdns(dirs):
                 if sector:
                     b['cnae'][sector] += 1
                 year = (x.get('fechaConcesion') or '')[:4]
-                if x.get('tipoBeneficiario') == 'GRAN EMPRESA' and year.isdigit():
+                program = x.get('convocatoria') or ''
+                if x.get('tipoBeneficiario') == 'GRAN EMPRESA' and year.isdigit() and not LARGE_FLAG_IGNORED_PROGRAMS.match(program):
                     b['large_year'] = max(b['large_year'] or 0, int(year))
                 b['region'] = b['region'] or ((x.get('region') or '').split(' - ')[-1].strip() or None)
     return out
