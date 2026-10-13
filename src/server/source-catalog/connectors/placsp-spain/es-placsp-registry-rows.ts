@@ -66,6 +66,8 @@ export function normalizeSpainCompanyNif(raw: string | null | undefined): string
   if (typeof raw !== 'string') return null;
   const nif = raw.toUpperCase().replace(/[\s.-]/g, '');
   if (!COMPANY_NIF.test(nif)) return null;
+  // SOURCES-ES-CLOSE-1 — relleno («A00000000», «B11111111»): pasa el control pero no es de nadie.
+  if (/^.(\d)\1{6}/.test(nif)) return null;
   const control = calculateSpainCompanyNifControl(nif.slice(1, 8));
   if (control === null || (nif[8] !== control.digit && nif[8] !== control.letter)) return null;
   return nif;

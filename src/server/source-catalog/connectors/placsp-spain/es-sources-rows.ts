@@ -218,7 +218,7 @@ export function esPreferredLegalName(names: Readonly<Record<string, number>>): s
   let best: { name: string; count: number; form: boolean } | null = null;
   for (const [raw, count] of Object.entries(names)) {
     const name = raw.replace(/\s+/g, ' ').trim();
-    if (name.length === 0 || spainNameCore(name).length < 2) continue;
+    if (name.length === 0 || spainNameCore(name).length < 2 || isEsMultiCompanyName(name)) continue;
     const form = endsWithSpainLegalForm(name);
     const better =
       best === null ||
@@ -325,16 +325,35 @@ export function esOwnNameKeys(row: Pick<EsSnapshotRow, 'legal_name' | 'normalize
 /** Claves de alias de un NIF a partir de TODOS sus nombres publicados. */
 export function esAliasKeysForNames(names: readonly string[], ownCore: string): string[] {
   const keys: string[] = [];
-  const push = (key: string): void => {
-    if (key.length >= 2 && key !== ownCore && !keys.includes(key)) keys.push(key);
+  const ownFirst = ownCore.split(' ')[0] ?? '';
+  const push = (key: string, fromOwnName: boolean): void => {
+    if (key.length < 2 || key === ownCore || keys.includes(key)) return;
+    // De OTRO nombre publicado sólo vale si empieza como la razón social y tiene 2+
+    // palabras: los órganos a veces ponen el nombre de otra empresa del grupo o de la
+    // UTE bajo el NIF («Telefónica» bajo Telefónica de España, «Eulen» bajo Schindler).
+    if (!fromOwnName && (key.split(' ').length < 2 || key.split(' ')[0] !== ownFirst)) return;
+    keys.push(key);
   };
   for (const name of names) {
+    if (JOINT_VENTURE.test(name) || isEsMultiCompanyName(name)) continue;
     const core = spainNameCore(name);
-    if (JOINT_VENTURE.test(name)) continue;
-    push(core);
-    for (const key of spainRegistryAliasKeys(name)) push(key);
+    const fromOwnName = core === ownCore;
+    push(core, fromOwnName);
+    // La sigla entre paréntesis o el nombre comercial de la PROPIA razón social, sin más.
+    for (const key of spainRegistryAliasKeys(name)) push(key, fromOwnName);
   }
   return keys;
+}
+
+/**
+ * ¿Junta el nombre a varias sociedades? «DRAGADOS, S.A.-MONCOBRA, S.A.-INSTALACIONES
+ * NEGRATIN, S.L.U.», «URBASER, S.A.-MARTINEZ CANO CANARIAS SA»: dos formas
+ * societarias con texto entre ellas. No es el nombre de una empresa.
+ */
+export function isEsMultiCompanyName(name: string): boolean {
+  const upper = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  const forms = upper.match(/\bS\.?\s?[AL]\.?(?:\s?U\.?)?(?=[\s,.;\-–]|$)/g) ?? [];
+  return forms.length >= 2 && /\bS\.?\s?[AL]\.?(?:\s?U\.?)?\s*[-–,;/]\s*[A-Z]{3,}/.test(upper);
 }
 
 /** Filas de alias de un NIF (ya sin las claves que son el nombre propio de otro NIF). */

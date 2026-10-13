@@ -9,7 +9,7 @@
  * las adjudicatarias de meses que no se vuelven a descargar.
  *
  * Uso:
- *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… [--existing=…] [--year=2026]
+ *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… [--existing=…] [--year=2026] [--dump-dir=…]
  *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… --apply --only=placsp-registry [--prune-stale]
  *     (--only = placsp-registry | official-registry | alias | directory | public)
  *
@@ -25,7 +25,7 @@
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
@@ -70,7 +70,15 @@ const ONLY_VALUES = ['placsp-registry', 'official-registry', 'alias', 'directory
 type Only = (typeof ONLY_VALUES)[number];
 const REGISTRY_ONLY: ReadonlySet<Only> = new Set(['placsp-registry', 'official-registry']);
 
-type Config = { inDir: string; existing: string | null; year: number; apply: boolean; only: Only | null; pruneStale: boolean };
+type Config = {
+  inDir: string;
+  existing: string | null;
+  dumpDir: string | null;
+  year: number;
+  apply: boolean;
+  only: Only | null;
+  pruneStale: boolean;
+};
 
 function parseArgs(argv: readonly string[]): Config {
   const value = (name: string): string | null => {
@@ -91,7 +99,7 @@ function parseArgs(argv: readonly string[]): Config {
   }
   const year = Number(value('year') ?? new Date().getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year debe ser entero');
-  return { inDir, existing: value('existing'), year, apply, only: only as Only | null, pruneStale };
+  return { inDir, existing: value('existing'), dumpDir: value('dump-dir'), year, apply, only: only as Only | null, pruneStale };
 }
 
 function readJsonl<T>(path: string, parse: (raw: unknown) => T | null): T[] {
@@ -326,11 +334,6 @@ async function main(): Promise<void> {
   console.log(`  ${ES_PUBLIC_ENTITIES_SOURCE_KEY}: ${publicRows.length} — ${JSON.stringify(Object.fromEntries(byKind))}`);
   console.log(`  Fuera de Gobierno: ${JSON.stringify(Object.fromEntries(publicExcluded))}`);
 
-  if (!config.apply) {
-    console.log('  DRY-RUN: no se escribió nada. Usa --apply --only=… (con autorización) para persistir.');
-    return;
-  }
-
   const target: Record<Only, [string, EsSnapshotRow[]]> = {
     'placsp-registry': [ES_PLACSP_REGISTRY_SOURCE_KEY, placspRows],
     'official-registry': [ES_OFFICIAL_NIF_REGISTRY_SOURCE_KEY, officialRows],
@@ -338,6 +341,19 @@ async function main(): Promise<void> {
     directory: [ES_FREE_DIRECTORY_SOURCE_KEY, directoryRows],
     public: [ES_PUBLIC_ENTITIES_SOURCE_KEY, publicRows],
   };
+  if (config.dumpDir !== null) {
+    // Copia LOCAL de las filas (JSONL) para revisarlas antes de pedir la carga.
+    mkdirSync(config.dumpDir, { recursive: true });
+    for (const [name, [, rows]] of Object.entries(target)) {
+      writeFileSync(join(config.dumpDir, `${name}.jsonl`), rows.map((row) => JSON.stringify(row)).join('\n'));
+    }
+    console.log(`  Filas volcadas en ${config.dumpDir}`);
+  }
+  if (!config.apply) {
+    console.log('  DRY-RUN: no se escribió nada. Usa --apply --only=… (con autorización) para persistir.');
+    return;
+  }
+
   const [sourceKey, rows] = target[config.only!];
   assertLargeImportAllowed({ sourceKey, countryCode: 'ES', estimatedRows: rows.length, isDryRun: false });
 
