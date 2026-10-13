@@ -332,6 +332,9 @@ describe('tabla del catálogo SICE', () => {
     assert.equal(uyArceItemMacro(3, 9, 9), null);
     assert.equal(uyArceItemMacro(3, 9, 1), 'services_company');
     assert.equal(uyArceItemMacro(1, 1, 1), null);
+    // Equipos de servicio eléctrico (bajo «equipos de oficina») → Industria, no Tecnología.
+    assert.equal(uyArceItemMacro(4, 2, 6), 'industry_manufacturing_chemicals_automotive');
+    assert.equal(uyArceItemMacro(4, 2, 1), 'technology');
   });
 
   it('macro dominante sólo si pesa al menos la mitad', () => {
@@ -372,7 +375,8 @@ describe('filas de la capa gratuita', () => {
     assert.equal(result.row.raw_data['macro_industry_key'], 'technology');
     assert.equal(result.row.raw_data['sice_class'], '3-10-1');
     assert.equal(result.row.raw_data['website_domain'], 'tilsor.com.uy');
-    assert.equal(result.row.priority_score, 12_040);
+    // Con web va antes que cualquiera sin web.
+    assert.equal(result.row.priority_score, 1_012_040);
     assert.equal(result.row.record_identity_key, 'tax:211400110014');
   });
 

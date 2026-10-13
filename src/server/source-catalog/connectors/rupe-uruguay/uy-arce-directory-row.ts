@@ -89,13 +89,21 @@ const cleanText = (value: string | null | undefined): string | null => {
   return text.length > 0 ? text : null;
 };
 
+/** Puntos extra de una organización con web: se ofrece antes que las que no la tienen. */
+export const UY_ARCE_WEB_PRIORITY_BONUS = 1_000_000;
+
 /**
- * Relevancia para ordenar dentro de una macro: a cuántos organismos distintos
- * vende primero (quien abastece a muchos es grande), luego cuántas adjudicaciones.
- * El monto no ordena: hay compras marco con montos absurdos.
+ * Relevancia para ordenar dentro de una macro: primero las que ya tienen web (cuentan
+ * para la meta sin rescate ni pago; decisión de la dueña, 13-10-2026: en UY×Tecnología
+ * las 10 que más venden no tenían web), luego a cuántos organismos distintos vende
+ * (quien abastece a muchos es grande) y cuántas adjudicaciones. El monto no ordena:
+ * hay compras marco con montos absurdos.
  */
-export function uyArcePriorityScore(summary: Pick<UyArceSupplierSummary, 'awards' | 'buyers'>): number {
-  return Math.min(summary.buyers, 999) * 1000 + Math.min(summary.awards, 999);
+export function uyArcePriorityScore(
+  summary: Pick<UyArceSupplierSummary, 'awards' | 'buyers'>,
+  hasWeb = false,
+): number {
+  return (hasWeb ? UY_ARCE_WEB_PRIORITY_BONUS : 0) + Math.min(summary.buyers, 999) * 1000 + Math.min(summary.awards, 999);
 }
 
 /** Construye la fila, o dice por qué la organización no entra. */
@@ -136,7 +144,7 @@ export function buildUyArceDirectoryRow(params: {
       normalized_legal_name: uruguayNameCore(legalName),
       city: null,
       region: cleanText(params.department ?? null),
-      priority_score: uyArcePriorityScore(summary),
+      priority_score: uyArcePriorityScore(summary, Boolean(params.web)),
       raw_data: {
         macro_industry_key: macro.macro,
         macro_share: Math.round(macro.share * 100) / 100,

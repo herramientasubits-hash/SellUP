@@ -108,6 +108,9 @@ export const UY_ARCE_CLASS_MACRO: Readonly<Record<string, MacroIndustryKey>> = O
   '2-6-4': HEALTH, // productos químicos, medicinales y farmacéuticos
   '2-6-8': ENERGY, // productos bituminosos
   '2-9-3': MANUFACTURING, // útiles y accesorios eléctricos
+  // Cuelga de «máquinas y equipos de oficina» (4-2 → Tecnología) pero son equipos
+  // eléctricos (Conagro, Biclima): Industria. Decisión de la dueña, 13-10-2026.
+  '4-2-6': MANUFACTURING, // equipos de servicio eléctrico y accesorios
   '2-9-4': HEALTH, // útiles menores médico-quirúrgicos
   '3-1-1': 'technology', // teléfono, telégrafo y similares
   '3-1-2': TRANSPORT, // correspondencia y encomiendas dentro del país
