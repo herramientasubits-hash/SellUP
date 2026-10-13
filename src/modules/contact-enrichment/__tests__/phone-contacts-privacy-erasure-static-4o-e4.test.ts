@@ -525,6 +525,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // no borra filas de contactos, no nombra `mobile_phone` y no toca la erasure que esta suite
       // protege. AUTORADA y NO APLICADA.
       '145_prospect_candidate_assignment.sql',
+      // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan
+      // 'RIF' (amplía los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. No contiene un solo
+      // `DELETE`: no borra filas de contactos, no nombra `mobile_phone` y no toca la erasure que
+      // esta suite protege. AUTORADA y NO APLICADA.
+      '146_tax_identifier_type_rif.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -613,7 +620,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
     // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
     // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 145);
+    // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 146);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

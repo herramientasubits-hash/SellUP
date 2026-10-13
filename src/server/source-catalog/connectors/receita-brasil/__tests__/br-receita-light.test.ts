@@ -28,8 +28,11 @@ import {
   BR_RECEITA_DOMAIN_KEY_SOURCE_KEY,
   BR_RECEITA_NAME_ALIAS_SOURCE_KEY,
   BR_RECEITA_REGISTRY_SOURCE_KEY,
+  BR_TECH_SOFTWARE_PRIORITY_BOOST,
   brReceitaDirectoryExclusion,
   brReceitaDirectoryPriority,
+  brReceitaDirectorySiblingsToDrop,
+  brReceitaPublicEntityPriority,
   brReceitaRecordEligible,
   buildBrReceitaDirectoryRow,
   buildBrReceitaDomainKeyRow,
@@ -352,3 +355,60 @@ describe('br-receita-input — TSV del extractor y cadastro de la CVM', () => {
     assert.deepEqual(listings.get(bradesco), { tradeName: 'BANCO BRADESCO S.A.', domain: 'bradesco.com.br', sector: 'Bancos' });
   });
 });
+
+describe('SOURCES-BR-LIGHT-1 — correcciones tras la 1.ª corrida BR × Tecnología (13-10-2026)', () => {
+  it('un dominio que NO encaja vale como web sólo si ninguna otra empresa lo usa', () => {
+    const jde = record({ legalName: 'JACOBS DOUWE EGBERTS BR COMERCIALIZACAO DE CAFES LTDA.', tradeName: null, emailDomain: 'jdecoffee.com', cnae: '1081302' });
+    const alone = buildBrReceitaRegistryRow(jde, PARAMS, null, new Map([['jdecoffee.com', 1]]))!;
+    assert.equal(alone.raw_data['website_domain'], 'jdecoffee.com');
+    assert.equal(alone.raw_data['website_domain_source'], 'receita_email_domain_only_owner');
+    assert.equal(buildBrReceitaDomainKeyRow(alone)?.normalized_legal_name, '@jdecoffee');
+    const twoUsers = buildBrReceitaRegistryRow(jde, PARAMS, null, new Map([['jdecoffee.com', 2]]))!;
+    assert.equal(twoUsers.raw_data['website_domain'], undefined);
+    const shared = buildBrReceitaRegistryRow(record({ legalName: 'PADARIA BOM PAO LTDA', tradeName: null, emailDomain: 'contabilizei.com.br' }), PARAMS, null, new Map([['contabilizei.com.br', 2167]]))!;
+    assert.equal(shared.raw_data['website_domain'], undefined);
+    const free = buildBrReceitaRegistryRow(record({ legalName: 'XPTO COMERCIO LTDA', tradeName: null, emailDomain: 'gmail.com' }), PARAMS, null, new Map([['gmail.com', 1]]))!;
+    assert.equal(free.raw_data['website_domain'], undefined, 'un correo gratuito nunca es web');
+  });
+
+  it('empresas del Estado (empresa pública, economia mista) aceptan su web .gov.br', () => {
+    const conab = record({ legalName: 'COMPANHIA NACIONAL DE ABASTECIMENTO CONAB', naturezaJuridica: '2011', emailDomain: 'conab.gov.br', cnae: '8411600' });
+    const row = buildBrReceitaRegistryRow(conab, PARAMS)!;
+    assert.equal(row.raw_data['website_domain'], 'conab.gov.br');
+    assert.equal(row.raw_data['state_company'], true);
+    const privateCo = record({ legalName: 'CONAB TRANSPORTES LTDA', naturezaJuridica: '2062', emailDomain: 'conab.gov.br' });
+    assert.equal(buildBrReceitaRegistryRow(privateCo, PARAMS)!.raw_data['website_domain'], undefined);
+  });
+
+  it('Tecnología: software y servicios informáticos antes que telecomunicaciones', () => {
+    const telecom = record({ legalName: 'CLARO S.A.', cnae: '6110801', capitalSocial: 27e9, activeBranches: 900 });
+    const software = record({ legalName: 'TOTVS S.A.', cnae: '6203100', capitalSocial: 3e9, activeBranches: 20 });
+    const t = buildBrReceitaDirectoryRow(telecom, buildBrReceitaRegistryRow(telecom, PARAMS)!)!;
+    const s = buildBrReceitaDirectoryRow(software, buildBrReceitaRegistryRow(software, PARAMS)!)!;
+    assert.equal(t.raw_data['macro_industry_key'], 'technology');
+    assert.equal(s.raw_data['macro_industry_key'], 'technology');
+    assert.ok((s.priority_score ?? 0) > (t.priority_score ?? 0));
+    assert.ok((s.priority_score ?? 0) >= BR_TECH_SOFTWARE_PRIORITY_BOOST);
+    const retail = record({ cnae: '4711301', capitalSocial: 3e9, activeBranches: 20 });
+    assert.ok((buildBrReceitaDirectoryRow(retail, buildBrReceitaRegistryRow(retail, PARAMS)!)!.priority_score ?? 0) < BR_TECH_SOFTWARE_PRIORITY_BOOST);
+  });
+
+  it('Gobierno: federal antes que estatal antes que municipal', () => {
+    assert.ok(brReceitaPublicEntityPriority('1015', 0) > brReceitaPublicEntityPriority('1236', 0));
+    assert.ok(brReceitaPublicEntityPriority('1236', 0) > brReceitaPublicEntityPriority('1244', 0));
+    assert.ok(brReceitaPublicEntityPriority('1244', 50) > brReceitaPublicEntityPriority('1244', 0));
+  });
+
+  it('una empresa por web: gana la cotizada; si no, la de más prioridad; sin web no compiten', () => {
+    const drop = brReceitaDirectorySiblingsToDrop([
+      { cnpj: 'A', domain: 'claro.com.br', priority: 30_000, cvmListed: false },
+      { cnpj: 'B', domain: 'www.claro.com.br', priority: 20_000, cvmListed: false },
+      { cnpj: 'C', domain: 'bradesco.com.br', priority: 40_000, cvmListed: false },
+      { cnpj: 'D', domain: 'bradesco.com.br', priority: 10_000, cvmListed: true },
+      { cnpj: 'E', domain: null, priority: 1, cvmListed: false },
+      { cnpj: 'F', domain: null, priority: 1, cvmListed: false },
+    ]);
+    assert.deepEqual([...drop].sort(), ['B', 'C']);
+  });
+});
+

@@ -79,7 +79,7 @@ describe('capacidad por país', () => {
     assert.ok(COUNTRY_SOURCE_DISCOVERY_COUNTRIES.includes('BO'));
     assert.deepEqual(resolveCountrySourceCapability('bo'), { countryCode: 'BO', sourceKey: BO_OFFICIAL_DISCOVERY_SOURCE_KEY });
     assert.equal(resolveCountrySourceCapability('PE')?.sourceKey, 'pe_sunat_directory_discovery');
-    assert.equal(resolveCountrySourceCapability('VE'), null);
+    assert.equal(resolveCountrySourceCapability('XX'), null);
   });
 
   it('la cobertura de Bolivia: macros con reglas, más Gobierno', () => {
