@@ -474,7 +474,15 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // reutiliza `identity_epoch`, no escribe candidatos ni toca la valla de admisión, y el barrido
     // explícito de abajo se ENSANCHA para incluir la 144, el techo anterior. AUTORADA y NO
     // APLICADA.
-    const CEILING = '145_prospect_candidate_assignment.sql';
+    const CANDIDATE_ASSIGNMENT_145 = '145_prospect_candidate_assignment.sql';
+    // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4: no menciona
+    // `AGENT1-CUT3B4`, no reutiliza `identity_epoch`, no escribe candidatos ni toca la valla de
+    // admisión, y el barrido explícito de abajo se ENSANCHA para incluir la 145, el techo anterior.
+    // AUTORADA y NO APLICADA.
+    const CEILING = '146_tax_identifier_type_rif.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -494,6 +502,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       COMPANY_BANK_142,
       RUN_PROGRESS_143,
       CONCURRENT_EXECUTIONS_144,
+      CANDIDATE_ASSIGNMENT_145,
       CEILING,
     ]) {
       assert.equal(
@@ -513,7 +522,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-RUN-LIVE-PROGRESS-1 añade la 143 y el conteo sube con ella.
     // AGENT1-PARALLEL-RUNS-PHASE2-1 añade la 144 y el conteo sube con ella.
     // BULK-COMPANY-ASSIGNMENT-1 añade la 145 y el conteo sube con ella.
-    assert.equal(migrations.length, 145);
+    // SOURCES-VE-CLOSE-1 añade la 146 y el conteo sube con ella.
+    assert.equal(migrations.length, 146);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

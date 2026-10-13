@@ -258,7 +258,7 @@ describe('capacidad por país', () => {
     assert.equal(resolveCountrySourceCapability('PE')?.sourceKey, 'pe_sunat_directory_discovery');
     // SOURCES-UY-CLOSE-1 — Uruguay ya tiene la suya (ARCE); Venezuela sigue sin fuente.
     assert.equal(resolveCountrySourceCapability('UY')?.sourceKey, 'uy_arce_directory_discovery');
-    assert.equal(resolveCountrySourceCapability('VE'), null);
+    assert.equal(resolveCountrySourceCapability('XX'), null);
   });
 
   it('la cobertura de Paraguay sale de SU tabla', () => {

@@ -36,6 +36,8 @@ const ALLOWED_TAX_IDENTIFIER_TYPES: ReadonlySet<string> = new Set([
   'cedula_juridica',
   'EIN',
   'NIF',
+  // SOURCES-VE-CLOSE-1 — migración 146.
+  'RIF',
 ]);
 
 const TAX_IDENTITY_PREFIX = 'tax:';

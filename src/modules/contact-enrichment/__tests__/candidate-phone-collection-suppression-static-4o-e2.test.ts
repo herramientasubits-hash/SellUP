@@ -281,6 +281,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // No es de teléfono, no es del catálogo, ni de BR, ni de CUT3B4, y no nombra ninguna tabla,
       // columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '145_prospect_candidate_assignment.sql',
+      // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan
+      // 'RIF' (amplía los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. No nombra ninguna
+      // tabla, columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
+      '146_tax_identifier_type_rif.sql',
     ]);
   });
 

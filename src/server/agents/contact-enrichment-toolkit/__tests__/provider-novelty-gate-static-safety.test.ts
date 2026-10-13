@@ -187,7 +187,11 @@ describe('modelo de datos — sin migración nueva', () => {
     // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates` +
     // `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos). No es
     // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 145, 'el techo conocido es la 145');
+    // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 146, 'el techo conocido es la 146');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

@@ -556,8 +556,12 @@ describe('4O-E4.1 estático — alcance', () => {
       // persona (columnas nulas `assigned_to`/`assigned_by`/`assigned_at` en `prospect_candidates`
       // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos).
       // No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      145,
-      'la 145 (asignar prospectos por revisar a otra persona, BULK-COMPANY-ASSIGNMENT-1) es la última',
+      // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+      // (amplía los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      146,
+      'la 146 (los tipos fiscales aceptan RIF, SOURCES-VE-CLOSE-1) es la última',
     );
   });
 

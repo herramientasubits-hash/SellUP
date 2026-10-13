@@ -128,7 +128,7 @@ describe('capacidad por país', () => {
     });
     assert.equal(resolveCountrySourceCapability('EC')?.sourceKey, 'ec_scvs_directory_discovery');
     assert.equal(resolveCountrySourceCapability('CL')?.sourceKey, 'cl_sii_directory_discovery');
-    assert.equal(resolveCountrySourceCapability('VE'), null);
+    assert.equal(resolveCountrySourceCapability('XX'), null);
   });
 
   it('la cobertura de Perú sale de SU tabla', () => {

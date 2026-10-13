@@ -1045,7 +1045,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // `prospect_candidate_audit`; ninguna fila de datos). No es tabla ni vista del catálogo de
     // industrias, ni de teléfono, ni de BR, ni de CUT3B4, y el barrido de abajo lo comprueba
     // sobre su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^145_/);
+    // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es tabla ni vista del catálogo de industrias, ni de teléfono, ni de BR, ni de
+    // CUT3B4, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^146_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1191,6 +1196,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // + `candidate_assigned` en el CHECK de su auditoría; ninguna fila de datos). No es tabla ni
       // vista del catálogo de industrias. AUTORADA y NO APLICADA.
       '145_prospect_candidate_assignment.sql',
+      // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan
+      // 'RIF' (amplía los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No es tabla ni vista del catálogo de industrias. AUTORADA y NO APLICADA.
+      '146_tax_identifier_type_rif.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
