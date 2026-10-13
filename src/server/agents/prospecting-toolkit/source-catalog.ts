@@ -3,8 +3,7 @@
  *
  * Cubre las fuentes oficiales por país que SellUp conoce (Colombia, México,
  * Chile, Perú, Ecuador, Brasil, República Dominicana, Argentina, Guatemala,
- * Honduras, Costa Rica, Panamá, El Salvador, Paraguay, Uruguay, Estados Unidos
- * y España) más fuentes globales como fallback (OpenCorporates, Apollo).
+ * Honduras, Costa Rica, Panamá, El Salvador, Paraguay, Uruguay y España) más fuentes globales como fallback (OpenCorporates, Apollo).
  *
  * Las fuentes con aiFlowStatus `connected_identity_in_run` (número fiscal por
  * nombre en cada corrida) y `connected_free_discovery` (capa gratuita por
@@ -41,7 +40,6 @@ export const FISCAL_IDENTIFIERS: Record<string, string> = {
   PY: 'RUC',
   SV: 'NRC/NIT',
   UY: 'RUT',
-  US: 'EIN',
   ES: 'NIF',
   VE: 'RIF',
 };
@@ -148,11 +146,6 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'El RUT por nombre sólo cubre empresas que alguna vez fueron proveedoras del Estado (RUPE).',
     'Empresas que nunca vendieron al Estado no aparecen.',
     'Nombres repetidos o genéricos no dan un RUT seguro.',
-  ],
-  US: [
-    'No existe un registro público de EIN para todas las empresas: sólo cubre empresas que presentan ante la SEC y organizaciones sin ánimo de lucro grandes del IRS.',
-    'Empresas privadas que no cotizan ni presentan ante la SEC no tienen EIN público.',
-    'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
   ],
   ES: [
     'España no publica el NIF de las empresas en ningún registro abierto.',
@@ -2944,62 +2937,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: [
       'Un nombre repetido o genérico no da un RUT seguro; queda como señal.',
-    ],
-  },
-
-  // ── Estados Unidos ──────────────────────────────────────────────────────────
-  {
-    key: 'us_sec_edgar_registry',
-    name: 'SEC EDGAR — EIN por nombre',
-    sellupUse: 'legal_validation',
-    aiFlowStatus: 'connected_identity_in_run',
-    connectionMode: 'read_only_snapshot',
-    nextAction:
-      'Unas 6.124 empresas operativas con EIN, código SIC y presentación ante la SEC en los dos últimos años cargadas. Es la primera fuente de EIN por nombre en cada corrida del Agente 1.',
-    countryCodes: ['US'],
-    sectors: [],
-    priority: 'P1',
-    operationalStatus: 'operational_verified',
-    type: 'official_registry',
-    url: 'https://www.sec.gov/edgar',
-    automationLevel: 'high',
-    recommendedUse:
-      'Empresas operativas registradas en SEC EDGAR con EIN, código SIC y alguna presentación en los dos últimos años (unas 6.124). Es la primera fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1; si no da un EIN seguro, sigue la carga del IRS (organizaciones sin ánimo de lucro). EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
-    limitations: [
-      'Sólo empresas que presentan ante la SEC: la mayoría de las empresas privadas no aparece.',
-      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
-      'Snapshot estático — requiere recarga para reflejar nuevas presentaciones.',
-    ],
-    riskNotes: [
-      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
-    ],
-  },
-  {
-    key: 'us_irs_eo_registry',
-    name: 'IRS Exempt Organizations (BMF) — EIN por nombre',
-    sellupUse: 'legal_validation',
-    aiFlowStatus: 'connected_identity_in_run',
-    connectionMode: 'read_only_snapshot',
-    nextAction:
-      '65.044 organizaciones sin ánimo de lucro con ingresos o recaudación de US$5 millones o más cargadas. Segunda fuente de EIN por nombre en cada corrida, después de la SEC.',
-    countryCodes: ['US'],
-    sectors: [],
-    priority: 'P1',
-    operationalStatus: 'operational_verified',
-    type: 'official_registry',
-    url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
-    automationLevel: 'high',
-    recommendedUse:
-      'Archivo maestro de organizaciones exentas del IRS (Exempt Organizations BMF): 65.044 organizaciones sin ánimo de lucro —universidades, hospitales, fundaciones— con ingresos o recaudación de US$5 millones o más. Es la segunda fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1, después de la SEC. EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
-    limitations: [
-      'Sólo organizaciones sin ánimo de lucro grandes (US$5 millones o más): no cubre empresas con fines de lucro.',
-      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
-      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
-    ],
-    riskNotes: [
-      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
     ],
   },
 
