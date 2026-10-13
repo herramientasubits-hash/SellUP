@@ -37,11 +37,12 @@ import {
   UY_ARCE_MACRO_TABLE_VERSION,
   UY_PUBLIC_ENTITY_MACRO_KEY,
 } from './uy-arce-macro-table';
-import type {
-  CountrySourceAdapter,
-  CountrySourceCompany,
-  CountrySourceCriteria,
-  CountrySourceDiscoveryResult,
+import {
+  buildCountrySourceOfficialWorkforce,
+  type CountrySourceAdapter,
+  type CountrySourceCompany,
+  type CountrySourceCriteria,
+  type CountrySourceDiscoveryResult,
 } from './country-source-types';
 
 /** `source_key` que esta proyección declara. */
@@ -71,6 +72,12 @@ export type UyArceDirectorySnapshotReadRow = {
   sice_class: string | null;
   activity_text: string | null;
   website_domain: string | null;
+  /**
+   * SOURCES-UY-PUBLIC-ENTITY-SIZE-1 — funcionarios oficiales de una entidad pública
+   * (ONSC) y el año del corte. Ausente en las empresas: Uruguay no publica su tamaño.
+   */
+  official_workers?: number | null;
+  official_workers_year?: number | null;
   priority_score: number | null;
 };
 
@@ -118,6 +125,11 @@ function toCompany(row: UyArceDirectorySnapshotReadRow, macroIndustryKey: string
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: UY_ARCE_MACRO_TABLE_VERSION,
     },
+    // SOURCES-UY-PUBLIC-ENTITY-SIZE-1 — los funcionarios de la ONSC llegan a la ficha
+    // como tamaño oficial (igual que la dotación del INDEC en Argentina).
+    officialWorkforce: publicEntity
+      ? buildCountrySourceOfficialWorkforce(row.official_workers ?? null, row.official_workers_year ?? null, 'ONSC')
+      : null,
   };
 }
 

@@ -58,6 +58,8 @@ function toRow(row: SnapshotSelectRow): UyArceDirectorySnapshotReadRow {
     sice_class: text(row.raw_data?.['sice_class']),
     activity_text: text(row.raw_data?.['activity_text']),
     website_domain: text(row.raw_data?.['website_domain']),
+    official_workers: toNumber(row.raw_data?.['official_workers']),
+    official_workers_year: toNumber(row.raw_data?.['official_workers_year']),
     priority_score: toNumber(row.priority_score),
   };
 }
