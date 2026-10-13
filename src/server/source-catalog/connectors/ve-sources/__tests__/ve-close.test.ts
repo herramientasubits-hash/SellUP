@@ -66,6 +66,7 @@ import {
 import {
   macroHasVeCoverage,
   resolveVeDirectoryMacro,
+  VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED,
 } from '@/server/prospect-batches/country-source-discovery/ve-free-directory-macro-table';
 import { VE_LISTED_COMPANY_MACRO } from '@/server/prospect-batches/country-source-discovery/ve-listed-company-macro-table';
 import {
@@ -519,6 +520,22 @@ describe('filas de la capa gratuita', () => {
     const { webRows } = build({ webEntities: [web({ rif: null, qid: 'Q6156560', name: 'UNET', domain: 'unet.edu.ve', kind: 'public_university', macro: 'government' })] });
     assert.equal(webRows[0].raw_data['directory_kind'], 'public_entity');
     assert.equal(webRows[0].raw_data['public_entity_kind'], 'public_university');
+  });
+
+  it('empresa del Estado: a su industria (decisión de la dueña); un medio del Estado queda en Gobierno', () => {
+    const { taxRows, webRows } = build({
+      publicEntities: [
+        pub({ domain: 'cantv.com.ve', name: 'Compañía Anónima Nacional Teléfonos de Venezuela (CANTV)', kind: 'state_company', rif: 'J-00124134-5' }),
+        pub({ domain: 'rnv.gob.ve', name: 'Radio Nacional de Venezuela, C.A. (RNV)', kind: 'state_company' }),
+      ],
+    });
+    const cantv = taxRows.find((r) => r.tax_id === 'J-00124134-5')!;
+    assert.equal(cantv.raw_data['directory_kind'], 'state_company');
+    assert.equal(cantv.raw_data['macro_industry_key'], 'technology');
+    assert.equal(cantv.raw_data['website_domain'], 'cantv.com.ve');
+    assert.equal(webRows[0].raw_data['macro_industry_key'], 'government');
+    assert.equal(resolveVeDirectoryMacro('state_company', 'corpoelec.gob.ve'), 'energy_mining_environment');
+    assert.equal(VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED, true);
   });
 
   it('un dominio compartido por dos entidades no identifica a ninguna', () => {

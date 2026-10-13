@@ -18,11 +18,12 @@
  *      → Compañía de Servicios.
  *   5. Empresas con web comprobada: tabla escrita a mano (`ve-web-entities.ts`).
  *   6. Universidades privadas → Compañía de Servicios.
- *   7. Entes públicos (incluidas universidades públicas y empresas del Estado de la
- *      tabla de entes) → Gobierno.
+ *   7. Entes públicos (incluidas universidades públicas) → Gobierno.
+ *   8. Empresas del Estado: a SU industria (decisión de la dueña, 13-10-2026), por
+ *      la tabla `VE_STATE_COMPANY_MACRO`; los medios del Estado y las de objeto no
+ *      claro quedan en Gobierno.
  *
- * PENDIENTE DE REVISIÓN DE LA DUEÑA (tablas 1 y 5): la carga de la capa gratuita se
- * niega mientras `VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED` sea `false`.
+ * Tablas 1, 5 y 8 APROBADAS por la dueña el 13-10-2026.
  */
 
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
@@ -34,9 +35,9 @@ import {
 } from './ve-listed-company-macro-table';
 
 /** La dueña aprobó las tablas de industria de empresas (cotizadas y con web). */
-export const VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED = false;
+export const VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED = true;
 
-export const VE_FREE_DIRECTORY_MACRO_TABLE_VERSION = `ve-free-directory-v1(${VE_LISTED_COMPANY_MACRO_TABLE_VERSION})` as const;
+export const VE_FREE_DIRECTORY_MACRO_TABLE_VERSION = `ve-free-directory-v2(${VE_LISTED_COMPANY_MACRO_TABLE_VERSION})` as const;
 
 /** Por qué fuente se clasificó la fila. */
 export type VeDirectoryKind =
@@ -46,11 +47,50 @@ export type VeDirectoryKind =
   | 'sunaval'
   | 'company'
   | 'private_university'
-  | 'public_entity';
+  | 'public_entity'
+  | 'state_company';
 
 const FIN: MacroIndustryKey = 'insurance_financial_services';
 const SERV: MacroIndustryKey = 'services_company';
 const GOV: MacroIndustryKey = 'government';
+const TRANSP: MacroIndustryKey = 'transport_logistics';
+const MANU: MacroIndustryKey = 'industry_manufacturing_chemicals_automotive';
+const TECH: MacroIndustryKey = 'technology';
+
+/**
+ * Empresa del Estado (dominio de la tabla de entes) → su industria. Las que no están
+ * (medios del Estado, conglomerados de objeto no claro) quedan en Gobierno.
+ */
+export const VE_STATE_COMPANY_MACRO: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
+  'bdt.com.ve': FIN, // Banco Digital de los Trabajadores
+  'bancoex.gob.ve': FIN, // Banco de Comercio Exterior
+  'bt.com.ve': FIN, // Banco del Tesoro
+  'baer.gob.ve': TRANSP, // Bolivariana de Aeropuertos
+  'bolipuertos.gob.ve': TRANSP, // Bolivariana de Puertos
+  'metrolosteques.gob.ve': TRANSP,
+  'metrovalencia.gob.ve': TRANSP,
+  'metrodemaracaibo.gob.ve': TRANSP,
+  'comter.alcaldiapaez.gob.ve': TRANSP, // transporte terrestre municipal
+  'sitssa.gob.ve': TRANSP, // transporte superficial
+  'logicasa.gob.ve': TRANSP, // logística
+  'corpovex.gob.ve': TRANSP, // comercio exterior (importaciones del Estado)
+  'cabelum.gob.ve': MANU, // conductores de aluminio
+  'csn.gob.ve': MANU, // complejo siderúrgico
+  'cvg.gob.ve': MANU, // holding de la industria básica de Guayana
+  'dianca.gob.ve': MANU, // astilleros
+  'cantv.com.ve': TECH, // telecomunicaciones
+  'telecom.gob.ve': TECH,
+  'industriacanaima.gob.ve': TECH, // computadoras
+  'vit.gob.ve': TECH, // computadoras y teléfonos
+  'codecyt.gob.ve': TECH, // desarrollo científico y tecnológico
+  'corpoelec.gob.ve': 'energy_mining_environment', // electricidad
+  'industriasdiana.gob.ve': 'consumer_goods', // aceites y alimentos
+  'cuspal.gob.ve': 'consumer_goods', // servicios productivos y alimentarios
+  'pdval.gob.ve': 'retail', // distribución de alimentos
+  'camerbasma.alcaldiapaez.gob.ve': 'retail', // mercados y abastos municipales
+  'pescalba.gob.ve': 'agroindustry', // pesca
+  'quimbiotec.gob.ve': 'health_pharma', // hemoderivados
+});
 
 /** Categoría de la SUDEASEG → macro (las personas naturales nunca se cargan). */
 export const VE_SUDEASEG_CATEGORY_MACRO: Readonly<Record<string, MacroIndustryKey>> = Object.freeze({
@@ -111,6 +151,8 @@ export function resolveVeDirectoryMacro(kind: string | null | undefined, code: s
   switch (kind) {
     case 'public_entity':
       return typeof code === 'string' && code in VE_PUBLIC_ENTITY_KIND_LABEL ? GOV : null;
+    case 'state_company':
+      return typeof code === 'string' && code.length > 0 ? (VE_STATE_COMPANY_MACRO[code] ?? GOV) : null;
     case 'bvc_member':
       return FIN;
     case 'private_university':
@@ -135,6 +177,8 @@ export function resolveVeDirectoryRubro(kind: string | null | undefined, code: s
   switch (kind) {
     case 'public_entity':
       return typeof code === 'string' ? (VE_PUBLIC_ENTITY_KIND_LABEL[code] ?? null) : null;
+    case 'state_company':
+      return 'Empresa del Estado';
     case 'bvc_member':
       return 'Casa de bolsa (Bolsa de Caracas)';
     case 'private_university':
@@ -163,6 +207,7 @@ export function macroHasVeCoverage(macroIndustryKey: string | null | undefined):
     macroIndustryKey === FIN ||
     macroIndustryKey === SERV ||
     Object.values(VE_LISTED_COMPANY_MACRO).includes(macroIndustryKey as MacroIndustryKey) ||
-    VE_WEB_COMPANY_MACROS.has(macroIndustryKey as MacroIndustryKey)
+    VE_WEB_COMPANY_MACROS.has(macroIndustryKey as MacroIndustryKey) ||
+    Object.values(VE_STATE_COMPANY_MACRO).includes(macroIndustryKey as MacroIndustryKey)
   );
 }

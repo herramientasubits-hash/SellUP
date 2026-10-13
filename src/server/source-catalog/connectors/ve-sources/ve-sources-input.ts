@@ -73,7 +73,7 @@ export type VeSunavalEntity = { name: string; rif: string; kind: string };
 export type VeGleifEntity = { name: string; otherNames: readonly string[]; rif: string; active: boolean };
 
 /** Qué es una entidad con web comprobada. */
-export type VeWebListingKind = 'public_entity' | 'private_university' | 'company';
+export type VeWebListingKind = 'public_entity' | 'state_company' | 'private_university' | 'company';
 
 /** Entidad con web propia comprobada (tablas `ve-web-entities.ts` y `ve-public-entities.ts`). */
 export type VeWebListing = {

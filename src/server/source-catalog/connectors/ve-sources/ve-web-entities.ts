@@ -12,8 +12,8 @@
  * RIF sólo si la portada muestra UNO con su dígito verificador.
  *
  * La industria de cada empresa está escrita a mano (PENDIENTE DE REVISIÓN DE LA
- * DUEÑA). Las empresas del Estado (Conviasa, SIDOR, Movilnet, CELARG) van a Gobierno,
- * igual que en la tabla de entes y que Nicaragua. Universidades: PÚBLICA → Gobierno; PRIVADA → «Compañía de Servicios»
+ * DUEÑA; APROBADA el 13-10-2026). Las empresas del Estado van a SU industria
+ * (decisión de la dueña); CELARG, que es una fundación cultural del Estado, a Gobierno. Universidades: PÚBLICA → Gobierno; PRIVADA → «Compañía de Servicios»
  * (misma decisión que la capa común de listas curadas, 08-10-2026).
  */
 
@@ -47,13 +47,13 @@ const GOV: MacroIndustryKey = 'government';
 export const VE_WEB_ENTITIES: readonly VeWebEntity[] = Object.freeze([
   // ── Empresas ──
   { qid: 'Q548133', name: 'LASER Airlines', domain: 'laserairlines.com', kind: 'company', macro: TRANSP, rif: 'J-00364445-5' },
-  { qid: 'Q677606', name: 'Conviasa', domain: 'conviasa.aero', kind: 'company', macro: GOV, rif: 'G-20007774-3' },
+  { qid: 'Q677606', name: 'Conviasa', domain: 'conviasa.aero', kind: 'company', macro: TRANSP, rif: 'G-20007774-3' },
   { qid: 'Q791117', name: 'Avior Airlines', domain: 'aviorair.com', kind: 'company', macro: TRANSP, rif: null },
   { qid: 'Q891563', name: 'Bolsa de Valores de Caracas', domain: 'bolsadecaracas.com', kind: 'company', macro: FIN, rif: 'J-00004114-8' },
   { qid: 'Q1409875', name: 'RUTACA Airlines', domain: 'flyrutaca.com', kind: 'company', macro: TRANSP, rif: 'J-09500396-5' },
   { qid: 'Q1531524', name: 'Rutas Aéreas de Venezuela (RAVSA)', domain: 'ravsa.com.ve', kind: 'company', macro: TRANSP, rif: null },
   { qid: 'Q2894459', name: 'Central Madeirense', domain: 'tucentralonline.com', kind: 'company', macro: RETAIL, rif: null },
-  { qid: 'Q3483363', name: 'Siderúrgica del Orinoco Alfredo Maneiro (SIDOR)', domain: 'sidor.com', kind: 'company', macro: GOV, rif: 'G-20010626-3' },
+  { qid: 'Q3483363', name: 'Siderúrgica del Orinoco Alfredo Maneiro (SIDOR)', domain: 'sidor.com', kind: 'company', macro: MANU, rif: 'G-20010626-3' },
   { qid: 'Q3773091', name: 'Centro San Ignacio', domain: 'centrosanignacio.com', kind: 'company', macro: PROP, rif: null },
   { qid: 'Q4688249', name: 'Aeroexpresos Ejecutivos', domain: 'aeroexpresos.com', kind: 'company', macro: TRANSP, rif: null },
   { qid: 'Q4854101', name: 'Mercantil Banco', domain: 'mercantilbanco.com', kind: 'company', macro: FIN, rif: null },
@@ -75,7 +75,7 @@ export const VE_WEB_ENTITIES: readonly VeWebEntity[] = Object.freeze([
   { qid: 'Q7529899', name: 'Síragon', domain: 'siragon.com', kind: 'company', macro: TECH, rif: null },
   { qid: 'Q7532458', name: 'Siderúrgica Venezolana (SIVENSA)', domain: 'sivensa.com.ve', kind: 'company', macro: MANU, rif: null },
   { qid: 'Q7643963', name: 'De Candido', domain: 'decandido.com', kind: 'company', macro: RETAIL, rif: null },
-  { qid: 'Q11693811', name: 'Movilnet', domain: 'movilnet.com.ve', kind: 'company', macro: GOV, rif: 'G-20016137-0' },
+  { qid: 'Q11693811', name: 'Movilnet', domain: 'movilnet.com.ve', kind: 'company', macro: TECH, rif: 'G-20016137-0' },
   { qid: 'Q20015002', name: 'Farmahorro', domain: 'farmahorro.com.ve', kind: 'company', macro: HEALTH, rif: null },
   { qid: 'Q21007004', name: 'Banplus Banco Universal', domain: 'banplus.com', kind: 'company', macro: FIN, rif: 'J-00042303-2' },
   { qid: 'Q26268368', name: 'Solar Cargo', domain: 'solarcargo.com', kind: 'company', macro: TRANSP, rif: null },

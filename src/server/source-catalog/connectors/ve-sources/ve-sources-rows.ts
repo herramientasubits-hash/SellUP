@@ -285,7 +285,8 @@ export function veWebListings(input: {
     if (seen.has(entity.domain)) continue;
     seen.add(entity.domain);
     listings.push({
-      kind: 'public_entity',
+      // Empresa del Estado: a su industria (decisión de la dueña, 13-10-2026).
+      kind: entity.kind === 'state_company' ? 'state_company' : 'public_entity',
       qid: entity.wikidata ?? `gob:${entity.domain}`,
       name: entity.name,
       domain: entity.domain,
@@ -336,6 +337,7 @@ export function veFreeDirectoryPriorityScore(input: { kind: VeDirectoryKind; pub
     listed_company: 1_000_000,
     sudeaseg: 900_000,
     public_entity: input.publicKind === 'territorial_municipality' ? 800_000 : 900_000,
+    state_company: 900_000,
     bvc_member: 700_000,
     company: 600_000,
     sunaval: 500_000,
@@ -355,6 +357,7 @@ function classifyEntry(entry: VeRifEntry, listings: readonly VeWebListing[]): Cl
   const candidates: Classification[] = [];
   for (const listing of listings) {
     if (listing.kind === 'public_entity') candidates.push({ kind: 'public_entity', code: listing.publicKind, publicKind: listing.publicKind });
+    if (listing.kind === 'state_company') candidates.push({ kind: 'state_company', code: listing.domain, publicKind: 'state_company' });
   }
   if (entry.bvcIssuer) candidates.push({ kind: 'listed_company', code: entry.rif, publicKind: null });
   if (entry.sunaval.some((s) => s.kind === 'emisor')) candidates.push({ kind: 'listed_company', code: entry.rif, publicKind: null });
@@ -370,7 +373,7 @@ function classifyEntry(entry: VeRifEntry, listings: readonly VeWebListing[]): Cl
 
 /** La web de una entidad con RIF: la de su ficha en la fuente o la de su web comprobada. */
 function entryDomain(entry: VeRifEntry, listings: readonly VeWebListing[], usable: (d: string | null) => string | null): string | null {
-  const publicListing = listings.find((l) => l.kind === 'public_entity');
+  const publicListing = listings.find((l) => l.kind === 'public_entity' || l.kind === 'state_company');
   const fromSources = [
     publicListing?.domain ?? null,
     ...listings.map((l) => l.domain),
@@ -389,7 +392,7 @@ function directoryRaw(params: {
   domain: string | null;
 }): Record<string, unknown> {
   const { classification, entry, listings, domain } = params;
-  const publicListing = listings.find((l) => l.kind === 'public_entity');
+  const publicListing = listings.find((l) => l.kind === 'public_entity' || l.kind === 'state_company');
   return {
     directory_kind: classification.kind,
     activity_code: classification.code,
@@ -488,14 +491,17 @@ export function buildVeFreeDirectoryRows(params: {
     const classification: Classification =
       listing.kind === 'public_entity'
         ? { kind: 'public_entity', code: listing.publicKind, publicKind: listing.publicKind }
-        : listing.kind === 'private_university'
+        : listing.kind === 'state_company'
+          ? { kind: 'state_company', code: listing.domain, publicKind: 'state_company' }
+          : listing.kind === 'private_university'
           ? { kind: 'private_university', code: listing.qid, publicKind: null }
           : { kind: 'company', code: listing.qid, publicKind: null };
     if (resolveVeDirectoryMacro(classification.kind, classification.code) === null) {
       excluded.no_macro++;
       continue;
     }
-    const domain = usableDomain(listing.kind === 'public_entity' ? venezuelaPublicEntityDomain(listing.domain) : venezuelaCompanyDomain(listing.domain));
+    const isPublic = listing.kind === 'public_entity' || listing.kind === 'state_company';
+    const domain = usableDomain(isPublic ? venezuelaPublicEntityDomain(listing.domain) : venezuelaCompanyDomain(listing.domain));
     if (domain === null || seenDomains.has(domain)) {
       excluded.no_rif_no_web++;
       continue;

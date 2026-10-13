@@ -2632,7 +2632,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE de autorización (y antes, la migración 146 aplicada). Dry-run 13-10-2026: 636 RIF con verificador (628 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 93 webs oficiales que muestran su RIF (entes públicos, universidades y empresas); más 138 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 (tipo RIF) APLICADA en Prod el 13-10-2026; CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 636 RIF con verificador (628 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 93 webs oficiales que muestran su RIF (entes públicos, universidades y empresas); más 138 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',
@@ -2660,7 +2660,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE: requiere la migración 146 aplicada, que la dueña APRUEBE las tablas empresa → industria (cotizadas y empresas con web) y autorice la carga. Dry-run 13-10-2026: 573 entidades con RIF — Financieras 335, Servicios 58, Gobierno 71, Consumo 24, Industria 24, Agroindustria 16, Tecnología 11, Salud 10, Retail 10, Transporte 8, Construcción 4, Energía 2; con web de la fuente, de su web oficial o comprobada por nombre (34). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 APLICADA y tablas empresa → industria APROBADAS por la dueña el 13-10-2026 (empresas del Estado a su industria); CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 573 entidades con RIF — Financieras 337, Servicios 58, Gobierno 53, Industria 27, Consumo 25, Agroindustria 16, Tecnología 15, Transporte 13, Salud 11, Retail 11, Construcción 4, Energía 3; con web de la fuente, de su web oficial o comprobada por nombre (34). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',
@@ -2669,7 +2669,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.bolsadecaracas.com/emisoras/',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
+      'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla para las empresas del Estado (a su industria; medios del Estado en Gobierno), una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
     limitations: [
       'Sin tamaño oficial: el filtro de tamaño decide con lo que traigan los demás pasos.',
       'Muy cargada hacia Seguros y Servicios Financieros; en Retail, Tecnología o Salud son pocas decenas.',
@@ -2687,7 +2687,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-VE-CLOSE-1: código listo, CARGA PENDIENTE (migración 146, aprobación de las tablas y autorización de la carga). Dry-run 13-10-2026: 155 entidades — 113 de Gobierno (171 entes públicos con web viva de 645 dominios comprobados; los que muestran RIF van con RIF a ve_free_directory) y 42 universidades privadas y empresas con web comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 APLICADA y tablas APROBADAS el 13-10-2026; CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 155 entidades — 100 de Gobierno (171 entes públicos con web viva de 645 dominios comprobados; los que muestran RIF van con RIF a ve_free_directory; las empresas del Estado, a su industria) y 55 universidades privadas, empresas del Estado y empresas con web comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
     countryCodes: ['VE'],
     sectors: [],
     priority: 'P1',
