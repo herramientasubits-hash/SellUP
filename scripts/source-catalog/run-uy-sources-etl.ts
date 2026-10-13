@@ -18,6 +18,8 @@
  *   --web-map=<webs.jsonl>              salida de `discover-uy-company-webs.mts`.
  *   --dei=<empresasdei.csv>             Directorio de Empresas Industriales del MIEM (web/correo).
  *   --msp=<estructura_basica_atuservicio.csv>  prestadores de salud del MSP (web).
+ *   --onsc=<evolucin-de-vnculos-con-el-estado-.csv>  funcionarios por inciso (ONSC):
+ *                                       tamaño oficial de las entidades públicas.
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   node --import tsx scripts/source-catalog/run-uy-sources-etl.ts --rupe=… --suppliers=… …
@@ -49,6 +51,7 @@ import {
   buildUyRegistry,
 } from '../../src/server/source-catalog/connectors/rupe-uruguay/uy-sources-build';
 import {
+  parseUyOnscHeadcount,
   parseUyTransparencyReferent,
   UY_PUBLIC_ENTITIES_SOURCE_KEY,
 } from '../../src/server/source-catalog/connectors/rupe-uruguay/uy-public-entities';
@@ -84,6 +87,7 @@ type Config = {
   webMap: string | null;
   dei: string | null;
   msp: string | null;
+  onsc: string | null;
   year: number;
   apply: boolean;
   only: Only | null;
@@ -117,6 +121,7 @@ function parseArgs(argv: readonly string[]): Config {
     webMap: value('web-map'),
     dei: value('dei'),
     msp: value('msp'),
+    onsc: value('onsc'),
     year,
     apply,
     only: only as Only | null,
@@ -285,9 +290,10 @@ async function main(): Promise<void> {
     const referents = (await readCsv(config.referentes, ','))
       .map(parseUyTransparencyReferent)
       .filter((r) => r !== null);
-    const rows = buildUyPublicEntityRows({ referents, registry, ...params });
+    const onsc = config.onsc !== null ? parseUyOnscHeadcount(await readCsv(config.onsc, ',')) : undefined;
+    const rows = buildUyPublicEntityRows({ referents, registry, onsc, ...params });
     console.log(
-      `  Gobierno (${UY_PUBLIC_ENTITIES_SOURCE_KEY}): ${rows.length} (con web ${rows.filter((r) => r.raw_data['website_domain']).length}, con RUT ${rows.filter((r) => r.tax_id).length})`,
+      `  Gobierno (${UY_PUBLIC_ENTITIES_SOURCE_KEY}): ${rows.length} (con web ${rows.filter((r) => r.raw_data['website_domain']).length}, con RUT ${rows.filter((r) => r.tax_id).length}, con funcionarios ONSC ${rows.filter((r) => r.raw_data['official_workers']).length})`,
     );
     rowsByOnly.public = rows;
   }

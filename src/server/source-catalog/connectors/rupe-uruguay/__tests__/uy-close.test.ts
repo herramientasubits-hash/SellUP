@@ -21,6 +21,7 @@ import { buildUyRupeRegistryRow, isUruguayOrganizationName } from '../uy-rupe-re
 import {
   buildUyPublicEntityRow,
   groupUyPublicEntities,
+  parseUyOnscHeadcount,
   isUruguayPublicEntityName,
   mergeUyPublicEntities,
   parseUyTransparencyReferent,
@@ -253,6 +254,73 @@ describe('entidades públicas', () => {
     assert.equal(isUruguayPublicEntityName('ADMINISTRACION NACIONAL DE PUERTOS'), true);
     assert.equal(isUruguayPublicEntityName('INTENDENCIA DEPARTAMENTAL DE ROCHA'), true);
     assert.equal(isUruguayPublicEntityName('LA SOCIEDAD HOSPITAL BRITANICO EN EL URUGUAY'), false);
+  });
+});
+
+// ─── Tamaño oficial de Gobierno (ONSC) ─────────────────────────────────────
+
+describe('funcionarios por organismo (ONSC)', () => {
+  // Filas reales del CSV de la ONSC (columnas por posición: inciso, nombre, fecha, naturaleza, cantidad).
+  const onscRow = (inciso: string, date: string, kind: string, amount: string) => ({
+    a: inciso,
+    b: 'x',
+    c: `${date} 00:00:00`,
+    d: kind,
+    e: amount,
+  });
+  const onsc = parseUyOnscHeadcount([
+    onscRow('61', '2019-12-31', 'Funcionarios públicos', '6000'),
+    onscRow('61', '2020-12-31', 'Funcionarios públicos', '6526'),
+    onscRow('61', '2020-12-31', 'No funcionarios públicos', '200'),
+    onscRow('98', '2020-12-31', 'Funcionarios públicos', '9455'),
+    onscRow('1', '2020-12-31', 'Funcionarios públicos', '1227'),
+    onscRow('34', '2020-12-31', 'No funcionarios públicos', ''),
+  ]);
+
+  it('último corte, sumando funcionarios y no funcionarios', () => {
+    assert.deepEqual(onsc.get(61), { workers: 6726, year: 2020 });
+    assert.deepEqual(onsc.get(98), { workers: 9455, year: 2020 });
+    assert.equal(onsc.has(34), false);
+  });
+
+  it('sólo a la entidad que ES el inciso: ente, intendencia (no su junta), organismo único; nunca el Legislativo', () => {
+    const entities = groupUyPublicEntities([
+      referent({ inciso: '61', incisoName: 'UTE', unitName: 'UTE', shortName: 'UTE', group: 'Entes autónomos', emailDomain: 'ute.com.uy' }),
+      referent({ inciso: '98', incisoName: 'GOBIERNO DEPARTAMENTAL DE MONTEVIDEO', unit: '01', unitName: 'Intendencia Departamental de Montevideo', shortName: 'IM', group: 'Gobiernos departamentales y congreso de Intendentes', emailDomain: 'montevideo.gub.uy' }),
+      referent({ inciso: '98', incisoName: 'GOBIERNO DEPARTAMENTAL DE MONTEVIDEO', unit: '02', unitName: 'Junta Departamental de Montevideo', shortName: 'JDM', group: 'Gobiernos departamentales y congreso de Intendentes', emailDomain: 'juntamvd.gub.uy' }),
+      referent({ inciso: '01', incisoName: 'PODER LEGISLATIVO', unit: 'N/C', unitName: 'Institución Nacional de Derechos Humanos', shortName: 'INDDHH', group: 'Órganos especializados', emailDomain: 'inddhh.gub.uy' }),
+    ]);
+    const byName = (start: string) => entities.find((e) => e.name.startsWith(start));
+    assert.equal(byName('Ute')?.onscInciso, 61);
+    assert.equal(byName('Intendencia')?.onscInciso, 98);
+    assert.equal(byName('Junta')?.onscInciso, null);
+    assert.equal(byName('Institución')?.onscInciso, null);
+    const merged = mergeUyPublicEntities([]);
+    assert.equal(merged.find((e) => e.name.endsWith('Montevideo'))?.onscInciso, 98);
+  });
+
+  it('la fila lleva los funcionarios y el adaptador los pasa a la ficha como tamaño oficial', async () => {
+    const row = buildUyPublicEntityRow({
+      entity: { key: 'inciso:61', name: 'UTE', acronyms: ['UTE'], group: 'Entes autónomos', domain: 'ute.com.uy', onscInciso: 61 },
+      rut: '210778720012',
+      workforce: onsc.get(61) ?? null,
+      ...params,
+    });
+    assert.equal(row?.raw_data['official_workers'], 6726);
+    assert.equal(row?.raw_data['official_workers_year'], 2020);
+    const adapter = buildUyArceDirectoryDiscoveryAdapter({
+      readCompaniesByMacro: async () => [
+        readRow({ directory_kind: 'public_entity', rut: '210778720012', legal_name: 'UTE', website_domain: 'ute.com.uy', official_workers: 6726, official_workers_year: 2020, record_identity_key: 'uy-public-entity:inciso:61' }),
+      ],
+    });
+    const result = await adapter({ countryCode: 'UY', macroIndustryKey: 'government', limit: 10 } as never);
+    assert.deepEqual(result.companies[0].officialWorkforce, { workers: 6726, year: 2020, sourceLabel: 'ONSC' });
+  });
+
+  it('las empresas nunca llevan tamaño oficial (Uruguay no lo publica)', async () => {
+    const adapter = buildUyArceDirectoryDiscoveryAdapter({ readCompaniesByMacro: async () => [readRow({ official_workers: 500 })] });
+    const result = await adapter({ countryCode: 'UY', macroIndustryKey: 'technology', limit: 10 } as never);
+    assert.equal(result.companies[0].officialWorkforce, null);
   });
 });
 
