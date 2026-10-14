@@ -853,7 +853,7 @@ describe('K. Lo que no entró a revisión se dice como es', () => {
   it('el aviso cuenta las que esperan web y las que usan la del grupo, sin culpar a HubSpot', () => {
     assert.equal(
       corporateTreePendingSummary({ waitingWebsite: 2, groupReferences: 7 }),
-      '2 esperan su web en «Descartadas» (el rescate la busca y, si la encuentra, pasa a revisión); 7 usan sólo la web del grupo y quedan como referencia.',
+      '2 esperan su web en «Descartadas» y 7 quedan como referencia (web del grupo).',
     );
     assert.match(corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0 }), /HubSpot/);
     assert.doesNotMatch(corporateTreePendingSummary({ waitingWebsite: 1, groupReferences: 0 }), /HubSpot/);

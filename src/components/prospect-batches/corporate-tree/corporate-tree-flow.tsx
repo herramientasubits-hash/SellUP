@@ -255,21 +255,18 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
   function finish(next: Outcome) {
     router.refresh();
     const name = root?.name ?? 'la empresa';
-    const openBatch = next.redirectPath
-      ? { label: 'Ver el lote', onClick: () => router.push(next.redirectPath as string) }
-      : undefined;
+    // Mismo aviso que «por criterios» (sin botón): el lote se abre desde «Búsquedas»
+    // o el Centro de procesos.
     if (next.inReview === 0) {
-      toast.info(`Árbol de ${name}: nada nuevo para revisar todavía`, {
-        description: corporateTreePendingSummary(next.pending ?? null),
-        action: openBatch,
+      toast.info('No se encontraron empresas nuevas.', {
+        description: `Árbol de ${name}. ${corporateTreePendingSummary(next.pending ?? null)}`,
       });
     } else {
-      toast.success(`Árbol de ${name} listo`, {
+      toast.success('Prospectos generados correctamente.', {
         description:
           next.inReview === null
-            ? 'Ya puedes revisar sus ramas en el lote.'
-            : `${next.inReview} ${next.inReview === 1 ? 'empresa relacionada quedó' : 'empresas relacionadas quedaron'} en «Por revisar». ${corporateTreePendingSummary(next.pending ?? null)}`,
-        action: openBatch,
+            ? 'Ya puedes revisarlos en el listado de prospectos.'
+            : `Árbol de ${name}: ${next.inReview} ${next.inReview === 1 ? 'empresa nueva' : 'empresas nuevas'} para revisar en el listado de prospectos.`,
       });
     }
     if (!mounted.current) return;

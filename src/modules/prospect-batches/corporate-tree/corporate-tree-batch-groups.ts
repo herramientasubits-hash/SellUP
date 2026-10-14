@@ -174,14 +174,14 @@ export function corporateTreePendingSummary(pending: CorporateTreePending | null
   const parts: string[] = [];
   if (pending.waitingWebsite > 0) {
     parts.push(
-      `${pending.waitingWebsite} ${pending.waitingWebsite === 1 ? 'espera' : 'esperan'} su web en «Descartadas» (el rescate la busca y, si la encuentra, pasa a revisión)`,
+      `${pending.waitingWebsite} ${pending.waitingWebsite === 1 ? 'espera' : 'esperan'} su web en «Descartadas»`,
     );
   }
   if (pending.groupReferences > 0) {
     parts.push(
-      `${pending.groupReferences} ${pending.groupReferences === 1 ? 'usa' : 'usan'} sólo la web del grupo y ${pending.groupReferences === 1 ? 'queda' : 'quedan'} como referencia`,
+      `${pending.groupReferences} ${pending.groupReferences === 1 ? 'queda' : 'quedan'} como referencia (web del grupo)`,
     );
   }
-  if (parts.length === 0) return 'Las demás ya estaban en HubSpot o en SellUp: quedan en el lote como referencia.';
-  return `${parts.join('; ')}.`.replace(/^./, (c) => c.toUpperCase());
+  if (parts.length === 0) return 'Las demás ya estaban en HubSpot o en SellUp.';
+  return `${parts.join(' y ')}.`.replace(/^./, (c) => c.toUpperCase());
 }
