@@ -22,7 +22,12 @@ export type {
   WizardFormPayload,
 } from './wizard-types';
 
-export { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES } from './wizard-config';
+export {
+  SEARCH_MODE_DEFINITIONS,
+  VALID_COUNTRY_CODES,
+  REFERENCE_COMPANY_LIMITS,
+  resolveSearchModeDefinitions,
+} from './wizard-config';
 
 export {
   createInitialProspectWizardState,
@@ -40,5 +45,6 @@ export {
   getPreviousWizardStep,
   getAvailableSearchModes,
   buildExploratoryFormInput,
+  hasValidReferenceCompany,
   validateWizardStateInvariants,
 } from './wizard-selectors';
