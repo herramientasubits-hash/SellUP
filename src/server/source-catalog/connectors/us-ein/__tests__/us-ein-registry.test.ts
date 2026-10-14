@@ -36,6 +36,8 @@ import {
   US_FREE_DIRECTORY_SOURCE_KEY,
 } from '../us-free-directory-rows';
 import { attachSamWebsites, buildSamWebIndex, samWebsiteDomain } from '../us-sam-websites';
+import { attachIrs990Workforce, buildIrs990WorkforceIndex, parseIrs990WorkforceRecord } from '../us-irs-990-workforce';
+import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
 import {
   buildUsPublicEntityRows,
   dotGovDomainNamesEntity,
@@ -706,5 +708,65 @@ describe('web desde SAM.gov (nombre + estado)', () => {
     assert.deepEqual(out.map((row) => row.raw_data['website_domain']), ['jax.org', 'cmhc.org', null, null, null]);
     assert.equal(out[0].raw_data['website_source'], 'SAM.gov');
     assert.equal(out[0].raw_data['sam_uei'], 'ABC123DEF456');
+  });
+});
+
+describe('empleados del Formulario 990 del IRS (SOURCES-US-SIZE-990-1)', () => {
+  it('lee EIN, empleados W-3 y año del periodo; sin empleados no cuenta', () => {
+    assert.deepEqual(parseIrs990WorkforceRecord({ EIN: '410693991', noemplyeesw3cnt: '76000', tax_pd: '202312' }), {
+      ein: '41-0693991',
+      workers: 76000,
+      year: 2023,
+    });
+    assert.equal(parseIrs990WorkforceRecord({ EIN: '410693991', noemplyeesw3cnt: '0', tax_pd: '202312' }), null);
+    assert.equal(parseIrs990WorkforceRecord({ EIN: 'x', noemplyeesw3cnt: '5', tax_pd: '202312' }), null);
+  });
+
+  it('el periodo más reciente manda; llega a raw_data con la forma que lee el filtro de tamaño', () => {
+    const index = buildIrs990WorkforceIndex([
+      { EIN: '410693991', noemplyeesw3cnt: '70000', tax_pd: '202212' },
+      { EIN: '410693991', noemplyeesw3cnt: '76000', tax_pd: '202312' },
+    ]);
+    const row = buildUsIrsDirectoryRow(
+      { EIN: '410693991', NAME: 'MAYO CLINIC', STATE: 'MN', CITY: 'ROCHESTER', SUBSECTION: '03', NTEE_CD: 'E22', REVENUE_AMT: '17000000000', INCOME_AMT: '0' },
+      base,
+    )!;
+    const before = JSON.stringify(row);
+    const { rows, attached } = attachIrs990Workforce([row], index);
+    assert.equal(JSON.stringify(row), before);
+    assert.equal(attached, 1);
+    assert.equal(rows[0].raw_data['workers'], 76000);
+    assert.equal(rows[0].raw_data['metrics_year'], 2023);
+    const workforce = workforceFromRawData(rows[0].raw_data, 'us_free_directory', 2026);
+    assert.equal(workforce?.workers, 76000);
+    assert.equal(workforce?.year, 2023);
+  });
+
+  it('el adapter manda los empleados a la ficha como tamaño oficial', async () => {
+    const adapter = buildUsFreeDirectoryDiscoveryAdapter({
+      readCompaniesByMacro: async () => [
+        {
+          record_identity_key: 'tax:41-0693991',
+          ein: '41-0693991',
+          legal_name: 'MAYO CLINIC',
+          normalized_legal_name: 'MAYO CLINIC',
+          city: null,
+          region: 'MN',
+          directory_kind: 'irs_eo',
+          activity_system: 'NTEE',
+          activity_code: 'E22',
+          activity_text: 'Salud',
+          size_band: 'large',
+          size_source: 'IRS – ingresos declarados',
+          website_domain: 'mayoclinic.org',
+          workers: 76000,
+          workers_year: 2023,
+          workers_source: 'IRS – Formulario 990',
+          priority_score: 17000,
+        },
+      ],
+    });
+    const result = await adapter({ macroIndustryKey: 'health_pharma', limit: 5 } as never);
+    assert.deepEqual(result.companies[0].officialWorkforce, { workers: 76000, year: 2023, sourceLabel: 'IRS – Formulario 990' });
   });
 });

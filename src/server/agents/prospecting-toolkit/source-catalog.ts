@@ -3216,6 +3216,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Archivo maestro de organizaciones exentas del IRS (Exempt Organizations BMF): 65.044 organizaciones sin ánimo de lucro —universidades, hospitales, fundaciones— con ingresos o recaudación de US$5 millones o más. Es la segunda fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1, después de la SEC. EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
     limitations: [
+      'SOURCES-US-SIZE-990-1: lleva los empleados oficiales del Formulario 990 (extracto 2024) en 43.812 de 65.204 organizaciones; llegan a la ficha por el filtro de tamaño de siempre.',
       'Sólo organizaciones sin ánimo de lucro grandes (US$5 millones o más): no cubre empresas con fines de lucro.',
       'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
@@ -3245,7 +3246,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Ni el IRS ni la SEC publican la web: sólo 5.979 de 14.206 la traen (IPEDS o SAM.gov por nombre + estado); las demás van a Descartadas y dependen del rescate con Claude.',
       'Las empresas privadas con fines de lucro que no cotizan no aparecen: no hay registro público gratuito con su EIN.',
-      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS, emisor «Large accelerated» en la SEC o 10.000+ estudiantes en IPEDS), que nunca decide solo.',
+      'Empleados oficiales (Formulario 990 del IRS, SOURCES-US-SIZE-990-1) sólo para las organizaciones sin ánimo de lucro que lo presentan: 9.747 de 14.206. Las cotizadas de la SEC y las universidades públicas quedan con «grande» (emisor «Large accelerated» o 10.000+ estudiantes), que nunca decide solo.',
       'Fundaciones, arte, religión, sindicatos, clubes y fideicomisos de salud de empleados no se proponen; no hay industria de Gobierno.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],

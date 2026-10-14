@@ -38,11 +38,12 @@ import {
   resolveUsSicMacro,
   US_FREE_DIRECTORY_MACRO_TABLE_VERSION,
 } from './us-free-directory-macro-table';
-import type {
-  CountrySourceAdapter,
-  CountrySourceCompany,
-  CountrySourceCriteria,
-  CountrySourceDiscoveryResult,
+import {
+  buildCountrySourceOfficialWorkforce,
+  type CountrySourceAdapter,
+  type CountrySourceCompany,
+  type CountrySourceCriteria,
+  type CountrySourceDiscoveryResult,
 } from './country-source-types';
 
 /** `source_key` que esta proyección declara. */
@@ -75,6 +76,10 @@ export type UsFreeDirectorySnapshotReadRow = {
   size_band: string | null;
   size_source: string | null;
   website_domain: string | null;
+  /** SOURCES-US-SIZE-990-1 — empleados del Formulario 990 del IRS y su año. */
+  workers?: number | null;
+  workers_year?: number | null;
+  workers_source?: string | null;
   priority_score: number | null;
 };
 
@@ -128,9 +133,14 @@ function toCompany(row: UsFreeDirectorySnapshotReadRow, macroIndustryKey: string
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: US_FREE_DIRECTORY_MACRO_TABLE_VERSION,
     },
-    // Ninguna fuente da empleados: sólo «grande» (ingresos ≥ US$ 100 M, emisor
+    // SOURCES-US-SIZE-990-1 — empleados del Formulario 990 del IRS cuando la
+    // organización lo presenta; si no, sólo «grande» (ingresos ≥ US$ 100 M, emisor
     // «Large accelerated» o 10.000+ estudiantes), que nunca decide solo.
-    officialWorkforce: null,
+    officialWorkforce: buildCountrySourceOfficialWorkforce(
+      row.workers ?? null,
+      row.workers_year ?? null,
+      row.workers_source?.trim() || 'IRS – Formulario 990',
+    ),
     officialSizeBand:
       row.size_band === 'large' && sizeSource !== null ? { band: 'large', sourceLabel: sizeSource } : null,
   };
