@@ -28,8 +28,8 @@ En cada corrida del Agente 1 cada país tiene dos capas gratuitas antes de pagar
 | Costa Rica | Cédula jurídica | Registro unido 19.911 + 1.107 alias | SICOP, Zona Franca, Grandes Contribuyentes, CICR y Gobierno 2.364 |
 | Ecuador | RUC | Superintendencia de Compañías 182.941 + 14.049 alias · SRI 108.778 + 77.148 nombres comerciales | SCVS 100+ empleados 2.041 + entidades públicas del SRI |
 | El Salvador | NIT | Listados de Hacienda 3.241 + 567 alias | COMPRASAL 157 · Grandes Contribuyentes 581 · Gobierno 161 |
-| España | NIF | Contratación del Estado 80.037 · ayudas y registros oficiales 167.881 + 25.264 alias | Grandes empresas por industria 13.598 · Gobierno 3.618 |
-| Estados Unidos | EIN | SEC EDGAR 6.129 · IRS sin ánimo de lucro 65.605 | IRS, SEC, IPEDS y SAM 14.206 · Gobierno .gov 1.829 |
+| España | NIF | Contratación del Estado 80.037 · ayudas y registros oficiales 167.881 + 25.264 alias | Grandes empresas por industria 12.889 · Gobierno 3.618 |
+| Estados Unidos | EIN | SEC EDGAR 6.129 · IRS sin ánimo de lucro 65.605 | IRS, SEC, IPEDS y SAM 14.206 · Gobierno .gov 1.803 |
 | Guatemala | NIT | Registro unido 14.293 + 753 alias · RGAE 6.245 (respaldo) | Guatecompras 1.705 |
 | Honduras | RTN | ONCAE + SEFIN 6.195 + 1.712 alias | HonduCompras 1.272 · Gobierno 118 |
 | México | RFC | CompraNet 26.393 · listas públicas SAT/NL/CDMX 90.954 | DENUE por SCIAN (en vivo) |
