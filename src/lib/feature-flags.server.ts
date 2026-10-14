@@ -1073,6 +1073,24 @@ export function isAgent1ClaudeCompanySearchAutoEnabled(): boolean {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · Búsqueda en árbol de una empresa (AGENT1-CORPORATE-TREE-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CORPORATE_TREE_SEARCH_FLAG = 'ENABLE_AGENT1_CORPORATE_TREE_SEARCH';
+
+/**
+ * Desde una empresa, Claude busca su grupo y matriz, sus filiales y la misma
+ * empresa en otros países; lo encontrado entra por la importación (mismas
+ * compuertas) y queda en «Por revisar». Sólo gasta Claude (≈ una llamada por
+ * rama); nunca Apollo ni Lusha. Apagada, la opción del chat dice «Próximamente».
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1CorporateTreeSearchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CORPORATE_TREE_SEARCH_FLAG]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Agente 1 · «Proveedores de una empresa» — Fase 1 (AGENT1-SUPPLIER-SEARCH-1)
 // ════════════════════════════════════════════════════════════════════════════
 

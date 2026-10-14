@@ -1062,9 +1062,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 147 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 148 o superior, se llame como se llame.
+    // 🔴 AGENT1-CORPORATE-TREE-1 reclamó después la 148: una tabla nueva
+    // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol), RLS de
+    // lectura para usuarios activos y escritura sólo service_role. No es de teléfono, ni del
+    // catálogo, ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con la 137–147. AUTORADA y
+    // NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^148_/.test(f)),
+      ['148_agent1_company_relationships.sql'],
+      'la 148 tiene que ser la de las asociaciones entre empresas, y sólo ella',
+    );
+    const companyRelationships = read('supabase/migrations/148_agent1_company_relationships.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        companyRelationships.includes(foreign),
+        false,
+        `la 148 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 149 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[89]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^149_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

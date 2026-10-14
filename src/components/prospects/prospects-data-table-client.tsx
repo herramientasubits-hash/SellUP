@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useCorporateTreeAction } from '@/components/prospect-batches/corporate-tree/corporate-tree-search-panel';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -235,6 +236,9 @@ export function ProspectsDataTableClient({
   // BULK-COMPANY-ASSIGNMENT-1 — prospectos que se van a asignar a otra persona.
   const [assignRows, setAssignRows] = React.useState<Row[]>([]);
   const canAssign = assignableUsers.length > 0;
+  // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
+  const corporateTree = useCorporateTreeAction();
+  const corporateTreeMenuItem = corporateTree.menuItem;
 
   // Responsables presentes en la lista, para el embudo de la columna.
   const responsibleFilterOptions = React.useMemo(() => {
@@ -709,6 +713,15 @@ export function ProspectsDataTableClient({
               },
             ]
           : []),
+        ...(() => {
+          const item = corporateTreeMenuItem({
+            name: row.name,
+            website: row.website,
+            countryCode: row.country_code,
+            candidateId: row.id,
+          });
+          return item ? [item] : [];
+        })(),
         ...(row.website
           ? [
               {
@@ -728,7 +741,7 @@ export function ProspectsDataTableClient({
           : []),
       ],
     }),
-    [openCandidateDetail, canAssign],
+    [openCandidateDetail, canAssign, corporateTreeMenuItem],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -959,6 +972,7 @@ export function ProspectsDataTableClient({
 
   return (
     <>
+      {corporateTree.panel}
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {/* Banner de operación reciente (sourceId activo) */}
         {isSourceFiltered && (

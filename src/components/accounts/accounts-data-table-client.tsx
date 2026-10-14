@@ -1,6 +1,7 @@
 'use client';
 
 import { formatInAppZone } from '@/lib/format-date';
+import { useCorporateTreeAction } from '@/components/prospect-batches/corporate-tree/corporate-tree-search-panel';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -166,6 +167,9 @@ export function AccountsDataTableClient({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
+  // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
+  const corporateTree = useCorporateTreeAction();
+  const corporateTreeMenuItem = corporateTree.menuItem;
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
   // «Asignar a…»: las empresas a las que se les cambia el responsable.
@@ -426,6 +430,13 @@ export function AccountsDataTableClient({
             }),
           },
         ];
+        const treeItem = corporateTreeMenuItem({
+          name: row.name,
+          website: row.domain,
+          countryCode: row.country_code,
+          accountId: row.id,
+        });
+        if (treeItem) items.push(treeItem);
 
         // Antes había un único «Cambiar estado» que saltaba al siguiente sin
         // decir a cuál. Ahora cada estado posible es su propia entrada.
@@ -469,7 +480,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, handleStatusChange],
+    [openDetail, handleStatusChange, corporateTreeMenuItem],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -617,6 +628,7 @@ export function AccountsDataTableClient({
 
   return (
     <>
+      {corporateTree.panel}
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {accounts.length > 0 && !isWide && (
           <QuickFilterStrip

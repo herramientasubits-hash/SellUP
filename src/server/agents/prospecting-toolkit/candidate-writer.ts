@@ -37,6 +37,7 @@ import { buildProspectCandidateIdentityKey } from "./prospect-candidate-identity
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
 import { evaluateBusinessFit } from "./business-fit-gate";
+import { resolveOwnerForCreate } from "@/lib/ownership/resolve-owner-for-create";
 import type { BusinessFitResult } from "./business-fit-gate";
 import { evaluateExternalPlatformGate } from "./external-platform-blocklist";
 import { evaluateContentIntermediaryGate } from "./content-intermediary-gate";
@@ -1360,23 +1361,38 @@ export async function writeProspectingCandidates(
   } else {
     // ── Path B: create a new batch (historical behavior — unchanged) ────────
 
-    const { data: batch, error: batchError } = await admin
-      .from("prospect_batches")
-      .insert({
-        name: finalBatchName,
-        country,
-        country_code: countryCode,
-        industry,
-        target_count: pipelineOutput.summary.requested,
-        search_depth: pipelineOutput.input.searchDepth ?? "standard",
-        status: "ready_for_review",
-        source: batchSource,
-        owner_id: ownerId ?? null,
-        created_by: triggeredByUserId ?? null,
-        metadata: batchMetadata,
-      })
-      .select("id")
-      .single();
+    // ALWAYS-OWNER-ON-CREATE-1 — el lote nace con responsable: el elegido o quien
+    // disparó la corrida. Sin ningún humano NO se crea (se registra y se omite).
+    const batchOwnerId = resolveOwnerForCreate({
+      chosenOwnerId: ownerId,
+      actorUserId: triggeredByUserId,
+    });
+    if (!batchOwnerId) {
+      console.error(
+        "[candidate-writer] lote omitido: sin responsable (ni ownerId ni triggeredByUserId)",
+        { batchName: finalBatchName, source: batchSource },
+      );
+    }
+
+    const { data: batch, error: batchError } = batchOwnerId
+      ? await admin
+          .from("prospect_batches")
+          .insert({
+            name: finalBatchName,
+            country,
+            country_code: countryCode,
+            industry,
+            target_count: pipelineOutput.summary.requested,
+            search_depth: pipelineOutput.input.searchDepth ?? "standard",
+            status: "ready_for_review",
+            source: batchSource,
+            owner_id: batchOwnerId,
+            created_by: triggeredByUserId ?? null,
+            metadata: batchMetadata,
+          })
+          .select("id")
+          .single()
+      : { data: null, error: { code: "OWNER_REQUIRED", message: "lote sin responsable" } };
 
     if (batchError || !batch) {
       return {

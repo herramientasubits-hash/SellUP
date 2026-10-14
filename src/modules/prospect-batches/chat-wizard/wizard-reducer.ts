@@ -166,6 +166,17 @@ export function prospectWizardReducer(
         };
       }
 
+      // AGENT1-CORPORATE-TREE-1 — el árbol tiene su propia conversación.
+      if (action.mode === 'corporate_tree') {
+        return {
+          ...state,
+          searchMode: action.mode,
+          currentStep: 'corporate_tree',
+          referenceCompanyName: null,
+          warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+        };
+      }
+
       // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores» pregunta primero por la empresa de
       // referencia; cambiar de forma borra la empresa de la forma anterior, y pasar a
       // «Proveedores» desde el resumen obliga a escribirla (no se vuelve al resumen

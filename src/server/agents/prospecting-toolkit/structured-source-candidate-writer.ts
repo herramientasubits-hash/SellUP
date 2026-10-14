@@ -77,6 +77,7 @@ import {
 // AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — la columna «Sector» de la ficha muestra la
 // industria del lote, no el texto crudo de la fuente oficial.
 import { macroIndustrySectorLabel } from '@/modules/macro-industry-catalog/macro-industry-sector-label';
+import { resolveOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -976,6 +977,18 @@ export async function writeStructuredSourceCandidatesPreview(
   if (!batchId) {
     // ── Crear lote preview ────────────────────────────────────
 
+    const batchOwnerId = resolveOwnerForCreate({
+      chosenOwnerId: input.ownerId,
+      actorUserId: input.createdBy,
+      fallbackUserIds: [input.requestedByUserId],
+    });
+    if (!batchOwnerId) {
+      console.error('[StructuredSourceWriter] lote omitido: sin responsable (ni ownerId, ni createdBy, ni requestedByUserId)', {
+        sourceKey: input.sourceKey,
+        countryCode: input.countryCode,
+      });
+    }
+
     const batchRow = {
       name: resolvedBatchName,
       country: input.country,
@@ -986,7 +999,8 @@ export async function writeStructuredSourceCandidatesPreview(
       status: 'ready_for_review',
       source: resolvedBatchSource,
       created_by: input.createdBy || input.requestedByUserId || null,
-      owner_id: input.ownerId ?? null,
+      // ALWAYS-OWNER-ON-CREATE-1 — el elegido; si no, quien crea / quien lo pidió.
+      owner_id: batchOwnerId,
       agent_run_id: input.agentRunId ?? null,
       estimated_cost_usd: 0,
       metadata: {
@@ -1016,11 +1030,16 @@ export async function writeStructuredSourceCandidatesPreview(
       },
     };
 
-    const { data: batchData, error: batchError } = await supabase
-      .from('prospect_batches')
-      .insert(batchRow)
-      .select('id')
-      .single();
+    const { data: batchData, error: batchError } = batchOwnerId
+      ? await supabase
+          .from('prospect_batches')
+          .insert(batchRow)
+          .select('id')
+          .single()
+      : {
+          data: null,
+          error: { code: 'OWNER_REQUIRED', message: 'lote sin responsable', details: null, hint: null },
+        };
 
     if (batchError) {
       console.error('[StructuredSourceWriter] batch_creation_failed — prospect_batches insert rejected:', {

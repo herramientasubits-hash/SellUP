@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
@@ -38,6 +39,7 @@ import {
   enrichImportRowsWithOfficialSources,
 } from '@/server/prospect-batches/import-official-source-enrichment';
 import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
+import { readImportActionStartedAt } from '@/server/prospect-batches/import-action-started-at';
 import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
@@ -158,7 +160,8 @@ function candidateToClassifiableRow(
 
 export async function POST(request: NextRequest) {
   // AGENT1-IMPORT-SAME-PIPELINE-1 — el rescate en `after()` comparte los 300 s de esta función.
-  const requestStartedAtMs = Date.now();
+  // AGENT1-CORPORATE-TREE-1 — llamada desde la búsqueda en árbol: cuenta desde que empezó esa acción.
+  const requestStartedAtMs = readImportActionStartedAt() ?? Date.now();
   try {
     const supabase = await createClient();
 
@@ -389,7 +392,8 @@ export async function POST(request: NextRequest) {
         industry: batchIndustry,
         status: 'ready_for_review',
         source: 'external_import',
-        owner_id: internalUserId,
+        // ALWAYS-OWNER-ON-CREATE-1 — el lote importado es de quien lo importa.
+        owner_id: requireOwnerForCreate({ actorUserId: internalUserId }, 'el lote'),
         created_by: internalUserId,
         catalog_version: persistencePayload.batch.catalog_version,
         metadata: batchMetadata,

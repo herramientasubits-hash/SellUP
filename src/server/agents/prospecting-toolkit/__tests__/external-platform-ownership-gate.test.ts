@@ -225,7 +225,7 @@ describe('Fixture A — Bloqueos exactos del último batch (16AB.43.29)', () => 
     const result = await writeProspectingCandidates(
       {
         pipelineOutput,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -255,7 +255,7 @@ describe('Fixture A — Bloqueos exactos del último batch (16AB.43.29)', () => 
     const result = await writeProspectingCandidates(
       {
         pipelineOutput,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -304,7 +304,7 @@ describe('Fixture B — Permitidos (Nexen, GOBO, COL2TEC, Entelgy)', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 1, 'Nexen must be persisted');
@@ -322,7 +322,7 @@ describe('Fixture B — Permitidos (Nexen, GOBO, COL2TEC, Entelgy)', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 1, 'GOBO must be persisted');
@@ -340,7 +340,7 @@ describe('Fixture B — Permitidos (Nexen, GOBO, COL2TEC, Entelgy)', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 1, 'COL2TEC must be persisted');
@@ -358,7 +358,7 @@ describe('Fixture B — Permitidos (Nexen, GOBO, COL2TEC, Entelgy)', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 1, 'Entelgy must be persisted');
@@ -380,7 +380,7 @@ describe('Fixture C — Business fit no puede salvar fuente externa', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 0, 'Reddit must NOT be persisted despite good snippet');
@@ -402,7 +402,7 @@ describe('Fixture C — Business fit no puede salvar fuente externa', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 0, 'Computerweekly must NOT be persisted');
@@ -422,7 +422,7 @@ describe('Fixture C — Business fit no puede salvar fuente externa', () => {
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 0, 'Creatio glossary must NOT be persisted');
@@ -461,7 +461,7 @@ describe('Fixture D — Target cap post quality gates', () => {
     const result = await writeProspectingCandidates(
       {
         pipelineOutput,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -545,7 +545,7 @@ describe('Fixture E — Tavily usage reconciliation with fixtures', () => {
     const result = await writeProspectingCandidates(
       {
         pipelineOutput: pipelineOutputWithExtra,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -975,7 +975,7 @@ describe('Fixture A (16AB.43.31) — HubSpot ecosystem marketplace bloqueado', (
     const pipelineOutput = makePipelineOutput(candidates);
     const admin = makeFakeAdminClient();
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     assert.equal(result.candidatesCreated, 0, 'HubSpot must NOT be persisted');

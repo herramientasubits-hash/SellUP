@@ -96,6 +96,7 @@ describe('§ 9(A) — batchSource=agent_1, sourceProvider=public_source', () => 
   it('el lote se crea con source=agent_1, el candidato con source_primary=public_source', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Colombia',
       countryCode: 'CO',
@@ -132,6 +133,7 @@ describe('§ 9(B) — batchSource omitido, sourceProvider=socrata_colombia (call
   it('el lote y el candidato usan socrata_colombia por igual — comportamiento histórico intacto', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Colombia',
       countryCode: 'CO',
@@ -149,6 +151,7 @@ describe('§ 9(B) — batchSource omitido, sourceProvider=socrata_colombia (call
   it('un segundo caller existente (datos_gob_cl) también preserva el comportamiento histórico', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Chile',
       countryCode: 'CL',
@@ -169,6 +172,7 @@ describe('§ 9(C) — report.batch.source refleja batchSource, no sourceProvider
   it('con candidatos escritos, report.batch.source = agent_1 (no public_source)', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Colombia',
       countryCode: 'CO',
@@ -186,6 +190,7 @@ describe('§ 9(C) — report.batch.source refleja batchSource, no sourceProvider
   it('en dry run también refleja batchSource (antes de crear nada)', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: true,
       country: 'Colombia',
       countryCode: 'CO',
@@ -203,6 +208,7 @@ describe('§ 9(C) — report.batch.source refleja batchSource, no sourceProvider
   it('sin candidatos (reporte vacío) también refleja batchSource', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Colombia',
       countryCode: 'CO',
@@ -223,6 +229,7 @@ describe('§ 9(D) — el caller de fuente gratuita nunca envía public_source co
   it('con la configuración real de co_siis (batchSource=agent_1), el INSERT de lote jamás lleva public_source', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       dryRun: false,
       country: 'Colombia',
       countryCode: 'CO',
