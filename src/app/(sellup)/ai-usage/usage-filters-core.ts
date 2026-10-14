@@ -3,7 +3,8 @@
 // ni router para poder probarlas solas.
 
 import type { FilterGroup, FilterOptions, FilterUser } from '@/modules/ai-usage/queries';
-import { agentLabel, providerLabel, statusLabel } from './usage-labels';
+import { agentLabel, countryLabel, industryLabel, providerLabel, statusLabel } from './usage-labels';
+import { agentStepLabel, searchModeLabel } from '@/modules/usage-tracking/usage-dimensions';
 
 export const USAGE_FILTER_KEYS = [
   'period',
@@ -13,6 +14,10 @@ export const USAGE_FILTER_KEYS = [
   'role',
   'groupId',
   'user',
+  'country',
+  'industry',
+  'step',
+  'mode',
 ] as const;
 
 export type UsageFilterKey = (typeof USAGE_FILTER_KEYS)[number];
@@ -28,6 +33,10 @@ export const SECONDARY_FILTER_KEYS: readonly UsageFilterKey[] = [
   'role',
   'groupId',
   'user',
+  'country',
+  'industry',
+  'step',
+  'mode',
 ];
 
 export const ALL_VALUE = 'all';
@@ -47,6 +56,10 @@ export const FILTER_NAMES: Record<UsageFilterKey, string> = {
   role: 'Rol',
   groupId: 'Grupo',
   user: 'Persona',
+  country: 'País',
+  industry: 'Industria',
+  step: 'Paso del agente',
+  mode: 'Forma de búsqueda',
 };
 
 export function userLabel(user: FilterUser): string {
@@ -109,7 +122,19 @@ export function applyFilterChange(
 
 /** Todos los filtros quitados. */
 export function clearedFilters(): UsageFilterValues {
-  return { period: '', provider: '', agent: '', status: '', role: '', groupId: '', user: '' };
+  return {
+    period: '',
+    provider: '',
+    agent: '',
+    status: '',
+    role: '',
+    groupId: '',
+    user: '',
+    country: '',
+    industry: '',
+    step: '',
+    mode: '',
+  };
 }
 
 /** Las personas que se pueden elegir con el rol y el grupo puestos. */
@@ -151,6 +176,14 @@ export function filterValueLabel(
       const user = options.users.find((candidate) => candidate.id === value);
       return user ? userLabel(user) : 'Persona no encontrada';
     }
+    case 'country':
+      return countryLabel(value);
+    case 'industry':
+      return industryLabel(value);
+    case 'step':
+      return agentStepLabel(value);
+    case 'mode':
+      return searchModeLabel(value);
   }
 }
 

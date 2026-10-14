@@ -54,6 +54,12 @@ export interface UsageScope {
   status: StatusFilterResolution;
   /** Personas (persona ∩ rol ∩ grupo ∩ alcance comercial); null = sin restricción. */
   userIds: string[] | null;
+  /**
+   * true ⇒ una ejecución cuenta sólo si alguna de sus consultas está en el
+   * ámbito (lo usan los filtros que sólo existen en las consultas: país,
+   * industria, paso y forma de búsqueda). El filtro de Proveedor ya lo implica.
+   */
+  runsMustHaveLogs?: boolean;
 }
 
 /** Cubeta de las consultas que no pertenecen a ninguna ejecución de agente. */
@@ -74,11 +80,11 @@ function inUserScope(triggeredBy: string | null, userIds: string[] | null): bool
  * en un solo sitio comprobable. Agente y «estado sólo de ejecución» se resuelven
  * aquí, por agent_run_id: provider_usage_logs no tiene agent_key.
  */
-export function selectLogsInScope(
-  logs: readonly UsageLogRow[],
+export function selectLogsInScope<T extends UsageLogRow>(
+  logs: readonly T[],
   runsById: ReadonlyMap<string, UsageRunRow>,
   scope: UsageScope,
-): UsageLogRow[] {
+): T[] {
   const { since, providerKey, agentKey, status, userIds } = scope;
   return logs.filter((l) => {
     if (since && l.created_at < since) return false;
@@ -99,8 +105,9 @@ export function selectLogsInScope(
 }
 
 /**
- * Ejecuciones dentro del ámbito. Con filtro de Proveedor, una ejecución cuenta
- * sólo si alguna de sus consultas del ámbito fue a ese proveedor.
+ * Ejecuciones dentro del ámbito. Con filtro de Proveedor (o con un filtro que
+ * sólo existe en las consultas), una ejecución cuenta sólo si alguna de sus
+ * consultas está en el ámbito.
  */
 export function selectRunsInScope(
   runs: readonly UsageRunRow[],
@@ -108,7 +115,7 @@ export function selectRunsInScope(
   scope: UsageScope,
 ): UsageRunRow[] {
   const { since, providerKey, agentKey, status, userIds } = scope;
-  const runsWithProvider = providerKey
+  const runsWithProvider = providerKey || scope.runsMustHaveLogs
     ? new Set(logsInScope.map((l) => l.agent_run_id).filter((id): id is string => id !== null))
     : null;
   return runs.filter((r) => {
@@ -124,7 +131,7 @@ export function selectRunsInScope(
 const LOG_ERROR_STATUSES = new Set(['error', 'rate_limited', 'quota_exceeded']);
 
 /** Costo conocido de una fila; null = desconocido (nunca 0 fabricado). */
-function knownCost(value: number | string | null): number | null {
+export function knownCost(value: number | string | null): number | null {
   if (value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;

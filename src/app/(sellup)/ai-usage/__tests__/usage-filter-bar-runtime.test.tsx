@@ -72,6 +72,10 @@ const EMPTY: UsageFilterValues = {
   role: '',
   groupId: '',
   user: '',
+  country: '',
+  industry: '',
+  step: '',
+  mode: '',
 };
 
 function renderBar(values: Partial<UsageFilterValues> = {}) {

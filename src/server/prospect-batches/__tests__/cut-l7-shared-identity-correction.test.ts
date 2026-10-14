@@ -1045,9 +1045,26 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 146 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 147 o superior, se llame como se llame.
+    // 🔴 AI-USAGE-FASE-2 reclamó después la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs`, un disparador que sólo rellena NULL y su relleno idempotente. No es
+    // de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con la
+    // 137–146. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^147_/.test(f)),
+      ['147_provider_usage_log_dimensions.sql'],
+      'la 147 tiene que ser la de las dimensiones de las consultas, y sólo ella',
+    );
+    const usageLogDimensions = read('supabase/migrations/147_provider_usage_log_dimensions.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        usageLogDimensions.includes(foreign),
+        false,
+        `la 147 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 148 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[7-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[89]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

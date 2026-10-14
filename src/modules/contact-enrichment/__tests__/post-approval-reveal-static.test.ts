@@ -782,10 +782,15 @@ describe('la migración 128 — su contrato', () => {
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '146_tax_identifier_type_rif.sql');
+    // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+    // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+    // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+    // NO APLICADA.
+    assert.equal(files[files.length - 1], '147_provider_usage_log_dimensions.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 146);
-    assert.equal(files.length, 146,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 147);
+    assert.equal(files.length, 147,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

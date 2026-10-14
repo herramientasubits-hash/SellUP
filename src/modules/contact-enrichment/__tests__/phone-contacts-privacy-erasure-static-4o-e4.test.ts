@@ -532,6 +532,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // `DELETE`: no borra filas de contactos, no nombra `mobile_phone` y no toca la erasure que
       // esta suite protege. AUTORADA y NO APLICADA.
       '146_tax_identifier_type_rif.sql',
+      // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+      // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+      // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+      // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+      // NO APLICADA.
+      '147_provider_usage_log_dimensions.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -624,7 +630,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 146);
+    // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+    // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+    // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+    // NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 147);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

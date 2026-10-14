@@ -9,7 +9,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { UrlTabs, type UrlTab } from '@/components/navigation/url-tabs';
 import { CostValue } from '@/components/shared/cost-value';
 import { FiltersClient } from './filters-client';
-import { USAGE_FILTER_KEYS, type UsageFilterValues } from './usage-filters-core';
+import { USAGE_FILTER_KEYS, toQueryString, type UsageFilterValues } from './usage-filters-core';
 import { formatCount, formatUsd } from './usage-labels';
 import {
   AgentUsageSection,
@@ -18,6 +18,13 @@ import {
   TeamUsageSection,
 } from './usage-tables';
 import { AgentUsageCharts, ProviderUsageCharts, TeamUsageCharts } from './usage-charts';
+import { AgentStepsTable } from './agent-steps-table';
+import {
+  BreakdownSkeleton,
+  CountryBreakdownSection,
+  RoleGroupBreakdownSection,
+  SearchBreakdownSection,
+} from './breakdown-sections';
 import {
   Agent1EffectivenessPanel,
   Agent1EffectivenessPanelSkeleton,
@@ -55,9 +62,13 @@ const RECENT_LOGS_LIMIT = 25;
 // Las pestañas de la página. La primera es la de por defecto y no va en la URL.
 const USAGE_TABS: readonly UrlTab[] = [
   { id: 'resumen', label: 'Resumen' },
+  { id: 'por-agente', label: 'Por agente' },
   { id: 'agente-1', label: 'Agente 1' },
+  { id: 'por-pais', label: 'Por país' },
   { id: 'proveedores', label: 'Proveedores' },
   { id: 'equipo', label: 'Equipo' },
+  { id: 'por-rol-grupo', label: 'Por rol y grupo' },
+  { id: 'por-busqueda', label: 'Por búsqueda' },
   { id: 'detalle', label: 'Detalle' },
 ];
 
@@ -83,6 +94,7 @@ async function buildAgent1Filters(filters: UsageFilters): Promise<Agent1Effectiv
   return {
     dateFrom: resolvePeriodStart(filters.period) ?? undefined,
     providerKey: filters.provider,
+    countryCode: filters.country,
     createdByIds,
   };
 }
@@ -123,6 +135,10 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     user: typeof params.user === 'string' ? params.user : undefined,
     role: typeof params.role === 'string' ? params.role : undefined,
     groupId: typeof params.groupId === 'string' ? params.groupId : undefined,
+    country: typeof params.country === 'string' ? params.country : undefined,
+    industry: typeof params.industry === 'string' ? params.industry : undefined,
+    step: typeof params.step === 'string' ? params.step : undefined,
+    mode: typeof params.mode === 'string' ? params.mode : undefined,
   };
 
   // Todas las cifras salen de una sola lectura del universo filtrado (KPIs,
@@ -160,7 +176,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     );
   }
 
-  const { summary, agentStats, providerStats, userConsumption, recentLogs, dataQuality } = overview;
+  const { summary, agentStats, providerStats, userConsumption, recentLogs, agentSteps, moneyVisible, dataQuality } =
+    overview;
   const filterOptions = filterOptionsResult === 'error' ? null : filterOptionsResult;
   const readError = dataQuality.readError || filterOptionsResult === 'error';
 
@@ -172,21 +189,32 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
   const errorCount = summary.error_provider_calls + summary.failed_executions;
   const providerNoun = summary.distinct_providers === 1 ? 'proveedor' : 'proveedores';
 
+  // Quien no ve dólares (vendedores) ve créditos: el servidor ya no le manda importes.
+  const knownCredits = providerStats.reduce((total, p) => total + (p.total_credits_used ?? 0), 0);
+  const moneyMetric: SummaryMetric = moneyVisible
+    ? {
+        title: 'Costo estimado',
+        description: 'USD en el periodo',
+        tone: 'brand',
+        value: (
+          <CostValue
+            display={resolveCostDisplay({
+              valueUsd: summary.total_estimated_cost_usd,
+              costTruth: toCostTruth(summary.has_unknown_cost),
+              formatUsd: (value) => formatUsd(value),
+            })}
+          />
+        ),
+      }
+    : {
+        title: 'Créditos usados',
+        description: 'créditos conocidos en el periodo',
+        tone: 'brand',
+        value: formatCount(knownCredits),
+      };
+
   const metrics: SummaryMetric[] = [
-    {
-      title: 'Costo estimado',
-      description: 'USD en el periodo',
-      tone: 'brand',
-      value: (
-        <CostValue
-          display={resolveCostDisplay({
-            valueUsd: summary.total_estimated_cost_usd,
-            costTruth: toCostTruth(summary.has_unknown_cost),
-            formatUsd: (value) => formatUsd(value),
-          })}
-        />
-      ),
-    },
+    moneyMetric,
     {
       title: 'Ejecuciones',
       description: 'veces que trabajó un agente',
@@ -199,12 +227,16 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       tone: 'brand',
       value: formatCount(summary.total_provider_calls),
     },
-    {
-      title: 'Costo medio',
-      description: 'por ejecución',
-      tone: 'brand',
-      value: summary.avg_cost_per_run !== null ? formatUsd(summary.avg_cost_per_run, 4) : '—',
-    },
+    ...(moneyVisible
+      ? [
+          {
+            title: 'Costo medio',
+            description: 'por ejecución',
+            tone: 'brand' as const,
+            value: summary.avg_cost_per_run !== null ? formatUsd(summary.avg_cost_per_run, 4) : '—',
+          },
+        ]
+      : []),
     {
       title: 'Errores',
       description: errorCount > 0 ? 'consultas y ejecuciones fallidas' : 'todo salió bien',
@@ -269,28 +301,58 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={readParam(params.tab)}>
         <TabsContent value="resumen" className="space-y-6">
-          <AgentUsageCharts agents={agentStats} />
-          <AgentUsageSection agents={agentStats} />
+          {moneyVisible && <AgentUsageCharts agents={agentStats} />}
+          <AgentUsageSection agents={agentStats} showMoney={moneyVisible} />
+        </TabsContent>
+
+        <TabsContent value="por-agente" className="space-y-6">
+          <AgentStepsTable agents={agentSteps.agents} steps={agentSteps.steps} moneyVisible={moneyVisible} />
         </TabsContent>
 
         <TabsContent value="agente-1">
-          <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
-            <Agent1EffectivenessPanel filters={agent1Filters} />
+          {moneyVisible ? (
+            <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
+              <Agent1EffectivenessPanel filters={agent1Filters} />
+            </Suspense>
+          ) : (
+            <EmptyState
+              icon={Lock}
+              title="Este panel es de costos"
+              description="Las cifras en dólares las ven líderes y administración. Lo que entregó el Agente 1 lo tienes en «Por país» y «Por búsqueda»."
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="por-pais" className="space-y-6">
+          <Suspense fallback={<BreakdownSkeleton />}>
+            <CountryBreakdownSection filters={filters} />
           </Suspense>
         </TabsContent>
 
         <TabsContent value="proveedores" className="space-y-6">
-          <ProviderUsageCharts providers={providerStats} />
-          <ProviderUsageSection providers={providerStats} />
+          {moneyVisible && <ProviderUsageCharts providers={providerStats} />}
+          <ProviderUsageSection providers={providerStats} showMoney={moneyVisible} />
         </TabsContent>
 
         <TabsContent value="equipo" className="space-y-6">
-          <TeamUsageCharts users={userConsumption} />
-          <TeamUsageSection users={userConsumption} />
+          {moneyVisible && <TeamUsageCharts users={userConsumption} />}
+          <TeamUsageSection users={userConsumption} showMoney={moneyVisible} />
+        </TabsContent>
+
+        <TabsContent value="por-rol-grupo" className="space-y-6">
+          <Suspense fallback={<BreakdownSkeleton />}>
+            <RoleGroupBreakdownSection filters={filters} currentQuery={toQueryString('', filterValues)} />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="por-busqueda" className="space-y-6">
+          <Suspense fallback={<BreakdownSkeleton />}>
+            <SearchBreakdownSection filters={filters} />
+          </Suspense>
         </TabsContent>
 
         <TabsContent value="detalle" className="space-y-6">
-          <RecentActivitySection logs={recentLogs} limit={RECENT_LOGS_LIMIT} />
+          <RecentActivitySection logs={recentLogs} limit={RECENT_LOGS_LIMIT} showMoney={moneyVisible} />
           <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
             <PhoneSuppressionNotEvaluablePanel />
           </Suspense>
