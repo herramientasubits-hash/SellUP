@@ -400,9 +400,10 @@ describe('RNC por nombre comercial (sólo pista)', () => {
 describe('Catálogo de fuentes', () => {
   const entries = [
     // La fuente con tamaño quedó verificada de punta a punta el 06-10 (lote cf765b47);
-    // el nombre comercial está cargado pero aún no se ha visto en una corrida real.
+    // el nombre comercial (respaldo: sólo actúa con candidatas de proveedores) quedó
+    // verificado por lectura en Prod el 14-10 (14.981 filas) por decisión de la dueña.
     { key: DO_DGII_SIZE_REGISTRY_SOURCE_KEY, status: 'connected_free_discovery', operational: 'operational_verified' },
-    { key: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, status: 'connected_identity_in_run', operational: 'pending_validation' },
+    { key: DO_DGII_TRADE_NAME_REGISTRY_SOURCE_KEY, status: 'connected_identity_in_run', operational: 'operational_verified' },
   ] as const;
 
   for (const { key, status, operational } of entries) {
