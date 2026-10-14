@@ -64,7 +64,8 @@ function preCleanUsName(name: string): string {
 /** Núcleo del nombre estadounidense: el MISMO que calcula el resolvedor de la corrida. */
 export function normalizeUsCompanyCore(name: string | null | undefined): string {
   if (typeof name !== 'string') return '';
-  return normalizeCompanyNameCore(preCleanUsName(name), US_NAME_FORMS);
+  // «JPMORGAN CHASE & CO» queda «JPMORGAN CHASE &» al quitar «CO»: el «&» colgante sobra.
+  return normalizeCompanyNameCore(preCleanUsName(name), US_NAME_FORMS).replace(/\s*&$/, '').trim();
 }
 
 /** EIN crudo → «12-3456789», o `null` si no son 9 dígitos útiles. */

@@ -129,6 +129,8 @@ describe('SEC EDGAR', () => {
     assert.equal(normalizeUsCompanyCore('Smith Law Group, PLLC'), 'SMITH LAW GROUP');
     assert.equal(normalizeUsCompanyCore('Cleveland Clinic Foundation, The'), 'CLEVELAND CLINIC FOUNDATION');
     assert.equal(normalizeUsCompanyCore('AT&T Inc.'), 'AT&T');
+    assert.equal(normalizeUsCompanyCore('JPMORGAN CHASE & CO'), 'JPMORGAN CHASE');
+    assert.equal(normalizeUsCompanyCore('COSTCO WHOLESALE CORP /NEW'), 'COSTCO WHOLESALE');
     assert.equal(normalizeUsCompanyCore('Bill & Melinda Gates Foundation'), 'BILL & MELINDA GATES FOUNDATION');
   });
 });
