@@ -10,6 +10,10 @@
  *                        condados y lugares incorporados,
  *                        https://www2.census.gov/programs-surveys/popest/datasets/2020-2024/cities/totals/sub-est2024.csv)
  *
+ *   --usaspending-file=<json> (opcional) respuesta de
+ *                        https://api.usaspending.gov/api/v2/references/toptier_agencies/
+ *                        (presupuesto de las agencias federales, para ordenarlas).
+ *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=… --census-file=…
  *
@@ -23,15 +27,18 @@
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
+import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 // CLI-only: Node < 22 no trae WebSocket global y el cliente de Supabase lo necesita.
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
 import {
   buildUsPublicEntityRows,
+  federalAgencyKey,
   placeNameKey,
   US_PUBLIC_ENTITIES_SOURCE_KEY,
   type DotGovDomainRecord,
+  type UsFederalBudgetLookup,
   type UsPopulationLookup,
 } from '../../src/server/source-catalog/connectors/us-ein/us-public-entities';
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
@@ -49,8 +56,14 @@ function arg(argv: readonly string[], name: string): string | null {
 async function readPopulation(file: string): Promise<UsPopulationLookup> {
   const counties = new Map<string, number>();
   const cities = new Map<string, number>();
+  const states = new Map<string, number>();
   for await (const record of readCsvFile(file)) {
     const level = record['SUMLEV']?.trim();
+    if (level === '040') {
+      const statePopulation = Number(record['POPESTIMATE2024']);
+      if (Number.isFinite(statePopulation)) states.set(record['STNAME']?.trim() ?? '', statePopulation);
+      continue;
+    }
     const target = level === '050' ? counties : level === '162' ? cities : null;
     if (target === null) continue;
     const population = Number(record['POPESTIMATE2024']);
@@ -61,7 +74,20 @@ async function readPopulation(file: string): Promise<UsPopulationLookup> {
   return {
     county: (name, stateName) => counties.get(`${name}|${stateName}`) ?? null,
     city: (name, stateName) => cities.get(`${name}|${stateName}`) ?? null,
+    state: (stateName) => states.get(stateName) ?? null,
   };
+}
+
+/** USAspending: presupuesto (budget authority) de cada agencia de primer nivel, por núcleo de nombre. */
+function readFederalBudgets(file: string | null): UsFederalBudgetLookup {
+  if (!file) return () => null;
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as { results?: { agency_name?: string; budget_authority_amount?: number }[] };
+  const budgets = new Map<string, number>();
+  for (const agency of parsed.results ?? []) {
+    const amount = Number(agency.budget_authority_amount);
+    if (typeof agency.agency_name === 'string' && Number.isFinite(amount)) budgets.set(federalAgencyKey(agency.agency_name), amount);
+  }
+  return (organization) => budgets.get(federalAgencyKey(organization)) ?? null;
 }
 
 async function readDotGov(file: string): Promise<DotGovDomainRecord[]> {
@@ -88,10 +114,12 @@ async function main(): Promise<void> {
   console.log(`US PUBLIC ENTITIES ETL (${US_PUBLIC_ENTITIES_SOURCE_KEY}) — ${apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
   const [records, population] = await Promise.all([readDotGov(dotgovFile), readPopulation(censusFile)]);
-  const rows = buildUsPublicEntityRows(records, population, {
-    sourceYear: new Date().getUTCFullYear(),
-    importedAt: new Date().toISOString(),
-  });
+  const rows = buildUsPublicEntityRows(
+    records,
+    population,
+    { sourceYear: new Date().getUTCFullYear(), importedAt: new Date().toISOString() },
+    readFederalBudgets(arg(argv, 'usaspending-file')),
+  );
   const byLevel = new Map<string, number>();
   for (const row of rows) {
     const level = String(row.raw_data['government_level']);
@@ -100,6 +128,13 @@ async function main(): Promise<void> {
   console.log(`  Dominios leídos: ${records.length}`);
   console.log(`  Entidades a cargar: ${rows.length}`);
   for (const [level, n] of [...byLevel.entries()].sort()) console.log(`    ${level}: ${n}`);
+  const byTier = new Map<string, number>();
+  for (const row of rows) {
+    const tier = `${String(row.raw_data['government_tier'])} · ${String(row.raw_data['government_level'])}`;
+    byTier.set(tier, (byTier.get(tier) ?? 0) + 1);
+  }
+  for (const [tier, n] of [...byTier.entries()].sort()) console.log(`    nivel ${tier}: ${n}`);
+  console.log(`  Primeras 15: ${rows.slice(0, 15).map((row) => row.legal_name).join(' · ')}`);
 
   if (!apply) {
     console.log('  DRY-RUN: no se escribió nada. Usa --apply (con autorización) para persistir.');

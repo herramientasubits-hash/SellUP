@@ -3232,11 +3232,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web: la de IPEDS o la de su registro en SAM.gov por nombre + estado). Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
+      'SOURCES-US-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (carga autorizada por la dueña): 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web (IPEDS o SAM.gov por nombre + estado). 1.ª corrida EE. UU. × Salud (lote 35d843ae, 14-10): 10/10 gratis con EIN y web, US$ 0. SOURCES-US-GOV-ORDER-1: las universidades públicas entran en el orden de Gobierno A-D. Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
     countryCodes: ['US'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
     automationLevel: 'high',
@@ -3261,16 +3261,16 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 1.829 entidades — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más). Cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --apply.',
+      'SOURCES-US-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (carga autorizada por la dueña): 1.829 entidades con web .gov — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más. 1.ª corrida EE. UU. × Gobierno (lote 550038e2, 14-10): 10/10 gratis con web, US$ 0, pero en orden alfabético (comisiones federales chicas primero) ⇒ SOURCES-US-GOV-ORDER-1 (orden aprobado por la dueña el 14-10-2026): A = federales con presupuesto ≥ US$ 10.000 M (USAspending), gobiernos estatales principales, locales de 1 M+ habitantes y universidades públicas de 20.000+; B, C y D por presupuesto, población o estudiantes; comités y juntas federales al final. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --usaspending-file=toptier_agencies.json --apply.',
     countryCodes: ['US'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://github.com/cisagov/dotgov-data',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las federales y estatales y luego las locales con más habitantes.',
+      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes: departamentos federales por presupuesto (USAspending), estados por población, condados y ciudades por habitantes; los comités y juntas federales al final.',
     limitations: [
       'Sin EIN: la entidad se identifica por su web .gov.',
       'Sólo entidades con un dominio .gov que lleve su nombre o su sigla: las que usan otro dominio (.mil, .us, .org) no aparecen.',

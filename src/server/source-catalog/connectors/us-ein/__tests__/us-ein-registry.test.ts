@@ -39,6 +39,10 @@ import { attachSamWebsites, buildSamWebIndex, samWebsiteDomain } from '../us-sam
 import {
   buildUsPublicEntityRows,
   dotGovDomainNamesEntity,
+  federalAgencyKey,
+  federalGovernmentPriority,
+  isMainStateGovernment,
+  localGovernmentPriority,
   placeNameKey,
   US_PUBLIC_ENTITIES_SOURCE_KEY,
   type DotGovDomainRecord,
@@ -419,7 +423,7 @@ describe('IPEDS: universidades y colegios con 5.000+ estudiantes', () => {
     assert.equal(row.raw_data['macro_industry_key'], 'government');
     assert.equal(row.raw_data['website_domain'], 'ua.edu');
     assert.equal(row.raw_data['size_band'], 'large');
-    assert.equal(row.priority_score, 500);
+    assert.equal(row.priority_score, 4500); // pública 20.000+ = nivel A de Gobierno
     const priv = buildUsIpedsDirectoryRow(hd({ CONTROL: '2', INSTSIZE: '3' }), base);
     assert.equal(priv?.raw_data['macro_industry_key'], 'services_company');
     assert.equal(priv?.raw_data['size_band'], null);
@@ -572,8 +576,9 @@ describe('entidades públicas (.gov de CISA + Censo 2024)', () => {
       population,
       base,
     );
-    assert.deepEqual(rows.map((row) => row.raw_data['website_domain']), ['cdc.gov', 'kingcounty.gov', 'austintexas.gov']);
-    const [cdc, king, austin] = rows;
+    // Sin presupuesto conocido, el CDC (suborganismo) va detrás de los locales grandes.
+    assert.deepEqual(rows.map((row) => row.raw_data['website_domain']), ['kingcounty.gov', 'austintexas.gov', 'cdc.gov']);
+    const [king, austin, cdc] = rows;
     assert.equal(cdc.source_key, US_PUBLIC_ENTITIES_SOURCE_KEY);
     assert.equal(cdc.legal_name, 'Centers for Disease Control and Prevention');
     assert.equal(cdc.raw_data['parent_organization'], 'Department of Health and Human Services');
@@ -584,6 +589,55 @@ describe('entidades públicas (.gov de CISA + Censo 2024)', () => {
     assert.equal(austin.city, 'Austin');
     assert.equal(getSourceFamily(US_PUBLIC_ENTITIES_SOURCE_KEY), 'NATIVE_RECORD_GRAIN');
     for (const row of rows) assert.equal(JSON.stringify(row).includes('@'), false); // nunca el correo de contacto
+  });
+
+  it('orden aprobado A-D: agencia principal por presupuesto, suborganismo un nivel abajo, comités al final', () => {
+    const budgets = (name: string) =>
+      federalAgencyKey(name) === federalAgencyKey('Department of Health and Human Services') ? 3_700_000_000_000 : null;
+    const rows = buildUsPublicEntityRows(
+      [
+        rec('dhhs.gov', 'Federal - Executive', 'Department of Health and Human Services'),
+        rec('cdc.gov', 'Federal - Executive', 'Department of Health and Human Services', { suborganization: 'Centers for Disease Control and Prevention' }),
+        rec('acwi.gov', 'Federal - Executive', 'Department of the Interior', { suborganization: 'Advisory Committee on Water Information' }),
+        rec('adams.gov', 'Federal - Executive', 'Adams Memorial Commission'),
+        rec('california.gov', 'State or territory', 'State of California', { state: 'CA' }),
+        rec('calottery.gov', 'State or territory', 'California Lottery Board', { state: 'CA' }),
+        rec('kingcounty.gov', 'County', 'King County', { state: 'WA' }),
+        rec('austintexas.gov', 'City', 'City of Austin', { state: 'TX', city: 'Austin' }),
+      ],
+      { ...population, state: (name: string) => (name === 'California' ? 39_000_000 : null) },
+      base,
+      budgets,
+    );
+    const order = rows.map((row) => `${row.raw_data['government_tier']}:${row.raw_data['website_domain']}`);
+    assert.deepEqual(order, [
+      'A:dhhs.gov',
+      'A:california.gov',
+      'A:kingcounty.gov',
+      'B:austintexas.gov',
+      'B:cdc.gov',
+      'B:calottery.gov',
+      'D:adams.gov',
+      'D:acwi.gov',
+    ]);
+    assert.equal(rows[0].raw_data['federal_budget_usd'], 3_700_000_000_000);
+    assert.equal(rows[0].raw_data['size_source'], 'USAspending – presupuesto federal');
+    assert.equal(rows[1].raw_data['size_band'], 'large');
+  });
+
+  it('niveles por presupuesto y habitantes', () => {
+    assert.equal(federalGovernmentPriority(20_000_000_000).tier, 'A');
+    assert.equal(federalGovernmentPriority(20_000_000_000, { suborganization: true, name: 'Internal Revenue Service' }).tier, 'B');
+    assert.equal(federalGovernmentPriority(20_000_000_000, { suborganization: true, name: 'Citizens Coinage Advisory Committee' }).tier, 'D');
+    assert.equal(federalGovernmentPriority(5_000_000_000).tier, 'B');
+    assert.equal(federalGovernmentPriority(500_000_000).tier, 'C');
+    assert.equal(federalGovernmentPriority(null).tier, 'D');
+    assert.equal(localGovernmentPriority(1_200_000).tier, 'A');
+    assert.equal(localGovernmentPriority(300_000).tier, 'B');
+    assert.equal(localGovernmentPriority(60_000).tier, 'C');
+    assert.equal(isMainStateGovernment('State of Arizona, Executive Branch', 'AZ'), true);
+    assert.equal(isMainStateGovernment('Commonwealth of Massachusetts', 'MA'), true);
+    assert.equal(isMainStateGovernment('Florida Department of Health', 'FL'), false);
   });
 
   it('el adapter ofrece la entidad pública sin EIN por su web, sólo en Gobierno', async () => {
