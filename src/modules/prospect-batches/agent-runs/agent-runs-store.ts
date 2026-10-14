@@ -74,6 +74,12 @@ export type AgentRunsStore = {
   getSnapshot(): readonly AgentRun[];
   subscribe(listener: () => void): () => void;
   startRun(input: { title: string; concurrencyKey?: string; payload: AgentRunPayload }): Promise<WizardExecutionActionResult>;
+  /**
+   * AGENT1-CORPORATE-TREE-1 — la respuesta no llegó (red, proxy) pero el servidor SÍ
+   * terminó: quien la siguió por su id la cierra con lo que encontró. Sólo corridas
+   * ya salidas del navegador (en curso o falladas), nunca en espera.
+   */
+  reconcile(clientRequestId: string, outcome: { status: 'succeeded' | 'failed'; batchId?: string | null; candidateCount?: number | null; message?: string | null }): void;
   /** Cierra una corrida lanzada en otra carga de la página (la bandeja la consultó). */
   settleDetached(clientRequestId: string, outcome: { status: 'succeeded' | 'failed'; batchId?: string | null; message?: string | null }): void;
   dismiss(clientRequestId: string): void;
@@ -190,11 +196,18 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
           job.resolve(result);
         })
         .catch((error: unknown) => {
-          update(next.clientRequestId, {
-            status: 'failed',
-            finishedAtMs: now(),
-            message: 'No fue posible completar la búsqueda.',
-          });
+          // AGENT1-CORPORATE-TREE-1 — la búsqueda en árbol se sigue por su id cuando
+          // la respuesta no llega (su lote se reconoce por `client_request_id`): queda
+          // en curso, desligada, hasta que quien la lanzó o la bandeja la cierren.
+          if (job.payload.searchMode === 'corporate_tree') {
+            update(next.clientRequestId, { detached: true });
+          } else {
+            update(next.clientRequestId, {
+              status: 'failed',
+              finishedAtMs: now(),
+              message: 'No fue posible completar la búsqueda.',
+            });
+          }
           job.reject(error);
         })
         .finally(() => {
@@ -237,6 +250,19 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
       emit();
       pump();
       return promise;
+    },
+    reconcile(clientRequestId, outcome) {
+      const run = runs.find((r) => r.clientRequestId === clientRequestId);
+      if (!run || run.status === 'queued') return;
+      update(clientRequestId, {
+        status: outcome.status,
+        finishedAtMs: now(),
+        detached: false,
+        batchId: outcome.batchId ?? run.batchId,
+        redirectPath: outcome.batchId ? `/prospect-batches/${outcome.batchId}` : run.redirectPath,
+        candidateCount: outcome.candidateCount ?? run.candidateCount,
+        message: outcome.message ?? null,
+      });
     },
     settleDetached(clientRequestId, outcome) {
       const run = runs.find((r) => r.clientRequestId === clientRequestId);
