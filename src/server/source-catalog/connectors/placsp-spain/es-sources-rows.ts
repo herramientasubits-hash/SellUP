@@ -242,6 +242,30 @@ function dominantCode(counts: Readonly<Record<string, number>>, resolve: (code: 
   );
 }
 
+/**
+ * Código dominante sólo si su macro reúne al menos la mitad de los votos (todos los
+ * códigos cuentan, también los que no tienen macro). `null` si la empresa no tiene
+ * una actividad clara.
+ */
+export function dominantCodeWithMajority(
+  counts: Readonly<Record<string, number>>,
+  resolve: (code: string) => string | null,
+): string | null {
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  if (total === 0) return null;
+  const byMacro = new Map<string, number>();
+  for (const [code, n] of Object.entries(counts)) {
+    const macro = resolve(code);
+    if (macro !== null) byMacro.set(macro, (byMacro.get(macro) ?? 0) + n);
+  }
+  const best = [...byMacro.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  if (best === undefined || best[1] * 2 < total) return null;
+  return dominantCode(
+    Object.fromEntries(Object.entries(counts).filter(([code]) => resolve(code) === best[0])),
+    resolve,
+  );
+}
+
 /** Fila del registro de NIF de adjudicatarias, o `null`. */
 export function buildEsPlacspNifRegistryRow(awardee: EsAwardee, params: EsRowParams): EsSnapshotRow | null {
   const legalName = esPreferredLegalName(awardee.names);
@@ -380,7 +404,7 @@ export function buildEsNifNameAliasRows(params: { registryRow: EsSnapshotRow; ke
 // ─── es_free_directory ─────────────────────────────────────────────────────
 
 /** Por qué un NIF no entra en la capa gratuita. */
-export type EsDirectoryExclusion = 'no_name' | 'joint_venture' | 'public_entity' | 'no_macro' | 'not_relevant';
+export type EsDirectoryExclusion = 'no_name' | 'joint_venture' | 'public_entity' | 'foreign' | 'no_macro' | 'not_relevant';
 
 /** Formas jurídicas de INVENTE que van a Gobierno (no son sociedades). */
 const INVENTE_PUBLIC_FORM =
@@ -399,23 +423,55 @@ export type EsDirectoryInputs = {
   bde: EsBdeEntity | null;
 };
 
-/** Orden dentro de una macro: grandes de la BDNS y entes con plantilla primero, luego por euros. */
+/** Por encima de cualquier empresa: en Gobierno van primero las entidades públicas. */
+export const ES_PUBLIC_ENTITY_PRIORITY_BASE = 5000;
+
+/** Fuerza 0-9 de una adjudicataria por euros ganados en el periodo cargado. */
+function eurStrength(eur: number): number {
+  if (eur >= 100_000_000) return 9;
+  if (eur >= 50_000_000) return 8;
+  if (eur >= 10_000_000) return 7;
+  if (eur >= 5_000_000) return 6;
+  if (eur >= 1_000_000) return 5;
+  return 0;
+}
+
+/** Fuerza 0-9 de un ente de INVENTE por su plantilla (sin dato: en medio). */
+function workersStrength(workers: number | null): number {
+  if (workers === null) return 4;
+  if (workers >= 5_000) return 9;
+  if (workers >= 1_000) return 8;
+  if (workers >= 500) return 7;
+  if (workers >= 200) return 6;
+  return 0;
+}
+
+/**
+ * Orden dentro de una macro (SOURCES-ES-RANKING-1, 14-10-2026: la 1.ª corrida
+ * ES×Tecnología sólo trajo sociedades del Estado porque iban siempre delante):
+ *
+ *   1. «GRAN EMPRESA» de la BDNS y bancos del Banco de España.
+ *   2. Adjudicatarias (por euros ganados) y entes de INVENTE de 200+ personas o sin
+ *      dato (por plantilla), MEZCLADOS por su fuerza.
+ *   3. Entes de INVENTE con menos de 200 personas: al final.
+ */
 export function esDirectoryPriorityScore(input: {
   kind: EsDirectoryKind;
   workers: number | null;
   awardedEur: number;
   large: boolean;
 }): number {
-  const kindWeight: Record<EsDirectoryKind, number> = {
-    invente_company: 4,
-    bdns_large: 3,
-    bde_financial: 3,
-    placsp_awardee: 2,
-    public_entity: 1,
-  };
-  const eurBand = Math.min(Math.floor(Math.log10(Math.max(input.awardedEur, 1))), 9);
-  const workersBand = input.workers === null ? 0 : Math.min(Math.floor(Math.log10(Math.max(input.workers, 1))), 9);
-  return kindWeight[input.kind] * 1000 + (input.large ? 100 : 0) + workersBand * 10 + eurBand;
+  const strength =
+    input.kind === 'invente_company' ? workersStrength(input.workers) : Math.max(eurStrength(input.awardedEur), input.large ? 5 : 0);
+  const tier =
+    input.kind === 'bdns_large' || input.kind === 'bde_financial'
+      ? 4
+      : input.kind === 'invente_company' && strength === 0
+        ? 1
+        : input.kind === 'public_entity'
+          ? 0
+          : 3;
+  return tier * 1000 + (input.large ? 100 : 0) + strength * 10;
 }
 
 /**
@@ -433,6 +489,8 @@ export function buildEsFreeDirectoryRow(
   // Entidades públicas (P, Q, S) van por Gobierno; UTE (U) y comunidades de propietarios (H) no son empresas.
   if (PUBLIC_NIF.test(inputs.nif) || (invente !== null && isEsInventePublicBody(invente))) return { excluded: 'public_entity' };
   if (/^[UH]/.test(inputs.nif)) return { excluded: 'joint_venture' };
+  // NIF de no residente (N): sociedades extranjeras (Informa D&B Portugal en INVENTE).
+  if (/^N/.test(inputs.nif)) return { excluded: 'foreign' };
   const legalName =
     invente?.name ??
     bde?.name ??
@@ -444,7 +502,8 @@ export function buildEsFreeDirectoryRow(
   if (core.length < 2) return { excluded: 'no_name' };
 
   const bdeClient = bde !== null && bde.entityType !== null && ES_BDE_CLIENT_ENTITY_TYPES.has(bde.entityType);
-  const bdnsCnae = bdns !== null ? dominantCode(bdns.cnae, resolveSpainCnaeMacro) : null;
+  // La actividad de la BDNS la pone cada programa: sólo vale si reúne la mitad de los programas.
+  const bdnsCnae = bdns !== null ? dominantCodeWithMajority(bdns.cnae, resolveSpainCnaeMacro) : null;
   const cpv = awardee !== null ? dominantCode(awardee.cpv, (d) => resolveSpainCpvMacro(`${d.padEnd(2, '0')}000000`)) : null;
 
   let kind: EsDirectoryKind;
@@ -517,15 +576,28 @@ export function buildEsFreeDirectoryRow(
 /** Tipo de entidad pública, para ordenar dentro de Gobierno. */
 export type EsPublicEntityKind = 'state' | 'regional' | 'provincial' | 'municipality' | 'university_or_hospital' | 'other';
 
-export function classifyEsPublicEntity(name: string, typeCode: string | null): EsPublicEntityKind {
+export function classifyEsPublicEntity(
+  name: string,
+  typeCode: string | null,
+  adscription: string | null = null,
+): EsPublicEntityKind {
   const upper = name.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   if (/\b(UNIVERSIDAD|UNIVERSITAT|UNIBERTSITATEA|HOSPITAL|SERVICIO \w+ DE SALUD|INSTITUTO \w+ DE SALUD)\b/.test(upper)) {
     return 'university_or_hospital';
   }
   if (/\b(DIPUTACION|DIPUTACIO|CABILDO|CONSELL INSULAR)\b/.test(upper)) return 'provincial';
   if (/\b(AYUNTAMIENTO|AJUNTAMENT|CONCELLO|UDALA)\b/.test(upper)) return 'municipality';
-  if (/\b(MINISTERIO|AGENCIA ESTATAL|SECRETARIA DE ESTADO)\b/.test(upper) || typeCode === '1') return 'state';
-  if (/\b(CONSEJERIA|CONSELLERIA|CONSELLERIA|GENERALITAT|XUNTA|JUNTA DE|GOBIERNO DE|COMUNIDAD DE MADRID)\b/.test(upper) || typeCode === '2') {
+  // Mutuas colaboradoras de la Seguridad Social: entidades privadas sin ánimo de lucro, no la Administración.
+  if (/\bMUTUA\b/.test(upper)) return 'other';
+  const ads = (adscription ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (/\b(MINISTERIO|AGENCIA ESTATAL|SECRETARIA DE ESTADO)\b/.test(upper) || typeCode === '1' || ads.startsWith('ADMINISTRACION GENERAL DEL ESTADO')) {
+    return 'state';
+  }
+  if (
+    /\b(CONSEJERIA|CONSELLERIA|GENERALITAT|XUNTA|JUNTA DE|GOBIERNO DE|COMUNIDAD DE MADRID)\b/.test(upper) ||
+    typeCode === '2' ||
+    ads.startsWith('COMUNIDAD AUTONOMA')
+  ) {
     return 'regional';
   }
   return 'other';
@@ -557,7 +629,7 @@ export function esPublicEntityDisplayName(name: string): string {
 
 /** Órganos que van delante del nombre de la entidad en la Plataforma de Contratación. */
 const ORGAN_PREFIX =
-  /^(?:(?:Presidencia|Gerencia|Direcci[oó]n(?: de Gesti[oó]n| Gerencia)?|Director(?:a)? Gerente|Consejo de Administraci[oó]n|Comit[eé] Ejecutivo|Junta de Gobierno(?: Local)?|Xunta de Goberno(?: Local)?|Comisi[oó]n (?:de Contrataci[oó]n|Ejecutiva|Permanente)|Mesa de Contrataci[oó]n|[OÓ]rgano de Contrataci[oó]n|Alcald[ií]a|Pleno)(?:\s*-\s*|\s+(?:del|de la|de los|de las|de|da|do|d')\s*))+/i;
+  /^(?:(?:Presidencia|Gerencia|Direcci[oó]n(?: de Gesti[oó]n| Gerencia)?|Director(?:a)? Gerente|Consejo de Administraci[oó]n|Comit[eé] Ejecutivo|Junta de Gobierno(?: Local)?|Xunta de Goberno(?: Local)?|Comisi[oó]n (?:de Contrataci[oó]n|Ejecutiva|Permanente)|Mesa de Contrataci[oó]n|[OÓ]rgano de Contrataci[oó]n|Alcald[ií]a|Pleno|Letrad[oa](?:-a)? Mayor|Secretar[ií]a General T[eé]cnica)(?:\s*-\s*|\s+(?:del|de la|de los|de las|de|da|do|d')\s*))+/i;
 
 /** Por qué una entidad no entra en la capa gratuita de Gobierno. */
 export type EsPublicEntityExclusion = 'no_name' | 'not_public' | 'no_website' | 'shared_website';
@@ -593,7 +665,10 @@ export function buildEsPublicEntityRow(
   });
   if (domain === null) return { excluded: 'no_website' };
   if (params.sharedDomains.has(domain)) return { excluded: 'shared_website' };
-  const kind = classifyEsPublicEntity(legalName, body?.typeCode ?? null);
+  const kind = classifyEsPublicEntity(legalName, body?.typeCode ?? null, invente?.adscription ?? null);
+  // Actividad: cuántas publicaciones de contratos hizo (sustituto del tamaño entre iguales).
+  const entries = Object.values(body?.names ?? {}).reduce((sum, n) => sum + n, 0);
+  const activity = Math.min(9, Math.floor(Math.log10(Math.max(entries, 1)) * 3));
   return {
     row: {
       source_key: ES_PUBLIC_ENTITIES_SOURCE_KEY,
@@ -605,7 +680,7 @@ export function buildEsPublicEntityRow(
       normalized_legal_name: core,
       city: null,
       region: null,
-      priority_score: KIND_PRIORITY[kind] * 10 + (invente?.workers != null ? 1 : 0),
+      priority_score: ES_PUBLIC_ENTITY_PRIORITY_BASE + KIND_PRIORITY[kind] * 100 + activity * 10 + (invente?.workers != null ? 1 : 0),
       raw_data: {
         directory_kind: 'public_entity',
         macro_industry_key: ES_PUBLIC_ENTITY_MACRO,
