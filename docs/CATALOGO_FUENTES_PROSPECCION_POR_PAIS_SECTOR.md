@@ -1,11 +1,51 @@
 # Catálogo de fuentes de prospección por país y sector
 
-**Versión:** 0.2 — Catálogo consolidado  
-**Fecha:** 2026-05-21  
-**Estado:** Borrador v0.2 — pendiente validación comercial / legal / técnica  
+**Versión:** 0.3 — estado vigente al 14-10-2026 + investigación original (v0.2)  
+**Fecha:** 2026-05-21 (investigación) · 2026-10-14 (estado vigente)  
+**Estado:** La sección «Estado vigente» refleja Producción; las secciones 1-29 son la investigación de mayo de 2026 y se conservan como referencia histórica  
 **Complementa:** [AGENTE_1_GENERACION_ENRIQUECIMIENTO_PROSPECTOS.md](./AGENTE_1_GENERACION_ENRIQUECIMIENTO_PROSPECTOS.md)  
 **Autor:** SellUp Product & Research  
-**Países cubiertos:** 17 — Colombia, México, Chile, Perú, Ecuador, Argentina, Brasil, Uruguay, Paraguay, Bolivia, Costa Rica, Panamá, Guatemala, El Salvador, Honduras, Nicaragua, República Dominicana
+**Países cubiertos:** 20 — Colombia, México, Chile, Perú, Ecuador, Argentina, Brasil, Uruguay, Paraguay, Bolivia, Costa Rica, Panamá, Guatemala, El Salvador, Honduras, Nicaragua, República Dominicana, Venezuela, Estados Unidos y España (los tres últimos no estaban en la investigación de mayo)
+
+---
+
+## Estado vigente (14-10-2026)
+
+> La fuente de verdad es el Catálogo de fuentes de la app (`src/server/agents/prospecting-toolkit/source-catalog.ts`). Esta tabla lo resume con las filas reales de Producción (`source_company_snapshots`, lectura del 14-10-2026). Todas las fuentes conectadas están en «verificada».
+
+En cada corrida del Agente 1 cada país tiene dos capas gratuitas antes de pagar a Apollo o Lusha:
+
+- **Número fiscal por nombre** (`connected_identity_in_run`): completa el identificador oficial de cada candidata, venga de donde venga (proveedores, Tavily, Claude, banco, rescate, importación).
+- **Capa gratuita por industria** (`connected_free_discovery`): propone empresas del país con número fiscal y, cuando existe, web y tamaño oficial.
+
+| País | Id. | Número fiscal por nombre (filas en Prod) | Capa gratuita por industria (filas en Prod) |
+|---|---|---|---|
+| Argentina | CUIT | Registro Nacional de Sociedades 1.194.956 · entidades públicas 337 | ATP 100+ trabajadores 2.851 · RNS proveedoras del Estado 6.350 · Gobierno 337 |
+| Bolivia | NIT | Grandes contribuyentes 4.477 + 447 siglas · SEPREC en vivo | Grandes contribuyentes · entidades de gob.bo 653 |
+| Brasil | CNPJ | Receita liviana 1.399.168 + 470.646 alias + 246.918 claves de web · CVM | Receita por industria 120.427 |
+| Chile | RUT | SII 1.699.728 · Registro de Empresas y Sociedades 1.265.085 · alias de marca 4.111 | SII 100+ trabajadores 10.942 |
+| Colombia | NIT | SIIS 10.000 · Cámaras de Comercio (en vivo) · entidades públicas 4.929 | SIIS por CIIU · Gobierno (SIGEP 200+ servidores) |
+| Costa Rica | Cédula jurídica | Registro unido 19.911 + 1.107 alias | SICOP, Zona Franca, Grandes Contribuyentes, CICR y Gobierno 2.364 |
+| Ecuador | RUC | Superintendencia de Compañías 182.941 + 14.049 alias · SRI 108.778 + 77.148 nombres comerciales | SCVS 100+ empleados 2.041 + entidades públicas del SRI |
+| El Salvador | NIT | Listados de Hacienda 3.241 + 567 alias | COMPRASAL 157 · Grandes Contribuyentes 581 · Gobierno 161 |
+| España | NIF | Contratación del Estado 80.037 · ayudas y registros oficiales 167.881 + 25.264 alias | Grandes empresas por industria 12.889 · Gobierno 3.618 |
+| Estados Unidos | EIN | SEC EDGAR 6.129 · IRS sin ánimo de lucro 65.605 | IRS, SEC, IPEDS y SAM 14.206 · Gobierno .gov 1.803 |
+| Guatemala | NIT | Registro unido 14.293 + 753 alias · RGAE 6.245 (respaldo) | Guatecompras 1.705 |
+| Honduras | RTN | ONCAE + SEFIN 6.195 + 1.712 alias | HonduCompras 1.272 · Gobierno 118 |
+| México | RFC | CompraNet 26.393 · listas públicas SAT/NL/CDMX 90.954 | DENUE por SCIAN (en vivo) |
+| Nicaragua | RUC | Grandes Contribuyentes DGI + MINSA 1.295 + 976 alias | Directorio con RUC 996 · entidades con web 201 |
+| Panamá | RUC | Registro unido 8.106 + 2.627 alias | PanamaCompra y Gobierno 608 |
+| Paraguay | RUC | Padrón DNIT 99.319 + 3.762 alias | DNCP 1.127 |
+| Perú | RUC | Padrón SUNAT 862.987 + 70.749 alias | SUNAT 200+ trabajadores 3.069 |
+| Rep. Dominicana | RNC | Padrón DGII 493.548 · nombres comerciales 14.981 (pista, respaldo) | DGII con señal de tamaño 12.931 |
+| Uruguay | RUT | RUPE 30.315 + 2.282 alias | ARCE 2.315 · Gobierno 108 |
+| Venezuela | RIF | RIF oficial 636 + 138 alias | Directorio con RIF 573 · entidades con web 155 |
+
+**Capa común LATAM** (`latam_curated_directory`, 7.106 filas en 16 países): universidades, reguladores, rankings Merco y Great Place to Work, entre otros. Va detrás de la capa de cada país y sólo aparece cuando ésta se queda sin empresas nuevas.
+
+**Descartadas** (no se conectan): OpenCorporates (API comercial de pago), cnpj.ws (tercero no oficial), EKOS Ecuador (directorio privado sin términos validados) y PRODUCE Perú (sin API). **Congelada**: la carga nacional pesada de Receita (Brasil funciona con la capa liviana).
+
+**Pendientes conocidos:** 24.841 filas duplicadas en `ec_scvs_registry` (mismo RUC y nombre, de la primera carga del 06-10; no cambian resultados, su limpieza espera autorización) y 401 filas viejas sin refrescar en `us_irs_eo_registry`.
 
 ---
 

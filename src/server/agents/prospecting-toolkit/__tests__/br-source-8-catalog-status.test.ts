@@ -315,8 +315,8 @@ describe('BR-SOURCE-8B — secondary Brazil sources do not compete as operationa
     assert.notEqual(action.kind, 'connect');
   });
 
-  it('br_cnpj_ws: standard "Pendiente validación" status (NOT "Requiere conexión"), out of Operativas IA', () => {
-    assert.equal(cnpjWs?.operationalStatus, 'pending_validation');
+  it('br_cnpj_ws: descartada (14-10-2026; NOT "Requiere conexión"), out of Operativas IA', () => {
+    assert.equal(cnpjWs?.operationalStatus, 'discarded_paid_or_tos');
     assert.notEqual(cnpjWs?.operationalStatus, 'connection_required');
     assert.ok(!operativasKeys().includes('br_cnpj_ws'));
     assert.equal(shouldSkipGenericConnectionPanels(cnpjWs!), true);
