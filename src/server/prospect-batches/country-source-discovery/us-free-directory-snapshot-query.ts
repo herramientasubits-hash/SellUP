@@ -62,6 +62,9 @@ function toRow(row: SnapshotSelectRow): UsFreeDirectorySnapshotReadRow {
     size_band: text(raw['size_band']),
     size_source: text(raw['size_source']),
     website_domain: text(raw['website_domain']),
+    workers: toNumber(raw['workers']),
+    workers_year: toNumber(raw['metrics_year']),
+    workers_source: text(raw['workers_source']),
     priority_score: toNumber(row.priority_score),
   };
 }

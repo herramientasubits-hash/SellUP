@@ -136,6 +136,13 @@ describe('persistCountrySourceCandidates → writer → fila', () => {
     assert.equal(display.sourceLabel, 'Fuente: SUNAT 2026');
   });
 
+  it('«Sector» es la industria del lote; el texto oficial queda en sector_description (AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1)', async () => {
+    const row = await persistOne(company({ declaredIndustry: 'Entidad pública' }));
+    assert.equal(row.industry, 'Gobierno');
+    assert.equal(row.sector_description, 'Entidad pública');
+    assert.equal(row.sector_code, '8411');
+  });
+
   it('sin tamaño oficial: todo como antes («por validar»)', async () => {
     const row = await persistOne(company());
     assert.equal(row.employee_count, null);

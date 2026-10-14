@@ -74,6 +74,10 @@ import {
   toCandidateRecordOriginMetadata,
 } from './candidate-record-origin';
 
+// AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — la columna «Sector» de la ficha muestra la
+// industria del lote, no el texto crudo de la fuente oficial.
+import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
+
 // ── Constantes ────────────────────────────────────────────────
 
 const WRITER_VERSION = '0.2.0';
@@ -1283,7 +1287,18 @@ export async function writeStructuredSourceCandidatesPreview(
         normalized_name: normalizeCompanyName(draft.name),
         country: input.country,
         country_code: input.countryCode,
-        industry: draft.sectorDescription ?? null,
+        // AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — «Sector» (= `industry`) es la industria
+        // del lote («Gobierno», «Salud & Farmacéuticos»), como en Tavily y Apollo: el
+        // texto oficial («Entidad pública», «CNAE P841», «Gran contribuyente») no es un
+        // sector. Se conserva en `sector_description` y `sector_code`.
+        industry:
+          getMacroIndustryByKey(
+            typeof candidateBaseMetadata['macro_industry_key'] === 'string'
+              ? candidateBaseMetadata['macro_industry_key']
+              : null,
+          )?.displayName ??
+          draft.sectorDescription ??
+          null,
         website: draft.website ?? null,
         domain,
         city: draft.city,
