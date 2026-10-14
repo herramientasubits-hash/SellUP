@@ -12,6 +12,10 @@
  *   --ipeds-file=<csv>   HD<año>.csv del directorio de IPEDS (universidades y
  *                        colegios abiertos con 5.000+ estudiantes, con web).
  *
+ *   --sam-file=<csv>     (opcional) extracto público de entidades activas de SAM.gov
+ *                        (CSV de la Entity Management API): pone la web a las filas
+ *                        sin web, cruzando nombre + estado. Nunca guarda contactos.
+ *
  * Si un EIN está en varias, manda la SEC, luego IPEDS (trae web y tamaño), luego el IRS.
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
@@ -43,6 +47,11 @@ import {
   US_FREE_DIRECTORY_SOURCE_KEY,
   type UsFreeDirectoryRow,
 } from '../../src/server/source-catalog/connectors/us-ein/us-free-directory-rows';
+import {
+  attachSamWebsites,
+  buildSamWebIndex,
+  type SamEntityWebRecord,
+} from '../../src/server/source-catalog/connectors/us-ein/us-sam-websites';
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
@@ -54,6 +63,7 @@ type Config = {
   irsDir: string | null;
   secDir: string | null;
   ipedsFile: string | null;
+  samFile: string | null;
   apply: boolean;
   year: number;
   activeSince: string;
@@ -76,7 +86,7 @@ function parseArgs(argv: readonly string[]): Config {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(activeSince)) throw new Error('config_invalid: --active-since=AAAA-MM-DD');
   const year = Number(value('year') ?? now.getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year');
-  return { irsDir, secDir, ipedsFile, apply: argv.includes('--apply'), year, activeSince };
+  return { irsDir, secDir, ipedsFile, samFile: value('sam-file'), apply: argv.includes('--apply'), year, activeSince };
 }
 
 async function readRows(config: Config, importedAt: string): Promise<{ rows: UsFreeDirectoryRow[]; read: number }> {
@@ -127,6 +137,20 @@ async function readRows(config: Config, importedAt: string): Promise<{ rows: UsF
   return { rows, read };
 }
 
+async function readSamRecords(file: string): Promise<SamEntityWebRecord[]> {
+  const records: SamEntityWebRecord[] = [];
+  for await (const record of readCsvFile(file)) {
+    records.push({
+      legalBusinessName: record['legalBusinessName'] ?? null,
+      dbaName: record['dbaName'] ?? null,
+      state: record['physicalAddress.stateOrProvinceCode'] ?? null,
+      entityUrl: record['entityURL'] ?? null,
+      uei: record['ueiSAM'] ?? null,
+    });
+  }
+  return records;
+}
+
 function summarize(rows: readonly UsFreeDirectoryRow[]): void {
   const byKey = new Map<string, number>();
   for (const row of rows) {
@@ -135,14 +159,23 @@ function summarize(rows: readonly UsFreeDirectoryRow[]): void {
   }
   for (const [key, n] of [...byKey.entries()].sort()) console.log(`    ${key}: ${n}`);
   const large = rows.filter((row) => row.raw_data['size_band'] === 'large').length;
+  const withWeb = rows.filter((row) => typeof row.raw_data['website_domain'] === 'string').length;
   console.log(`  Marcadas como grandes: ${large}`);
+  console.log(`  Con web: ${withWeb}`);
 }
 
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
   console.log(`US FREE DIRECTORY ETL (${US_FREE_DIRECTORY_SOURCE_KEY}) — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
-  const { rows, read } = await readRows(config, new Date().toISOString());
+  const loaded = await readRows(config, new Date().toISOString());
+  let rows = loaded.rows;
+  const read = loaded.read;
+  if (config.samFile) {
+    const result = attachSamWebsites(rows, buildSamWebIndex(await readSamRecords(config.samFile)));
+    rows = result.rows;
+    console.log(`  Web desde SAM.gov: ${result.attached}`);
+  }
   console.log(`  Registros leídos: ${read}`);
   console.log(`  Filas a cargar: ${rows.length}`);
   summarize(rows);

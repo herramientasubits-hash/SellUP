@@ -3232,7 +3232,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 13.528 filas — 11.606 organizaciones del IRS con ingresos ≥ US$ 25 M y 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated»; 5.686 marcadas como grandes). Tabla NTEE/SIC → industria y corte aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --apply.',
+      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web: la de IPEDS o la de su registro en SAM.gov por nombre + estado). Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
     countryCodes: ['US'],
     sectors: [],
     priority: 'P1',
@@ -3241,11 +3241,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita de Estados Unidos por industria: organizaciones sin ánimo de lucro del IRS con ingresos de US$ 25 millones o más (universidades, hospitales, servicios humanos, cooperativas eléctricas), clasificadas por su código NTEE, y empresas cotizadas de la SEC con capitalización flotante de US$ 75 millones o más, clasificadas por su código SIC. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes. Cada empresa llega con su EIN y su razón social oficial.',
+      'Capa gratuita de Estados Unidos por industria: organizaciones sin ánimo de lucro del IRS con ingresos de US$ 25 millones o más (hospitales, servicios humanos, cooperativas eléctricas), clasificadas por su código NTEE; empresas cotizadas de la SEC con capitalización flotante de US$ 75 millones o más, clasificadas por su código SIC; y universidades y colegios de IPEDS con 5.000 estudiantes o más (públicos en Gobierno, privados en Servicios). Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes. Cada organización llega con su EIN, su razón social oficial y, en 42 de cada 100, su web (IPEDS o SAM.gov).',
     limitations: [
-      'Ni el IRS ni la SEC publican la web: las empresas propuestas van a Descartadas y dependen del rescate con Claude para encontrarla.',
+      'Ni el IRS ni la SEC publican la web: sólo 5.979 de 14.206 la traen (IPEDS o SAM.gov por nombre + estado); las demás van a Descartadas y dependen del rescate con Claude.',
       'Las empresas privadas con fines de lucro que no cotizan no aparecen: no hay registro público gratuito con su EIN.',
-      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS o emisor «Large accelerated» en la SEC), que nunca decide solo.',
+      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS, emisor «Large accelerated» en la SEC o 10.000+ estudiantes en IPEDS), que nunca decide solo.',
       'Fundaciones, arte, religión, sindicatos, clubes y fideicomisos de salud de empleados no se proponen; no hay industria de Gobierno.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],

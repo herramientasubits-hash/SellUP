@@ -35,6 +35,7 @@ import {
   ipedsWebsiteDomain,
   US_FREE_DIRECTORY_SOURCE_KEY,
 } from '../us-free-directory-rows';
+import { attachSamWebsites, buildSamWebIndex, samWebsiteDomain } from '../us-sam-websites';
 import {
   buildUsPublicEntityRows,
   dotGovDomainNamesEntity,
@@ -612,5 +613,44 @@ describe('entidades públicas (.gov de CISA + Censo 2024)', () => {
     assert.equal(health.companies.length, 0);
     const noWeb = buildUsFreeDirectoryDiscoveryAdapter({ readCompaniesByMacro: async () => [{ ...entity, website_domain: null }] });
     assert.equal((await noWeb({ macroIndustryKey: 'government', limit: 10 } as never)).companies.length, 0);
+  });
+});
+
+describe('web desde SAM.gov (nombre + estado)', () => {
+  const irsRow = (name: string, state: string, revenue: string, ein: string) =>
+    buildUsIrsDirectoryRow(
+      { EIN: ein, NAME: name, STATE: state, CITY: 'X', SUBSECTION: '03', NTEE_CD: 'E22', REVENUE_AMT: revenue, INCOME_AMT: '0' },
+      base,
+    )!;
+
+  it('dominio útil: fuera «null», redes y correo gratuito', () => {
+    assert.equal(samWebsiteDomain('https://www.jax.org/'), 'jax.org');
+    assert.equal(samWebsiteDomain('null'), null);
+    assert.equal(samWebsiteDomain('www.facebook.com/acme'), null);
+    assert.equal(samWebsiteDomain('acme.wixsite.com'), null);
+  });
+
+  it('pone la web cuando nombre + estado apuntan a una sola; una web, una organización (la mayor)', () => {
+    const index = buildSamWebIndex([
+      { legalBusinessName: 'JACKSON LABORATORY', dbaName: null, state: 'ME', entityUrl: 'https://www.jax.org', uei: 'ABC123DEF456' },
+      { legalBusinessName: 'CENTRAL MAINE MEDICAL CENTER', dbaName: null, state: 'ME', entityUrl: 'cmhc.org', uei: null },
+      { legalBusinessName: 'RUMFORD HOSPITAL', dbaName: null, state: 'ME', entityUrl: 'cmhc.org', uei: null },
+      { legalBusinessName: 'AMBIGUOUS CENTER', dbaName: null, state: 'ME', entityUrl: 'a.org', uei: null },
+      { legalBusinessName: 'AMBIGUOUS CENTER', dbaName: null, state: 'ME', entityUrl: 'b.org', uei: null },
+    ]);
+    const rows = [
+      irsRow('JACKSON LABORATORY', 'ME', '500000000', '010211513'),
+      irsRow('CENTRAL MAINE MEDICAL CENTER', 'ME', '600000000', '010211501'),
+      irsRow('RUMFORD HOSPITAL', 'ME', '40000000', '010211502'),
+      irsRow('AMBIGUOUS CENTER', 'ME', '40000000', '010211503'),
+      irsRow('JACKSON LABORATORY', 'CA', '40000000', '010211504'), // otro estado
+    ];
+    const before = JSON.stringify(rows);
+    const { rows: out, attached } = attachSamWebsites(rows, index);
+    assert.equal(JSON.stringify(rows), before); // no modifica las recibidas
+    assert.equal(attached, 2);
+    assert.deepEqual(out.map((row) => row.raw_data['website_domain']), ['jax.org', 'cmhc.org', null, null, null]);
+    assert.equal(out[0].raw_data['website_source'], 'SAM.gov');
+    assert.equal(out[0].raw_data['sam_uei'], 'ABC123DEF456');
   });
 });
