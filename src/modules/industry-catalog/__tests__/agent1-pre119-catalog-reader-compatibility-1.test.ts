@@ -1055,7 +1055,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
     // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
     // NO APLICADA.
-    assert.match(last, /^147_/);
+    // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+    // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+    // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+    // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.match(last, /^148_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1212,6 +1217,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
       '147_provider_usage_log_dimensions.sql',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '148_agent1_company_relationships.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

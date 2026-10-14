@@ -340,8 +340,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
-      '147_provider_usage_log_dimensions.sql',
-      'el techo conocido es la 147: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF) y la 147 (las dimensiones de las consultas a proveedores) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '148_agent1_company_relationships.sql',
+      'el techo conocido es la 148: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF), la 147 (las dimensiones de las consultas a proveedores) y la 148 (las asociaciones entre empresas de la búsqueda en árbol) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -399,13 +404,15 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // hito conocido sin declararla.
       // AI-USAGE-FASE-2 declara la 147 (dimensiones de `provider_usage_logs`). Queda AUTORIZADA y
       // NOMBRADA como las anteriores, así que la ventana prohibida sube a la 148 y superiores.
-      files.some((file) => /^14[89]/.test(file) || /^1[5-9]\d/.test(file)),
+      // AGENT1-CORPORATE-TREE-1 declara la 148 (`agent1_company_relationships`). Queda AUTORIZADA
+      // y NOMBRADA como las anteriores, así que la ventana prohibida sube a la 149 y superiores.
+      files.some((file) => /^149/.test(file) || /^1[5-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 148 o superior',
+      'ninguna migración 149 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

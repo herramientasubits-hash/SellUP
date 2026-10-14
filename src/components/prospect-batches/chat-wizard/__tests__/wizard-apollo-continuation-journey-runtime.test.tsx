@@ -157,6 +157,12 @@ mock.module('@/modules/prospect-batches/agent-runs/agent-runs-client', {
     // AGENT1-STUCK-RUNS-CLOSE-1 — botones «Terminar» / «Continuar» de la fila.
     APOLLO_CONTINUATION_RETRY_EVENT: 'sellup:apollo-continuation:retry',
     finishAgentRunViaRoute: async () => ({ closedJobs: 0, batchStatus: null }),
+    // AGENT1-CORPORATE-TREE-1 — la primera pregunta consulta si el árbol está encendido.
+    useCorporateTreeEnabled: () => false,
+    executeAgentRunViaRoute: async () => {
+      throw new Error('ninguna prueba de continuación puede lanzar una corrida');
+    },
+    fetchCorporateTreeEnabled: async () => false,
   },
 });
 

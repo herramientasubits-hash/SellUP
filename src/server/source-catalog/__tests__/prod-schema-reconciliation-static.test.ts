@@ -184,6 +184,13 @@ const MIGRATION_146_TAX_IDENTIFIER_RIF = '146_tax_identifier_type_rif.sql';
  * sweep below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_147_USAGE_LOG_DIMENSIONS = '147_provider_usage_log_dimensions.sql';
+/**
+ * AGENT1-CORPORATE-TREE-1. One new table `agent1_company_relationships` (associations between
+ * companies found by the Agent 1 corporate-tree search), RLS read for active users, writes only by
+ * service_role. Not phone, not catalog, not BR, not CUT3B4. Names no source-catalog object, which
+ * the sweep below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_148_COMPANY_RELATIONSHIPS = '148_agent1_company_relationships.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -270,7 +277,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // `prospect_candidates` accept 'RIF', same shape as the 141; no data rows. Not phone, not
     // catalog, not BR, not CUT3B4). It names no source-catalog object, which the foreign sweep
     // below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 147);
+    // AGENT1-CORPORATE-TREE-1 moves the ceiling to 148: one new table
+    // `agent1_company_relationships` (associations between companies found by the Agent 1
+    // corporate-tree search), RLS read for active users and writes only by service_role. Not
+    // phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 148);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -364,7 +375,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('147')),
       [MIGRATION_147_USAGE_LOG_DIMENSIONS],
     );
-    assert.equal(files.some((f) => f.startsWith('148')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('148')),
+      [MIGRATION_148_COMPANY_RELATIONSHIPS],
+    );
+    assert.equal(files.some((f) => f.startsWith('149')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -384,6 +399,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_145_CANDIDATE_ASSIGNMENT,
       MIGRATION_146_TAX_IDENTIFIER_RIF,
       MIGRATION_147_USAGE_LOG_DIMENSIONS,
+      MIGRATION_148_COMPANY_RELATIONSHIPS,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [
