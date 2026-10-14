@@ -407,7 +407,10 @@ type VerifiedProposal = Proposal & { finalDomain: string; outsideVerification: s
 export async function filterProposedCompanies(
   companies: readonly RawCompany[],
   conversation: AnthropicConversationResult,
-  input: Pick<CompanySearchInput, 'excludeDomains' | 'maxCompanies' | 'countryName' | 'countryCode' | 'referenceCompanyName'>,
+  input: Pick<
+    CompanySearchInput,
+    'excludeDomains' | 'maxCompanies' | 'countryName' | 'countryCode' | 'referenceCompanyName' | 'competitorOf'
+  >,
   fetchPage?: DomainFinderDeps['fetchPage'],
 ): Promise<{ results: WebSearchResult[]; rejected: Partial<Record<CompanySearchRejection, number>> }> {
   const searchResults = extractSearchResultEntries(conversation.content);
@@ -417,7 +420,12 @@ export async function filterProposedCompanies(
   const reject = (why: CompanySearchRejection) => {
     rejected[why] = (rejected[why] ?? 0) + 1;
   };
-  const referenceKey = input.referenceCompanyName ? companyNameKey(input.referenceCompanyName) : null;
+  // «Proveedores» y «Competidores» comparten las reglas de la empresa de referencia:
+  // ella misma no es resultado, los competidores de UBITS no son prospectos y la
+  // página de evidencia sirve de segundo intento para verificar el sitio.
+  const referenceName = input.referenceCompanyName ?? input.competitorOf?.name ?? null;
+  const referenceKey = referenceName ? companyNameKey(referenceName) : null;
+  const referenceDomain = input.competitorOf?.domain ?? null;
 
   // ── Fase 1: filtros gratis (sin red) ──────────────────────────────────────
   const seen = new Set<string>();
@@ -438,8 +446,11 @@ export async function filterProposedCompanies(
       reject('not_in_search_results');
       continue;
     }
-    // «Proveedores»: la propia empresa de referencia no es su proveedora.
-    if (referenceKey && isReferenceCompany(name, domain, referenceKey)) {
+    // La propia empresa de referencia no es su proveedora ni su competidora.
+    if (
+      referenceKey &&
+      (isReferenceCompany(name, domain, referenceKey) || (referenceDomain !== null && sameSite(referenceDomain, domain)))
+    ) {
       reject('reference_company');
       continue;
     }
@@ -492,7 +503,7 @@ export async function filterProposedCompanies(
       // búsqueda (Prod 14-10: 10 de 37 propuestas caían aquí, casi todas porque el sitio
       // del proveedor bloquea nuestra descarga).
       const viaEvidence =
-        !check?.found && input.referenceCompanyName && p.sourceUrl
+        !check?.found && referenceKey && p.sourceUrl
           ? await verifyViaEvidenceSource(p, fetchPage).catch(() => null)
           : null;
       if (viaEvidence) return { ...p, finalDomain: p.domain, outsideVerification: viaEvidence };
@@ -530,6 +541,7 @@ export async function filterProposedCompanies(
         claude_company_search: true,
         evidence_source_url: p.sourceUrl,
         ...(input.referenceCompanyName ? { supplier_of: input.referenceCompanyName } : {}),
+        ...(!input.referenceCompanyName && input.competitorOf ? { competitor_of: input.competitorOf.name } : {}),
         site_in_search_results: p.inSearch,
         ...(p.outsideVerification ? { outside_search_verification: p.outsideVerification } : {}),
         ...(p.linkedinUrl ? { linkedin_url: p.linkedinUrl } : {}),

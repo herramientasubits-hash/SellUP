@@ -15,7 +15,7 @@ interface CandidateFoundReasonSectionProps {
   searchTrace: Record<string, unknown> | undefined;
   sourceTitle: string | undefined;
   sourceSnippet: string | undefined;
-  /** AGENT1-SUPPLIER-SEARCH-1 — `metadata.relationship` de un candidato de «Proveedores». */
+  /** `metadata.relationship` de un candidato de «Proveedores» o «Competidores». */
   relationship?: Record<string, unknown> | undefined;
 }
 
@@ -37,11 +37,11 @@ export function CandidateFoundReasonSection({
   sourceSnippet,
   relationship,
 }: CandidateFoundReasonSectionProps) {
-  const supplierOf =
-    relationship?.kind === 'supplier_of' && typeof relationship.reference_company_name === 'string'
-      ? relationship.reference_company_name
-      : null;
-  const evidenceUrl = supplierOf ? safeHttpUrl(relationship?.evidence_url) : null;
+  const referenceName =
+    typeof relationship?.reference_company_name === 'string' ? relationship.reference_company_name : null;
+  const supplierOf = relationship?.kind === 'supplier_of' ? referenceName : null;
+  const competitorOf = relationship?.kind === 'competitor_of' ? referenceName : null;
+  const evidenceUrl = supplierOf || competitorOf ? safeHttpUrl(relationship?.evidence_url) : null;
   return (
     <DrawerSection title="Por qué fue encontrado" icon={Search}>
       <div className="space-y-3">
@@ -49,6 +49,11 @@ export function CandidateFoundReasonSection({
           {supplierOf && (
             <DetailItem label="Proveedor de">
               <span className="font-medium leading-snug">{supplierOf}</span>
+            </DetailItem>
+          )}
+          {competitorOf && (
+            <DetailItem label="Competidor de">
+              <span className="font-medium leading-snug">{competitorOf}</span>
             </DetailItem>
           )}
           {evidenceUrl && (
