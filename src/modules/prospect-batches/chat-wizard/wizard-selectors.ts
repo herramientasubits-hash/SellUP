@@ -61,6 +61,7 @@ export function getWizardProgress(state: ProspectWizardState): WizardProgress {
 
 const PREV_MAP: Partial<Record<ProspectWizardStep, ProspectWizardStep>> = {
   search_type: 'welcome',
+  corporate_tree: 'search_type',
   reference_company: 'search_type',
   reference_confirm: 'reference_company',
   country: 'search_type',

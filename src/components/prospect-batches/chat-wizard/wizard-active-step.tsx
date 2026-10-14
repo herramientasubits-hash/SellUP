@@ -15,6 +15,7 @@ import {
 } from '@/modules/prospect-batches/chat-wizard';
 import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
+import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -156,14 +157,21 @@ function hasIssues(state: ProspectWizardState, step: string): boolean {
 
 // ── Search type step ──────────────────────────────────────────────────────────
 
-/** Las formas de búsqueda, como opciones numeradas de la pregunta del agente. */
-function buildSearchTypeOptions(state: ProspectWizardState): ChatQuestionOptionDetail[] {
-  return resolveSearchModeDefinitions(state).map((def) => ({
-    value: def.mode,
-    label: def.label,
-    description: def.description,
-    ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
-  }));
+/**
+ * Las formas de búsqueda, como opciones numeradas de la pregunta del agente.
+ * AGENT1-CORPORATE-TREE-1 — el árbol se ofrece sólo si la ruta dice que está
+ * encendido; si no, se ve «Próximamente» como las demás que aún no están.
+ */
+function buildSearchTypeOptions(state: ProspectWizardState, corporateTreeEnabled: boolean): ChatQuestionOptionDetail[] {
+  return resolveSearchModeDefinitions(state).map((def) => {
+    const comingSoon = def.availability === 'coming_soon' || (def.mode === 'corporate_tree' && !corporateTreeEnabled);
+    return {
+      value: def.mode,
+      label: def.label,
+      description: def.description,
+      ...(comingSoon ? { hint: 'Próximamente', unavailable: true } : {}),
+    };
+  });
 }
 
 function SearchTypeStep({
@@ -175,7 +183,9 @@ function SearchTypeStep({
   dispatch: React.Dispatch<ProspectWizardAction>;
   titleRef: TitleRef;
 }) {
-  const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON');
+  const corporateTreeEnabled = useCorporateTreeEnabled();
+  const [treeUnavailable, setTreeUnavailable] = React.useState(false);
+  const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON') ?? (treeUnavailable ? true : undefined);
   const definitions = resolveSearchModeDefinitions(state);
 
   // Una opción «Próximamente» se puede tocar: el reductor responde con el aviso
@@ -185,11 +195,17 @@ function SearchTypeStep({
       aria-label="Tipo de búsqueda de prospectos"
       title="¿Qué tipo de prospectos quieres encontrar?"
       titleRef={titleRef}
-      options={buildSearchTypeOptions(state)}
+      options={buildSearchTypeOptions(state, corporateTreeEnabled)}
       selected={state.searchMode ? [state.searchMode] : []}
       onAnswer={(mode) => {
         const definition = definitions.find((def) => def.mode === mode);
-        if (definition) dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
+        if (!definition) return;
+        if (definition.mode === 'corporate_tree' && !corporateTreeEnabled) {
+          setTreeUnavailable(true);
+          return;
+        }
+        setTreeUnavailable(false);
+        dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
       }}
       footerNotice={
         comingSoonWarning ? (

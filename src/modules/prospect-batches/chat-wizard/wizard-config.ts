@@ -11,6 +11,14 @@ export const SEARCH_MODE_DEFINITIONS: ProspectSearchModeDefinition[] = [
     availability: 'enabled',
   },
   {
+    // AGENT1-CORPORATE-TREE-1 — el chat la muestra «Próximamente» si la ruta dice
+    // que está apagada (ENABLE_AGENT1_CORPORATE_TREE_SEARCH).
+    mode: 'corporate_tree',
+    label: 'Árbol de una empresa',
+    description: 'Desde una empresa, encuentra su grupo y matriz, sus filiales y dónde opera en otros países.',
+    availability: 'enabled',
+  },
+  {
     mode: 'competitors',
     label: 'Competidores de una empresa',
     description: 'Encuentra empresas que compiten con una de referencia.',
@@ -58,6 +66,7 @@ export const VALID_COUNTRY_CODES: ReadonlySet<string> = new Set(
 
 export const GO_BACK_MAP = {
   search_type: 'welcome',
+  corporate_tree: 'search_type',
   reference_company: 'search_type',
   reference_confirm: 'reference_company',
   country: 'search_type',

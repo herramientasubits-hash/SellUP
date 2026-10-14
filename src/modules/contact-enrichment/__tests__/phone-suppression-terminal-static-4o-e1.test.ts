@@ -331,7 +331,12 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
-      '147_provider_usage_log_dimensions.sql',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '148_agent1_company_relationships.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

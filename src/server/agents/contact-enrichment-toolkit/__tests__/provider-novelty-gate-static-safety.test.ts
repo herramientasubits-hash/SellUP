@@ -196,7 +196,12 @@ describe('modelo de datos — sin migración nueva', () => {
     // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
     // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
     // NO APLICADA.
-    assert.equal(Math.max(...numbers), 147, 'el techo conocido es la 147');
+    // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+    // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+    // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+    // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 148, 'el techo conocido es la 148');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,
