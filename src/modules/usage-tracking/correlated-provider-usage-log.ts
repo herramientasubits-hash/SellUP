@@ -32,6 +32,11 @@ import {
   type RunCorrelationMetadata,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import type { LogProviderUsageInput } from './types';
+import {
+  resolveProviderUsageUserSnapshot,
+  type ProviderUsageSnapshotReadClient,
+  type ProviderUsageUserSnapshot,
+} from './logging';
 
 // ─── Tipos de transporte ──────────────────────────────────────────────────────
 
@@ -59,6 +64,12 @@ export type CorrelatedProviderUsageLogDeps = {
   client?: ProviderUsageInsertClient | null;
   /** Sumidero inyectable del aviso de fallback. Por defecto `console.warn`. */
   warn?: (signal: string, detail: Record<string, unknown>) => void;
+  /**
+   * Resolución inyectable del snapshot de rol y grupo de `triggered_by`. Por
+   * defecto, el mismo helper del logger genérico (logging.ts) sobre el mismo
+   * cliente. Una prueba lo inyecta y no necesita red.
+   */
+  resolveUserSnapshot?: (triggeredBy: string) => Promise<ProviderUsageUserSnapshot>;
 };
 
 /**
@@ -157,6 +168,8 @@ export function buildProviderUsageLogRowWithBillingState(
     error_message: input.error_message ? input.error_message.slice(0, 500) : null,
     duration_ms: input.duration_ms ?? null,
     triggered_by: input.triggered_by ?? null,
+    // El snapshot de rol y grupo lo completa el motor al insertar
+    // (withUserSnapshot): resolverlo exige leer la base de datos.
     triggered_by_role_key: null,
     triggered_by_group_id: null,
     metadata,
@@ -165,6 +178,43 @@ export function buildProviderUsageLogRowWithBillingState(
 
 function defaultWarn(signal: string, detail: Record<string, unknown>): void {
   console.warn(signal, detail);
+}
+
+/**
+ * Completa triggered_by_role_key / triggered_by_group_id igual que el logger
+ * genérico (logging.ts). Antes esta ruta los dejaba siempre en NULL, y los
+ * filtros de Rol y Grupo de /ai-usage no veían su gasto.
+ *
+ * Nunca lanza y nunca bloquea el registro: si el snapshot no se puede
+ * resolver, la fila se escribe igual con NULL (el gasto ya ocurrió).
+ */
+async function withUserSnapshot(
+  baseRow: Record<string, unknown>,
+  client: ProviderUsageInsertClient,
+  deps?: CorrelatedProviderUsageLogDeps,
+): Promise<Record<string, unknown>> {
+  const triggeredBy = baseRow.triggered_by;
+  if (typeof triggeredBy !== 'string' || triggeredBy === '') return baseRow;
+  if (baseRow.triggered_by_role_key != null || baseRow.triggered_by_group_id != null) {
+    return baseRow;
+  }
+  try {
+    const resolve =
+      deps?.resolveUserSnapshot ??
+      ((id: string) =>
+        resolveProviderUsageUserSnapshot(
+          client as unknown as ProviderUsageSnapshotReadClient,
+          id,
+        ));
+    const snapshot = await resolve(triggeredBy);
+    return {
+      ...baseRow,
+      triggered_by_role_key: snapshot.roleKey,
+      triggered_by_group_id: snapshot.groupId,
+    };
+  } catch {
+    return baseRow;
+  }
 }
 
 // ─── Motor de inserción ───────────────────────────────────────────────────────
@@ -207,8 +257,9 @@ export async function insertCorrelatedProviderUsageRow(
     const client = deps?.client ?? null;
     if (!client) return { kind: 'skipped_no_supabase' };
 
-    const { baseRow, correlationColumns } = args;
+    const { correlationColumns } = args;
     const correlationColumnNames = Object.keys(correlationColumns);
+    const baseRow = await withUserSnapshot(args.baseRow, client, deps);
 
     const { error } = await client
       .from('provider_usage_logs')

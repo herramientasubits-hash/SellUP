@@ -151,6 +151,31 @@ export function calculateSpainCompanyNifControl(body7: string): { digit: string;
   return { digit: String(control), letter: 'JABCDEFGHI'[control] };
 }
 
+/**
+ * Dígito verificador del RIF venezolano: valor de la letra (V=1, E=2, J=3, P=4,
+ * G=5, C=3) × 4 + los 8 dígitos × 3,2,7,6,5,4,3,2; dígito = 11 − (suma mod 11),
+ * y 0 si sale 10 u 11. SOURCES-VE-CLOSE-1: comprobado sobre los 240 RIF de las
+ * sociedades de la SUDEASEG (octubre de 2026) y los de la Bolsa de Caracas.
+ */
+const VENEZUELA_RIF_LETTER_VALUE: Readonly<Record<string, number>> = { V: 1, E: 2, J: 3, P: 4, G: 5, C: 3 };
+
+export function calculateVenezuelaRifCheckDigit(letter: string, body8: string): number | null {
+  const letterValue = VENEZUELA_RIF_LETTER_VALUE[letter.toUpperCase()];
+  if (letterValue === undefined || !/^\d{8}$/.test(body8)) return null;
+  const weights = [3, 2, 7, 6, 5, 4, 3, 2];
+  let total = letterValue * 4;
+  for (let i = 0; i < 8; i++) total += parseInt(body8[i], 10) * weights[i];
+  const dv = 11 - (total % 11);
+  return dv >= 10 ? 0 : dv;
+}
+
+/** RIF venezolano en su forma de siempre («J-00282860-9»), o el texto compacto si no encaja. */
+export function normalizeVenezuelaRif(val: string): string {
+  const compact = val.toUpperCase().replace(/[\s.\-–—]/g, '');
+  const match = /^([VEJPGC])(\d{8})(\d)$/.exec(compact);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : compact;
+}
+
 export function calculateCNPJCheckDigit(digits: number[], weights: number[]): number {
   let sum = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -614,6 +639,29 @@ export const TAX_IDENTIFIER_RULES: Record<string, TaxIdentifierRule> = {
     canonicalExample: '06140101120025',
     ruleVersion: 'SV-NIT-v1',
   },
+  // SOURCES-VE-CLOSE-1 — RIF: letra (J sociedades, G entes públicos, V/E personas,
+  // P pasaportes, C consejos comunales) + 8 dígitos + verificador. Las fuentes lo
+  // escriben de muchas maneras («J - 301664710», «J002828609», «J-00282860-9»).
+  VE: {
+    countryCode: 'VE',
+    label: 'RIF',
+    placeholder: 'Ej. J-00282860-9',
+    helpText: 'Ingrese el RIF: letra (J, G, V, E, P o C), 8 dígitos y el dígito verificador. Con o sin guiones.',
+    minLength: 10,
+    maxLength: 14,
+    inputMode: 'text',
+    acceptedCharacters: /^[\dVEJPGCvejpgc\s.-]*$/,
+    formatPattern: /^[VEJPGC]-\d{8}-\d$/,
+    validationLevel: 'checksum',
+    normalize: normalizeVenezuelaRif,
+    validateFormat: (val) => /^[VEJPGC]-\d{8}-\d$/.test(normalizeVenezuelaRif(val)),
+    validateChecksum: (val) => {
+      const match = /^([VEJPGC])-(\d{8})-(\d)$/.exec(normalizeVenezuelaRif(val));
+      return match !== null && calculateVenezuelaRifCheckDigit(match[1], match[2]) === parseInt(match[3], 10);
+    },
+    canonicalExample: 'J-00282860-9',
+    ruleVersion: 'VE-RIF-v1',
+  },
 };
 
 export function getTaxIdentifierRule(countryCode: string | undefined): TaxIdentifierRule | undefined {
@@ -708,6 +756,7 @@ function getCountryNameByCode(code: string): string {
     PA: 'Panamá',
     NI: 'Nicaragua',
     SV: 'El Salvador',
+    VE: 'Venezuela',
   };
   return names[code.toUpperCase().trim()] ?? code;
 }

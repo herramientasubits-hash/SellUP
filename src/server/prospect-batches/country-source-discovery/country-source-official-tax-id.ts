@@ -33,7 +33,7 @@ export const COUNTRY_SOURCE_TAX_ID_LOOKUP_CONCURRENCY = 4;
 type TaxIdentifierType = NonNullable<CountrySourceCompany['taxIdentifierType']>;
 
 const KNOWN_TAX_IDENTIFIER_TYPES: ReadonlySet<string> = new Set<TaxIdentifierType>([
-  'NIT', 'RFC', 'RUT', 'RUC', 'CUIT', 'CNPJ', 'RNC', 'RTN', 'cedula_juridica', 'EIN', 'NIF', 'other',
+  'NIT', 'RFC', 'RUT', 'RUC', 'CUIT', 'CNPJ', 'RNC', 'RTN', 'cedula_juridica', 'EIN', 'NIF', 'RIF', 'other',
 ]);
 
 export type CountrySourceOfficialTaxIdMatch = {

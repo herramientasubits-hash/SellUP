@@ -100,8 +100,26 @@ import {
   type SvComprasalDirectoryDiscoveryReads,
 } from './sv-comprasal-directory-discovery-adapter';
 import { macroHasSvCoverage } from './sv-comprasal-macro-table';
+import {
+  buildUyArceDirectoryDiscoveryAdapter,
+  UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type UyArceDirectoryDiscoveryReads,
+} from './uy-arce-directory-discovery-adapter';
+import { macroHasUyArceCoverage } from './uy-arce-macro-table';
+import {
+  buildVeFreeDirectoryDiscoveryAdapter,
+  VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type VeFreeDirectoryDiscoveryReads,
+} from './ve-free-directory-discovery-adapter';
+import { macroHasVeCoverage } from './ve-free-directory-macro-table';
 import { macroHasMxCoverage } from './mx-denue-macro-table';
 import { macroHasPyDncpCoverage } from './py-dncp-macro-table';
+import {
+  BR_RECEITA_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  buildBrReceitaDirectoryDiscoveryAdapter,
+  type BrReceitaDirectoryDiscoveryReads,
+} from './br-receita-directory-discovery-adapter';
+import { macroHasBrReceitaCoverage } from './br-receita-macro-table';
 import {
   buildGtGuatecomprasDirectoryDiscoveryAdapter,
   GT_GUATECOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY,
@@ -197,6 +215,20 @@ import {
  * Industrial de Zonas Francas (por sección), microfinancieras de la CONAMI y
  * entidades públicas con web oficial (Gobierno).
  *
+ * SOURCES-BR-LIGHT-1 — Brasil entra con el subconjunto liviano del cadastro CNPJ
+ * de la Receita: matrices activas DEMAIS con capital ≥ R$ 1 M o 3+ sucursales,
+ * clasificadas por su CNAE principal (tabla aprobada el 13-10-2026), y las
+ * cabezas de entes públicos con web `.gov.br` (Gobierno y Salud).
+ * SOURCES-UY-CLOSE-1 — Uruguay entra con las organizaciones del RUPE a las que el
+ * Estado les adjudicó al menos US$ 50.000 entre 2022 y 2025 (ARCE, clasificadas por
+ * lo que venden con el catálogo SICE) y con las entidades públicas de la UAIP y las
+ * intendencias, con su web oficial (Gobierno).
+ *
+ * SOURCES-VE-CLOSE-1 — Venezuela entra sin padrón oficial (el RNC prohíbe el rastreo
+ * y el SENIAT bloquea las consultas): empresas que cotizan o emiten valores (Bolsa de
+ * Caracas y SUNAVAL, tabla empresa → industria), reguladas por la SUDEASEG, casas de
+ * bolsa, empresas y universidades con web propia comprobada y entes públicos (Gobierno).
+ *
  * SOURCES-ES-CLOSE-1 — España entra con sociedades con NIF de cuatro fuentes
  * oficiales gratuitas (entes de INVENTE, Banco de España, «GRAN EMPRESA» de la BDNS
  * y adjudicatarias de 1 M€ o más de la PLACSP; tablas CNAE y CPV aprobadas por la
@@ -204,7 +236,11 @@ import {
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA',
-  'SV', 'NI', 'ES',
+  'SV', 'NI',
+  'BR',
+  'UY',
+  'VE',
+  'ES',
 ] as const;
 
 export type CountrySourceCapability = {
@@ -229,6 +265,9 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   NI: { countryCode: 'NI', sourceKey: NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   ES: { countryCode: 'ES', sourceKey: ES_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   SV: { countryCode: 'SV', sourceKey: SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  BR: { countryCode: 'BR', sourceKey: BR_RECEITA_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  UY: { countryCode: 'UY', sourceKey: UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  VE: { countryCode: 'VE', sourceKey: VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -254,6 +293,8 @@ export function resolveCountrySourceCapability(
  * Bolivia: la macro tiene reglas en la tabla de palabras, o es Gobierno.
  * Costa Rica: la macro tiene clases UNSPSC o CIIU en las tablas que reutiliza, o es Gobierno.
  * Honduras: la macro tiene clases UNSPSC u objetos del gasto en sus tablas, o es Gobierno.
+ * Brasil: la macro tiene divisiones o clases CNAE en la tabla aprobada.
+ * Uruguay: la macro tiene clases del catálogo SICE en la tabla, o es Gobierno.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -277,6 +318,9 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'NI') return macroHasNiCoverage(macroIndustryKey);
   if (capability.countryCode === 'ES') return macroHasEsCoverage(macroIndustryKey);
   if (capability.countryCode === 'SV') return macroHasSvCoverage(macroIndustryKey);
+  if (capability.countryCode === 'BR') return macroHasBrReceitaCoverage(macroIndustryKey);
+  if (capability.countryCode === 'UY') return macroHasUyArceCoverage(macroIndustryKey);
+  if (capability.countryCode === 'VE') return macroHasVeCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -307,6 +351,9 @@ export type CountrySourceAdapterDeps = {
     niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
     esFreeDirectoryDiscoveryReads?: EsFreeDirectoryDiscoveryReads | null;
     svComprasalDirectoryDiscoveryReads?: SvComprasalDirectoryDiscoveryReads | null;
+    brReceitaDirectoryDiscoveryReads?: BrReceitaDirectoryDiscoveryReads | null;
+    uyArceDirectoryDiscoveryReads?: UyArceDirectoryDiscoveryReads | null;
+    veFreeDirectoryDiscoveryReads?: VeFreeDirectoryDiscoveryReads | null;
     /** SOURCES-LATAM-CURATED-1 — capa común de listas curadas, sumada detrás del país. */
     latamCuratedDiscoveryReads?: LatamCuratedDiscoveryReads | null;
 };
@@ -396,6 +443,21 @@ function buildPrimaryCountrySourceAdapter(
   if (capability.countryCode === 'SV') {
     return deps.svComprasalDirectoryDiscoveryReads
       ? buildSvComprasalDirectoryDiscoveryAdapter(deps.svComprasalDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'BR') {
+    return deps.brReceitaDirectoryDiscoveryReads
+      ? buildBrReceitaDirectoryDiscoveryAdapter(deps.brReceitaDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'UY') {
+    return deps.uyArceDirectoryDiscoveryReads
+      ? buildUyArceDirectoryDiscoveryAdapter(deps.uyArceDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'VE') {
+    return deps.veFreeDirectoryDiscoveryReads
+      ? buildVeFreeDirectoryDiscoveryAdapter(deps.veFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

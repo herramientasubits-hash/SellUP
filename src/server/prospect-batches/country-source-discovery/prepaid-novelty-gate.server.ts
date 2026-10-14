@@ -52,6 +52,7 @@ import { buildEcScvsDirectoryDiscoveryReads } from './ec-scvs-directory-snapshot
 import { buildClSiiDirectoryDiscoveryReads } from './cl-sii-directory-snapshot-query';
 import { buildPeSunatDirectoryDiscoveryReads } from './pe-sunat-directory-snapshot-query';
 import { buildPyDncpDirectoryDiscoveryReads } from './py-dncp-directory-snapshot-query';
+import { buildBrReceitaDirectoryDiscoveryReads } from './br-receita-directory-snapshot-query';
 import { buildGtGuatecomprasDirectoryDiscoveryReads } from './gt-guatecompras-directory-snapshot-query';
 import { buildBoOfficialDiscoveryReads } from './bo-official-discovery-snapshot-query';
 import { buildCrFreeDirectoryDiscoveryReads } from './cr-free-directory-snapshot-query';
@@ -60,6 +61,8 @@ import { buildPaFreeDirectoryDiscoveryReads } from './pa-free-directory-snapshot
 import { buildNiFreeDirectoryDiscoveryReads } from './ni-free-directory-snapshot-query';
 import { buildEsFreeDirectoryDiscoveryReads } from './es-free-directory-snapshot-query';
 import { buildSvComprasalDirectoryDiscoveryReads } from './sv-comprasal-directory-snapshot-query';
+import { buildUyArceDirectoryDiscoveryReads } from './uy-arce-directory-snapshot-query';
+import { buildVeFreeDirectoryDiscoveryReads } from './ve-free-directory-snapshot-query';
 import { buildLatamCuratedDiscoveryReads } from './latam-curated-discovery-adapter';
 import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
@@ -230,6 +233,7 @@ export async function runProductionPrePaidNoveltyGate(
           clSiiDirectoryDiscoveryReads: buildClSiiDirectoryDiscoveryReads(adminClient),
           peSunatDirectoryDiscoveryReads: buildPeSunatDirectoryDiscoveryReads(adminClient),
           pyDncpDirectoryDiscoveryReads: buildPyDncpDirectoryDiscoveryReads(adminClient),
+          brReceitaDirectoryDiscoveryReads: buildBrReceitaDirectoryDiscoveryReads(adminClient),
           gtGuatecomprasDirectoryDiscoveryReads: buildGtGuatecomprasDirectoryDiscoveryReads(adminClient),
           boOfficialDiscoveryReads: buildBoOfficialDiscoveryReads(adminClient),
           crFreeDirectoryDiscoveryReads: buildCrFreeDirectoryDiscoveryReads(adminClient),
@@ -238,6 +242,8 @@ export async function runProductionPrePaidNoveltyGate(
           niFreeDirectoryDiscoveryReads: buildNiFreeDirectoryDiscoveryReads(adminClient),
           esFreeDirectoryDiscoveryReads: buildEsFreeDirectoryDiscoveryReads(adminClient),
           svComprasalDirectoryDiscoveryReads: buildSvComprasalDirectoryDiscoveryReads(adminClient),
+          uyArceDirectoryDiscoveryReads: buildUyArceDirectoryDiscoveryReads(adminClient),
+          veFreeDirectoryDiscoveryReads: buildVeFreeDirectoryDiscoveryReads(adminClient),
           latamCuratedDiscoveryReads: buildLatamCuratedDiscoveryReads(adminClient),
           // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — DENUE en vivo (gratuito); la clave sale
           // de la bóveda de secretos y sólo se pide si la corrida es de México.

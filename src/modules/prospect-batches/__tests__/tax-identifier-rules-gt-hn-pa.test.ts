@@ -71,9 +71,11 @@ describe('Panamá — RUC', () => {
 });
 
 describe('países sin regla siguen avisando', () => {
-  // SOURCES-SV-CLOSE-1: El Salvador ya tiene regla; Venezuela sigue sin ella.
-  it('Venezuela no tiene regla', () => {
-    assert.equal(getTaxIdentifierRule('VE'), undefined);
-    assert.equal(validateTaxIdentifier('J-12345678-9', 'VE').valid, false);
+  // SOURCES-SV-CLOSE-1: El Salvador ya tiene regla. SOURCES-VE-CLOSE-1: Venezuela
+  // también (RIF con verificador); el ejemplo de «país sin regla» es un código que
+  // nunca será país.
+  it('un país sin regla sigue avisando', () => {
+    assert.equal(getTaxIdentifierRule('XX'), undefined);
+    assert.equal(validateTaxIdentifier('J-12345678-9', 'XX').valid, false);
   });
 });

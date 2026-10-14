@@ -660,7 +660,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // + `candidate_assigned` en el CHECK de `prospect_candidate_audit`; ninguna fila de datos).
       // No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no crea contacto ni escribe
       // `phone_source`. AUTORADA y NO APLICADA.
-      '145_prospect_candidate_assignment.sql',
+      // SOURCES-VE-CLOSE-1 mueve el techo a la 146: los tipos de identificador fiscal aceptan 'RIF'
+      // (amplía los CHECK `accounts_tax_identifier_type_check` y
+      // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+      // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. No crea contacto ni
+      // escribe `phone_source`. AUTORADA y NO APLICADA.
+      '146_tax_identifier_type_rif.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

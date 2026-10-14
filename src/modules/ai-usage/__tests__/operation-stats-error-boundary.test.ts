@@ -24,11 +24,9 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  resolveOperationLogRowsOrThrow,
-  createAgentRunScope,
-  type AgentRunScope,
-} from '../queries';
+import { resolveOperationLogRowsOrThrow } from '../queries';
+import { selectLogsInScope } from '../usage-aggregators';
+import { resolveStatusFilter } from '../usage-filter-semantics';
 
 type Row = {
   operation_key: string | null;
@@ -107,14 +105,30 @@ describe('getProviderOperationStats empty-scope short-circuits (Q3F-8E, no throw
   // plain [] — not a thrown error — because they represent a legitimately
   // empty universe, not a query failure.
 
-  it('2. empty agent scope (agent filter resolves to 0 runs) stays a non-throwing empty scope', () => {
-    const scope = createAgentRunScope('some_agent', []);
-    const expected: AgentRunScope = { enabled: true, runIds: [] };
-    assert.deepEqual(scope, expected);
-    // getProviderOperationStats short-circuits on this shape via
-    // `if (agentScope.enabled && agentScope.runIds.length === 0) return [];`
-    // — asserted structurally here since that guard runs before the query.
-    assert.equal(scope.enabled && scope.runIds.length === 0, true);
+  it('2. empty agent scope (agent filter matches 0 runs) is a non-throwing empty universe', () => {
+    // El filtro de Agente se resuelve en memoria por agent_run_id: si ninguna
+    // ejecución es de ese agente, ninguna consulta queda en el ámbito — un []
+    // legítimo, nunca una consulta sin restringir ni un error.
+    const logs = selectLogsInScope(
+      [
+        {
+          agent_run_id: 'run-1',
+          provider_key: 'apollo',
+          operation_key: 'organizations_search',
+          status: 'success',
+          triggered_by: null,
+          credits_used: 1,
+          input_tokens: 0,
+          output_tokens: 0,
+          results_returned: 0,
+          estimated_cost_usd: 1,
+          created_at: '2026-10-01T00:00:00Z',
+        },
+      ],
+      new Map(),
+      { since: null, agentKey: 'some_agent', status: resolveStatusFilter(undefined), userIds: null },
+    );
+    assert.deepEqual(logs, []);
   });
 
   it('3. empty user scope (scope.mode === "ids" with 0 ids) is the other non-throwing empty guard', () => {

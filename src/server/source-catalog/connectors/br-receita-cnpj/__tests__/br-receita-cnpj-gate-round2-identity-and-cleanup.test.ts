@@ -669,7 +669,13 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // `prospect_candidates` + `candidate_assigned` in its audit CHECK; no data rows; not phone,
     // not catalog, not BR, not CUT3B4). Not a BR migration; the authorship sweep further down is
     // WIDENED to include it. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 145, 'the repository ceiling is 145 — BULK-COMPANY-ASSIGNMENT-1, not CUT A');
+    // 🔴 SOURCES-VE-CLOSE-1 then moved the ceiling to 146: the tax identifier types accept 'RIF'
+    // (widens the `accounts_tax_identifier_type_check` and
+    // `prospect_candidates_tax_identifier_type_check` CHECKs, same shape as the 141; no data rows).
+    // Not phone, not catalog, not BR, not CUT3B4. Not a BR migration; like the 141 it re-states the
+    // existing list that contains 'CNPJ', so it is checked on its own further down instead of
+    // joining the sweep. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 146, 'the repository ceiling is 146 — SOURCES-VE-CLOSE-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -726,7 +732,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('145')),
       ['145_prospect_candidate_assignment.sql'],
-      'BULK-COMPANY-ASSIGNMENT-1 owns exactly one migration, and it is the ceiling',
+      'BULK-COMPANY-ASSIGNMENT-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('146')),
+      ['146_tax_identifier_type_rif.sql'],
+      'SOURCES-VE-CLOSE-1 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -801,6 +812,21 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
         .join('\n')
         .replace(/'CNPJ'/g, '');
       assert.equal(/CNPJ/i.test(body141), false, '141 may only name CNPJ as the existing CHECK value');
+    }
+    // The 146 (SOURCES-VE-CLOSE-1) is the same shape as the 141 (the full list + 'RIF'), so it is
+    // checked the same way.
+    {
+      const sql146 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/146_tax_identifier_type_rif.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA/i.test(sql146), false, '146 must not be authored by a BR round');
+      const body146 = sql146
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .replace(/'CNPJ'/g, '');
+      assert.equal(/CNPJ/i.test(body146), false, '146 may only name CNPJ as the existing CHECK value');
     }
 
     // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE

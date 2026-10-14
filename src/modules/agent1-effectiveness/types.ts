@@ -37,6 +37,11 @@ export interface Agent1EffectivenessFilters {
   industry?: string;
   batchId?: string;
   providerKey?: string;
+  /**
+   * Personas a las que se limitan los lotes (persona ∩ rol ∩ grupo de
+   * /ai-usage, resueltos a ids). undefined = sin restricción; [] = nadie.
+   */
+  createdByIds?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +121,8 @@ export interface Agent1EffectivenessEvidence {
   batches: Agent1BatchRow[];
   candidates: Agent1CandidateRow[];
   usageLogs: Agent1UsageRow[];
+  /** true ⇒ alguna lectura llegó al tope de seguridad: las cifras pueden quedarse cortas. */
+  readTruncated?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

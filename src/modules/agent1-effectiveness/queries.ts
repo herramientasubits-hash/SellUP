@@ -6,6 +6,12 @@
 // calls. Mirrors the admin-client read pattern used by provider-effectiveness.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import {
+  fetchAllPages,
+  fetchAllPagesInChunks,
+  IN_FILTER_CHUNK_SIZE,
+  type PaginatedReadResult,
+} from '@/lib/supabase/paginated-read';
 import type {
   Agent1BatchRow,
   Agent1CandidateRow,
@@ -20,8 +26,6 @@ function getAdminClient() {
   if (!url || !key) throw new Error('Supabase service credentials not configured');
   return createAdminClient(url, key);
 }
-
-const MAX_ROWS = 20000;
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (v !== null && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
@@ -133,59 +137,93 @@ interface RawUsageRow {
   results_returned: number | null;
 }
 
-// ── Fetch helpers (bounded, no N+1, read-only) ────────────────────────────────
+// ── Fetch helpers (paginados, sin N+1, sólo lectura) ─────────────────────────
+//
+// La API REST de Supabase devuelve como máximo 1.000 filas por petición: una
+// sola petición con `.limit(20000)` dejaba fuera todo lo demás sin avisar. Cada
+// lectura pagina con `.range()` (orden estable por id), parte las listas largas
+// de ids en trozos para `.in()` y devuelve `truncated` si llega al tope de
+// seguridad, en vez de cortar en silencio.
+
+/** Superficie mínima del cliente que usan estas lecturas (inyectable en pruebas). */
+type ReadQuery = {
+  select(columns: string): ReadQuery;
+  eq(column: string, value: unknown): ReadQuery;
+  in(column: string, values: readonly unknown[]): ReadQuery;
+  gte(column: string, value: string): ReadQuery;
+  lt(column: string, value: string): ReadQuery;
+  order(column: string, options?: { ascending?: boolean }): ReadQuery;
+  range(
+    from: number,
+    to: number,
+  ): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+};
+export type Agent1ReadClient = { from(table: string): ReadQuery };
+
+function orThrow<T>(table: string, read: PaginatedReadResult<unknown>): PaginatedReadResult<T> {
+  if (read.error) throw new Error(`agent1-effectiveness: failed to load ${table}: ${read.error}`);
+  return read as PaginatedReadResult<T>;
+}
 
 async function fetchBatchRows(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: Agent1ReadClient,
   filters: Agent1EffectivenessFilters,
-): Promise<RawBatchRow[]> {
-  let query = admin
-    .from('prospect_batches')
-    .select('id, status, country_code, industry, created_by, created_at, source, name, metadata');
+): Promise<PaginatedReadResult<RawBatchRow>> {
+  const build = (createdByChunk: string[] | null) => (from: number, to: number) => {
+    let query = admin
+      .from('prospect_batches')
+      .select('id, status, country_code, industry, created_by, created_at, source, name, metadata');
 
-  if (filters.batchId) query = query.eq('id', filters.batchId);
-  if (filters.createdBy) query = query.eq('created_by', filters.createdBy);
-  if (filters.countryCode) query = query.eq('country_code', filters.countryCode);
-  if (filters.industry) query = query.eq('industry', filters.industry);
-  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
-  if (filters.dateTo) query = query.lt('created_at', filters.dateTo);
+    if (filters.batchId) query = query.eq('id', filters.batchId);
+    if (filters.createdBy) query = query.eq('created_by', filters.createdBy);
+    if (createdByChunk) query = query.in('created_by', createdByChunk);
+    if (filters.countryCode) query = query.eq('country_code', filters.countryCode);
+    if (filters.industry) query = query.eq('industry', filters.industry);
+    if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
+    if (filters.dateTo) query = query.lt('created_at', filters.dateTo);
 
-  const { data, error } = await query.limit(MAX_ROWS);
-  if (error) throw new Error(`agent1-effectiveness: failed to load prospect_batches: ${error.message}`);
-  return (data ?? []) as RawBatchRow[];
+    return query.order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to);
+  };
+
+  const read = filters.createdByIds
+    ? await fetchAllPagesInChunks(filters.createdByIds, IN_FILTER_CHUNK_SIZE, build)
+    : await fetchAllPages(build(null));
+  return orThrow<RawBatchRow>('prospect_batches', read);
 }
 
 async function fetchCandidateRows(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: Agent1ReadClient,
   batchIds: string[],
-): Promise<RawCandidateRow[]> {
-  if (batchIds.length === 0) return [];
-  const { data, error } = await admin
-    .from('prospect_candidates')
-    .select(
-      'batch_id, status, duplicate_status, converted_account_id, record_origin, rejection_reason, classification_source, classification_confidence, source_primary, review_notes, reviewed_by, metadata',
-    )
-    .in('batch_id', batchIds)
-    .limit(MAX_ROWS);
-  if (error) throw new Error(`agent1-effectiveness: failed to load prospect_candidates: ${error.message}`);
-  return (data ?? []) as RawCandidateRow[];
+): Promise<PaginatedReadResult<RawCandidateRow>> {
+  if (batchIds.length === 0) return { rows: [], truncated: false, error: null };
+  const read = await fetchAllPagesInChunks(batchIds, IN_FILTER_CHUNK_SIZE, (chunk) => (from, to) =>
+    admin
+      .from('prospect_candidates')
+      .select(
+        'batch_id, status, duplicate_status, converted_account_id, record_origin, rejection_reason, classification_source, classification_confidence, source_primary, review_notes, reviewed_by, metadata',
+      )
+      .in('batch_id', chunk)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  return orThrow<RawCandidateRow>('prospect_candidates', read);
 }
 
 async function fetchUsageRows(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: Agent1ReadClient,
   batchIds: string[],
   providerKey?: string,
-): Promise<RawUsageRow[]> {
-  if (batchIds.length === 0) return [];
-  let query = admin
-    .from('provider_usage_logs')
-    .select('batch_id, provider_key, operation_key, status, estimated_cost_usd, credits_used, results_returned')
-    .in('batch_id', batchIds);
-  if (providerKey) query = query.eq('provider_key', providerKey);
-
-  const { data, error } = await query.limit(MAX_ROWS);
-  if (error) throw new Error(`agent1-effectiveness: failed to load provider_usage_logs: ${error.message}`);
-  return (data ?? []) as RawUsageRow[];
+): Promise<PaginatedReadResult<RawUsageRow>> {
+  if (batchIds.length === 0) return { rows: [], truncated: false, error: null };
+  const read = await fetchAllPagesInChunks(batchIds, IN_FILTER_CHUNK_SIZE, (chunk) => (from, to) => {
+    let query = admin
+      .from('provider_usage_logs')
+      .select('batch_id, provider_key, operation_key, status, estimated_cost_usd, credits_used, results_returned')
+      .in('batch_id', chunk);
+    if (providerKey) query = query.eq('provider_key', providerKey);
+    return query.order('id', { ascending: true }).range(from, to);
+  });
+  return orThrow<RawUsageRow>('provider_usage_logs', read);
 }
 
 // ── Main evidence loader ──────────────────────────────────────────────────────
@@ -198,16 +236,25 @@ async function fetchUsageRows(
  */
 export async function fetchAgent1EffectivenessEvidence(
   filters: Agent1EffectivenessFilters = {},
+  deps: { client?: Agent1ReadClient } = {},
 ): Promise<Agent1EffectivenessEvidence> {
-  const admin = getAdminClient();
+  // Los filtros de persona / rol / grupo no dejan a nadie: no hay lotes.
+  if (filters.createdByIds && filters.createdByIds.length === 0) {
+    return { batches: [], candidates: [], usageLogs: [], readTruncated: false };
+  }
 
-  const batchRows = await fetchBatchRows(admin, filters);
+  const admin = deps.client ?? (getAdminClient() as unknown as Agent1ReadClient);
+
+  const batchRead = await fetchBatchRows(admin, filters);
+  const batchRows = batchRead.rows;
   const batchIds = batchRows.map((b) => b.id);
 
-  const [candidateRows, usageRows] = await Promise.all([
+  const [candidateRead, usageRead] = await Promise.all([
     fetchCandidateRows(admin, batchIds),
     fetchUsageRows(admin, batchIds, filters.providerKey),
   ]);
+  const candidateRows = candidateRead.rows;
+  const usageRows = usageRead.rows;
 
   const batches: Agent1BatchRow[] = batchRows.map((b) => ({
     id: b.id,
@@ -248,5 +295,10 @@ export async function fetchAgent1EffectivenessEvidence(
     resultsReturned: toNullableInteger(u.results_returned),
   }));
 
-  return { batches, candidates, usageLogs };
+  return {
+    batches,
+    candidates,
+    usageLogs,
+    readTruncated: batchRead.truncated || candidateRead.truncated || usageRead.truncated,
+  };
 }

@@ -336,6 +336,8 @@ export interface ProviderStat {
   total_estimated_cost_usd: number;
   /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
   has_unknown_cost: boolean;
+  /** Cuántas consultas no tienen costo conocido («sin tarifa»): NULL, nunca un 0 fabricado. */
+  unknown_cost_operations?: number;
   last_used_at: string | null;
 }
 
@@ -347,7 +349,13 @@ export interface AgentStat {
   failed_executions: number;
   total_results_generated: number;
   total_results_approved: number;
+  /**
+   * Subtotal de costo conocido, sumado desde provider_usage_logs (nunca desde
+   * agent_runs.estimated_cost_usd). Ver has_unknown_cost.
+   */
   total_estimated_cost_usd: number;
+  /** true ⇒ alguna consulta del agente no tiene costo conocido. */
+  has_unknown_cost?: boolean;
   last_run_at: string | null;
 }
 

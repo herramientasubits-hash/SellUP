@@ -104,6 +104,7 @@ export type TaxIdentifierType =
   | 'cedula_juridica'
   | 'EIN'
   | 'NIF'
+  | 'RIF'
   | 'other';
 
 // ── Entidades principales ─────────────────────────────────────
@@ -401,6 +402,7 @@ export const TAX_IDENTIFIER_TYPE_LABELS: Record<TaxIdentifierType, string> = {
   cedula_juridica: 'Cédula Jurídica',
   EIN: 'EIN (Estados Unidos)',
   NIF: 'NIF (España)',
+  RIF: 'RIF (Venezuela)',
   other: 'Otro',
 };
 
@@ -475,7 +477,6 @@ export const LATAM_COUNTRIES: { code: string; name: string }[] = [
   { code: 'CR', name: 'Costa Rica' },
   { code: 'PA', name: 'Panamá' },
   { code: 'DO', name: 'Rep. Dominicana' },
-  { code: 'US', name: 'Estados Unidos' },
   { code: 'ES', name: 'España' },
 ];
 

@@ -1027,9 +1027,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 145 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 146 o superior, se llame como se llame.
+    // 🔴 SOURCES-VE-CLOSE-1 reclamó después la 146: los tipos de identificador fiscal aceptan 'RIF'
+    // (amplía los CHECK `accounts_tax_identifier_type_check` y
+    // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
+    // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. Misma exigencia por
+    // AUTORÍA que con la 137–145. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^146_/.test(f)),
+      ['146_tax_identifier_type_rif.sql'],
+      'la 146 tiene que ser la de los tipos fiscales con RIF, y sólo ella',
+    );
+    const taxIdentifierRif = read('supabase/migrations/146_tax_identifier_type_rif.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        taxIdentifierRif.includes(foreign),
+        false,
+        `la 146 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 147 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^14[6-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^14[7-9]_/.test(f) || /^1[5-9]\d_/.test(f)).length,
       0,
     );
   });

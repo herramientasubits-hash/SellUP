@@ -77,10 +77,10 @@ describe('resolveImportTaxIdentifier', () => {
     assert.equal(resolveImportTaxIdentifier(`${body}${wrong}`, 'PE').status, 'invalid');
   });
 
-  // SOURCES-TAX-RULES-GT-HN-PA-1 / SOURCES-SV-CLOSE-1: Guatemala y El Salvador ya
-  // tienen regla; Venezuela sigue sin ella.
-  it('país sin regla (p. ej. Venezuela) → se guarda tal cual, sin aviso ni tipo inventado', () => {
-    const r = resolveImportTaxIdentifier(' 1234567-8 ', 'VE');
+  // SOURCES-TAX-RULES-GT-HN-PA-1 / SOURCES-SV-CLOSE-1 / SOURCES-VE-CLOSE-1: Guatemala,
+  // El Salvador y Venezuela ya tienen regla; el ejemplo es un código que nunca será país.
+  it('país sin regla → se guarda tal cual, sin aviso ni tipo inventado', () => {
+    const r = resolveImportTaxIdentifier(' 1234567-8 ', 'XX');
     assert.deepEqual(r, { status: 'unsupported_country', value: '1234567-8', type: null, warning: null });
   });
 

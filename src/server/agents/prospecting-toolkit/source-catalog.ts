@@ -3,8 +3,7 @@
  *
  * Cubre las fuentes oficiales por país que SellUp conoce (Colombia, México,
  * Chile, Perú, Ecuador, Brasil, República Dominicana, Argentina, Guatemala,
- * Honduras, Costa Rica, Panamá, El Salvador, Paraguay, Uruguay, Estados Unidos
- * y España) más fuentes globales como fallback (OpenCorporates, Apollo).
+ * Honduras, Costa Rica, Panamá, El Salvador, Paraguay, Uruguay y España) más fuentes globales como fallback (OpenCorporates, Apollo).
  *
  * Las fuentes con aiFlowStatus `connected_identity_in_run` (número fiscal por
  * nombre en cada corrida) y `connected_free_discovery` (capa gratuita por
@@ -41,7 +40,6 @@ export const FISCAL_IDENTIFIERS: Record<string, string> = {
   PY: 'RUC',
   SV: 'NRC/NIT',
   UY: 'RUT',
-  US: 'EIN',
   ES: 'NIF',
   VE: 'RIF',
 };
@@ -132,7 +130,10 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan un RUC seguro.',
   ],
   VE: [
-    'Sin número fiscal por nombre: el SENIAT exige captcha y busca por RIF, no por nombre; el RNC sólo cubre contratistas del Estado y no tiene descarga masiva.',
+    'Venezuela no publica un padrón de empresas con RIF alcanzable: el RNC prohíbe el rastreo (robots.txt), el SENIAT bloquea las consultas desde fuera del país y no publica la lista de contribuyentes especiales. El RIF por nombre sale de la Bolsa de Caracas, la SUDEASEG, la SUNAVAL (copia de 2022), GLEIF y las webs oficiales que lo muestran: cubre sobre todo finanzas, seguros, empresas que cotizan y entes públicos.',
+    'Una empresa privada que no cotiza ni está regulada (Polar, Farmatodo, las petroleras mixtas) no aparece: queda sin RIF.',
+    'No hay tamaño oficial por empresa: ninguna fuente alcanzable publica trabajadores ni la condición de contribuyente especial.',
+    'Nombres repetidos o genéricos no dan un RIF seguro.',
   ],
   PY: [
     'El padrón público de RUC (SET/DNIT) sólo trae sociedades activas con RUC 80…; no indica sector ni tamaño.',
@@ -145,14 +146,9 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
     'Nombres repetidos o genéricos no dan una cédula segura.',
   ],
   UY: [
-    'El RUT por nombre sólo cubre empresas que alguna vez fueron proveedoras del Estado (RUPE).',
-    'Empresas que nunca vendieron al Estado no aparecen.',
-    'Nombres repetidos o genéricos no dan un RUT seguro.',
-  ],
-  US: [
-    'No existe un registro público de EIN para todas las empresas: sólo cubre empresas que presentan ante la SEC y organizaciones sin ánimo de lucro grandes del IRS.',
-    'Empresas privadas que no cotizan ni presentan ante la SEC no tienen EIN público.',
-    'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
+    'El RUT por nombre sólo cubre organizaciones que alguna vez se inscribieron como proveedoras del Estado (RUPE).',
+    'Las marcas que no son la razón social no dan RUT; nombres repetidos o genéricos tampoco.',
+    'La capa gratuita sólo ofrece a quien le vende al Estado; ARCE no publica webs y Uruguay no publica tamaño por empresa (sólo Gobierno lleva funcionarios de la ONSC).',
   ],
   ES: [
     'España no publica el NIF de las empresas en ningún registro abierto.',
@@ -2329,6 +2325,86 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: ['Tercero no oficial sobre datos de Receita Federal'],
     riskNotes: ['Validar TOS y SLA antes de usar en producción'],
   },
+  // SOURCES-BR-LIGHT-1 — opción A (subconjunto liviano) aprobada por la dueña el
+  // 13-10-2026. NO reemplaza ni enciende br_receita_dados_abertos (la carga nacional
+  // pesada sigue congelada): son claves de fuente distintas en source_company_snapshots.
+  {
+    key: 'br_receita_registry',
+    name: 'Receita Federal — CNPJ por nombre (matrices activas DEMAIS y entes públicos)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1: carga pendiente de autorización. Medido sobre el cadastro CNPJ de 2026-09: 1.359.535 sociedades privadas DEMAIS y 65.900 entes públicos (matriz activa), con sus alias (br_receita_name_alias: nome fantasia, nombre comercial de la CVM, partes de la razón social, clave pública de municipios y estados) y su web cuando encaja con el nombre (br_receita_domain_key). Carga: bajar Empresas0..9, Estabelecimentos0..9, Cnaes y Municipios de arquivos.receitafederal.gov.br (Dados/Cadastros/CNPJ/<AAAA-MM>), correr scripts/source-catalog/extract-br-receita-light.py y luego scripts/source-catalog/run-br-receita-light-etl.ts --subset=… --cvm=… --apply (con SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=br_receita_registry; repetir con br_receita_name_alias y br_receita_domain_key).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P0',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://arquivos.receitafederal.gov.br/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Cadastro CNPJ de la Receita Federal (datos abiertos), sólo la parte que el Agente 1 usa: la matriz activa de las sociedades privadas con porte DEMAIS (ni ME ni EPP) y de los entes públicos. En cada corrida completa el CNPJ por nombre para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Prueba el nombre (sin LTDA, S.A., S/A, EIRELI, ME, EPP, «& Cia», «em recuperação judicial»…), sin «Grupo» y sin «Brasil», contra la razón social, el nome fantasia y el nombre comercial de la CVM; si la candidata trae web, la usa para elegir dentro de un grupo («ambev.com.br» → AMBEV S.A.) y, si el nombre no alcanza, busca por la web entre las empresas grandes cuyo nombre contiene el de la candidata («petrobras.com.br» → PETROLEO BRASILEIRO S A PETROBRAS). El porte llega al filtro de tamaño: ME y EPP se descartan; DEMAIS no decide.',
+    limitations: [
+      'Sólo matrices activas DEMAIS y entes públicos: una ME o una EPP no se encuentra, así que no se descarta por esta vía.',
+      'DEMAIS significa «ni ME ni EPP» por facturación: no prueba 200 o más empleados.',
+      'Las marcas que no son ni razón social ni nome fantasia (Vivo, Nubank, Americanas…) sólo se encuentran por su web.',
+      'Medido con 100 grandes brasileñas: ~60 con CNPJ, de las cuales ~10 caen en otra empresa del mismo grupo; por eso dos empresas del grupo con la misma web nunca dan un CNPJ seguro.',
+      'Snapshot estático — la Receita publica cada mes; requiere recarga.',
+    ],
+    riskNotes: [
+      'Del correo del cadastro sólo se guarda el dominio y sólo si encaja con el nombre (512 mil correos son de la contadora o del grupo); nunca correos, teléfonos, socios ni direcciones.',
+      'Fondos, condominios, SPE y consorcios no aportan alias (no son la empresa que nombran).',
+    ],
+  },
+  {
+    key: 'br_receita_directory',
+    name: 'Receita Federal — capa gratuita por industria (DEMAIS con capital ≥ R$ 1 M o 3+ sucursales)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1 (tabla CNAE → industria aprobada por la dueña el 13-10-2026): carga pendiente de autorización. Medido sobre 2026-09: 131.728 sociedades privadas tras quitar holdings, fondos y SPE inmobiliarias (91.261 con web que encaja con el nombre) más las cabezas de entes públicos con web .gov.br (2.109). Se carga con el mismo script que br_receita_registry (SELLUP_CONFIRMED_SOURCE_KEY=br_receita_directory).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P0',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://arquivos.receitafederal.gov.br/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita brasileña por industria: matrices activas de sociedades privadas DEMAIS con capital social de R$ 1 M o más o con 3 o más sucursales activas (el corte que da más empresas gratis), clasificadas por su CNAE principal con la misma tabla por división que Argentina, Perú y Ecuador (farmacias y mayoristas de medicamentos → Salud; informática al por mayor y al por menor → Tecnología). Se ofrecen de más a menos capital y sucursales. Gobierno y Salud suman las cabezas de entes públicos (municipios, estados, ministerios, universidades, hospitales) con su web .gov.br. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí; cada empresa llega con su CNPJ y, cuando encaja con su nombre, su web.',
+    limitations: [
+      'El capital y las sucursales no son empleados: muchas empresas propuestas no llegan a 200 personas y las descarta el filtro de tamaño.',
+      'Hoteles, restaurantes, medios, educación privada y asociaciones no se proponen (sin macro), igual que en Argentina.',
+      'Sin web que encaje con el nombre, la empresa va a Descartadas y depende del rescate para encontrar su sitio.',
+      'Snapshot estático — requiere recarga.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'br_cvm_cia_aberta',
+    name: 'CVM — cadastro de companhias abertas (nombre comercial y web de las cotizadas)',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-BR-LIGHT-1: 756 compañías activas (723 con correo de relación con inversores). No tiene carga propia: se cruza por CNPJ al cargar br_receita_registry (--cvm=cad_cia_aberta.csv de dados.cvm.gov.br/dados/CIA_ABERTA/CAD/DADOS/).',
+    countryCodes: ['BR'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'official_registry',
+    url: 'https://dados.cvm.gov.br/dataset/cia_aberta-cad',
+    automationLevel: 'high',
+    recommendedUse:
+      'Cadastro abierto de la CVM con las empresas que cotizan en bolsa. Aporta su nombre comercial como alias («TELEFÔNICA BRASIL», «CELESC») y el dominio de su correo de relación con inversores como web, y marca a la cotizada para elegir dentro de un grupo cuando varias empresas comparten la misma web («bradesco.com.br» → BANCO BRADESCO S.A.).',
+    limitations: ['Sólo las ~760 empresas activas con acciones o deuda registrada en la CVM.'],
+    riskNotes: ['Del correo sólo se guarda el dominio.'],
+  },
 
   // ── Costa Rica ──────────────────────────────────────────────────────────────
   {
@@ -2398,7 +2474,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     connectionMode: 'read_only_snapshot',
     nextAction:
       'SOURCES-LATAM-CURATED-1 (investigación 08-10-2026; decisiones de la dueña 08-10: educación privada → Compañía de Servicios, uso autorizado de Merco, Great Place to Work, Statista, datosperu.org y Google News). Se suma detrás de la capa gratuita de cada país. Listas: SNIES e IPS con 50+ camas (CO), SUNEDU y emisores BVL (PE), aseguradoras SSN (AR), aseguradoras CMF (CL), exportadores de Pro Ecuador (EC), CONES (PY), universidades de Wikidata (14 países), Merco Empresas y Talento (15 países), Great Place to Work certificadas (MX y Centroamérica) y Forbes/Statista Mejores empleadores (MX, sólo marca de grande). Fuera: Pacto Global ONU (su robots.txt prohíbe rastrear el buscador), datosperu.org (Perú ya usa los trabajadores de SUNAT), MICI SEM y emisores CNV/CMF (sin sector). Carga: los extractores de scripts/source-catalog/latam-curated/ (ver README) escriben entradas JSONL y scripts/source-catalog/run-latam-curated-etl.ts --entries=… las une (dry-run por defecto; --apply con autorización).',
-    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO'],
+    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO', 'UY'],
     sectors: [],
     priority: 'P1',
     operationalStatus: 'pending_validation',
@@ -2410,7 +2486,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Varias listas no publican número fiscal: lo pone en la corrida el registro oficial del país por nombre, sólo con coincidencia fuerte.',
       'Lo que no tiene industria por el tipo de lista ni por el sector publicado no se ofrece.',
-      'Uruguay no tiene capa gratuita todavía: sus listas no se ofrecen hasta que la tenga.',
       'Snapshot estático — requiere recarga anual de cada lista.',
     ],
     riskNotes: [
@@ -2618,6 +2693,88 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: [
       'Un dominio usado por dos o más entidades (correo de grupo) no se usa.',
+      'Nunca se guardan correos, contactos ni teléfonos.',
+    ],
+  },
+  // ── Venezuela ──────────────────────────────────────────────────────────────
+  {
+    key: 've_rif_registry',
+    name: 'Registro unido de RIF de Venezuela (Bolsa de Caracas + SUDEASEG + SUNAVAL + GLEIF + webs oficiales) — RIF por nombre',
+    sellupUse: 'legal_validation',
+    aiFlowStatus: 'connected_identity_in_run',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 (tipo RIF) APLICADA en Prod el 13-10-2026; CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 636 RIF con verificador (628 con nombre único): 113 emisoras y 35 casas de bolsa de la Bolsa de Caracas, 239 reguladas de la SUDEASEG, 155 de la SUNAVAL (2022), 76 de GLEIF y 93 webs oficiales que muestran su RIF (entes públicos, universidades y empresas); más 138 alias. Con 57 nombres reales tomados de prensa y rankings (no de estas listas): 3 RIF seguros — la cobertura está en finanzas, seguros, cotizadas y entes públicos. Carga: extract-ve-official-sources.py y run-ve-sources-etl.ts --apply --only=registry y luego --only=alias.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.sudeaseg.gob.ve/sujetos-regulados',
+    automationLevel: 'high',
+    recommendedUse:
+      'RIF por nombre de Venezuela en cada corrida del Agente 1, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Une por RIF las emisoras y casas de bolsa de la Bolsa de Caracas (consulta pública de su web), los sujetos regulados personas jurídicas de la SUDEASEG (aseguradoras, medicina prepagada, corretaje, reaseguro), los registros de la SUNAVAL (copia del Internet Archive de 2022), GLEIF y las webs oficiales que muestran su RIF. Se prueban variantes del nombre en orden (forma societaria al principio, en medio o al final, «Banco Universal» o «Casa de Bolsa» detrás, sigla entre paréntesis, con o sin «Venezuela», sin «Corporación»). RIF seguro sólo cuando exactamente un RIF tiene esa clave; un nombre de una sola palabra necesita que la web lo confirme.',
+    limitations: [
+      'Sólo empresas que cotizan o emiten valores, reguladas del sector asegurador y del mercado de valores, personas jurídicas con LEI y webs que muestran su RIF: una empresa privada fuera de esas listas no aparece.',
+      'La copia de la SUNAVAL es de 2022: altas posteriores no están y alguna puede haber cerrado.',
+      'No trae trabajadores: ninguna fuente alcanzable de Venezuela los publica por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
+    ],
+    riskNotes: [
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RIF seguro; queda como señal.',
+      'Las personas naturales de la SUDEASEG (agentes y corredores) nunca se leen ni se guardan.',
+    ],
+  },
+  {
+    key: 've_free_directory',
+    name: 'Directorio de Venezuela con RIF (Bolsa de Caracas + SUDEASEG + SUNAVAL + webs oficiales) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 APLICADA y tablas empresa → industria APROBADAS por la dueña el 13-10-2026 (empresas del Estado a su industria); CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 573 entidades con RIF — Financieras 337, Servicios 58, Gobierno 53, Industria 27, Consumo 25, Agroindustria 16, Tecnología 15, Transporte 13, Salud 11, Retail 11, Construcción 4, Energía 3; con web de la fuente, de su web oficial o comprobada por nombre (34). Carga: run-ve-sources-etl.ts --web-map=… --apply --only=directory.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.bolsadecaracas.com/emisoras/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla para las empresas del Estado (a su industria; medios del Estado en Gobierno), una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
+    limitations: [
+      'Sin tamaño oficial: el filtro de tamaño decide con lo que traigan los demás pasos.',
+      'Muy cargada hacia Seguros y Servicios Financieros; en Retail, Tecnología o Salud son pocas decenas.',
+      'Las reguladas de la SUDEASEG casi nunca traen web: dependen de la búsqueda por nombre o del rescate.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'Holdings y empresas cuyo objeto social no identifica el negocio quedan sin industria a propósito.',
+    ],
+  },
+  {
+    key: 've_free_directory_web',
+    name: 'Entes públicos, universidades y empresas de Venezuela con web propia — capa gratuita (sin RIF)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-VE-CLOSE-1: código listo; migración 146 APLICADA y tablas APROBADAS el 13-10-2026; CARGA PENDIENTE de autorización. Dry-run 13-10-2026: 155 entidades — 100 de Gobierno (171 entes públicos con web viva de 645 dominios comprobados; los que muestran RIF van con RIF a ve_free_directory; las empresas del Estado, a su industria) y 55 universidades privadas, empresas del Estado y empresas con web comprobada. Carga: run-ve-sources-etl.ts --apply --only=directory_web.',
+    countryCodes: ['VE'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'public_dataset',
+    url: 'https://www.wikidata.org/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Venezuela para quien no tiene un RIF alcanzable pero sí web propia: entes públicos (Gobierno), universidades privadas (Compañía de Servicios) y empresas con web comprobada (tabla empresa → industria). Cada web se abrió una vez y sólo entra si responde y es de la entidad (fuera dominios en venta, webs de otro país, redes sociales, medios, clubes, ONG y gremios).',
+    limitations: [
+      'Sin RIF: «una empresa, un vendedor» se apoya en la web.',
+      'Muchas webs del Estado venezolano no responden desde fuera del país: quedan fuera aunque el ente exista.',
+    ],
+    riskNotes: [
+      'Un dominio usado por dos o más entidades no se usa.',
       'Nunca se guardan correos, contactos ni teléfonos.',
     ],
   },
@@ -2926,7 +3083,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '17.785 empresas activas con forma societaria del RUPE (ARCE, catalogodatos.gub.uy) cargadas. El Agente 1 completa el RUT por nombre en cada corrida.',
+      'SOURCES-UY-CLOSE-1: RECARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña; 17 filas viejas borradas) con el RUPE de setiembre de 2026 completo: 30.315 organizaciones vigentes (20.451 activas y 9.864 en ingreso; antes 17.785, sólo activas con S.A./S.R.L./SAS/Ltda.) — suma cooperativas, mutualistas, asociaciones y entes del Estado; fuera personas, consorcios y disueltas — más 2.282 alias (uy_rupe_name_alias: sigla, partes del nombre, nombre de la mutualista antes del descriptor y siglas oficiales de los entes: UTE, OSE, ANCAP, BROU, BPS…). Medido con 106 empresas grandes uruguayas: RUT fuerte 20 → 26, más 14 de una sola palabra que se vuelven fuertes cuando su web lo confirma. Recarga: bajar rupe-<mes>-<año>.csv (catalogodatos.gub.uy, «arce-registro-unico-de-proveedores-del-estado-rupe-<año>») y correr scripts/source-catalog/run-uy-sources-etl.ts --rupe=… --apply --confirm --only=registry --prune-stale (SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=uy_rupe_registry) y luego --only=alias.',
     countryCodes: ['UY'],
     sectors: [],
     priority: 'P1',
@@ -2935,71 +3092,74 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     url: 'https://catalogodatos.gub.uy/',
     automationLevel: 'high',
     recommendedUse:
-      'Registro Único de Proveedores del Estado de Uruguay (RUPE, de ARCE, publicado en catalogodatos.gub.uy): 17.785 empresas activas con forma societaria. En cada corrida del Agente 1 completa el RUT por nombre de empresa. RUT seguro sólo cuando exactamente un RUT tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Registro Único de Proveedores del Estado de Uruguay (RUPE, de ARCE, publicado en catalogodatos.gub.uy): organizaciones vigentes (empresas, cooperativas, mutualistas, asociaciones y entes del Estado). En cada corrida del Agente 1 completa el RUT por nombre de empresa, para todos los proveedores (Apollo, Tavily, Claude y la capa gratuita). Se prueban variantes del nombre en orden (forma societaria escrita de cualquier manera, sigla del RUPE, con o sin «(del) Uruguay», nombre de la mutualista sin su descriptor, sigla oficial del ente). RUT seguro sólo cuando exactamente un RUT tiene esa clave; un nombre de una sola palabra necesita que su web lo confirme y que sea una sociedad anónima o una institución (no una S.R.L. homónima), salvo la sigla oficial de un ente.',
     limitations: [
-      'Sólo empresas que alguna vez fueron proveedoras del Estado: las demás no aparecen.',
-      'Sólo empresas con forma societaria; no se guardan personas ni domicilios.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
+      'Sólo organizaciones que alguna vez se inscribieron como proveedoras del Estado: las demás no aparecen.',
+      'Las marcas que no son la razón social (Tienda Inglesa, Disco, Movistar, Montes del Plata…) no se encuentran.',
+      'No se guardan personas físicas ni domicilios; Uruguay no publica tamaño por empresa.',
+      'Sin coincidencias aproximadas: cada variante del nombre debe coincidir exactamente.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
     riskNotes: [
-      'Un nombre repetido o genérico no da un RUT seguro; queda como señal.',
+      'Un nombre repetido, genérico o de una sola palabra sin web que lo confirme no da un RUT seguro; queda como señal.',
+      'Los sindicatos, clubes y asociaciones de funcionarios no aportan alias (no son la empresa que nombran).',
     ],
   },
-
-  // ── Estados Unidos ──────────────────────────────────────────────────────────
   {
-    key: 'us_sec_edgar_registry',
-    name: 'SEC EDGAR — EIN por nombre',
-    sellupUse: 'legal_validation',
-    aiFlowStatus: 'connected_identity_in_run',
+    key: 'uy_arce_directory',
+    name: 'Proveedores adjudicados de ARCE (OCDS 2022-2025) — capa gratuita por industria',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Unas 6.124 empresas operativas con EIN, código SIC y presentación ante la SEC en los dos últimos años cargadas. Es la primera fuente de EIN por nombre en cada corrida del Agente 1.',
-    countryCodes: ['US'],
+      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (tabla del catálogo SICE, corte y carga aprobados por la dueña): 2.315 organizaciones de 16.716 proveedores adjudicados 2022-2025 (fuera 8.509 no vigentes en el RUPE o personas, 4.915 con menos de US$ 50.000, 737 sin industria dominante, 191 sin adjudicación desde 2024, 49 entes del Estado). Web: 567 de 2.315 (Tecnología 69/211, Salud 99/326, Industria 121/367, Construcción 95/377, Servicios 95/595): la del Directorio de Empresas Industriales del MIEM, la de los prestadores del MSP o la comprobada por su nombre (485; su propia página la nombra, un nombre débil sólo junto a su forma societaria; scripts/source-catalog/discover-uy-company-webs.mts). El resto la busca el rescate con Claude en la corrida (opción B elegida por la dueña). Tabla y corte APROBADOS por la dueña el 13-10-2026; recarga del 13-10 con dos decisiones suyas: primero las que tienen web y «equipos de servicio eléctrico» (4-2-6) en Industria. Carga: extract-uy-ocds-suppliers.py sobre ocds-2022..2025.zip (catalogodatos.gub.uy, «arce-datos-historicos-de-compras») y el catálogo imp_catalogo.tgz, y luego scripts/source-catalog/run-uy-sources-etl.ts --apply --confirm --only=directory.',
+    countryCodes: ['UY'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'procurement',
+    url: 'https://catalogodatos.gub.uy/dataset/arce-datos-historicos-de-compras',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita uruguaya por industria: organizaciones vigentes del RUPE a las que el Estado adjudicó al menos US$ 50.000 entre 2022 y 2025 (datos abiertos OCDS de ARCE), con alguna adjudicación desde 2024. La industria sale de lo que venden al Estado (familia, subfamilia y clase del catálogo SICE, tabla catálogo → industria) y se ordenan primero las que tienen web y luego por cuántos organismos distintos les compran. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su RUT, su razón social del RUPE y, cuando se conoce, su web.',
+    limitations: [
+      'Sólo empresas que venden al Estado: las que no tienen adjudicaciones no aparecen.',
+      'ARCE no publica correo ni web de sus proveedores: sólo 567 de 2.315 llevan web (MIEM, MSP o comprobada por su nombre); el resto va a Descartadas y depende del rescate.',
+      'La industria sale de lo que venden al Estado: «otros servicios», «otros materiales», viáticos y tasas no se proponen; seguros y finanzas casi no aparecen.',
+      'Uruguay no publica tamaño por empresa: el monto adjudicado ordena por relevancia, no decide el tamaño.',
+      'Snapshot estático — requiere recarga para sumar adjudicaciones nuevas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos: sólo el dominio corporativo.',
+    ],
+  },
+  {
+    key: 'uy_public_entities',
+    name: 'Entidades públicas de Uruguay (UAIP + intendencias, RUT del RUPE) — capa gratuita de Gobierno',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-UY-CLOSE-1: CARGADO y verificado en Prod el 13-10-2026 (autorizado por la dueña): 108 entidades (107 con web oficial, 55 con RUT del RUPE): ministerios, entes autónomos y servicios descentralizados (UTE, ANTEL, OSE, ANCAP, BPS, BROU, ASSE…), UdelaR, ANEP, UTEC, personas públicas no estatales (LATU, INIA, Ceibal…) y las 19 intendencias. SOURCES-UY-PUBLIC-ENTITY-SIZE-1 (13-10, dueña «adelante»): 59 de las 108 llevan a la ficha sus funcionarios según la ONSC (vínculos con el Estado, corte 31-12-2020) como tamaño oficial, igual que la dotación del INDEC en Argentina; RECARGADO y verificado en Prod el 13-10-2026 (autorizado). Recarga: --onsc=<evolucin-de-vnculos-con-el-estado-.csv> --apply --confirm --only=public. Carga: referentes_ta-tp_v2023.csv de la UAIP (catalogodatos.gub.uy, «uaip-responsables_transparencia_uaip») y scripts/source-catalog/run-uy-sources-etl.ts --referentes=… --apply --confirm --only=public.',
+    countryCodes: ['UY'],
     sectors: [],
     priority: 'P1',
     operationalStatus: 'operational_verified',
     type: 'official_registry',
-    url: 'https://www.sec.gov/edgar',
+    url: 'https://catalogodatos.gub.uy/dataset/uaip-responsables_transparencia_uaip',
     automationLevel: 'high',
     recommendedUse:
-      'Empresas operativas registradas en SEC EDGAR con EIN, código SIC y alguna presentación en los dos últimos años (unas 6.124). Es la primera fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1; si no da un EIN seguro, sigue la carga del IRS (organizaciones sin ánimo de lucro). EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
+      'Capa gratuita de Gobierno de Uruguay: los organismos que publican referentes de transparencia en la UAIP (un ministerio o ente por inciso; intendencias, juntas y personas públicas no estatales por unidad) más las 19 intendencias, con la web de su dominio institucional (sólo si la dirección los nombra: sigla, iniciales o una palabra distintiva) y su RUT cuando el RUPE lo tiene por su nombre o su sigla oficial.',
     limitations: [
-      'Sólo empresas que presentan ante la SEC: la mayoría de las empresas privadas no aparece.',
-      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
-      'Snapshot estático — requiere recarga para reflejar nuevas presentaciones.',
+      'Los municipios (tercer nivel de gobierno) no entran salvo los que publican referente con web propia.',
+      'Muchos organismos no se inscribieron en el RUPE: llegan sólo con su web.',
+      'Las juntas departamentales que sólo publican correos gratuitos quedan fuera.',
+      'Tamaño oficial sólo para ministerios, entes, intendencias y organismos únicos de su inciso (59 de 108): funcionarios de la ONSC al 31-12-2020. Juntas, municipios, personas públicas no estatales y organismos creados después (Ministerio de Ambiente) quedan sin tamaño.',
     ],
     riskNotes: [
-      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
-    ],
-  },
-  {
-    key: 'us_irs_eo_registry',
-    name: 'IRS Exempt Organizations (BMF) — EIN por nombre',
-    sellupUse: 'legal_validation',
-    aiFlowStatus: 'connected_identity_in_run',
-    connectionMode: 'read_only_snapshot',
-    nextAction:
-      '65.044 organizaciones sin ánimo de lucro con ingresos o recaudación de US$5 millones o más cargadas. Segunda fuente de EIN por nombre en cada corrida, después de la SEC.',
-    countryCodes: ['US'],
-    sectors: [],
-    priority: 'P1',
-    operationalStatus: 'operational_verified',
-    type: 'official_registry',
-    url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
-    automationLevel: 'high',
-    recommendedUse:
-      'Archivo maestro de organizaciones exentas del IRS (Exempt Organizations BMF): 65.044 organizaciones sin ánimo de lucro —universidades, hospitales, fundaciones— con ingresos o recaudación de US$5 millones o más. Es la segunda fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1, después de la SEC. EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
-    limitations: [
-      'Sólo organizaciones sin ánimo de lucro grandes (US$5 millones o más): no cubre empresas con fines de lucro.',
-      'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
-      'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
-      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
-    ],
-    riskNotes: [
-      'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
+      'De la lista de la UAIP sólo se usa el dominio institucional; nunca el nombre, el teléfono ni el correo del referente.',
+      'El RUT nunca sale de una sigla libre: «MEF S.R.L.» no es el Ministerio de Economía.',
     ],
   },
 

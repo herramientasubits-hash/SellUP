@@ -85,20 +85,24 @@ describe('fila del RUPE', () => {
     assert.equal(row.tax_id, '216569480018');
     assert.equal(row.legal_name, 'HORMETAL URUGUAY S.A.');
     assert.equal(row.normalized_legal_name, 'HORMETAL URUGUAY');
-    assert.deepEqual(row.raw_data, { department: 'Canelones' });
+    assert.deepEqual(row.raw_data, { department: 'Canelones', rupe_state: 'active' });
     assert.equal(row.record_identity_key, 'tax:216569480018');
   });
 
   it('«Sin dato» en el departamento → null', () => {
     const row = buildUyRupeRegistryRow(record('215261010019', 'GRAM SOCIEDAD ANONIMA', { departamento_prov: 'Sin dato' }), params);
-    assert.deepEqual(row?.raw_data, { department: null });
+    assert.deepEqual(row?.raw_data, { department: null, rupe_state: 'active' });
     assert.equal(row?.normalized_legal_name, 'GRAM');
   });
 
-  it('fuera: personas físicas, bajas, en ingreso, otros países y RUT con DV equivocado', () => {
+  it('SOURCES-UY-CLOSE-1: «en ingreso» entra (el RUT ya existe en la DGI), marcado como tal', () => {
+    const row = buildUyRupeRegistryRow(record('216569480018', 'HORMETAL URUGUAY S.A.', { estado_prov: 'EN INGRESO' }), params);
+    assert.equal(row?.raw_data['rupe_state'], 'registering');
+  });
+
+  it('fuera: personas físicas, bajas, otros países y RUT con DV equivocado', () => {
     assert.equal(buildUyRupeRegistryRow(record('070287320015', 'CARLOS PERAZZA DANIS RODRIGO'), params), null);
     assert.equal(buildUyRupeRegistryRow(record('213146130019', 'LUKELAND S.A.', { estado_prov: 'BAJA DGI' }), params), null);
-    assert.equal(buildUyRupeRegistryRow(record('216569480018', 'HORMETAL URUGUAY S.A.', { estado_prov: 'EN INGRESO' }), params), null);
     assert.equal(buildUyRupeRegistryRow(record('B98309511', 'VERATECH FOR HEALTH S.L.', { pais_prov: 'ESPAÑA' }), params), null);
     assert.equal(buildUyRupeRegistryRow(record('216569480017', 'HORMETAL URUGUAY S.A.'), params), null);
     // Un proveedor extranjero nunca entra, aunque su identificador parezca un RUT válido.

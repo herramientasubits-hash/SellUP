@@ -122,10 +122,44 @@ function bandFromHondurasMipyme(raw: Record<string, unknown>, source: string): O
   };
 }
 
+/**
+ * SOURCES-BR-LIGHT-1 — porte de la Receita Federal de Brasil (cadastro CNPJ). La
+ * Receita lo fija por FACTURACIÓN, no por personas: ME (hasta R$ 360 mil al año) y
+ * EPP (hasta R$ 4,8 M) son micro y pequeña empresa — en personas, hasta 19 y 99
+ * según el criterio del SEBRAE para la industria —, las dos bajo el umbral ICP de
+ * 200, así que el filtro de tamaño las descarta (aprobado por la dueña el
+ * 13-10-2026). DEMAIS es «ni ME ni EPP»: queda en la ficha y NO decide (ni aprueba
+ * por grande ni descarta por pequeña), igual que los grandes contribuyentes.
+ */
+export const BR_PORTE_BANDS: Readonly<Record<string, { min: number; max: number | null; label: string; belowIcp: boolean }>> = {
+  '01': { min: 0, max: 19, label: 'microempresa (ME, Receita)', belowIcp: true },
+  '03': { min: 0, max: 99, label: 'empresa de pequeno porte (EPP, Receita)', belowIcp: true },
+  '05': { min: 0, max: null, label: 'demais (ni ME ni EPP, Receita)', belowIcp: false },
+};
+
+function bandFromBrazilPorte(raw: Record<string, unknown>, source: string, fallbackYear: number | null): OfficialWorkforce | null {
+  const value = raw['br_porte'];
+  if (typeof value !== 'string') return null;
+  const band = BR_PORTE_BANDS[value.trim()];
+  if (!band) return null;
+  const yearValue = raw['br_porte_year'];
+  const year = typeof yearValue === 'number' && Number.isInteger(yearValue) ? yearValue : fallbackYear;
+  if (year === null) return null;
+  return {
+    workers: band.min,
+    year,
+    source,
+    maxWorkers: band.max,
+    sizeBand: band.label,
+    ...(band.belowIcp ? { declaredBelowIcp: true } : {}),
+  };
+}
+
 export function workforceFromRawData(raw: unknown, source: string, fallbackYear: number | null = null): OfficialWorkforce | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
   if (record['hn_mipyme_year'] !== undefined) return bandFromHondurasMipyme(record, source);
+  if (record['br_porte'] !== undefined) return bandFromBrazilPorte(record, source, fallbackYear);
   if (record['py_mipyme_size'] !== undefined) return bandFromParaguayMipymeSize(record, source);
   if (record['cr_meic_size'] !== undefined) return bandFromCostaRicaMeicSize(record, source);
   if (record['sat_iva_agent'] === true) return bandFromGuatemalaIvaAgent(record, source, fallbackYear);
