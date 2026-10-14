@@ -2,13 +2,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
+// Server component: la bandera sale del helper SIN 'use client' (el de cuentas es de
+// cliente y llamarlo aquí rompía la página del lote en Producción, 14-10).
+import { getFlagEmoji } from '@/components/prospect-batches/candidate-detail-helpers';
 import { ChevronDown, ExternalLink, GitBranch } from '@/icons';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   groupBatchCandidatesByTreeRelation,
   readCorporateTreeBatchSummary,
   type CorporateTreeBatchCandidateInput,
+  type CorporateTreeBatchRelationship,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 
 /**
@@ -22,13 +25,15 @@ import {
 export function CorporateTreeBatchSections({
   batchMetadata,
   candidates,
+  relationships = [],
 }: {
   batchMetadata: unknown;
   candidates: readonly CorporateTreeBatchCandidateInput[];
+  relationships?: readonly CorporateTreeBatchRelationship[];
 }) {
   const summary = readCorporateTreeBatchSummary(batchMetadata);
   if (!summary) return null;
-  const groups = groupBatchCandidatesByTreeRelation(candidates);
+  const groups = groupBatchCandidatesByTreeRelation(candidates, relationships);
   const countryNames = LATAM_COUNTRIES.filter((c) => summary.countryCodes.includes(c.code)).map((c) => c.name);
 
   return (
@@ -45,7 +50,8 @@ export function CorporateTreeBatchSections({
               : countryNames.length > 0
                 ? `Buscado en ${countryNames.join(', ')}.`
                 : null}{' '}
-            Las que ya estaban en HubSpot o en SellUp quedan aquí como referencia: no entran a revisión.
+            Las que ya estaban en HubSpot o en SellUp quedan aquí como referencia: no entran a revisión. Las que
+            no tienen web esperan en «Descartadas» mientras el rescate se la busca.
           </p>
         </div>
       </div>

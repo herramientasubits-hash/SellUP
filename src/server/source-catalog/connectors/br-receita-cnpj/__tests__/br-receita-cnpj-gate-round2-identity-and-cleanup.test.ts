@@ -681,7 +681,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // `agent1_company_relationships` (associations between companies found by the Agent 1
     // corporate-tree search), RLS read for active users and writes only by service_role. Not
     // phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 148, 'the repository ceiling is 148 — AGENT1-CORPORATE-TREE-1, not CUT A');
+    // AGENT1-CORPORATE-TREE-2 moves the ceiling to 149: no new table; CREATE OR REPLACE of
+    // `provider_usage_batch_dimensions` so `search_mode` prefers the batch's declared shape
+    // (`prospect_batches.metadata->>'search_mode'`: corporate tree, suppliers, competitors), plus an
+    // idempotent backfill of `provider_usage_logs.search_mode`. Not phone chain 109–117, not
+    // catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 149, 'the repository ceiling is 149 — AGENT1-CORPORATE-TREE-2, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -753,7 +758,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('148')),
       ['148_agent1_company_relationships.sql'],
-      'AGENT1-CORPORATE-TREE-1 owns exactly one migration, and it is the ceiling',
+      'AGENT1-CORPORATE-TREE-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('149')),
+      ['149_provider_usage_search_mode_from_batch_metadata.sql'],
+      'AGENT1-CORPORATE-TREE-2 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -861,6 +871,15 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
         'utf8',
       );
       assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql148), false, '148 must not be authored by a BR round');
+    }
+    // The 149 (AGENT1-CORPORATE-TREE-2) only re-derives `provider_usage_logs.search_mode` from the
+    // batch metadata: it must not be a BR round and must not name CNPJ at all.
+    {
+      const sql149 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/149_provider_usage_search_mode_from_batch_metadata.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql149), false, '149 must not be authored by a BR round');
     }
 
     // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE

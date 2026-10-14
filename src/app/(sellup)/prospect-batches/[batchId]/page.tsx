@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { CorporateTreeBatchSections } from '@/components/prospect-batches/corporate-tree/corporate-tree-batch-sections';
+import { loadCorporateTreeBatchRelationships } from '@/modules/prospect-batches/corporate-tree/corporate-tree-relationships.server';
 import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
 import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
 import { batchRunAttention } from '@/modules/prospect-batches/stuck-runs/stuck-runs-policy';
@@ -121,11 +122,12 @@ export default async function BatchDetailPage({ params }: Props) {
   // países: se titula con su nombre («Árbol · Cencosud»), no con país · industria.
   const isCorporateTreeBatch = batch.metadata?.search_mode === 'corporate_tree';
   const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1' && !isCorporateTreeBatch;
-  // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de una empresa»: el título dice de quién.
+  // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de una empresa»: el título dice de quién. Se lee
+  // del bloque `supplier_search` (no de `search_mode`, que el escritor pisaba en los lotes
+  // anteriores a #699).
   const supplierReference =
-    batch.metadata?.search_mode === 'suppliers'
-      ? ((batch.metadata?.supplier_search as { reference_company_name?: unknown } | undefined)?.reference_company_name ?? null)
-      : null;
+    (batch.metadata?.supplier_search as { reference_company_name?: unknown } | undefined)?.reference_company_name ?? null;
+  const corporateTreeRelationships = isCorporateTreeBatch ? await loadCorporateTreeBatchRelationships(batch.id) : [];
 
   const pageTitle =
     typeof supplierReference === 'string' && supplierReference.trim()
@@ -531,7 +533,7 @@ export default async function BatchDetailPage({ params }: Props) {
       })()}
 
       {/* AGENT1-CORPORATE-TREE-1 — lote de una búsqueda en árbol: ramas sobre la tabla. */}
-      <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} />
+      <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} relationships={corporateTreeRelationships} />
 
       {/* Candidates table */}
       <SurfaceCard noPadding>

@@ -107,3 +107,54 @@ export function readCorporateTreeRelation(metadata: unknown): CorporateTreeRelat
   const relation = (tree as Record<string, unknown>).relation;
   return isCorporateTreeRelation(relation) ? relation : null;
 }
+
+/**
+ * Formas societarias al final del nombre: «Alpina Perú S.A.C.» y «Alpina Perú» son la
+ * misma. Con espacios entre letras («CENCOSUD S A», como lo escribe el SII) y en palabras
+ * («SOCIEDAD ANONIMA», «S.A.S BIC», «SpA»): medido con filas reales el 14-10.
+ */
+const LEGAL_SUFFIX = new RegExp(
+  '(?:\\s+(?:' +
+    [
+      'sociedad anonima(?: cerrada| abierta)?',
+      'sociedad de responsabilidad limitada',
+      'sociedad por acciones(?: simplificada)?',
+      'empresa individual de responsabilidad limitada',
+      's ?a ?s(?: bic)?',
+      's ?a ?c(?: i)?',
+      's ?a ?a',
+      's ?a ?i ?c',
+      's ?a',
+      's ?r ?l',
+      's ?de ?r ?l(?: de c ?v)?',
+      'de c ?v',
+      'c ?v',
+      's ?p ?a',
+      'e ?i ?r ?l',
+      'ltda',
+      'limitada',
+      'cia',
+      'bic',
+      'inc',
+      'llc',
+      'corp',
+      'ltd',
+      'plc',
+      'gmbh',
+    ].join('|') +
+    '))+$',
+);
+
+/** Nombre para comparar: minúsculas, sin acentos, sin signos ni forma societaria. */
+export function normalizeTreeName(text: string): string {
+  const base = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\./g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const stripped = base.replace(LEGAL_SUFFIX, '').trim();
+  return stripped || base;
+}

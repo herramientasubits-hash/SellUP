@@ -792,10 +792,15 @@ describe('la migración 128 — su contrato', () => {
     // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
     // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '148_agent1_company_relationships.sql');
+    // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+    // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+    // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+    // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '149_provider_usage_search_mode_from_batch_metadata.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 148);
-    assert.equal(files.length, 148,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 149);
+    assert.equal(files.length, 149,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

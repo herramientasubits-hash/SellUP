@@ -63,6 +63,8 @@ export type CorporateTreeWritePlan = {
   withoutWebsite: Map<string, CountrySourceCompany[]>;
   droppedByCap: number;
   sharedWebsites: number;
+  /** De registros sin confirmar que Claude no confirmó: no entran. */
+  unconfirmedDropped: number;
 };
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
@@ -100,6 +102,16 @@ export function companyWithoutWebsite(params: {
   );
 }
 
+type PlanEntry = {
+  row: CorporateTreePlannedRow;
+  /** Lo que se escribe según la vía. */
+  freeCompany: CountrySourceCompany | null;
+  webItem: CorporateTreeWebItem | null;
+  withoutWebsite: CountrySourceCompany | null;
+  /** Menor = entra antes cuando hay tope: la partida, luego con web, luego sin web. */
+  priority: number;
+};
+
 export function planCorporateTreeWrites(params: {
   root: CorporateTreeRoot;
   freeHits: readonly CorporateTreeFreeHit[];
@@ -111,106 +123,122 @@ export function planCorporateTreeWrites(params: {
   const rootIsExisting = !!(root.candidateId || root.accountId);
   const rootKey = corporateTreeRowKey(root.name, root.countryCode);
 
-  const plan: CorporateTreeWritePlan = {
-    rows: [],
-    freeCatalog: new Map(),
-    web: new Map(),
-    withoutWebsite: new Map(),
-    droppedByCap: 0,
-    sharedWebsites: 0,
-  };
-  const seen = new Set<string>();
-  const room = () => plan.rows.length < maxRows;
-
   // Webs compartidas: la de la empresa de partida o la que usan dos o más empresas de Claude.
   const domainUse = new Map<string, number>();
   for (const node of params.nodes) if (node.domain) domainUse.set(node.domain, (domainUse.get(node.domain) ?? 0) + 1);
   const isShared = (domain: string | null) =>
     !!domain && ((!!root.domain && domain === root.domain) || (domainUse.get(domain) ?? 0) > 1);
 
-  // 1. Lo gratis primero (registros oficiales y banco).
+  // Lo que Claude devolvió, por empresa: confirma las de registro y les da su web.
+  const nodeByKey = new Map<string, CorporateTreeNode>();
+  for (const node of params.nodes) {
+    const key = corporateTreeRowKey(node.name, node.countryCode);
+    if (!nodeByKey.has(key)) nodeByKey.set(key, node);
+  }
+  const consumed = new Set<string>();
+  const seen = new Set<string>();
+  const entries: PlanEntry[] = [];
+  let sharedWebsites = 0;
+  let unconfirmedDropped = 0;
+
+  // 1. Lo gratis (registros oficiales y banco), unido a lo que Claude dijo de cada una.
   for (const hit of params.freeHits) {
     const key = corporateTreeRowKey(hit.name, hit.countryCode);
-    const isRoot = hit.relation === 'root' || key === rootKey;
+    // La razón social de la propia empresa no siempre se llama como la marca («Alpina
+    // Productos Alimenticios S.A.S. BIC»): en su país y con su misma web, es ella.
+    const sameSiteAsRoot =
+      !!root.domain && !!hit.domain && hit.domain === root.domain && hit.countryCode === root.countryCode;
+    const isRoot = hit.relation === 'root' || key === rootKey || sameSiteAsRoot;
+    if (seen.has(key) || (isRoot && seen.has(rootKey))) continue;
     if (isRoot && rootIsExisting) {
       seen.add(key);
       continue;
     }
-    if (seen.has(key)) continue;
-    if (!room()) {
-      plan.droppedByCap++;
+    const node = nodeByKey.get(key) ?? null;
+    if (hit.confirmation === 'needs_claude' && !node && !isRoot) {
+      unconfirmedDropped++;
       continue;
     }
     seen.add(key);
-    // La web del grupo (la de la empresa de partida) tampoco es propia en un registro.
-    const sharedDomain = !isRoot && !!hit.domain && !!root.domain && hit.domain === root.domain;
-    const route: CorporateTreePlannedRow['route'] =
-      hit.origin === 'bank' && hit.bankCandidate
-        ? 'agent1_writer'
-        : hit.domain && hit.company && !sharedDomain
-          ? 'free_catalog'
-          : 'without_website';
-    if (sharedDomain) plan.sharedWebsites++;
-    plan.rows.push({
+    if (isRoot) seen.add(rootKey);
+    if (node) consumed.add(key);
+
+    const ownDomain = hit.domain && !(!isRoot && root.domain && hit.domain === root.domain) ? hit.domain : null;
+    const claudeDomain = node?.domain && !isShared(node.domain) ? node.domain : null;
+    const domain = ownDomain ?? claudeDomain;
+    const sharedDomain = !domain && !!(hit.domain || node?.domain);
+    if (sharedDomain) sharedWebsites++;
+    const groupWebsite = sharedDomain ? (node?.website ?? (hit.domain ? `https://${hit.domain}` : null)) : null;
+
+    const bankRoute = hit.origin === 'bank' && hit.bankCandidate;
+    const route: CorporateTreePlannedRow['route'] = bankRoute
+      ? 'agent1_writer'
+      : domain && hit.company
+        ? 'free_catalog'
+        : 'without_website';
+    const row: CorporateTreePlannedRow = {
       key,
       origin: hit.origin,
-      relation: isRoot ? 'root' : hit.relation,
+      relation: isRoot ? 'root' : node ? node.branch : hit.relation,
       name: hit.name,
       countryCode: hit.countryCode,
-      domain: sharedDomain ? null : hit.domain,
+      domain,
       taxId: hit.taxId,
-      relationDetail: hit.origin === 'bank' ? 'Encontrada en el banco de empresas' : `Registro oficial: ${hit.sourceKey}`,
-      evidenceUrl: null,
-      groupWebsite: sharedDomain && root.website ? root.website : null,
+      relationDetail:
+        node?.relationDetail ?? (hit.origin === 'bank' ? 'Encontrada en el banco de empresas' : `Registro oficial: ${hit.sourceKey}`),
+      evidenceUrl: node?.evidenceUrl ?? null,
+      groupWebsite,
       route,
+    };
+    entries.push({
+      row,
+      freeCompany: route === 'free_catalog' && hit.company ? { ...hit.company, domain } : null,
+      webItem: route === 'agent1_writer' && hit.bankCandidate ? { key, node: null, bankCandidate: hit.bankCandidate } : null,
+      withoutWebsite:
+        route === 'without_website'
+          ? companyWithoutWebsite({
+              name: hit.name,
+              countryCode: hit.countryCode,
+              taxId: hit.taxId,
+              base: hit.company ? { ...hit.company, domain: null } : null,
+            })
+          : null,
+      priority: isRoot ? 0 : route === 'without_website' ? 2 : 1,
     });
-    if (route === 'agent1_writer' && hit.bankCandidate) push(plan.web, hit.countryCode, { key, node: null, bankCandidate: hit.bankCandidate });
-    else if (route === 'free_catalog' && hit.company) push(plan.freeCatalog, hit.countryCode, hit.company);
-    else
-      push(
-        plan.withoutWebsite,
-        hit.countryCode,
-        companyWithoutWebsite({
-          name: hit.name,
-          countryCode: hit.countryCode,
-          taxId: hit.taxId,
-          base: hit.company ? { ...hit.company, domain: null } : null,
-        }),
-      );
   }
 
-  // 2. Lo que encontró Claude (lo que lo gratis no tenía).
+  // 2. Lo que encontró Claude y no estaba en lo gratis.
   for (const node of params.nodes) {
     const key = corporateTreeRowKey(node.name, node.countryCode);
-    if (seen.has(key)) continue;
-    if (!room()) {
-      plan.droppedByCap++;
-      continue;
-    }
+    if (seen.has(key) || consumed.has(key)) continue;
     seen.add(key);
     const shared = isShared(node.domain);
-    if (shared) plan.sharedWebsites++;
+    if (shared) sharedWebsites++;
     const ownWebsite = shared ? null : node.website;
     const effective: CorporateTreeNode = shared ? { ...node, website: null, domain: null } : node;
-    plan.rows.push({
-      key,
-      origin: 'claude',
-      relation: node.branch,
-      name: node.name,
-      countryCode: node.countryCode,
-      domain: effective.domain,
-      taxId: null,
-      relationDetail: node.relationDetail,
-      evidenceUrl: node.evidenceUrl,
-      groupWebsite: shared ? node.website : null,
-      route: ownWebsite ? 'agent1_writer' : 'without_website',
+    entries.push({
+      row: {
+        key,
+        origin: 'claude',
+        relation: node.branch,
+        name: node.name,
+        countryCode: node.countryCode,
+        domain: effective.domain,
+        taxId: null,
+        relationDetail: node.relationDetail,
+        evidenceUrl: node.evidenceUrl,
+        groupWebsite: shared ? node.website : null,
+        route: ownWebsite ? 'agent1_writer' : 'without_website',
+      },
+      freeCompany: null,
+      webItem: ownWebsite ? { key, node: effective, bankCandidate: null } : null,
+      withoutWebsite: ownWebsite ? null : companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }),
+      priority: ownWebsite ? 1 : 3,
     });
-    if (ownWebsite) push(plan.web, node.countryCode, { key, node: effective, bankCandidate: null });
-    else push(plan.withoutWebsite, node.countryCode, companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }));
   }
 
   // 3. La empresa de partida, si no estaba en SellUp ni apareció en ninguna fuente.
-  if (!rootIsExisting && !seen.has(rootKey) && root.countryCode && room()) {
+  if (!rootIsExisting && !seen.has(rootKey) && root.countryCode) {
     seen.add(rootKey);
     const rootNode: CorporateTreeNode = {
       branch: 'group',
@@ -223,22 +251,49 @@ export function planCorporateTreeWrites(params: {
       relationDetail: null,
       evidenceUrl: '',
     };
-    plan.rows.push({
-      key: rootKey,
-      origin: 'root',
-      relation: 'root',
-      name: root.name,
-      countryCode: root.countryCode,
-      domain: root.domain,
-      taxId: null,
-      relationDetail: null,
-      evidenceUrl: null,
-      groupWebsite: null,
-      route: root.website ? 'agent1_writer' : 'without_website',
+    entries.push({
+      row: {
+        key: rootKey,
+        origin: 'root',
+        relation: 'root',
+        name: root.name,
+        countryCode: root.countryCode,
+        domain: root.domain,
+        taxId: null,
+        relationDetail: null,
+        evidenceUrl: null,
+        groupWebsite: null,
+        route: root.website ? 'agent1_writer' : 'without_website',
+      },
+      freeCompany: null,
+      webItem: root.website ? { key: rootKey, node: rootNode, bankCandidate: null } : null,
+      withoutWebsite: root.website ? null : companyWithoutWebsite({ name: root.name, countryCode: root.countryCode }),
+      priority: 0,
     });
-    if (root.website) push(plan.web, root.countryCode, { key: rootKey, node: rootNode, bankCandidate: null });
-    else push(plan.withoutWebsite, root.countryCode, companyWithoutWebsite({ name: root.name, countryCode: root.countryCode }));
   }
 
+  // Tope: entra antes lo que no le cuesta al rescate (con web).
+  const kept = entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => a.entry.priority - b.entry.priority || a.index - b.index)
+    .slice(0, maxRows)
+    .sort((a, b) => a.index - b.index)
+    .map(({ entry }) => entry);
+
+  const plan: CorporateTreeWritePlan = {
+    rows: kept.map((e) => e.row),
+    freeCatalog: new Map(),
+    web: new Map(),
+    withoutWebsite: new Map(),
+    droppedByCap: entries.length - kept.length,
+    sharedWebsites,
+    unconfirmedDropped,
+  };
+  for (const entry of kept) {
+    const cc = entry.row.countryCode ?? '';
+    if (entry.freeCompany) push(plan.freeCatalog, cc, entry.freeCompany);
+    if (entry.webItem) push(plan.web, cc, entry.webItem);
+    if (entry.withoutWebsite) push(plan.withoutWebsite, cc, entry.withoutWebsite);
+  }
   return plan;
 }

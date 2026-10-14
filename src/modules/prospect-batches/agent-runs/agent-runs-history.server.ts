@@ -37,7 +37,9 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
     const since = new Date(nowMs - AGENT_RUNS_HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: batches, error } = await supabase
       .from('prospect_batches')
-      .select('id, created_at, country, industry, status, name, search_mode:metadata->>search_mode')
+      .select(
+        'id, created_at, country, industry, status, name, search_mode:metadata->>search_mode, supplier_reference:metadata->supplier_search->>reference_company_name',
+      )
       .eq('source', 'agent_1')
       .eq('created_by', me.id)
       .gte('created_at', since)
@@ -56,10 +58,16 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
 
     return {
       failed: false,
-      rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null }>).map(
+      rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null; supplier_reference: string | null }>).map(
         (batch) => ({
-          // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de Ecopetrol · …» se titula con su nombre.
-          title: batch.search_mode === 'corporate_tree' || batch.search_mode === 'suppliers' ? batch.name : null,
+          // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de Ecopetrol» sale de su bloque, no de
+          // `search_mode` (el escritor lo pisaba en los lotes anteriores a #699).
+          title:
+            batch.search_mode === 'corporate_tree'
+              ? batch.name
+              : batch.supplier_reference
+                ? `Proveedores de ${batch.supplier_reference}`
+                : null,
           batchId: batch.id,
           createdAt: batch.created_at,
           country: batch.country,
