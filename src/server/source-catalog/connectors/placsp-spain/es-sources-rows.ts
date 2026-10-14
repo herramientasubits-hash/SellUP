@@ -430,11 +430,15 @@ export type EsDirectoryInputs = {
   nameCheckedDomain?: string | null;
 };
 
-/** A igual fuerza, la empresa con web va antes (no cambia de nivel ni de fuerza). */
-export const ES_WEB_PRIORITY_BONUS = 5;
+/**
+ * SOURCES-ES-WEB-FIRST-1 — la empresa que ya trae web va SIEMPRE antes que cualquiera
+ * sin web (después, por nivel y fuerza). La 4.ª ES×Tecnología (14-10-2026) recibió 7 de
+ * 10 sin web: el rescate no encontró ninguna y la meta la llenó Tavily con portales.
+ */
+export const ES_WEB_PRIORITY_BONUS = 10_000;
 
-/** Por encima de cualquier empresa: en Gobierno van primero las entidades públicas. */
-export const ES_PUBLIC_ENTITY_PRIORITY_BASE = 5000;
+/** Por encima de cualquier empresa (también con web): en Gobierno van primero las entidades públicas. */
+export const ES_PUBLIC_ENTITY_PRIORITY_BASE = 20_000;
 
 /** Fuerza 0-9 de una adjudicataria por euros ganados en el periodo cargado. */
 function eurStrength(eur: number): number {
@@ -562,8 +566,8 @@ export function buildEsFreeDirectoryRow(
       normalized_legal_name: core,
       city: null,
       region: bdns?.region ?? null,
-      // SOURCES-ES-WEBS-1 — a igual fuerza, primero la que ya trae web: así la corrida llena
-      // la meta sin esperar al rescate (la 2.ª ES×Tecnología se quedó sin tiempo buscando webs).
+      // SOURCES-ES-WEB-FIRST-1 — primero, siempre, la que ya trae web: así la corrida llena la
+      // meta sin depender del rescate ni de Tavily.
       priority_score:
         esDirectoryPriorityScore({ kind, workers, awardedEur, large }) +
         (domain !== null && !params.sharedDomains.has(domain) ? ES_WEB_PRIORITY_BONUS : 0),
