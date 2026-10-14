@@ -314,13 +314,16 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       };
     },
     reopenDiscardedCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch, 'discarded'),
+    // AGENT1-IMPORT-SAME-PIPELINE-1 — también los lotes importados: sus filas no traen
+    // `target_completeness` y las vueltas siguientes (función nueva) lo leen de aquí.
     loadBatchHasClaudeCompanySearch: async (batchId) => {
       const { data } = await createSupabaseAdminClient()
         .from('prospect_batches')
-        .select('metadata')
+        .select('source, metadata')
         .eq('id', batchId)
         .maybeSingle();
-      return !!(data as { metadata?: Record<string, unknown> | null } | null)?.metadata?.claude_company_search;
+      const batch = data as { source?: string | null; metadata?: Record<string, unknown> | null } | null;
+      return !!batch?.metadata?.claude_company_search || batch?.source === 'external_import';
     },
     classify: classifyCompanyLive,
     // SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal oficial de lo que se admite.

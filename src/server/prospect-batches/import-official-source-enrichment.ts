@@ -36,7 +36,11 @@ export type ImportOfficialSourceRow = {
   website: string | null;
   domain: string | null;
   countryCode: string | null;
-  /** Ya normalizado. Una fila CON identificador fiscal no se busca. */
+  /**
+   * Ya normalizado. AGENT1-IMPORT-SAME-PIPELINE-1 — una fila CON identificador
+   * fiscal también se busca (para el tamaño oficial), pero el resultado sólo se
+   * usa si el registro devuelve el MISMO identificador.
+   */
   taxIdentifier: string | null;
 };
 
@@ -77,8 +81,27 @@ async function enrichOne(
   };
 }
 
+function taxDigits(value: string | null | undefined): string {
+  return (value ?? '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+}
+
 /**
- * Busca en los catálogos oficiales las filas SIN identificador fiscal cuyo país
+ * La fila trae su identificador fiscal y el registro encontró OTRA empresa por el
+ * nombre: ese resultado (razón social, tamaño) no es de esta fila y se ignora.
+ */
+export function contradictsFileTaxIdentifier(
+  row: Pick<ImportOfficialSourceRow, 'taxIdentifier'>,
+  outcome: Pick<ImportOfficialSourceOutcome, 'strongIdentityAvailable' | 'typedColumns'>,
+): boolean {
+  if (!row.taxIdentifier) return false;
+  if (!outcome.strongIdentityAvailable) return true;
+  const official = taxDigits(outcome.typedColumns.tax_identifier);
+  const file = taxDigits(row.taxIdentifier);
+  return !official || !(official.startsWith(file) || file.startsWith(official));
+}
+
+/**
+ * Busca en los catálogos oficiales las filas cuyo país
  * tiene un catálogo conectado. Devuelve un mapa por `rowNumber`; una fila que
  * no se buscó no aparece.
  */
@@ -91,16 +114,15 @@ export async function enrichImportRowsWithOfficialSources(
   if (resolvers.length === 0) return outcomes;
 
   const countries = servedCountries(resolvers);
-  const pending = rows.filter(
-    (r) => !r.taxIdentifier && !!r.countryCode && countries.has(r.countryCode.toUpperCase()),
-  );
+  const pending = rows.filter((r) => !!r.countryCode && countries.has(r.countryCode.toUpperCase()));
 
   for (let i = 0; i < pending.length; i += Math.max(1, concurrency)) {
     const chunk = pending.slice(i, i + Math.max(1, concurrency));
     const results = await Promise.all(
       chunk.map(async (row) => {
         try {
-          return [row.rowNumber, await enrichOne(row, resolvers)] as const;
+          const outcome = await enrichOne(row, resolvers);
+          return contradictsFileTaxIdentifier(row, outcome) ? null : ([row.rowNumber, outcome] as const);
         } catch (err) {
           console.error('[import-official-source] enrichment failed:', err);
           return null;
