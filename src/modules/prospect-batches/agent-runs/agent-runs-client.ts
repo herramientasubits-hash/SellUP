@@ -50,6 +50,7 @@ let corporateTreeEnabled: Promise<boolean> | null = null;
 
 /** ¿Está encendida la búsqueda en árbol? Se pregunta una vez por carga de página. */
 export function fetchCorporateTreeEnabled(): Promise<boolean> {
+  if (typeof fetch !== 'function') return Promise.resolve(false);
   corporateTreeEnabled ??= fetch('/api/prospect-batches/corporate-tree-runs', { cache: 'no-store' })
     .then((response) => (response.ok ? (response.json() as Promise<{ enabled?: unknown }>) : { enabled: false }))
     .then((body) => body.enabled === true)
