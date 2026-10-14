@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
@@ -391,7 +392,8 @@ export async function POST(request: NextRequest) {
         industry: batchIndustry,
         status: 'ready_for_review',
         source: 'external_import',
-        owner_id: internalUserId,
+        // ALWAYS-OWNER-ON-CREATE-1 — el lote importado es de quien lo importa.
+        owner_id: requireOwnerForCreate({ actorUserId: internalUserId }, 'el lote'),
         created_by: internalUserId,
         catalog_version: persistencePayload.batch.catalog_version,
         metadata: batchMetadata,

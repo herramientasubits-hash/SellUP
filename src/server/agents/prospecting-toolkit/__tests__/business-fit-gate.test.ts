@@ -411,7 +411,7 @@ describe('Fixture E — Target cap se aplica DESPUÉS de source URL quality y bu
     const result = await writeProspectingCandidates(
       {
         pipelineOutput,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -479,7 +479,7 @@ describe('Fixture E — Target cap se aplica DESPUÉS de source URL quality y bu
     const result = await writeProspectingCandidates(
       {
         pipelineOutput: makePipelineOutput(candidates),
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
@@ -541,7 +541,7 @@ describe('Fixture F — Ranking: el encaje ya no ordena, y el objetivo no recort
     const result = await writeProspectingCandidates(
       {
         pipelineOutput,
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
