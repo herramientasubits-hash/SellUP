@@ -544,6 +544,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '148_agent1_company_relationships.sql',
+      // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+      // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+      // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+      // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '149_provider_usage_search_mode_from_batch_metadata.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -646,7 +652,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
     // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 148);
+    // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+    // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+    // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+    // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 149);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

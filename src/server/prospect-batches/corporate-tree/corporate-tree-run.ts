@@ -179,7 +179,10 @@ export type CorporateTreeRunDeps = {
   /** `false` si la tabla de asociaciones no está: la corrida sigue. */
   insertRelationships: (rows: CorporateTreeRelationshipRow[]) => Promise<boolean>;
   /** Sella el estado del lote (la misma máquina de estados que la capa gratuita) y su metadata. */
-  sealBatch: (batchId: string, input: { persisted: number; failed: boolean; metadata: Record<string, unknown> }) => Promise<void>;
+  sealBatch: (
+    batchId: string,
+    input: { persisted: number; failed: boolean; metadata: Record<string, unknown>; country?: TreeCountry | null },
+  ) => Promise<void>;
   /** El rescate de siempre (sector, tamaño y web de las que quedaron sin web). */
   scheduleRescue: (batchId: string) => void;
   report: (stage: CorporateTreeStage) => void;
@@ -206,6 +209,12 @@ export type CorporateTreeRunResult =
       batchId: string | null;
       estimatedCostUsd: number;
     };
+
+/** «cencosud» ⇒ «Cencosud»: lo escrito todo en minúsculas se muestra con mayúscula inicial. */
+export function displayCompanyName(name: string): string {
+  if (name !== name.toLowerCase()) return name;
+  return name.replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, letter: string) => `${sep}${letter.toUpperCase()}`);
+}
 
 function roundUsd(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
@@ -251,7 +260,7 @@ async function runClaudePhase(
   deps.report('tree_searching');
   const rootCountry =
     request.countries.find((c) => c.code === root.countryCode) ?? (root.countryCode ? { code: root.countryCode, name: root.countryCode } : null);
-  const knownCompanies = freeHits.map((h) => ({ name: h.name, countryCode: h.countryCode }));
+  const knownCompanies = freeHits.map((h) => ({ name: h.name, countryCode: h.countryCode, confirmed: h.confirmation === 'confirmed' }));
   let branchesDone = 0;
   const outcomes = await Promise.all(
     request.branches.map(async (branch) => {
@@ -333,8 +342,8 @@ export async function runCorporateTreeSearch(
       ? await deps.loadExistingRoot({ candidateId: request.rootCandidateId, accountId: request.rootAccountId }).catch(() => null)
       : null;
   const rootWebsite = existing?.website ?? request.rootWebsite;
-  const root: CorporateTreeRoot = {
-    name: existing?.name ?? request.rootName,
+  let root: CorporateTreeRoot = {
+    name: existing?.name ?? displayCompanyName(request.rootName),
     website: rootWebsite,
     domain: rootWebsite ? normalizeDomain(rootWebsite) : null,
     countryCode: existing?.countryCode ?? request.rootCountryCode,
@@ -342,7 +351,15 @@ export async function runCorporateTreeSearch(
     accountId: existing ? request.rootAccountId : null,
   };
 
-  // 1. El lote, ANTES de cualquier gasto: es del Agente 1 desde el primer instante.
+  // 1. PRIMERO lo gratis (no cuesta nada): así el lote nace con el país real de la
+  //    empresa (Prod 14-10: Cencosud quedó en Colombia, la primera opción de la lista).
+  deps.report('tree_free');
+  const free = await deps
+    .findFreeHits({ rootName: root.name, rootCountryCode: root.countryCode, countryCodes: request.countries.map((c) => c.code) })
+    .catch(() => ({ hits: [] as CorporateTreeFreeHit[], rootCountryCode: root.countryCode, queries: 0, errors: 1 }));
+  root = { ...root, countryCode: root.countryCode ?? free.rootCountryCode };
+
+  // 2. El lote, ANTES de cualquier gasto: es del Agente 1 desde el primer instante.
   const batchCountry =
     request.countries.find((c) => c.code === root.countryCode) ?? request.countries[0];
   let reservation: CorporateTreeReservation;
@@ -362,7 +379,7 @@ export async function runCorporateTreeSearch(
   }
   const runId = deps.newRunId();
   try {
-    return await runAfterReservation(request, context, deps, { root, batchId, runId });
+    return await runAfterReservation(request, context, deps, { root, batchId, runId, free });
   } catch (err) {
     // Nunca queda un lote colgado en curso: se cierra y se puede abrir desde la bandeja.
     const detail = err instanceof Error ? err.message : String(err);
@@ -381,17 +398,15 @@ async function runAfterReservation(
   request: CorporateTreeRequest,
   context: { internalUserId: string; keyOf: (name: string, countryCode: string | null) => string; writeDeadlineAtMs: number },
   deps: CorporateTreeRunDeps,
-  start: { root: CorporateTreeRoot; batchId: string; runId: string },
+  start: {
+    root: CorporateTreeRoot;
+    batchId: string;
+    runId: string;
+    free: { hits: CorporateTreeFreeHit[]; rootCountryCode: string | null; queries: number; errors: number };
+  },
 ): Promise<CorporateTreeRunResult> {
-  const { batchId, runId } = start;
+  const { batchId, runId, free } = start;
   let root = start.root;
-
-  // 2. PRIMERO lo gratis.
-  deps.report('tree_free');
-  const free = await deps
-    .findFreeHits({ rootName: root.name, rootCountryCode: root.countryCode, countryCodes: request.countries.map((c) => c.code) })
-    .catch(() => ({ hits: [] as CorporateTreeFreeHit[], rootCountryCode: root.countryCode, queries: 0, errors: 1 }));
-  root = { ...root, countryCode: root.countryCode ?? free.rootCountryCode };
 
   // 3. Claude, sólo por lo que falta.
   const claude = await runClaudePhase(request, root, free.hits, { runId, batchId }, deps);
@@ -467,6 +482,7 @@ async function runAfterReservation(
       written: writes.written,
       without_website: writes.withoutWebsite,
       dropped_by_cap: plan.droppedByCap,
+      unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
       searched_at: deps.nowIso(),
@@ -476,6 +492,8 @@ async function runAfterReservation(
     .sealBatch(batchId, {
       // Lo escrito según los escritores, o lo que el lote tiene si se pudo leer (lo mayor).
       persisted: Math.max(writes.written, candidates.length),
+      // El país de la empresa de partida, ya resuelto (lo gratis o Claude).
+      country: root.countryCode ? (request.countries.find((c) => c.code === root.countryCode) ?? null) : null,
       failed: loaded !== null && candidates.length === 0 && writes.errors.length > 0,
       metadata: treeMetadata,
     })

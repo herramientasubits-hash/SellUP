@@ -1210,7 +1210,12 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
     // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 148, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+    // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+    // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+    // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 149, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

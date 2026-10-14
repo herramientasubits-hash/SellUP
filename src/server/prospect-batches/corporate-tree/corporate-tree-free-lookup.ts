@@ -67,8 +67,82 @@ const KNOWN_TAX_ID_TYPES = new Set(Object.values(TAX_ID_TYPE_BY_COUNTRY).concat(
 
 /** Filas por fuente y prefijo (homónimos y razones sociales de un mismo grupo). */
 export const CORPORATE_TREE_FREE_ROWS_PER_SOURCE = 12;
-/** Empresas gratis por país que entran al lote. */
-export const CORPORATE_TREE_FREE_HITS_PER_COUNTRY = 6;
+/**
+ * Empresas gratis por país que entran al lote. Medido sin desplegar el 14-10 (8 empresas
+ * reales): más de 3 por país eran casi siempre razones sociales menores, y cada una sin
+ * web le cuesta al rescate una búsqueda de Claude.
+ */
+export const CORPORATE_TREE_FREE_HITS_PER_COUNTRY = 3;
+
+/**
+ * Registros COMPLETOS del país (cualquier sociedad inscrita): ahí un prefijo trae
+ * homónimos sin relación («EXITO DIRECTO S.A.», «ALPINA INMOBILIARIA», «FALABELLA Y
+ * CORSI»). De ellos sólo vale el nombre exacto o el nombre + país / «holding» /
+ * «internacional» («BIMBO DO BRASIL», «CENCOSUD PERU HOLDING»). Los directorios (sólo
+ * empresas grandes, con tamaño, sector o web) aceptan cualquier nombre que empiece así.
+ */
+export const CORPORATE_TREE_BROAD_REGISTRY_KEYS: ReadonlySet<string> = new Set([
+  'ar_rns_registry', 'bo_name_alias', 'br_receita_registry', 'br_receita_name_alias', 'cl_sii_registry',
+  'cl_sii_name_alias', 'cr_company_registry', 'cr_company_name_alias', 'rd_dgii_bulk', 'do_dgii_trade_name_registry',
+  'ec_scvs_registry', 'ec_sri_registry', 'ec_scvs_alias_registry', 'es_official_nif_registry', 'es_nif_name_alias',
+  'gt_nit_registry', 'gt_nit_name_alias', 'hn_ocds_rtn_registry', 'hn_rtn_name_alias', 'mx_compranet_rfc_registry',
+  'ni_ruc_registry', 'ni_ruc_name_alias', 'pa_ruc_registry', 'pa_ruc_name_alias', 'pe_sunat_registry',
+  'pe_sunat_name_alias', 'py_set_registry', 'py_set_name_alias', 'sv_nit_registry', 'sv_nit_name_alias',
+  'us_sec_edgar_registry', 'us_irs_eo_registry', 'uy_rupe_registry', 'uy_rupe_name_alias', 've_rif_registry',
+  've_rif_name_alias',
+]);
+
+/** Lo que puede seguir al nombre en un registro completo y seguir siendo la misma familia. */
+const FAMILY_TAIL_WORDS = new Set([
+  'argentina', 'bolivia', 'brasil', 'brazil', 'do', 'de', 'del', 'chile', 'colombia', 'col', 'costa', 'rica',
+  'dominicana', 'republica', 'ecuador', 'espana', 'guatemala', 'honduras', 'mexico', 'nicaragua', 'panama',
+  'paraguay', 'peru', 'el', 'salvador', 'uruguay', 'venezuela', 'usa', 'us', 'internacional', 'international',
+  'holding', 'holdings', 'group', 'grupo', 'corporacion', 'corporation',
+]);
+
+/** Cómo se parece el nombre de la fila al de la empresa. */
+export function nameKinship(hitCore: string, core: string): 'exact' | 'family' | 'prefix' | 'none' {
+  if (hitCore === core) return 'exact';
+  // Palabra completa: «nutresa» no es «nutresan».
+  if (!hitCore.startsWith(`${core} `)) return 'none';
+  const tail = hitCore.slice(core.length + 1).split(' ').filter(Boolean);
+  return tail.length > 0 && tail.length <= 3 && tail.every((word) => FAMILY_TAIL_WORDS.has(word)) ? 'family' : 'prefix';
+}
+
+/** ¿El nombre de la fila es la empresa o su familia, y no sólo empieza parecido? */
+export function isFamilyName(hitCore: string, core: string, broadRegistry: boolean): boolean {
+  const kinship = nameKinship(hitCore, core);
+  if (kinship === 'none') return false;
+  return broadRegistry ? kinship !== 'prefix' : true;
+}
+
+/**
+ * ¿Se acepta sin más, o necesita que Claude la confirme? Medido sin desplegar el 14-10
+ * con 8 empresas reales: el MISMO nombre en otro país suele ser un homónimo («BIMBO SA»
+ * en Argentina, «ALPINA SA» en Paraguay) y un directorio trae grandes sin relación
+ * («ALPINA AUTOMOVEIS DE LUXO»). Sólo la propia empresa en su país y los nombres de
+ * familia («BIMBO DE COLOMBIA», «CENCOSUD PERU HOLDING») entran solos; lo demás se le
+ * muestra a Claude en la misma llamada y entra sólo si lo confirma (sin costo extra).
+ */
+export function freeHitConfirmation(params: {
+  kinship: 'exact' | 'family' | 'prefix';
+  countryCode: string;
+  rootCountryCode: string | null;
+  origin: 'catalog' | 'bank';
+  /** Directorio de empresas grandes, o registro con 50+ trabajadores. */
+  strongSource: boolean;
+}): 'confirmed' | 'needs_claude' {
+  if (params.origin === 'bank') return 'needs_claude';
+  if (params.kinship === 'exact' && params.rootCountryCode && params.countryCode === params.rootCountryCode) return 'confirmed';
+  // «ALPINA ARGENTINA S A» del registro completo, sin tamaño, puede ser un homónimo.
+  if (params.kinship === 'family' && params.strongSource) return 'confirmed';
+  return 'needs_claude';
+}
+
+/** Señal de empresa grande: directorio (no registro completo) o 50+ trabajadores. */
+export function isStrongFreeSource(hit: Pick<CorporateTreeFreeHit, 'sourceKey' | 'workers'>): boolean {
+  return !CORPORATE_TREE_BROAD_REGISTRY_KEYS.has(hit.sourceKey) || (hit.workers ?? 0) >= 50;
+}
 /** Por debajo de esto el prefijo traería media base («grupo», «banco»). */
 const MIN_CORE_CHARS = 4;
 /** Palabras que preceden al nombre propio y no lo identifican. */
@@ -101,6 +175,8 @@ export type CorporateTreeFreeHit = {
   name: string;
   /** Nombre normalizado SIN forma societaria (para no repetir y para Claude). */
   core: string;
+  /** Qué tan seguro es que sea de la familia (ver `freeHitConfirmation`). */
+  confirmation: 'confirmed' | 'needs_claude';
   taxId: string | null;
   domain: string | null;
   workers: number | null;
@@ -208,8 +284,12 @@ function toCompany(row: FreeSnapshotRow): CountrySourceCompany | null {
  * El país de partida cuando no se sabe: el de la fila cuyo nombre es EXACTAMENTE el
  * de la empresa (sin forma societaria), y entre ellas la de más trabajadores.
  */
-export function inferRootCountry(hits: readonly Pick<CorporateTreeFreeHit, 'core' | 'countryCode' | 'workers'>[], rootCore: string): string | null {
-  const exact = hits.filter((h) => h.core === rootCore);
+export function inferRootCountry(
+  hits: readonly Pick<CorporateTreeFreeHit, 'core' | 'countryCode' | 'workers' | 'sourceKey'>[],
+  rootCore: string,
+): string | null {
+  // Sin una señal de tamaño no se adivina: «BIMBO SA» existe en AR, ES y MX sin trabajadores.
+  const exact = hits.filter((h) => h.core === rootCore && (h.workers ?? 0) > 0);
   if (exact.length === 0) return null;
   return [...exact].sort((a, b) => (b.workers ?? 0) - (a.workers ?? 0))[0].countryCode;
 }
@@ -242,7 +322,7 @@ export async function findCorporateTreeFreeHits(
                 const company = toCompany(row);
                 if (!company || row.country_code !== countryCode) return [];
                 const hitCore = normalizeTreeName(company.legalName ?? '');
-                if (!hitCore.startsWith(core)) return [];
+                if (!isFamilyName(hitCore, core, CORPORATE_TREE_BROAD_REGISTRY_KEYS.has(sourceKey))) return [];
                 return [
                   {
                     origin: 'catalog',
@@ -250,6 +330,7 @@ export async function findCorporateTreeFreeHits(
                     countryCode,
                     name: company.legalName ?? hitCore,
                     core: hitCore,
+                    confirmation: 'needs_claude',
                     taxId: company.taxId,
                     domain: company.domain,
                     workers: readWorkers(row.raw_data),
@@ -278,7 +359,7 @@ export async function findCorporateTreeFreeHits(
             const candidate = deps.readBankCandidate(row.payload);
             if (!candidate) return [];
             const hitCore = normalizeTreeName(candidate.name);
-            if (!hitCore.startsWith(core)) return [];
+            if (!isFamilyName(hitCore, core, false)) return [];
             return [
               {
                 origin: 'bank',
@@ -286,6 +367,7 @@ export async function findCorporateTreeFreeHits(
                 countryCode: row.country_code,
                 name: candidate.name,
                 core: hitCore,
+                confirmation: 'needs_claude',
                 taxId: null,
                 domain: candidate.domain ?? null,
                 workers: null,
@@ -304,9 +386,36 @@ export async function findCorporateTreeFreeHits(
 
   // Una empresa una vez: por país × número fiscal, o país × nombre. Gana la fuente
   // más rica (orden de la lista; el banco va primero porque trae web y tamaño).
+  const withConfirmation = all.map((hit) => {
+    const kinships = cores.map((c) => nameKinship(hit.core, c));
+    const kinship: 'exact' | 'family' | 'prefix' = kinships.includes('exact')
+      ? 'exact'
+      : kinships.includes('family')
+        ? 'family'
+        : 'prefix';
+    return {
+      ...hit,
+      confirmation: freeHitConfirmation({
+        kinship,
+        countryCode: hit.countryCode,
+        rootCountryCode,
+        origin: hit.origin,
+        strongSource: isStrongFreeSource(hit),
+      }),
+    };
+  });
+
+  // Primero lo seguro; luego lo que ahorra el rescate: con web; con tamaño; la fuente más rica.
   const rank = (hit: CorporateTreeFreeHit) =>
     hit.origin === 'bank' ? -1 : (CORPORATE_TREE_FREE_SOURCE_KEYS[hit.countryCode] ?? []).indexOf(hit.sourceKey);
-  const sorted = [...all].sort((a, b) => rank(a) - rank(b) || (b.workers ?? 0) - (a.workers ?? 0));
+  const sorted = [...withConfirmation].sort(
+    (a, b) =>
+      Number(b.confirmation === 'confirmed') - Number(a.confirmation === 'confirmed') ||
+      Number(!!b.domain) - Number(!!a.domain) ||
+      Number(!!b.workers) - Number(!!a.workers) ||
+      rank(a) - rank(b) ||
+      (b.workers ?? 0) - (a.workers ?? 0),
+  );
   const seen = new Set<string>();
   const perCountry = new Map<string, number>();
   const hits: CorporateTreeFreeHit[] = [];

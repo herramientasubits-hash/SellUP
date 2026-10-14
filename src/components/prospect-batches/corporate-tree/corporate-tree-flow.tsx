@@ -17,6 +17,7 @@ import {
 } from '@/components/chat';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { SubmittingPanel } from '@/components/prospect-batches/chat-wizard/wizard-execution-panels';
+import { Stepper, type StepperStep } from '@/components/navigation/stepper';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   executeAgentRunViaRoute,
@@ -325,12 +326,28 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     }
   })();
 
+  // Como en «por criterios»: los pasos arriba y, mientras busca, la espera ocupa el
+  // panel entero (la conversación vuelve al terminar).
+  const stepperSteps: StepperStep[] = [
+    ...(onBack ? [{ id: 'type', label: 'Tipo' }] : []),
+    { id: 'company', label: 'Empresa' },
+    { id: 'branches', label: 'Ramas' },
+    { id: 'countries', label: 'Países' },
+    { id: 'review', label: 'Revisión', ...(step === 'failed' ? { status: 'error' as const } : {}) },
+  ];
+  const stepIndex: Record<Step, number> = { company: 0, branches: 1, countries: 2, confirm: 3, running: 3, failed: 3, done: 4 };
+  const stepperCurrent = stepIndex[step] + (onBack ? 1 : 0);
+  const running = step === 'running' && run !== null;
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="corporate-tree-flow">
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-5">
         <div className="flex min-h-full flex-col gap-4">
-          {step === 'running' && run && <SubmittingPanel clientRequestId={run.id} startedAtMs={run.startedAtMs} />}
+          <Stepper size="sm" steps={stepperSteps} current={stepperCurrent} aria-label="Pasos de la búsqueda en árbol" />
 
+          {running && run && <SubmittingPanel clientRequestId={run.id} startedAtMs={run.startedAtMs} />}
+
+          {!running && (
           <ChatThread
             messages={messages}
             aria-label="Conversación de la búsqueda en árbol"
@@ -339,6 +356,7 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
               message.role === 'user' ? <ChatUserMessage message={message} /> : <ChatAgentMessage message={message} isLast={false} />
             }
           />
+          )}
 
           {step === 'done' && outcome?.redirectPath && (
             <div className="flex flex-wrap gap-2">

@@ -1441,7 +1441,12 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // `agent1_company_relationships` (associations between companies found by the Agent 1
     // corporate-tree search), RLS read for active users and writes only by service_role. Not
     // phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(numbered[numbered.length - 1], '148_agent1_company_relationships.sql');
+    // AGENT1-CORPORATE-TREE-2 moves the ceiling to 149: no new table; CREATE OR REPLACE of
+    // `provider_usage_batch_dimensions` so `search_mode` prefers the batch's declared shape
+    // (`prospect_batches.metadata->>'search_mode'`: corporate tree, suppliers, competitors), plus an
+    // idempotent backfill of `provider_usage_logs.search_mode`. Not phone chain 109–117, not
+    // catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
+    assert.equal(numbered[numbered.length - 1], '149_provider_usage_search_mode_from_batch_metadata.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   buildCorporateTreeViews,
+  linkTreeRecordsToCandidates,
+  type CorporateTreeBatchCandidateRef,
   type CorporateTreeAssociationsResponse,
   type CorporateTreeRelationshipRecord,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-associations';
@@ -37,7 +39,13 @@ export async function GET(request: NextRequest) {
     .limit(MAX_ROWS);
   if (own.error) return NextResponse.json(UNAVAILABLE, { headers: NO_STORE });
 
-  const batchIds = [...new Set((own.data ?? []).map((r) => r.batch_id as string))];
+  let batchIds = [...new Set((own.data ?? []).map((r) => r.batch_id as string))];
+  if (batchIds.length === 0) {
+    // La empresa pudo entrar después, con el rescate de «Descartadas»: su asociación
+    // está guardada sin id, en su mismo lote.
+    const { data: self } = await supabase.from('prospect_candidates').select('batch_id').eq('id', candidateId).maybeSingle();
+    if (self?.batch_id) batchIds = [self.batch_id as string];
+  }
   if (batchIds.length === 0) {
     return NextResponse.json({ available: true, trees: [] } satisfies CorporateTreeAssociationsResponse, { headers: NO_STORE });
   }
@@ -48,12 +56,19 @@ export async function GET(request: NextRequest) {
     .in('batch_id', batchIds)
     .limit(MAX_ROWS);
   if (all.error) return NextResponse.json(UNAVAILABLE, { headers: NO_STORE });
-  const records = (all.data ?? []) as CorporateTreeRelationshipRecord[];
 
-  const relatedIds = [...new Set(records.map((r) => r.related_candidate_id).filter((id): id is string => !!id))];
-  const statusById = new Map<string, string>();
-  if (relatedIds.length > 0) {
-    const { data } = await supabase.from('prospect_candidates').select('id, status').in('id', relatedIds);
+  const batchCandidates = await supabase
+    .from('prospect_candidates')
+    .select('id, batch_id, name, country_code, status')
+    .in('batch_id', batchIds)
+    .limit(MAX_ROWS);
+  const candidateRows = (batchCandidates.data ?? []) as Array<CorporateTreeBatchCandidateRef & { status: string }>;
+  const records = linkTreeRecordsToCandidates((all.data ?? []) as CorporateTreeRelationshipRecord[], candidateRows);
+
+  const statusById = new Map<string, string>(candidateRows.map((row) => [row.id, row.status]));
+  const missing = [...new Set(records.map((r) => r.related_candidate_id).filter((id): id is string => !!id && !statusById.has(id)))];
+  if (missing.length > 0) {
+    const { data } = await supabase.from('prospect_candidates').select('id, status').in('id', missing);
     for (const row of data ?? []) statusById.set(row.id as string, row.status as string);
   }
 
