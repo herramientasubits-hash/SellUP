@@ -24,6 +24,13 @@ import {
 } from '../es-domain';
 import { normalizeSpainCompanyCore } from '../es-placsp-registry-rows';
 import {
+  spainCompanyWebCandidates,
+  spainCompanyWebLabels,
+  spainCompanyWebNameKey,
+  spainCompanyWebVerdict,
+  type EsFetchedPage,
+} from '../es-company-web';
+import {
   buildEsFreeDirectoryRow,
   buildEsNifNameAliasRows,
   buildEsOfficialNifRegistryRow,
@@ -554,5 +561,68 @@ describe('catálogo de España', () => {
         }
       }
     }
+  });
+});
+
+// ─── Web por nombre (SOURCES-ES-WEBS-1) ────────────────────────────────────
+
+describe('web por nombre comprobada con su página', () => {
+  const page = (host: string, title: string, text: string, finalHost = host): EsFetchedPage => ({
+    host,
+    finalHost,
+    status: 200,
+    blocked: false,
+    title,
+    text,
+  });
+
+  it('candidatas sólo desde el nombre, sin forma ni «España»', () => {
+    assert.equal(spainCompanyWebNameKey('VODAFONE ESPAÑA S.A.U.'), 'VODAFONE');
+    assert.deepEqual(spainCompanyWebLabels('NUNSYS S A'), ['nunsys']);
+    assert.ok(spainCompanyWebCandidates(['HIBERUS IT DEVELOPMENT SERVICES SLU']).includes('hiberus.es'));
+    assert.ok(!spainCompanyWebLabels('GRUPO SERVICIOS GENERALES SL').includes('grupo'));
+  });
+
+  it('la página tiene que nombrar a la empresa', () => {
+    const ok = spainCompanyWebVerdict(page('naturgy.es', 'Naturgy | Energía', 'Naturgy luz y gas'), ['NATURGY IBERIA, S.A.']);
+    assert.ok('domain' in ok && ok.domain === 'naturgy.es');
+    assert.deepEqual(spainCompanyWebVerdict(page('becsa.es', 'Otra cosa', 'Bienvenido'), ['BECSA SOCIEDAD ANONIMA']), { rejected: 'not_named' });
+  });
+
+  it('marca en el título sólo en .es; fuera de .es tiene que hablar de España', () => {
+    const brand = spainCompanyWebVerdict(page('hiberus.es', 'Hiberus - Consultora', 'Tecnología'), ['HIBERUS IT DEVELOPMENT SERVICES SLU']);
+    assert.ok('domain' in brand && brand.check === 'title_names_brand');
+    assert.ok('rejected' in spainCompanyWebVerdict(page('rover.com', 'Rover | Pet sitting', 'Book trusted sitters España'), ['ROVER INFRAESTRUCTURAS, SA']));
+    assert.deepEqual(spainCompanyWebVerdict(page('acme.com', 'ACME', 'Welcome to ACME Corp'), ['ACME SL']), { rejected: 'not_spanish' });
+  });
+
+  it('aparcadas y redirecciones a otra marca nunca valen', () => {
+    assert.deepEqual(spainCompanyWebVerdict(page('becsa.es', 'Becsa', 'Este dominio está en venta'), ['BECSA SA']), { rejected: 'parked' });
+    assert.deepEqual(
+      spainCompanyWebVerdict(page('becsa.es', 'Becsa', 'Becsa', 'otraempresa.es'), ['BECSA SA']),
+      { rejected: 'redirected_elsewhere' },
+    );
+  });
+
+  it('la web comprobada sólo entra si la fuente no publica ninguna', () => {
+    const viaName = buildEsFreeDirectoryRow(
+      { nif: 'A28599033', awardee: awardee(), bdns: null, invente: null, bde: null, nameCheckedDomain: 'indra.es' },
+      { ...params, sharedDomains: new Set<string>() },
+    );
+    assert.ok('row' in viaName);
+    assert.equal(viaName.row.raw_data['website_domain'], 'indra.es');
+    assert.equal(viaName.row.raw_data['website_origin'], 'name_page_check');
+    const noWeb = buildEsFreeDirectoryRow(
+      { nif: 'A28599033', awardee: awardee(), bdns: null, invente: null, bde: null },
+      { ...params, sharedDomains: new Set<string>() },
+    );
+    assert.ok('row' in noWeb);
+    assert.equal(viaName.row.priority_score - noWeb.row.priority_score, 5);
+    const official = buildEsFreeDirectoryRow(
+      { nif: 'A83052407', awardee: null, bdns: null, invente: invente(), bde: null, nameCheckedDomain: 'otra.es' },
+      { ...params, sharedDomains: new Set<string>() },
+    );
+    assert.ok('row' in official);
+    assert.equal(official.row.raw_data['website_domain'], 'correos.es');
   });
 });
