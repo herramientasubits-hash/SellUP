@@ -333,7 +333,7 @@ export async function runCorporateTreeSearch(
       ? await deps.loadExistingRoot({ candidateId: request.rootCandidateId, accountId: request.rootAccountId }).catch(() => null)
       : null;
   const rootWebsite = existing?.website ?? request.rootWebsite;
-  let root: CorporateTreeRoot = {
+  const root: CorporateTreeRoot = {
     name: existing?.name ?? request.rootName,
     website: rootWebsite,
     domain: rootWebsite ? normalizeDomain(rootWebsite) : null,
