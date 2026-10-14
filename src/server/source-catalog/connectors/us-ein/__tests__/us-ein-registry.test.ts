@@ -28,13 +28,16 @@ import {
 import type { NormalizedProspectCandidate } from '@/server/agents/prospect-intake/types';
 import type { UsEinRegistryRow } from '../us-ein-registry-rows';
 import {
+  buildUsIpedsDirectoryRow,
   buildUsIrsDirectoryRow,
   buildUsSecDirectoryRow,
   classifySecFilerCategory,
+  ipedsWebsiteDomain,
   US_FREE_DIRECTORY_SOURCE_KEY,
 } from '../us-free-directory-rows';
 import {
   macroHasUsFreeDirectoryCoverage,
+  resolveUsIpedsMacro,
   resolveUsIrsMacro,
   resolveUsSicMacro,
 } from '@/server/prospect-batches/country-source-discovery/us-free-directory-macro-table';
@@ -317,9 +320,12 @@ describe('tabla NTEE/SIC → macro (aprobada el 14-10-2026)', () => {
     assert.equal(resolveUsSicMacro('abc'), null);
   });
 
-  it('cobertura: Gobierno no tiene clasificación en EE. UU.', () => {
+  it('cobertura: Gobierno sólo por las universidades públicas de IPEDS', () => {
     assert.equal(macroHasUsFreeDirectoryCoverage('health_pharma'), true);
-    assert.equal(macroHasUsFreeDirectoryCoverage('government'), false);
+    assert.equal(macroHasUsFreeDirectoryCoverage('government'), true);
+    assert.equal(resolveUsIpedsMacro('public_institution'), 'government');
+    assert.equal(resolveUsIpedsMacro('private_nonprofit_institution'), 'services_company');
+    assert.equal(resolveUsIpedsMacro('x'), null);
   });
 });
 
@@ -382,6 +388,50 @@ describe('filas de us_free_directory', () => {
   });
 });
 
+describe('IPEDS: universidades y colegios con 5.000+ estudiantes', () => {
+  const hd = (overrides: Record<string, string> = {}) => ({
+    UNITID: '100751',
+    INSTNM: 'The University of Alabama',
+    IALIAS: 'UA | Bama',
+    CITY: 'Tuscaloosa',
+    STABBR: 'AL',
+    EIN: '636001138 ',
+    WEBADDR: 'www.ua.edu/',
+    CONTROL: '1',
+    INSTSIZE: '5',
+    CYACTIVE: '1',
+    ...overrides,
+  });
+
+  it('pública → Gobierno con su EIN, web y tamaño; privada → Servicios', () => {
+    const row = buildUsIpedsDirectoryRow(hd(), base);
+    assert.ok(row);
+    assert.equal(row.tax_id, '63-6001138');
+    assert.equal(row.normalized_legal_name, 'UNIVERSITY OF ALABAMA');
+    assert.equal(row.raw_data['macro_industry_key'], 'government');
+    assert.equal(row.raw_data['website_domain'], 'ua.edu');
+    assert.equal(row.raw_data['size_band'], 'large');
+    assert.equal(row.priority_score, 500);
+    const priv = buildUsIpedsDirectoryRow(hd({ CONTROL: '2', INSTSIZE: '3' }), base);
+    assert.equal(priv?.raw_data['macro_industry_key'], 'services_company');
+    assert.equal(priv?.raw_data['size_band'], null);
+  });
+
+  it('fuera: menos de 5.000 estudiantes, con fines de lucro, cerradas o sin EIN', () => {
+    assert.equal(buildUsIpedsDirectoryRow(hd({ INSTSIZE: '2' }), base), null);
+    assert.equal(buildUsIpedsDirectoryRow(hd({ CONTROL: '3' }), base), null);
+    assert.equal(buildUsIpedsDirectoryRow(hd({ CYACTIVE: '2' }), base), null);
+    assert.equal(buildUsIpedsDirectoryRow(hd({ EIN: '-2' }), base), null);
+  });
+
+  it('la web de IPEDS se reduce al dominio', () => {
+    assert.equal(ipedsWebsiteDomain('https://www.uab.edu/'), 'uab.edu');
+    assert.equal(ipedsWebsiteDomain('www.harvard.edu'), 'harvard.edu');
+    assert.equal(ipedsWebsiteDomain(''), null);
+    assert.equal(ipedsWebsiteDomain('n/a'), null);
+  });
+});
+
 describe('adapter de descubrimiento de Estados Unidos', () => {
   const readRow = (overrides: Partial<UsFreeDirectorySnapshotReadRow> = {}): UsFreeDirectorySnapshotReadRow => ({
     record_identity_key: 'tax:41-0693991',
@@ -423,7 +473,26 @@ describe('adapter de descubrimiento de Estados Unidos', () => {
     assert.equal(result.recordsRead, 5);
   });
 
-  it('macro sin cobertura (Gobierno) no consulta', async () => {
+  it('IPEDS pública en Gobierno, con su web', async () => {
+    const adapter = buildUsFreeDirectoryDiscoveryAdapter({
+      readCompaniesByMacro: async () => [
+        readRow({
+          ein: '63-6001138',
+          legal_name: 'The University of Alabama',
+          directory_kind: 'ipeds',
+          activity_system: 'IPEDS',
+          activity_code: 'public_institution',
+          website_domain: 'ua.edu',
+          size_source: 'IPEDS – estudiantes matriculados',
+        }),
+      ],
+    });
+    const result = await adapter({ macroIndustryKey: 'government', limit: 10 } as never);
+    assert.equal(result.companies.length, 1);
+    assert.equal(result.companies[0].domain, 'ua.edu');
+  });
+
+  it('macro sin cobertura (Agro en la SEC no; Consumo sí) no consulta', async () => {
     let called = false;
     const adapter = buildUsFreeDirectoryDiscoveryAdapter({
       readCompaniesByMacro: async () => {
@@ -431,7 +500,7 @@ describe('adapter de descubrimiento de Estados Unidos', () => {
         return [];
       },
     });
-    const result = await adapter({ macroIndustryKey: 'government', limit: 10 } as never);
+    const result = await adapter({ macroIndustryKey: 'not_a_macro', limit: 10 } as never);
     assert.equal(result.companies.length, 0);
     assert.equal(called, false);
   });
@@ -440,7 +509,7 @@ describe('adapter de descubrimiento de Estados Unidos', () => {
     assert.ok((COUNTRY_SOURCE_DISCOVERY_COUNTRIES as readonly string[]).includes('US'));
     assert.equal(resolveCountrySourceCapability('us')?.sourceKey, US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY);
     assert.equal(countrySourceMacroHasCoverage('US', 'technology'), true);
-    assert.equal(countrySourceMacroHasCoverage('US', 'government'), false);
+    assert.equal(countrySourceMacroHasCoverage('US', 'government'), true);
     assert.equal(buildCountrySourceAdapter('US', {}), null);
     assert.notEqual(
       buildCountrySourceAdapter('US', { usFreeDirectoryDiscoveryReads: { readCompaniesByMacro: async () => [] } }),

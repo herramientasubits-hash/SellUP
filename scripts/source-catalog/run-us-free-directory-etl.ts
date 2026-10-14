@@ -9,8 +9,10 @@
  *   --sec-dir=<carpeta>  JSON de submissions.zip de la SEC (operativas con EIN,
  *                        «Large accelerated» o «Accelerated», SIC con macro).
  *                        Opcional --active-since=AAAA-MM-DD (por defecto, dos años).
+ *   --ipeds-file=<csv>   HD<año>.csv del directorio de IPEDS (universidades y
+ *                        colegios abiertos con 5.000+ estudiantes, con web).
  *
- * Si un EIN está en las dos, manda la SEC (empresa cotizada con su SIC).
+ * Si un EIN está en varias, manda la SEC, luego IPEDS (trae web y tamaño), luego el IRS.
  *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=…
@@ -35,6 +37,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
 import {
+  buildUsIpedsDirectoryRow,
   buildUsIrsDirectoryRow,
   buildUsSecDirectoryRow,
   US_FREE_DIRECTORY_SOURCE_KEY,
@@ -50,6 +53,7 @@ const IRS_FILES = ['eo1.csv', 'eo2.csv', 'eo3.csv', 'eo4.csv'];
 type Config = {
   irsDir: string | null;
   secDir: string | null;
+  ipedsFile: string | null;
   apply: boolean;
   year: number;
   activeSince: string;
@@ -62,14 +66,17 @@ function parseArgs(argv: readonly string[]): Config {
   };
   const irsDir = value('irs-dir');
   const secDir = value('sec-dir');
-  if (!irsDir && !secDir) throw new Error('config_invalid: falta --irs-dir=<carpeta> y/o --sec-dir=<carpeta>');
+  const ipedsFile = value('ipeds-file');
+  if (!irsDir && !secDir && !ipedsFile) {
+    throw new Error('config_invalid: falta --irs-dir=<carpeta>, --sec-dir=<carpeta> y/o --ipeds-file=<csv>');
+  }
   const now = new Date();
   const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate()));
   const activeSince = value('active-since') ?? twoYearsAgo.toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(activeSince)) throw new Error('config_invalid: --active-since=AAAA-MM-DD');
   const year = Number(value('year') ?? now.getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year');
-  return { irsDir, secDir, apply: argv.includes('--apply'), year, activeSince };
+  return { irsDir, secDir, ipedsFile, apply: argv.includes('--apply'), year, activeSince };
 }
 
 async function readRows(config: Config, importedAt: string): Promise<{ rows: UsFreeDirectoryRow[]; read: number }> {
@@ -88,6 +95,15 @@ async function readRows(config: Config, importedAt: string): Promise<{ rows: UsF
         continue; // la SEC publica algún archivo vacío
       }
       const row = buildUsSecDirectoryRow(submission, { ...params, activeSince: config.activeSince });
+      if (row !== null && row.record_identity_key !== null && !byEin.has(row.normalized_tax_id)) {
+        byEin.set(row.normalized_tax_id, row);
+      }
+    }
+  }
+  if (config.ipedsFile) {
+    for await (const record of readCsvFile(config.ipedsFile)) {
+      read++;
+      const row = buildUsIpedsDirectoryRow(record, params);
       if (row !== null && row.record_identity_key !== null && !byEin.has(row.normalized_tax_id)) {
         byEin.set(row.normalized_tax_id, row);
       }

@@ -11,7 +11,9 @@
  *   - organizaciones sin ánimo de lucro del IRS con ingresos ≥ US$ 25 M
  *     (universidades, hospitales…) clasificadas por su NTEE;
  *   - empresas cotizadas de la SEC «Large accelerated» o «Accelerated»,
- *     clasificadas por su SIC (sin cascarones ni titulizaciones).
+ *     clasificadas por su SIC (sin cascarones ni titulizaciones);
+ *   - universidades y colegios de IPEDS con 5.000+ estudiantes, con su web
+ *     oficial (públicas → Gobierno, privadas → Servicios a empresas).
  *
  * Aquí sólo se piden las de la macro pedida, primero las más grandes.
  *
@@ -28,6 +30,7 @@
 
 import {
   macroHasUsFreeDirectoryCoverage,
+  resolveUsIpedsMacro,
   resolveUsIrsMacro,
   resolveUsSicMacro,
   US_FREE_DIRECTORY_MACRO_TABLE_VERSION,
@@ -83,6 +86,7 @@ export type UsFreeDirectoryDiscoveryReads = {
 /** Macro de HOY para la fila (re-clasifica el código guardado). */
 function currentMacro(row: UsFreeDirectorySnapshotReadRow): string | null {
   if (row.directory_kind === 'sec') return resolveUsSicMacro(row.activity_code);
+  if (row.directory_kind === 'ipeds') return resolveUsIpedsMacro(row.activity_code);
   if (row.directory_kind !== 'irs_eo') return null;
   // La subsección sólo se guarda para las cooperativas eléctricas sin NTEE.
   if (row.activity_system === 'IRS_SUBSECTION') {
@@ -107,8 +111,8 @@ function toCompany(row: UsFreeDirectorySnapshotReadRow, macroIndustryKey: string
     countryCode: 'US',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
-    // Ni el IRS ni la SEC publican la web: sin web la empresa va a Descartadas y
-    // el rescate con Claude la busca.
+    // Sólo IPEDS publica la web; sin web la empresa va a Descartadas y el rescate
+    // con Claude la busca.
     domain: normalizeDomain(row.website_domain),
     declaredIndustry: row.activity_text?.trim() || null,
     industryCode: row.activity_code?.trim() || null,
@@ -117,8 +121,8 @@ function toCompany(row: UsFreeDirectorySnapshotReadRow, macroIndustryKey: string
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: US_FREE_DIRECTORY_MACRO_TABLE_VERSION,
     },
-    // Ni el IRS ni la SEC dan empleados: sólo «grande» (ingresos ≥ US$ 100 M o
-    // emisor «Large accelerated»), que nunca decide solo.
+    // Ninguna fuente da empleados: sólo «grande» (ingresos ≥ US$ 100 M, emisor
+    // «Large accelerated» o 10.000+ estudiantes), que nunca decide solo.
     officialWorkforce: null,
     officialSizeBand:
       row.size_band === 'large' && sizeSource !== null ? { band: 'large', sourceLabel: sizeSource } : null,

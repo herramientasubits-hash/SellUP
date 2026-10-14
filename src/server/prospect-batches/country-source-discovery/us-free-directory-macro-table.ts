@@ -13,7 +13,8 @@
  *     ofrecen: casi nunca son la empresa operativa.
  *
  * No existe macro de educación: las universidades y colegios privados (NTEE B)
- * van a «Servicios a empresas», igual que los servicios humanos y el empleo.
+ * van a «Servicios a empresas», igual que los servicios humanos y el empleo; las
+ * públicas de IPEDS, a Gobierno.
  *
  * ── Fuera del buscador gratuito ─────────────────────────────────────────────
  *
@@ -129,10 +130,21 @@ export function resolveUsSicMacro(sic: string | null | undefined): MacroIndustry
   return US_SIC_MAJOR_MACRO[major] ?? null;
 }
 
+/**
+ * IPEDS (universidades y colegios con 5.000+ estudiantes): las públicas son
+ * Gobierno y las privadas sin ánimo de lucro, Servicios a empresas (igual que NTEE B).
+ */
+export function resolveUsIpedsMacro(activityCode: string | null | undefined): MacroIndustryKey | null {
+  if (activityCode === 'public_institution') return 'government';
+  if (activityCode === 'private_nonprofit_institution') return 'services_company';
+  return null;
+}
+
 /** ¿Tiene esta macro alguna clasificación de EE. UU.? */
 export function macroHasUsFreeDirectoryCoverage(macroIndustryKey: string | null | undefined): boolean {
   if (typeof macroIndustryKey !== 'string') return false;
   return (
+    macroIndustryKey === 'government' ||
     Object.values(US_NTEE_MAJOR_MACRO).includes(macroIndustryKey as MacroIndustryKey) ||
     Object.values(US_SIC_MAJOR_MACRO).includes(macroIndustryKey as MacroIndustryKey)
   );

@@ -12,7 +12,11 @@
  *     las «Large accelerated», ≥ US$ 700 M, se marcan como grandes). La SEC no
  *     publica ingresos ni empleados: la categoría es el único tamaño oficial.
  *
- * Ninguna de las dos publica la web (medido el 14-10-2026: 0 de 6.314 en la SEC);
+ *   - IPEDS (Departamento de Educación): universidades y colegios con 5.000
+ *     estudiantes o más (INSTSIZE ≥ 3), con su EIN, su web oficial y su tamaño. Las
+ *     públicas van a Gobierno; las privadas, a Servicios a empresas.
+ *
+ * Ni el IRS ni la SEC publican la web (medido el 14-10-2026: 0 de 6.314 en la SEC);
  * `website_domain` queda vacío salvo que otra fuente oficial la aporte.
  */
 
@@ -45,7 +49,7 @@ const NTEE_MAJOR_TEXT: Readonly<Record<string, string>> = Object.freeze({
   W: 'Bienestar público',
 });
 
-export type UsFreeDirectoryKind = 'irs_eo' | 'sec';
+export type UsFreeDirectoryKind = 'irs_eo' | 'sec' | 'ipeds';
 
 export type UsFreeDirectoryRow = {
   source_key: typeof US_FREE_DIRECTORY_SOURCE_KEY;
@@ -191,6 +195,60 @@ export function buildUsSecDirectoryRow(
       size_source: 'SEC – Large accelerated filer',
       cik: text(submission['cik']),
       website_domain: null,
+    },
+    sourceYear: params.sourceYear,
+    importedAt: params.importedAt,
+  });
+}
+
+/** Tramo de estudiantes de IPEDS (INSTSIZE) → texto; sólo entran del 3 en adelante. */
+const IPEDS_SIZE_TEXT: Readonly<Record<string, string>> = Object.freeze({
+  '3': '5.000 a 9.999 estudiantes',
+  '4': '10.000 a 19.999 estudiantes',
+  '5': '20.000 estudiantes o más',
+});
+
+/** Web de IPEDS («www.ua.edu/», «https://www.uab.edu/») → dominio, o `null`. */
+export function ipedsWebsiteDomain(raw: string | null | undefined): string | null {
+  const value = raw?.trim().toLowerCase() ?? '';
+  if (value === '') return null;
+  const host = value.replace(/^[a-z]+:\/\//, '').split(/[/?#]/)[0]!.replace(/^www\./, '');
+  return /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(host) ? host : null;
+}
+
+/** Institución del directorio de IPEDS (HD) → fila del buscador, o `null`. */
+export function buildUsIpedsDirectoryRow(
+  record: Record<string, string>,
+  params: { sourceYear: number; importedAt: string },
+): UsFreeDirectoryRow | null {
+  const ein = formatEin(record['EIN']);
+  const legalName = text(record['INSTNM']);
+  const size = record['INSTSIZE']?.trim() ?? '';
+  const control = record['CONTROL']?.trim() ?? '';
+  if (ein === null || legalName === null || IPEDS_SIZE_TEXT[size] === undefined) return null;
+  // Abierta (CYACTIVE = 1) y pública (1) o privada sin ánimo de lucro (2); las con
+  // fines de lucro (3) quedan fuera: casi siempre son cadenas con otra razón social.
+  if (record['CYACTIVE']?.trim() !== '1' || (control !== '1' && control !== '2')) return null;
+  const isPublic = control === '1';
+  return buildRow({
+    ein,
+    legalName,
+    city: text(record['CITY']),
+    region: text(record['STABBR']),
+    // Las de más estudiantes delante, entre las grandes del IRS (≈ US$ 100-1.000 M).
+    priority: Number(size) * 100,
+    rawData: {
+      directory_kind: 'ipeds' satisfies UsFreeDirectoryKind,
+      macro_industry_key: isPublic ? 'government' : 'services_company',
+      activity_system: 'IPEDS',
+      activity_code: isPublic ? 'public_institution' : 'private_nonprofit_institution',
+      activity_text: isPublic ? 'Universidad o colegio público' : 'Universidad o colegio privado',
+      students_band: IPEDS_SIZE_TEXT[size],
+      size_band: size === '4' || size === '5' ? 'large' : null,
+      size_source: 'IPEDS – estudiantes matriculados',
+      unitid: text(record['UNITID'] ?? record['\uFEFFUNITID']),
+      alias: text(record['IALIAS']),
+      website_domain: ipedsWebsiteDomain(record['WEBADDR']),
     },
     sourceYear: params.sourceYear,
     importedAt: params.importedAt,
