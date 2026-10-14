@@ -191,7 +191,12 @@ describe('modelo de datos — sin migración nueva', () => {
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 146, 'el techo conocido es la 146');
+    // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+    // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+    // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+    // NO APLICADA.
+    assert.equal(Math.max(...numbers), 147, 'el techo conocido es la 147');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

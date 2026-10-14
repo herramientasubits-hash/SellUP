@@ -324,8 +324,14 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // datos). No reserva nada y la capa gratuita sigue sin necesitar esquema. AUTORADA y NO
       // APLICADA.
       '146_tax_identifier_type_rif.sql',
+      // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+      // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+      // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+      // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+      // NO APLICADA.
+      '147_provider_usage_log_dimensions.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona y la ampliación de tipos fiscales con RIF',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF y las dimensiones de las consultas a proveedores',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

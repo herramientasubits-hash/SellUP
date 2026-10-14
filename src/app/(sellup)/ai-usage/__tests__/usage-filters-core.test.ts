@@ -165,3 +165,31 @@ describe('usage-labels', () => {
     assert.equal(formatUsd(0.0123, 4), '$0.0123');
   });
 });
+
+describe('filtros de la fase 3: país, industria, paso y forma de búsqueda', () => {
+  it('se escriben en la URL y se leen con palabras, nunca con la clave cruda', () => {
+    const values = { ...EMPTY, country: 'CO', industry: 'technology', step: 'rescate_web', mode: 'exploratory' };
+    assert.equal(
+      toQueryString('tab=por-pais', values),
+      'tab=por-pais&country=CO&industry=technology&step=rescate_web&mode=exploratory',
+    );
+    assert.deepEqual(
+      describeActiveFilters(values, OPTIONS).map((f) => `${f.label}: ${f.value}`),
+      [
+        'País: Colombia',
+        'Industria: Tecnología',
+        'Paso del agente: Buscar la web de una descartada (Claude)',
+        'Forma de búsqueda: Empresas por industria',
+      ],
+    );
+    assert.equal(countSecondaryFilters(values), 4);
+  });
+
+  it('limpiar los filtros también quita los cuatro nuevos', () => {
+    const cleared = clearedFilters();
+    assert.equal(cleared.country, '');
+    assert.equal(cleared.industry, '');
+    assert.equal(cleared.step, '');
+    assert.equal(cleared.mode, '');
+  });
+});

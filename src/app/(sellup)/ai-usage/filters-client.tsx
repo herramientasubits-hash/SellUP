@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FilterBar, type ActiveFilter } from '@/components/filters/filter-bar';
 import type { FilterOptions } from '@/modules/ai-usage/queries';
-import { agentLabel, providerLabel, statusLabel } from './usage-labels';
+import { agentLabel, countryLabel, industryLabel, providerLabel, statusLabel } from './usage-labels';
+import { agentStepLabel, searchModeLabel } from '@/modules/usage-tracking/usage-dimensions';
 import {
   ALL_VALUE,
   FILTER_NAMES,
@@ -224,6 +225,46 @@ export function UsageFilterBar({ options, values, onChange }: UsageFilterBarProp
                   allLabel="Todas las personas"
                   options={users.map((user) => ({ value: user.id, label: userLabel(user) }))}
                   missingLabel="Persona no encontrada"
+                  onChange={change}
+                />
+              )}
+              {(options.countries?.length ?? 0) > 0 && (
+                <UsageSelect
+                  filterKey="country"
+                  value={values.country}
+                  allLabel="Todos los países"
+                  options={(options.countries ?? []).map((code) => ({ value: code, label: countryLabel(code) }))}
+                  missingLabel="País no encontrado"
+                  onChange={change}
+                />
+              )}
+              {(options.industries?.length ?? 0) > 0 && (
+                <UsageSelect
+                  filterKey="industry"
+                  value={values.industry}
+                  allLabel="Todas las industrias"
+                  options={(options.industries ?? []).map((key) => ({ value: key, label: industryLabel(key) }))}
+                  missingLabel="Industria no encontrada"
+                  onChange={change}
+                />
+              )}
+              {(options.steps?.length ?? 0) > 0 && (
+                <UsageSelect
+                  filterKey="step"
+                  value={values.step}
+                  allLabel="Todos los pasos"
+                  options={(options.steps ?? []).map((step) => ({ value: step, label: agentStepLabel(step) }))}
+                  missingLabel="Paso no encontrado"
+                  onChange={change}
+                />
+              )}
+              {(options.modes?.length ?? 0) > 0 && (
+                <UsageSelect
+                  filterKey="mode"
+                  value={values.mode}
+                  allLabel="Todas las formas"
+                  options={(options.modes ?? []).map((mode) => ({ value: mode, label: searchModeLabel(mode) }))}
+                  missingLabel="Forma no encontrada"
                   onChange={change}
                 />
               )}

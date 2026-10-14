@@ -460,7 +460,9 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
     // El proxy se mueve de la 146 a la 147, y el barrido de AUTORÍA se ENSANCHA para incluir la
     // 146.
-      migrations.filter((f) => f.startsWith('147')).length,
+    // AI-USAGE-FASE-2 declara la 147 (dimensiones de `provider_usage_logs`: cinco columnas nulas,
+    // un disparador que sólo rellena NULL y su relleno). No es de este corte; la ventana sube a la 148.
+      migrations.filter((f) => f.startsWith('148')).length,
       0,
       'este corte no añade migración',
     );
@@ -488,7 +490,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('143') ||
         f.startsWith('144') ||
         f.startsWith('145') ||
-        f.startsWith('146'),
+        f.startsWith('146') ||
+        f.startsWith('147'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
