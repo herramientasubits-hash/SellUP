@@ -3,6 +3,8 @@
 
 import type { StatusType } from '@/components/data-display';
 import { UNATTRIBUTED_AGENT_KEY } from '@/modules/ai-usage/usage-aggregators';
+import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
+import { countryName } from '@/components/shared/table-cells';
 
 // Claves que el código escribe en provider_usage_logs.provider_key (o en
 // pantallas de proveedor). Una clave sin traducción se muestra cruda.
@@ -82,4 +84,15 @@ export function formatUsd(usd: number, decimals = 2): string {
 
 export function formatCount(value: number): string {
   return value.toLocaleString('es-ES');
+}
+
+/** «CO» → «Colombia». Sin país: lo dice con palabras. */
+export function countryLabel(code: string | null): string {
+  return countryName(code) ?? 'Sin país';
+}
+
+/** Clave de macro industria → su nombre del catálogo. */
+export function industryLabel(key: string | null): string {
+  if (!key) return 'Sin industria';
+  return getMacroIndustryByKey(key)?.displayName ?? humanizeKey(key);
 }

@@ -1434,7 +1434,10 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], '146_tax_identifier_type_rif.sql');
+    // AI-USAGE-FASE-2 moves the ceiling to 147: five nullable dimension columns on
+    // `provider_usage_logs`, a BEFORE INSERT trigger that only fills NULLs, and its idempotent
+    // backfill. Not phone, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
+    assert.equal(numbered[numbered.length - 1], '147_provider_usage_log_dimensions.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

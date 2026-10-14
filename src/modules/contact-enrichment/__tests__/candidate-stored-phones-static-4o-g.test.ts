@@ -577,7 +577,12 @@ describe('4O-G — alcance', () => {
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 146);
+    // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+    // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+    // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+    // NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 147);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -607,7 +612,8 @@ describe('4O-G — alcance', () => {
     // 144 archivos para los números 001-144: la 144 tampoco deja hueco.
     // 145 archivos para los números 001-145: la 145 tampoco deja hueco.
     // 146 archivos para los números 001-146: la 146 tampoco deja hueco.
-    assert.equal(numbered.length, 146);
+    // 147 archivos para los números 001-147: la 147 tampoco deja hueco.
+    assert.equal(numbered.length, 147);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
