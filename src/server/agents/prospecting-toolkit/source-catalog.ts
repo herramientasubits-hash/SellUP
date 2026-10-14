@@ -3225,6 +3225,63 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
     ],
   },
+  {
+    key: 'us_free_directory',
+    name: 'IRS EO BMF + SEC EDGAR — capa gratuita por industria de Estados Unidos',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web: la de IPEDS o la de su registro en SAM.gov por nombre + estado). Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Estados Unidos por industria: organizaciones sin ánimo de lucro del IRS con ingresos de US$ 25 millones o más (hospitales, servicios humanos, cooperativas eléctricas), clasificadas por su código NTEE; empresas cotizadas de la SEC con capitalización flotante de US$ 75 millones o más, clasificadas por su código SIC; y universidades y colegios de IPEDS con 5.000 estudiantes o más (públicos en Gobierno, privados en Servicios). Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes. Cada organización llega con su EIN, su razón social oficial y, en 42 de cada 100, su web (IPEDS o SAM.gov).',
+    limitations: [
+      'Ni el IRS ni la SEC publican la web: sólo 5.979 de 14.206 la traen (IPEDS o SAM.gov por nombre + estado); las demás van a Descartadas y dependen del rescate con Claude.',
+      'Las empresas privadas con fines de lucro que no cotizan no aparecen: no hay registro público gratuito con su EIN.',
+      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS, emisor «Large accelerated» en la SEC o 10.000+ estudiantes en IPEDS), que nunca decide solo.',
+      'Fundaciones, arte, religión, sindicatos, clubes y fideicomisos de salud de empleados no se proponen; no hay industria de Gobierno.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos.',
+    ],
+  },
+  {
+    key: 'us_public_entities',
+    name: 'Dominios .gov de CISA + población del Censo 2024 — capa gratuita de Gobierno de Estados Unidos',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 1.829 entidades — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más). Cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --apply.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://github.com/cisagov/dotgov-data',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las federales y estatales y luego las locales con más habitantes.',
+    limitations: [
+      'Sin EIN: la entidad se identifica por su web .gov.',
+      'Sólo entidades con un dominio .gov que lleve su nombre o su sigla: las que usan otro dominio (.mil, .us, .org) no aparecen.',
+      'El tamaño de condados y ciudades es su población, no sus empleados; distritos especiales, escolares, tribus y juntas electorales no se proponen.',
+      'Snapshot estático — requiere recarga para reflejar dominios nuevos.',
+    ],
+    riskNotes: [
+      'De la lista de CISA sólo se usa el dominio, el tipo, la organización, la ciudad y el estado; nunca el correo de contacto de seguridad.',
+      'Las entidades que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
 
   // ── España ──────────────────────────────────────────────────────────────────
   {

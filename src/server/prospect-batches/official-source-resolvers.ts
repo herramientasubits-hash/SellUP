@@ -259,7 +259,8 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
       querySnapshots: buildUruguaySnapshotNameQuery(snapshotClient),
     }),
     // SOURCES-US-EIN-BY-NAME-1 — empresas activas de la SEC primero; si no dan EIN
-    // fuerte, organizaciones sin ánimo de lucro grandes del IRS. Requiere la
+    // fuerte, organizaciones sin ánimo de lucro grandes del IRS; luego el buscador
+    // gratuito de EE. UU. (universidades de IPEDS). Requiere la
     // migración 141 (tipo 'EIN') antes de cargar estas fuentes.
     createFallbackOfficialSourceResolver(
       createSnapshotNameOfficialSourceResolver({
@@ -270,14 +271,26 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
         normalizeCore: normalizeUsCompanyCore,
         querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_sec_edgar_registry', 'US'),
       }),
-      createSnapshotNameOfficialSourceResolver({
-        countryCode: 'US',
-        sourceKey: 'us_irs_eo_registry',
-        taxIdentifierType: 'EIN',
-        validTaxId: /^\d{2}-\d{7}$/,
-        normalizeCore: normalizeUsCompanyCore,
-        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_irs_eo_registry', 'US'),
-      }),
+      createFallbackOfficialSourceResolver(
+        createSnapshotNameOfficialSourceResolver({
+          countryCode: 'US',
+          sourceKey: 'us_irs_eo_registry',
+          taxIdentifierType: 'EIN',
+          validTaxId: /^\d{2}-\d{7}$/,
+          normalizeCore: normalizeUsCompanyCore,
+          querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_irs_eo_registry', 'US'),
+        }),
+        // SOURCES-US-CLOSE-1 — el buscador gratuito suma las universidades de IPEDS por
+        // su nombre de uso («Harvard University» y no «President and Fellows of…»).
+        createSnapshotNameOfficialSourceResolver({
+          countryCode: 'US',
+          sourceKey: 'us_free_directory',
+          taxIdentifierType: 'EIN',
+          validTaxId: /^\d{2}-\d{7}$/,
+          normalizeCore: normalizeUsCompanyCore,
+          querySnapshots: buildSnapshotNameQuery(snapshotClient, 'us_free_directory', 'US'),
+        }),
+      ),
     ),
     // SOURCES-ES-NIF-BY-NAME-1 — sociedades adjudicatarias de la Plataforma de
     // Contratación. Requiere la migración 141 (tipo 'NIF') antes de cargarla.
