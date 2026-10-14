@@ -166,7 +166,21 @@ export function buildCompanySearchQueries(
  * «Competidores de una empresa»: las dos consultas nombran a la referencia. La
  * segunda añade qué vende, para que Claude no se quede sólo con las famosas.
  */
-export function buildCompetitorSearchQueries(reference: CompetitorReference, country: string): string[] {
+export function buildCompetitorSearchQueries(
+  reference: CompetitorReference,
+  country: string,
+  round = 0,
+): string[] {
+  // Ronda 2+ (Prod 14-10, lote 16205dfb: las 3 de la 1.ª ronda ya estaban en HubSpot):
+  // las famosas ya son clientes; se piden medianas, regionales y marcas alternativas.
+  if (round > 0) {
+    return [
+      `empresas medianas y regionales que compiten con ${reference.name} en ${country}`,
+      reference.description
+        ? `alternativas nacionales a ${reference.name} (${reference.description}) en ${country}, menos conocidas`
+        : `marcas y fabricantes nacionales alternativos a ${reference.name} en ${country}, menos conocidos`,
+    ].slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
+  }
   const queries = [`competidores de ${reference.name} en ${country}`];
   queries.push(
     reference.description
@@ -264,6 +278,11 @@ export async function runClaudeCompanySearch(
     writeIntoSourceBatch?: boolean;
     /** Tiempo para EMPEZAR consultas; por defecto CLAUDE_COMPANY_SEARCH_PHASE_MS. */
     phaseMs?: number;
+    /**
+     * «Competidores de una empresa»: ronda de la corrida (0 = primera). Las
+     * siguientes piden empresas menos conocidas; lo ya visto se excluye solo.
+     */
+    round?: number;
   },
   deps: ClaudeCompanySearchDeps,
 ): Promise<ClaudeCompanySearchSummary> {
@@ -292,7 +311,9 @@ export async function runClaudeCompanySearch(
       : await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
   const queries = referenceCompanyName
     ? buildSupplierSearchQueries(source, referenceCompanyName)
-    : buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
+    : source.competitorReference
+      ? buildCompetitorSearchQueries(source.competitorReference, source.country, params.round ?? 0)
+      : buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
   const runId = deps.newRunId();
   let callIndex = 0;
   const onCall = async (call: CompanySearchCall) => {
@@ -347,7 +368,10 @@ export async function runClaudeCompanySearch(
               run_id: runId,
               ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               ...(source.competitorReference
-                ? { competitor_of: { name: source.competitorReference.name, domain: source.competitorReference.domain } }
+                ? {
+                    competitor_of: { name: source.competitorReference.name, domain: source.competitorReference.domain },
+                    competitor_round: params.round ?? 0,
+                  }
                 : {}),
               source_batch_id: source.id,
               queries,

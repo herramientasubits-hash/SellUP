@@ -52,6 +52,12 @@ export function resolveSearchModeDefinitions(options: {
   );
 }
 
+/**
+ * «Competidores de una empresa»: países por búsqueda. Se lanza una corrida por país
+ * (en paralelo en el Centro de procesos, que corre hasta 3 a la vez).
+ */
+export const MAX_COMPETITOR_COUNTRIES = 3;
+
 /** Empresa de referencia: lo que se escribe en el paso «¿De qué empresa?». */
 export const REFERENCE_COMPANY_LIMITS = { minChars: 2, maxChars: 120 } as const;
 

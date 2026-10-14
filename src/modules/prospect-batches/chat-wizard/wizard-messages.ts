@@ -1,5 +1,6 @@
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { resolveSearchModeDefinitions } from './wizard-config';
+import { getSearchCountryCodes } from './wizard-selectors';
 import type {
   ProspectWizardState,
   ProspectWizardStep,
@@ -193,13 +194,15 @@ export function deriveWizardMessages(
       id: 'assistant-country-question',
       role: 'assistant',
       messageType: 'choice',
-      content: isCompetitors ? '¿En qué país buscamos sus competidores?' : '¿En qué país quieres buscar?',
+      content: isCompetitors ? '¿En qué países buscamos sus competidores?' : '¿En qué país quieres buscar?',
       step: 'country',
     });
 
     if (state.countryCode) {
-      const countryName =
-        findCountryName(state.countryCode, context.countries) ?? state.countryCode;
+      // «Competidores» puede llevar varios países (una búsqueda por cada uno).
+      const countryName = getSearchCountryCodes(state)
+        .map((code) => findCountryName(code, context.countries) ?? code)
+        .join(', ');
       messages.push({
         id: 'user-country-answer',
         role: 'user',

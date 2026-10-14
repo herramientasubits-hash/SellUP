@@ -129,6 +129,11 @@ export type ProspectWizardState = {
    */
   supplierSearchEnabled?: boolean;
   countryCode: string | null;
+  /**
+   * «Competidores de una empresa»: los países elegidos, en orden (el primero es
+   * `countryCode`). Se lanza una búsqueda por país. Ausente = sólo `countryCode`.
+   */
+  competitorCountryCodes?: string[];
   industryId: string | null;
   subindustryIds: string[];
   additionalCriteriaRaw: string | null;
@@ -226,6 +231,8 @@ export type ProspectWizardAction =
   | { type: 'CONFIRM_REFERENCE' }
   /** «No, es otra»: se vuelve a preguntar por la referencia. */
   | { type: 'REJECT_REFERENCE' }
+  /** «Competidores»: la selección de países (sin avanzar; avanza `SELECT_COUNTRY`). */
+  | { type: 'SET_COMPETITOR_COUNTRIES'; countryCodes: string[] }
   | { type: 'SELECT_COUNTRY'; countryCode: string }
   | { type: 'SELECT_INDUSTRY'; industryId: string }
   /**

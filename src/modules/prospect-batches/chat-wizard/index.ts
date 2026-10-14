@@ -27,6 +27,7 @@ export {
   SEARCH_MODE_DEFINITIONS,
   VALID_COUNTRY_CODES,
   REFERENCE_COMPANY_LIMITS,
+  MAX_COMPETITOR_COUNTRIES,
   resolveSearchModeDefinitions,
 } from './wizard-config';
 
@@ -47,6 +48,7 @@ export {
   getAvailableSearchModes,
   buildExploratoryFormInput,
   buildSearchModePayload,
+  getSearchCountryCodes,
   hasValidReferenceCompany,
   validateWizardStateInvariants,
 } from './wizard-selectors';

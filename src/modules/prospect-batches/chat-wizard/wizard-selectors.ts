@@ -238,6 +238,17 @@ export function buildExploratoryFormInput(
 }
 
 /**
+ * Países de la búsqueda, en orden. «Competidores» puede llevar varios (una
+ * búsqueda por país); el resto de modos, sólo `countryCode`.
+ */
+export function getSearchCountryCodes(state: ProspectWizardState): string[] {
+  if (!state.countryCode) return [];
+  if (state.searchMode !== 'competitors') return [state.countryCode];
+  const rest = (state.competitorCountryCodes ?? []).filter((code) => code !== state.countryCode);
+  return [state.countryCode, ...rest];
+}
+
+/**
  * Lo que el modo añade a la solicitud de ejecución. La validación de criterios
  * (`buildExploratoryFormInput`) no lo lleva: valida país, industria y criterios,
  * que son los mismos en los dos modos.

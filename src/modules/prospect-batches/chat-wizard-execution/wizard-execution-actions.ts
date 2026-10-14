@@ -560,7 +560,12 @@ export type WizardExecutionDeps = {
    * su bandera apagada) la ejecución es la de hoy.
    */
   resolveClaudeSearchLeg?: () => boolean;
-  runClaudeCompanySearchLeg?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  runClaudeCompanySearchLeg?: (input: {
+    batchId: string;
+    phaseMs: number;
+    /** «Competidores de una empresa»: ronda de la corrida (ausente = 0). */
+    round?: number;
+  }) => Promise<ClaudeSearchLegOutcome>;
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
@@ -1042,7 +1047,7 @@ export async function executeProspectWizardGenerationAction(
     runLushaWaterfallLeg: (legInput) => runLushaWaterfallLeg(legInput),
     // AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — último paso, detrás de su bandera.
     resolveClaudeSearchLeg: isAgent1ClaudeCompanySearchAutoEnabled,
-    runClaudeCompanySearchLeg: async ({ batchId, phaseMs }) => {
+    runClaudeCompanySearchLeg: async ({ batchId, phaseMs, round }) => {
       const auth = await requireActiveUser();
       const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
         import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
@@ -1051,7 +1056,13 @@ export async function executeProspectWizardGenerationAction(
       let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
       try {
         summary = await runClaudeCompanySearch(
-          { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
+          {
+            sourceBatchId: batchId,
+            triggeredBy: auth.internalUserId,
+            writeIntoSourceBatch: true,
+            phaseMs,
+            ...(round !== undefined ? { round } : {}),
+          },
           buildLiveClaudeCompanySearchDeps(auth.internalUserId),
         );
       } catch (err) {
