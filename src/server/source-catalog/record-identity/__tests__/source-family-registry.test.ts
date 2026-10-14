@@ -31,6 +31,7 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'uy_arce_directory',
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
+  'us_free_directory',
   'es_placsp_registry',
   'mx_compranet_rfc_registry',
   'mx_rfc_public_lists_registry',

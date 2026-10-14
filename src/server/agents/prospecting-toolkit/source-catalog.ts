@@ -3225,6 +3225,35 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Un nombre repetido o genérico no da un EIN seguro; queda como señal.',
     ],
   },
+  {
+    key: 'us_free_directory',
+    name: 'IRS EO BMF + SEC EDGAR — capa gratuita por industria de Estados Unidos',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 13.528 filas — 11.606 organizaciones del IRS con ingresos ≥ US$ 25 M y 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated»; 5.686 marcadas como grandes). Tabla NTEE/SIC → industria y corte aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --apply.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Estados Unidos por industria: organizaciones sin ánimo de lucro del IRS con ingresos de US$ 25 millones o más (universidades, hospitales, servicios humanos, cooperativas eléctricas), clasificadas por su código NTEE, y empresas cotizadas de la SEC con capitalización flotante de US$ 75 millones o más, clasificadas por su código SIC. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes. Cada empresa llega con su EIN y su razón social oficial.',
+    limitations: [
+      'Ni el IRS ni la SEC publican la web: las empresas propuestas van a Descartadas y dependen del rescate con Claude para encontrarla.',
+      'Las empresas privadas con fines de lucro que no cotizan no aparecen: no hay registro público gratuito con su EIN.',
+      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS o emisor «Large accelerated» en la SEC), que nunca decide solo.',
+      'Fundaciones, arte, religión, sindicatos, clubes y fideicomisos de salud de empleados no se proponen; no hay industria de Gobierno.',
+      'Snapshot estático — requiere recarga para reflejar altas y bajas.',
+    ],
+    riskNotes: [
+      'Las empresas que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+      'No se guardan teléfonos, nombres de contacto ni correos.',
+    ],
+  },
 
   // ── España ──────────────────────────────────────────────────────────────────
   {
