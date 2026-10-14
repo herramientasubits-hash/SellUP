@@ -10,7 +10,10 @@ import {
 // veredicto y si cuenta hacia el objetivo. El dato ya se persistía; faltaba
 // enseñarlo, y sin él una empresa AMBIGUA se leía como una empresa confirmada.
 import { resolveCandidateSubindustryStatus } from '@/modules/prospect-batches/candidate-subindustry-status-display';
-import { ShieldCheck, Building2, MapPin, CheckCircle2, FileText, Tag } from '@/icons';
+import { ShieldCheck, Building2, MapPin, CheckCircle2, FileText, Tag, GitBranch } from '@/icons';
+import { CandidateCorporateTreeTab } from './corporate-tree/candidate-corporate-tree-tab';
+import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DrawerSection } from '@/components/shared/drawer-section';
@@ -128,6 +131,9 @@ export function CandidateDetailSheet({
 
   const taxIdLookupState = useCandidateTaxIdLookup(candidate, onCandidateUpdated);
   const [activeTab, setActiveTab] = React.useState<string>('empresa');
+  // AGENT1-CORPORATE-TREE-1 — pestaña «Asociaciones»: si la empresa vino del
+  // árbol, o si la búsqueda en árbol está encendida (para lanzarla desde aquí).
+  const corporateTreeEnabled = useCorporateTreeEnabled();
 
   // Rationale: resets transient UI state when the selected candidate changes.
   // Depends on a stable primitive (candidate.id); no cascading render risk.
@@ -470,6 +476,9 @@ export function CandidateDetailSheet({
           <TabsList variant="segmented" className="shrink-0 mx-7 mt-4">
             <TabsTrigger value="empresa"><Building2 className="h-4 w-4" /> Empresa</TabsTrigger>
             <TabsTrigger value="validacion"><CheckCircle2 className="h-4 w-4" /> Validación</TabsTrigger>
+            {(corporateTreeEnabled || readCorporateTreeRelation(candidate.metadata) !== null) && (
+              <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Asociaciones</TabsTrigger>
+            )}
           </TabsList>
 
           {/* Tab 1: Empresa */}
@@ -758,6 +767,11 @@ export function CandidateDetailSheet({
 
             {/* Detalle técnico: identificadores, fechas y la traza de la búsqueda */}
             <CandidateTechnicalDetailSection candidate={candidate} searchTrace={searchTrace} />
+          </TabsContent>
+          <TabsContent value="asociaciones" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
+            {activeTab === 'asociaciones' && (
+              <CandidateCorporateTreeTab candidateId={candidate.id} />
+            )}
           </TabsContent>
         </Tabs>
       </DrawerShell>

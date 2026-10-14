@@ -161,6 +161,16 @@ export function prospectWizardReducer(
         };
       }
 
+      // AGENT1-CORPORATE-TREE-1 — el árbol tiene su propia conversación.
+      if (action.mode === 'corporate_tree') {
+        return {
+          ...state,
+          searchMode: action.mode,
+          currentStep: 'corporate_tree',
+          warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+        };
+      }
+
       return {
         ...state,
         searchMode: action.mode,

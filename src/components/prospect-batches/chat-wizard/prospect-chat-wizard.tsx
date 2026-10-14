@@ -30,6 +30,7 @@ import { ChatComposer } from '@/components/chat';
 import { Stepper, type StepperStep } from '@/components/navigation/stepper';
 import { getWizardProgressSteps } from '@/modules/prospect-batches/chat-wizard/wizard-selectors';
 import { WizardMessageList } from './wizard-message-list';
+import { CorporateTreeFlow } from '@/components/prospect-batches/corporate-tree/corporate-tree-flow';
 import { WizardActiveStep, WIZARD_QUESTION_STEPS } from './wizard-active-step';
 import { SubmittingPanel } from './wizard-execution-panels';
 import {
@@ -854,6 +855,12 @@ export function ProspectChatWizard({
       onSubmitCriteria={submitCriteria}
     />
   );
+
+  // AGENT1-CORPORATE-TREE-1 — el árbol de una empresa tiene su propia
+  // conversación; «Elegir otro tipo de búsqueda» vuelve a la primera pregunta.
+  if (state.currentStep === 'corporate_tree') {
+    return <CorporateTreeFlow onBack={() => dispatch({ type: 'GO_BACK' })} onOpenBatch={onClose} />;
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   // Es el cuerpo del panel del agente: el hilo desplaza arriba y la caja de

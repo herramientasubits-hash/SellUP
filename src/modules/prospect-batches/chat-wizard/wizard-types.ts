@@ -9,7 +9,7 @@ import type {
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
-export type ProspectSearchMode = 'exploratory' | 'competitors' | 'suppliers';
+export type ProspectSearchMode = 'exploratory' | 'corporate_tree' | 'competitors' | 'suppliers';
 
 export type ProspectSearchModeAvailability = 'enabled' | 'coming_soon' | 'disabled';
 
@@ -25,6 +25,8 @@ export type ProspectSearchModeDefinition = {
 export type ProspectWizardStep =
   | 'welcome'
   | 'search_type'
+  /** AGENT1-CORPORATE-TREE-1 — la conversación del árbol toma el panel entero. */
+  | 'corporate_tree'
   | 'country'
   | 'industry'
   | 'subindustries'

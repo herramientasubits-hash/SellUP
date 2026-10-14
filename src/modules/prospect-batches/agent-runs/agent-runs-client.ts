@@ -34,6 +34,46 @@ export function executeWizardRunViaRoute(payload: AgentRunPayload): Promise<Wiza
   return postJson<WizardExecutionActionResult>('/api/prospect-batches/wizard-runs', payload);
 }
 
+/**
+ * AGENT1-CORPORATE-TREE-1 — la bandeja corre dos formas de búsqueda: por criterios
+ * (asistente) y en árbol de una empresa. Cada una va a su ruta; la respuesta tiene
+ * la misma forma, así que el Centro de procesos las pinta igual.
+ */
+export function executeAgentRunViaRoute(payload: AgentRunPayload): Promise<WizardExecutionActionResult> {
+  if (payload.searchMode === 'corporate_tree') {
+    return postJson<WizardExecutionActionResult>('/api/prospect-batches/corporate-tree-runs', payload);
+  }
+  return executeWizardRunViaRoute(payload);
+}
+
+let corporateTreeEnabled: Promise<boolean> | null = null;
+
+/** ¿Está encendida la búsqueda en árbol? Se pregunta una vez por carga de página. */
+export function fetchCorporateTreeEnabled(): Promise<boolean> {
+  corporateTreeEnabled ??= fetch('/api/prospect-batches/corporate-tree-runs', { cache: 'no-store' })
+    .then((response) => (response.ok ? (response.json() as Promise<{ enabled?: unknown }>) : { enabled: false }))
+    .then((body) => body.enabled === true)
+    .catch(() => {
+      corporateTreeEnabled = null;
+      return false;
+    });
+  return corporateTreeEnabled;
+}
+
+export function useCorporateTreeEnabled(): boolean {
+  const [enabled, setEnabled] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    void fetchCorporateTreeEnabled().then((value) => {
+      if (alive) setEnabled(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return enabled;
+}
+
 export async function fetchAgentRunsStatus(ids: readonly string[]): Promise<AgentRunStatusSnapshot[]> {
   if (ids.length === 0) return [];
   const response = await fetch(`/api/prospect-batches/wizard-runs/status?ids=${ids.map(encodeURIComponent).join(',')}`, {
@@ -85,7 +125,7 @@ export function getAgentRunsStore(): AgentRunsStore | null {
     } catch {
       storage = null;
     }
-    singleton = createAgentRunsStore({ execute: executeWizardRunViaRoute, storage });
+    singleton = createAgentRunsStore({ execute: executeAgentRunViaRoute, storage });
   }
   return singleton;
 }
