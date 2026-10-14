@@ -178,16 +178,16 @@ describe('Ecuador capa gratuita (SOURCES-EC-FREE-DISCOVERY-1): cargada y verific
   });
 });
 
-describe('Chile capa gratuita (SOURCES-CL-SII-FREE-DISCOVERY-1): conectada en código, carga pendiente', () => {
-  it('existe, CL, capa gratuita, sin carga verificada todavía y fuera de las recomendaciones', () => {
+describe('Chile capa gratuita (SOURCES-CL-SII-FREE-DISCOVERY-1): cargada y verificada', () => {
+  it('existe, CL, capa gratuita, carga verificada y fuera de las recomendaciones', () => {
     const s = CATALOG_SOURCES.find((source) => source.key === 'cl_sii_directory');
     assert.ok(s);
     assert.deepEqual(s.countryCodes, ['CL']);
     assert.equal(s.aiFlowStatus, 'connected_free_discovery');
     assert.equal(s.connectionMode, 'read_only_snapshot');
-    assert.equal(s.operationalStatus, 'pending_validation');
+    assert.equal(s.operationalStatus, 'operational_verified');
     assert.deepEqual(s.sectors, []);
-    assert.match(s.nextAction ?? '', /espera la autorización/);
+    assert.match(s.nextAction ?? '', /10\.942 personas jurídicas/);
     for (const industry of INDUSTRIES) {
       for (const depth of DEPTHS) {
         const ctx = getCatalogContext({ country: 'Chile', countryCode: 'CL', industry, searchDepth: depth });

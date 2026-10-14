@@ -16,6 +16,7 @@
  * Uso:
  *   node --import tsx scripts/source-catalog/discover-es-company-webs.mts \
  *     --dump=<dump-dir>/directory.jsonl --in-dir=<salidas del extractor> --out=<webs.jsonl> [--per-macro=200]
+ *   node --import tsx scripts/source-catalog/discover-es-company-webs.mts --recheck=<webs.jsonl> --in-dir=… --out=<webs2.jsonl>
  */
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
@@ -109,7 +110,43 @@ async function fetchPage(host: string): Promise<EsFetchedPage> {
   return { host, finalHost: null, status: null, blocked: false, title: null, text: null };
 }
 
+/**
+ * `--recheck=<webs.jsonl>`: vuelve a comprobar con las reglas de HOY sólo las webs ya
+ * halladas (una visita a la portada cada una) y escribe las que siguen valiendo en `--out`.
+ */
+async function recheck(previousPath: string, inDir: string, outFile: string): Promise<void> {
+  const previous = readJsonl(previousPath);
+  const names = namesByNif(inDir);
+  const tally = new Map<string, number>();
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const row = previous[next++];
+      if (row === undefined) return;
+      const nif = String(row['nif']);
+      const legalName = String(row['legal_name']);
+      const candidateNames = [...new Set([legalName, ...(names.get(nif) ?? [])])].slice(0, MAX_NAMES);
+      const verdict = spainCompanyWebVerdict(await fetchPage(String(row['requested'])), candidateNames, { nif });
+      const key = 'domain' in verdict ? verdict.check : `rejected:${verdict.rejected}`;
+      tally.set(key, (tally.get(key) ?? 0) + 1);
+      if ('domain' in verdict) {
+        appendFileSync(outFile, `${JSON.stringify({ nif, legal_name: legalName, domain: verdict.domain, check: verdict.check, matched_key: verdict.matchedKey, requested: row['requested'] })}\n`);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  console.log(`Recomprobadas ${previous.length}: ${JSON.stringify(Object.fromEntries(tally))} → ${outFile}`);
+}
+
 async function main(): Promise<void> {
+  const previous = arg('recheck');
+  if (previous !== null) {
+    const inDirArg = arg('in-dir');
+    const outArg = arg('out');
+    if (!inDirArg || !outArg) throw new Error('config_invalid: --recheck exige --in-dir= y --out=');
+    await recheck(previous, inDirArg, outArg);
+    return;
+  }
   const dump = arg('dump');
   const inDir = arg('in-dir');
   const out = arg('out');
@@ -146,7 +183,7 @@ async function main(): Promise<void> {
       const candidateNames = [...new Set([legalName, ...(names.get(nif) ?? [])])].slice(0, MAX_NAMES);
       let found: { domain: string; check: string; matchedKey: string; host: string } | null = null;
       for (const host of spainCompanyWebCandidates(candidateNames).filter((h) => TLDS_TRIED.has(h.split('.').pop() ?? ''))) {
-        const verdict = spainCompanyWebVerdict(await fetchPage(host), candidateNames);
+        const verdict = spainCompanyWebVerdict(await fetchPage(host), candidateNames, { nif });
         if ('domain' in verdict) {
           found = { ...verdict, host };
           break;
