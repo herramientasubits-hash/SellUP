@@ -61,6 +61,9 @@ export function toVeFreeDirectoryReadRow(row: SnapshotSelectRow): VeFreeDirector
     activity_code: text(row.raw_data?.['activity_code']),
     public_entity_kind: text(row.raw_data?.['public_entity_kind']),
     website_domain: text(row.raw_data?.['website_domain']),
+    workers: toNumber(row.raw_data?.['workers']),
+    metrics_year: toNumber(row.raw_data?.['metrics_year']),
+    workforce_source: text(row.raw_data?.['workforce_source']),
     priority_score: toNumber(row.priority_score),
   };
 }

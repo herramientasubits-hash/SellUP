@@ -13,8 +13,9 @@
  * entes públicos (Gobierno). Aquí sólo se piden las de la macro pedida, de más a
  * menos relevantes (cotizadas, aseguradoras y entes primero).
  *
- * Ninguna fuente venezolana alcanzable da el tamaño: la fila no trae tamaño oficial
- * y el filtro de tamaño decide con lo que traigan los demás pasos.
+ * Tamaño: sólo trae trabajadores la fila de un banco (SUDEBAN) o de una empresa de
+ * Great Place to Work; el resto no trae tamaño oficial y el filtro decide con lo que
+ * traigan los demás pasos.
  *
  * ── Doble comprobación ──────────────────────────────────────────────────────
  *
@@ -29,12 +30,14 @@
  */
 
 import { canonicalVenezuelaRif } from '@/server/source-catalog/connectors/ve-sources/ve-sources-input';
+import { VE_WORKFORCE_SOURCE_LABEL, type VeWorkforceSource } from '@/server/source-catalog/connectors/ve-sources/ve-official-workforce';
 import {
   macroHasVeCoverage,
   resolveVeDirectoryMacro,
   resolveVeDirectoryRubro,
   VE_FREE_DIRECTORY_MACRO_TABLE_VERSION,
 } from './ve-free-directory-macro-table';
+import { buildCountrySourceOfficialWorkforce } from './country-source-types';
 import type {
   CountrySourceAdapter,
   CountrySourceCompany,
@@ -67,6 +70,10 @@ export type VeFreeDirectorySnapshotReadRow = {
   activity_code: string | null;
   public_entity_kind: string | null;
   website_domain: string | null;
+  /** SOURCES-VE-SIZE-1 — trabajadores publicados (SUDEBAN o Great Place to Work). */
+  workers: number | null;
+  metrics_year: number | null;
+  workforce_source: string | null;
   priority_score: number | null;
 };
 
@@ -107,6 +114,13 @@ function toCompany(row: VeFreeDirectorySnapshotReadRow, macroIndustryKey: string
     // Los códigos son claves internas (RIF, Q de Wikidata, categoría): no son CIIU.
     industryCode: null,
     coarseSector: null,
+    // SOURCES-VE-SIZE-1 — trabajadores publicados (SUDEBAN para bancos; Great Place
+    // to Work para las pocas empresas que SUDEBAN no cubre). Sin dato, sin tamaño.
+    officialWorkforce: buildCountrySourceOfficialWorkforce(
+      row.workers,
+      row.metrics_year,
+      VE_WORKFORCE_SOURCE_LABEL[row.workforce_source as VeWorkforceSource] ?? 'Venezuela',
+    ),
     officialMacroIndustry: {
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: VE_FREE_DIRECTORY_MACRO_TABLE_VERSION,

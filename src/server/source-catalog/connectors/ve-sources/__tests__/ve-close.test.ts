@@ -51,6 +51,7 @@ import {
 } from '../ve-sources-rows';
 import { VE_WEB_ENTITIES, type VeWebEntity } from '../ve-web-entities';
 import { VE_PUBLIC_ENTITIES, type VePublicEntity } from '../ve-public-entities';
+import { VE_OFFICIAL_WORKFORCE } from '../ve-official-workforce';
 import { veCompanyWebCandidates, veCompanyWebVerdict, type VeFetchedPage } from '../ve-company-web';
 import {
   createVenezuelaOfficialSourceResolver,
@@ -353,12 +354,21 @@ describe('ve_rif_registry y ve_rif_name_alias', () => {
     assert.equal(aliasRows.some((r) => r.normalized_legal_name === 'COBECA'), false);
   });
 
-  it('la lectura del registro marca el alias y nunca trae tamaño', () => {
+  it('la lectura del registro marca el alias; sin dato publicado no hay tamaño', () => {
     const { aliasRows } = build({ bvcIssuers: [COBECA] });
     const row = toVenezuelaNameRow(aliasRows[0] as unknown as Record<string, unknown>);
     assert.equal(row.alias, true);
     assert.equal(row.taxId, 'J-07000397-9');
-    assert.equal('workforce' in row, false);
+    assert.equal(row.workforce, null);
+  });
+
+  it('SOURCES-VE-SIZE-1: un banco de SUDEBAN lleva sus trabajadores en el registro y en la lectura', () => {
+    const { registryRows } = build({ bvcIssuers: [BNC] });
+    assert.equal(registryRows[0].raw_data['workers'], 1580);
+    assert.equal(registryRows[0].raw_data['metrics_year'], 2022);
+    assert.equal(registryRows[0].raw_data['workforce_source'], 'sudeban');
+    const row = toVenezuelaNameRow(registryRows[0] as unknown as Record<string, unknown>);
+    assert.deepEqual(row.workforce, { workers: 1580, year: 2022, source: 'SUDEBAN (Boletín Mensual, jun-2022)', salesBracket: null });
   });
 });
 
@@ -383,6 +393,16 @@ function resolverWith(rows: Record<string, VenezuelaNameRow[]>) {
 }
 
 describe('resolvedor de RIF por nombre (ve_rif_registry)', () => {
+  it('SOURCES-VE-SIZE-1: el tamaño del banco viaja en el resultado fuerte', async () => {
+    const workforce = { workers: 1580, year: 2022, source: 'SUDEBAN (Boletín Mensual, jun-2022)' };
+    const { resolver } = resolverWith({
+      'BANCO NACIONAL DE CREDITO': [{ taxId: 'J-30984132-7', legalName: BNC.name, normalizedLegalName: 'BANCO NACIONAL DE CREDITO', workforce }],
+    });
+    const result = await resolver.resolve(candidate('Banco Nacional de Crédito'));
+    assert.equal(result.status, 'matched');
+    assert.deepEqual(result.workforce, workforce);
+  });
+
   it('un RIF con ese núcleo → fuerte, tipo RIF, sin tamaño', async () => {
     const { resolver } = resolverWith({
       'SEGUROS CARACAS': [{ taxId: 'J-00038923-3', legalName: 'SEGUROS CARACAS, C.A', normalizedLegalName: 'SEGUROS CARACAS' }],
@@ -555,6 +575,23 @@ describe('filas de la capa gratuita', () => {
     assert.equal(VE_FREE_DIRECTORY_MACRO_TABLES_APPROVED, true);
   });
 
+  it('SOURCES-VE-SIZE-1: trabajadores en la capa gratuita, por RIF o (sin RIF) por la web', () => {
+    const { taxRows } = build({ bvcIssuers: [BNC, CEMEX] });
+    assert.equal(taxRows.find((r) => r.tax_id === BNC.rif)!.raw_data['workers'], 1580);
+    assert.equal(taxRows.find((r) => r.tax_id === CEMEX.rif)!.raw_data['workers'], undefined);
+    const { webRows } = build({ webEntities: [web({ qid: 'Q4854101', name: 'Mercantil Banco', domain: 'mercantilbanco.com', macro: 'insurance_financial_services', rif: null })] });
+    assert.equal(webRows[0].raw_data['workers'], 2552);
+    assert.equal(webRows[0].raw_data['workforce_source'], 'sudeban');
+  });
+
+  it('SOURCES-VE-SIZE-1: la tabla de trabajadores sólo trae RIF válidos y números positivos', () => {
+    for (const w of VE_OFFICIAL_WORKFORCE) {
+      if (w.rif !== null) assert.equal(canonicalVenezuelaRif(w.rif), w.rif, w.name);
+      assert.ok(Number.isInteger(w.workers) && w.workers > 0, w.name);
+      assert.ok(w.rif !== null || w.domain !== null, w.name);
+    }
+  });
+
   it('un dominio compartido por dos entidades no identifica a ninguna', () => {
     const { webRows } = build({ publicEntities: [pub({}), pub({ name: 'Otro ente', wikidata: 'Q1' })] });
     assert.equal(webRows.length, 1);
@@ -620,6 +657,9 @@ function readRow(overrides: Partial<VeFreeDirectorySnapshotReadRow>): VeFreeDire
     activity_code: 'J-00282860-9',
     public_entity_kind: null,
     website_domain: 'cemex.com.ve',
+    workers: null,
+    metrics_year: null,
+    workforce_source: null,
     priority_score: 1_000_001,
     ...overrides,
   };
@@ -637,6 +677,12 @@ describe('adaptador de la capa gratuita de Venezuela', () => {
     return { adapter, asked };
   };
 
+  it('SOURCES-VE-SIZE-1: un banco con trabajadores de SUDEBAN llega con tamaño oficial', async () => {
+    const { adapter } = adapterWith([readRow({ rif: 'J-30984132-7', directory_kind: 'bvc_member', activity_code: null, workers: 1580, metrics_year: 2022, workforce_source: 'sudeban' })]);
+    const result = await adapter({ macroIndustryKey: 'insurance_financial_services', limit: 10 } as never);
+    assert.deepEqual(result.companies[0].officialWorkforce, { workers: 1580, year: 2022, sourceLabel: 'SUDEBAN (Boletín Mensual, jun-2022)' });
+  });
+
   it('ofrece la empresa con RIF, web y tabla oficial; sin tamaño oficial', async () => {
     const { adapter } = adapterWith([readRow({})]);
     const result = await adapter({ macroIndustryKey: 'industry_manufacturing_chemicals_automotive', limit: 10 } as never);
@@ -648,6 +694,7 @@ describe('adaptador de la capa gratuita de Venezuela', () => {
     assert.equal(company.countryCode, 'VE');
     assert.equal(company.domain, 'cemex.com.ve');
     assert.equal(company.officialSizeBand, undefined);
+    assert.equal(company.officialWorkforce, null);
     assert.deepEqual(company.officialMacroIndustry?.macroIndustryKeys, ['industry_manufacturing_chemicals_automotive']);
   });
 
