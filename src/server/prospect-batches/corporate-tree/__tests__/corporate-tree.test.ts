@@ -22,6 +22,9 @@ import {
   corporateTreeNameCores,
   escapeLikePrefix,
   findCorporateTreeFreeHits,
+  freeHitConfirmation,
+  isStrongFreeSource,
+  nameKinship,
   prefixUpperBound,
   type CorporateTreeFreeHit,
   type FreeSnapshotRow,
@@ -29,6 +32,7 @@ import {
 import { resolveAgentDimensions } from '@/modules/usage-tracking/usage-dimensions';
 import {
   branchDoneStage,
+  displayCompanyName,
   parseCorporateTreeRequest,
   runCorporateTreeSearch,
   type CorporateTreeBatchCandidate,
@@ -41,9 +45,10 @@ import { groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } fro
 import {
   buildCorporateTreeViews,
   describeCorporateTreeItemStatus,
+  linkTreeRecordsToCandidates,
   type CorporateTreeRelationshipRecord,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-associations';
-import { CORPORATE_TREE_BATCH_INDUSTRY, readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { CORPORATE_TREE_BATCH_INDUSTRY, normalizeTreeName, readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import { reserveWizardExecutionSlot, type IdempotencyDbClient } from '@/modules/prospect-batches/chat-wizard-execution/wizard-idempotency';
 import { RUN_PROGRESS_PERCENT, RUN_PROGRESS_STAGES } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import { TREE_RUN_RECOVERY_TIMEOUT_MS, waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
@@ -740,5 +745,87 @@ describe('I. La sección del lote se pinta en el servidor (Prod 14-10: «This pa
     assert.equal(byRelation.get('other_country')?.[0].candidateId, 'x', 'mismo nombre sin forma societaria');
     assert.equal(byRelation.get('group')?.[0].statusLabel, 'En Descartadas: sin web');
     assert.equal(byRelation.get('group')?.[0].candidateId, null);
+  });
+});
+
+describe('J. Lo gratis es preciso: familia sí, homónimos sólo si Claude los confirma', () => {
+  it('quita la forma societaria aunque venga con espacios o «BIC»', () => {
+    assert.equal(normalizeTreeName('CENCOSUD S A'), 'cencosud');
+    assert.equal(normalizeTreeName('BIMBO DE COSTA RICA SOCIEDAD ANONIMA'), 'bimbo de costa rica');
+    assert.equal(normalizeTreeName('Alpina Productos Alimenticios S.A.S BIC'), 'alpina productos alimenticios');
+    assert.equal(normalizeTreeName('Cencosud Perú S.A.C.'), 'cencosud peru');
+  });
+
+  it('parentesco por palabra completa: familia, prefijo o nada', () => {
+    assert.equal(nameKinship('cencosud', 'cencosud'), 'exact');
+    assert.equal(nameKinship('bimbo de colombia', 'bimbo'), 'family');
+    assert.equal(nameKinship('alpina termoplasticos', 'alpina'), 'prefix');
+    assert.equal(nameKinship('nutresan', 'nutresa'), 'none');
+  });
+
+  it('entra sola la empresa en su país y la familia de una fuente fuerte; lo demás pasa por Claude', () => {
+    const base = { countryCode: 'CL', rootCountryCode: 'CL', origin: 'catalog' as const, strongSource: false };
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'exact' }), 'confirmed');
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'exact', countryCode: 'AR' }), 'needs_claude', 'mismo nombre en otro país = posible homónimo');
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'family', countryCode: 'PE', strongSource: true }), 'confirmed');
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'family', countryCode: 'PE' }), 'needs_claude');
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'prefix', strongSource: true }), 'needs_claude');
+    assert.equal(freeHitConfirmation({ ...base, kinship: 'exact', origin: 'bank' }), 'needs_claude');
+    assert.equal(isStrongFreeSource({ sourceKey: 'pe_sunat_registry', workers: 10 }), false);
+    assert.equal(isStrongFreeSource({ sourceKey: 'pe_sunat_registry', workers: 50 }), true);
+  });
+
+  it('el plan: sin confirmar y sin Claude no entra; con Claude entra con su web; misma web de partida = la empresa de partida', () => {
+    const plan = planCorporateTreeWrites({
+      root: ROOT,
+      freeHits: [
+        FREE_HIT('Nutresa SA', 'AR', { confirmation: 'needs_claude' }),
+        FREE_HIT('Nutresa Chile', 'CL', { confirmation: 'needs_claude' }),
+        FREE_HIT('Grupo Nutresa SA', 'CO', { relation: 'root', domain: 'gruponutresa.com' }),
+      ],
+      nodes: [NODE('Nutresa Chile', 'CL', { branch: 'other_country', website: 'https://nutresa.cl', domain: 'nutresa.cl' })],
+    });
+    const byKey = new Map(plan.rows.map((r) => [corporateTreeRowKey(r.name, r.countryCode), r]));
+    assert.equal(byKey.has(corporateTreeRowKey('Nutresa SA', 'AR')), false);
+    assert.equal(plan.unconfirmedDropped, 1);
+    const chile = byKey.get(corporateTreeRowKey('Nutresa Chile', 'CL'));
+    assert.equal(chile?.domain, 'nutresa.cl', 'la web que aportó Claude se une a la fila del registro');
+    assert.equal(chile?.taxId, 'CL-1', 'y conserva el número fiscal oficial');
+    assert.equal(plan.rows.filter((r) => r.relation === 'root').length, 1, 'la empresa de partida no se duplica');
+  });
+
+  it('el nombre escrito en minúsculas se muestra con mayúscula inicial; lo demás no se toca', () => {
+    assert.equal(displayCompanyName('cencosud'), 'Cencosud');
+    assert.equal(displayCompanyName('grupo bimbo'), 'Grupo Bimbo');
+    assert.equal(displayCompanyName('BIMBO'), 'BIMBO');
+  });
+
+  it('la ficha de una empresa rescatada encuentra su asociación por lote, nombre y país', () => {
+    const record = (name: string, country: string, extra: Partial<CorporateTreeRelationshipRecord> = {}): CorporateTreeRelationshipRecord => ({
+      batch_id: 'b1',
+      root_name: 'Cencosud',
+      root_candidate_id: null,
+      related_candidate_id: null,
+      related_name: name,
+      related_country_code: country,
+      relation_type: 'other_country',
+      relation_detail: null,
+      evidence_url: null,
+      matched_hubspot_company_id: null,
+      created_at: '2026-10-14T00:00:00Z',
+      ...extra,
+    });
+    const linked = linkTreeRecordsToCandidates(
+      [record('Cencosud Perú SAC', 'PE'), record('Cencosud Colombia', 'CO'), record('Otra', 'AR', { related_candidate_id: 'z' })],
+      [
+        { id: 'p', batch_id: 'b1', name: 'CENCOSUD PERU S.A.C.', country_code: 'pe' },
+        { id: 'q', batch_id: 'b2', name: 'Cencosud Colombia', country_code: 'CO' },
+      ],
+    );
+    assert.equal(linked[0].related_candidate_id, 'p');
+    assert.equal(linked[1].related_candidate_id, null, 'otro lote no cuenta');
+    assert.equal(linked[2].related_candidate_id, 'z');
+    const [view] = buildCorporateTreeViews(linked, 'p', new Map([['p', 'needs_review']]));
+    assert.equal(view.selfRelation, 'other_country');
   });
 });

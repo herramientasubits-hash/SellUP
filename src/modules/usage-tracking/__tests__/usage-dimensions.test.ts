@@ -17,11 +17,13 @@ import {
   BATCH_MACRO_METADATA_BLOCKS,
   RUN_AGENT_KEY_MAP,
   SEARCH_MODE_BY_BATCH_SOURCE,
+  SEARCH_MODES_FROM_BATCH_METADATA,
   agentKeyFromRunKey,
   agentStepLabel,
   completeAgentDimensions,
   resolveAgentDimensions,
   resolveBatchDimensions,
+  searchModeLabel,
   type AgentDimensionRule,
   type OperationMatch,
 } from '../usage-dimensions';
@@ -217,5 +219,36 @@ describe('resolveBatchDimensions', () => {
   it('un paso desconocido se lee igual sin enseñar la clave cruda', () => {
     assert.equal(agentStepLabel('nuevo_paso'), 'Nuevo paso');
     assert.equal(agentStepLabel(null), 'Otro paso');
+  });
+});
+
+describe('149 ↔ usage-dimensions.ts: la forma declarada en la metadata del lote', () => {
+  const MIGRATION_149 = readFileSync(
+    join(process.cwd(), 'supabase/migrations/149_provider_usage_search_mode_from_batch_metadata.sql'),
+    'utf8',
+  );
+
+  it('el SQL y TypeScript aceptan las mismas formas desde la metadata', () => {
+    const m = /WHEN b\.metadata ->> 'search_mode' IN \(([^)]*)\) THEN b\.metadata ->> 'search_mode'/.exec(MIGRATION_149);
+    assert.ok(m, 'la 149 lee metadata.search_mode');
+    assert.deepEqual(quotedList(m[1]), [...SEARCH_MODES_FROM_BATCH_METADATA]);
+    // Y la regla por `source` sigue igual que en la 147.
+    const modes: Record<string, string> = {};
+    for (const r of MIGRATION_149.matchAll(/WHEN b\.source (?:= '([a-z_0-9]+)'|IN \(([^)]*)\)) THEN '([a-z_]+)'/g)) {
+      for (const key of r[1] ? [r[1]] : quotedList(r[2])) modes[key] = r[3];
+    }
+    assert.deepEqual(modes, SEARCH_MODE_BY_BATCH_SOURCE);
+  });
+
+  it('el relleno sólo corrige NULL o el exploratory derivado', () => {
+    assert.match(MIGRATION_149, /AND \(l\.search_mode IS NULL OR l\.search_mode = 'exploratory'\);/);
+  });
+
+  it('un lote del árbol, de proveedores o de competidores no sale como exploratorio', () => {
+    for (const mode of SEARCH_MODES_FROM_BATCH_METADATA) {
+      assert.equal(resolveBatchDimensions({ country_code: 'cl', source: 'agent_1', metadata: { search_mode: mode } }).searchMode, mode);
+    }
+    assert.equal(resolveBatchDimensions({ country_code: 'cl', source: 'agent_1', metadata: { search_mode: 'otra' } }).searchMode, 'exploratory');
+    assert.equal(searchModeLabel('corporate_tree'), 'Árbol de empresa');
   });
 });
