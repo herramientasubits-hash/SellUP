@@ -58,7 +58,8 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
       failed: false,
       rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null }>).map(
         (batch) => ({
-          title: batch.search_mode === 'corporate_tree' ? batch.name : null,
+          // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de Ecopetrol · …» se titula con su nombre.
+          title: batch.search_mode === 'corporate_tree' || batch.search_mode === 'suppliers' ? batch.name : null,
           batchId: batch.id,
           createdAt: batch.created_at,
           country: batch.country,
