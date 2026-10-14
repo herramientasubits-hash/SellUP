@@ -101,6 +101,12 @@ import {
 } from './uy-arce-directory-discovery-adapter';
 import { macroHasUyArceCoverage } from './uy-arce-macro-table';
 import {
+  buildUsFreeDirectoryDiscoveryAdapter,
+  US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type UsFreeDirectoryDiscoveryReads,
+} from './us-free-directory-discovery-adapter';
+import { macroHasUsFreeDirectoryCoverage } from './us-free-directory-macro-table';
+import {
   buildVeFreeDirectoryDiscoveryAdapter,
   VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type VeFreeDirectoryDiscoveryReads,
@@ -222,6 +228,10 @@ import {
  * y el SENIAT bloquea las consultas): empresas que cotizan o emiten valores (Bolsa de
  * Caracas y SUNAVAL, tabla empresa → industria), reguladas por la SUDEASEG, casas de
  * bolsa, empresas y universidades con web propia comprobada y entes públicos (Gobierno).
+ *
+ * SOURCES-US-CLOSE-1 — Estados Unidos entra con las organizaciones sin ánimo de lucro
+ * del IRS con ingresos ≥ US$ 25 M (por NTEE) y las cotizadas «Large accelerated» o
+ * «Accelerated» de la SEC (por SIC), con su EIN; tabla aprobada el 14-10-2026.
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA',
@@ -229,6 +239,7 @@ export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'BR',
   'UY',
   'VE',
+  'US',
 ] as const;
 
 export type CountrySourceCapability = {
@@ -255,6 +266,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   BR: { countryCode: 'BR', sourceKey: BR_RECEITA_DIRECTORY_DISCOVERY_SOURCE_KEY },
   UY: { countryCode: 'UY', sourceKey: UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   VE: { countryCode: 'VE', sourceKey: VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  US: { countryCode: 'US', sourceKey: US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
 });
 
 /** ¿Está cableado el descubrimiento gratuito para este país? */
@@ -282,6 +294,7 @@ export function resolveCountrySourceCapability(
  * Honduras: la macro tiene clases UNSPSC u objetos del gasto en sus tablas, o es Gobierno.
  * Brasil: la macro tiene divisiones o clases CNAE en la tabla aprobada.
  * Uruguay: la macro tiene clases del catálogo SICE en la tabla, o es Gobierno.
+ * Estados Unidos: la macro tiene grupos NTEE o SIC en la tabla aprobada.
  * Sin cobertura la fuente no consulta nada (nunca una muestra genérica).
  */
 export function countrySourceMacroHasCoverage(
@@ -307,6 +320,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'BR') return macroHasBrReceitaCoverage(macroIndustryKey);
   if (capability.countryCode === 'UY') return macroHasUyArceCoverage(macroIndustryKey);
   if (capability.countryCode === 'VE') return macroHasVeCoverage(macroIndustryKey);
+  if (capability.countryCode === 'US') return macroHasUsFreeDirectoryCoverage(macroIndustryKey);
   // SOURCES-CO-CLOSE-1 — Colombia: tabla aprobada del SIIS + Gobierno desde el
   // directorio de entidades públicas.
   return (
@@ -339,6 +353,7 @@ export type CountrySourceAdapterDeps = {
     brReceitaDirectoryDiscoveryReads?: BrReceitaDirectoryDiscoveryReads | null;
     uyArceDirectoryDiscoveryReads?: UyArceDirectoryDiscoveryReads | null;
     veFreeDirectoryDiscoveryReads?: VeFreeDirectoryDiscoveryReads | null;
+    usFreeDirectoryDiscoveryReads?: UsFreeDirectoryDiscoveryReads | null;
     /** SOURCES-LATAM-CURATED-1 — capa común de listas curadas, sumada detrás del país. */
     latamCuratedDiscoveryReads?: LatamCuratedDiscoveryReads | null;
 };
@@ -438,6 +453,11 @@ function buildPrimaryCountrySourceAdapter(
   if (capability.countryCode === 'VE') {
     return deps.veFreeDirectoryDiscoveryReads
       ? buildVeFreeDirectoryDiscoveryAdapter(deps.veFreeDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'US') {
+    return deps.usFreeDirectoryDiscoveryReads
+      ? buildUsFreeDirectoryDiscoveryAdapter(deps.usFreeDirectoryDiscoveryReads)
       : null;
   }
   if (!deps.coSiisSnapshotQuery) return null;

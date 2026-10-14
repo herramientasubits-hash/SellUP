@@ -54,6 +54,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // SOURCES-US-EIN-BY-NAME-1 — un EIN, una fila (empresas activas de la SEC; ONG del IRS).
   us_sec_edgar_registry: 'TAX_GRAIN',
   us_irs_eo_registry: 'TAX_GRAIN',
+  // SOURCES-US-CLOSE-1 — un EIN, una fila (buscador gratuito: IRS ≥ US$ 25 M y cotizadas de la SEC).
+  us_free_directory: 'TAX_GRAIN',
   // SOURCES-ES-NIF-BY-NAME-1 — un NIF, una fila (sociedades adjudicatarias en España).
   es_placsp_registry: 'TAX_GRAIN',
   mx_compranet_rfc_registry: 'TAX_GRAIN',

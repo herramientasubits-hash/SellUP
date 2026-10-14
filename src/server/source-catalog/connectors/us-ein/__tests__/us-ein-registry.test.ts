@@ -27,6 +27,28 @@ import {
 } from '@/server/agents/prospect-intake/source-enrichment';
 import type { NormalizedProspectCandidate } from '@/server/agents/prospect-intake/types';
 import type { UsEinRegistryRow } from '../us-ein-registry-rows';
+import {
+  buildUsIrsDirectoryRow,
+  buildUsSecDirectoryRow,
+  classifySecFilerCategory,
+  US_FREE_DIRECTORY_SOURCE_KEY,
+} from '../us-free-directory-rows';
+import {
+  macroHasUsFreeDirectoryCoverage,
+  resolveUsIrsMacro,
+  resolveUsSicMacro,
+} from '@/server/prospect-batches/country-source-discovery/us-free-directory-macro-table';
+import {
+  buildUsFreeDirectoryDiscoveryAdapter,
+  US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type UsFreeDirectorySnapshotReadRow,
+} from '@/server/prospect-batches/country-source-discovery/us-free-directory-discovery-adapter';
+import {
+  buildCountrySourceAdapter,
+  countrySourceMacroHasCoverage,
+  COUNTRY_SOURCE_DISCOVERY_COUNTRIES,
+  resolveCountrySourceCapability,
+} from '@/server/prospect-batches/country-source-discovery/country-source-capability';
 
 const base = { sourceYear: 2026, importedAt: '2026-09-30T00:00:00.000Z' };
 const secParams = { ...base, activeSince: '2024-09-30' };
@@ -261,5 +283,168 @@ describe('migración 141', () => {
   it('sólo toca esos dos CHECK: ni tablas, ni funciones, ni datos', () => {
     assert.doesNotMatch(body, /CREATE\s+(TABLE|FUNCTION|TRIGGER|INDEX)|\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
     assert.equal((body.match(/ALTER TABLE/g) ?? []).length, 4);
+  });
+});
+
+// ── SOURCES-US-CLOSE-1 — buscador gratuito de Estados Unidos ────────────────
+
+describe('tabla NTEE/SIC → macro (aprobada el 14-10-2026)', () => {
+  it('NTEE: salud, educación y servicios humanos; fundaciones y arte sin macro', () => {
+    assert.equal(resolveUsIrsMacro({ ntee: 'E22', subsection: '03', legalName: 'MAYO CLINIC' }), 'health_pharma');
+    assert.equal(resolveUsIrsMacro({ ntee: 'B43', subsection: '03', legalName: 'YALE UNIVERSITY' }), 'services_company');
+    assert.equal(resolveUsIrsMacro({ ntee: 'P20', subsection: '03', legalName: 'X' }), 'services_company');
+    assert.equal(resolveUsIrsMacro({ ntee: 'K31', subsection: '03', legalName: 'X' }), 'agroindustry');
+    assert.equal(resolveUsIrsMacro({ ntee: 'T20', subsection: '03', legalName: 'GATES FOUNDATION' }), null);
+    assert.equal(resolveUsIrsMacro({ ntee: 'A51', subsection: '03', legalName: 'MUSEUM' }), null);
+  });
+
+  it('sindicatos, clubes y VEBA nunca; sin NTEE sólo las cooperativas eléctricas', () => {
+    assert.equal(resolveUsIrsMacro({ ntee: 'E22', subsection: '09', legalName: 'HEALTH TRUST' }), null);
+    assert.equal(resolveUsIrsMacro({ ntee: 'J40', subsection: '05', legalName: 'UNION' }), null);
+    assert.equal(resolveUsIrsMacro({ ntee: '', subsection: '12', legalName: 'MOUNTAIN ELECTRIC COOPERATIVE INC' }), 'energy_mining_environment');
+    assert.equal(resolveUsIrsMacro({ ntee: '', subsection: '12', legalName: 'FARMERS MUTUAL IRRIGATION' }), null);
+    assert.equal(resolveUsIrsMacro({ ntee: '', subsection: '03', legalName: 'JEROME HOME' }), null);
+  });
+
+  it('SIC: grupos mayores; cascarones (67) y titulizaciones (61) fuera', () => {
+    assert.equal(resolveUsSicMacro('7372'), 'technology');
+    assert.equal(resolveUsSicMacro('2834'), 'health_pharma');
+    assert.equal(resolveUsSicMacro('6022'), 'insurance_financial_services');
+    assert.equal(resolveUsSicMacro('5331'), 'retail');
+    assert.equal(resolveUsSicMacro('6770'), null);
+    assert.equal(resolveUsSicMacro('6189'), null);
+    assert.equal(resolveUsSicMacro('100'), null); // agricultura: sin macro en SIC
+    assert.equal(resolveUsSicMacro('abc'), null);
+  });
+
+  it('cobertura: Gobierno no tiene clasificación en EE. UU.', () => {
+    assert.equal(macroHasUsFreeDirectoryCoverage('health_pharma'), true);
+    assert.equal(macroHasUsFreeDirectoryCoverage('government'), false);
+  });
+});
+
+describe('filas de us_free_directory', () => {
+  const irsRecord = (overrides: Record<string, string> = {}) => ({
+    EIN: '410693991',
+    NAME: 'MAYO CLINIC',
+    CITY: 'ROCHESTER',
+    STATE: 'MN',
+    SUBSECTION: '03',
+    NTEE_CD: 'E22',
+    REVENUE_AMT: '17000000000',
+    INCOME_AMT: '0',
+    ...overrides,
+  });
+
+  it('IRS: ≥ US$ 25 M con macro; grande desde US$ 100 M; relevancia = ingresos en millones', () => {
+    const row = buildUsIrsDirectoryRow(irsRecord(), base);
+    assert.ok(row);
+    assert.equal(row.source_key, US_FREE_DIRECTORY_SOURCE_KEY);
+    assert.equal(row.tax_id, '41-0693991');
+    assert.equal(row.region, 'MN');
+    assert.equal(row.priority_score, 17000);
+    assert.equal(row.raw_data['macro_industry_key'], 'health_pharma');
+    assert.equal(row.raw_data['size_band'], 'large');
+    assert.equal(row.raw_data['activity_text'], 'Salud');
+    assert.equal(getSourceFamily(row.source_key), 'TAX_GRAIN');
+
+    const mid = buildUsIrsDirectoryRow(irsRecord({ REVENUE_AMT: '40000000' }), base);
+    assert.equal(mid?.raw_data['size_band'], null);
+    assert.equal(buildUsIrsDirectoryRow(irsRecord({ REVENUE_AMT: '24999999' }), base), null);
+    assert.equal(buildUsIrsDirectoryRow(irsRecord({ NTEE_CD: 'T20' }), base), null);
+    assert.equal(buildUsIrsDirectoryRow(irsRecord({ SUBSECTION: '09' }), base), null);
+  });
+
+  it('SEC: sólo «Large accelerated» y «Accelerated», con SIC útil, sede en EE. UU. y activa', () => {
+    const large = buildUsSecDirectoryRow(submission({ category: 'Large accelerated filer' }), secParams);
+    assert.ok(large);
+    assert.equal(large.raw_data['size_band'], 'large');
+    assert.equal(large.raw_data['macro_industry_key'], 'health_pharma');
+    assert.equal(large.priority_score, 1000);
+
+    const accelerated = buildUsSecDirectoryRow(submission({ category: 'Accelerated filer' }), secParams);
+    assert.equal(accelerated?.raw_data['size_band'], null);
+    assert.equal(accelerated?.priority_score, 100);
+    // «Smaller reporting company» = ingresos < US$ 100 M: fuera aunque sea «Accelerated».
+    assert.equal(buildUsSecDirectoryRow(submission({ category: 'Accelerated filer<br>Smaller reporting company' }), secParams), null);
+
+    assert.equal(buildUsSecDirectoryRow(submission({ category: 'Non-accelerated filer<br>Smaller reporting company' }), secParams), null);
+    assert.equal(buildUsSecDirectoryRow(submission({ category: 'Large accelerated filer', sic: '6770' }), secParams), null);
+    assert.equal(
+      buildUsSecDirectoryRow(
+        submission({ category: 'Large accelerated filer', addresses: { business: { stateOrCountry: 'K3' } } }),
+        secParams,
+      ),
+      null,
+    );
+    assert.equal(classifySecFilerCategory('Large Accelerated'), 'large');
+    assert.equal(classifySecFilerCategory(''), null);
+  });
+});
+
+describe('adapter de descubrimiento de Estados Unidos', () => {
+  const readRow = (overrides: Partial<UsFreeDirectorySnapshotReadRow> = {}): UsFreeDirectorySnapshotReadRow => ({
+    record_identity_key: 'tax:41-0693991',
+    ein: '41-0693991',
+    legal_name: 'MAYO CLINIC',
+    normalized_legal_name: 'MAYO CLINIC',
+    city: 'ROCHESTER',
+    region: 'MN',
+    directory_kind: 'irs_eo',
+    activity_system: 'NTEE',
+    activity_code: 'E22',
+    activity_text: 'Salud',
+    size_band: 'large',
+    size_source: 'IRS – ingresos declarados',
+    website_domain: null,
+    priority_score: 17000,
+    ...overrides,
+  });
+
+  it('ofrece la macro pedida con EIN, tamaño «grande» y la tabla de HOY; un EIN una vez', async () => {
+    const adapter = buildUsFreeDirectoryDiscoveryAdapter({
+      readCompaniesByMacro: async () => [
+        readRow(),
+        readRow({ record_identity_key: 'dup' }),
+        readRow({ ein: '13-1111111', activity_code: 'B43' }), // hoy es Servicios: fuera
+        readRow({ ein: '22-2222222', directory_kind: 'sec', activity_system: 'SIC', activity_code: '2834', size_band: null }),
+        readRow({ ein: 'bad' }),
+      ],
+    });
+    const result = await adapter({ macroIndustryKey: 'health_pharma', limit: 10 } as never);
+    assert.equal(result.sourceKey, US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY);
+    assert.deepEqual(result.companies.map((c) => c.taxId), ['41-0693991', '22-2222222']);
+    const [mayo, sec] = result.companies;
+    assert.equal(mayo.taxIdentifierType, 'EIN');
+    assert.equal(mayo.countryCode, 'US');
+    assert.deepEqual(mayo.officialSizeBand, { band: 'large', sourceLabel: 'IRS – ingresos declarados' });
+    assert.equal(mayo.officialWorkforce, null);
+    assert.equal(sec.officialSizeBand, null);
+    assert.equal(result.recordsRead, 5);
+  });
+
+  it('macro sin cobertura (Gobierno) no consulta', async () => {
+    let called = false;
+    const adapter = buildUsFreeDirectoryDiscoveryAdapter({
+      readCompaniesByMacro: async () => {
+        called = true;
+        return [];
+      },
+    });
+    const result = await adapter({ macroIndustryKey: 'government', limit: 10 } as never);
+    assert.equal(result.companies.length, 0);
+    assert.equal(called, false);
+  });
+
+  it('EE. UU. está cableado como país con buscador gratuito', () => {
+    assert.ok((COUNTRY_SOURCE_DISCOVERY_COUNTRIES as readonly string[]).includes('US'));
+    assert.equal(resolveCountrySourceCapability('us')?.sourceKey, US_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY);
+    assert.equal(countrySourceMacroHasCoverage('US', 'technology'), true);
+    assert.equal(countrySourceMacroHasCoverage('US', 'government'), false);
+    assert.equal(buildCountrySourceAdapter('US', {}), null);
+    assert.notEqual(
+      buildCountrySourceAdapter('US', { usFreeDirectoryDiscoveryReads: { readCompaniesByMacro: async () => [] } }),
+      null,
+    );
   });
 });
