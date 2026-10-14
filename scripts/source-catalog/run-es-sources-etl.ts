@@ -9,7 +9,8 @@
  * las adjudicatarias de meses que no se vuelven a descargar.
  *
  * Uso:
- *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… [--existing=…] [--year=2026] [--dump-dir=…]
+ *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… [--existing=…] [--year=2026] [--dump-dir=…] [--web-map=…]
+ *     (--web-map = salida de discover-es-company-webs.mts: «{ nif, domain }» por línea)
  *   npx tsx scripts/source-catalog/run-es-sources-etl.ts --in-dir=… --apply --only=placsp-registry [--prune-stale]
  *     (--only = placsp-registry | official-registry | alias | directory | public)
  *
@@ -61,6 +62,7 @@ import {
 } from '../../src/server/source-catalog/connectors/placsp-spain/es-sources-rows';
 import { normalizeSpainCompanyNif } from '../../src/server/source-catalog/connectors/placsp-spain/es-placsp-registry-rows';
 import { spainCompanyDomain, spainPublicEntityDomain } from '../../src/server/source-catalog/connectors/placsp-spain/es-domain';
+import { acceptNameCheckedWeb, spainFirstWordCounts } from '../../src/server/source-catalog/connectors/placsp-spain/es-company-web';
 import { dropAliasKeysOwnedByOthers } from '../../src/server/source-catalog/connectors/sunat-peru/pe-name-keys';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
@@ -76,6 +78,7 @@ type Config = {
   inDir: string;
   existing: string | null;
   dumpDir: string | null;
+  webMap: string | null;
   year: number;
   apply: boolean;
   only: Only | null;
@@ -101,7 +104,7 @@ function parseArgs(argv: readonly string[]): Config {
   }
   const year = Number(value('year') ?? new Date().getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year debe ser entero');
-  return { inDir, existing: value('existing'), dumpDir: value('dump-dir'), year, apply, only: only as Only | null, pruneStale };
+  return { inDir, existing: value('existing'), dumpDir: value('dump-dir'), webMap: value('web-map'), year, apply, only: only as Only | null, pruneStale };
 }
 
 function readJsonl<T>(path: string, parse: (raw: unknown) => T | null): T[] {
@@ -123,6 +126,40 @@ function readExisting(path: string | null): EsAwardee[] {
     const nif = normalizeSpainCompanyNif(rawNif);
     if (nif !== null && name?.trim()) out.push({ nif, names: { [name.trim()]: 1 }, cpv: {}, eur: 0, contracts: 0, last: null, postal: null });
   }
+  return out;
+}
+
+/**
+ * Webs encontradas por su nombre y comprobadas con su página (SOURCES-ES-WEBS-1). Las
+ * halladas sólo por la marca se descartan si la marca es una palabra común.
+ */
+function readWebMap(path: string | null, firstWordCounts: ReadonlyMap<string, number>): Map<string, string> {
+  const out = new Map<string, string>();
+  if (path === null) return out;
+  if (!existsSync(path)) throw new Error(`config_invalid: no existe ${path}`);
+  let dropped = 0;
+  let sharedInGroup = 0;
+  const taken = new Set<string>();
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    const row = JSON.parse(line) as { nif?: unknown; domain?: unknown; check?: unknown; matched_key?: unknown };
+    const nif = normalizeSpainCompanyNif(typeof row.nif === 'string' ? row.nif : null);
+    if (nif === null || typeof row.domain !== 'string' || row.domain.trim() === '') continue;
+    const accepted = acceptNameCheckedWeb(
+      { check: String(row.check ?? ''), matchedKey: String(row.matched_key ?? '') },
+      firstWordCounts,
+    );
+    const domain = row.domain.trim().toLowerCase();
+    if (!accepted) dropped++;
+    // Varias sociedades del grupo con la misma web: se queda con la primera que se probó
+    // (la de más prioridad en su industria); las demás siguen sin web.
+    else if (taken.has(domain)) sharedInGroup++;
+    else {
+      taken.add(domain);
+      out.set(nif, domain);
+    }
+  }
+  console.log(`  Webs por marca descartadas (palabra común): ${dropped}; misma web para otra sociedad del grupo: ${sharedInGroup}`);
   return out;
 }
 
@@ -200,6 +237,13 @@ async function main(): Promise<void> {
   console.log(
     `  Leídos: ${awardees.length} adjudicatarias, ${bodies.length} órganos, ${bdns.length} beneficiarias BDNS, ${invente.length} entes INVENTE, ${bde.length} entidades Banco de España`,
   );
+  const firstWordCounts = spainFirstWordCounts([
+    ...awardees.map((a) => Object.keys(a.names)[0] ?? ''),
+    ...bdns.map((b) => Object.keys(b.names)[0] ?? ''),
+    ...invente.map((e) => e.name),
+  ]);
+  const webByNif = readWebMap(config.webMap, firstWordCounts);
+  if (config.webMap !== null) console.log(`  Webs por nombre comprobadas: ${webByNif.size}`);
   const awardeeByNif = byNif(awardees);
   const bdnsByNif = byNif<EsBdnsBeneficiary>(bdns);
   const inventeByNif = byNif<EsInventeEntity>(invente);
@@ -256,14 +300,26 @@ async function main(): Promise<void> {
   console.log(`  ${ES_NIF_NAME_ALIAS_SOURCE_KEY}: ${aliasRows.length}`);
 
   // 3. Capa gratuita de empresas. Un dominio publicado por dos o más NIF no se usa.
-  const sharedDomains = sharedOf(
-    [...officialNifs].map((nif) =>
+  const officialDomainSet = new Set(
+    [...officialNifs]
+      .map((nif) =>
+        spainCompanyDomain({
+          urls: [inventeByNif.get(nif)?.web, bdeByNif.get(nif)?.web].filter((u): u is string => typeof u === 'string'),
+          emails: [inventeByNif.get(nif)?.email].filter((e): e is string => typeof e === 'string'),
+        }),
+      )
+      .filter((d): d is string => d !== null),
+  );
+  const sharedDomains = sharedOf([
+    // Una web hallada por nombre que ya es la web oficial de OTRA sociedad cuenta como compartida.
+    ...[...webByNif.values()].filter((domain) => officialDomainSet.has(domain)),
+    ...[...officialNifs].map((nif) =>
       spainCompanyDomain({
         urls: [inventeByNif.get(nif)?.web, bdeByNif.get(nif)?.web].filter((u): u is string => typeof u === 'string'),
         emails: [inventeByNif.get(nif)?.email].filter((e): e is string => typeof e === 'string'),
       }),
     ),
-  );
+  ]);
   const directoryRows: EsSnapshotRow[] = [];
   const directoryExcluded = new Map<EsDirectoryExclusion, number>();
   for (const nif of new Set([...awardeeByNif.keys(), ...officialNifs])) {
@@ -274,6 +330,7 @@ async function main(): Promise<void> {
         bdns: bdnsByNif.get(nif) ?? null,
         invente: inventeByNif.get(nif) ?? null,
         bde: bdeByNif.get(nif) ?? null,
+        nameCheckedDomain: webByNif.get(nif) ?? null,
       },
       { ...params, sharedDomains },
     );

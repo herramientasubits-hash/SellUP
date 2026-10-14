@@ -421,7 +421,15 @@ export type EsDirectoryInputs = {
   bdns: EsBdnsBeneficiary | null;
   invente: EsInventeEntity | null;
   bde: EsBdeEntity | null;
+  /**
+   * SOURCES-ES-WEBS-1 — web encontrada por su nombre y comprobada con su propia página
+   * (`discover-es-company-webs.mts`). Sólo se usa si la fuente no publica ninguna.
+   */
+  nameCheckedDomain?: string | null;
 };
+
+/** A igual fuerza, la empresa con web va antes (no cambia de nivel ni de fuerza). */
+export const ES_WEB_PRIORITY_BONUS = 5;
 
 /** Por encima de cualquier empresa: en Gobierno van primero las entidades públicas. */
 export const ES_PUBLIC_ENTITY_PRIORITY_BASE = 5000;
@@ -535,10 +543,11 @@ export function buildEsFreeDirectoryRow(
   const workers = invente?.workers ?? null;
   if (!isEsDirectoryRelevant({ kind, awardedEur, workers })) return { excluded: 'not_relevant' };
 
-  const domain = spainCompanyDomain({
+  const officialDomain = spainCompanyDomain({
     urls: [invente?.web, bde?.web].filter((u): u is string => typeof u === 'string'),
     emails: [invente?.email].filter((e): e is string => typeof e === 'string'),
   });
+  const domain = officialDomain ?? inputs.nameCheckedDomain ?? null;
   const large = bdns?.largeYear != null;
   return {
     row: {
@@ -551,7 +560,11 @@ export function buildEsFreeDirectoryRow(
       normalized_legal_name: core,
       city: null,
       region: bdns?.region ?? null,
-      priority_score: esDirectoryPriorityScore({ kind, workers, awardedEur, large }),
+      // SOURCES-ES-WEBS-1 — a igual fuerza, primero la que ya trae web: así la corrida llena
+      // la meta sin esperar al rescate (la 2.ª ES×Tecnología se quedó sin tiempo buscando webs).
+      priority_score:
+        esDirectoryPriorityScore({ kind, workers, awardedEur, large }) +
+        (domain !== null && !params.sharedDomains.has(domain) ? ES_WEB_PRIORITY_BONUS : 0),
       raw_data: {
         directory_kind: kind,
         macro_industry_key: macro,
@@ -562,7 +575,10 @@ export function buildEsFreeDirectoryRow(
         ...(workers !== null && invente?.workersYear != null ? { workers, metrics_year: invente.workersYear } : {}),
         ...(bde?.entityType ? { bde_entity_type: bde.entityType } : {}),
         ...(domain !== null && !params.sharedDomains.has(domain)
-          ? { website_domain: domain, website_origin: invente?.web || bde?.web ? 'official_web' : 'email' }
+          ? {
+              website_domain: domain,
+              website_origin: officialDomain === null ? 'name_page_check' : invente?.web || bde?.web ? 'official_web' : 'email',
+            }
           : {}),
       },
       imported_at: params.importedAt,

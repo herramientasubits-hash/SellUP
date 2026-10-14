@@ -3347,7 +3347,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-ES-CLOSE-1 + SOURCES-ES-RANKING-1: RECARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 13.598 sociedades (649 con web oficial; 6.413 «GRAN EMPRESA»): construcción 2.184, servicios 1.911, industria 1.569, transporte 1.423, energía 1.375, salud 1.276, retail 1.228, agro 878, tecnología 714, consumo 464, finanzas 438 y gobierno 138. Orden: «gran empresa» y bancos primero, luego adjudicatarias y entes de INVENTE de 200+ mezclados por fuerza; la actividad de la BDNS cuenta un voto por programa y sólo vale con mayoría; sin NIF de no residente. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=directory --prune-stale.',
+      'SOURCES-ES-CLOSE-1 + SOURCES-ES-RANKING-1: RECARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 13.598 sociedades (1.195 con web: 648 publicadas por la fuente y 547 halladas por su nombre y comprobadas con su propia página, SOURCES-ES-WEBS-1; 6.413 «GRAN EMPRESA»): construcción 2.184, servicios 1.911, industria 1.569, transporte 1.423, energía 1.375, salud 1.276, retail 1.228, agro 878, tecnología 714, consumo 464, finanzas 438 y gobierno 138. Orden: «gran empresa» y bancos primero, luego adjudicatarias y entes de INVENTE de 200+ mezclados por fuerza; la actividad de la BDNS cuenta un voto por programa y sólo vale con mayoría; sin NIF de no residente. Webs: scripts/source-catalog/discover-es-company-webs.mts (las 200 primeras de cada industria, sólo la portada) y luego run-es-sources-etl.ts --web-map=… --apply --only=directory --prune-stale.',
     countryCodes: ['ES'],
     sectors: [],
     priority: 'P1',
@@ -3358,7 +3358,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Capa gratuita española por industria (tablas aprobadas por la dueña el 13-10-2026): entes públicos empresariales de INVENTE (CNAE, plantilla y web), bancos y financieras del Banco de España (web), sociedades marcadas «GRAN EMPRESA» en las ayudas de Estado de la BDNS (CNAE, con la misma tabla por división aprobada para Argentina más la letra de sección) y adjudicatarias de la Plataforma de Contratación con 1 millón de euros o más adjudicado (por la división CPV que más contratos les da). Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí. Cada empresa llega con su NIF, su razón social y, si la fuente la publica, su web.',
     limitations: [
-      'La mayoría de adjudicatarias y beneficiarias no trae web: van a Descartadas y dependen del rescate para encontrar su sitio.',
+      'La mayoría no trae web en la fuente: 547 se hallaron por su nombre y su propia página; las demás van a Descartadas y dependen del rescate.',
       'La industria de una adjudicataria sale de lo que vende al Estado, no de su actividad registrada.',
       'Hoteles, I+D, educación y la sección C (industria) del CNAE no se proponen por actividad.',
       'Snapshot estático — requiere recarga para sumar meses nuevos.',
