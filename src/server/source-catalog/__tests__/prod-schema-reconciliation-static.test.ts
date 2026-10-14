@@ -177,6 +177,13 @@ const MIGRATION_145_CANDIDATE_ASSIGNMENT = '145_prospect_candidate_assignment.sq
  * sweep below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_146_TAX_IDENTIFIER_RIF = '146_tax_identifier_type_rif.sql';
+/**
+ * AI-USAGE-FASE-2. Five nullable dimension columns on `provider_usage_logs` (agent, step, country,
+ * macro industry, search mode), a BEFORE INSERT trigger that only fills NULLs and its idempotent
+ * backfill. Not phone, not catalog, not BR, not CUT3B4. Names no source-catalog object, which the
+ * sweep below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_147_USAGE_LOG_DIMENSIONS = '147_provider_usage_log_dimensions.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -263,7 +270,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // `prospect_candidates` accept 'RIF', same shape as the 141; no data rows. Not phone, not
     // catalog, not BR, not CUT3B4). It names no source-catalog object, which the foreign sweep
     // below proves over its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 146);
+    assert.equal(highest, 147);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -353,7 +360,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('146')),
       [MIGRATION_146_TAX_IDENTIFIER_RIF],
     );
-    assert.equal(files.some((f) => f.startsWith('147')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('147')),
+      [MIGRATION_147_USAGE_LOG_DIMENSIONS],
+    );
+    assert.equal(files.some((f) => f.startsWith('148')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -372,6 +383,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_144_CONCURRENT_EXECUTIONS,
       MIGRATION_145_CANDIDATE_ASSIGNMENT,
       MIGRATION_146_TAX_IDENTIFIER_RIF,
+      MIGRATION_147_USAGE_LOG_DIMENSIONS,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

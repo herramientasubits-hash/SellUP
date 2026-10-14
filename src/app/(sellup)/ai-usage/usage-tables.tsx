@@ -22,12 +22,19 @@ import {
 import { EffectivenessMeter } from './effectiveness-meter';
 import {
   agentLabel,
+  countryLabel,
   formatCount,
   formatUsd,
   humanizeKey,
+  industryLabel,
   providerLabel,
   statusPresentation,
 } from './usage-labels';
+import {
+  agentDimensionLabel,
+  agentStepLabel,
+  searchModeLabel,
+} from '@/modules/usage-tracking/usage-dimensions';
 
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
@@ -58,13 +65,15 @@ function formatDateTime(isoDate: string): string {
 interface Column {
   label: string;
   align?: 'left' | 'right';
+  /** Columna en dólares: no se pinta a quien no ve dinero. */
+  money?: boolean;
 }
 
-function HeaderRow({ columns }: { columns: readonly Column[] }) {
+function HeaderRow({ columns, showMoney = true }: { columns: readonly Column[]; showMoney?: boolean }) {
   return (
     <TableHeader>
       <TableRow>
-        {columns.map((column) => (
+        {columns.filter((column) => showMoney || !column.money).map((column) => (
           <TableHead
             key={column.label}
             scope="col"
@@ -88,11 +97,11 @@ const AGENT_COLUMNS: readonly Column[] = [
   { label: 'Generados' },
   { label: 'Aprobados' },
   { label: 'Efectividad' },
-  { label: 'Costo estimado' },
-  { label: 'Costo por aprobado' },
+  { label: 'Costo estimado', money: true },
+  { label: 'Costo por aprobado', money: true },
 ];
 
-export function AgentUsageSection({ agents }: { agents: AgentStat[] }) {
+export function AgentUsageSection({ agents, showMoney = true }: { agents: AgentStat[]; showMoney?: boolean }) {
   return (
     <TableShell
       title="Qué hizo cada agente"
@@ -114,7 +123,7 @@ export function AgentUsageSection({ agents }: { agents: AgentStat[] }) {
       }
     >
       <Table>
-        <HeaderRow columns={AGENT_COLUMNS} />
+        <HeaderRow columns={AGENT_COLUMNS} showMoney={showMoney} />
         <TableBody>
           {agents.map((agent) => {
             const effectiveness =
@@ -151,18 +160,22 @@ export function AgentUsageSection({ agents }: { agents: AgentStat[] }) {
                     <span className="block text-right text-xs text-muted-foreground">Sin prospectos aún</span>
                   )}
                 </TableCell>
-                <TableCell className={NUMERIC_CELL}>
-                  <CostValue
-                    display={resolveCostDisplay({
-                      valueUsd: agent.total_estimated_cost_usd,
-                      costTruth: toCostTruth(agent.has_unknown_cost === true),
-                      formatUsd: (value) => formatUsd(value),
-                    })}
-                  />
-                </TableCell>
-                <TableCell className={NUMERIC_CELL}>
-                  {costPerApproved !== null ? formatUsd(costPerApproved, 4) : DASH}
-                </TableCell>
+                {showMoney && (
+                  <TableCell className={NUMERIC_CELL}>
+                    <CostValue
+                      display={resolveCostDisplay({
+                        valueUsd: agent.total_estimated_cost_usd,
+                        costTruth: toCostTruth(agent.has_unknown_cost === true),
+                        formatUsd: (value) => formatUsd(value),
+                      })}
+                    />
+                  </TableCell>
+                )}
+                {showMoney && (
+                  <TableCell className={NUMERIC_CELL}>
+                    {costPerApproved !== null ? formatUsd(costPerApproved, 4) : DASH}
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
@@ -232,8 +245,8 @@ const PROVIDER_COLUMNS: readonly Column[] = [
   { label: 'Consultas' },
   { label: 'Consumo' },
   { label: 'Resultados' },
-  { label: 'Costo estimado' },
-  { label: 'Sin tarifa' },
+  { label: 'Costo estimado', money: true },
+  { label: 'Sin tarifa', money: true },
   { label: 'Último uso' },
 ];
 
@@ -246,7 +259,13 @@ function UnknownCostCount({ count }: { count: number }) {
   );
 }
 
-export function ProviderUsageSection({ providers }: { providers: ProviderStat[] }) {
+export function ProviderUsageSection({
+  providers,
+  showMoney = true,
+}: {
+  providers: ProviderStat[];
+  showMoney?: boolean;
+}) {
   return (
     <TableShell
       title="Consumo por proveedor"
@@ -269,7 +288,7 @@ export function ProviderUsageSection({ providers }: { providers: ProviderStat[] 
       }
     >
       <Table>
-        <HeaderRow columns={PROVIDER_COLUMNS} />
+        <HeaderRow columns={PROVIDER_COLUMNS} showMoney={showMoney} />
         <TableBody>
           {providers.map((provider) => (
             <TableRow key={provider.provider_key}>
@@ -287,22 +306,26 @@ export function ProviderUsageSection({ providers }: { providers: ProviderStat[] 
                 <ProviderConsumption stat={provider} />
               </TableCell>
               <TableCell className={NUMERIC_CELL}>{formatCount(provider.total_results_returned)}</TableCell>
-              <TableCell className={NUMERIC_CELL}>
-                {provider.total_estimated_cost_usd === 0 && !provider.has_unknown_cost ? (
-                  DASH
-                ) : (
-                  <CostValue
-                    display={resolveCostDisplay({
-                      valueUsd: provider.total_estimated_cost_usd,
-                      costTruth: toCostTruth(provider.has_unknown_cost),
-                      formatUsd: (value) => formatUsd(value),
-                    })}
-                  />
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                <UnknownCostCount count={provider.unknown_cost_operations ?? 0} />
-              </TableCell>
+              {showMoney && (
+                <TableCell className={NUMERIC_CELL}>
+                  {provider.total_estimated_cost_usd === 0 && !provider.has_unknown_cost ? (
+                    DASH
+                  ) : (
+                    <CostValue
+                      display={resolveCostDisplay({
+                        valueUsd: provider.total_estimated_cost_usd,
+                        costTruth: toCostTruth(provider.has_unknown_cost),
+                        formatUsd: (value) => formatUsd(value),
+                      })}
+                    />
+                  )}
+                </TableCell>
+              )}
+              {showMoney && (
+                <TableCell className="text-right tabular-nums">
+                  <UnknownCostCount count={provider.unknown_cost_operations ?? 0} />
+                </TableCell>
+              )}
               <TableCell className="text-right text-muted-foreground">
                 {formatRelativeTime(provider.last_used_at)}
               </TableCell>
@@ -323,12 +346,18 @@ const USER_COLUMNS: readonly Column[] = [
   { label: 'Ejecuciones' },
   { label: 'Consultas' },
   { label: 'Proveedores' },
-  { label: 'Costo estimado' },
+  { label: 'Costo estimado', money: true },
   { label: 'Último uso' },
 ];
 
 /** `null` = sin permiso para ver el consumo por persona (no es «cero personas»). */
-export function TeamUsageSection({ users }: { users: UserConsumptionRow[] | null }) {
+export function TeamUsageSection({
+  users,
+  showMoney = true,
+}: {
+  users: UserConsumptionRow[] | null;
+  showMoney?: boolean;
+}) {
   const rows = users ?? [];
 
   return (
@@ -355,7 +384,7 @@ export function TeamUsageSection({ users }: { users: UserConsumptionRow[] | null
       }
     >
       <Table>
-        <HeaderRow columns={USER_COLUMNS} />
+        <HeaderRow columns={USER_COLUMNS} showMoney={showMoney} />
         <TableBody>
           {rows.map((user) => {
             const hasActivity = user.executions + user.provider_calls > 0;
@@ -376,19 +405,21 @@ export function TeamUsageSection({ users }: { users: UserConsumptionRow[] | null
                 <TableCell className="text-right text-muted-foreground">
                   {user.providers.length > 0 ? user.providers.map(providerLabel).join(', ') : DASH}
                 </TableCell>
-                <TableCell className={NUMERIC_CELL}>
-                  {user.estimated_cost_usd === 0 && !user.has_unknown_cost ? (
-                    <span className="text-text-muted">$0.00</span>
-                  ) : (
-                    <CostValue
-                      display={resolveCostDisplay({
-                        valueUsd: user.estimated_cost_usd,
-                        costTruth: toCostTruth(user.has_unknown_cost),
-                        formatUsd: (value) => formatUsd(value),
-                      })}
-                    />
-                  )}
-                </TableCell>
+                {showMoney && (
+                  <TableCell className={NUMERIC_CELL}>
+                    {user.estimated_cost_usd === 0 && !user.has_unknown_cost ? (
+                      <span className="text-text-muted">$0.00</span>
+                    ) : (
+                      <CostValue
+                        display={resolveCostDisplay({
+                          valueUsd: user.estimated_cost_usd,
+                          costTruth: toCostTruth(user.has_unknown_cost),
+                          formatUsd: (value) => formatUsd(value),
+                        })}
+                      />
+                    )}
+                  </TableCell>
+                )}
                 <TableCell className="text-right text-muted-foreground">
                   {hasActivity ? formatRelativeTime(user.last_activity_at) : 'Sin uso'}
                 </TableCell>
@@ -430,12 +461,33 @@ const LOG_COLUMNS: readonly Column[] = [
   { label: 'Fecha', align: 'left' },
   { label: 'Proveedor', align: 'left' },
   { label: 'Qué se pidió', align: 'left' },
+  { label: 'Agente y paso', align: 'left' },
+  { label: 'País', align: 'left' },
+  { label: 'Industria', align: 'left' },
+  { label: 'Forma de búsqueda', align: 'left' },
   { label: 'Estado' },
   { label: 'Consumo' },
-  { label: 'Costo estimado' },
+  { label: 'Costo estimado', money: true },
 ];
 
-export function RecentActivitySection({ logs, limit }: { logs: ProviderUsageLog[]; limit: number }) {
+/** Dimensiones de la fase 2; opcionales para seguir aceptando un log sin ellas. */
+type RecentLog = ProviderUsageLog & {
+  agent_key?: string | null;
+  agent_step?: string | null;
+  country_code?: string | null;
+  macro_industry_key?: string | null;
+  search_mode?: string | null;
+};
+
+export function RecentActivitySection({
+  logs,
+  limit,
+  showMoney = true,
+}: {
+  logs: RecentLog[];
+  limit: number;
+  showMoney?: boolean;
+}) {
   return (
     <TableShell
       title="Últimas consultas"
@@ -451,7 +503,7 @@ export function RecentActivitySection({ logs, limit }: { logs: ProviderUsageLog[
       }
     >
       <Table>
-        <HeaderRow columns={LOG_COLUMNS} />
+        <HeaderRow columns={LOG_COLUMNS} showMoney={showMoney} />
         <TableBody>
           {logs.map((log) => {
             const status = statusPresentation(log.status);
@@ -468,21 +520,38 @@ export function RecentActivitySection({ logs, limit }: { logs: ProviderUsageLog[
                 <TableCell className="max-w-44 truncate text-muted-foreground" title={humanizeKey(log.operation_key)}>
                   {humanizeKey(log.operation_key)}
                 </TableCell>
+                <TableCell className="text-muted-foreground">
+                  <div className="flex flex-col">
+                    <span className="text-foreground">{agentDimensionLabel(log.agent_key ?? null)}</span>
+                    {log.agent_step && <span className="text-xs">{agentStepLabel(log.agent_step)}</span>}
+                  </div>
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {log.country_code ? countryLabel(log.country_code) : DASH}
+                </TableCell>
+                <TableCell className="max-w-40 truncate text-muted-foreground">
+                  {log.macro_industry_key ? industryLabel(log.macro_industry_key) : DASH}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {log.search_mode ? searchModeLabel(log.search_mode) : DASH}
+                </TableCell>
                 <TableCell>
                   <div className="flex justify-end">
                     <StatusBadge status={status.type} label={status.label} />
                   </div>
                 </TableCell>
                 <TableCell className={NUMERIC_CELL}>{logConsumption(log)}</TableCell>
-                <TableCell className={NUMERIC_CELL}>
-                  {cost === null ? (
-                    <span className="font-medium text-warning">Sin tarifa</span>
-                  ) : cost > 0 ? (
-                    formatUsd(cost, 4)
-                  ) : (
-                    DASH
-                  )}
-                </TableCell>
+                {showMoney && (
+                  <TableCell className={NUMERIC_CELL}>
+                    {cost === null ? (
+                      <span className="font-medium text-warning">Sin tarifa</span>
+                    ) : cost > 0 ? (
+                      formatUsd(cost, 4)
+                    ) : (
+                      DASH
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
