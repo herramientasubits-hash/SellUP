@@ -178,3 +178,82 @@ describe('RecentActivitySection', () => {
     assert.ok(screen.getByText(/Las 25 consultas más recientes/));
   });
 });
+
+// ── Cifras correctas (fase 1): «sin tarifa» nunca se pinta como $0 ───────────
+
+describe('Costo sin tarifa', () => {
+  it('la tabla de proveedores cuenta las consultas «Sin tarifa»', () => {
+    render(
+      h(tables.ProviderUsageSection, {
+        providers: [{ ...PROVIDER, has_unknown_cost: true, unknown_cost_operations: 3 }],
+      }),
+    );
+
+    assert.ok(screen.getByRole('columnheader', { name: 'Sin tarifa' }));
+    assert.ok(screen.getByText('3'));
+    // El subtotal conocido se marca como parcial, no como cerrado.
+    assert.ok(screen.getByText('$4.50+'));
+  });
+
+  it('un agente con consultas sin tarifa muestra su costo como parcial', () => {
+    render(h(tables.AgentUsageSection, { agents: [{ ...AGENT, has_unknown_cost: true }] }));
+
+    assert.ok(screen.getByText('$10.00+'));
+  });
+
+  it('una consulta reciente sin costo conocido dice «Sin tarifa», no un guion ni $0', () => {
+    render(
+      h(tables.RecentActivitySection, {
+        limit: 25,
+        logs: [
+          {
+            id: 'l1',
+            agent_run_id: null,
+            agent_run_step_id: null,
+            batch_id: null,
+            usage_key: null,
+            provider_key: 'tavily',
+            operation_key: 'web_search',
+            model: null,
+            input_tokens: 0,
+            output_tokens: 0,
+            credits_used: 1,
+            results_returned: 5,
+            estimated_cost_usd: null,
+            real_cost_usd: null,
+            status: 'success',
+            error_code: null,
+            error_message: null,
+            duration_ms: null,
+            triggered_by: null,
+            triggered_by_role_key: null,
+            triggered_by_group_id: null,
+            metadata: {},
+            created_at: '2026-10-10T12:00:00Z',
+          },
+        ],
+      }),
+    );
+
+    assert.ok(screen.getByText('Sin tarifa'));
+  });
+});
+
+describe('Consumo por persona sin tope', () => {
+  it('pinta las 150 personas, no se corta en 100', () => {
+    const users = Array.from({ length: 150 }, (_, i) => ({
+      triggered_by: `u${i}`,
+      full_name: `Persona ${i}`,
+      email: null,
+      executions: 0,
+      provider_calls: 0,
+      providers: [],
+      estimated_cost_usd: 0,
+      has_unknown_cost: false,
+      last_activity_at: null,
+    }));
+    render(h(tables.TeamUsageSection, { users }));
+
+    assert.ok(screen.getByText('Persona 149'));
+  });
+});

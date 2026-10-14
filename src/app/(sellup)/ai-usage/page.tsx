@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { MetricCard, type MetricTone } from '@/components/shared/metric-card';
 import { InfoHint } from '@/components/shared/info-hint';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TabsContent } from '@/components/ui/tabs';
 import { UrlTabs, type UrlTab } from '@/components/navigation/url-tabs';
 import { CostValue } from '@/components/shared/cost-value';
@@ -27,14 +28,12 @@ import {
 } from './phone-suppression-monitoring-card';
 import type { Agent1EffectivenessFilters } from '@/modules/agent1-effectiveness';
 import {
-  getAiUsageSummary,
-  getAgentStats,
-  getProviderStats,
-  getRecentProviderLogs,
+  getAiUsageOverview,
   getDistinctFilterOptions,
-  getUserConsumption,
+  resolveUsagePeopleScope,
 } from '@/modules/ai-usage/queries';
-import type { UsageFilters } from '@/modules/ai-usage/queries';
+import type { FilterOptions, UsageFilters } from '@/modules/ai-usage/queries';
+import { resolvePeriodStart } from '@/modules/ai-usage/usage-filter-semantics';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 
 // Q3F-5AY.7B — post-backfill UI parity.
@@ -63,21 +62,38 @@ const USAGE_TABS: readonly UrlTab[] = [
 ];
 
 /**
- * Maps the shared /ai-usage period filter to the Agent 1 read-model's dateFrom
- * (prospect_batches.created_at). 'all'/unset → no lower bound. Only the two
- * filters that map cleanly (period → date range, provider → providerKey) are
- * forwarded; user/role/group/agent/status don't apply to the batch model and
- * are intentionally left for a later milestone.
+ * Filtros del panel del Agente 1 (modelo por lotes: prospect_batches).
+ *   - periodo   → dateFrom, calculado en America/Bogota igual que el resto;
+ *   - proveedor → providerKey (filas de costo);
+ *   - persona / rol / grupo → createdByIds (lotes de esas personas).
+ * Agente y estado no aplican a un modelo por lotes del Agente 1.
  */
-function periodToDateFrom(period: UsageFilters['period']): string | undefined {
-  const now = Date.now();
-  if (period === '7d') return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-  if (period === '30d') return new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
-  if (period === 'current_month') {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+async function buildAgent1Filters(filters: UsageFilters): Promise<Agent1EffectivenessFilters> {
+  const hasPeopleFilter = Boolean(filters.user || filters.role || filters.groupId);
+  let createdByIds: string[] | undefined;
+  try {
+    const people = await resolveUsagePeopleScope(filters);
+    createdByIds = Array.isArray(people) ? people : undefined;
+  } catch (err) {
+    // Sin poder resolver las personas, un filtro de persona no se ignora: no
+    // se muestra nada antes que mostrar lotes de otra gente.
+    console.error('[ai-usage] people scope for Agent 1 panel failed:', err);
+    createdByIds = hasPeopleFilter ? [] : undefined;
   }
-  return undefined;
+  return {
+    dateFrom: resolvePeriodStart(filters.period) ?? undefined,
+    providerKey: filters.provider,
+    createdByIds,
+  };
+}
+
+async function loadFilterOptions(): Promise<FilterOptions | null | 'error'> {
+  try {
+    return await getDistinctFilterOptions();
+  } catch (err) {
+    console.error('[ai-usage] filter options read failed:', err);
+    return 'error';
+  }
 }
 
 interface SummaryMetric {
@@ -109,22 +125,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     groupId: typeof params.groupId === 'string' ? params.groupId : undefined,
   };
 
-  // Agent 1 effectiveness read model uses a batch-scoped filter shape. Forward
-  // only the cleanly-mapping filters (date range + provider).
-  const agent1Filters: Agent1EffectivenessFilters = {
-    dateFrom: periodToDateFrom(filters.period),
-    providerKey: filters.provider,
-  };
-
-  const [summary, agentStats, providerStats, recentLogs, filterOptions, userConsumption] =
-    await Promise.all([
-      getAiUsageSummary(filters),
-      getAgentStats(filters),
-      getProviderStats(filters),
-      getRecentProviderLogs(RECENT_LOGS_LIMIT, filters),
-      getDistinctFilterOptions(),
-      getUserConsumption(filters),
-    ]);
+  // Todas las cifras salen de una sola lectura del universo filtrado (KPIs,
+  // agentes, proveedores, personas y últimas consultas), así cuadran entre sí.
+  const [overview, filterOptionsResult, agent1Filters] = await Promise.all([
+    getAiUsageOverview(filters, RECENT_LOGS_LIMIT),
+    loadFilterOptions(),
+    buildAgent1Filters(filters),
+  ]);
 
   const header = (
     <PageHeader
@@ -140,7 +147,7 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     />
   );
 
-  if (summary === null) {
+  if (overview === null) {
     return (
       <div className="space-y-6">
         {header}
@@ -152,6 +159,10 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       </div>
     );
   }
+
+  const { summary, agentStats, providerStats, userConsumption, recentLogs, dataQuality } = overview;
+  const filterOptions = filterOptionsResult === 'error' ? null : filterOptionsResult;
+  const readError = dataQuality.readError || filterOptionsResult === 'error';
 
   const filterValues = Object.fromEntries(
     USAGE_FILTER_KEYS.map((key) => [key, readParam(params[key])]),
@@ -215,7 +226,26 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       {filterOptions && <FiltersClient options={filterOptions} values={filterValues} />}
 
-      {!hasData && (
+      {readError && (
+        <Alert variant="destructive">
+          <AlertTitle>No se pudieron leer todas las cifras</AlertTitle>
+          <AlertDescription>
+            Lo que ves puede estar incompleto. Vuelve a cargar la página en unos minutos.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {dataQuality.truncated && (
+        <Alert variant="warning" role="note">
+          <AlertTitle>Las cifras pueden quedarse cortas</AlertTitle>
+          <AlertDescription>
+            Hay más registros de los que se pueden leer de una vez. Elige un periodo más corto o
+            añade un filtro para ver cifras completas.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!hasData && !readError && (
         <p className="text-sm text-muted-foreground">
           {hasFilters
             ? 'No hay actividad con estos filtros. Quita alguno para ver más.'
@@ -239,8 +269,8 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
       <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={readParam(params.tab)}>
         <TabsContent value="resumen" className="space-y-6">
-          <AgentUsageCharts agents={agentStats ?? []} />
-          <AgentUsageSection agents={agentStats ?? []} />
+          <AgentUsageCharts agents={agentStats} />
+          <AgentUsageSection agents={agentStats} />
         </TabsContent>
 
         <TabsContent value="agente-1">
@@ -250,17 +280,17 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         </TabsContent>
 
         <TabsContent value="proveedores" className="space-y-6">
-          <ProviderUsageCharts providers={providerStats ?? []} />
-          <ProviderUsageSection providers={providerStats ?? []} />
+          <ProviderUsageCharts providers={providerStats} />
+          <ProviderUsageSection providers={providerStats} />
         </TabsContent>
 
         <TabsContent value="equipo" className="space-y-6">
-          <TeamUsageCharts users={userConsumption ?? []} />
+          <TeamUsageCharts users={userConsumption} />
           <TeamUsageSection users={userConsumption} />
         </TabsContent>
 
         <TabsContent value="detalle" className="space-y-6">
-          <RecentActivitySection logs={recentLogs ?? []} limit={RECENT_LOGS_LIMIT} />
+          <RecentActivitySection logs={recentLogs} limit={RECENT_LOGS_LIMIT} />
           <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
             <PhoneSuppressionNotEvaluablePanel />
           </Suspense>

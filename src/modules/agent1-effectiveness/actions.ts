@@ -27,7 +27,12 @@ export async function getAgent1EffectivenessSummary(
  * read-model semantics.
  */
 export type Agent1EffectivenessPanelResult =
-  | { status: 'ok'; summary: Agent1EffectivenessSummary }
+  | {
+      status: 'ok';
+      summary: Agent1EffectivenessSummary;
+      /** true ⇒ alguna lectura llegó al tope de seguridad: las cifras pueden quedarse cortas. */
+      truncated: boolean;
+    }
   | { status: 'restricted' }
   | { status: 'error' };
 
@@ -38,8 +43,9 @@ export async function getAgent1EffectivenessPanel(
   if (!isAdmin) return { status: 'restricted' };
 
   try {
-    const summary = await getAgent1EffectivenessSummary(filters);
-    return { status: 'ok', summary };
+    const evidence = await fetchAgent1EffectivenessEvidence(filters);
+    const summary = aggregateAgent1Effectiveness(evidence, filters);
+    return { status: 'ok', summary, truncated: evidence.readTruncated === true };
   } catch (err) {
     // Detailed context stays server-side; the UI gets a generic, safe state.
     console.error('[agent1-effectiveness] panel read failed:', err);

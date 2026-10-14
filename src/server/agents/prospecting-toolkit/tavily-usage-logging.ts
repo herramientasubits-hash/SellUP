@@ -207,6 +207,46 @@ async function resolveTavilyUserSnapshot(
 }
 
 /**
+ * Fila de provider_usage_logs para una consulta Tavily (pura, sin red).
+ *
+ * estimated_cost_usd sigue el contrato canónico de
+ * `buildProviderUsageLogInsertPayload` (usage-tracking/logging.ts):
+ *   omitido (undefined) ⇒ 0        — el defecto histórico, intacto;
+ *   null EXPLÍCITO      ⇒ SQL NULL — costo desconocido, jamás 0 fabricado;
+ *   número              ⇒ tal cual — 0 sigue siendo un costo CONOCIDO válido.
+ * Antes se hacía `?? 0`, y una consulta sin tarifa viva se registraba como
+ * gratis: /ai-usage sumaba $0 por consultas que sí se cobraron.
+ */
+export function buildTavilyUsageLogRow(
+  input: LogProviderUsageInput,
+  snapshot: { roleKey: string | null; groupId: string | null },
+): Record<string, unknown> {
+  return {
+    agent_run_id: input.agent_run_id ?? null,
+    agent_run_step_id: input.agent_run_step_id ?? null,
+    batch_id: input.batch_id ?? null,
+    usage_key: input.usage_key ?? null,
+    provider_key: input.provider_key,
+    operation_key: input.operation_key,
+    model: input.model ?? null,
+    input_tokens: input.input_tokens ?? 0,
+    output_tokens: input.output_tokens ?? 0,
+    credits_used: input.credits_used ?? null,
+    results_returned: input.results_returned ?? 0,
+    estimated_cost_usd: input.estimated_cost_usd === undefined ? 0 : input.estimated_cost_usd,
+    real_cost_usd: null,
+    status: input.status ?? 'success',
+    error_code: input.error_code ?? null,
+    error_message: input.error_message ? input.error_message.slice(0, 500) : null,
+    duration_ms: input.duration_ms ?? null,
+    triggered_by: input.triggered_by ?? null,
+    triggered_by_role_key: snapshot.roleKey,
+    triggered_by_group_id: snapshot.groupId,
+    metadata: input.metadata ?? {},
+  };
+}
+
+/**
  * Inserta un registro en provider_usage_logs con manejo de conflicto por usage_key.
  *
  * - SQLSTATE 23505 en usage_key → ya_registrado (already_logged), no error.
@@ -214,37 +254,18 @@ async function resolveTavilyUserSnapshot(
  * - real_cost_usd nunca se escribe.
  * - triggered_by_role_key / triggered_by_group_id: snapshot al momento del consumo.
  *   Si el lookup falla, quedan NULL sin romper idempotencia ni el log.
+ * - estimated_cost_usd desconocido (null) se escribe NULL (buildTavilyUsageLogRow).
  */
 export async function realLogTavilyUsage(input: LogProviderUsageInput): Promise<UsageLogResult> {
   try {
     const admin = tryGetAdminClient();
     if (!admin) return { kind: 'failed', error: 'Supabase not configured' };
 
-    const { roleKey, groupId } = await resolveTavilyUserSnapshot(admin, input.triggered_by);
+    const snapshot = await resolveTavilyUserSnapshot(admin, input.triggered_by);
 
-    const { error } = await admin.from('provider_usage_logs').insert({
-      agent_run_id: input.agent_run_id ?? null,
-      agent_run_step_id: input.agent_run_step_id ?? null,
-      batch_id: input.batch_id ?? null,
-      usage_key: input.usage_key ?? null,
-      provider_key: input.provider_key,
-      operation_key: input.operation_key,
-      model: input.model ?? null,
-      input_tokens: input.input_tokens ?? 0,
-      output_tokens: input.output_tokens ?? 0,
-      credits_used: input.credits_used ?? null,
-      results_returned: input.results_returned ?? 0,
-      estimated_cost_usd: input.estimated_cost_usd ?? 0,
-      real_cost_usd: null,
-      status: input.status ?? 'success',
-      error_code: input.error_code ?? null,
-      error_message: input.error_message ? input.error_message.slice(0, 500) : null,
-      duration_ms: input.duration_ms ?? null,
-      triggered_by: input.triggered_by ?? null,
-      triggered_by_role_key: roleKey,
-      triggered_by_group_id: groupId,
-      metadata: input.metadata ?? {},
-    });
+    const { error } = await admin
+      .from('provider_usage_logs')
+      .insert(buildTavilyUsageLogRow(input, snapshot));
 
     if (!error) return { kind: 'logged' };
 
@@ -313,7 +334,8 @@ export function createLinkedInUsageLoggerFn(
       // credits_used NULL in provider_usage_logs (cost was logged, credits weren't).
       credits_used: linkedInCredits,
       results_returned: payload.result_count,
-      estimated_cost_usd: payload.estimated_cost_usd ?? 0,
+      // null = sin tarifa: se conserva NULL, nunca un 0 fabricado.
+      estimated_cost_usd: payload.estimated_cost_usd,
       status: payload.status === 'success' ? 'success' : 'error',
       triggered_by: effectiveUserId,
       metadata: {

@@ -386,7 +386,17 @@ function CleanProductionSection({
 // Summary body (funnel + rates + cost + provider breakdown)
 // ============================================================
 
-function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
+/** Aviso cuando una lectura llegó al tope de seguridad. */
+const TRUNCATED_NOTE =
+  'Hay más registros de los que se pueden leer de una vez: estas cifras pueden quedarse cortas. Elige un periodo más corto.';
+
+function SummaryBody({
+  summary,
+  truncated,
+}: {
+  summary: Agent1EffectivenessSummary;
+  truncated: boolean;
+}) {
   const {
     funnel,
     rates,
@@ -403,7 +413,7 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
 
   return (
     <div className="space-y-6">
-      <NoteList title="Ten en cuenta" notes={warnings} />
+      <NoteList title="Ten en cuenta" notes={truncated ? [TRUNCATED_NOTE, ...warnings] : warnings} />
 
       <SurfaceCard>
         <SurfaceCardHeader
@@ -414,7 +424,8 @@ function SummaryBody({ summary }: { summary: Agent1EffectivenessSummary }) {
               <CompletenessBadge flag={costCompletenessFlag} />
               <InfoHint>
                 Se cuentan los lotes de prospectos del periodo, qué pasó con cada candidato y lo
-                que costaron sus consultas. Aquí solo aplican los filtros de periodo y proveedor.
+                que costaron sus consultas. Aquí aplican los filtros de periodo, proveedor, persona,
+                rol y grupo (los lotes de quien los creó).
               </InfoHint>
             </div>
           }
@@ -494,10 +505,10 @@ export async function Agent1EffectivenessPanel({
       <EmptyState
         icon={TrendingUp}
         title="El Agente 1 no generó prospectos en este periodo"
-        description="Elige un periodo más amplio o quita el filtro de proveedor. Las cifras aparecen en cuanto se cree un lote de prospectos."
+        description="Elige un periodo más amplio o quita algún filtro. Las cifras aparecen en cuanto se cree un lote de prospectos."
       />
     );
   }
 
-  return <SummaryBody summary={summary} />;
+  return <SummaryBody summary={summary} truncated={result.truncated} />;
 }
