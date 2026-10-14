@@ -51,12 +51,25 @@ export const SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES = 10;
 export const SUPPLIER_SEARCH_MAX_PHASE_MS = 170_000;
 /** Clave del bloque del lote con lo que hizo el paso (qué aportó o por qué no corrió). */
 export const SUPPLIER_SEARCH_LEG_METADATA_KEY = 'supplier_search_leg';
+/** Ventana máxima para que el rescate de Claude EMPIECE empresas dentro de la corrida. */
+export const SUPPLIER_SEARCH_RESCUE_WINDOW_MS = 60_000;
+/** Por debajo de esto no vale la pena empezar a revisar. */
+export const SUPPLIER_SEARCH_MIN_RESCUE_WINDOW_MS = 15_000;
+/** Lo que se deja al final para terminar la empresa en curso y sellar el lote. */
+export const SUPPLIER_SEARCH_RESCUE_TAIL_MS = 90_000;
 
 export type SupplierSearchRunDeps = {
   /** `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** «Claude busca proveedores» escribiendo en el lote de la corrida. */
   runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-3 — el MISMO rescate de Claude que corre en segundo plano
+   * (sector y tamaño), aquí dentro de la corrida y con ventana corta. `true` = revisó.
+   */
+  rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
+  /** Ids de las filas web del lote que cuentan para la meta, leídos tras el rescate. */
+  listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   /** Sella el estado del lote y publica su metadata terminal en la MISMA escritura. */
@@ -85,6 +98,16 @@ export type SupplierSearchRunInput = {
 export function resolveSupplierSearchPhaseMs(elapsedMs: number | null): number {
   const remaining = WIZARD_FUNCTION_LIMIT_MS - (elapsedMs ?? 0);
   return Math.max(0, Math.min(SUPPLIER_SEARCH_MAX_PHASE_MS, remaining - CLAUDE_SEARCH_LEG_TAIL_MS));
+}
+
+/** Ventana del rescate en línea, o `null` si ya no hay tiempo para empezar. */
+export function resolveSupplierRescueWindowMs(elapsedMs: number | null): number | null {
+  if (elapsedMs === null) return null;
+  const window = Math.min(
+    SUPPLIER_SEARCH_RESCUE_WINDOW_MS,
+    WIZARD_FUNCTION_LIMIT_MS - elapsedMs - SUPPLIER_SEARCH_RESCUE_TAIL_MS,
+  );
+  return window >= SUPPLIER_SEARCH_MIN_RESCUE_WINDOW_MS ? window : null;
 }
 
 /** Texto para la persona cuando el paso de Claude no pudo correr. */
@@ -209,9 +232,41 @@ export async function executeSupplierSearchRun(
     leg = { executed: false, reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}` };
   }
 
+  // 4b. AGENT1-SUPPLIER-SEARCH-3 — el escritor mide la aceptación ANTES de saber el
+  //     tamaño (Claude no lo trae): Prod 14-10, 6 corridas con 0 aceptadas aunque
+  //     Minsait tiene 10.001 empleados. El rescate de Claude (sector y tamaño) corre
+  //     aquí, con ventana corta, y la aceptación se relee después. Cualquier tropiezo ⇒
+  //     se queda la del escritor; el rescate en segundo plano sigue como siempre.
+  let rescue: { reviewed: boolean; acceptedIds: string[] | null; windowMs: number | null } = {
+    reviewed: false,
+    acceptedIds: null,
+    windowMs: null,
+  };
+  if (leg.executed && leg.persistedCandidates > 0 && deps.rescueBatchInline && deps.listAcceptedCandidateIds) {
+    const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
+    const windowMs = resolveSupplierRescueWindowMs(
+      deps.actionStartedAtMs === undefined ? null : nowMs - deps.actionStartedAtMs,
+    );
+    if (windowMs !== null) {
+      const reviewed = await deps.rescueBatchInline({ batchId, windowMs }).catch(() => false);
+      const acceptedIds = reviewed ? await deps.listAcceptedCandidateIds(batchId).catch(() => null) : null;
+      rescue = { reviewed, acceptedIds, windowMs };
+    }
+  }
+
   // 5. La aceptación: la MISMA autoridad que el resto del asistente, con Claude como
   //    único aporte (en la posición de las piernas tardías, como en la corrida normal).
-  const legTruth = claudeLegWriterTruth(leg);
+  const writerTruth = claudeLegWriterTruth(leg);
+  const legTruth =
+    writerTruth && rescue.acceptedIds !== null
+      ? {
+          ...writerTruth,
+          completeValidCandidates: rescue.acceptedIds.length,
+          ...(rescue.acceptedIds.length > 0
+            ? { acceptedIdentities: rescue.acceptedIds.map((id) => `candidate:${id}`) }
+            : {}),
+        }
+      : writerTruth;
   const persisted = legTruth?.persistedCandidates ?? 0;
   const acceptedForTarget = resolveAcceptanceFromRunFacts(
     { demand: fullTargetResultDemand(SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES), freePersistedCandidates: 0 },
@@ -234,7 +289,14 @@ export async function executeSupplierSearchRun(
         batchId,
         status: sealDecision.status,
         metadata: {
-          [SUPPLIER_SEARCH_LEG_METADATA_KEY]: leg,
+          [SUPPLIER_SEARCH_LEG_METADATA_KEY]: {
+            ...leg,
+            inline_rescue: {
+              reviewed: rescue.reviewed,
+              window_ms: rescue.windowMs,
+              accepted_after_rescue: rescue.acceptedIds?.length ?? null,
+            },
+          },
           ...(leg.executed ? { [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget) } : {}),
         },
       })

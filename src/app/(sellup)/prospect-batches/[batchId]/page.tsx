@@ -123,13 +123,21 @@ export default async function BatchDetailPage({ params }: Props) {
   // países: se titula con su nombre («Árbol · Cencosud»), no con país · industria.
   const isCorporateTreeBatch = batch.metadata?.search_mode === 'corporate_tree';
   const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1' && !isCorporateTreeBatch;
+  // AGENT1-SUPPLIER-SEARCH-3 — «Proveedores de una empresa»: el título dice de quién. Se lee
+  // del bloque `supplier_search` (no de `search_mode`, que el escritor pisaba en los lotes
+  // anteriores a #699).
+  const supplierReference =
+    (batch.metadata?.supplier_search as { reference_company_name?: unknown } | undefined)?.reference_company_name ?? null;
   const corporateTreeRelationships = isCorporateTreeBatch ? await loadCorporateTreeBatchRelationships(batch.id) : [];
 
   // «Competidores de una empresa»: el título dice de quién («Competidores de Alpina · Colombia»).
   const competitorReference = readCompetitorReference(batch.metadata);
-  const pageTitle = competitorReference
-    ? `${competitorSearchTitle(competitorReference.name)}${batch.country ? ` · ${batch.country}` : ''}`
-    : (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
+  const pageTitle =
+    typeof supplierReference === 'string' && supplierReference.trim()
+      ? [`Proveedores de ${supplierReference}`, batch.country, batch.industry].filter(Boolean).join(' · ')
+      : competitorReference
+      ? `${competitorSearchTitle(competitorReference.name)}${batch.country ? ` · ${batch.country}` : ''}`
+      : (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
       ? isStructuredChile
         ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}`
         : `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
@@ -139,7 +147,9 @@ export default async function BatchDetailPage({ params }: Props) {
     ? `Fuente oficial Chile · RES · ${formatInAppZone(batch.created_at, { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CL')}`
     : null;
 
-  const pageSubtitle = (isStructuredOfficial || isApolloCandidateBatch)
+  const pageSubtitle = typeof supplierReference === 'string' && supplierReference.trim()
+    ? `Empresas con evidencia pública de que le venden a ${supplierReference}. Revisa en cada una la página que lo prueba.`
+    : (isStructuredOfficial || isApolloCandidateBatch)
     ? (chileSubtitle ?? batch.name)
     : (batch.description ?? undefined);
 

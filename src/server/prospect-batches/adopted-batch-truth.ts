@@ -151,6 +151,22 @@ export const STRUCTURED_SOURCE_BATCH_METADATA_KEYS = [
   'macro_industry_key',
 ] as const;
 
+/**
+ * AGENT1-SUPPLIER-SEARCH-3 — formas de búsqueda que la RESERVA del asistente escribe en
+ * `metadata.search_mode` («Proveedores», «Competidores», «Árbol»). El escritor usa la
+ * misma clave para el modo de su buscador (`multi_query`…) y, al adoptar el lote, la
+ * pisaba: Prod 14-10, los lotes de «Proveedores» con resultados quedaban como
+ * `multi_query` y dejaban de reconocerse. Sobre estas formas gana lo que ya estaba.
+ */
+export const WIZARD_REQUEST_SEARCH_MODES: ReadonlySet<string> = new Set([
+  'suppliers',
+  'competitors',
+  'corporate_tree',
+]);
+
+const isWizardRequestSearchMode = (value: unknown): boolean =>
+  typeof value === 'string' && WIZARD_REQUEST_SEARCH_MODES.has(value);
+
 // ─── Fusión de metadata con dueño ─────────────────────────────────────────────
 
 /**
@@ -264,6 +280,12 @@ export function mergeAdoptedBatchMetadata(
     // gratuito. No hay dueño único ⇒ no se pisa (§ 12-B: nunca «gana el pago»
     // en silencio).
     if (structuredSourceOwned.has(key)) {
+      preservedKeys.push(key);
+      continue;
+    }
+
+    // La forma de búsqueda de la PETICIÓN no la pisa el modo del buscador.
+    if (key === 'search_mode' && isWizardRequestSearchMode(existing[key])) {
       preservedKeys.push(key);
       continue;
     }

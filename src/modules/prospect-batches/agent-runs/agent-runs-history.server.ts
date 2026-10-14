@@ -39,7 +39,7 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
     const { data: batches, error } = await supabase
       .from('prospect_batches')
       .select(
-        'id, created_at, country, industry, status, name, search_mode:metadata->>search_mode, competitor_name:metadata->competitor_search->reference->>name',
+        'id, created_at, country, industry, status, name, search_mode:metadata->>search_mode, competitor_name:metadata->competitor_search->reference->>name, supplier_reference:metadata->supplier_search->>reference_company_name',
       )
       .eq('source', 'agent_1')
       .eq('created_by', me.id)
@@ -59,15 +59,17 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
 
     return {
       failed: false,
-      rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null; competitor_name: string | null }>).map(
+      rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null; competitor_name: string | null; supplier_reference: string | null }>).map(
         (batch) => ({
           title:
             batch.search_mode === 'corporate_tree'
               ? batch.name
-              : // «Competidores»: por la referencia guardada en el lote, no por
-                // `search_mode` (el escritor lo pisa al adoptar el lote).
+              : // «Competidores» y «Proveedores»: por la referencia guardada en el lote, no
+                // por `search_mode` (el escritor lo pisaba al adoptar el lote antes de #699).
                 batch.competitor_name
                 ? competitorSearchTitle(batch.competitor_name)
+                : batch.supplier_reference
+                ? `Proveedores de ${batch.supplier_reference}`
                 : null,
           batchId: batch.id,
           createdAt: batch.created_at,
