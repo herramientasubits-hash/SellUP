@@ -22,6 +22,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
+import { executeCompetitorSearchRun } from './wizard-competitor-run';
 import { executeSupplierSearchRun } from './wizard-supplier-search';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -1247,6 +1248,27 @@ export async function executeProspectWizardGeneration(
         referenceCompanyName: req.referenceCompanyName,
         catalogResolution,
         searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
+      },
+      deps,
+    );
+  }
+
+  // 4c. Agente 1 · «Competidores de una empresa» — corrida propia, ANTES de
+  // elegir proveedor: no usa la capa gratuita, el banco, Tavily, Apollo ni Lusha
+  // (todas buscan «empresas de la industria»), sino «Claude busca empresas» con la
+  // referencia. Ver `wizard-competitor-run.ts`.
+  if (req.searchMode === 'competitors' && req.referenceCompany) {
+    const competitorCountry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+    return executeCompetitorSearchRun(
+      {
+        userId,
+        clientRequestId: req.clientRequestId,
+        countryCode: req.countryCode,
+        countryName: competitorCountry?.name ?? req.countryCode,
+        additionalCriteria: req.additionalCriteriaRaw,
+        reference: req.referenceCompany,
+        catalogResolution,
+        target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
       },
       deps,
     );

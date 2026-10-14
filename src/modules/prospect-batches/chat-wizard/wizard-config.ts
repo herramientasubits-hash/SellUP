@@ -21,8 +21,8 @@ export const SEARCH_MODE_DEFINITIONS: ProspectSearchModeDefinition[] = [
   {
     mode: 'competitors',
     label: 'Competidores de una empresa',
-    description: 'Encuentra empresas similares a una de referencia.',
-    availability: 'coming_soon',
+    description: 'Encuentra empresas que compiten con una de referencia.',
+    availability: 'enabled',
   },
   {
     mode: 'suppliers',
@@ -68,6 +68,7 @@ export const GO_BACK_MAP = {
   search_type: 'welcome',
   corporate_tree: 'search_type',
   reference_company: 'search_type',
+  reference_confirm: 'reference_company',
   country: 'search_type',
   industry: 'country',
   subindustries: 'industry',

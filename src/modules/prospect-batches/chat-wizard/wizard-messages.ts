@@ -13,6 +13,7 @@ const ORDERED_STEPS: ProspectWizardStep[] = [
   'welcome',
   'search_type',
   'reference_company',
+  'reference_confirm',
   'country',
   'industry',
   'subindustries',
@@ -141,16 +142,58 @@ export function deriveWizardMessages(
     }
   }
 
+  // ── Reference company («Competidores de una empresa») ─────────────────────
+  const isCompetitors = state.searchMode === 'competitors';
+  const reference = state.referenceCompany ?? null;
+  if (isCompetitors && hasReached(state.currentStep, 'reference_company')) {
+    messages.push({
+      id: 'assistant-reference-question',
+      role: 'assistant',
+      messageType: 'choice',
+      content: '¿De qué empresa quieres encontrar competidores? Elígela de tus cuentas o escribe su nombre o su web.',
+      step: 'reference_company',
+    });
+
+    if (reference && hasReached(state.currentStep, 'reference_confirm')) {
+      messages.push({
+        id: 'user-reference-answer',
+        role: 'user',
+        messageType: 'selection_summary',
+        content: reference.domain ? `${reference.name} (${reference.domain})` : reference.name,
+        step: 'reference_company',
+      });
+      messages.push({
+        id: 'assistant-reference-found',
+        role: 'assistant',
+        messageType: 'text',
+        content: reference.description
+          ? `Encontré esta empresa: ${reference.name}. ${reference.description}`
+          : `Encontré esta empresa: ${reference.name}.`,
+        step: 'reference_confirm',
+      });
+    }
+
+    if (reference && hasReached(state.currentStep, 'country')) {
+      messages.push({
+        id: 'user-reference-confirmed',
+        role: 'user',
+        messageType: 'text',
+        content: 'Sí, es esta.',
+        step: 'reference_confirm',
+      });
+    }
+  }
+
   // ── Country ──────────────────────────────────────────────────────────────
   if (
     hasReached(state.currentStep, 'country') &&
-    (state.searchMode === 'exploratory' || (isSuppliers && !!state.referenceCompanyName))
+    (state.searchMode === 'exploratory' || isCompetitors || (isSuppliers && !!state.referenceCompanyName))
   ) {
     messages.push({
       id: 'assistant-country-question',
       role: 'assistant',
       messageType: 'choice',
-      content: '¿En qué país quieres buscar?',
+      content: isCompetitors ? '¿En qué país buscamos sus competidores?' : '¿En qué país quieres buscar?',
       step: 'country',
     });
 
@@ -168,7 +211,22 @@ export function deriveWizardMessages(
   }
 
   // ── Industry ─────────────────────────────────────────────────────────────
-  if (hasReached(state.currentStep, 'industry') && state.countryCode) {
+  const industryFromReference =
+    isCompetitors &&
+    reference !== null &&
+    reference.industryId !== null &&
+    reference.industryId === state.industryId;
+  if (industryFromReference && hasReached(state.currentStep, 'additional_criteria') && state.countryCode) {
+    // La industria salió de la referencia: no se preguntó, se informa.
+    const industryName = findIndustryName(state.industryId, context.industries) ?? state.industryId;
+    messages.push({
+      id: 'assistant-industry-from-reference',
+      role: 'assistant',
+      messageType: 'text',
+      content: `Buscaré en su misma industria: ${industryName}. Puedes cambiarla en el resumen.`,
+      step: 'industry',
+    });
+  } else if (hasReached(state.currentStep, 'industry') && state.countryCode) {
     messages.push({
       id: 'assistant-industry-question',
       role: 'assistant',

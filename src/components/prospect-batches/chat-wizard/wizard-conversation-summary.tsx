@@ -399,7 +399,10 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // propio bloqueo previo, y la autoridad económica real sigue siendo la reserva
   // atómica del servidor (`try_reserve_wizard_credits`), que no depende de nada
   // de esta pantalla. Apollo/Tavily conservan su preflight intacto.
-  const budgetProvider = requestedProvider ?? defaultDiscoveryProvider;
+  // «Competidores de una empresa» busca con Claude: no gasta créditos de Apollo,
+  // Tavily ni Lusha, así que ni su preflight ni su selector aplican.
+  const isCompetitorSearch = state.searchMode === 'competitors';
+  const budgetProvider = isCompetitorSearch ? null : (requestedProvider ?? defaultDiscoveryProvider);
   const preExecutionBudgetBlock =
     !useLushaFinalSearch && budgetProvider
       ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
@@ -466,6 +469,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // modo automático; el término explícito lo hace legible aquí también.
   const showRunProviderSelector =
     !autoProviderCascade &&
+    !isCompetitorSearch &&
     ((!lushaRouteInEffect &&
       discoveryAvailability.available &&
       executionEnabled &&
@@ -592,7 +596,21 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
 
       {/* AGENT1-AUTO-PROVIDER-CASCADE-1 — cómo va a buscar, antes del clic. Mismo
           gate que «Generar prospectos»: si no se puede ejecutar, no se anuncia. */}
+      {isCompetitorSearch &&
+        discoveryAvailability.available &&
+        executionEnabled &&
+        !isPersistenceBlocked && (
+          <Alert variant="info" role={undefined} data-testid="wizard-competitor-search-notice">
+            <AlertDescription className="text-xs leading-relaxed">
+              Claude buscará en la web empresas que compiten con la referencia y SellUp revisará cada una
+              (sitio, duplicados y tamaño) antes de entregarla. No usa créditos de Apollo; cuesta cerca de
+              US$0,25 por búsqueda.
+            </AlertDescription>
+          </Alert>
+        )}
+
       {autoProviderCascade &&
+        !isCompetitorSearch &&
         discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
@@ -932,7 +950,13 @@ function useDecisionLabels(state: ProspectWizardState, catalog: ActiveIndustryCa
       ? `${subsRecap.names.join(', ')} · ${subsRecap.countLabel}`
       : WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL;
   const criteriaLabel = state.additionalCriteriaRaw ?? 'Ninguno';
-  return { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled };
+  const reference = state.searchMode === 'competitors' ? (state.referenceCompany ?? null) : null;
+  const referenceLabel = reference
+    ? reference.domain
+      ? `${reference.name} (${reference.domain})`
+      : reference.name
+    : null;
+  return { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled, referenceLabel };
 }
 
 /**
@@ -945,10 +969,8 @@ function DecisionRows({
   dispatch,
   actionLabel,
 }: SummaryPanelProps & { actionLabel: string }) {
-  const { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled } = useDecisionLabels(
-    state,
-    catalog,
-  );
+  const { countryLabel, industryLabel, subsLabel, criteriaLabel, subindustrySelectionEnabled, referenceLabel } =
+    useDecisionLabels(state, catalog);
   const change = (step: EditableWizardStep) => () => dispatch({ type: 'EDIT_STEP', step, returnToSummary: true });
   return (
     <dl className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
@@ -958,6 +980,17 @@ function DecisionRows({
           <SummaryRow
             label="Empresa de referencia"
             value={state.referenceCompanyName ?? '—'}
+            onEdit={change('reference_company')}
+            actionLabel={actionLabel}
+            wrap
+          />
+        </>
+      ) : referenceLabel !== null ? (
+        <>
+          <SummaryRow label="Tipo de búsqueda" value="Competidores de una empresa" />
+          <SummaryRow
+            label="Empresa de referencia"
+            value={referenceLabel}
             onEdit={change('reference_company')}
             actionLabel={actionLabel}
             wrap
