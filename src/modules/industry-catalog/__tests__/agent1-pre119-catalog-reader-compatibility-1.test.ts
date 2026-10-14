@@ -1060,7 +1060,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
     // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.match(last, /^148_/);
+    // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+    // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+    // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+    // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.match(last, /^149_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1223,6 +1228,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '148_agent1_company_relationships.sql',
+      // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+      // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+      // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+      // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '149_provider_usage_search_mode_from_batch_metadata.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

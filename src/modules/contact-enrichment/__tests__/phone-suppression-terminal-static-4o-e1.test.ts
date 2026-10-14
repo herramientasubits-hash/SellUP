@@ -336,7 +336,12 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
       // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      '148_agent1_company_relationships.sql',
+      // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+      // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+      // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+      // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '149_provider_usage_search_mode_from_batch_metadata.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

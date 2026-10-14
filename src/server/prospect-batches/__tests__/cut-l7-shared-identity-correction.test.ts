@@ -1080,9 +1080,27 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 148 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 149 o superior, se llame como se llame.
+    // 🔴 AGENT1-CORPORATE-TREE-2 reclamó después la 149: sin tabla nueva; CREATE OR REPLACE de
+    // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el
+    // lote (`prospect_batches.metadata->>'search_mode'`) y su relleno idempotente. No es de
+    // teléfono, ni del catálogo, ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con la
+    // 137–148. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^149_/.test(f)),
+      ['149_provider_usage_search_mode_from_batch_metadata.sql'],
+      'la 149 tiene que ser la de la forma de búsqueda del uso de IA, y sólo ella',
+    );
+    const usageSearchMode = read('supabase/migrations/149_provider_usage_search_mode_from_batch_metadata.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        usageSearchMode.includes(foreign),
+        false,
+        `la 149 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 150 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^149_/.test(f) || /^1[5-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15\d_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });
