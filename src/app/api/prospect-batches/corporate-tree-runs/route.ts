@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
           // Como en «por criterios»: las que quedaron para revisar.
           candidateCount: result.inReview,
           redirectPath: result.redirectPath,
+          corporateTree: { waitingWebsite: result.waitingWebsite, groupReferences: result.groupReferences },
         }
       : {
           ...failure(result.message),

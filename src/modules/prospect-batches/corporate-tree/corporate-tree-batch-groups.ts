@@ -18,6 +18,8 @@ export type CorporateTreeBatchRelationship = {
   related_candidate_id: string | null;
   related_name: string;
   related_country_code: string | null;
+  /** Sin empresa en el lote: la web del grupo que usa (ge.com), si sólo se conoce esa. */
+  related_domain?: string | null;
   relation_type: string;
   relation_detail: string | null;
   evidence_url: string | null;
@@ -25,6 +27,8 @@ export type CorporateTreeBatchRelationship = {
 
 /** Lo que todavía espera su web en «Descartadas» (el rescate la busca). */
 export const CORPORATE_TREE_WAITING_WEBSITE_LABEL = 'En Descartadas: sin web';
+/** Sólo se conoce la web del grupo: queda como referencia, sin rescate. */
+export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del grupo';
 
 export type CorporateTreeBatchCandidateInput = {
   id: string;
@@ -143,11 +147,11 @@ export function groupBatchCandidatesByTreeRelation(
       candidateId: null,
       name: rel.related_name,
       countryCode: rel.related_country_code,
-      statusLabel: CORPORATE_TREE_WAITING_WEBSITE_LABEL,
-      statusTone: 'neutral',
+      statusLabel: rel.related_domain ? CORPORATE_TREE_GROUP_WEBSITE_LABEL : CORPORATE_TREE_WAITING_WEBSITE_LABEL,
+      statusTone: rel.related_domain ? 'info' : 'neutral',
       relationDetail: rel.relation_detail,
       evidenceUrl: rel.evidence_url,
-      groupWebsite: null,
+      groupWebsite: rel.related_domain ? `https://${rel.related_domain}` : null,
     });
   }
 
@@ -156,4 +160,28 @@ export function groupBatchCandidatesByTreeRelation(
     label: CORPORATE_TREE_RELATION_LABELS[relation],
     items: [...(byRelation.get(relation) ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'es')),
   }));
+}
+
+/** Lo que no entró a «Por revisar» al terminar la corrida. */
+export type CorporateTreePending = { waitingWebsite: number; groupReferences: number };
+
+/**
+ * Qué pasó con lo que no entró a «Por revisar», sin inventar causas (Prod 14-10,
+ * General Electric: el aviso decía «ya estaban en HubSpot» y 9 esperaban su web).
+ */
+export function corporateTreePendingSummary(pending: CorporateTreePending | null): string {
+  if (!pending) return 'Abre el lote para ver cada rama y en qué quedó cada empresa.';
+  const parts: string[] = [];
+  if (pending.waitingWebsite > 0) {
+    parts.push(
+      `${pending.waitingWebsite} ${pending.waitingWebsite === 1 ? 'espera' : 'esperan'} su web en «Descartadas» (el rescate la busca y, si la encuentra, pasa a revisión)`,
+    );
+  }
+  if (pending.groupReferences > 0) {
+    parts.push(
+      `${pending.groupReferences} ${pending.groupReferences === 1 ? 'usa' : 'usan'} sólo la web del grupo y ${pending.groupReferences === 1 ? 'queda' : 'quedan'} como referencia`,
+    );
+  }
+  if (parts.length === 0) return 'Las demás ya estaban en HubSpot o en SellUp: quedan en el lote como referencia.';
+  return `${parts.join('; ')}.`.replace(/^./, (c) => c.toUpperCase());
 }
