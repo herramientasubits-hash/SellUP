@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
           status: result.inReview > 0 ? 'success_partial' : 'no_new_candidates',
           batchId: result.batchId,
           batchStatus: 'ready_for_review',
-          candidateCount: result.candidateCount,
+          // Como en «por criterios»: las que quedaron para revisar.
+          candidateCount: result.inReview,
           redirectPath: result.redirectPath,
         }
       : failure(result.message);
