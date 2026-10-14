@@ -13,7 +13,7 @@
  * Honduras (hn_ocds_rtn_registry + hn_rtn_name_alias, then hn_contrataciones_abiertas) name→RTN and Perú (pe_sunat_registry +
  * pe_sunat_name_alias) name→RUC, Paraguay (py_set_registry) name→RUC, Uruguay
  * (uy_rupe_registry + uy_rupe_name_alias) name→RUT, Estados Unidos (SEC, then IRS) name→EIN and
- * España (es_placsp_registry, adjudicatarias) name→NIF, Chile
+ * España (es_placsp_registry + es_official_nif_registry + es_nif_name_alias: adjudicatarias, BDNS, INVENTE, Banco de España) name→NIF, Chile
  * (cl_sii_registry, then cl_res_registry) name→RUT, Costa Rica (cr_company_registry +
  * cr_company_name_alias) name→cédula jurídica, Bolivia (large taxpayers snapshot, then SEPREC live) name→NIT and México
  * (mx_compranet_rfc_registry, proveedores del Estado) name→RFC and Panamá
@@ -98,6 +98,8 @@ import { createSalvadorOfficialSourceResolver } from '@/server/agents/prospect-i
 import { buildSalvadorSnapshotNameQuery } from '@/server/prospect-batches/salvador-snapshot-query';
 import { createHondurasOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/honduras-official-source-resolver';
 import { buildHondurasSnapshotNameQuery } from '@/server/prospect-batches/honduras-snapshot-query';
+import { createSpainOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/spain-official-source-resolver';
+import { buildSpainSnapshotNameQuery } from '@/server/prospect-batches/spain-snapshot-query';
 import { normalizeChileCompanyCore } from '@/server/source-catalog/connectors/res-chile/cl-res-registry-row';
 import { createChileOfficialSourceResolver } from '@/server/agents/prospect-intake/resolvers/chile-official-source-resolver';
 import { buildChileSnapshotNameQuery } from '@/server/prospect-batches/chile-snapshot-query';
@@ -279,14 +281,22 @@ export function buildColombiaOfficialSourceResolvers(): OfficialSourceResolver[]
     ),
     // SOURCES-ES-NIF-BY-NAME-1 — sociedades adjudicatarias de la Plataforma de
     // Contratación. Requiere la migración 141 (tipo 'NIF') antes de cargarla.
-    createSnapshotNameOfficialSourceResolver({
-      countryCode: 'ES',
-      sourceKey: 'es_placsp_registry',
-      taxIdentifierType: 'NIF',
-      validTaxId: /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/,
-      normalizeCore: normalizeSpainCompanyCore,
-      querySnapshots: buildSnapshotNameQuery(snapshotClient, 'es_placsp_registry', 'ES'),
-    }),
+    // SOURCES-ES-CLOSE-1 — con variantes del nombre, una palabra sólo con web, los
+    // NIF de la BDNS, INVENTE y el Banco de España (es_official_nif_registry) y sus
+    // alias; si no da NIF fuerte, el registro de adjudicatarias como antes.
+    createFallbackOfficialSourceResolver(
+      createSpainOfficialSourceResolver({
+        querySnapshots: buildSpainSnapshotNameQuery(snapshotClient),
+      }),
+      createSnapshotNameOfficialSourceResolver({
+        countryCode: 'ES',
+        sourceKey: 'es_placsp_registry',
+        taxIdentifierType: 'NIF',
+        validTaxId: /^[A-HJNPQRSUVW]\d{7}[0-9A-J]$/,
+        normalizeCore: normalizeSpainCompanyCore,
+        querySnapshots: buildSnapshotNameQuery(snapshotClient, 'es_placsp_registry', 'ES'),
+      }),
+    ),
     // SOURCES-CL-SII-REGISTRY-1 — personas jurídicas activas del SII (desde 1993,
     // con trabajadores informados); si no da RUT fuerte, el Registro de Empresas
     // y Sociedades (SOURCES-CL-RUT-BY-NAME-1, sólo constituidas desde 2013).

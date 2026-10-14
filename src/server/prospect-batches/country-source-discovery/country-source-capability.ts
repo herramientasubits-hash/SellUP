@@ -89,6 +89,12 @@ import {
 } from './ni-free-directory-discovery-adapter';
 import { macroHasNiCoverage } from './ni-free-directory-macro-table';
 import {
+  buildEsFreeDirectoryDiscoveryAdapter,
+  ES_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY,
+  type EsFreeDirectoryDiscoveryReads,
+} from './es-free-directory-discovery-adapter';
+import { macroHasEsCoverage } from './es-free-directory-macro-table';
+import {
   buildSvComprasalDirectoryDiscoveryAdapter,
   SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY,
   type SvComprasalDirectoryDiscoveryReads,
@@ -222,6 +228,11 @@ import {
  * y el SENIAT bloquea las consultas): empresas que cotizan o emiten valores (Bolsa de
  * Caracas y SUNAVAL, tabla empresa → industria), reguladas por la SUDEASEG, casas de
  * bolsa, empresas y universidades con web propia comprobada y entes públicos (Gobierno).
+ *
+ * SOURCES-ES-CLOSE-1 — España entra con sociedades con NIF de cuatro fuentes
+ * oficiales gratuitas (entes de INVENTE, Banco de España, «GRAN EMPRESA» de la BDNS
+ * y adjudicatarias de 1 M€ o más de la PLACSP; tablas CNAE y CPV aprobadas por la
+ * dueña el 13-10-2026) y entidades públicas con NIF y web (Gobierno).
  */
 export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'CO', 'DO', 'AR', 'MX', 'EC', 'CL', 'PE', 'PY', 'GT', 'BO', 'CR', 'HN', 'PA',
@@ -229,6 +240,7 @@ export const COUNTRY_SOURCE_DISCOVERY_COUNTRIES = [
   'BR',
   'UY',
   'VE',
+  'ES',
 ] as const;
 
 export type CountrySourceCapability = {
@@ -251,6 +263,7 @@ const CAPABILITIES: Readonly<Record<string, CountrySourceCapability>> = Object.f
   HN: { countryCode: 'HN', sourceKey: HN_HONDUCOMPRAS_DIRECTORY_DISCOVERY_SOURCE_KEY },
   PA: { countryCode: 'PA', sourceKey: PA_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   NI: { countryCode: 'NI', sourceKey: NI_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
+  ES: { countryCode: 'ES', sourceKey: ES_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY },
   SV: { countryCode: 'SV', sourceKey: SV_COMPRASAL_DIRECTORY_DISCOVERY_SOURCE_KEY },
   BR: { countryCode: 'BR', sourceKey: BR_RECEITA_DIRECTORY_DISCOVERY_SOURCE_KEY },
   UY: { countryCode: 'UY', sourceKey: UY_ARCE_DIRECTORY_DISCOVERY_SOURCE_KEY },
@@ -303,6 +316,7 @@ export function countrySourceMacroHasCoverage(
   if (capability.countryCode === 'HN') return macroHasHnHonducomprasCoverage(macroIndustryKey);
   if (capability.countryCode === 'PA') return macroHasPaCoverage(macroIndustryKey);
   if (capability.countryCode === 'NI') return macroHasNiCoverage(macroIndustryKey);
+  if (capability.countryCode === 'ES') return macroHasEsCoverage(macroIndustryKey);
   if (capability.countryCode === 'SV') return macroHasSvCoverage(macroIndustryKey);
   if (capability.countryCode === 'BR') return macroHasBrReceitaCoverage(macroIndustryKey);
   if (capability.countryCode === 'UY') return macroHasUyArceCoverage(macroIndustryKey);
@@ -335,6 +349,7 @@ export type CountrySourceAdapterDeps = {
     hnHonducomprasDirectoryDiscoveryReads?: HnHonducomprasDirectoryDiscoveryReads | null;
     paFreeDirectoryDiscoveryReads?: PaFreeDirectoryDiscoveryReads | null;
     niFreeDirectoryDiscoveryReads?: NiFreeDirectoryDiscoveryReads | null;
+    esFreeDirectoryDiscoveryReads?: EsFreeDirectoryDiscoveryReads | null;
     svComprasalDirectoryDiscoveryReads?: SvComprasalDirectoryDiscoveryReads | null;
     brReceitaDirectoryDiscoveryReads?: BrReceitaDirectoryDiscoveryReads | null;
     uyArceDirectoryDiscoveryReads?: UyArceDirectoryDiscoveryReads | null;
@@ -418,6 +433,11 @@ function buildPrimaryCountrySourceAdapter(
   if (capability.countryCode === 'NI') {
     return deps.niFreeDirectoryDiscoveryReads
       ? buildNiFreeDirectoryDiscoveryAdapter(deps.niFreeDirectoryDiscoveryReads)
+      : null;
+  }
+  if (capability.countryCode === 'ES') {
+    return deps.esFreeDirectoryDiscoveryReads
+      ? buildEsFreeDirectoryDiscoveryAdapter(deps.esFreeDirectoryDiscoveryReads)
       : null;
   }
   if (capability.countryCode === 'SV') {
