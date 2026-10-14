@@ -64,6 +64,7 @@ export function toVeFreeDirectoryReadRow(row: SnapshotSelectRow): VeFreeDirector
     workers: toNumber(row.raw_data?.['workers']),
     metrics_year: toNumber(row.raw_data?.['metrics_year']),
     workforce_source: text(row.raw_data?.['workforce_source']),
+    official_size_band: text(row.raw_data?.['official_size_band']),
     priority_score: toNumber(row.priority_score),
   };
 }

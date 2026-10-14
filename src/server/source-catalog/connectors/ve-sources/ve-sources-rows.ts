@@ -34,6 +34,7 @@ import {
 } from './ve-name-keys';
 import { venezuelaCompanyDomain, venezuelaPublicEntityDomain } from './ve-domain';
 import { veOfficialWorkforceFor, veWorkforceRaw } from './ve-official-workforce';
+import { veLargeInsurerFor, veLargeInsurerRaw } from './ve-insurer-premiums';
 import type { VePublicEntity } from './ve-public-entities';
 import type { VeWebEntity } from './ve-web-entities';
 import {
@@ -179,8 +180,10 @@ export function buildVeRifRegistryRow(entry: VeRifEntry, params: { sourceYear: n
       origins: entryOrigins(entry),
       ...(entry.bvcIssuer ? { stock_exchange_listed: true, bvc_sector: entry.bvcIssuer.sector } : {}),
       ...(entry.sudeaseg ? { sudeaseg_category: entry.sudeaseg.category } : {}),
-      // SOURCES-VE-SIZE-1 — trabajadores publicados (SUDEBAN o Great Place to Work).
-      ...veWorkforceRaw(veOfficialWorkforceFor(entry.rif, null)),
+      // SOURCES-VE-SIZE-1/2 — trabajadores publicados (SUDEBAN, Great Place to Work o
+      // cargos de la ONAPRE por la web del ente) y tramo «grande» de las aseguradoras.
+      ...veWorkforceRaw(veOfficialWorkforceFor(entry.rif, entry.listings[0]?.domain ?? null)),
+      ...veLargeInsurerRaw(veLargeInsurerFor(entry.rif)),
     },
     imported_at: params.importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
@@ -404,6 +407,7 @@ function directoryRaw(params: {
   const workforce = veOfficialWorkforceFor(entry?.rif ?? null, domain);
   return {
     ...veWorkforceRaw(workforce),
+    ...veLargeInsurerRaw(veLargeInsurerFor(entry?.rif ?? null)),
     directory_kind: classification.kind,
     activity_code: classification.code,
     macro_industry_key: resolveVeDirectoryMacro(classification.kind, classification.code),

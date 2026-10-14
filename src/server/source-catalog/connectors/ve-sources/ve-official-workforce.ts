@@ -14,11 +14,17 @@
  *      en su ranking (2023-2026). No es oficial: sólo para empresas que SUDEBAN no
  *      cubre (4).
  *
- * SUDEASEG no publica empleados por aseguradora (medido: «Seguro en Cifras 2024»).
+ *   3. ONAPRE — cargos presupuestados de órganos y entes públicos (Ley de Presupuesto
+ *      2016, `ve-onapre-posts.ts`), por el dominio de la entidad (SOURCES-VE-SIZE-2).
+ *
+ * SUDEASEG no publica empleados por aseguradora: las 15 mayores por primas llevan un
+ * tramo «grande» aparte (`ve-insurer-premiums.ts`).
  * Una empresa que no está aquí sigue sin tamaño oficial: lo pone el proveedor.
  */
 
-export type VeWorkforceSource = 'sudeban' | 'gptw';
+import { VE_ONAPRE_POSTS, VE_ONAPRE_POSTS_YEAR } from './ve-onapre-posts';
+
+export type VeWorkforceSource = 'sudeban' | 'gptw' | 'onapre';
 
 export type VeOfficialWorkforce = {
   /** RIF de la fila (registro y capa gratuita con RIF). */
@@ -35,6 +41,7 @@ export type VeOfficialWorkforce = {
 export const VE_WORKFORCE_SOURCE_LABEL: Readonly<Record<VeWorkforceSource, string>> = {
   sudeban: 'SUDEBAN (Boletín Mensual, jun-2022)',
   gptw: 'Great Place to Work Venezuela',
+  onapre: 'ONAPRE (cargos de la Ley de Presupuesto 2016)',
 };
 
 export const VE_OFFICIAL_WORKFORCE: readonly VeOfficialWorkforce[] = Object.freeze([
@@ -66,10 +73,21 @@ const BY_DOMAIN: ReadonlyMap<string, VeOfficialWorkforce> = new Map(
   VE_OFFICIAL_WORKFORCE.filter((w) => w.domain !== null).map((w) => [w.domain!, w]),
 );
 
-/** Trabajadores publicados de una fila (por RIF, o por dominio si no tiene RIF), o `null`. */
+const ONAPRE_BY_DOMAIN: ReadonlyMap<string, VeOfficialWorkforce> = new Map(
+  VE_ONAPRE_POSTS.map((p) => [
+    p.domain,
+    { rif: null, domain: p.domain, name: p.name, workers: p.posts, year: VE_ONAPRE_POSTS_YEAR, source: 'onapre' as const },
+  ]),
+);
+
+/**
+ * Trabajadores publicados de una fila: por RIF, o por la web (bancos sin RIF y entes
+ * públicos con cargos de la ONAPRE). `null` sin dato.
+ */
 export function veOfficialWorkforceFor(rif: string | null | undefined, domain: string | null | undefined): VeOfficialWorkforce | null {
   if (typeof rif === 'string' && BY_RIF.has(rif)) return BY_RIF.get(rif)!;
   if (typeof domain === 'string' && BY_DOMAIN.has(domain)) return BY_DOMAIN.get(domain)!;
+  if (typeof domain === 'string' && ONAPRE_BY_DOMAIN.has(domain)) return ONAPRE_BY_DOMAIN.get(domain)!;
   return null;
 }
 
