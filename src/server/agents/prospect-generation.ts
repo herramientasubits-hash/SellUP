@@ -14,6 +14,7 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import { searchApolloOrganizations, type ApolloOrganization } from '@/server/integrations/apollo-client';
 import { checkHubSpotCompanyDuplicate } from '@/server/integrations/hubspot-company-search';
 import {
@@ -1488,7 +1489,8 @@ export async function runProspectGenerationAgent(
       status: 'generating',
       source: 'agent_1',
       agent_run_id: agentRun.id,
-      owner_id: internalUserId,
+      // ALWAYS-OWNER-ON-CREATE-1 — el lote es de quien lanzó la búsqueda.
+      owner_id: requireOwnerForCreate({ actorUserId: internalUserId }, 'el lote'),
       created_by: internalUserId,
       metadata: { agent_key: 'prospect_generation', cascade: ['apollo', 'hubspot'] },
     })

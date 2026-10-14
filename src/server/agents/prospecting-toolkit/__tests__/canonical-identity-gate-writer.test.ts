@@ -250,7 +250,7 @@ describe('Fixture A — non_company_phrase', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -268,7 +268,7 @@ describe('Fixture A — non_company_phrase', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -293,7 +293,7 @@ describe('Fixture B — seen_identity_key_recently', () => {
     const admin = makeFakeAdminClient({ previousCandidateNames: ['Siesa'] });
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -316,7 +316,7 @@ describe('Fixture C — empresas válidas', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -332,7 +332,7 @@ describe('Fixture C — empresas válidas', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
     /**
@@ -373,7 +373,7 @@ describe('Fixture D — non_official_source_domain', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -389,7 +389,7 @@ describe('Fixture D — non_official_source_domain', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -405,7 +405,7 @@ describe('Fixture D — non_official_source_domain', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -427,7 +427,7 @@ describe('Fixture E — marcas reales con palabras genéricas', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 
@@ -442,7 +442,7 @@ describe('Fixture E — marcas reales con palabras genéricas', () => {
     const admin = makeFakeAdminClient();
 
     const result = await writeProspectingCandidates(
-      { pipelineOutput, triggeredByUserId: null, ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
+      { pipelineOutput, triggeredByUserId: 'test-user-owner', ownerId: null, batchName: null, source: 'agent_1', dryRun: false, extraBatchMetadata: null },
       admin,
     );
 

@@ -14,6 +14,8 @@ type InternalUserOption = React.ComponentProps<typeof CreateAccountDrawer>['user
 
 interface AccountsScreenActionsProps {
   users: InternalUserOption[];
+  /** ALWAYS-OWNER-ON-CREATE-1 — responsable por defecto al crear una empresa. */
+  currentUserId?: string | null;
   /**
    * El asistente «Generar con IA» ya resuelto por el servidor, el mismo de
    * «Por revisar». Sin él (no se pudo resolver) la pantalla no ofrece agente.
@@ -30,7 +32,11 @@ type OpenPanel = 'create' | 'generate' | null;
  * barra flotante de la pantalla (o a la cabecera, con las acciones «En la
  * pantalla») y monta los paneles que abren, controlados desde aquí.
  */
-export function AccountsScreenActions({ users, generateAgent = null }: AccountsScreenActionsProps) {
+export function AccountsScreenActions({
+  users,
+  currentUserId = null,
+  generateAgent = null,
+}: AccountsScreenActionsProps) {
   const [openPanel, setOpenPanel] = React.useState<OpenPanel>(null);
 
   const actions = React.useMemo<RailActionSpec[]>(
@@ -63,7 +69,12 @@ export function AccountsScreenActions({ users, generateAgent = null }: AccountsS
         agent={generateAgent ? agentAction : null}
         isBlocked={openPanel !== null}
       />
-      <CreateAccountDrawer users={users} open={openPanel === 'create'} onOpenChange={closeIf('create')} />
+      <CreateAccountDrawer
+        users={users}
+        currentUserId={currentUserId}
+        open={openPanel === 'create'}
+        onOpenChange={closeIf('create')}
+      />
       {generateAgent &&
         React.cloneElement(generateAgent.generateDrawer, {
           open: openPanel === 'generate',
