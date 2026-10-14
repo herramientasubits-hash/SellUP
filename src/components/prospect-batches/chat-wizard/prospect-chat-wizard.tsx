@@ -12,6 +12,7 @@ import {
   canValidateWizard,
   buildExploratoryFormInput,
   buildSearchModePayload,
+  getSearchCountryCodes,
 } from '@/modules/prospect-batches/chat-wizard';
 import type {
   EditableWizardStep,
@@ -220,6 +221,8 @@ export function ProspectChatWizard({
 
   // clientRequestId — generated once when entering validated state, reset on restart
   const clientRequestIdRef = React.useRef<string | null>(null);
+  // «Competidores» con varios países: las corridas extra ya lanzadas, por corrida.
+  const extraCountriesLaunchedRef = React.useRef<Set<string>>(new Set());
   // AGENT1-RUN-LIVE-PROGRESS-1 — el id de la corrida en vuelo, para que la espera
   // lea su etapa. Estado (no la ref) porque se pinta.
   const [runningRequestId, setRunningRequestId] = React.useState<string | null>(null);
@@ -694,6 +697,35 @@ export function ProspectChatWizard({
             payload,
           })
         : executeWizardRunViaRoute(payload);
+
+    // «Competidores» con varios países: el primero corre aquí, como siempre; los
+    // demás se lanzan como corridas propias (su lote, su id) en el Centro de
+    // procesos. Una sola vez por corrida: un reintento no los duplica.
+    const extraCountries = competitorReference ? getSearchCountryCodes(state).slice(1) : [];
+    if (extraCountries.length > 0 && !extraCountriesLaunchedRef.current.has(clientRequestIdRef.current)) {
+      extraCountriesLaunchedRef.current.add(clientRequestIdRef.current);
+      for (const extraCountry of extraCountries) {
+        const extraName = LATAM_COUNTRIES.find((country) => country.code === extraCountry)?.name ?? extraCountry;
+        const extraPayload = {
+          countryCode: extraCountry,
+          industryId: state.industryId!,
+          subindustryIds: state.subindustryIds,
+          additionalCriteriaRaw: state.additionalCriteriaRaw,
+          catalogVersion: state.catalogVersion,
+          clientRequestId: crypto.randomUUID(),
+          ...searchModePayload,
+        };
+        const extraRun = runsStore
+          ? runsStore.startRun({
+              title: [`Competidores de ${competitorReference!.name}`, extraName].join(' · '),
+              concurrencyKey: `competitors:${competitorReference!.domain ?? competitorReference!.name}:${extraCountry}`,
+              payload: extraPayload,
+            })
+          : executeWizardRunViaRoute(extraPayload);
+        // Cada país termina por su cuenta; su resultado vive en el Centro de procesos.
+        void extraRun.catch(() => undefined);
+      }
+    }
 
     try {
       const result = await execute({
