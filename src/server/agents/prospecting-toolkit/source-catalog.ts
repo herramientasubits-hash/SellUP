@@ -1618,7 +1618,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Primera fuente de RUC de Ecuador en cada corrida (SOURCES-EC-CLOSE-1). Cargadas 182.941 compañías activas + 5.484 siglas (autorizado 06-10).',
+      'Primera fuente de RUC de Ecuador en cada corrida (SOURCES-EC-CLOSE-1). Verificado en Prod el 14-10-2026: 182.941 compañías activas (RUC distintos) y 14.049 alias y siglas en ec_scvs_alias_registry. La tabla tiene además 24.841 filas duplicadas (mismo RUC y nombre) que dejó la primera carga del 06-10: no cambian el resultado y su limpieza espera autorización.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -1645,7 +1645,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.734 sociedades activas + nombres comerciales (autorizado 06-10). Desde SOURCES-EC-PUBLIC-ENTITIES-1 sus entidades públicas también alimentan la capa gratuita de Gobierno y Salud. Desde SOURCES-EC-GOV-HEAD-ONLY-1 (07-10, decisión A de la dueña) una entidad pública CABEZA encontrada por RUC (ministerio, prefectura, municipio grande, universidad pública, hospital grande) llega al filtro de tamaño como «200+» (regla por tipo, sin conteo oficial de servidores), y una web .gob/.edu de Ecuador que llega por Tavily sin RUC o con RUC de una dependencia o entidad chica (portales, juntas parroquiales, municipios chicos) se queda fuera por tamaño. Las universidades y colegios privados con .edu.ec no cambian.',
+      'Segunda fuente de RUC de Ecuador, después de ec_scvs_registry (SOURCES-EC-CLOSE-1). Cargado el catastro del SRI (archivos por provincia de enero de 2025): 108.778 sociedades activas + 77.148 nombres comerciales en ec_sri_trade_name_registry (verificado en Prod el 14-10-2026). Desde SOURCES-EC-PUBLIC-ENTITIES-1 sus entidades públicas también alimentan la capa gratuita de Gobierno y Salud. Desde SOURCES-EC-GOV-HEAD-ONLY-1 (07-10, decisión A de la dueña) una entidad pública CABEZA encontrada por RUC (ministerio, prefectura, municipio grande, universidad pública, hospital grande) llega al filtro de tamaño como «200+» (regla por tipo, sin conteo oficial de servidores), y una web .gob/.edu de Ecuador que llega por Tavily sin RUC o con RUC de una dependencia o entidad chica (portales, juntas parroquiales, municipios chicos) se queda fuera por tamaño. Las universidades y colegios privados con .edu.ec no cambian.',
     countryCodes: ['EC'],
     sectors: [],
     priority: 'P1',
@@ -2263,7 +2263,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
         'La clave existente del catálogo/UI se conserva para evitar duplicar la fuente de Brasil; los contratos técnicos de parser, staging y dry-run usan la clave canónica br_receita_cnpj_dados_abertos.',
     },
     nextAction:
-      'Integración construida y verde en local (snapshot mensual, publicación fijada, resolución por nombre, promoción vallada de identidad fiscal). Pendiente en Producción: aplicar la migración 133 y cargar el snapshot nacional de Receita. Import, runtime, HubSpot y generación live permanecen bloqueados hasta esa operación de Producción con aprobación explícita.',
+      'CONGELADA (13-10-2026): Brasil ya funciona con la capa liviana de Receita (br_receita_registry y br_receita_directory, cargadas y verificadas), que la reemplaza; esta carga nacional pesada no se va a hacer salvo decisión nueva de la dueña. Integración construida y verde en local (snapshot mensual, publicación fijada, resolución por nombre, promoción vallada de identidad fiscal). Lo que haría falta para encenderla en Producción: aplicar la migración 133 y cargar el snapshot nacional de Receita. Import, runtime, HubSpot y generación live permanecen bloqueados hasta esa operación de Producción con aprobación explícita.',
     countryCodes: ['BR'],
     sectors: [],
     priority: 'P0',
