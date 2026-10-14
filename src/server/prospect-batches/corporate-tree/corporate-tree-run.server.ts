@@ -48,7 +48,13 @@ import { persistCountrySourceCandidates } from '@/server/prospect-batches/countr
 import { buildUnverifiedFreeDispositionRows } from '@/server/prospect-batches/country-source-discovery/free-source-unverified';
 import { durableCandidatesFromCount, resolveBatchTerminalStatusDecision } from '@/server/prospect-batches/batch-durable-candidates';
 import { searchCorporateTreeBranch, type CorporateTreeNode, type CorporateTreeSearchOutcome, type TreeCountry } from './corporate-tree-search';
-import { findCorporateTreeFreeHits, prefixUpperBound, type FreeBankRow, type FreeSnapshotRow } from './corporate-tree-free-lookup';
+import {
+  escapeLikePrefix,
+  findCorporateTreeFreeHits,
+  prefixUpperBound,
+  type FreeBankRow,
+  type FreeSnapshotRow,
+} from './corporate-tree-free-lookup';
 import type { CorporateTreeWebItem } from './corporate-tree-plan';
 import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeStage } from './corporate-tree-run';
 
@@ -251,7 +257,7 @@ export function buildLiveCorporateTreeDeps(params: {
               .select('id, country_code, source_provider, payload')
               .in('country_code', [...countryCodes])
               .eq('status', 'banked')
-              .ilike('payload->candidate->>name', `${prefix}%`)
+              .ilike('payload->candidate->>name', `${escapeLikePrefix(prefix)}%`)
               .limit(max);
             if (error) throw error;
             return (data ?? []) as unknown as FreeBankRow[];
@@ -334,22 +340,25 @@ export function buildLiveCorporateTreeDeps(params: {
         .from('prospect_candidates')
         .select('id, name, country_code, domain, industry, status, matched_hubspot_company_id, metadata')
         .eq('batch_id', batchId);
-      if (error) logError('load candidates', error);
+      if (error) {
+        logError('load candidates', error);
+        return null;
+      }
       return (data ?? []) as CorporateTreeBatchCandidate[];
     },
     tagCandidate: async (candidateId, metadata) => {
-      // La etiqueta de industria del lote sólo servía para escribir: la empresa queda
-      // SIN industria pedida y el rescate la clasifica por lo que es.
+      const { error } = await params.supabase.from('prospect_candidates').update({ metadata }).eq('id', candidateId);
+      if (error) logError('tag candidate', error);
+    },
+    clearBatchIndustryLabel: async (batchId) => {
+      // La etiqueta sólo servía para escribir: la empresa queda SIN industria pedida y el
+      // rescate la clasifica por lo que es (una filial de otro sector no se descarta).
       const { error } = await params.supabase
         .from('prospect_candidates')
-        .update({ metadata })
-        .eq('id', candidateId);
-      if (error) logError('tag candidate', error);
-      await params.supabase
-        .from('prospect_candidates')
         .update({ industry: null })
-        .eq('id', candidateId)
+        .eq('batch_id', batchId)
         .eq('industry', CORPORATE_TREE_BATCH_INDUSTRY);
+      if (error) logError('clear industry label', error);
     },
     insertRelationships: async (rows) => {
       if (rows.length === 0) return true;
@@ -387,5 +396,6 @@ export function buildLiveCorporateTreeDeps(params: {
     report: params.report,
     newRunId: () => randomUUID(),
     nowIso: () => new Date().toISOString(),
+    nowMs: () => Date.now(),
   };
 }

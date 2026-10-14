@@ -142,24 +142,41 @@ export function planCorporateTreeWrites(params: {
       continue;
     }
     seen.add(key);
+    // La web del grupo (la de la empresa de partida) tampoco es propia en un registro.
+    const sharedDomain = !isRoot && !!hit.domain && !!root.domain && hit.domain === root.domain;
     const route: CorporateTreePlannedRow['route'] =
-      hit.origin === 'bank' ? 'agent1_writer' : hit.domain ? 'free_catalog' : 'without_website';
+      hit.origin === 'bank' && hit.bankCandidate
+        ? 'agent1_writer'
+        : hit.domain && hit.company && !sharedDomain
+          ? 'free_catalog'
+          : 'without_website';
+    if (sharedDomain) plan.sharedWebsites++;
     plan.rows.push({
       key,
       origin: hit.origin,
       relation: isRoot ? 'root' : hit.relation,
       name: hit.name,
       countryCode: hit.countryCode,
-      domain: hit.domain,
+      domain: sharedDomain ? null : hit.domain,
       taxId: hit.taxId,
       relationDetail: hit.origin === 'bank' ? 'Encontrada en el banco de empresas' : `Registro oficial: ${hit.sourceKey}`,
       evidenceUrl: null,
-      groupWebsite: null,
+      groupWebsite: sharedDomain && root.website ? root.website : null,
       route,
     });
-    if (route === 'agent1_writer') push(plan.web, hit.countryCode, { key, node: null, bankCandidate: hit.bankCandidate });
+    if (route === 'agent1_writer' && hit.bankCandidate) push(plan.web, hit.countryCode, { key, node: null, bankCandidate: hit.bankCandidate });
     else if (route === 'free_catalog' && hit.company) push(plan.freeCatalog, hit.countryCode, hit.company);
-    else push(plan.withoutWebsite, hit.countryCode, companyWithoutWebsite({ name: hit.name, countryCode: hit.countryCode, taxId: hit.taxId, base: hit.company }));
+    else
+      push(
+        plan.withoutWebsite,
+        hit.countryCode,
+        companyWithoutWebsite({
+          name: hit.name,
+          countryCode: hit.countryCode,
+          taxId: hit.taxId,
+          base: hit.company ? { ...hit.company, domain: null } : null,
+        }),
+      );
   }
 
   // 2. Lo que encontró Claude (lo que lo gratis no tenía).

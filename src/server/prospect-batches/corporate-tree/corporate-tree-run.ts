@@ -168,8 +168,14 @@ export type CorporateTreeRunDeps = {
   writeWeb: (batchId: string, country: TreeCountry, items: CorporateTreeWebItem[]) => Promise<{ written: number; errors: string[] }>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
   recordWithoutWebsite: (batchId: string, countryCode: string, companies: CountrySourceCompany[]) => Promise<number>;
-  loadBatchCandidates: (batchId: string) => Promise<CorporateTreeBatchCandidate[]>;
+  /** `null` si no se pudo leer (no se sella como vacío un lote que sí tiene filas). */
+  loadBatchCandidates: (batchId: string) => Promise<CorporateTreeBatchCandidate[] | null>;
   tagCandidate: (candidateId: string, metadata: Record<string, unknown>) => Promise<void>;
+  /**
+   * La etiqueta de industria del lote sólo sirve para escribir: en TODO el lote se deja
+   * sin industria pedida antes del rescate (también lo que no se reencontró por nombre).
+   */
+  clearBatchIndustryLabel: (batchId: string) => Promise<void>;
   /** `false` si la tabla de asociaciones no está: la corrida sigue. */
   insertRelationships: (rows: CorporateTreeRelationshipRow[]) => Promise<boolean>;
   /** Sella el estado del lote (la misma máquina de estados que la capa gratuita) y su metadata. */
@@ -179,6 +185,7 @@ export type CorporateTreeRunDeps = {
   report: (stage: CorporateTreeStage) => void;
   newRunId: () => string;
   nowIso: () => string;
+  nowMs: () => number;
 };
 
 export type CorporateTreeRunResult =
@@ -193,7 +200,7 @@ export type CorporateTreeRunResult =
     }
   | {
       ok: false;
-      code: 'reservation_failed' | 'nothing_found';
+      code: 'reservation_failed' | 'nothing_found' | 'run_failed';
       message: string;
       /** El lote ya existe (se reservó al empezar): se puede abrir. */
       batchId: string | null;
@@ -276,18 +283,27 @@ async function writePlan(
   batchId: string,
   countries: readonly TreeCountry[],
   deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
 ): Promise<{ written: number; withoutWebsite: number; errors: string[] }> {
   const countryOf = (code: string): TreeCountry => countries.find((c) => c.code === code) ?? { code, name: code };
   let written = 0;
   let withoutWebsite = 0;
   const errors: string[] = [];
+  // Sin tiempo para otra escritura: lo que falta se anota y la corrida cierra el lote a tiempo.
+  const outOfTime = (what: string) => {
+    if (deps.nowMs() < deadlineAtMs) return false;
+    errors.push(`time_budget:${what}`);
+    return true;
+  };
   // Uno a uno por país: el escritor adopta el lote y aplica las compuertas del país.
   for (const [code, companies] of plan.freeCatalog) {
+    if (outOfTime(`free_catalog:${code}`)) continue;
     const result = await deps.writeFreeCatalog(batchId, countryOf(code), companies).catch(() => ({ written: 0, failed: true }));
     written += result.written;
     if (result.failed) errors.push(`free_catalog:${code}`);
   }
   for (const [code, items] of plan.web) {
+    if (outOfTime(`writer:${code}`)) continue;
     const result = await deps.writeWeb(batchId, countryOf(code), items).catch((err: unknown) => ({
       written: 0,
       errors: [err instanceof Error ? err.message : String(err)],
@@ -296,6 +312,7 @@ async function writePlan(
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
   }
   for (const [code, companies] of plan.withoutWebsite) {
+    if (outOfTime(`without_website:${code}`)) continue;
     withoutWebsite += await deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0);
   }
   return { written, withoutWebsite, errors };
@@ -303,7 +320,12 @@ async function writePlan(
 
 export async function runCorporateTreeSearch(
   request: CorporateTreeRequest,
-  context: { internalUserId: string; keyOf: (name: string, countryCode: string | null) => string },
+  context: {
+    internalUserId: string;
+    keyOf: (name: string, countryCode: string | null) => string;
+    /** Hasta cuándo se puede empezar a escribir (deja tiempo para sellar dentro de los 300 s). */
+    writeDeadlineAtMs: number;
+  },
   deps: CorporateTreeRunDeps,
 ): Promise<CorporateTreeRunResult> {
   const existing =
@@ -339,6 +361,30 @@ export async function runCorporateTreeSearch(
     return { ok: true, batchId, alreadyStarted: true, inReview: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
   }
   const runId = deps.newRunId();
+  try {
+    return await runAfterReservation(request, context, deps, { root, batchId, runId });
+  } catch (err) {
+    // Nunca queda un lote colgado en curso: se cierra y se puede abrir desde la bandeja.
+    const detail = err instanceof Error ? err.message : String(err);
+    await deps
+      .sealBatch(batchId, {
+        persisted: 0,
+        failed: true,
+        metadata: { [CORPORATE_TREE_METADATA_KEY]: { run_id: runId, root_name: root.name, error: detail.slice(0, 200), searched_at: deps.nowIso() } },
+      })
+      .catch(() => undefined);
+    return { ok: false, code: 'run_failed', message: 'No fue posible completar la búsqueda en árbol. Inténtalo de nuevo.', batchId, estimatedCostUsd: 0 };
+  }
+}
+
+async function runAfterReservation(
+  request: CorporateTreeRequest,
+  context: { internalUserId: string; keyOf: (name: string, countryCode: string | null) => string; writeDeadlineAtMs: number },
+  deps: CorporateTreeRunDeps,
+  start: { root: CorporateTreeRoot; batchId: string; runId: string },
+): Promise<CorporateTreeRunResult> {
+  const { batchId, runId } = start;
+  let root = start.root;
 
   // 2. PRIMERO lo gratis.
   deps.report('tree_free');
@@ -364,11 +410,12 @@ export async function runCorporateTreeSearch(
   // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
   const plan = planCorporateTreeWrites({ root, freeHits: free.hits, nodes });
-  const writes = await writePlan(plan, batchId, request.countries, deps);
+  const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
   // 5. Rama de cada fila y asociaciones.
   deps.report('tree_saving');
-  const candidates = await deps.loadBatchCandidates(batchId).catch(() => [] as CorporateTreeBatchCandidate[]);
+  const loaded = await deps.loadBatchCandidates(batchId).catch(() => null);
+  const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
   await Promise.all(
     plan.rows.map(async (row) => {
@@ -426,8 +473,14 @@ export async function runCorporateTreeSearch(
     },
   };
   await deps
-    .sealBatch(batchId, { persisted: candidates.length, failed: candidates.length === 0 && writes.errors.length > 0, metadata: treeMetadata })
+    .sealBatch(batchId, {
+      // Lo escrito según los escritores, o lo que el lote tiene si se pudo leer (lo mayor).
+      persisted: Math.max(writes.written, candidates.length),
+      failed: loaded !== null && candidates.length === 0 && writes.errors.length > 0,
+      metadata: treeMetadata,
+    })
     .catch(() => undefined);
+  await deps.clearBatchIndustryLabel(batchId).catch(() => undefined);
   if (plan.rows.length > 0) deps.scheduleRescue(batchId);
 
   if (plan.rows.length === 0) {

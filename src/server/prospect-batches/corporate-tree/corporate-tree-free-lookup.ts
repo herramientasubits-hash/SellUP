@@ -126,10 +126,19 @@ export function corporateTreeNameCores(rootName: string): string[] {
   return [...new Set(cores)].filter((c) => c.length >= MIN_CORE_CHARS);
 }
 
-/** El primer texto que ya no empieza por `prefix` (cota superior del rango). */
+/**
+ * Cota superior del rango: el prefijo seguido de letras «z». Con `en_US` los signos
+ * (`{`, `:`) ordenan ANTES que letras y dígitos, así que «último carácter + 1» vaciaba
+ * el rango para prefijos que terminan en «z» o en un dígito («grupo diaz»). Lo que
+ * pase de largo lo descarta la confirmación del prefijo.
+ */
 export function prefixUpperBound(prefix: string): string {
-  const last = prefix.charCodeAt(prefix.length - 1);
-  return `${prefix.slice(0, -1)}${String.fromCharCode(last + 1)}`;
+  return `${prefix}zzzzzzzzzz`;
+}
+
+/** Para `ilike`: el prefijo sin comodines (`%`, `_`) ni la barra de escape. */
+export function escapeLikePrefix(prefix: string): string {
+  return prefix.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 function text(value: unknown): string | null {

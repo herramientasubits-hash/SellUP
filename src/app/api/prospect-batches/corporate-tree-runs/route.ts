@@ -16,6 +16,9 @@ import { buildLiveCorporateTreeDeps } from '@/server/prospect-batches/corporate-
  */
 export const maxDuration = 300;
 
+/** Desde el inicio: última escritura que se empieza; deja tiempo para sellar el lote. */
+const CORPORATE_TREE_WRITE_DEADLINE_MS = 240_000;
+
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 const REQUEST_ERROR_MESSAGES: Record<string, string> = {
@@ -66,7 +69,11 @@ export async function POST(request: NextRequest) {
   try {
     const result = await runCorporateTreeSearch(
       parsed.request,
-      { internalUserId: internalUser.id as string, keyOf: corporateTreeRowKey },
+      {
+        internalUserId: internalUser.id as string,
+        keyOf: corporateTreeRowKey,
+        writeDeadlineAtMs: actionStartedAtMs + CORPORATE_TREE_WRITE_DEADLINE_MS,
+      },
       buildLiveCorporateTreeDeps({
         supabase,
         internalUserId: internalUser.id as string,

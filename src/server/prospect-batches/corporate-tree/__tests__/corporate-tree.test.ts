@@ -19,6 +19,7 @@ import {
 import { corporateTreeRowKey, planCorporateTreeWrites, type CorporateTreeRoot } from '../corporate-tree-plan';
 import {
   corporateTreeNameCores,
+  escapeLikePrefix,
   findCorporateTreeFreeHits,
   prefixUpperBound,
   type CorporateTreeFreeHit,
@@ -286,7 +287,9 @@ describe('B2. Lo gratis primero — registros oficiales y banco por nombre', () 
   it('«Grupo X» también busca «X»; nombres muy cortos no buscan nada', () => {
     assert.deepEqual(corporateTreeNameCores('Grupo Nutresa S.A.'), ['grupo nutresa', 'nutresa']);
     assert.deepEqual(corporateTreeNameCores('Bi'), []);
-    assert.equal(prefixUpperBound('cencosud'), 'cencosue');
+    assert.ok(prefixUpperBound('grupo diaz') > 'grupo diaz s a', 'un prefijo que termina en «z» no vacía el rango');
+    assert.ok(prefixUpperBound('3m') > '3m colombia');
+    assert.equal(escapeLikePrefix('a_b%c'), 'a\\_b\\%c');
   });
 });
 
@@ -354,6 +357,7 @@ function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
     sealed: [] as Array<{ persisted: number; metadata: Record<string, unknown> }>,
     rescued: [] as string[],
     knownToClaude: [] as string[],
+    clearedIndustry: [] as string[],
     stages: [] as string[],
     usageLogs: [] as Array<{ batchId: string }>,
   };
@@ -414,6 +418,10 @@ function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
     scheduleRescue: (batchId) => {
       calls.rescued.push(batchId);
     },
+    clearBatchIndustryLabel: async (batchId) => {
+      calls.clearedIndustry.push(batchId);
+    },
+    nowMs: () => 1_000,
     report: (stage) => calls.stages.push(stage),
     newRunId: () => 'run-1',
     nowIso: () => '2026-10-14T12:00:00.000Z',
@@ -422,7 +430,7 @@ function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
   return { deps, calls };
 }
 
-const CONTEXT = { internalUserId: 'user-1', keyOf: corporateTreeRowKey };
+const CONTEXT = { internalUserId: 'user-1', keyOf: corporateTreeRowKey, writeDeadlineAtMs: 1_000_000 };
 const REQUEST_ALL: CorporateTreeRequest = { ...REQUEST, countries: [CO, PE, { code: 'CL', name: 'Chile' }] };
 
 describe('D. runCorporateTreeSearch — por el camino del Agente 1, gratis primero', () => {
@@ -455,6 +463,34 @@ describe('D. runCorporateTreeSearch — por el camino del Agente 1, gratis prime
     assert.equal(tree.free_first.hits, 2);
     assert.equal(tree.claude.accepted, 2);
     assert.deepEqual(calls.rescued, ['batch-1']);
+    assert.deepEqual(calls.clearedIndustry, ['batch-1'], 'todo el lote queda sin industria pedida antes del rescate');
+  });
+
+  it('si algo falla después de reservar, el lote se cierra como fallado y se puede abrir', async () => {
+    const { deps, calls } = fakeDeps({
+      resolveActiveModel: async () => {
+        throw new Error('boom');
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.equal(result.ok ? 'ok' : result.code, 'run_failed');
+    assert.equal(result.ok ? null : result.batchId, 'batch-1');
+    assert.equal(calls.sealed.length, 1);
+    assert.equal(calls.sealed[0].persisted, 0);
+  });
+
+  it('sin tiempo para escribir, no empieza más escrituras pero cierra el lote', async () => {
+    const { deps, calls } = fakeDeps({ nowMs: () => 2_000_000 });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.equal(calls.freeCatalog.length + calls.web.length + calls.withoutWebsite.length, 0);
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
+    assert.ok((tree.write_errors as string[]).every((e) => e.startsWith('time_budget:')));
+  });
+
+  it('si la lectura del lote falla no se sella como vacío', async () => {
+    const { deps, calls } = fakeDeps({ loadBatchCandidates: async () => null });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(calls.sealed[0].persisted > 0, 'cuenta lo que escribieron los escritores');
   });
 
   it('el mismo id dos veces no vuelve a pagar: devuelve el lote de la primera', async () => {
