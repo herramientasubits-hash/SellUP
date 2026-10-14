@@ -134,7 +134,7 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   VE: [
     'Venezuela no publica un padrón de empresas con RIF alcanzable: el RNC prohíbe el rastreo (robots.txt), el SENIAT bloquea las consultas desde fuera del país y no publica la lista de contribuyentes especiales. El RIF por nombre sale de la Bolsa de Caracas, la SUDEASEG, la SUNAVAL (copia de 2022), GLEIF y las webs oficiales que lo muestran: cubre sobre todo finanzas, seguros, empresas que cotizan y entes públicos.',
     'Una empresa privada que no cotiza ni está regulada (Polar, Farmatodo, las petroleras mixtas) no aparece: queda sin RIF.',
-    'No hay tamaño oficial por empresa: ninguna fuente alcanzable publica trabajadores ni la condición de contribuyente especial.',
+    'Tamaño oficial casi inexistente: el SENIAT no publica la condición de contribuyente especial; sólo 13 bancos traen trabajadores (SUDEBAN, junio de 2022) y 4 empresas los de Great Place to Work. El resto lo pone el proveedor en la corrida.',
     'Nombres repetidos o genéricos no dan un RIF seguro.',
   ],
   PY: [
@@ -2750,7 +2750,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla para las empresas del Estado (a su industria; medios del Estado en Gobierno), una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
     limitations: [
-      'Sin tamaño oficial: el filtro de tamaño decide con lo que traigan los demás pasos.',
+      'Tamaño sólo para 17 entidades: 13 bancos con trabajadores de SUDEBAN (junio de 2022) y 4 empresas de Great Place to Work (no oficial). El resto sin tamaño: decide lo que traigan los demás pasos.',
       'Muy cargada hacia Seguros y Servicios Financieros; en Retail, Tecnología o Salud son pocas decenas.',
       'Las reguladas de la SUDEASEG casi nunca traen web: dependen de la búsqueda por nombre o del rescate.',
     ],
