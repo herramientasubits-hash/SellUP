@@ -22,6 +22,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
+import { executeCompetitorSearchRun } from './wizard-competitor-run';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -1194,6 +1195,27 @@ export async function executeProspectWizardGeneration(
       message: 'El catálogo ha cambiado. Por favor, vuelve a configurar la búsqueda.',
       retryable: false,
     };
+  }
+
+  // 4b. Agente 1 · «Competidores de una empresa» — corrida propia, ANTES de
+  // elegir proveedor: no usa la capa gratuita, el banco, Tavily, Apollo ni Lusha
+  // (todas buscan «empresas de la industria»), sino «Claude busca empresas» con la
+  // referencia. Ver `wizard-competitor-run.ts`.
+  if (req.searchMode === 'competitors' && req.referenceCompany) {
+    const competitorCountry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+    return executeCompetitorSearchRun(
+      {
+        userId,
+        clientRequestId: req.clientRequestId,
+        countryCode: req.countryCode,
+        countryName: competitorCountry?.name ?? req.countryCode,
+        additionalCriteria: req.additionalCriteriaRaw,
+        reference: req.referenceCompany,
+        catalogResolution,
+        target: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      },
+      deps,
+    );
   }
 
   // 5a. Resolve discovery provider (server-side, double gate)

@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
+import { readCompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
@@ -73,6 +74,7 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
     macroIndustryKey,
     subindustries: subindustries.length > 0 ? subindustries : stringList(taxonomy.requested_subindustries),
     additionalCriteria: typeof metadata.additional_criteria === 'string' ? metadata.additional_criteria : null,
+    competitorReference: readCompetitorReference(metadata),
   };
 }
 
@@ -198,6 +200,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         industryName: source.industry,
         subindustries: source.subindustries,
         additionalCriteria: source.additionalCriteria,
+        competitorReference: source.competitorReference ?? null,
         excludeDomains: [...excludeDomains],
         calls: [],
         deadlineAtMs,

@@ -20,6 +20,7 @@ export type {
   WizardMessageContext,
   WizardProgress,
   WizardFormPayload,
+  WizardSearchModePayload,
 } from './wizard-types';
 
 export { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES } from './wizard-config';
@@ -40,5 +41,6 @@ export {
   getPreviousWizardStep,
   getAvailableSearchModes,
   buildExploratoryFormInput,
+  buildSearchModePayload,
   validateWizardStateInvariants,
 } from './wizard-selectors';

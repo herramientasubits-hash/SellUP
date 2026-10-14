@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
+import { competitorReferenceSchema } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 
 // ── Request schema ────────────────────────────────────────────────────────────
 // .strict() rejects unknown fields — targetCount and userId sent from the client
@@ -48,8 +49,32 @@ export const wizardExecutionRequestSchema = z
     requestedDiscoveryProvider: z
       .enum(['tavily', 'apollo_organizations', 'lusha_companies'])
       .optional(),
+    /**
+     * Agente 1 · «Competidores de una empresa». Ausente = búsqueda por criterios,
+     * exactamente la solicitud de siempre.
+     */
+    searchMode: z.enum(['exploratory', 'competitors']).optional(),
+    /** La empresa de referencia; obligatoria con `competitors` y prohibida sin él. */
+    referenceCompany: competitorReferenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const isCompetitors = value.searchMode === 'competitors';
+    if (isCompetitors && !value.referenceCompany) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['referenceCompany'],
+        message: 'Falta la empresa de referencia.',
+      });
+    }
+    if (!isCompetitors && value.referenceCompany) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['referenceCompany'],
+        message: 'La empresa de referencia sólo aplica a la búsqueda de competidores.',
+      });
+    }
+  });
 
 export type WizardExecutionRequestParsed = z.infer<typeof wizardExecutionRequestSchema>;
 

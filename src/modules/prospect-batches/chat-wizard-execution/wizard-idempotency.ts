@@ -12,6 +12,7 @@
  * - Non-23505 errors propagate as typed WizardIdempotencyError.
  */
 
+import { COMPETITOR_SEARCH_METADATA_KEY } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
@@ -88,6 +89,12 @@ export type WizardExecutionReservationInput = {
      * de Apollo. Ausente ⇒ el metadata queda exactamente igual que antes.
      */
     discoveryTaxonomy?: Record<string, unknown>;
+    /**
+     * Agente 1 · «Competidores de una empresa» — la empresa de referencia
+     * (`competitor_search`). Ausente en las búsquedas por criterios ⇒ el metadata
+     * queda exactamente igual que antes.
+     */
+    competitorSearch?: Record<string, unknown>;
   };
 };
 
@@ -262,6 +269,9 @@ function buildMetadata(
       : {}),
     ...(payload.discoveryTaxonomy
       ? { apollo_discovery_taxonomy: payload.discoveryTaxonomy }
+      : {}),
+    ...(payload.competitorSearch
+      ? { [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch }
       : {}),
   };
 }

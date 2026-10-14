@@ -24,6 +24,7 @@ export type InitialStateParams = {
 export function hasWizardSelections(state: ProspectWizardState): boolean {
   return (
     state.searchMode !== null ||
+    (state.referenceCompany ?? null) !== null ||
     state.countryCode !== null ||
     state.industryId !== null ||
     state.subindustryIds.length > 0 ||
@@ -51,6 +52,7 @@ export function createInitialProspectWizardState(
   return {
     currentStep: 'welcome',
     searchMode: null,
+    referenceCompany: null,
     countryCode: null,
     industryId: null,
     subindustryIds: [],
@@ -161,12 +163,60 @@ export function prospectWizardReducer(
         };
       }
 
+      // «Competidores» necesita una referencia antes que nada (aunque se esté
+      // editando desde el resumen); volver a «por criterios» la descarta.
+      if (action.mode === 'competitors') {
+        const hasReference = (state.referenceCompany ?? null) !== null;
+        return {
+          ...state,
+          searchMode: action.mode,
+          ...(hasReference && state.editReturnsToSummary === true
+            ? afterEditedStep(state, 'reference_company')
+            : { currentStep: 'reference_company' as const }),
+          warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+        };
+      }
+
       return {
         ...state,
         searchMode: action.mode,
+        referenceCompany: null,
         ...afterEditedStep(state, 'country'),
         warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
       };
+    }
+
+    // ── REFERENCE_RESOLVED ──────────────────────────────────────────────────
+    case 'REFERENCE_RESOLVED': {
+      if (state.currentStep !== 'reference_company' || state.searchMode !== 'competitors') return state;
+      return { ...state, referenceCompany: action.reference, currentStep: 'reference_confirm' };
+    }
+
+    // ── CONFIRM_REFERENCE ───────────────────────────────────────────────────
+    // La industria de la referencia pasa a ser la de la búsqueda (se puede
+    // cambiar desde el resumen). El país se pregunta siempre: «¿dónde buscamos sus
+    // competidores?» no tiene por qué ser el país de la referencia.
+    case 'CONFIRM_REFERENCE': {
+      const reference = state.referenceCompany ?? null;
+      if (state.currentStep !== 'reference_confirm' || reference === null) return state;
+      const industryId = reference.industryId ?? state.industryId;
+      const industryChanged = industryId !== state.industryId;
+      const canReturnToSummary =
+        state.editReturnsToSummary === true && state.countryCode !== null && industryId !== null;
+      return {
+        ...state,
+        industryId,
+        subindustryIds: industryChanged ? [] : state.subindustryIds,
+        ...(canReturnToSummary
+          ? { currentStep: 'summary' as const, editReturnsToSummary: false }
+          : { currentStep: 'country' as const }),
+      };
+    }
+
+    // ── REJECT_REFERENCE ────────────────────────────────────────────────────
+    case 'REJECT_REFERENCE': {
+      if (state.currentStep !== 'reference_confirm') return state;
+      return { ...state, referenceCompany: null, currentStep: 'reference_company' };
     }
 
     // ── SELECT_COUNTRY ──────────────────────────────────────────────────────
@@ -189,10 +239,14 @@ export function prospectWizardReducer(
         };
       }
 
+      // «Competidores» con la industria ya tomada de la referencia: se salta la
+      // pregunta de industria (se cambia desde el resumen si hace falta).
+      const nextAfterCountry =
+        state.searchMode === 'competitors' && state.industryId !== null ? 'additional_criteria' : 'industry';
       return {
         ...state,
         countryCode: action.countryCode,
-        ...afterEditedStep(state, 'industry'),
+        ...afterEditedStep(state, nextAfterCountry),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'),
         lastEditedStep: state.lastEditedStep,
       };
@@ -461,7 +515,7 @@ export function prospectWizardReducer(
       // atrás desde el criterio adicional lleva a la industria. Dejar el mapa
       // estático llevaría a un paso que no se renderiza: un hueco visual, que es
       // exactamente lo que el § 7 prohíbe.
-      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion);
+      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion, state.searchMode);
       if (!prev) return state;
 
       return {

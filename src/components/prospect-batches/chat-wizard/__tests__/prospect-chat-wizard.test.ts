@@ -181,7 +181,7 @@ describe('SELECT_SEARCH_MODE action', () => {
     const s = advanceTo('search_type');
     const next = prospectWizardReducer(s, {
       type: 'SELECT_SEARCH_MODE',
-      mode: 'competitors',
+      mode: 'suppliers',
     });
     assert.equal(next.currentStep, 'search_type');
     const warning = next.warnings.find((w) => w.code === 'MODE_COMING_SOON');

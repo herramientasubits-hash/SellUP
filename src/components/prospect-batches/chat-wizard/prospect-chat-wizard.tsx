@@ -11,6 +11,7 @@ import {
   getWizardProgress,
   canValidateWizard,
   buildExploratoryFormInput,
+  buildSearchModePayload,
 } from '@/modules/prospect-batches/chat-wizard';
 import type {
   EditableWizardStep,
@@ -81,6 +82,7 @@ const SUMMARY_STEPS = new Set([
 /** Cómo se llama cada paso en el indicador de progreso. Cortos: caben seis en el panel. */
 const STEP_LABELS: Record<string, string> = {
   search_type: 'Tipo',
+  reference_company: 'Empresa',
   country: 'País',
   industry: 'Industria',
   subindustries: 'Enfoque',
@@ -92,6 +94,7 @@ const STEP_LABELS: Record<string, string> = {
 /** Pasos a los que se puede volver tocando el indicador. */
 const STEPPER_EDITABLE_STEPS = new Set<string>([
   'search_type',
+  'reference_company',
   'country',
   'industry',
   'subindustries',
@@ -653,13 +656,20 @@ export function ProspectChatWizard({
     const countryName =
       LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
-    const runTitle = [countryName, industryName].filter(Boolean).join(' · ');
+    const searchModePayload = buildSearchModePayload(state);
+    const competitorReference = 'referenceCompany' in searchModePayload ? searchModePayload.referenceCompany : null;
+    const runTitle = competitorReference
+      ? [`Competidores de ${competitorReference.name}`, countryName].filter(Boolean).join(' · ')
+      : [countryName, industryName].filter(Boolean).join(' · ');
     const execute = (payload: Parameters<typeof executeWizardRunViaRoute>[0]) =>
       runsStore
         ? runsStore.startRun({
             title: runTitle,
-            // Mismo país × industria = mismas empresas: nunca corren juntas.
-            concurrencyKey: `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
+            // Mismo país × industria = mismas empresas: nunca corren juntas. Los
+            // competidores de una empresa son otra búsqueda: su clave es la referencia.
+            concurrencyKey: competitorReference
+              ? `competitors:${competitorReference.domain ?? competitorReference.name}:${state.countryCode ?? ''}`
+              : `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
             payload,
           })
         : executeWizardRunViaRoute(payload);
@@ -672,6 +682,9 @@ export function ProspectChatWizard({
         additionalCriteriaRaw: state.additionalCriteriaRaw,
         catalogVersion: state.catalogVersion,
         clientRequestId: clientRequestIdRef.current,
+        // «Competidores de una empresa»: modo + referencia. Vacío en las búsquedas
+        // por criterios, que viajan exactamente como antes.
+        ...searchModePayload,
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
         // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
         // `isAdmin`, `providerAuthorized`, `authority` ni `overrideAllowed`; el
@@ -778,8 +791,8 @@ export function ProspectChatWizard({
   // dice dónde estás, qué falta, y deja volver a un paso ya contestado.
 
   const progressSteps = React.useMemo(
-    () => getWizardProgressSteps(state.catalogVersion),
-    [state.catalogVersion],
+    () => getWizardProgressSteps(state.catalogVersion, state.searchMode),
+    [state.catalogVersion, state.searchMode],
   );
   const inReviewPhase = SUMMARY_STEPS.has(state.currentStep);
   const stepperSteps = React.useMemo<StepperStep[]>(

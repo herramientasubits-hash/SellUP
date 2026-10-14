@@ -2,11 +2,13 @@ import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { SEARCH_MODE_DEFINITIONS } from './wizard-config';
 import type {
+  ProspectSearchMode,
   ProspectWizardState,
   ProspectWizardStep,
   ProspectSearchModeDefinition,
   WizardProgress,
   WizardFormPayload,
+  WizardSearchModePayload,
 } from './wizard-types';
 
 // ── Progress ──────────────────────────────────────────────────────────────────
@@ -29,19 +31,26 @@ const PROGRESS_STEPS: ProspectWizardStep[] = [
  */
 export function getWizardProgressSteps(
   catalogVersion: string | null | undefined,
+  searchMode: ProspectSearchMode | null = null,
 ): ProspectWizardStep[] {
-  if (isSubindustrySelectionEnabled(catalogVersion)) return PROGRESS_STEPS;
-  return PROGRESS_STEPS.filter((step) => step !== 'subindustries');
+  // «Competidores»: la referencia va justo después del tipo de búsqueda.
+  const steps: ProspectWizardStep[] =
+    searchMode === 'competitors'
+      ? ['search_type', 'reference_company', ...PROGRESS_STEPS.slice(1)]
+      : PROGRESS_STEPS;
+  if (isSubindustrySelectionEnabled(catalogVersion)) return steps;
+  return steps.filter((step) => step !== 'subindustries');
 }
 
 export function getWizardProgress(state: ProspectWizardState): WizardProgress {
-  const steps = getWizardProgressSteps(state.catalogVersion);
+  const steps = getWizardProgressSteps(state.catalogVersion, state.searchMode);
   const terminal: ProspectWizardStep[] = ['summary', 'validating', 'validated', 'blocked', 'error'];
   if (terminal.includes(state.currentStep)) {
     return { currentStepIndex: steps.length, totalSteps: steps.length, percentage: 100 };
   }
 
-  const idx = steps.indexOf(state.currentStep);
+  // La ficha por confirmar cuenta como el paso de la referencia.
+  const idx = steps.indexOf(state.currentStep === 'reference_confirm' ? 'reference_company' : state.currentStep);
   const currentStepIndex = idx === -1 ? 0 : idx;
   const totalSteps = steps.length;
   const percentage = Math.round((currentStepIndex / totalSteps) * 100);
@@ -53,6 +62,8 @@ export function getWizardProgress(state: ProspectWizardState): WizardProgress {
 
 const PREV_MAP: Partial<Record<ProspectWizardStep, ProspectWizardStep>> = {
   search_type: 'welcome',
+  reference_company: 'search_type',
+  reference_confirm: 'reference_company',
   country: 'search_type',
   industry: 'country',
   subindustries: 'industry',
@@ -74,7 +85,10 @@ const PREV_MAP: Partial<Record<ProspectWizardStep, ProspectWizardStep>> = {
 export function getPreviousWizardStep(
   step: ProspectWizardStep,
   catalogVersion?: string | null,
+  searchMode?: ProspectSearchMode | null,
 ): ProspectWizardStep | null {
+  // «Competidores»: antes del país está la referencia, no el tipo de búsqueda.
+  if (step === 'country' && searchMode === 'competitors') return 'reference_company';
   const prev = PREV_MAP[step] ?? null;
   if (prev === 'subindustries' && !isSubindustrySelectionEnabled(catalogVersion)) {
     return PREV_MAP.subindustries ?? null;
@@ -99,6 +113,10 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
           ?.availability === 'enabled')
       );
 
+    case 'reference_company':
+    case 'reference_confirm':
+      return (state.referenceCompany ?? null) !== null && !hasBlocking;
+
     case 'country':
       return state.countryCode !== null && !hasBlocking;
 
@@ -119,10 +137,16 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
   }
 }
 
+/** Un modo con todo lo que necesita para buscar (competidores: la referencia). */
+function hasCompleteSearchMode(state: ProspectWizardState): boolean {
+  if (state.searchMode === 'exploratory') return true;
+  return state.searchMode === 'competitors' && (state.referenceCompany ?? null) !== null;
+}
+
 export function canValidateWizard(state: ProspectWizardState): boolean {
   return (
     state.currentStep === 'summary' &&
-    state.searchMode === 'exploratory' &&
+    hasCompleteSearchMode(state) &&
     state.countryCode !== null &&
     state.industryId !== null &&
     state.requestedCount !== null &&
@@ -152,7 +176,7 @@ export function buildExploratoryFormInput(
   const maxSubs = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
   if (
-    state.searchMode !== 'exploratory' ||
+    !hasCompleteSearchMode(state) ||
     !state.countryCode ||
     !state.industryId ||
     state.requestedCount === null ||
@@ -184,6 +208,25 @@ export function buildExploratoryFormInput(
   };
 }
 
+/**
+ * Lo que el modo añade a la solicitud de ejecución. La validación de criterios
+ * (`buildExploratoryFormInput`) no lo lleva: valida país, industria y criterios,
+ * que son los mismos en los dos modos.
+ */
+export function buildSearchModePayload(state: ProspectWizardState): WizardSearchModePayload {
+  const reference = state.referenceCompany ?? null;
+  if (state.searchMode !== 'competitors' || reference === null) return {};
+  return {
+    searchMode: 'competitors',
+    referenceCompany: {
+      name: reference.name,
+      domain: reference.domain,
+      description: reference.description,
+      accountId: reference.accountId,
+    },
+  };
+}
+
 // ── Invariant validator (dev/test use) ────────────────────────────────────────
 
 export function validateWizardStateInvariants(state: ProspectWizardState): string[] {
@@ -206,9 +249,11 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     if (state.requestedCount === null) violations.push('validated state missing requestedCount');
   }
 
+  const modeEnabled =
+    SEARCH_MODE_DEFINITIONS.find((d) => d.mode === state.searchMode)?.availability === 'enabled';
   if (
     state.searchMode &&
-    state.searchMode !== 'exploratory' &&
+    !modeEnabled &&
     (state.currentStep === 'country' ||
       state.currentStep === 'industry' ||
       state.currentStep === 'subindustries' ||
@@ -217,6 +262,16 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     violations.push(
       `coming_soon mode "${state.searchMode}" reached step "${state.currentStep}"`,
     );
+  }
+
+  if (
+    state.searchMode === 'competitors' &&
+    (state.referenceCompany ?? null) === null &&
+    (state.currentStep === 'reference_confirm' ||
+      state.currentStep === 'country' ||
+      state.currentStep === 'summary')
+  ) {
+    violations.push(`competitors mode reached step "${state.currentStep}" without a reference company`);
   }
 
   if (state.currentStep === 'validating' && state.blockingIssues.length > 0) {

@@ -6,6 +6,10 @@ import type {
   WizardExecutionStatus,
   WizardFreeContribution,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+import type {
+  CompetitorReference,
+  CompetitorReferenceCard,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
@@ -25,6 +29,10 @@ export type ProspectSearchModeDefinition = {
 export type ProspectWizardStep =
   | 'welcome'
   | 'search_type'
+  /** «Competidores de una empresa»: qué empresa es la referencia. */
+  | 'reference_company'
+  /** «Competidores de una empresa»: la ficha encontrada, para confirmarla. */
+  | 'reference_confirm'
   | 'country'
   | 'industry'
   | 'subindustries'
@@ -40,6 +48,7 @@ export type ProspectWizardStep =
 
 export type EditableWizardStep =
   | 'search_type'
+  | 'reference_company'
   | 'country'
   | 'industry'
   | 'subindustries'
@@ -94,6 +103,12 @@ export type ProspectWizardState = {
   currentStep: ProspectWizardStep;
 
   searchMode: ProspectSearchMode | null;
+  /**
+   * «Competidores de una empresa»: la ficha de la referencia. Se fija al
+   * encontrarla y queda confirmada al pasar de `reference_confirm`. Ausente o
+   * null en las búsquedas por criterios (y en estados guardados antes del modo).
+   */
+  referenceCompany?: CompetitorReferenceCard | null;
   countryCode: string | null;
   industryId: string | null;
   subindustryIds: string[];
@@ -186,6 +201,11 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
+  /** La ficha de la referencia llegó del servidor: se muestra para confirmarla. */
+  | { type: 'REFERENCE_RESOLVED'; reference: CompetitorReferenceCard }
+  | { type: 'CONFIRM_REFERENCE' }
+  /** «No, es otra»: se vuelve a preguntar por la referencia. */
+  | { type: 'REJECT_REFERENCE' }
   | { type: 'SELECT_COUNTRY'; countryCode: string }
   | { type: 'SELECT_INDUSTRY'; industryId: string }
   /**
@@ -286,3 +306,11 @@ export type WizardFormPayload = {
   requestedCount: number;
   catalogVersion: string;
 };
+
+/**
+ * Lo que la búsqueda de competidores añade a la solicitud de ejecución. Vacío en
+ * las búsquedas por criterios: la solicitud queda exactamente como antes.
+ */
+export type WizardSearchModePayload =
+  | Record<string, never>
+  | { searchMode: 'competitors'; referenceCompany: CompetitorReference };

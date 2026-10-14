@@ -128,15 +128,18 @@ describe('§ 4 — sólo los modos de discovery por criterios admiten proveedor'
   it('los dos tokens de «empresas por criterios» son aplicables', () => {
     assert.deepEqual([...PROVIDER_APPLICABLE_SEARCH_MODES].sort(), [
       'companies_by_criteria',
+      'competitors',
       'exploratory',
     ]);
+    // «Competidores de una empresa» (14-10) también es discovery: busca con Claude.
+    assert.equal(isProviderApplicableSearchMode('competitors'), true);
     assert.equal(isProviderApplicableSearchMode('exploratory'), true);
     assert.equal(isProviderApplicableSearchMode('companies_by_criteria'), true);
     assert.equal(isProviderApplicableSearchMode(' exploratory '), true);
   });
 
   it('un modo que no es discovery no habilita proveedor artificialmente', () => {
-    for (const mode of ['competitors', 'suppliers', 'import', 'upload', 'manual', '', null]) {
+    for (const mode of ['suppliers', 'import', 'upload', 'manual', '', null]) {
       const result = resolveWizardDiscoveryAvailability(availabilityInput({ searchMode: mode }));
       assert.deepEqual(
         result,
