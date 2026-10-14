@@ -486,6 +486,23 @@ describe('filas de la capa gratuita', () => {
     assert.equal(taxRows.find((r) => r.tax_id === VENCRED.rif)!.raw_data['website_domain'], 'valoresvencred.com');
   });
 
+  it('el dominio de un correo de la Bolsa no es la web sin comprobarla (bancofederal.com, 14-10)', () => {
+    const inverdica: VeBvcIssuer = { ...COBECA, code: '94', name: 'INVERSIONES DIVERSAS C.A. (INVERDICA)', rif: 'J-00020196-0', web: null, emailDomains: ['bancofederal.com'] };
+    const { taxRows } = build({ bvcIssuers: [inverdica] });
+    assert.equal(taxRows[0].raw_data['website_domain'], undefined);
+    const checked = build({ bvcIssuers: [inverdica], webByRif: new Map([[inverdica.rif, { domain: 'inverdica.com', check: 'page_names_company' }]]) });
+    assert.equal(checked.taxRows[0].raw_data['website_domain'], 'inverdica.com');
+  });
+
+  it('una web por nombre compartida por dos RIF (mismo grupo) no se usa en ninguno', () => {
+    const webByRif = new Map([
+      [SEGUROS_CARACAS.rif, { domain: 'grupoejemplo.com', check: 'page_names_company' }],
+      [OCCIDENTAL.rif, { domain: 'grupoejemplo.com', check: 'page_names_company' }],
+    ]);
+    const { taxRows } = build({ sudeaseg: [SEGUROS_CARACAS, OCCIDENTAL], webByRif });
+    assert.ok(taxRows.every((r) => r.raw_data['website_domain'] === undefined));
+  });
+
   it('la web por nombre comprobada se usa sólo si la fuente no trae web, y queda marcada', () => {
     const webByRif = new Map([[SEGUROS_CARACAS.rif, { domain: 'seguroscaracas.com', check: 'page_names_company' }]]);
     const { taxRows } = build({ sudeaseg: [SEGUROS_CARACAS], webByRif });
@@ -688,7 +705,7 @@ describe('cableado y familias de fuente', () => {
     assert.equal(getSourceFamily('ve_free_directory_web'), 'NATIVE_RECORD_GRAIN');
   });
 
-  it('catálogo: estado honesto (conectada) y fuera de las recomendaciones', () => {
+  it('catálogo: estado honesto (conectada y cargada) y fuera de las recomendaciones', () => {
     const expected = {
       ve_rif_registry: 'connected_identity_in_run',
       ve_free_directory: 'connected_free_discovery',
@@ -700,6 +717,7 @@ describe('cableado y familias de fuente', () => {
       assert.deepEqual(source.countryCodes, ['VE']);
       assert.equal(source.aiFlowStatus, status);
       assert.equal(source.connectionMode, 'read_only_snapshot');
+      assert.equal(source.operationalStatus, 'operational_verified', `${key}: cargada y verificada en Prod el 13-10-2026`);
       assert.deepEqual(source.sectors, []);
       for (const depth of ['basic', 'standard', 'deep'] as const) {
         for (const industry of ['technology', 'insurance_financial_services', 'government']) {
