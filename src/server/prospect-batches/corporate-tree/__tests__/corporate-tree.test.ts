@@ -18,6 +18,7 @@ import {
 } from '../corporate-tree-search';
 import { corporateTreeRowKey, planCorporateTreeImport, type CorporateTreeRoot } from '../corporate-tree-plan';
 import {
+  branchDoneStage,
   parseCorporateTreeRequest,
   runCorporateTreeSearch,
   type CorporateTreeBatchCandidate,
@@ -33,6 +34,9 @@ import {
   type CorporateTreeRelationshipRecord,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-associations';
 import { readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { RUN_PROGRESS_PERCENT, RUN_PROGRESS_STAGES } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
+import { TREE_RUN_RECOVERY_TIMEOUT_MS, waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
+import { createAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
 import { prospectWizardReducer } from '@/modules/prospect-batches/chat-wizard/wizard-reducer';
 import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard/wizard-config';
 import type { ProspectWizardState } from '@/modules/prospect-batches/chat-wizard/wizard-types';
@@ -309,7 +313,7 @@ describe('D. runCorporateTreeSearch — la corrida completa', () => {
     assert.equal(result.inReview, 2);
     assert.equal(result.redirectPath, '/prospect-batches/batch-1');
     assert.equal(result.estimatedCostUsd, 0.2);
-    assert.deepEqual(calls.stages, ['tree_searching', 'tree_checking']);
+    assert.deepEqual(calls.stages, ['tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
     assert.equal(calls.usageLogs, 2, 'una entrada de Uso de IA por rama');
     assert.equal(calls.imported.length, 3);
     assert.equal(calls.marked[0].name, 'Árbol · Grupo Nutresa');
@@ -403,5 +407,79 @@ describe('F. El asistente ofrece el árbol', () => {
     assert.equal(next.currentStep, 'corporate_tree');
     const back = prospectWizardReducer(next, { type: 'GO_BACK' });
     assert.equal(back.currentStep, 'search_type');
+  });
+});
+
+describe('G. El loader avanza como en «por criterios» y la respuesta perdida se recupera', () => {
+  it('la barra avanza cuando TERMINA cada rama y antes de guardar', async () => {
+    assert.equal(branchDoneStage(1, 3), 'tree_branch_1');
+    assert.equal(branchDoneStage(2, 3), 'tree_branch_2');
+    assert.equal(branchDoneStage(3, 3), null, 'la última rama la cubre «revisando»');
+    assert.equal(branchDoneStage(1, 1), null);
+    const { deps, calls } = fakeDeps();
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.deepEqual(calls.stages, ['tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
+    const percents = ['tree_searching', 'tree_branch_1', 'tree_branch_2', 'tree_checking', 'tree_saving'].map(
+      (s) => RUN_PROGRESS_PERCENT[s as keyof typeof RUN_PROGRESS_PERCENT],
+    );
+    assert.deepEqual([...percents].sort((a, b) => a - b), percents, 'nunca retrocede');
+    for (const s of ['tree_branch_1', 'tree_branch_2', 'tree_saving']) assert.ok(RUN_PROGRESS_STAGES.includes(s as never));
+  });
+
+  it('sin respuesta, espera a que el lote tenga el id de la corrida y ya no tenga etapa en curso', async () => {
+    let t = 0;
+    const answers = [
+      [],
+      [{ clientRequestId: 'r', progress: { stage: 'tree_saving' as const, label: 'x' }, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
+      [{ clientRequestId: 'r', progress: null, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
+    ];
+    const recovered = await waitForTreeRunResult('r', {
+      fetchStatus: async () => answers.shift() ?? [],
+      sleep: async (ms) => {
+        t += ms;
+      },
+      nowMs: () => t,
+      startedAtMs: 0,
+    });
+    assert.deepEqual(recovered, { batchId: 'b1', candidateCount: 17 });
+  });
+
+  it('si el lote nunca aparece, se rinde al tope y no inventa un resultado', async () => {
+    let t = 0;
+    const recovered = await waitForTreeRunResult('r', {
+      fetchStatus: async () => {
+        throw new Error('sin red');
+      },
+      sleep: async (ms) => {
+        t += ms;
+      },
+      nowMs: () => t,
+      startedAtMs: 0,
+    });
+    assert.equal(recovered, null);
+    assert.ok(t >= TREE_RUN_RECOVERY_TIMEOUT_MS);
+  });
+
+  it('la bandeja no marca fallada una corrida del árbol sin respuesta, y luego se reconcilia', async () => {
+    const store = createAgentRunsStore({
+      execute: async () => {
+        throw new Error('http_504');
+      },
+      storage: null,
+      nowMs: () => 1,
+    });
+    await store
+      .startRun({ title: 'Árbol · Cencosud', payload: { clientRequestId: 'tree-1', searchMode: 'corporate_tree' } })
+      .catch(() => undefined);
+    let run = store.getSnapshot().find((r) => r.clientRequestId === 'tree-1');
+    assert.equal(run?.status, 'running');
+    assert.equal(run?.detached, true);
+    store.reconcile('tree-1', { status: 'succeeded', batchId: 'b1', candidateCount: 17 });
+    run = store.getSnapshot().find((r) => r.clientRequestId === 'tree-1');
+    assert.equal(run?.status, 'succeeded');
+    assert.equal(run?.redirectPath, '/prospect-batches/b1');
+
+    await store.startRun({ title: 'CO · Tec', payload: { clientRequestId: 'crit-1' } }).catch(() => undefined);
+    assert.equal(store.getSnapshot().find((r) => r.clientRequestId === 'crit-1')?.status, 'failed', 'por criterios no cambia');
   });
 });
