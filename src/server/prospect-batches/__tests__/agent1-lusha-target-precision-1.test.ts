@@ -396,9 +396,12 @@ describe('§ 9 — el objetivo se cumple EXACTAMENTE', () => {
       assert.equal(candidateRows.length, 5);
       // La farmacéutica REAL cierra el hueco; los cuatro genéricos no.
       assert.deepEqual(
-        candidateRows.map((r) => r.industry).sort(),
+        // AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — la etiqueta de Lusha vive en
+        // `sector_description`; `industry` («Sector») es la industria del lote.
+        candidateRows.map((r) => r.sector_description).sort(),
         ['Healthcare', 'Healthcare', 'Healthcare', 'Healthcare', 'Pharmaceuticals Manufacturing'],
       );
+      assert.deepEqual([...new Set(candidateRows.map((r) => r.industry))], ['Salud & Farmacéuticos']);
       // 🔴 AGENT1-LUSHA-STOP-AT-TARGET-1 — el guion es secuencial: la segunda
       // respuesta llega como página 1 de la rama 0 y cierra el hueco con la
       // farmacéutica. Con el hueco cerrado ya no se abre otra rama (antes, con

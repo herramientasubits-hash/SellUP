@@ -76,7 +76,7 @@ import {
 
 // AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — la columna «Sector» de la ficha muestra la
 // industria del lote, no el texto crudo de la fuente oficial.
-import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
+import { macroIndustrySectorLabel } from '@/modules/macro-industry-catalog/macro-industry-sector-label';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -1292,11 +1292,11 @@ export async function writeStructuredSourceCandidatesPreview(
         // texto oficial («Entidad pública», «CNAE P841», «Gran contribuyente») no es un
         // sector. Se conserva en `sector_description` y `sector_code`.
         industry:
-          getMacroIndustryByKey(
+          macroIndustrySectorLabel(
             typeof candidateBaseMetadata['macro_industry_key'] === 'string'
               ? candidateBaseMetadata['macro_industry_key']
               : null,
-          )?.displayName ??
+          ) ??
           draft.sectorDescription ??
           null,
         website: draft.website ?? null,

@@ -368,10 +368,11 @@ describe('orden de la capa gratuita (SOURCES-ES-RANKING-1)', () => {
     assert.ok(ES_PUBLIC_ENTITY_PRIORITY_BASE > score('bdns_large', 99_999, 999_999_999, true));
   });
 
-  it('la actividad de la BDNS sólo vale con la mitad de los programas (Eulen no es tecnológica)', () => {
+  it('la actividad de la BDNS sólo vale con más de la mitad de los programas (Eulen no es tecnológica)', () => {
     assert.equal(dominantCodeWithMajority({ '61': 1, H: 1, '84.1': 1, '96': 1 }, resolveSpainCnaeMacro), null);
     assert.equal(dominantCodeWithMajority({ '62': 2, '84.1': 1 }, resolveSpainCnaeMacro), '62');
-    assert.equal(dominantCodeWithMajority({ '62': 1, C: 1 }, resolveSpainCnaeMacro), '62');
+    assert.equal(dominantCodeWithMajority({ '62': 1, C: 1 }, resolveSpainCnaeMacro), null);
+    assert.equal(dominantCodeWithMajority({ '63.9': 1, '55': 1 }, resolveSpainCnaeMacro), null);
     const eulen = buildEsFreeDirectoryRow(
       { nif: 'A28517308', awardee: null, bdns: bdns({ nif: 'A28517308', names: { 'EULEN, S.A.': 1 }, cnae: { '61': 1, H: 1, '84.1': 1, '96': 1 } }), invente: null, bde: null },
       { ...params, sharedDomains: new Set<string>() },
@@ -590,10 +591,20 @@ describe('web por nombre comprobada con su página', () => {
   });
 
   it('marca en el título sólo en .es; fuera de .es tiene que hablar de España', () => {
-    const brand = spainCompanyWebVerdict(page('hiberus.es', 'Hiberus - Consultora', 'Tecnología'), ['HIBERUS IT DEVELOPMENT SERVICES SLU']);
+    const brand = spainCompanyWebVerdict(page('hiberus.es', 'Hiberus - Consultora', 'Software development en Zaragoza'), ['HIBERUS IT DEVELOPMENT SERVICES SLU']);
     assert.ok('domain' in brand && brand.check === 'title_names_brand');
     assert.ok('rejected' in spainCompanyWebVerdict(page('rover.com', 'Rover | Pet sitting', 'Book trusted sitters España'), ['ROVER INFRAESTRUCTURAS, SA']));
     assert.deepEqual(spainCompanyWebVerdict(page('acme.com', 'ACME', 'Welcome to ACME Corp'), ['ACME SL']), { rejected: 'not_spanish' });
+  });
+
+  it('precisión (14-10): ni nombre pegado corto ni marca sin segunda prueba', () => {
+    // H SANTOS D → hsantos.es era Hoteles Santos: «HSANTOSD» dentro de «H Santos Desarrollo».
+    assert.ok('rejected' in spainCompanyWebVerdict(page('hsantos.es', 'Hoteles Santos', 'H Santos Desarrollo hotelero'), ['H SANTOS D SL']));
+    // SEREM CONSULTORIA EMPRESARIAL → serem.es era un centro de coaching.
+    assert.ok('rejected' in spainCompanyWebVerdict(page('serem.es', 'Serem, coaching y psicología', 'Coaching empresarial en Gandia'), ['SEREM CONSULTORIA EMPRESARIAL S.L.']));
+    // Con el NIF en la página, la marca sí vale.
+    const withNif = spainCompanyWebVerdict(page('serem.es', 'Serem', 'Aviso legal CIF B-81153926'), ['SEREM CONSULTORIA EMPRESARIAL S.L.'], { nif: 'B81153926' });
+    assert.ok('domain' in withNif && withNif.check === 'title_names_brand');
   });
 
   it('aparcadas y redirecciones a otra marca nunca valen', () => {
@@ -617,7 +628,10 @@ describe('web por nombre comprobada con su página', () => {
       { ...params, sharedDomains: new Set<string>() },
     );
     assert.ok('row' in noWeb);
-    assert.equal(viaName.row.priority_score - noWeb.row.priority_score, 5);
+    assert.equal(viaName.row.priority_score - noWeb.row.priority_score, 10_000);
+    // Con web va antes que la «gran empresa» más fuerte sin web; las públicas siguen por delante.
+    assert.ok(viaName.row.priority_score > esDirectoryPriorityScore({ kind: 'bdns_large', workers: 99_999, awardedEur: 999_999_999, large: true }));
+    assert.ok(ES_PUBLIC_ENTITY_PRIORITY_BASE > viaName.row.priority_score);
     const official = buildEsFreeDirectoryRow(
       { nif: 'A83052407', awardee: null, bdns: null, invente: invente(), bde: null, nameCheckedDomain: 'otra.es' },
       { ...params, sharedDomains: new Set<string>() },
