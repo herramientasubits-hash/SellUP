@@ -169,6 +169,7 @@ export function AccountsDataTableClient({
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
   // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
   const corporateTree = useCorporateTreeAction();
+  const corporateTreeMenuItem = corporateTree.menuItem;
   const [bulkEnrichOpen, setBulkEnrichOpen] = React.useState(false);
   const [bulkEnrichAccounts, setBulkEnrichAccounts] = React.useState<Row[]>([]);
   // «Asignar a…»: las empresas a las que se les cambia el responsable.
@@ -429,7 +430,7 @@ export function AccountsDataTableClient({
             }),
           },
         ];
-        const treeItem = corporateTree.menuItem({
+        const treeItem = corporateTreeMenuItem({
           name: row.name,
           website: row.domain,
           countryCode: row.country_code,
@@ -479,7 +480,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, handleStatusChange, corporateTree.menuItem],
+    [openDetail, handleStatusChange, corporateTreeMenuItem],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────

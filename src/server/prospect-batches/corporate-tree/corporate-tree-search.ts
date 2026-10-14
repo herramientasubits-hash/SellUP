@@ -218,15 +218,22 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-/** Nombre para comparar: minúsculas, sin acentos ni signos. */
+/** Formas societarias al final del nombre: «Alpina Perú S.A.C.» y «Alpina Perú» son la misma. */
+const LEGAL_SUFFIX =
+  /(?:\s+(?:sas|sac|saa|sa|srl|s de rl(?: de cv)?|de cv|ltda|limitada|cia|inc|llc|corp|ltd|eirl))+$/;
+
+/** Nombre para comparar: minúsculas, sin acentos, sin signos ni forma societaria. */
 export function normalizeTreeName(text: string): string {
-  return text
+  const base = text
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+    .replace(/\./g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  const stripped = base.replace(LEGAL_SUFFIX, '').trim();
+  return stripped || base;
 }
 
 function readSubmission(content: AnthropicConversationResult['content']): { root: RawRoot | null; companies: RawCompany[] } {

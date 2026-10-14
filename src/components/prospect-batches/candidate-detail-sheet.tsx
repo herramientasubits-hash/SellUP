@@ -770,7 +770,7 @@ export function CandidateDetailSheet({
           </TabsContent>
           <TabsContent value="asociaciones" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
             {activeTab === 'asociaciones' && (
-              <CandidateCorporateTreeTab candidateId={candidate.id} />
+              <CandidateCorporateTreeTab key={candidate.id} candidateId={candidate.id} />
             )}
           </TabsContent>
         </Tabs>

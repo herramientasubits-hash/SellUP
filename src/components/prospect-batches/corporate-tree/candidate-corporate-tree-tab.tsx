@@ -29,7 +29,6 @@ export function CandidateCorporateTreeTab({ candidateId }: { candidateId: string
 
   React.useEffect(() => {
     let alive = true;
-    setState({ kind: 'loading' });
     fetch(`/api/prospect-batches/corporate-tree-runs/associations?candidateId=${encodeURIComponent(candidateId)}`, { cache: 'no-store' })
       .then((response) => (response.ok ? (response.json() as Promise<CorporateTreeAssociationsResponse>) : Promise.reject(new Error(String(response.status)))))
       .then((data) => alive && setState({ kind: 'ready', data }))

@@ -238,6 +238,7 @@ export function ProspectsDataTableClient({
   const canAssign = assignableUsers.length > 0;
   // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
   const corporateTree = useCorporateTreeAction();
+  const corporateTreeMenuItem = corporateTree.menuItem;
 
   // Responsables presentes en la lista, para el embudo de la columna.
   const responsibleFilterOptions = React.useMemo(() => {
@@ -713,7 +714,7 @@ export function ProspectsDataTableClient({
             ]
           : []),
         ...(() => {
-          const item = corporateTree.menuItem({
+          const item = corporateTreeMenuItem({
             name: row.name,
             website: row.website,
             countryCode: row.country_code,
@@ -740,7 +741,7 @@ export function ProspectsDataTableClient({
           : []),
       ],
     }),
-    [openCandidateDetail, canAssign, corporateTree.menuItem],
+    [openCandidateDetail, canAssign, corporateTreeMenuItem],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
