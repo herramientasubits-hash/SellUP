@@ -46,7 +46,7 @@ function availabilityInput(
 
 describe('§ 10 — todos los países soportados admiten proveedor externo', () => {
   it('el catálogo del wizard no está vacío (la matriz probaría nada)', () => {
-    assert.ok(LATAM_COUNTRIES.length >= 19, `países soportados: ${LATAM_COUNTRIES.length}`);
+    assert.ok(LATAM_COUNTRIES.length >= 20, `países soportados: ${LATAM_COUNTRIES.length}`);
     assert.equal(VALID_COUNTRY_CODES.size, LATAM_COUNTRIES.length);
   });
 
