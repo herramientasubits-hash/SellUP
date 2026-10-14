@@ -237,7 +237,7 @@ describe('suma de la capa curada a la fuente del país', () => {
     recordsRead: 2,
   });
 
-  it('pone lo del país primero y agrega sólo lo curado que el país no trajo', async () => {
+  it('sin web, lo curado va detrás del país y sólo si el país no lo trajo', async () => {
     const curated: CountrySourceAdapter = async () => ({
       sourceKey: 'latam_curated_directory',
       companies: [
@@ -250,6 +250,47 @@ describe('suma de la capa curada a la fuente del país', () => {
     assert.equal(out.sourceKey, 'co_siis_discovery');
     assert.deepEqual(out.companies.map((c) => c.legalName), ['Universidad de los Andes', 'Otra', 'Universidad Nueva']);
     assert.equal(out.companies[2].originSourceKey, 'latam_curated_directory');
+  });
+
+  it('lo curado con web va primero, hasta la mitad del límite; sin web, al final', async () => {
+    const withWeb = (name: string, domain: string): CountrySourceCompany => ({
+      ...company(null, name),
+      domain,
+      originSourceKey: 'latam_curated_directory',
+    });
+    const curated: CountrySourceAdapter = async () => ({
+      sourceKey: 'latam_curated_directory',
+      companies: [
+        withWeb('Curada 1', 'curada1.co'),
+        withWeb('Curada 2', 'curada2.co'),
+        withWeb('Curada 3', 'curada3.co'),
+        { ...company(null, 'Curada sin web'), originSourceKey: 'latam_curated_directory' },
+      ],
+      recordsRead: 4,
+    });
+    const out = await withLatamCuratedLayer(primary, curated)({ countryCode: 'CO', macroIndustryKey: 'services_company', limit: 4 });
+    assert.deepEqual(out.companies.map((c) => c.legalName), [
+      'Curada 1',
+      'Curada 2',
+      'Universidad de los Andes',
+      'Otra',
+      'Curada 3',
+      'Curada sin web',
+    ]);
+    assert.equal(out.sourceKey, 'co_siis_discovery');
+    assert.equal(out.recordsRead, 6);
+  });
+
+  it('si el país ya trae la empresa curada con web, sube el registro del país (una sola vez)', async () => {
+    const curated: CountrySourceAdapter = async () => ({
+      sourceKey: 'latam_curated_directory',
+      companies: [{ ...company('860007386-1', 'Universidad de los Andes'), domain: 'uniandes.edu.co', originSourceKey: 'latam_curated_directory' }],
+      recordsRead: 1,
+    });
+    const out = await withLatamCuratedLayer(primary, curated)({ countryCode: 'CO', macroIndustryKey: 'services_company', limit: 10 });
+    assert.deepEqual(out.companies.map((c) => c.legalName), ['Universidad de los Andes', 'Otra']);
+    assert.equal(out.companies[0].taxId, '8600073861', 'registro del país, con su número fiscal');
+    assert.equal(out.companies[0].originSourceKey, undefined);
   });
 
   it('si falla lo curado, devuelve lo del país', async () => {

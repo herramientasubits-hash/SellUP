@@ -5,10 +5,12 @@
  * SOURCES-LATAM-CURATED-1.
  *
  * Lee `latam_curated_directory` (universidades, reguladores, bolsas, exportadores,
- * multinacionales, rankings) para un país y una macro, y la SUMA detrás de lo que
- * devuelve la fuente del país: primero lo del país, como siempre; después lo
- * curado que el país no trajo (mismo número fiscal o mismo nombre ⇒ ya está).
- * Un fallo de la capa curada nunca rompe la fuente del país: se ignora.
+ * multinacionales, rankings) para un país y una macro, y la mezcla con lo que
+ * devuelve la fuente del país (SOURCES-LATAM-CURATED-PRIORITY-1, decisión de la
+ * dueña 14-10-2026): lo curado CON web va primero, hasta la mitad de la lectura;
+ * después lo del país; al final el resto de lo curado. Mismo número fiscal o mismo
+ * nombre ⇒ es la misma empresa y se usa el registro del país (trae número y
+ * tamaño). Un fallo de la capa curada nunca rompe la fuente del país: se ignora.
  *
  * La macro se vuelve a calcular con la tabla de HOY (`latam-curated-macro-table`);
  * la guardada al cargar sólo sirvió para filtrar la lectura.
@@ -140,9 +142,21 @@ function identityKeys(company: CountrySourceCompany): string[] {
 }
 
 /**
- * La fuente del país y, detrás, lo curado que el país no trajo. El resultado
- * conserva la `sourceKey` del país. Si el país falla, falla igual que antes; si
- * falla lo curado, se devuelve sólo lo del país.
+ * Parte de la lectura que puede ocupar lo curado con web al frente. Antes iba
+ * siempre detrás del país y, como la fuente del país casi nunca se agota, no
+ * aparecía en ninguna corrida (CO×Salud, UY y PY×Servicios, 14-10-2026).
+ */
+export const LATAM_CURATED_PRIORITY_SHARE = 0.5;
+
+/**
+ * Mezcla la fuente del país con lo curado. El resultado conserva la `sourceKey`
+ * del país. Si el país falla, falla igual que antes; si falla lo curado, se
+ * devuelve sólo lo del país.
+ *
+ * Orden: (1) lo curado con web, hasta `LATAM_CURATED_PRIORITY_SHARE` del límite
+ * — si el país ya trae esa empresa, sube el registro del país; (2) lo del país;
+ * (3) lo curado restante. Lo curado sin web no va al frente: sin web la empresa
+ * cae en Descartadas y depende del rescate.
  */
 export function withLatamCuratedLayer(
   primary: CountrySourceAdapter,
@@ -157,11 +171,32 @@ export function withLatamCuratedLayer(
       extra = null;
     }
     if (extra === null || extra.companies.length === 0) return base;
-    const seen = new Set(base.companies.flatMap(identityKeys));
-    const added = extra.companies.filter((company) => !identityKeys(company).some((key) => seen.has(key)));
+    const baseByKey = new Map<string, CountrySourceCompany>();
+    for (const company of base.companies) {
+      for (const key of identityKeys(company)) if (!baseByKey.has(key)) baseByKey.set(key, company);
+    }
+    const quota = Math.ceil(Math.max(0, Math.trunc(criteria.limit)) * LATAM_CURATED_PRIORITY_SHARE);
+    const front: CountrySourceCompany[] = [];
+    const promoted = new Set<CountrySourceCompany>();
+    const tail: CountrySourceCompany[] = [];
+    for (const company of extra.companies) {
+      const twin = identityKeys(company)
+        .map((key) => baseByKey.get(key))
+        .find((found): found is CountrySourceCompany => found !== undefined);
+      const fitsFront = company.domain !== null && front.length < quota;
+      if (twin !== undefined) {
+        if (fitsFront && !promoted.has(twin)) {
+          front.push(twin);
+          promoted.add(twin);
+        }
+        continue;
+      }
+      if (fitsFront) front.push(company);
+      else tail.push(company);
+    }
     return {
       sourceKey: base.sourceKey,
-      companies: [...base.companies, ...added],
+      companies: [...front, ...base.companies.filter((company) => !promoted.has(company)), ...tail],
       recordsRead: base.recordsRead + extra.recordsRead,
     };
   };
