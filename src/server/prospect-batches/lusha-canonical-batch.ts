@@ -84,6 +84,7 @@
  */
 
 import type { LushaPendingReviewBatchRow } from './lusha-pending-review';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 /**
  * Época de identidad de un lote RECIÉN creado.
@@ -178,7 +179,8 @@ export function buildLushaCanonicalBatchRow(
     // ── Canónico. Nunca aportado, nunca redefinido. ──
     status: identity.defaults.status,
     source: identity.defaults.source,
-    owner_id: identity.createdByUserId,
+    // ALWAYS-OWNER-ON-CREATE-1 — el lote es de quien lanzó la búsqueda.
+    owner_id: requireOwnerForCreate({ actorUserId: identity.createdByUserId }, 'el lote'),
     created_by: identity.createdByUserId,
     client_request_id: identity.clientRequestId,
     target_count: identity.requestedTarget,

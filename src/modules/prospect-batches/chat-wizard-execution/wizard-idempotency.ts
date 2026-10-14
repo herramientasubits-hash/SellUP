@@ -12,6 +12,7 @@
  * - Non-23505 errors propagate as typed WizardIdempotencyError.
  */
 
+import { COMPETITOR_SEARCH_METADATA_KEY } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
   CORPORATE_TREE_METADATA_KEY,
   corporateTreeBatchName,
@@ -20,6 +21,7 @@ import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
 } from './wizard-run-provider-selection';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,12 @@ export type WizardExecutionReservationInput = {
       rootCandidateId: string | null;
       rootAccountId: string | null;
     };
+    /**
+     * Agente 1 · «Competidores de una empresa» — la empresa de referencia
+     * (`competitor_search`). Ausente en las búsquedas por criterios ⇒ el metadata
+     * queda exactamente igual que antes.
+     */
+    competitorSearch?: Record<string, unknown>;
   };
 };
 
@@ -201,6 +209,8 @@ export async function reserveWizardExecutionSlot(
       name: batchName,
       status: INITIAL_BATCH_STATUS,
       source: WIZARD_SOURCE,
+      // ALWAYS-OWNER-ON-CREATE-1 — el lote reservado es de quien lanzó la búsqueda.
+      owner_id: requireOwnerForCreate({ actorUserId: userId }, 'el lote'),
       created_by: userId,
       client_request_id: clientRequestId,
       metadata: metadataEntry,
@@ -312,6 +322,9 @@ function buildMetadata(
             reference_company_name: payload.supplierSearch.referenceCompanyName,
           },
         }
+      : {}),
+    ...(payload.competitorSearch
+      ? { search_mode: 'competitors', [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch }
       : {}),
   };
 }

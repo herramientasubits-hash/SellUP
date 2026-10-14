@@ -8,6 +8,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { runAnthropicConversation } from '../claude-classifier/anthropic-messages-client';
 import { searchCompaniesWithClaude, type CompanySearchOutcome } from '../claude-classifier/company-search';
 import type { WebSearchInput, WebSearchOutput } from '../types';
@@ -30,6 +31,8 @@ export type ClaudeSearchRunContext = {
   additionalCriteria: string | null;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa»; ausente = por criterios. */
   referenceCompanyName?: string | null;
+  /** «Competidores de una empresa»: la referencia del lote (null = búsqueda por criterios). */
+  competitorReference?: CompetitorReference | null;
   /** Ya vistas para este país × industria; la corrida suma las que Claude va trayendo. */
   excludeDomains: string[];
   /** Una entrada por llamada (para el resumen de la corrida). */
@@ -93,6 +96,7 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       industryName: ctx.industryName,
       subindustries: ctx.subindustries,
       additionalCriteria: ctx.additionalCriteria,
+      ...(ctx.competitorReference ? { competitorOf: ctx.competitorReference } : {}),
       excludeDomains: [...ctx.excludeDomains, ...(input.excludeDomains ?? [])],
       maxCompanies: maxResults,
       referenceCompanyName: ctx.referenceCompanyName ?? null,

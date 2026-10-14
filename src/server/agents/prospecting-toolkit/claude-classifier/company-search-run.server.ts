@@ -9,6 +9,10 @@
 import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
+import {
+  COMPETITOR_SEARCH_METADATA_KEY,
+  readCompetitorReference,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { writeProspectingCandidates } from '../candidate-writer';
@@ -81,6 +85,7 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
     subindustries: subindustries.length > 0 ? subindustries : stringList(taxonomy.requested_subindustries),
     additionalCriteria: typeof metadata.additional_criteria === 'string' ? metadata.additional_criteria : null,
     referenceCompanyName,
+    competitorReference: readCompetitorReference(metadata),
   };
 }
 
@@ -165,7 +170,9 @@ async function countPreviousRuns(countryCode: string, industry: string): Promise
     .select('id', { count: 'exact', head: true })
     .eq('country_code', countryCode)
     .eq('industry', industry)
-    .not(`metadata->${CLAUDE_COMPANY_SEARCH_METADATA_KEY}`, 'is', null);
+    .not(`metadata->${CLAUDE_COMPANY_SEARCH_METADATA_KEY}`, 'is', null)
+    // Las búsquedas de competidores no rotan regiones: no cuentan aquí.
+    .is(`metadata->${COMPETITOR_SEARCH_METADATA_KEY}`, null);
   if (error) throw new Error(`previous_runs_read_failed:${error.message}`);
   return count ?? 0;
 }
@@ -207,6 +214,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         subindustries: source.subindustries,
         additionalCriteria: source.additionalCriteria,
         referenceCompanyName: source.referenceCompanyName ?? null,
+        competitorReference: source.competitorReference ?? null,
         excludeDomains: [...excludeDomains],
         calls: [],
         deadlineAtMs,

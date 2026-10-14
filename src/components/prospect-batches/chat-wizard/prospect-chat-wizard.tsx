@@ -11,6 +11,7 @@ import {
   getWizardProgress,
   canValidateWizard,
   buildExploratoryFormInput,
+  buildSearchModePayload,
 } from '@/modules/prospect-batches/chat-wizard';
 import type {
   EditableWizardStep,
@@ -666,13 +667,16 @@ export function ProspectChatWizard({
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
     // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores» la empresa de referencia encabeza el
     // título y la clave de concurrencia (los proveedores de Ecopetrol no son los de
-    // Bancolombia aunque compartan país e industria).
+    // Bancolombia aunque compartan país e industria). Igual en «Competidores».
     const supplierReference =
       state.searchMode === 'suppliers' ? (state.referenceCompanyName ?? '').trim() : '';
+    const searchModePayload = buildSearchModePayload(state);
+    const competitorReference = 'referenceCompany' in searchModePayload ? searchModePayload.referenceCompany : null;
     const runTitle = [
       supplierReference ? `Proveedores de ${supplierReference}` : '',
+      competitorReference ? `Competidores de ${competitorReference.name}` : '',
       countryName,
-      industryName,
+      competitorReference ? '' : industryName,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -680,9 +684,12 @@ export function ProspectChatWizard({
       runsStore
         ? runsStore.startRun({
             title: runTitle,
-            // Mismo país × industria = mismas empresas: nunca corren juntas.
+            // Mismo país × industria = mismas empresas: nunca corren juntas. Proveedores y
+            // competidores de una empresa son otra búsqueda: su clave es la referencia.
             concurrencyKey: supplierReference
               ? `suppliers:${supplierReference.toLowerCase()}:${state.countryCode ?? ''}:${state.industryId ?? ''}`
+              : competitorReference
+              ? `competitors:${competitorReference.domain ?? competitorReference.name}:${state.countryCode ?? ''}`
               : `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
             payload,
           })
@@ -701,6 +708,8 @@ export function ProspectChatWizard({
         ...(supplierReference
           ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
           : {}),
+        // «Competidores de una empresa»: modo + ficha. Vacío en las demás búsquedas.
+        ...searchModePayload,
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
         // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
         // `isAdmin`, `providerAuthorized`, `authority` ni `overrideAllowed`; el

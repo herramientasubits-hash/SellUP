@@ -830,7 +830,7 @@ async function writeOne(candidates: ProspectingPipelineCandidate[]) {
   const result = await writeProspectingCandidates(
     {
       pipelineOutput: makePipelineOutput(candidates),
-      triggeredByUserId: null,
+      triggeredByUserId: 'test-user-owner',
       ownerId: null,
       batchName: null,
       source: 'agent_1',

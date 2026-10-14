@@ -62,6 +62,8 @@ import type { WizardExecutionFailureCode } from './wizard-execution-types';
 export const PROVIDER_APPLICABLE_SEARCH_MODES: ReadonlySet<string> = new Set([
   'exploratory',
   'companies_by_criteria',
+  // «Competidores de una empresa» también es discovery (con Claude).
+  'competitors',
 ]);
 
 export function isProviderApplicableSearchMode(mode: string | null | undefined): boolean {

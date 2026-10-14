@@ -114,6 +114,7 @@ describe('CUT4-B1 § 6(A) — corrida estructurada limpia', () => {
   it('el candidato persiste record_origin=production, no un NULL por omisión', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Limpia Uno')],
     });
@@ -133,6 +134,7 @@ describe('CUT4-B1 § 6(A) — corrida estructurada limpia', () => {
   it('la derivación canónica viaja en la metadata, auditable sin reejecutar', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Limpia Dos')],
     });
@@ -150,6 +152,7 @@ describe('CUT4-B1 § 6(A) — corrida estructurada limpia', () => {
   it('no escribe la columna classification_source: su dueño actual no cambia', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Limpia Tres')],
     });
@@ -165,6 +168,7 @@ describe('CUT4-B1 § 7 — ningún smoke/QA se asciende a production', () => {
   it('uiSmokeTest=true ⇒ smoke_test, jamás production', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       uiSmokeTest: true,
       candidates: [syntheticCandidate('Empresa Smoke UI')],
@@ -178,6 +182,7 @@ describe('CUT4-B1 § 7 — ningún smoke/QA se asciende a production', () => {
   it('un caller no puede apagar el smoke del writer con su propia metadata', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       uiSmokeTest: true,
       // Intento de sobrescribir el marcador: el writer lo aplica DESPUÉS.
@@ -192,6 +197,7 @@ describe('CUT4-B1 § 7 — ningún smoke/QA se asciende a production', () => {
   it('un marcador de QA en la metadata del lote ⇒ qa, jamás production', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       metadata: { qa_only: true },
       candidates: [syntheticCandidate('Empresa QA')],
@@ -207,6 +213,7 @@ describe('CUT4-B1 § 7 — ningún smoke/QA se asciende a production', () => {
     // puede viajar por ahí. El vector real a nivel de fila es `source_primary`.
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       sourceProvider: 'smoke_script',
       candidates: [syntheticCandidate('Empresa Smoke Candidato')],
@@ -221,6 +228,7 @@ describe('CUT4-B1 § 7 — ningún smoke/QA se asciende a production', () => {
   it('preview_mode NO es un marcador de no-producción: es una política de revisión', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       previewMode: true,
       candidates: [syntheticCandidate('Empresa Preview')],
@@ -238,6 +246,7 @@ describe('CUT4-B1 § 7 — corrida en seco', () => {
   it('no inserta nada, así que no puede etiquetar un production falso', async () => {
     const stats = freshStats();
     const report = await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       dryRun: true,
       candidates: [syntheticCandidate('Empresa Seca')],
@@ -257,6 +266,7 @@ describe('CUT4-B1 § 10/§ 14 — el resto de la fila queda intacto', () => {
     // El centinela usa las TRES claves que la frontera de procedencia sí deja
     // pasar: es la metadata ajena REAL que este writer persiste, no una inventada.
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [
         syntheticCandidate('Empresa Centinela', {
@@ -284,6 +294,7 @@ describe('CUT4-B1 § 10/§ 14 — el resto de la fila queda intacto', () => {
   it('status, review_status, duplicate_status y source_primary no cambian', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Estado')],
     });
@@ -298,6 +309,7 @@ describe('CUT4-B1 § 10/§ 14 — el resto de la fila queda intacto', () => {
   it('el lote sigue creándose con la MISMA metadata: sin claves nuevas', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Lote')],
     });
@@ -315,6 +327,7 @@ describe('CUT4-B1 § 10/§ 14 — el resto de la fila queda intacto', () => {
   it('una sola puerta de persistencia: un candidato ⇒ exactamente un insert', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Puerta Unica')],
     });
@@ -326,6 +339,7 @@ describe('CUT4-B1 § 10/§ 14 — el resto de la fila queda intacto', () => {
   it('la carga vallada recibe la fila AUMENTADA — la valla no ve una fila sin procedencia', async () => {
     const stats = freshStats();
     await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+      createdBy: 'test-user-owner',
       ...CLEAN_RUN,
       candidates: [syntheticCandidate('Empresa Vallada')],
     });

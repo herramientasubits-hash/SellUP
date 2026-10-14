@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
+import { competitorReferenceSchema } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { REFERENCE_COMPANY_LIMITS } from '@/modules/prospect-batches/chat-wizard/wizard-config';
 
 // ── Request schema ────────────────────────────────────────────────────────────
@@ -53,9 +54,10 @@ export const wizardExecutionRequestSchema = z
      * AGENT1-SUPPLIER-SEARCH-1 — forma de la búsqueda. Ausente = «Empresas por
      * criterios», así que toda solicitud anterior sigue siendo idéntica. «Proveedores»
      * exige `referenceCompanyName` y la bandera `ENABLE_AGENT1_SUPPLIER_SEARCH` (que
-     * el servidor mira al ejecutar, no aquí).
+     * el servidor mira al ejecutar, no aquí). «Competidores» exige `referenceCompany`
+     * (la ficha confirmada en el asistente).
      */
-    searchMode: z.enum(['exploratory', 'suppliers']).optional(),
+    searchMode: z.enum(['exploratory', 'suppliers', 'competitors']).optional(),
     referenceCompanyName: z
       .string()
       // Va dentro de una instrucción a Claude: sin comillas, ángulos ni saltos que
@@ -71,9 +73,28 @@ export const wizardExecutionRequestSchema = z
           ),
       )
       .optional(),
+    /** «Competidores de una empresa»: la ficha de la referencia. */
+    referenceCompany: competitorReferenceSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    // «Competidores»: la ficha es obligatoria y sólo existe en ese modo.
+    const isCompetitors = value.searchMode === 'competitors';
+    if (isCompetitors && !value.referenceCompany) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['referenceCompany'],
+        message: 'Falta la empresa de referencia.',
+      });
+    }
+    if (!isCompetitors && value.referenceCompany) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['referenceCompany'],
+        message: 'La empresa de referencia sólo aplica a la búsqueda de competidores.',
+      });
+    }
+
     if (value.searchMode === 'suppliers') {
       if (!value.referenceCompanyName) {
         ctx.addIssue({
