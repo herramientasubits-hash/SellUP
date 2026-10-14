@@ -13,6 +13,10 @@
  */
 
 import {
+  CORPORATE_TREE_METADATA_KEY,
+  corporateTreeBatchName,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
 } from './wizard-run-provider-selection';
@@ -27,8 +31,9 @@ export type WizardExecutionReservationInput = {
   /** Payload for the initial prospect_batch row. */
   initialBatchPayload: {
     requestSource: 'chat_wizard';
-    catalogVersionId: string;
-    industryId: string;
+    /** `null` sólo en la búsqueda en árbol: no se elige industria (AGENT1-CORPORATE-TREE-2). */
+    catalogVersionId: string | null;
+    industryId: string | null;
     subindustryIds: string[];
     countryCode: string;
     additionalCriteria: string | null;
@@ -94,6 +99,20 @@ export type WizardExecutionReservationInput = {
      * relee del lote. Ausente ⇒ el metadata queda exactamente igual que antes.
      */
     supplierSearch?: { referenceCompanyName: string };
+    /**
+     * AGENT1-CORPORATE-TREE-2 — «Árbol de una empresa». Mismo motivo que
+     * `supplierSearch`: un hecho de la PETICIÓN que aterriza en el INSERT inicial, así
+     * el lote es del Agente 1 desde el primer instante (Búsquedas, Centro de procesos,
+     * Uso de IA). Ausente ⇒ el metadata queda exactamente igual que antes.
+     */
+    corporateTree?: {
+      rootName: string;
+      rootCountryCode: string | null;
+      branches: readonly string[];
+      countryCodes: readonly string[];
+      rootCandidateId: string | null;
+      rootAccountId: string | null;
+    };
   };
 };
 
@@ -252,6 +271,7 @@ function buildBatchName(payload: WizardExecutionReservationInput['initialBatchPa
   if (payload.supplierSearch) {
     return `Proveedores de ${payload.supplierSearch.referenceCompanyName} / ${payload.countryCode}`;
   }
+  if (payload.corporateTree) return corporateTreeBatchName(payload.corporateTree.rootName);
   return `Wizard: ${payload.industryId} / ${payload.countryCode}`;
 }
 
@@ -271,6 +291,19 @@ function buildMetadata(
       : {}),
     ...(payload.discoveryTaxonomy
       ? { apollo_discovery_taxonomy: payload.discoveryTaxonomy }
+      : {}),
+    ...(payload.corporateTree
+      ? {
+          search_mode: 'corporate_tree',
+          [CORPORATE_TREE_METADATA_KEY]: {
+            root_name: payload.corporateTree.rootName,
+            root_country_code: payload.corporateTree.rootCountryCode,
+            root_candidate_id: payload.corporateTree.rootCandidateId,
+            root_account_id: payload.corporateTree.rootAccountId,
+            branches: [...payload.corporateTree.branches],
+            country_codes: [...payload.corporateTree.countryCodes],
+          },
+        }
       : {}),
     ...(payload.supplierSearch
       ? {

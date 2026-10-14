@@ -38,7 +38,6 @@ import {
   enrichImportRowsWithOfficialSources,
 } from '@/server/prospect-batches/import-official-source-enrichment';
 import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
-import { readImportActionStartedAt } from '@/server/prospect-batches/import-action-started-at';
 import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
@@ -159,8 +158,7 @@ function candidateToClassifiableRow(
 
 export async function POST(request: NextRequest) {
   // AGENT1-IMPORT-SAME-PIPELINE-1 — el rescate en `after()` comparte los 300 s de esta función.
-  // AGENT1-CORPORATE-TREE-1 — llamada desde la búsqueda en árbol: cuenta desde que empezó esa acción.
-  const requestStartedAtMs = readImportActionStartedAt() ?? Date.now();
+  const requestStartedAtMs = Date.now();
   try {
     const supabase = await createClient();
 
