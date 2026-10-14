@@ -91,6 +91,7 @@ import {
   resolveConversionOwnerUserId,
 } from '@/modules/assignment/assignment-core';
 import { hasCandidateAssignmentColumn } from '@/modules/assignment/assignment.server';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
@@ -583,7 +584,10 @@ export async function createProspectBatch(input: CreateBatchInput): Promise<Pros
       search_depth: input.search_depth ?? 'standard',
       status: 'draft',
       source: 'manual',
-      owner_id: input.owner_id ?? internalUserId,
+      owner_id: requireOwnerForCreate(
+        { chosenOwnerId: input.owner_id, actorUserId: internalUserId },
+        'el lote',
+      ),
       created_by: internalUserId,
     })
     .select()
@@ -1693,7 +1697,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
 
   const { data: candidate } = await supabase
     .from('prospect_candidates')
-    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source)')
+    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, created_by)')
     .eq('id', id)
     .single();
 
@@ -1736,6 +1740,25 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     linkedin_url: (candidate as Record<string, unknown>).linkedin_url,
   });
 
+  // ALWAYS-OWNER-ON-CREATE-1 — la empresa nace con responsable: el asignado del
+  // prospecto, si no quien lanzó la búsqueda (creador del lote), si no quien convierte.
+  const convertBatchRaw = (candidate as Record<string, unknown>).batch;
+  const convertBatchRow = (Array.isArray(convertBatchRaw) ? convertBatchRaw[0] : convertBatchRaw) as
+    | { created_by?: string | null }
+    | null
+    | undefined;
+  const convertedAccountOwnerId = requireOwnerForCreate(
+    {
+      chosenOwnerId: resolveConversionOwnerUserId({
+        assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
+        batchCreatedBy: convertBatchRow?.created_by,
+        approverUserId: internalUserId,
+      }),
+      actorUserId: internalUserId,
+    },
+    'la empresa',
+  );
+
   const { data: account, error: accountError } = await insertAccountWithLinkedInFallback<ConvertedAccountRow>(
     async (payload) => {
       const res = await supabase.from('accounts').insert(payload).select().single();
@@ -1757,6 +1780,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
       tax_identifier_type: candidate.tax_identifier_type ?? null,
       source: accountSource,
       pipeline_status: 'new',
+      owner_id: convertedAccountOwnerId,
       created_by: internalUserId,
       metadata: accountMetaFinal,
     },
@@ -2086,6 +2110,23 @@ export async function approveAndConvertCandidateAction(
     }
   }
 
+  // ALWAYS-OWNER-ON-CREATE-1 — se resuelve ANTES de crear la empresa: nace con este
+  // responsable (y HubSpot, si ya tiene dueño que es usuario de SellUp, lo corrige
+  // después en `completeConvertedAccount`).
+  // HUBSPOT-ACCOUNT-SYNC-1 — quien lanzó la búsqueda del Agente 1 (creador del lote).
+  // BULK-COMPANY-ASSIGNMENT-1 — si alguien asignó el prospecto a otra persona,
+  // la empresa queda a nombre del asignado (la apruebe quien la apruebe).
+  const batchRaw = (candidate as Record<string, unknown>).batch;
+  const batchRow = (Array.isArray(batchRaw) ? batchRaw[0] : batchRaw) as
+    | { created_by?: string | null }
+    | null
+    | undefined;
+  const searcherUserId: string = resolveConversionOwnerUserId({
+    assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
+    batchCreatedBy: batchRow?.created_by,
+    approverUserId: internalUserId,
+  });
+
   if (!accountId) {
     const batchSource = (candidate.batch as { source?: string })?.source ?? 'manual';
     const accountSource = batchSource === 'agent_1' ? 'agent_1' : 'manual';
@@ -2131,6 +2172,10 @@ export async function approveAndConvertCandidateAction(
         tax_identifier_type: candidate.tax_identifier_type ?? null,
         source: accountSource,
         pipeline_status: 'new',
+        owner_id: requireOwnerForCreate(
+          { chosenOwnerId: searcherUserId, actorUserId: internalUserId },
+          'la empresa',
+        ),
         created_by: internalUserId,
         metadata: newAccountMeta,
       },
@@ -2150,20 +2195,6 @@ export async function approveAndConvertCandidateAction(
     accountCreated = true;
     accountMeta = newAccountMeta;
   }
-
-  // HUBSPOT-ACCOUNT-SYNC-1 — quien lanzó la búsqueda del Agente 1 (creador del lote).
-  // BULK-COMPANY-ASSIGNMENT-1 — si alguien asignó el prospecto a otra persona,
-  // la empresa queda a nombre del asignado (la apruebe quien la apruebe).
-  const batchRaw = (candidate as Record<string, unknown>).batch;
-  const batchRow = (Array.isArray(batchRaw) ? batchRaw[0] : batchRaw) as
-    | { created_by?: string | null }
-    | null
-    | undefined;
-  const searcherUserId: string = resolveConversionOwnerUserId({
-    assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
-    batchCreatedBy: batchRow?.created_by,
-    approverUserId: internalUserId,
-  });
 
   // 4. Resolver sincronización / vinculación a HubSpot
   const validation = (candidate.metadata?.validation || {}) as Record<string, unknown>;
@@ -2396,6 +2427,9 @@ export async function approveAndConvertCandidateAction(
     accountId,
     hubspotCompanyId: hubspotCompanyId ?? null,
     searcherUserId,
+    // ALWAYS-OWNER-ON-CREATE-1 — la empresa recién creada nace con responsable
+    // provisional (quien buscó): el dueño de HubSpot, si es usuario de SellUp, manda.
+    ownerIsProvisional: accountCreated,
     actorUserId: internalUserId,
     nowIso: nowStr,
   });
@@ -4076,7 +4110,7 @@ export async function getOrCreateTechnicalManualBatch(
       status: 'ready_for_review',
       source: 'manual',
       created_by: userId,
-      owner_id: userId,
+      owner_id: requireOwnerForCreate({ actorUserId: userId }, 'el lote manual'),
       metadata: {
         is_technical_manual: true,
         manual_tray: true,

@@ -16,6 +16,7 @@ import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
 } from './wizard-run-provider-selection';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,8 @@ export async function reserveWizardExecutionSlot(
       name: batchName,
       status: INITIAL_BATCH_STATUS,
       source: WIZARD_SOURCE,
+      // ALWAYS-OWNER-ON-CREATE-1 — el lote reservado es de quien lanzó la búsqueda.
+      owner_id: requireOwnerForCreate({ actorUserId: userId }, 'el lote'),
       created_by: userId,
       client_request_id: clientRequestId,
       metadata: metadataEntry,

@@ -23,6 +23,7 @@ import {
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import { getCurrentUser } from '@/modules/access/actions';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
@@ -69,12 +70,15 @@ export default async function AccountsPage({ searchParams }: PageProps) {
 async function AccountsPanel() {
   // El agente «Generar con IA» es el mismo asistente de «Por revisar», resuelto
   // por la misma carga de servidor y en paralelo con los datos de la pestaña.
-  const [accounts, users, scopeFilterOptions, generateAgent] = await Promise.all([
+  const [accounts, users, scopeFilterOptions, generateAgent, currentUser] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
     loadGenerateProspectsAgent(),
+    getCurrentUser(),
   ]);
+  // ALWAYS-OWNER-ON-CREATE-1 — al crear una empresa, el responsable por defecto es quien la crea.
+  const currentUserId = currentUser?.id ?? null;
 
   return (
     <ListActionRailProvider label="Acciones de empresas" gender="f">
@@ -82,7 +86,9 @@ async function AccountsPanel() {
         compact
         title={EMPRESAS_VIEW_TITLES.empresas}
         description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
-        actions={<AccountsScreenActions users={users} generateAgent={generateAgent} />}
+        actions={
+          <AccountsScreenActions users={users} currentUserId={currentUserId} generateAgent={generateAgent} />
+        }
       >
         <AccountsDataTableClient
           accounts={accounts}
@@ -97,7 +103,7 @@ async function AccountsPanel() {
                 <ClipboardCheck aria-hidden="true" />
                 Revisar prospectos
               </Link>
-              <CreateAccountDrawer users={users} />
+              <CreateAccountDrawer users={users} currentUserId={currentUserId} />
             </div>
           }
         />

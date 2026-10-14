@@ -6,6 +6,7 @@ import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
 import { revalidatePath } from 'next/cache';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import {
   partitionByCurrentOwner,
   validateAssignmentRequest,
@@ -352,7 +353,11 @@ export async function createAccount(
     company_size: input.company_size || null,
     tax_identifier: input.tax_identifier?.trim() || null,
     tax_identifier_type: input.tax_identifier_type || null,
-    owner_id: input.owner_id || null,
+    // ALWAYS-OWNER-ON-CREATE-1 — sin responsable elegido, el responsable es quien la crea.
+    owner_id: requireOwnerForCreate(
+      { chosenOwnerId: input.owner_id, actorUserId: internalUserId },
+      'la empresa',
+    ),
     notes: input.notes?.trim() || null,
     source: 'manual' as const,
     pipeline_status: 'new' as const,
