@@ -40,6 +40,7 @@ import { attachIrs990Workforce, buildIrs990WorkforceIndex, parseIrs990WorkforceR
 import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
 import {
   buildUsPublicEntityRows,
+  dotGovDomainMatchScore,
   dotGovDomainNamesEntity,
   federalAgencyKey,
   federalGovernmentPriority,
@@ -625,6 +626,47 @@ describe('entidades públicas (.gov de CISA + Censo 2024)', () => {
     assert.equal(rows[0].raw_data['federal_budget_usd'], 3_700_000_000_000);
     assert.equal(rows[0].raw_data['size_source'], 'USAspending – presupuesto federal');
     assert.equal(rows[1].raw_data['size_band'], 'large');
+  });
+
+  it('la web principal gana a la de un programa, aunque la registre una subunidad (SOURCES-US-GOV-WEB-PICK-1)', () => {
+    const rows = buildUsPublicEntityRows(
+      [
+        rec('reproductivehealthservices.gov', 'Federal - Executive', 'Department of Health and Human Services'),
+        rec('hhs.gov', 'Federal - Executive', 'Department of Health and Human Services', { suborganization: 'Office of the Secretary of Health and Human Services' }),
+        rec('disasterhousing.gov', 'Federal - Executive', 'Department of Housing and Urban Development'),
+        rec('hud.gov', 'Federal - Executive', 'Department of Housing and Urban Development'),
+        rec('texasonline.gov', 'State or territory', 'State of Texas', { state: 'TX' }),
+        rec('texas.gov', 'State or territory', 'Texas Department of Information Resources', { state: 'TX' }),
+        rec('mdcfl.gov', 'County', 'Miami-Dade County', { state: 'FL' }),
+        rec('miamidade.gov', 'County - Election', 'Miami Dade County', { state: 'FL' }),
+        rec('kingcountyhazwastewa.gov', 'County', 'King County', { state: 'WA' }),
+        rec('kingcounty.gov', 'County - Election', 'King County Information Technology (KCIT)', { state: 'WA' }),
+      ],
+      {
+        county: (name: string) => (name === 'miami dade' ? 2_700_000 : name === 'king' ? 2_340_000 : null),
+        city: () => null,
+      },
+      base,
+    );
+    const web = Object.fromEntries(rows.map((row) => [row.legal_name, row.raw_data['website_domain']]));
+    assert.equal(web['Department of Health and Human Services'], 'hhs.gov');
+    assert.equal(web['Department of Housing and Urban Development'], 'hud.gov');
+    assert.equal(web['State of Texas'], 'texas.gov');
+    assert.equal(web['Miami-Dade County'], 'miamidade.gov');
+    assert.equal(web['King County'], 'kingcounty.gov');
+    // Una sola fila por condado aunque CISA lo escriba de dos formas.
+    assert.equal(rows.filter((row) => row.raw_data['government_level'] === 'county').length, 2);
+  });
+
+  it('puntaje de la web: nombre exacto o sigla > todas las palabras > una palabra', () => {
+    assert.equal(dotGovDomainMatchScore('hhs.gov', 'Department of Health and Human Services', { federal: true }), 4);
+    assert.equal(dotGovDomainMatchScore('reproductivehealthservices.gov', 'Department of Health and Human Services'), 1); // falta «human»
+    assert.equal(dotGovDomainMatchScore('healthhumanservices.gov', 'Department of Health and Human Services'), 2);
+    assert.equal(dotGovDomainMatchScore('disasterhousing.gov', 'Department of Housing and Urban Development'), 1);
+    assert.equal(dotGovDomainMatchScore('ny.gov', 'State of New York', { stateCode: 'NY', mainState: true }), 4);
+    assert.equal(dotGovDomainMatchScore('kingcounty.gov', 'King County', { stateCode: 'WA', levelWords: ['county'] }), 4);
+    assert.equal(dotGovDomainMatchScore('houstontx.gov', 'City of Houston', { stateCode: 'TX', levelWords: ['city'] }), 4);
+    assert.equal(dotGovDomainMatchScore('farmers.gov', 'Office of Communications'), 0);
   });
 
   it('niveles por presupuesto y habitantes', () => {

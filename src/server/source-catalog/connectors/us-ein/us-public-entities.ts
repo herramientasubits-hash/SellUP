@@ -16,8 +16,9 @@
  * el tipo, la organización, la ciudad y el estado; NUNCA el correo de contacto.
  *
  * Una web .gov sólo vale si lleva el nombre o la sigla de la entidad: de todos
- * los dominios de una organización se queda el que la nombra (y, entre ellos, el
- * más corto). Si ninguno la nombra, la entidad no entra.
+ * los dominios de una organización se queda el que MEJOR la nombra (sigla o nombre
+ * exacto antes que una palabra suelta; SOURCES-US-GOV-WEB-PICK-1) y, entre los igual
+ * de buenos, el más corto. Si ninguno la nombra, la entidad no entra.
  *
  * Puro: sin env, sin I/O, sin DB, sin reloj.
  */
@@ -44,6 +45,16 @@ const LEVEL_BY_DOMAIN_TYPE: Readonly<Record<string, UsPublicEntityLevel>> = Obje
   'State or territory': 'state',
   County: 'county',
   City: 'city',
+});
+
+/**
+ * Tipos de CISA que sólo aportan dominios (no son entidad propia): la oficina
+ * electoral a veces registra la web principal del condado («kingcounty.gov»).
+ */
+const POOL_ONLY_DOMAIN_TYPES: Readonly<Record<string, UsPublicEntityLevel>> = Object.freeze({
+  'State or territory - Election': 'state',
+  'County - Election': 'county',
+  'City - Election': 'city',
 });
 
 /** Estados y territorios: abreviatura → nombre (el del Censo). */
@@ -217,27 +228,71 @@ function labelVariants(label: string): string[] {
   return variants;
 }
 
-/** ¿El dominio .gov lleva el nombre o la sigla de la entidad? */
-export function dotGovDomainNamesEntity(domain: string, entityName: string): boolean {
+/**
+ * Cuánto nombra el dominio .gov a la entidad (SOURCES-US-GOV-WEB-PICK-1):
+ *
+ *   4 · el nombre completo junto, solo o con su nivel o su estado («texas»,
+ *       «miamidade», «kingcounty», «houstontx»);
+ *   4 · también la sigla exacta de una agencia federal («hhs», «ssa», «usda») y la
+ *       abreviatura del estado para su gobierno («ny», «pa»): entre empates, la corta;
+ *   3 · la sigla exacta de otra entidad;
+ *   2 · contiene el nombre completo junto o todas sus palabras importantes;
+ *   1 · contiene alguna palabra importante o es el inicio de la sigla;
+ *   0 · no la nombra (no vale).
+ *
+ * Así «reproductivehealthservices.gov» (sólo «health» y «services») pierde contra
+ * «hhs.gov» para el Department of Health and Human Services.
+ */
+export function dotGovDomainMatchScore(
+  domain: string,
+  entityName: string,
+  context: { stateCode?: string | null; levelWords?: readonly string[]; mainState?: boolean; federal?: boolean } = {},
+): number {
   const label = domain.toLowerCase().replace(/\.gov$/, '').split('.').pop()!.replace(/-/g, '');
-  if (label.length < 2) return false;
+  if (label.length < 2) return 0;
   const words = nameWords(entityName);
   const significant = words.filter((word) => !STOPWORDS.has(word));
-  if (significant.some((word) => word.length >= 4 && label.includes(word.toLowerCase()))) return true;
-  // Todas las palabras juntas («newyorkcity», «lacounty» no: «la» no es palabra del nombre).
   const joined = significant.join('').toLowerCase();
-  if (joined.length >= 3 && label.includes(joined)) return true;
-  // Sigla: iniciales de las palabras con contenido («Centers for Disease Control and
-  // Prevention» → «cdcp»), también sin el nombre del estado («Alabama Alcoholic
-  // Beverage Control Board» → «abcb») y con «us» delante («usda»).
   const initials = (list: readonly string[]) => list.map((word) => word.charAt(0)).join('').toLowerCase();
   const contentWords = words.filter((word) => !ACRONYM_SKIP.has(word));
-  const acronyms = [initials(contentWords), initials(contentWords.filter((word) => !STATE_NAME_WORDS.has(word)))];
-  acronyms.push(`us${acronyms[0]}`);
-  return labelVariants(label).some(
-    (variant) =>
-      variant.length >= 3 && acronyms.some((acronym) => acronym.length >= 3 && (acronym === variant || acronym.startsWith(variant))),
+  const withoutDepartment = contentWords.filter((word) => word !== 'DEPARTMENT');
+  const acronyms = [
+    initials(contentWords),
+    initials(withoutDepartment),
+    initials(contentWords.filter((word) => !STATE_NAME_WORDS.has(word))),
+  ];
+  acronyms.push(`us${acronyms[0]}`, `us${acronyms[1]}`);
+  const variants = labelVariants(label);
+
+  const state = context.stateCode?.toLowerCase() ?? '';
+  if (joined.length >= 3) {
+    const exactForms = [joined, ...(context.levelWords ?? []).map((word) => `${joined}${word}`)];
+    if (state !== '') exactForms.push(...exactForms.map((form) => `${form}${state}`));
+    if (exactForms.includes(label)) return 4;
+  }
+  const exactAcronym = variants.some((variant) => variant.length >= 3 && acronyms.some((acronym) => acronym === variant));
+  // Las agencias federales y los estados usan la sigla como web principal («ssa.gov»
+  // y no «socialsecurity.gov», «pa.gov», «ny.gov»): ahí vale tanto como el nombre
+  // y, por ser más corta, gana.
+  if (context.mainState === true && state.length === 2 && label === state) return 4;
+  if (exactAcronym) return context.federal === true ? 4 : 3;
+  const longWords = significant.filter((word) => word.length >= 4).map((word) => word.toLowerCase());
+  if (
+    (joined.length >= 3 && label.includes(joined)) ||
+    (longWords.length >= 2 && longWords.every((word) => label.includes(word)))
+  ) {
+    return 2;
+  }
+  if (longWords.some((word) => label.includes(word))) return 1;
+  const acronymPrefix = variants.some(
+    (variant) => variant.length >= 3 && acronyms.some((acronym) => acronym.length >= 3 && acronym.startsWith(variant)),
   );
+  return acronymPrefix ? 1 : 0;
+}
+
+/** ¿El dominio .gov lleva el nombre o la sigla de la entidad? */
+export function dotGovDomainNamesEntity(domain: string, entityName: string): boolean {
+  return dotGovDomainMatchScore(domain, entityName) > 0;
 }
 
 type Group = {
@@ -247,6 +302,8 @@ type Group = {
   state: string | null;
   city: string | null;
   domains: string[];
+  /** Pool de dominios extra (subunidades, oficina electoral) para elegir su web. */
+  poolKey: string | null;
 };
 
 /** Dominios de CISA → una fila por entidad (con web que la nombra y, si es local, ≥ 50.000 habitantes). */
@@ -256,33 +313,98 @@ export function buildUsPublicEntityRows(
   params: { sourceYear: number; importedAt: string },
   federalBudget: UsFederalBudgetLookup = () => null,
 ): UsPublicEntityRow[] {
+  // SOURCES-US-GOV-WEB-PICK-1 — una entidad por agencia, por gobierno principal de
+  // cada estado y por lugar (condado o ciudad); y la web principal se busca también
+  // entre los dominios de sus subunidades: «hhs.gov» lo registró la Office of the
+  // Secretary, «texas.gov» el departamento de informática del estado.
   const groups = new Map<string, Group>();
+  const pools = new Map<string, Set<string>>();
+  const addToPool = (key: string, domain: string) => {
+    const pool = pools.get(key) ?? new Set<string>();
+    pool.add(domain);
+    pools.set(key, pool);
+  };
   for (const record of records) {
-    const level = LEVEL_BY_DOMAIN_TYPE[record.domainType.trim()];
+    const type = record.domainType.trim();
     const organization = record.organization.trim();
     const domain = record.domain.trim().toLowerCase();
-    if (level === undefined || organization === '' || !domain.endsWith('.gov')) continue;
-    const sub = level === 'federal' ? record.suborganization?.trim() || null : null;
+    if (organization === '' || !domain.endsWith('.gov')) continue;
     const state = record.state?.trim().toUpperCase() || null;
-    const key = `${level}|${organization.toLowerCase()}|${(sub ?? '').toLowerCase()}|${level === 'federal' ? '' : state ?? ''}`;
-    const group = groups.get(key) ?? {
+    const poolLevel = LEVEL_BY_DOMAIN_TYPE[type] ?? POOL_ONLY_DOMAIN_TYPES[type];
+    if (poolLevel === 'federal') addToPool(`federal|${organization.toLowerCase()}`, domain);
+    if (poolLevel === 'state' && state !== null) addToPool(`state|${state}`, domain);
+    if ((poolLevel === 'county' || poolLevel === 'city') && state !== null) {
+      addToPool(`${poolLevel}|${placeNameKey(organization)}|${state}`, domain);
+      // Todo el estado: sólo vale si el dominio es el nombre exacto («kingcounty.gov»
+      // lo registró «King County Information Technology»).
+      addToPool(`${poolLevel}|*|${state}`, domain);
+    }
+
+    const level = LEVEL_BY_DOMAIN_TYPE[type];
+    if (level === undefined) continue;
+    const sub = level === 'federal' ? record.suborganization?.trim() || null : null;
+    const mainState = level === 'state' && isMainStateGovernment(organization, state);
+    const key =
+      level === 'federal'
+        ? `federal|${organization.toLowerCase()}|${(sub ?? '').toLowerCase()}`
+        : mainState
+          ? `state-main|${state}`
+          : level === 'state'
+            ? `state|${organization.toLowerCase()}|${state ?? ''}`
+            : `${level}|${placeNameKey(organization)}|${state ?? ''}`;
+    const existing = groups.get(key);
+    const name = sub ?? organization;
+    const group = existing ?? {
       level,
-      name: sub ?? organization,
+      name,
       parent: sub !== null ? organization : null,
       state: level === 'federal' ? null : state,
       city: record.city?.trim() || null,
       domains: [],
+      poolKey:
+        level === 'federal'
+          ? sub === null
+            ? `federal|${organization.toLowerCase()}`
+            : null
+          : mainState
+            ? `state|${state}`
+            : level === 'county' || level === 'city'
+              ? `${level}|${placeNameKey(organization)}|${state ?? ''}`
+              : null,
     };
+    // El gobierno principal del estado se queda con el nombre más corto («State of Ohio»).
+    if (existing !== undefined && mainState && name.length < existing.name.length) existing.name = name;
     group.domains.push(domain);
     groups.set(key, group);
   }
 
+  // Primero las entidades principales (agencia, gobierno del estado, lugar): así se
+  // quedan con su web antes que una subunidad que la comparte.
+  const ordered = [...groups.values()].sort((a, b) => Number(a.poolKey === null) - Number(b.poolKey === null));
+
   const rows: UsPublicEntityRow[] = [];
   const seenDomains = new Set<string>();
-  for (const group of groups.values()) {
-    const named = group.domains
-      .filter((domain) => dotGovDomainNamesEntity(domain, group.name))
-      .sort((a, b) => a.length - b.length || a.localeCompare(b));
+  for (const group of ordered) {
+    // La web que mejor nombra a la entidad (sigla o nombre exacto antes que una
+    // palabra suelta) y, entre las igual de buenas, la más corta. Las de su pool
+    // (subunidades, oficina electoral) sólo cuentan si la nombran de verdad (≥ 2).
+    const own = new Set(group.domains);
+    const pool = group.poolKey !== null ? pools.get(group.poolKey) ?? new Set<string>() : new Set<string>();
+    const local = group.level === 'county' || group.level === 'city';
+    const statewide = local && group.state !== null ? pools.get(`${group.level}|*|${group.state}`) ?? new Set<string>() : new Set<string>();
+    const context = {
+      stateCode: group.state,
+      levelWords: group.level === 'county' ? ['county', 'co', 'parish'] : group.level === 'city' ? ['city'] : [],
+      mainState: group.level === 'state' && isMainStateGovernment(group.name, group.state),
+      federal: group.level === 'federal',
+    };
+    const minimum = (domain: string) => (own.has(domain) ? 1 : pool.has(domain) ? 2 : 4);
+    const named = [...new Set([...own, ...pool, ...statewide])]
+      .filter((domain) => !seenDomains.has(domain))
+      .map((domain) => ({ domain, score: dotGovDomainMatchScore(domain, group.name, context) }))
+      .filter((candidate) => candidate.score >= minimum(candidate.domain))
+      .sort((a, b) => b.score - a.score || a.domain.length - b.domain.length || a.domain.localeCompare(b.domain))
+      .map((candidate) => candidate.domain);
     const domain = named[0];
     if (domain === undefined || seenDomains.has(domain)) continue;
 
