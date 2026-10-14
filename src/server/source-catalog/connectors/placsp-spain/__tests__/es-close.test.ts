@@ -628,7 +628,10 @@ describe('web por nombre comprobada con su página', () => {
       { ...params, sharedDomains: new Set<string>() },
     );
     assert.ok('row' in noWeb);
-    assert.equal(viaName.row.priority_score - noWeb.row.priority_score, 5);
+    assert.equal(viaName.row.priority_score - noWeb.row.priority_score, 10_000);
+    // Con web va antes que la «gran empresa» más fuerte sin web; las públicas siguen por delante.
+    assert.ok(viaName.row.priority_score > esDirectoryPriorityScore({ kind: 'bdns_large', workers: 99_999, awardedEur: 999_999_999, large: true }));
+    assert.ok(ES_PUBLIC_ENTITY_PRIORITY_BASE > viaName.row.priority_score);
     const official = buildEsFreeDirectoryRow(
       { nif: 'A83052407', awardee: null, bdns: null, invente: invente(), bde: null, nameCheckedDomain: 'otra.es' },
       { ...params, sharedDomains: new Set<string>() },
