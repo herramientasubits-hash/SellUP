@@ -36,6 +36,13 @@ import {
   US_FREE_DIRECTORY_SOURCE_KEY,
 } from '../us-free-directory-rows';
 import {
+  buildUsPublicEntityRows,
+  dotGovDomainNamesEntity,
+  placeNameKey,
+  US_PUBLIC_ENTITIES_SOURCE_KEY,
+  type DotGovDomainRecord,
+} from '../us-public-entities';
+import {
   macroHasUsFreeDirectoryCoverage,
   resolveUsIpedsMacro,
   resolveUsIrsMacro,
@@ -515,5 +522,95 @@ describe('adapter de descubrimiento de Estados Unidos', () => {
       buildCountrySourceAdapter('US', { usFreeDirectoryDiscoveryReads: { readCompaniesByMacro: async () => [] } }),
       null,
     );
+  });
+});
+
+describe('entidades públicas (.gov de CISA + Censo 2024)', () => {
+  const rec = (domain: string, domainType: string, organization: string, extra: Partial<DotGovDomainRecord> = {}): DotGovDomainRecord => ({
+    domain,
+    domainType,
+    organization,
+    suborganization: null,
+    city: null,
+    state: null,
+    ...extra,
+  });
+  const population = {
+    county: (name: string, state: string) => (name === 'king' && state === 'Washington' ? 2_340_000 : name === 'tiny' ? 9_000 : null),
+    city: (name: string, state: string) => (name === 'twentynine palms' && state === 'California' ? 28_000 : name === 'austin' && state === 'Texas' ? 993_000 : null),
+  };
+
+  it('la web .gov vale sólo si nombra a la entidad o lleva su sigla', () => {
+    assert.equal(dotGovDomainNamesEntity('austintexas.gov', 'City of Austin'), true);
+    assert.equal(dotGovDomainNamesEntity('cdc.gov', 'Centers for Disease Control and Prevention'), true);
+    assert.equal(dotGovDomainNamesEntity('alabc.gov', 'Alabama Alcoholic Beverage Control Board'), true);
+    assert.equal(dotGovDomainNamesEntity('usda.gov', 'Department of Agriculture'), true);
+    assert.equal(dotGovDomainNamesEntity('farmers.gov', 'Office of Communications'), false);
+    assert.equal(dotGovDomainNamesEntity('choosemyplate.gov', 'Food and Nutrition Service'), false);
+  });
+
+  it('el nombre del lugar se cruza con el Censo sin «City of» ni «County»', () => {
+    assert.equal(placeNameKey('City of Twentynine Palms'), 'twentynine palms');
+    assert.equal(placeNameKey('King County'), 'king');
+    assert.equal(placeNameKey('Austin city'), 'austin');
+    assert.equal(placeNameKey('St. Louis County'), 'st louis');
+  });
+
+  it('federal, estatal y locales ≥ 50.000 habitantes; una fila por entidad con la web más corta que la nombra', () => {
+    const rows = buildUsPublicEntityRows(
+      [
+        rec('cdc.gov', 'Federal - Executive', 'Department of Health and Human Services', { suborganization: 'Centers for Disease Control and Prevention' }),
+        rec('cdcfoundationprogram.gov', 'Federal - Executive', 'Department of Health and Human Services', { suborganization: 'Centers for Disease Control and Prevention' }),
+        rec('kingcounty.gov', 'County', 'King County', { state: 'WA' }),
+        rec('tinycounty.gov', 'County', 'Tiny County', { state: 'WA' }),
+        rec('29palms.gov', 'City', 'City of Twentynine Palms', { state: 'CA', city: 'Twentynine Palms' }),
+        rec('austintexas.gov', 'City', 'City of Austin', { state: 'TX', city: 'Austin' }),
+        rec('votetexas.gov', 'State or territory - Election', 'Texas Secretary of State', { state: 'TX' }),
+        rec('choosemyplate.gov', 'Federal - Executive', 'Department of Agriculture', { suborganization: 'Food and Nutrition Service' }),
+      ],
+      population,
+      base,
+    );
+    assert.deepEqual(rows.map((row) => row.raw_data['website_domain']), ['cdc.gov', 'kingcounty.gov', 'austintexas.gov']);
+    const [cdc, king, austin] = rows;
+    assert.equal(cdc.source_key, US_PUBLIC_ENTITIES_SOURCE_KEY);
+    assert.equal(cdc.legal_name, 'Centers for Disease Control and Prevention');
+    assert.equal(cdc.raw_data['parent_organization'], 'Department of Health and Human Services');
+    assert.equal(cdc.tax_id, null);
+    assert.equal(cdc.record_identity_key, 'us-public-entity:cdc.gov');
+    assert.equal(king.raw_data['inhabitants'], 2_340_000);
+    assert.equal(king.raw_data['size_band'], 'large');
+    assert.equal(austin.city, 'Austin');
+    assert.equal(getSourceFamily(US_PUBLIC_ENTITIES_SOURCE_KEY), 'NATIVE_RECORD_GRAIN');
+    for (const row of rows) assert.equal(JSON.stringify(row).includes('@'), false); // nunca el correo de contacto
+  });
+
+  it('el adapter ofrece la entidad pública sin EIN por su web, sólo en Gobierno', async () => {
+    const entity = {
+      record_identity_key: 'us-public-entity:kingcounty.gov',
+      ein: null,
+      legal_name: 'King County',
+      normalized_legal_name: 'KING COUNTY',
+      city: null,
+      region: 'WA',
+      directory_kind: 'public_entity',
+      activity_system: null,
+      activity_code: null,
+      activity_text: 'Entidad pública',
+      size_band: 'large',
+      size_source: 'Censo 2024 – habitantes',
+      website_domain: 'kingcounty.gov',
+      priority_score: 2340,
+    };
+    const adapter = buildUsFreeDirectoryDiscoveryAdapter({ readCompaniesByMacro: async () => [entity, { ...entity, record_identity_key: 'dup' }] });
+    const gov = await adapter({ macroIndustryKey: 'government', limit: 10 } as never);
+    assert.equal(gov.companies.length, 1);
+    assert.equal(gov.companies[0].taxId, null);
+    assert.equal(gov.companies[0].taxIdentifierType, null);
+    assert.equal(gov.companies[0].domain, 'kingcounty.gov');
+    const health = await adapter({ macroIndustryKey: 'health_pharma', limit: 10 } as never);
+    assert.equal(health.companies.length, 0);
+    const noWeb = buildUsFreeDirectoryDiscoveryAdapter({ readCompaniesByMacro: async () => [{ ...entity, website_domain: null }] });
+    assert.equal((await noWeb({ macroIndustryKey: 'government', limit: 10 } as never)).companies.length, 0);
   });
 });

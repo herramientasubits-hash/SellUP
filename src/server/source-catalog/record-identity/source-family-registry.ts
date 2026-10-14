@@ -159,6 +159,8 @@ export const SOURCE_FAMILY_BY_SOURCE_KEY: Readonly<Record<string, SourceFamily>>
   // o intendencia (`uy-public-entity:<inciso o unidad>`), tenga o no RUT.
   uy_rupe_name_alias: 'NATIVE_RECORD_GRAIN',
   uy_public_entities: 'NATIVE_RECORD_GRAIN',
+  // SOURCES-US-CLOSE-1 — una fila por entidad pública sin EIN: identidad `us-public-entity:<dominio .gov>`.
+  us_public_entities: 'NATIVE_RECORD_GRAIN',
   // SOURCES-PA-CLOSE-1 — varias filas por RUC (sigla, nombre comercial, nombre de otra
   // fuente, clave pública): identidad `pa-name-alias:<RUC>:<clave>`.
   pa_ruc_name_alias: 'NATIVE_RECORD_GRAIN',

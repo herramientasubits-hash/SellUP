@@ -118,6 +118,7 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'sv_public_entities',
   'uy_rupe_name_alias',
   'uy_public_entities',
+  'us_public_entities',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────

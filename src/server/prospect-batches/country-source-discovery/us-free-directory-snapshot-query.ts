@@ -5,7 +5,7 @@
  * SOURCES-US-CLOSE-1.
  *
  * Un único SELECT acotado sobre `source_company_snapshots`, filtrado a
- * `us_free_directory` / `US` y a la macro pedida, ordenado por relevancia
+ * `us_free_directory` + `us_public_entities` / `US` y a la macro pedida, ordenado por relevancia
  * (`priority_score`) y, en los empates, por EIN y razón social para que dos
  * corridas idénticas lean las mismas filas.
  *
@@ -17,6 +17,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { US_FREE_DIRECTORY_SOURCE_KEY } from '@/server/source-catalog/connectors/us-ein/us-free-directory-rows';
+import { US_PUBLIC_ENTITIES_SOURCE_KEY } from '@/server/source-catalog/connectors/us-ein/us-public-entities';
 import type {
   UsFreeDirectoryDiscoveryReads,
   UsFreeDirectorySnapshotReadRow,
@@ -74,7 +75,7 @@ export function buildUsFreeDirectoryDiscoveryReads(client: SupabaseClient): UsFr
         const { data, error } = await client
           .from('source_company_snapshots')
           .select(SELECTED_COLUMNS)
-          .eq('source_key', US_FREE_DIRECTORY_SOURCE_KEY)
+          .in('source_key', [US_FREE_DIRECTORY_SOURCE_KEY, US_PUBLIC_ENTITIES_SOURCE_KEY])
           .eq('country_code', 'US')
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })

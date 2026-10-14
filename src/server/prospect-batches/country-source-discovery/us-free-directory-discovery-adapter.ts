@@ -13,7 +13,10 @@
  *   - empresas cotizadas de la SEC «Large accelerated» o «Accelerated»,
  *     clasificadas por su SIC (sin cascarones ni titulizaciones);
  *   - universidades y colegios de IPEDS con 5.000+ estudiantes, con su web
- *     oficial (públicas → Gobierno, privadas → Servicios a empresas).
+ *     oficial (públicas → Gobierno, privadas → Servicios a empresas);
+ *   - entidades públicas (`us_public_entities`: agencias federales, estados y
+ *     sus agencias, condados y ciudades de 50.000+ habitantes) con su web .gov y
+ *     sin EIN: sólo Gobierno.
  *
  * Aquí sólo se piden las de la macro pedida, primero las más grandes.
  *
@@ -85,6 +88,7 @@ export type UsFreeDirectoryDiscoveryReads = {
 
 /** Macro de HOY para la fila (re-clasifica el código guardado). */
 function currentMacro(row: UsFreeDirectorySnapshotReadRow): string | null {
+  if (row.directory_kind === 'public_entity') return 'government';
   if (row.directory_kind === 'sec') return resolveUsSicMacro(row.activity_code);
   if (row.directory_kind === 'ipeds') return resolveUsIpedsMacro(row.activity_code);
   if (row.directory_kind !== 'irs_eo') return null;
@@ -98,7 +102,10 @@ function currentMacro(row: UsFreeDirectorySnapshotReadRow): string | null {
 function toCompany(row: UsFreeDirectorySnapshotReadRow, macroIndustryKey: string): CountrySourceCompany | null {
   const legalName = row.legal_name?.trim() || null;
   const ein = EIN.test(row.ein?.trim() ?? '') ? row.ein!.trim() : null;
-  if (legalName === null || ein === null) return null;
+  const domain = normalizeDomain(row.website_domain);
+  if (legalName === null) return null;
+  // Las entidades públicas no tienen EIN publicado: se identifican por su web .gov.
+  if (row.directory_kind === 'public_entity' ? domain === null : ein === null) return null;
   if (currentMacro(row) !== macroIndustryKey) return null;
   const sizeSource = row.size_source?.trim() || null;
 
@@ -107,13 +114,13 @@ function toCompany(row: UsFreeDirectorySnapshotReadRow, macroIndustryKey: string
     legalName,
     normalizedLegalName: row.normalized_legal_name?.trim() || null,
     taxId: ein,
-    taxIdentifierType: 'EIN',
+    taxIdentifierType: ein !== null ? 'EIN' : null,
     countryCode: 'US',
     city: row.city?.trim() || null,
     region: row.region?.trim() || null,
     // Sólo IPEDS publica la web; sin web la empresa va a Descartadas y el rescate
     // con Claude la busca.
-    domain: normalizeDomain(row.website_domain),
+    domain,
     declaredIndustry: row.activity_text?.trim() || null,
     industryCode: row.activity_code?.trim() || null,
     coarseSector: null,
@@ -146,13 +153,18 @@ export function buildUsFreeDirectoryDiscoveryAdapter(reads: UsFreeDirectoryDisco
 
     const rows = await reads.readCompaniesByMacro({ macroIndustryKey: criteria.macroIndustryKey, limit });
 
-    // Un EIN, una empresa: la primera fila válida gana (la lectura ya viene ordenada).
+    // Un EIN (o una web, para las entidades sin EIN), una empresa: la primera fila
+    // válida gana (la lectura ya viene ordenada).
     const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
     for (const row of rows) {
       const company = toCompany(row, criteria.macroIndustryKey);
-      if (company === null || seen.has(company.taxId!)) continue;
-      seen.add(company.taxId!);
+      if (company === null) continue;
+      const keys = [company.taxId, company.domain !== null ? `domain:${company.domain}` : null].filter(
+        (key): key is string => key !== null,
+      );
+      if (keys.some((key) => seen.has(key))) continue;
+      for (const key of keys) seen.add(key);
       companies.push(company);
     }
 

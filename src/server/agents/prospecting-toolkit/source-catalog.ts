@@ -3254,6 +3254,34 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'No se guardan teléfonos, nombres de contacto ni correos.',
     ],
   },
+  {
+    key: 'us_public_entities',
+    name: 'Dominios .gov de CISA + población del Censo 2024 — capa gratuita de Gobierno de Estados Unidos',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 1.829 entidades — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más). Cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --apply.',
+    countryCodes: ['US'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'official_registry',
+    url: 'https://github.com/cisagov/dotgov-data',
+    automationLevel: 'high',
+    recommendedUse:
+      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las federales y estatales y luego las locales con más habitantes.',
+    limitations: [
+      'Sin EIN: la entidad se identifica por su web .gov.',
+      'Sólo entidades con un dominio .gov que lleve su nombre o su sigla: las que usan otro dominio (.mil, .us, .org) no aparecen.',
+      'El tamaño de condados y ciudades es su población, no sus empleados; distritos especiales, escolares, tribus y juntas electorales no se proponen.',
+      'Snapshot estático — requiere recarga para reflejar dominios nuevos.',
+    ],
+    riskNotes: [
+      'De la lista de CISA sólo se usa el dominio, el tipo, la organización, la ciudad y el estado; nunca el correo de contacto de seguridad.',
+      'Las entidades que propone pasan a revisión humana; no se crean cuentas automáticamente.',
+    ],
+  },
 
   // ── España ──────────────────────────────────────────────────────────────────
   {
