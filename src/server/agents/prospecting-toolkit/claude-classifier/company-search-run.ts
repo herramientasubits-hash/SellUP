@@ -162,6 +162,11 @@ export function buildCompanySearchQueries(
   return queries;
 }
 
+/** «Transporte & Logística» → «transporte y logística»: así lo escribe la gente en la web. */
+export function supplierIndustryPhrase(industry: string): string {
+  return industry.replace(/\s*&\s*/g, ' y ').replace(/\s*\/\s*/g, ', ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 /**
  * «Competidores de una empresa»: las dos consultas nombran a la referencia. La
  * segunda añade qué vende, para que Claude no se quede sólo con las famosas.
@@ -177,18 +182,21 @@ export function buildCompetitorSearchQueries(reference: CompetitorReference, cou
 }
 
 /**
- * AGENT1-SUPPLIER-SEARCH-1 — consultas de «Proveedores de una empresa». Dos ángulos:
- * los proveedores que la nombran (casos de éxito, «nuestros clientes») y la relación
- * dicha desde fuera (notas, contratos). Siempre de la industria pedida y en el país.
+ * AGENT1-SUPPLIER-SEARCH-1/2 — consultas de «Proveedores de una empresa». Dos ángulos:
+ *  1. la relación dicha como la dice la web: «proveedores de transporte y logística de
+ *     Grupo Éxito en Colombia» (Prod 14-10: «empresas de Transporte & Logística que son
+ *     proveedores de Grupo Éxito» no trajo nada);
+ *  2. los reconocimientos y casos de éxito, que nombran a varios proveedores a la vez
+ *     («proveedores destacados», «premio a proveedores», «alianza con»).
  */
 export function buildSupplierSearchQueries(
   source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>,
   referenceCompanyName: string,
 ): string[] {
-  const subject = source.subindustries[0] ?? source.industry;
+  const subject = supplierIndustryPhrase(source.subindustries[0] ?? source.industry);
   return [
-    `empresas de ${subject} que son proveedores de ${referenceCompanyName} en ${source.country}`,
-    `${referenceCompanyName} cliente caso de éxito ${subject} ${source.country}`,
+    `proveedores de ${subject} de ${referenceCompanyName} en ${source.country}`,
+    `${referenceCompanyName} proveedores destacados o aliados de ${subject} en ${source.country}: caso de éxito, premio a proveedores, alianza`,
   ].slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
 }
 
