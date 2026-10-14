@@ -23,7 +23,8 @@
  *    vale hacia otra dirección que salga del mismo nombre. Una página aparcada, en
  *    venta o «en construcción» nunca vale.
  *    Si el nombre es largo, también vale la MARCA: la dirección es su primera palabra
- *    distintiva (5+ letras), es `.es` y el título de la página la lleva.
+ *    distintiva (5+ letras), es `.es`, el título de la página la lleva y la página muestra
+ *    el NIF u otra palabra distintiva de la razón social.
  * 3. Si la web existe pero bloquea la lectura, sólo vale una `.es` cuya dirección ES
  *    el nombre completo pegado (8 letras o más).
  *
@@ -92,6 +93,15 @@ export function spainCompanyWebCandidates(names: readonly (string | null | undef
   return out;
 }
 
+/** Un nombre pegado sólo se busca dentro del texto si tiene al menos estas letras. */
+export const ES_COMPACT_NAME_MIN = 12;
+
+/** Segundas palabras que no prueban nada (cualquier página puede decirlas). */
+const WEAK_SECOND_WORDS: ReadonlySet<string> = new Set([
+  'EMPRESARIAL', 'EMPRESARIALES', 'SERVICES', 'SOLUTIONS', 'CONSULTING', 'GROUP', 'SPAIN', 'IBERIA', 'ESPANA',
+  'INTEGRAL', 'INTEGRALES', 'GLOBALES', 'TECNICOS', 'TECNICAS', 'PROFESIONAL', 'PROFESIONALES', 'MADRID', 'BARCELONA',
+]);
+
 /** Páginas aparcadas, en venta o sin contenido: nunca son la web de nadie. */
 const PARKED_PAGE =
   /\b(DOMAIN (IS )?FOR SALE|THIS DOMAIN|BUY THIS DOMAIN|DOMINIO EN VENTA|DOMINIO A LA VENTA|ESTE DOMINIO|UNDER CONSTRUCTION|EN CONSTRUCCION|COMING SOON|PROXIMAMENTE|PARKED|SEDO|GODADDY|DONDOMINIO|HUGEDOMAINS|DEFAULT WEB PAGE|INDEX OF|ACCOUNT SUSPENDED|CUENTA SUSPENDIDA|WEBSITE IS UNDER|SITIO EN MANTENIMIENTO|PAGINA EN MANTENIMIENTO)\b/;
@@ -135,6 +145,7 @@ function storedDomain(host: string): string {
 export function spainCompanyWebVerdict(
   page: EsFetchedPage,
   names: readonly string[],
+  options: { nif?: string | null } = {},
 ): { domain: string; check: 'page_names_company' | 'title_names_brand' | 'blocked_exact_name'; matchedKey: string } | { rejected: EsCompanyWebRejection } {
   if (page.status === null || page.finalHost === null) return { rejected: 'no_response' };
   const keys = [...new Set(names.map((n) => spainCompanyWebNameKey(n)).filter((k) => k.length >= 2))];
@@ -156,18 +167,29 @@ export function spainCompanyWebVerdict(
   for (const key of keys) {
     const words = key.split(' ');
     if (words.length >= 2 && text.includes(` ${key} `)) return { domain, check: 'page_names_company', matchedKey: key };
-    if (compact(key).length >= 8 && compact(text).includes(compact(key))) return { domain, check: 'page_names_company', matchedKey: key };
+    // Pegado sólo con 12+ letras: «HSANTOSD» salía dentro de «…H Santos Desarrollo…» de
+    // Hoteles Santos (SOURCES-ES-WEBS-PRECISION-1, 14-10-2026).
+    if (compact(key).length >= ES_COMPACT_NAME_MIN && compact(text).includes(compact(key))) {
+      return { domain, check: 'page_names_company', matchedKey: key };
+    }
     if (words.length === 1 && key.length >= 3 && title.includes(` ${key} `)) return { domain, check: 'page_names_company', matchedKey: key };
   }
-  // Marca: la dirección pedida ES la primera palabra distintiva del nombre (5+ letras) y
-  // el TÍTULO de la página la lleva («HIBERUS IT DEVELOPMENT SERVICES» ↔ hiberus.com, «Hiberus»).
-  // Sólo en `.es`: «ROVER INFRAESTRUCTURAS» no es rover.com (otra empresa, otro país).
+  // Marca: la dirección pedida ES la primera palabra distintiva del nombre (5+ letras), el
+  // TÍTULO la lleva y ADEMÁS la página muestra su NIF u otra palabra distintiva de su razón
+  // social. Sólo en `.es`: «ROVER INFRAESTRUCTURAS» no es rover.com. Sin la segunda prueba,
+  // «SEREM CONSULTORIA EMPRESARIAL» caía en serem.es, un centro de coaching.
+  const nif = options.nif?.toUpperCase().replace(/[^A-Z0-9]/g, '') ?? '';
+  const nifOnPage = nif.length === 9 && compact(text).includes(nif);
   for (const key of spanish ? keys : []) {
-    const brand = key.split(' ').find((w) => !LINK_WORDS.has(w));
+    const words = key.split(' ').filter((w) => !LINK_WORDS.has(w));
+    const brand = words[0];
     if (brand === undefined || brand.length < 5 || GENERIC_WORDS.has(brand) || key === brand) continue;
-    if (compact(brand).toLowerCase() === requestedLabel && title.includes(` ${brand} `)) {
-      return { domain, check: 'title_names_brand', matchedKey: brand };
-    }
+    if (compact(brand).toLowerCase() !== requestedLabel || !title.includes(` ${brand} `)) continue;
+    const otherWordOnPage = words
+      .slice(1)
+      .filter((w) => w.length >= 5 && !GENERIC_WORDS.has(w) && !WEAK_SECOND_WORDS.has(w))
+      .some((w) => text.includes(` ${w.slice(0, 7)}`));
+    if (nifOnPage || otherWordOnPage) return { domain, check: 'title_names_brand', matchedKey: brand };
   }
   return { rejected: 'not_named' };
 }
