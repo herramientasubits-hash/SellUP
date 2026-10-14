@@ -34,6 +34,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const actionStartedAtMs = Date.now();
   if (!isAgent1CorporateTreeSearchEnabled()) {
     return NextResponse.json(failure('La búsqueda en árbol todavía no está activada.', 'EXECUTION_DISABLED'), { headers: NO_STORE });
   }
@@ -61,6 +62,24 @@ export async function POST(request: NextRequest) {
     .single();
   if (!internalUser) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
 
+  // El mismo id dos veces (reintento, doble clic) no vuelve a pagar a Claude.
+  const { data: previous } = await supabase
+    .from('prospect_batches')
+    .select('id, status')
+    .eq('created_by', internalUser.id as string)
+    .eq('client_request_id', parsed.request.clientRequestId)
+    .maybeSingle();
+  if (previous) {
+    const response: WizardExecutionActionResult = {
+      ok: true,
+      status: 'already_started',
+      batchId: previous.id as string,
+      batchStatus: (previous.status as string) ?? 'ready_for_review',
+      redirectPath: `/prospect-batches/${previous.id as string}`,
+    };
+    return NextResponse.json(response, { headers: NO_STORE });
+  }
+
   const progress = await openRunProgress({ clientRequestId: parsed.request.clientRequestId });
   try {
     const result = await runCorporateTreeSearch(
@@ -70,6 +89,7 @@ export async function POST(request: NextRequest) {
         supabase,
         internalUserId: internalUser.id as string,
         requestUrl: request.url,
+        actionStartedAtMs,
         rootNameForLogs: () => parsed.request.rootName,
         report: progress.report,
       }),

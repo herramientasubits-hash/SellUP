@@ -24,12 +24,19 @@ import { fetchSafePageHtml } from '@/server/agents/prospecting-toolkit/website-v
 import { POST as createImportBatch } from '@/app/api/prospect-batches/create-import-batch/route';
 import { searchCorporateTreeBranch, type CorporateTreeSearchOutcome } from './corporate-tree-search';
 import type { CorporateTreeImportCandidate } from './corporate-tree-plan';
+import { runWithImportActionStartedAt } from '../import-action-started-at';
 import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeStage } from './corporate-tree-run';
 
 export const CORPORATE_TREE_OPERATION_KEY = 'corporate_tree_search';
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
-/** Con 6 búsquedas web, Claude tarda 30–90 s; las ramas van en paralelo. */
-const BRANCH_REQUEST_TIMEOUT_MS = 120_000;
+/**
+ * Tiempo de CADA rama (las ramas van en paralelo), contando la segunda llamada
+ * que fuerza la entrega: con 6 búsquedas web Claude tarda 30–90 s. Deja el resto
+ * de los 300 s de Vercel para la importación y su rescate.
+ */
+export const CORPORATE_TREE_BRANCH_BUDGET_MS = 110_000;
+/** Por debajo de esto no se empieza otra llamada a Claude. */
+const MIN_CALL_MS = 10_000;
 const OUTSIDE_SEARCH_PAGE_TIMEOUT_MS = 8_000;
 
 function logError(scope: string, error: unknown): void {
@@ -135,6 +142,8 @@ export function buildLiveCorporateTreeDeps(params: {
   supabase: SupabaseClient;
   internalUserId: string;
   requestUrl: string;
+  /** Inicio de la petición: el rescate de la importación reparte desde aquí. */
+  actionStartedAtMs: number;
   rootNameForLogs: () => string;
   report: (stage: CorporateTreeStage) => void;
 }): CorporateTreeRunDeps {
@@ -144,16 +153,23 @@ export function buildLiveCorporateTreeDeps(params: {
     loadExistingRoot: (ref) => loadExistingRoot(params.supabase, ref),
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
-    searchBranch: (input, model, apiKey) =>
-      searchCorporateTreeBranch(input, model, {
-        runConversation: (body) => runAnthropicConversation({ apiKey, body, timeoutMs: BRANCH_REQUEST_TIMEOUT_MS }),
+    searchBranch: (input, model, apiKey) => {
+      const deadlineMs = Date.now() + CORPORATE_TREE_BRANCH_BUDGET_MS;
+      return searchCorporateTreeBranch(input, model, {
+        runConversation: (body) => {
+          const remainingMs = deadlineMs - Date.now();
+          if (remainingMs < MIN_CALL_MS) return Promise.reject(new Error('corporate_tree_time_budget'));
+          return runAnthropicConversation({ apiKey, body, timeoutMs: remainingMs });
+        },
         fetchPage: (url) => fetchSafePageHtml(url, OUTSIDE_SEARCH_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES),
-      }),
+      });
+    },
     logBranchUsage: async (outcome, runId) => {
       const log = buildCorporateTreeUsageLog(outcome, { runId, triggeredBy: params.internalUserId, rootName: params.rootNameForLogs() });
       if (log) await logProviderUsage(log);
     },
-    importRows: (candidates) => importThroughExistingRoute(params.requestUrl, candidates),
+    importRows: (candidates) =>
+      runWithImportActionStartedAt(params.actionStartedAtMs, () => importThroughExistingRoute(params.requestUrl, candidates)),
     markBatch: async (batchId, { name, clientRequestId, metadata }) => {
       const { data } = await params.supabase.from('prospect_batches').select('metadata').eq('id', batchId).single();
       const { error } = await params.supabase

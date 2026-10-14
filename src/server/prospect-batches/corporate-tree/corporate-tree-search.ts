@@ -214,8 +214,20 @@ type RawCompany = {
   source_url?: unknown;
 };
 
-function str(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+function str(value: unknown, max = 300): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
+}
+
+/** Sólo direcciones web: lo que se guarda como fuente se pinta como enlace. */
+function httpUrl(value: unknown): string | null {
+  const url = str(value, 2_000);
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Formas societarias al final del nombre: «Alpina Perú S.A.C.» y «Alpina Perú» son la misma. */
@@ -291,9 +303,9 @@ export async function filterCorporateTreeProposals(
   const seen = new Set<string>();
   const accepted: Array<Omit<CorporateTreeNode, 'website' | 'domain'> & { claimedWebsite: string | null }> = [];
   for (const company of submission.companies) {
-    const name = str(company.name);
+    const name = str(company.name, 200);
     const countryCode = str(company.country_code)?.toUpperCase() ?? null;
-    const sourceUrl = str(company.source_url);
+    const sourceUrl = httpUrl(company.source_url);
     if (!name || !countryCode || !sourceUrl) {
       reject('invalid_company');
       continue;

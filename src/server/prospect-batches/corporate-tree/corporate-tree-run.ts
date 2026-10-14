@@ -295,19 +295,21 @@ export async function runCorporateTreeSearch(
 
   const candidates = await deps.loadBatchCandidates(imported.batchId);
   const matched = matchPlannedRows(plan, candidates, context.keyOf);
-  for (const row of plan.rows) {
-    const candidate = matched.get(row.key);
-    if (!candidate) continue;
-    const tree: CorporateTreeCandidateMetadata = {
-      run_id: runId,
-      relation: row.relation,
-      root_name: root.name,
-      relation_detail: row.relationDetail,
-      evidence_url: row.evidenceUrl,
-      group_website: row.groupWebsite,
-    };
-    await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
-  }
+  await Promise.all(
+    plan.rows.map(async (row) => {
+      const candidate = matched.get(row.key);
+      if (!candidate) return;
+      const tree: CorporateTreeCandidateMetadata = {
+        run_id: runId,
+        relation: row.relation,
+        root_name: root.name,
+        relation_detail: row.relationDetail,
+        evidence_url: row.evidenceUrl,
+        group_website: row.groupWebsite,
+      };
+      await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
+    }),
+  );
 
   await deps
     .insertRelationships(
