@@ -90,6 +90,7 @@ async function writeOne(metadata: Record<string, unknown>): Promise<Record<strin
   };
 
   await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+    createdBy: 'test-user-owner',
     dryRun: false,
     country: 'Colombia',
     countryCode: 'CO',
@@ -187,6 +188,7 @@ async function writeOneStructuredDraft(
   } as unknown as StructuredSourceCandidateDraft;
 
   await writeStructuredSourceCandidatesPreview(makeFakeSupabase(stats), {
+    createdBy: 'test-user-owner',
     dryRun: false,
     country: 'Colombia',
     countryCode: 'CO',

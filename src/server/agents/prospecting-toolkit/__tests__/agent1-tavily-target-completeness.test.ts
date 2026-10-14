@@ -183,7 +183,7 @@ async function writeWithProvider(
   const result = await writeProspectingCandidates(
     {
       pipelineOutput,
-      triggeredByUserId: null,
+      triggeredByUserId: 'test-user-owner',
       ownerId: null,
       batchName: null,
       source: 'agent_1',

@@ -85,14 +85,27 @@ export interface AccountProfileUpdate {
 /**
  * Qué escribir en la empresa: lo vacío que HubSpot completa y, si no tiene responsable,
  * el dueño de HubSpot o quien buscó (ver `decideAccountOwner`).
+ *
+ * ALWAYS-OWNER-ON-CREATE-1 — una empresa recién creada ya nace con responsable
+ * (quien buscó / quien la crea). Ese responsable es PROVISIONAL
+ * (`ownerIsProvisional`): si HubSpot trae un dueño que es usuario de SellUp, manda
+ * HubSpot, igual que antes cuando la empresa nacía sin responsable. Un responsable
+ * que no es provisional nunca se toca.
  */
 export function buildAccountProfileUpdate(
   account: AccountProfileSnapshot,
   profile: Extract<HubSpotAccountProfileLoad, { status: 'found' }> | null,
   searcherUserId: string | null,
+  options: { ownerIsProvisional?: boolean } = {},
 ): AccountProfileUpdate {
   const fill = profile ? buildAccountFillPatch(account, profile.mapping.fields) : {};
-  if (account.owner_id) return { patch: fill, ownerSource: null };
+  if (account.owner_id) {
+    const hubspotOwner = profile?.hubspotOwnerUserId ?? null;
+    if (options.ownerIsProvisional && hubspotOwner && hubspotOwner !== account.owner_id) {
+      return { patch: { ...fill, owner_id: hubspotOwner }, ownerSource: 'hubspot_owner' };
+    }
+    return { patch: fill, ownerSource: null };
+  }
   const owner = decideAccountOwner({
     hubspotOwnerUserId: profile?.hubspotOwnerUserId ?? null,
     searcherUserId,
@@ -115,7 +128,15 @@ export interface SyncAccountFromHubSpotResult {
  */
 export async function syncAccountFromHubSpotProfile(
   admin: SupabaseClient,
-  input: { accountId: string; hubspotCompanyId: string | null; searcherUserId: string | null; actorUserId: string | null; nowIso: string },
+  input: {
+    accountId: string;
+    hubspotCompanyId: string | null;
+    searcherUserId: string | null;
+    actorUserId: string | null;
+    nowIso: string;
+    /** ALWAYS-OWNER-ON-CREATE-1 — la empresa se acaba de crear con responsable provisional. */
+    ownerIsProvisional?: boolean;
+  },
 ): Promise<SyncAccountFromHubSpotResult> {
   const { data, error } = await admin
     .from('accounts')
@@ -129,7 +150,9 @@ export async function syncAccountFromHubSpotProfile(
     ? await loadHubSpotAccountProfile(admin, input.hubspotCompanyId)
     : null;
   const profile = load?.status === 'found' ? load : null;
-  const { patch, ownerSource } = buildAccountProfileUpdate(account, profile, input.searcherUserId);
+  const { patch, ownerSource } = buildAccountProfileUpdate(account, profile, input.searcherUserId, {
+    ownerIsProvisional: input.ownerIsProvisional === true,
+  });
   const columns = Object.keys(patch);
 
   if (columns.length === 0) {

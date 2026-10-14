@@ -15,6 +15,8 @@ export async function completeConvertedAccount(input: {
   searcherUserId: string | null;
   actorUserId: string;
   nowIso: string;
+  /** ALWAYS-OWNER-ON-CREATE-1 — true si la aprobación acaba de crear la empresa. */
+  ownerIsProvisional?: boolean;
 }): Promise<void> {
   try {
     await syncAccountFromHubSpotProfile(createSupabaseAdminClient(), input);

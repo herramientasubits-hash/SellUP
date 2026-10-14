@@ -214,7 +214,7 @@ describe('writeProspectingCandidates — persiste identity_key (T5)', () => {
     const result = await writeProspectingCandidates(
       {
         pipelineOutput: makePipelineOutput([makeCandidate({})]),
-        triggeredByUserId: null,
+        triggeredByUserId: 'test-user-owner',
         ownerId: null,
         batchName: null,
         source: 'agent_1',
