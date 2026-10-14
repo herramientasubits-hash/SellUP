@@ -121,7 +121,14 @@ describe('SEC EDGAR', () => {
     assert.equal(normalizeUsCompanyCore('AAR CORP'), 'AAR');
     assert.equal(normalizeUsCompanyCore('Enerpac Tool Group Corp.'), 'ENERPAC TOOL GROUP');
     assert.equal(normalizeUsCompanyCore('Acme Holdings, L.L.C.'), 'ACME HOLDINGS');
-    assert.equal(normalizeUsCompanyCore('The Coca-Cola Company'), 'THE COCA COLA COMPANY');
+    assert.equal(normalizeUsCompanyCore('The Coca-Cola Company'), 'COCA COLA');
+    assert.equal(normalizeUsCompanyCore('BANK OF AMERICA CORP /DE/'), 'BANK OF AMERICA');
+    assert.equal(normalizeUsCompanyCore('Alphabet Inc. /NEW/'), 'ALPHABET');
+    assert.equal(normalizeUsCompanyCore('Acme Services LLC d/b/a Acme Pro'), 'ACME SERVICES');
+    assert.equal(normalizeUsCompanyCore('Johnson and Johnson'), 'JOHNSON & JOHNSON');
+    assert.equal(normalizeUsCompanyCore('Smith Law Group, PLLC'), 'SMITH LAW GROUP');
+    assert.equal(normalizeUsCompanyCore('Cleveland Clinic Foundation, The'), 'CLEVELAND CLINIC FOUNDATION');
+    assert.equal(normalizeUsCompanyCore('AT&T Inc.'), 'AT&T');
     assert.equal(normalizeUsCompanyCore('Bill & Melinda Gates Foundation'), 'BILL & MELINDA GATES FOUNDATION');
   });
 });
@@ -132,7 +139,7 @@ describe('IRS (organizaciones sin ánimo de lucro)', () => {
     assert.ok(row);
     assert.equal(row.source_key, 'us_irs_eo_registry');
     assert.equal(row.tax_id, '04-2103580');
-    assert.equal(row.normalized_legal_name, 'PRESIDENT AND FELLOWS OF HARVARD COLLEGE');
+    assert.equal(row.normalized_legal_name, 'PRESIDENT & FELLOWS OF HARVARD COLLEGE');
     assert.deepEqual(row.raw_data, { ntee: 'B500', state: 'MA', city: 'CAMBRIDGE' });
   });
 

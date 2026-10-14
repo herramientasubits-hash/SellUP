@@ -44,9 +44,27 @@ export type UsEinRegistryRow = {
   record_identity_key: RecordIdentityKey | null;
 };
 
+/** Formas societarias de EE. UU. (las compartidas + las que sólo aquí son forma). */
+const US_NAME_FORMS: readonly string[] = [...US_LEGAL_FORMS, 'COMPANY', 'PLLC', 'P L L C', 'L L L P'];
+
+/**
+ * Limpieza propia de EE. UU. antes del núcleo compartido: la SEC guarda «BANK OF
+ * AMERICA CORP /DE/», «d/b/a …» y «The …» no son parte del nombre, y «and» = «&».
+ */
+function preCleanUsName(name: string): string {
+  return name
+    .replace(/\s*\/[A-Za-z]{2,5}\/?(?=\s|$)/g, ' ') // «/DE/», «/NEW/», «/MD»
+    .replace(/\s+(?:d\/b\/a|dba|f\/k\/a|fka|a\/k\/a|aka)\s+.*$/i, '') // «ACME LLC d/b/a Foo»
+    .replace(/\s*\((?:the|new|old)\)\s*/gi, ' ')
+    .replace(/^the\s+/i, '')
+    .replace(/,\s*the$/i, '')
+    .replace(/\s+and\s+/gi, ' & ');
+}
+
 /** Núcleo del nombre estadounidense: el MISMO que calcula el resolvedor de la corrida. */
 export function normalizeUsCompanyCore(name: string | null | undefined): string {
-  return normalizeCompanyNameCore(name, US_LEGAL_FORMS);
+  if (typeof name !== 'string') return '';
+  return normalizeCompanyNameCore(preCleanUsName(name), US_NAME_FORMS);
 }
 
 /** EIN crudo → «12-3456789», o `null` si no son 9 dígitos útiles. */
