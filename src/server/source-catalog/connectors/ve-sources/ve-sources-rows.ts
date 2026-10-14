@@ -371,7 +371,13 @@ function classifyEntry(entry: VeRifEntry, listings: readonly VeWebListing[]): Cl
   return candidates.find((c) => resolveVeDirectoryMacro(c.kind, c.code) !== null) ?? null;
 }
 
-/** La web de una entidad con RIF: la de su ficha en la fuente o la de su web comprobada. */
+/**
+ * La web de una entidad con RIF: la de su ficha en la fuente o la de su web
+ * comprobada. El dominio de un CORREO de la Bolsa no cuenta por sí solo: medido el
+ * 14-10-2026, varios son viejos o ajenos (bancofederal.com aparcado tras el cierre
+ * del banco, mooregsf.com de la firma auditora); sólo entra si la búsqueda por nombre
+ * lo comprueba con su propia página (`--web-map`, `discover-ve-company-webs.mts`).
+ */
 function entryDomain(entry: VeRifEntry, listings: readonly VeWebListing[], usable: (d: string | null) => string | null): string | null {
   const publicListing = listings.find((l) => l.kind === 'public_entity' || l.kind === 'state_company');
   const fromSources = [
@@ -379,8 +385,6 @@ function entryDomain(entry: VeRifEntry, listings: readonly VeWebListing[], usabl
     ...listings.map((l) => l.domain),
     venezuelaCompanyDomain(entry.bvcIssuer?.web),
     venezuelaCompanyDomain(entry.bvcMember?.web),
-    ...(entry.bvcIssuer?.emailDomains ?? []).map((d) => venezuelaCompanyDomain(d)),
-    ...(entry.bvcMember?.emailDomains ?? []).map((d) => venezuelaCompanyDomain(d)),
   ];
   return fromSources.map((d) => usable(d)).find((d): d is string => d !== null) ?? null;
 }
@@ -444,6 +448,8 @@ export function buildVeFreeDirectoryRows(params: {
   for (const entry of params.entries.values()) {
     for (const web of [entry.bvcIssuer?.web, entry.bvcMember?.web]) claim(venezuelaCompanyDomain(web), entry.rif);
   }
+  // Una web por nombre que comparten dos RIF (un grupo con varias sociedades) no identifica a ninguno.
+  for (const [rif, web] of params.webByRif ?? []) claim(web.domain, rif);
   const usableDomain = (domain: string | null): string | null =>
     domain !== null && (domainOwners.get(domain)?.size ?? 1) === 1 ? domain : null;
 

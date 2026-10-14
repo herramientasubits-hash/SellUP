@@ -482,7 +482,11 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // `AGENT1-CUT3B4`, no reutiliza `identity_epoch`, no escribe candidatos ni toca la valla de
     // admisión, y el barrido explícito de abajo se ENSANCHA para incluir la 145, el techo anterior.
     // AUTORADA y NO APLICADA.
-    const CEILING = '146_tax_identifier_type_rif.sql';
+    const TAX_IDENTIFIER_RIF_146 = '146_tax_identifier_type_rif.sql';
+    // AI-USAGE-FASE-2 mueve el techo a la 147: dimensiones de `provider_usage_logs` (cinco columnas
+    // nulas, un disparador que sólo rellena NULL y su relleno). No es de CUT3B4. AUTORADA y NO
+    // APLICADA.
+    const CEILING = '147_provider_usage_log_dimensions.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -503,6 +507,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       RUN_PROGRESS_143,
       CONCURRENT_EXECUTIONS_144,
       CANDIDATE_ASSIGNMENT_145,
+      TAX_IDENTIFIER_RIF_146,
       CEILING,
     ]) {
       assert.equal(
@@ -523,7 +528,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-PARALLEL-RUNS-PHASE2-1 añade la 144 y el conteo sube con ella.
     // BULK-COMPANY-ASSIGNMENT-1 añade la 145 y el conteo sube con ella.
     // SOURCES-VE-CLOSE-1 añade la 146 y el conteo sube con ella.
-    assert.equal(migrations.length, 146);
+    assert.equal(migrations.length, 147);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

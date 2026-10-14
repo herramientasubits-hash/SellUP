@@ -1200,7 +1200,12 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // (amplía los CHECK `accounts_tax_identifier_type_check` y
     // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
     // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 146, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+    // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+    // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+    // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+    // NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 147, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

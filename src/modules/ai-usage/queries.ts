@@ -1,8 +1,14 @@
+import { cache } from 'react';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { flattenOrgGroups } from '@/modules/access/group-tree';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
+import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
+import {
+  AGENT_STEP_LABELS,
+  SEARCH_MODE_BY_BATCH_SOURCE,
+} from '@/modules/usage-tracking/usage-dimensions';
 import type {
   AgentStat,
   ProviderStat,
@@ -15,11 +21,7 @@ import {
   fetchAllPagesInChunks,
   IN_FILTER_CHUNK_SIZE,
 } from '@/lib/supabase/paginated-read';
-import {
-  canonicalStatusKey,
-  resolvePeriodStart,
-  resolveStatusFilter,
-} from './usage-filter-semantics';
+import { canonicalStatusKey } from './usage-filter-semantics';
 import {
   aggregateAgentStats,
   aggregateProviderStats,
@@ -28,13 +30,31 @@ import {
   consumerIds,
   indexRunsById,
   selectLogsInScope,
-  selectRunsInScope,
   type UsageLogRow,
   type UsagePerson,
   type UsageRunRow,
-  type UsageScope,
   type UserConsumptionRow,
 } from './usage-aggregators';
+import type { DimensionedLogRow, UsageDimensionFilters } from './usage-dimension-scope';
+import {
+  buildUsageScope,
+  fetchAllRuns,
+  loadUsageDataset,
+  scopedLogsQuery,
+  UsageReadError,
+  type PageResult,
+  type UsageDataset,
+} from './usage-dataset';
+import { aggregateAgentSteps, type AgentStepRow, type AgentSummaryRow } from './usage-breakdowns';
+import {
+  canSeeMoney,
+  redactAgentStats,
+  redactAgentSteps,
+  redactProviderStats,
+  redactRecentLogs,
+  redactSummary,
+  redactUserConsumption,
+} from './money-visibility';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -60,6 +80,24 @@ export interface UsageFilters {
    * (organization_groups). Incluye descendientes al resolver el scope.
    */
   groupId?: string;
+  /** País (ISO de 2 letras) de la consulta o del lote. */
+  country?: string;
+  /** Macro industria (clave del catálogo v2). */
+  industry?: string;
+  /** Paso del agente (agent_step). */
+  step?: string;
+  /** Forma de búsqueda (search_mode). */
+  mode?: string;
+}
+
+/** Los filtros de dimensión (fase 3) de los filtros de la página. */
+export function dimensionFiltersOf(filters: UsageFilters): UsageDimensionFilters {
+  return {
+    countryCode: filters.country?.trim().toUpperCase() || undefined,
+    macroIndustryKey: filters.industry || undefined,
+    agentStep: filters.step || undefined,
+    searchMode: filters.mode || undefined,
+  };
 }
 
 // Status considered "active" in internal_users (mirrors AccessStatus).
@@ -123,6 +161,16 @@ export interface FilterOptions {
   roles: FilterRole[];
   /** Grupos organizacionales reales — dimensión "Grupo". */
   groups: FilterGroup[];
+  // Fase 3 — opcionales: otras superficies (Proveedores) reutilizan este tipo
+  // sin estos filtros.
+  /** Países (ISO) con al menos una búsqueda. */
+  countries?: string[];
+  /** Macro industrias del catálogo. */
+  industries?: string[];
+  /** Pasos de agente conocidos. */
+  steps?: string[];
+  /** Formas de búsqueda que hoy existen. */
+  modes?: string[];
   /**
    * Whether the Usuario filter was scoped to active users only.
    * False means internal_users had no usable status field and all rows
@@ -162,9 +210,9 @@ function roleLabel(key: string, name: string | null): string {
 //   - mode 'ids'   → match triggered_by IN ids (empty ids → no rows)
 // ============================================================
 
-type UserScope = { mode: 'none' } | { mode: 'ids'; ids: string[] };
+export type UserScope = { mode: 'none' } | { mode: 'ids'; ids: string[] };
 
-type AdminClient = ReturnType<typeof getAdminClient>;
+export type AdminClient = ReturnType<typeof getAdminClient>;
 
 // ============================================================
 // AI-usage access (commercial scope)
@@ -176,21 +224,27 @@ type AdminClient = ReturnType<typeof getAdminClient>;
 // Flag ON: admin sees all, líder/manager see their team, vendedor sees self.
 // ============================================================
 
+// moneyVisible (decisión de la dueña, 13-10): administración y líderes /
+// managers ven USD; vendedores sólo créditos y unidades. Ver money-visibility.ts.
 type AiUsageAccess =
   | { mode: 'denied' }
-  | { mode: 'all' }
-  | { mode: 'ids'; ids: string[] };
+  | { mode: 'all'; moneyVisible: boolean }
+  | { mode: 'ids'; ids: string[]; moneyVisible: boolean };
 
 async function resolveAiUsageAccess(): Promise<AiUsageAccess> {
   if (!isCommercialScopeEnabled()) {
     const isAdmin = await isCurrentUserAdmin();
-    return isAdmin ? { mode: 'all' } : { mode: 'denied' };
+    return isAdmin ? { mode: 'all', moneyVisible: true } : { mode: 'denied' };
   }
 
   const scope = await resolveCommercialScope();
   if (!scope) return { mode: 'denied' };
-  if (scope.canViewAll) return { mode: 'all' };
-  return { mode: 'ids', ids: scope.allowedUserIds };
+  if (scope.canViewAll) return { mode: 'all', moneyVisible: true };
+  return {
+    mode: 'ids',
+    ids: scope.allowedUserIds,
+    moneyVisible: canSeeMoney({ viewAll: false, roleKey: scope.currentUserRole }),
+  };
 }
 
 async function getActiveUserIdsForRoleKey(
@@ -294,125 +348,25 @@ async function resolveUserScope(
   return { mode: 'ids', ids: [...new Set(ids)] };
 }
 
-// ============================================================
-// Lectura del universo filtrado (paginada, una sola regla para todo)
-//
-// Todas las cifras de la página salen de aquí:
-//   - agent_runs completo (paginado): conteos, estados y el mapa
-//     agent_run_id → agente. Se lee entero porque una consulta del periodo
-//     puede pertenecer a una ejecución creada antes del periodo.
-//   - provider_usage_logs del ámbito (paginado): TODO el dinero.
-// Agente y «estado sólo de ejecución» se resuelven en memoria por
-// agent_run_id (provider_usage_logs no tiene agent_key), con las funciones
-// puras de usage-aggregators.ts.
-// ============================================================
+// Lectura del universo filtrado: usage-dataset.ts.
+export { UsageReadError } from './usage-dataset';
 
-const RUN_COLUMNS =
-  'id, agent_key, agent_name, status, triggered_by, created_at, results_generated, results_approved';
-const LOG_COLUMNS =
-  'id, agent_run_id, provider_key, operation_key, status, triggered_by, credits_used, input_tokens, output_tokens, results_returned, estimated_cost_usd, created_at';
-
-/** Un fallo de lectura: nunca se convierte en «no hubo consumo». */
-export class UsageReadError extends Error {
-  constructor(table: string, detail: string) {
-    super(`ai-usage: no se pudo leer ${table}: ${detail}`);
-    this.name = 'UsageReadError';
-  }
-}
-
-type PageResult<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
-
-function buildUsageScope(filters: UsageFilters, userScope: UserScope): UsageScope {
-  return {
-    since: resolvePeriodStart(filters.period),
-    providerKey: filters.provider || undefined,
-    agentKey: filters.agent || undefined,
-    status: resolveStatusFilter(filters.status),
-    userIds: userScope.mode === 'ids' ? userScope.ids : null,
-  };
-}
-
-function fetchAllRuns(admin: AdminClient) {
-  return fetchAllPages<UsageRunRow>(
-    (from, to) =>
-      admin
-        .from('agent_runs')
-        .select(RUN_COLUMNS)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, to) as unknown as PageResult<UsageRunRow>,
-  );
-}
-
-/**
- * Consultas del ámbito, con los filtros que la base de datos puede aplicar
- * (periodo, proveedor, estado del log, personas). El resto se aplica en
- * memoria en selectLogsInScope.
- */
-function scopedLogsQuery(admin: AdminClient, scope: UsageScope, columns: string) {
-  let query = admin.from('provider_usage_logs').select(columns);
-  if (scope.since) query = query.gte('created_at', scope.since);
-  if (scope.providerKey) query = query.eq('provider_key', scope.providerKey);
-  if (scope.status.logStatuses) query = query.in('status', scope.status.logStatuses);
-  // Una lista de personas muy larga no cabe en la URL: entonces se filtra sólo
-  // en memoria (selectLogsInScope), que aplica la misma regla.
-  if (scope.userIds && scope.userIds.length <= IN_FILTER_CHUNK_SIZE) {
-    query = query.in('triggered_by', scope.userIds);
-  }
-  return query;
-}
-
-interface UsageDataset {
-  runsById: Map<string, UsageRunRow>;
-  runsInScope: UsageRunRow[];
-  logsInScope: UsageLogRow[];
-  truncated: boolean;
-}
-
-async function loadUsageDataset(
-  admin: AdminClient,
-  filters: UsageFilters,
-  userScope: UserScope,
-): Promise<UsageDataset> {
-  const scope = buildUsageScope(filters, userScope);
-  const [runsRead, logsRead] = await Promise.all([
-    fetchAllRuns(admin),
-    fetchAllPages<UsageLogRow>(
-      (from, to) =>
-        scopedLogsQuery(admin, scope, LOG_COLUMNS)
-          .order('created_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, to) as unknown as PageResult<UsageLogRow>,
-    ),
-  ]);
-  if (runsRead.error) throw new UsageReadError('agent_runs', runsRead.error);
-  if (logsRead.error) throw new UsageReadError('provider_usage_logs', logsRead.error);
-
-  const runsById = indexRunsById(runsRead.rows);
-  const logsInScope = selectLogsInScope(logsRead.rows, runsById, scope);
-  const runsInScope = selectRunsInScope(runsRead.rows, logsInScope, scope);
-  return {
-    runsById,
-    runsInScope,
-    logsInScope,
-    truncated: runsRead.truncated || logsRead.truncated,
-  };
-}
-
-type PreparedAccess =
+export type PreparedAccess =
   | { kind: 'denied' }
-  | { kind: 'empty' }
-  | { kind: 'ready'; admin: AdminClient; userScope: UserScope };
+  | { kind: 'empty'; moneyVisible: boolean }
+  | { kind: 'ready'; admin: AdminClient; userScope: UserScope; moneyVisible: boolean };
 
 /** Acceso + personas del ámbito. 'empty' = los filtros no dejan a nadie. */
-async function prepareAccess(filters: UsageFilters): Promise<PreparedAccess> {
+export async function prepareAccess(filters: UsageFilters): Promise<PreparedAccess> {
   const access = await resolveAiUsageAccess();
   if (access.mode === 'denied') return { kind: 'denied' };
   const admin = getAdminClient();
   const baseIds = access.mode === 'ids' ? access.ids : null;
   const userScope = await resolveUserScope(admin, filters, baseIds);
-  if (userScope.mode === 'ids' && userScope.ids.length === 0) return { kind: 'empty' };
-  return { kind: 'ready', admin, userScope };
+  if (userScope.mode === 'ids' && userScope.ids.length === 0) {
+    return { kind: 'empty', moneyVisible: access.moneyVisible };
+  }
+  return { kind: 'ready', admin, userScope, moneyVisible: access.moneyVisible };
 }
 
 /**
@@ -430,6 +384,15 @@ export async function resolveUsagePeopleScope(
   if (prepared.kind === 'denied') return 'denied';
   if (prepared.kind === 'empty') return [];
   return prepared.userScope.mode === 'ids' ? prepared.userScope.ids : null;
+}
+
+function distinctCountries(rows: readonly { country_code: string | null }[]): string[] {
+  const codes = new Set<string>();
+  for (const row of rows) {
+    const code = row.country_code?.trim().toUpperCase();
+    if (code && /^[A-Z]{2}$/.test(code)) codes.add(code);
+  }
+  return [...codes].sort();
 }
 
 export async function getDistinctFilterOptions(): Promise<FilterOptions | null> {
@@ -457,7 +420,8 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
   if (allowedUserIds !== null) usersQuery = usersQuery.in('id', allowedUserIds);
 
   type OptionLogRow = { provider_key: string; status: string; triggered_by: string | null };
-  const [logsRead, runsRead, usersResult, rolesResult, groupsResult] = await Promise.all([
+  type OptionBatchRow = { country_code: string | null };
+  const [logsRead, runsRead, usersResult, rolesResult, groupsResult, batchesRead] = await Promise.all([
     // Paginado: con una sola petición sólo se veían los proveedores y estados
     // de las primeras 1.000 consultas.
     fetchAllPages<OptionLogRow>(
@@ -473,6 +437,15 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     usersQuery,
     admin.from('roles').select('id, key, name'),
     admin.from('organization_groups').select('id, name, parent_group_id'),
+    // Países con alguna búsqueda (sólo la columna: es barato).
+    fetchAllPages<OptionBatchRow>(
+      (from, to) =>
+        admin
+          .from('prospect_batches')
+          .select('country_code')
+          .order('id', { ascending: true })
+          .range(from, to) as unknown as PageResult<OptionBatchRow>,
+    ),
   ]);
   if (logsRead.error) throw new UsageReadError('provider_usage_logs', logsRead.error);
   if (runsRead.error) throw new UsageReadError('agent_runs', runsRead.error);
@@ -556,6 +529,10 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     roles: rolesOptions,
     groups,
     usersScopedToActive: true,
+    countries: distinctCountries(batchesRead.rows),
+    industries: [...MACRO_INDUSTRY_KEYS],
+    steps: Object.keys(AGENT_STEP_LABELS),
+    modes: [...new Set(Object.values(SEARCH_MODE_BY_BATCH_SOURCE))],
   };
 }
 
@@ -573,7 +550,7 @@ export async function getProviderStats(
   const prepared = await prepareAccess(filters);
   if (prepared.kind === 'denied') return null;
   if (prepared.kind === 'empty') return [];
-  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope, dimensionFiltersOf(filters));
   return aggregateProviderStats(data.logsInScope);
 }
 
@@ -632,23 +609,132 @@ export interface UsageDataQuality {
   readError: boolean;
 }
 
+/** Una de las últimas consultas, con las dimensiones de la fase 2. */
+export type RecentUsageLog = ProviderUsageLog & {
+  agent_key: string | null;
+  agent_step: string | null;
+  country_code: string | null;
+  macro_industry_key: string | null;
+  search_mode: string | null;
+};
+
 export interface AiUsageOverview {
   summary: AiUsageSummary;
   agentStats: AgentStat[];
   providerStats: ProviderStat[];
   userConsumption: UserConsumptionRow[];
-  recentLogs: ProviderUsageLog[];
+  recentLogs: RecentUsageLog[];
+  /** «Por agente»: cada agente y cada uno de sus pasos. */
+  agentSteps: { agents: AgentSummaryRow[]; steps: AgentStepRow[] };
+  /** false ⇒ quien mira no ve dólares: todos los importes llegan vacíos. */
+  moneyVisible: boolean;
+  /** false ⇒ la migración 147 aún no está aplicada (dimensiones calculadas en memoria). */
+  dimensionsAvailable: boolean;
   dataQuality: UsageDataQuality;
 }
 
-function emptyOverview(dataQuality: UsageDataQuality): AiUsageOverview {
+function emptyOverview(dataQuality: UsageDataQuality, moneyVisible: boolean): AiUsageOverview {
   return {
     summary: emptySummary(),
     agentStats: [],
     providerStats: [],
     userConsumption: [],
     recentLogs: [],
+    agentSteps: { agents: [], steps: [] },
+    moneyVisible,
+    dimensionsAvailable: true,
     dataQuality,
+  };
+}
+
+/** Clave estable de unos filtros (para la caché por petición). */
+export function usageFiltersKey(filters: UsageFilters): string {
+  const entries = Object.entries(filters)
+    .filter(([, value]) => value !== undefined && value !== '')
+    .sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+export type UsageContext =
+  | { kind: 'denied' }
+  | { kind: 'access_error' }
+  | { kind: 'empty'; moneyVisible: boolean }
+  | { kind: 'read_error'; moneyVisible: boolean }
+  | {
+      kind: 'ready';
+      admin: AdminClient;
+      userScope: UserScope;
+      moneyVisible: boolean;
+      data: UsageDataset;
+    };
+
+/**
+ * Acceso + universo filtrado, UNA vez por petición: la página y las pestañas
+ * que cargan aparte (Suspense) comparten la misma lectura.
+ */
+export const loadUsageContext = cache(async (key: string): Promise<UsageContext> => {
+  const filters = JSON.parse(key) as UsageFilters;
+  let prepared: PreparedAccess;
+  try {
+    prepared = await prepareAccess(filters);
+  } catch (err) {
+    console.error('[ai-usage] access check failed:', err);
+    return { kind: 'access_error' };
+  }
+  if (prepared.kind !== 'ready') return prepared;
+  try {
+    const data = await loadUsageDataset(
+      prepared.admin,
+      filters,
+      prepared.userScope,
+      dimensionFiltersOf(filters),
+    );
+    return { ...prepared, data };
+  } catch (err) {
+    // El detalle queda en el servidor; la página muestra un aviso genérico.
+    console.error('[ai-usage] usage read failed:', err);
+    return { kind: 'read_error', moneyVisible: prepared.moneyVisible };
+  }
+});
+
+/** Las `limit` consultas más nuevas del universo, con todas sus columnas. */
+async function readRecentFromDataset(
+  admin: AdminClient,
+  data: UsageDataset,
+  limit: number,
+): Promise<RecentUsageLog[]> {
+  const newest = data.logsInScope.slice(-limit).reverse();
+  const ids = newest.map((l) => l.id).filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return [];
+  const { data: rows, error } = await admin.from('provider_usage_logs').select('*').in('id', ids);
+  if (error) throw new UsageReadError('provider_usage_logs', error.message);
+  const byId = new Map((rows ?? []).map((r) => [r.id as string, r as ProviderUsageLog]));
+  return newest.flatMap((log: DimensionedLogRow) => {
+    const row = log.id ? byId.get(log.id) : undefined;
+    if (!row) return [];
+    return [
+      {
+        ...row,
+        agent_key: log.agent_key,
+        agent_step: log.agent_step,
+        country_code: log.country_code,
+        macro_industry_key: log.macro_industry_key,
+        search_mode: log.search_mode,
+      },
+    ];
+  });
+}
+
+function applyMoneyRule(overview: AiUsageOverview): AiUsageOverview {
+  if (overview.moneyVisible) return overview;
+  return {
+    ...overview,
+    summary: redactSummary(overview.summary),
+    agentStats: redactAgentStats(overview.agentStats),
+    providerStats: redactProviderStats(overview.providerStats),
+    userConsumption: redactUserConsumption(overview.userConsumption),
+    recentLogs: redactRecentLogs(overview.recentLogs),
+    agentSteps: redactAgentSteps(overview.agentSteps),
   };
 }
 
@@ -656,34 +742,35 @@ export async function getAiUsageOverview(
   filters: UsageFilters = {},
   recentLimit = 25,
 ): Promise<AiUsageOverview | null> {
-  let prepared: PreparedAccess;
-  try {
-    prepared = await prepareAccess(filters);
-  } catch (err) {
-    console.error('[ai-usage] overview access check failed:', err);
-    return null;
+  const context = await loadUsageContext(usageFiltersKey(filters));
+  if (context.kind === 'denied' || context.kind === 'access_error') return null;
+  if (context.kind === 'empty') {
+    return emptyOverview({ truncated: false, readError: false }, context.moneyVisible);
   }
-  if (prepared.kind === 'denied') return null;
-  if (prepared.kind === 'empty') return emptyOverview({ truncated: false, readError: false });
+  if (context.kind === 'read_error') {
+    return emptyOverview({ truncated: false, readError: true }, context.moneyVisible);
+  }
 
+  const { admin, userScope, data, moneyVisible } = context;
   try {
-    const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
     const [userConsumption, recentLogs] = await Promise.all([
-      buildUserConsumption(prepared.admin, prepared.userScope, data),
-      readRecentProviderLogs(prepared.admin, recentLimit, filters, prepared.userScope),
+      buildUserConsumption(admin, userScope, data),
+      readRecentFromDataset(admin, data, recentLimit),
     ]);
-    return {
+    return applyMoneyRule({
       summary: aggregateUsageSummary(data.runsInScope, data.logsInScope),
       agentStats: aggregateAgentStats(data.runsInScope, data.logsInScope, data.runsById),
       providerStats: aggregateProviderStats(data.logsInScope),
       userConsumption,
       recentLogs,
+      agentSteps: aggregateAgentSteps(data.logsInScope),
+      moneyVisible,
+      dimensionsAvailable: data.dimensionsAvailable,
       dataQuality: { truncated: data.truncated, readError: false },
-    };
+    });
   } catch (err) {
-    // El detalle queda en el servidor; la página muestra un aviso genérico.
     console.error('[ai-usage] overview read failed:', err);
-    return emptyOverview({ truncated: false, readError: true });
+    return emptyOverview({ truncated: false, readError: true }, moneyVisible);
   }
 }
 
@@ -812,7 +899,7 @@ export async function getProviderOperationStats(
   // exactamente las mismas consultas. Un fallo de lectura lanza (UsageReadError)
   // para que provider-consumption-actions.ts muestre el aviso de error en vez
   // de un falso «Sin consumo por operación» (Q3F-8E).
-  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope, dimensionFiltersOf(filters));
   return aggregateOperationStats(data.logsInScope);
 }
 
@@ -1021,7 +1108,7 @@ export async function getProviderUserConsumption(
   // Mismo universo que getProviderStats / getProviderOperationStats (el filtro
   // de proveedor es obligatorio aquí). Un fallo de lectura lanza para que el
   // llamador lo clasifique en vez de un falso «Sin consumo por usuario».
-  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope);
+  const data = await loadUsageDataset(prepared.admin, filters, prepared.userScope, dimensionFiltersOf(filters));
   const aggregated = aggregateProviderUserConsumption(data.logsInScope);
 
   const uniqueIds = [

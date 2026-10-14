@@ -59,6 +59,7 @@ import { buildCrFreeDirectoryDiscoveryReads } from './cr-free-directory-snapshot
 import { buildHnHonducomprasDirectoryDiscoveryReads } from './hn-honducompras-directory-snapshot-query';
 import { buildPaFreeDirectoryDiscoveryReads } from './pa-free-directory-snapshot-query';
 import { buildNiFreeDirectoryDiscoveryReads } from './ni-free-directory-snapshot-query';
+import { buildEsFreeDirectoryDiscoveryReads } from './es-free-directory-snapshot-query';
 import { buildSvComprasalDirectoryDiscoveryReads } from './sv-comprasal-directory-snapshot-query';
 import { buildUyArceDirectoryDiscoveryReads } from './uy-arce-directory-snapshot-query';
 import { buildVeFreeDirectoryDiscoveryReads } from './ve-free-directory-snapshot-query';
@@ -240,6 +241,7 @@ export async function runProductionPrePaidNoveltyGate(
           hnHonducomprasDirectoryDiscoveryReads: buildHnHonducomprasDirectoryDiscoveryReads(adminClient),
           paFreeDirectoryDiscoveryReads: buildPaFreeDirectoryDiscoveryReads(adminClient),
           niFreeDirectoryDiscoveryReads: buildNiFreeDirectoryDiscoveryReads(adminClient),
+          esFreeDirectoryDiscoveryReads: buildEsFreeDirectoryDiscoveryReads(adminClient),
           svComprasalDirectoryDiscoveryReads: buildSvComprasalDirectoryDiscoveryReads(adminClient),
           uyArceDirectoryDiscoveryReads: buildUyArceDirectoryDiscoveryReads(adminClient),
           veFreeDirectoryDiscoveryReads: buildVeFreeDirectoryDiscoveryReads(adminClient),

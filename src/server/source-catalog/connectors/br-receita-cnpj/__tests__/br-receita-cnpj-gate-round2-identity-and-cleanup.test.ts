@@ -675,7 +675,9 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // Not phone, not catalog, not BR, not CUT3B4. Not a BR migration; like the 141 it re-states the
     // existing list that contains 'CNPJ', so it is checked on its own further down instead of
     // joining the sweep. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 146, 'the repository ceiling is 146 — SOURCES-VE-CLOSE-1, not CUT A');
+    // AI-USAGE-FASE-2 moves the ceiling to 147: dimension columns on `provider_usage_logs`, a
+    // BEFORE INSERT trigger that only fills NULLs and its backfill. Not BR, not CUT A.
+    assert.equal(highest, 147, 'the repository ceiling is 147 — AI-USAGE-FASE-2, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -737,7 +739,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('146')),
       ['146_tax_identifier_type_rif.sql'],
-      'SOURCES-VE-CLOSE-1 owns exactly one migration, and it is the ceiling',
+      'SOURCES-VE-CLOSE-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('147')),
+      ['147_provider_usage_log_dimensions.sql'],
+      'AI-USAGE-FASE-2 owns exactly one migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -827,6 +834,15 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
         .join('\n')
         .replace(/'CNPJ'/g, '');
       assert.equal(/CNPJ/i.test(body146), false, '146 may only name CNPJ as the existing CHECK value');
+    }
+    // The 147 (AI-USAGE-FASE-2) only tags provider usage logs: it must not be a BR round and must
+    // not name CNPJ at all.
+    {
+      const sql147 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/147_provider_usage_log_dimensions.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql147), false, '147 must not be authored by a BR round');
     }
 
     // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE

@@ -287,6 +287,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. No nombra ninguna
       // tabla, columna ni función de las cadenas que esta guarda vigila. AUTORADA y NO APLICADA.
       '146_tax_identifier_type_rif.sql',
+      // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+      // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+      // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+      // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+      // NO APLICADA.
+      '147_provider_usage_log_dimensions.sql',
     ]);
   });
 
