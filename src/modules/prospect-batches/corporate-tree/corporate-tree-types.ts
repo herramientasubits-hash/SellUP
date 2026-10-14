@@ -37,6 +37,14 @@ export const CORPORATE_TREE_RELATION_ORDER: readonly CorporateTreeRelation[] = [
   'other_country',
 ];
 
+/** Nombre del lote de una búsqueda en árbol. */
+export function corporateTreeBatchName(rootName: string): string {
+  return `Árbol · ${rootName}`;
+}
+
+/** Industria del lote: una etiqueta propia (la adopción del escritor no la pisa). */
+export const CORPORATE_TREE_BATCH_INDUSTRY = 'Árbol de empresa';
+
 /** Clave de la metadata del lote y de cada candidato. */
 export const CORPORATE_TREE_METADATA_KEY = 'corporate_tree';
 

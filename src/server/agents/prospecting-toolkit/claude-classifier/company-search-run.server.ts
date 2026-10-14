@@ -183,7 +183,7 @@ async function countPreviousRuns(countryCode: string, industry: string): Promise
  * 0f60a313): las 5 empresas de Claude llegaron sin `official_source_enrichment` y las
  * de Tavily sí. Fail-open: un tropiezo escribe las empresas como venían.
  */
-async function withOfficialIdentity(output: ProspectingPipelineOutput): Promise<ProspectingPipelineOutput> {
+export async function withOfficialIdentity(output: ProspectingPipelineOutput): Promise<ProspectingPipelineOutput> {
   if (output.candidates.length === 0) return output;
   const enrich = buildTavilyOfficialIdentityEnricher({
     country: output.input.country,

@@ -46,6 +46,11 @@ export type CorporateTreeSearchInput = {
   /** Países donde se buscan empresas de esta rama. */
   countries: readonly TreeCountry[];
   maxCompanies: number;
+  /**
+   * AGENT1-CORPORATE-TREE-2 — lo ya encontrado GRATIS (registros oficiales y banco):
+   * Claude no lo repite y no se paga dos veces. `{ name, countryCode }`.
+   */
+  knownCompanies?: readonly { name: string; countryCode: string }[];
 };
 
 export type CorporateTreeRejection =
@@ -53,6 +58,7 @@ export type CorporateTreeRejection =
   | 'country_not_requested'
   | 'source_not_in_search'
   | 'is_root'
+  | 'already_found_free'
   | 'duplicate_in_response';
 
 /** Una empresa de la rama que pasó los filtros. */
@@ -195,6 +201,12 @@ export function buildCorporateTreeRequestBody(input: CorporateTreeSearchInput, m
           input.rootWebsite ? `Web conocida: ${input.rootWebsite}` : null,
           input.rootCountry ? `País de la empresa de partida: ${input.rootCountry.name}` : null,
           BRANCH_INSTRUCTIONS[input.branch],
+          (input.knownCompanies ?? []).length > 0
+            ? `Ya encontradas en registros oficiales (no las repitas): ${(input.knownCompanies ?? [])
+                .slice(0, 60)
+                .map((c) => `${c.name} (${c.countryCode})`)
+                .join('; ')}`
+            : null,
         ]
           .filter(Boolean)
           .join('\n'),
@@ -276,7 +288,7 @@ function allowedCountryCodes(input: CorporateTreeSearchInput): Set<string> {
   return codes;
 }
 
-type FilterContext = Pick<CorporateTreeSearchInput, 'branch' | 'rootName' | 'rootWebsite' | 'rootCountry' | 'countries' | 'maxCompanies'>;
+type FilterContext = Pick<CorporateTreeSearchInput, 'branch' | 'rootName' | 'rootWebsite' | 'rootCountry' | 'countries' | 'maxCompanies' | 'knownCompanies'>;
 
 /**
  * Filtra lo que Claude propuso. Puro salvo `fetchPage`, que sólo se usa para
@@ -298,6 +310,7 @@ export async function filterCorporateTreeProposals(
   };
 
   const rootKey = normalizeTreeName(input.rootName);
+  const known = new Set((input.knownCompanies ?? []).map((c) => `${normalizeTreeName(c.name)}|${c.countryCode}`));
   const root = readRoot(submission.root, searchDomains);
 
   const seen = new Set<string>();
@@ -326,6 +339,10 @@ export async function filterCorporateTreeProposals(
       continue;
     }
     const key = `${normalizeTreeName(name)}|${countryCode}`;
+    if (known.has(key)) {
+      reject('already_found_free');
+      continue;
+    }
     if (seen.has(key)) {
       reject('duplicate_in_response');
       continue;
