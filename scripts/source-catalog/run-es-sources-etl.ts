@@ -18,7 +18,7 @@
  *   - `--apply` exige `--only` (una clave cada vez) y la autorización explícita de la
  *     dueña para ESA carga; más de 25 000 filas exigen además
  *     SELLUP_ALLOW_LARGE_SOURCE_IMPORT=true y SELLUP_CONFIRMED_SOURCE_KEY=<clave>.
- *   - `--prune-stale` (sólo registros) borra las filas de esa clave que la carga no trae.
+ *   - `--prune-stale` (todas menos alias) borra las filas de esa clave que la carga no trae.
  *   - No toca accounts, prospect_candidates ni otras fuentes.
  */
 
@@ -68,7 +68,9 @@ import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-
 const UPSERT_CHUNK = 1000;
 const ONLY_VALUES = ['placsp-registry', 'official-registry', 'alias', 'directory', 'public'] as const;
 type Only = (typeof ONLY_VALUES)[number];
-const REGISTRY_ONLY: ReadonlySet<Only> = new Set(['placsp-registry', 'official-registry']);
+// SOURCES-ES-RANKING-1 — también la capa gratuita y Gobierno: una recarga que cambia
+// el orden o los filtros no debe dejar filas viejas (p. ej. una empresa que ya no entra).
+const PRUNABLE_ONLY: ReadonlySet<Only> = new Set(['placsp-registry', 'official-registry', 'directory', 'public']);
 
 type Config = {
   inDir: string;
@@ -94,8 +96,8 @@ function parseArgs(argv: readonly string[]): Config {
   const apply = argv.includes('--apply');
   if (apply && only === null) throw new Error('config_invalid: --apply exige --only= (una carga cada vez)');
   const pruneStale = argv.includes('--prune-stale');
-  if (pruneStale && (only === null || !REGISTRY_ONLY.has(only as Only))) {
-    throw new Error('config_invalid: --prune-stale sólo vale con --only=placsp-registry | official-registry');
+  if (pruneStale && (only === null || !PRUNABLE_ONLY.has(only as Only))) {
+    throw new Error('config_invalid: --prune-stale no vale con --only=alias');
   }
   const year = Number(value('year') ?? new Date().getUTCFullYear());
   if (!Number.isInteger(year)) throw new Error('config_invalid: --year debe ser entero');

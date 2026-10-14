@@ -115,11 +115,16 @@ def extract_bdns(dirs):
                 nif = clean_nif(nif)
                 if not nif or not name.strip():
                     continue
-                b = out.setdefault(nif, {'nif': nif, 'names': defaultdict(int), 'cnae': defaultdict(int), 'large_year': None, 'region': None})
+                b = out.setdefault(nif, {'nif': nif, 'names': defaultdict(int), 'cnae': defaultdict(int), 'large_year': None, 'region': None, '_votes': set()})
                 b['names'][name.strip()] += 1
-                sector = (x.get('sectores') or '').split(' - ')[0].strip()
-                if sector:
-                    b['cnae'][sector] += 1
+                # Un voto por PROGRAMA, no por ayuda: la actividad la pone la convocatoria
+                # (Eulen sale «61 Telecomunicaciones» en las 18 ayudas de un solo programa).
+                program_key = (x.get('convocatoria') or '')[:200]
+                for part in (x.get('sectores') or '').split('#'):
+                    sector = part.split(' - ')[0].strip()
+                    if sector and (sector, program_key) not in b['_votes']:
+                        b['_votes'].add((sector, program_key))
+                        b['cnae'][sector] += 1
                 year = (x.get('fechaConcesion') or '')[:4]
                 program = x.get('convocatoria') or ''
                 if x.get('tipoBeneficiario') == 'GRAN EMPRESA' and year.isdigit() and not LARGE_FLAG_IGNORED_PROGRAMS.match(program):
@@ -228,7 +233,10 @@ def main():
         print('adjudicatarias', write_jsonl(os.path.join(args.out, 'es_awardees.jsonl'), awardees))
         print('órganos', write_jsonl(os.path.join(args.out, 'es_bodies.jsonl'), bodies))
     if args.bdns:
-        print('BDNS', write_jsonl(os.path.join(args.out, 'es_bdns.jsonl'), extract_bdns(args.bdns)))
+        bdns = extract_bdns(args.bdns)
+        for item in bdns.values():
+            item.pop('_votes', None)
+        print('BDNS', write_jsonl(os.path.join(args.out, 'es_bdns.jsonl'), bdns))
     if args.invente:
         print('INVENTE', write_jsonl(os.path.join(args.out, 'es_invente.jsonl'), extract_invente(args.invente)))
     if args.bde:

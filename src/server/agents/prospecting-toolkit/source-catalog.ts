@@ -3289,7 +3289,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-ES-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 14.312 sociedades (651 con web oficial; 7.106 «GRAN EMPRESA»): construcción 2.151, servicios 1.997, industria 1.686, transporte 1.642, energía 1.373, retail 1.345, salud 1.291, agro 901, tecnología 770, consumo 565, finanzas 440 y gobierno 151. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=directory.',
+      'SOURCES-ES-CLOSE-1 + SOURCES-ES-RANKING-1: RECARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 13.598 sociedades (649 con web oficial; 6.413 «GRAN EMPRESA»): construcción 2.184, servicios 1.911, industria 1.569, transporte 1.423, energía 1.375, salud 1.276, retail 1.228, agro 878, tecnología 714, consumo 464, finanzas 438 y gobierno 138. Orden: «gran empresa» y bancos primero, luego adjudicatarias y entes de INVENTE de 200+ mezclados por fuerza; la actividad de la BDNS cuenta un voto por programa y sólo vale con mayoría; sin NIF de no residente. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=directory --prune-stale.',
     countryCodes: ['ES'],
     sectors: [],
     priority: 'P1',
@@ -3317,7 +3317,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-ES-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 3.618 entidades con NIF y web propia (2.772 ayuntamientos, 76 del Estado, 62 autonómicas, 33 universidades u hospitales, 23 diputaciones y cabildos, 652 otros organismos); fuera 2.981 sin web que las nombre y 291 con web compartida. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=public.',
+      'SOURCES-ES-CLOSE-1 + SOURCES-ES-RANKING-1: RECARGADO y verificado en Prod el 14-10-2026 (autorizado por la dueña): 3.618 entidades con NIF y web propia (141 del Estado, 188 autonómicas, 33 universidades u hospitales, 23 diputaciones y cabildos, 2.772 ayuntamientos y 461 otros organismos, entre ellos las mutuas colaboradoras); fuera 2.981 sin web que las nombre y 291 con web compartida. Van por delante de cualquier empresa en Gobierno; entre iguales, la que más contrata. Carga: scripts/source-catalog/run-es-sources-etl.ts --apply --only=public --prune-stale.',
     countryCodes: ['ES'],
     sectors: [],
     priority: 'P1',
