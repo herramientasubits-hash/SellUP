@@ -10,6 +10,7 @@ import { COMPETITOR_REFERENCE_LIMITS } from '@/modules/prospect-batches/competit
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import {
+  MAX_COMPETITOR_COUNTRIES,
   REFERENCE_COMPANY_LIMITS,
   resolveSearchModeDefinitions,
 } from '@/modules/prospect-batches/chat-wizard';
@@ -92,7 +93,9 @@ export function WizardActiveStep({
       );
 
     case 'country':
-      return <CountryStep state={state} onCountryChange={onCountryChange} titleRef={stepTitleRef} />;
+      return (
+        <CountryStep state={state} dispatch={dispatch} onCountryChange={onCountryChange} titleRef={stepTitleRef} />
+      );
 
     case 'industry':
       return (
@@ -389,23 +392,45 @@ const COUNTRY_OPTIONS: readonly ChatQuestionOptionDetail[] = LATAM_COUNTRIES.map
 
 function CountryStep({
   state,
+  dispatch,
   onCountryChange,
   titleRef,
 }: {
   state: ProspectWizardState;
+  dispatch: React.Dispatch<ProspectWizardAction>;
   onCountryChange: (code: string) => void;
   titleRef: TitleRef;
 }) {
-  // «Competidores»: se sugiere el país de la referencia (resaltado), sin elegirlo solo.
-  const suggested = state.countryCode ?? state.referenceCompany?.countryCode ?? null;
+  // «Competidores»: varios países (una búsqueda por cada uno). La selección vive en el
+  // reductor para sobrevivir a los remontajes del hilo, como las subindustrias.
+  if (state.searchMode === 'competitors') {
+    const selected = state.competitorCountryCodes ?? [];
+    return (
+      <ChatQuestionPanel
+        aria-label="Países de la búsqueda"
+        title="¿En qué países buscamos sus competidores?"
+        description={`Elige hasta ${MAX_COMPETITOR_COUNTRIES}. Se hace una búsqueda por país.`}
+        titleRef={titleRef}
+        mode="multiple"
+        max={MAX_COMPETITOR_COUNTRIES}
+        options={COUNTRY_OPTIONS}
+        selected={selected}
+        onSelectionChange={(countryCodes) => dispatch({ type: 'SET_COMPETITOR_COUNTRIES', countryCodes })}
+        onSubmitSelection={(countryCodes) => {
+          if (countryCodes.length === 0) return;
+          dispatch({ type: 'SET_COMPETITOR_COUNTRIES', countryCodes });
+          onCountryChange(countryCodes[0]);
+        }}
+        filterPlaceholder="Buscar país"
+        footerNotice={hasIssues(state, 'country') ? <StepBlockingIssues state={state} step="country" /> : undefined}
+      />
+    );
+  }
+  const suggested = state.countryCode;
   return (
     <ChatQuestionPanel
       aria-label="País de la búsqueda"
-      title={
-        state.searchMode === 'competitors'
-          ? '¿En qué país buscamos sus competidores?'
-          : '¿En qué país quieres buscar prospectos?'
-      }
+      title="¿En qué país quieres buscar prospectos?"
       titleRef={titleRef}
       options={COUNTRY_OPTIONS}
       selected={suggested ? [suggested] : []}

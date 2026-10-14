@@ -1,6 +1,11 @@
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import { REFERENCE_COMPANY_LIMITS, VALID_COUNTRY_CODES, resolveSearchModeDefinitions } from './wizard-config';
+import {
+  MAX_COMPETITOR_COUNTRIES,
+  REFERENCE_COMPANY_LIMITS,
+  VALID_COUNTRY_CODES,
+  resolveSearchModeDefinitions,
+} from './wizard-config';
 import { getPreviousWizardStep } from './wizard-selectors';
 import type {
   ProspectWizardState,
@@ -268,9 +273,17 @@ export function prospectWizardReducer(
       const industryChanged = industryId !== state.industryId;
       const canReturnToSummary =
         state.editReturnsToSummary === true && state.countryCode !== null && industryId !== null;
+      // Se sugiere el país de la referencia como primera opción (se puede cambiar).
+      const suggestedCountries =
+        (state.competitorCountryCodes ?? []).length > 0
+          ? state.competitorCountryCodes
+          : reference.countryCode && VALID_COUNTRY_CODES.has(reference.countryCode)
+            ? [reference.countryCode]
+            : [];
       return {
         ...state,
         industryId,
+        competitorCountryCodes: suggestedCountries,
         subindustryIds: industryChanged ? [] : state.subindustryIds,
         ...(canReturnToSummary
           ? { currentStep: 'summary' as const, editReturnsToSummary: false }
@@ -308,13 +321,32 @@ export function prospectWizardReducer(
       // pregunta de industria (se cambia desde el resumen si hace falta).
       const nextAfterCountry =
         state.searchMode === 'competitors' && state.industryId !== null ? 'additional_criteria' : 'industry';
+      // El país principal encabeza la selección de «Competidores»; en los demás modos
+      // no hay selección múltiple.
+      const competitorCountryCodes =
+        state.searchMode === 'competitors'
+          ? [action.countryCode, ...(state.competitorCountryCodes ?? []).filter((c) => c !== action.countryCode)]
+          : [];
       return {
         ...state,
         countryCode: action.countryCode,
+        competitorCountryCodes,
         ...afterEditedStep(state, nextAfterCountry),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'),
         lastEditedStep: state.lastEditedStep,
       };
+    }
+
+    // ── SET_COMPETITOR_COUNTRIES ────────────────────────────────────────────
+    // «Competidores»: varios países, una búsqueda por país. Sólo países válidos,
+    // sin repetir y hasta el tope; fuera de eso no se toca la selección.
+    case 'SET_COMPETITOR_COUNTRIES': {
+      if (state.currentStep !== 'country' || state.searchMode !== 'competitors') return state;
+      const codes = [...new Set(action.countryCodes)];
+      if (codes.length > MAX_COMPETITOR_COUNTRIES || codes.some((code) => !VALID_COUNTRY_CODES.has(code))) {
+        return state;
+      }
+      return { ...state, competitorCountryCodes: codes };
     }
 
     // ── RECONCILE_COUNTRY_SUBINDUSTRIES ─────────────────────────────────────
