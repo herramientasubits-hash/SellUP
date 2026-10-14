@@ -1,6 +1,6 @@
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES } from './wizard-config';
+import { REFERENCE_COMPANY_LIMITS, VALID_COUNTRY_CODES, resolveSearchModeDefinitions } from './wizard-config';
 import { getPreviousWizardStep } from './wizard-selectors';
 import type {
   ProspectWizardState,
@@ -15,6 +15,8 @@ import type {
 export type InitialStateParams = {
   catalogVersion: string;
   defaultRequestedCount: number;
+  /** AGENT1-SUPPLIER-SEARCH-1 — resuelto en el servidor; ausente = apagado. */
+  supplierSearchEnabled?: boolean;
 };
 
 /**
@@ -24,6 +26,7 @@ export type InitialStateParams = {
 export function hasWizardSelections(state: ProspectWizardState): boolean {
   return (
     state.searchMode !== null ||
+    (state.referenceCompanyName ?? '').trim().length > 0 ||
     state.countryCode !== null ||
     state.industryId !== null ||
     state.subindustryIds.length > 0 ||
@@ -51,6 +54,8 @@ export function createInitialProspectWizardState(
   return {
     currentStep: 'welcome',
     searchMode: null,
+    referenceCompanyName: null,
+    supplierSearchEnabled: params.supplierSearchEnabled === true,
     countryCode: null,
     industryId: null,
     subindustryIds: [],
@@ -142,7 +147,7 @@ export function prospectWizardReducer(
     // ── SELECT_SEARCH_MODE ──────────────────────────────────────────────────
     case 'SELECT_SEARCH_MODE': {
       if (state.currentStep !== 'search_type') return state;
-      const modeDef = SEARCH_MODE_DEFINITIONS.find((d) => d.mode === action.mode);
+      const modeDef = resolveSearchModeDefinitions(state).find((d) => d.mode === action.mode);
       if (!modeDef) return state;
 
       if (modeDef.availability !== 'enabled') {
@@ -167,6 +172,23 @@ export function prospectWizardReducer(
           ...state,
           searchMode: action.mode,
           currentStep: 'corporate_tree',
+          referenceCompanyName: null,
+          warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+        };
+      }
+
+      // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores» pregunta primero por la empresa de
+      // referencia; cambiar de forma borra la empresa de la forma anterior, y pasar a
+      // «Proveedores» desde el resumen obliga a escribirla (no se vuelve al resumen
+      // sin ella).
+      if (action.mode === 'suppliers') {
+        const hasReference = (state.referenceCompanyName ?? '').trim().length > 0;
+        return {
+          ...state,
+          searchMode: action.mode,
+          ...(hasReference && state.searchMode === 'suppliers'
+            ? afterEditedStep(state, 'reference_company')
+            : { currentStep: 'reference_company' as const }),
           warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
         };
       }
@@ -174,8 +196,38 @@ export function prospectWizardReducer(
       return {
         ...state,
         searchMode: action.mode,
+        referenceCompanyName: null,
         ...afterEditedStep(state, 'country'),
         warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+      };
+    }
+
+    // ── SET_REFERENCE_COMPANY ───────────────────────────────────────────────
+    // AGENT1-SUPPLIER-SEARCH-1 — la empresa de la que se buscan proveedores.
+    case 'SET_REFERENCE_COMPANY': {
+      if (state.currentStep !== 'reference_company') return state;
+      const value = action.value.replace(/\s+/g, ' ').trim();
+      const { minChars, maxChars } = REFERENCE_COMPANY_LIMITS;
+      if (value.length < minChars || value.length > maxChars) {
+        const issue: WizardBlockingIssue = {
+          code: 'REFERENCE_COMPANY_INVALID',
+          step: 'reference_company',
+          message: `Escribe el nombre de la empresa (entre ${minChars} y ${maxChars} caracteres).`,
+          recoverable: true,
+        };
+        return {
+          ...state,
+          blockingIssues: [
+            ...withoutBlockingCode(state.blockingIssues, 'REFERENCE_COMPANY_INVALID'),
+            issue,
+          ],
+        };
+      }
+      return {
+        ...state,
+        referenceCompanyName: value,
+        ...afterEditedStep(state, 'country'),
+        blockingIssues: withoutBlockingCode(state.blockingIssues, 'REFERENCE_COMPANY_INVALID'),
       };
     }
 
@@ -471,7 +523,7 @@ export function prospectWizardReducer(
       // atrás desde el criterio adicional lleva a la industria. Dejar el mapa
       // estático llevaría a un paso que no se renderiza: un hueco visual, que es
       // exactamente lo que el § 7 prohíbe.
-      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion);
+      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion, state.searchMode);
       if (!prev) return state;
 
       return {
@@ -485,6 +537,10 @@ export function prospectWizardReducer(
       // § 7 — un paso que no existe en esta taxonomía tampoco se puede editar.
       // El botón no se renderiza; esto cierra la vía por acción directa.
       if (action.step === 'subindustries' && !isSubindustrySelectionEnabled(state.catalogVersion)) {
+        return state;
+      }
+      // La empresa de referencia sólo existe en «Proveedores».
+      if (action.step === 'reference_company' && state.searchMode !== 'suppliers') {
         return state;
       }
       return {
@@ -513,6 +569,7 @@ export function prospectWizardReducer(
         return createInitialProspectWizardState({
           catalogVersion: state.catalogVersion,
           defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
+          supplierSearchEnabled: state.supplierSearchEnabled,
         });
       }
       return { ...state, restartConfirmationRequired: true };
@@ -528,6 +585,7 @@ export function prospectWizardReducer(
       return createInitialProspectWizardState({
         catalogVersion: state.catalogVersion,
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
+        supplierSearchEnabled: state.supplierSearchEnabled,
       });
     }
 

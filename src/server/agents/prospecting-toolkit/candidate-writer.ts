@@ -761,6 +761,18 @@ function buildCandidateMetadata(
     inferred_name_source: candidate.inferredNameSource ?? null,
     source_snippet: candidate.sourceSnippet?.slice(0, 300) ?? null,
     ...(candidate.searchTrace ? { search_trace: candidate.searchTrace } : {}),
+    // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa»: a quién le vende y la
+    // página que lo prueba, para quien revisa el candidato.
+    ...(candidate.relationshipEvidence
+      ? {
+          relationship: {
+            kind: candidate.relationshipEvidence.kind,
+            reference_company_name: candidate.relationshipEvidence.referenceCompanyName,
+            evidence_url: candidate.relationshipEvidence.evidenceUrl,
+            evidence: candidate.relationshipEvidence.evidence,
+          },
+        }
+      : {}),
     ...(candidate.llmEvaluation
       ? { llm_evaluation: candidate.llmEvaluation }
       : {}),

@@ -42,6 +42,7 @@ import {
   isExploratorySearchFormV2Enabled,
   isLushaPreviewEnabled,
   isAgent1AutoProviderCascadeEnabled,
+  isAgent1SupplierSearchEnabled,
 } from '@/lib/feature-flags.server';
 // A1-APOLLO-WIZARD-1 — misma función que enruta la ejecución del wizard
 // (`executeProspectWizardGeneration`, paso 5a). Resolver aquí, en el servidor, es
@@ -265,6 +266,8 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
   const enableLushaPreview = isLushaPreviewEnabled();
   // AGENT1-AUTO-PROVIDER-CASCADE-1 — sólo viaja el booleano, nunca el env.
   const autoProviderCascade = isAgent1AutoProviderCascadeEnabled();
+  // AGENT1-SUPPLIER-SEARCH-1 — sólo viaja el booleano; el servidor lo vuelve a mirar al ejecutar.
+  const supplierSearchEnabled = isAgent1SupplierSearchEnabled();
   // Execution only active when wizard is also active — flag parsed by the
   // canonical server-only helper (normalized: trim + toLowerCase).
   const wizardExecutionEnabled =
@@ -322,7 +325,7 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
   // vacío inicial («no hay prospectos por revisar»), para que la acción esté
   // también donde se la echa en falta.
   const generateDrawer = (
-    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
+    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} supplierSearchEnabled={supplierSearchEnabled} />
   );
 
   return { generateDrawer, isGenerateAvailable: experience !== 'unavailable' };

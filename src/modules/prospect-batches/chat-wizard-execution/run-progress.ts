@@ -85,6 +85,8 @@ const STAGE_BY_DEP = {
   runApolloPipeline: 'apollo',
   runLushaWaterfallLeg: 'lusha',
   runClaudeCompanySearchLeg: 'claude_search',
+  // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores»: Claude es el único paso.
+  runClaudeSupplierSearch: 'claude_search',
 } as const satisfies Record<string, RunProgressStage>;
 
 type StageDepName = keyof typeof STAGE_BY_DEP;

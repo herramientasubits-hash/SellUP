@@ -20,6 +20,7 @@ import type {
   SearchTrace,
   WebSearchProviderKey,
   WebSearchResult,
+  CandidateRelationshipEvidence,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
 import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery, getSourceGuidedQueryMeta, classifyQuery } from './web-search-tool';
@@ -790,6 +791,20 @@ export type ProspectingCandidateBuildResult = {
  * Sin créditos de proveedor: `verifyWebsite` y `checkCompanyDuplicate` consultan
  * nuestra base y HubSpot; ninguna llama a Apollo ni a Lusha.
  */
+/** AGENT1-SUPPLIER-SEARCH-1 — `supplier_of` + `evidence_source_url` del resultado de Claude. */
+export function readRelationshipEvidence(result: WebSearchResult): CandidateRelationshipEvidence | null {
+  const metadata = result.metadata ?? {};
+  const supplierOf = metadata['supplier_of'];
+  if (typeof supplierOf !== 'string' || !supplierOf.trim()) return null;
+  const evidenceUrl = metadata['evidence_source_url'];
+  return {
+    kind: 'supplier_of',
+    referenceCompanyName: supplierOf.trim(),
+    evidenceUrl: typeof evidenceUrl === 'string' && evidenceUrl.trim() ? evidenceUrl.trim() : null,
+    evidence: result.snippet?.trim() ? result.snippet.trim().slice(0, 300) : null,
+  };
+}
+
 export async function buildProspectingPipelineCandidate(
   result: WebSearchResult,
   context: ProspectingCandidateBuildContext,
@@ -992,6 +1007,9 @@ export async function buildProspectingPipelineCandidate(
       sourceUrl: result.url,
       sourceTitle: result.title,
       sourceSnippet: result.snippet ?? null,
+      // AGENT1-SUPPLIER-SEARCH-1 — la URL de Claude es la portada; la página que
+      // prueba la relación viaja en la metadata del resultado y se conserva aquí.
+      relationshipEvidence: readRelationshipEvidence(result),
       // § 7 — la identidad estable de una organización Apollo sin dominio.
       apolloOrganizationId: isApolloResult ? readApolloProviderOrganizationId(result) : null,
       inferredNameSource,

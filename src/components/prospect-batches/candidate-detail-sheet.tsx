@@ -226,6 +226,7 @@ export function CandidateDetailSheet({
   const searchTrace = candidate?.metadata?.search_trace as Record<string, unknown> | undefined;
   const sourceTitle = candidate?.metadata?.source_title as string | undefined;
   const sourceSnippet = candidate?.metadata?.source_snippet as string | undefined;
+  const relationship = candidate?.metadata?.relationship as Record<string, unknown> | undefined;
   const countryEvidence = candidate?.metadata?.country_evidence as Record<string, unknown> | undefined;
   const websiteVerification = candidate?.metadata?.website_verification as Record<string, unknown> | undefined;
   const scoringMeta = candidate?.metadata?.scoring as Record<string, unknown> | undefined;
@@ -503,11 +504,12 @@ export function CandidateDetailSheet({
             )}
 
             {/* Por qué fue encontrado */}
-            {!!(searchTrace ?? sourceTitle ?? sourceSnippet) && (
+            {!!(searchTrace ?? sourceTitle ?? sourceSnippet ?? relationship) && (
               <CandidateFoundReasonSection
                 searchTrace={searchTrace}
                 sourceTitle={sourceTitle}
                 sourceSnippet={sourceSnippet}
+                relationship={relationship}
               />
             )}
 

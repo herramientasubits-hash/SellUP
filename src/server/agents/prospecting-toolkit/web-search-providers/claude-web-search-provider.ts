@@ -28,6 +28,8 @@ export type ClaudeSearchRunContext = {
   industryName: string;
   subindustries: readonly string[];
   additionalCriteria: string | null;
+  /** AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa»; ausente = por criterios. */
+  referenceCompanyName?: string | null;
   /** Ya vistas para este país × industria; la corrida suma las que Claude va trayendo. */
   excludeDomains: string[];
   /** Una entrada por llamada (para el resumen de la corrida). */
@@ -93,6 +95,7 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       additionalCriteria: ctx.additionalCriteria,
       excludeDomains: [...ctx.excludeDomains, ...(input.excludeDomains ?? [])],
       maxCompanies: maxResults,
+      referenceCompanyName: ctx.referenceCompanyName ?? null,
     },
     ctx.model,
     {

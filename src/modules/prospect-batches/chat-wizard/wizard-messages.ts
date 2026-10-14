@@ -1,5 +1,5 @@
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import { SEARCH_MODE_DEFINITIONS } from './wizard-config';
+import { resolveSearchModeDefinitions } from './wizard-config';
 import type {
   ProspectWizardState,
   ProspectWizardStep,
@@ -12,6 +12,7 @@ import type {
 const ORDERED_STEPS: ProspectWizardStep[] = [
   'welcome',
   'search_type',
+  'reference_company',
   'country',
   'industry',
   'subindustries',
@@ -96,7 +97,7 @@ export function deriveWizardMessages(
     });
 
     if (state.searchMode) {
-      const modeDef = SEARCH_MODE_DEFINITIONS.find((d) => d.mode === state.searchMode);
+      const modeDef = resolveSearchModeDefinitions(state).find((d) => d.mode === state.searchMode);
       messages.push({
         id: 'user-search-type-answer',
         role: 'user',
@@ -118,8 +119,33 @@ export function deriveWizardMessages(
     }
   }
 
+  // ── Reference company (AGENT1-SUPPLIER-SEARCH-1) ─────────────────────────
+  const isSuppliers = state.searchMode === 'suppliers' && state.supplierSearchEnabled === true;
+  if (hasReached(state.currentStep, 'reference_company') && isSuppliers) {
+    messages.push({
+      id: 'assistant-reference-company-question',
+      role: 'assistant',
+      messageType: 'choice',
+      content: '¿De qué empresa quieres encontrar proveedores?',
+      step: 'reference_company',
+    });
+
+    if (state.referenceCompanyName) {
+      messages.push({
+        id: 'user-reference-company-answer',
+        role: 'user',
+        messageType: 'selection_summary',
+        content: state.referenceCompanyName,
+        step: 'reference_company',
+      });
+    }
+  }
+
   // ── Country ──────────────────────────────────────────────────────────────
-  if (hasReached(state.currentStep, 'country') && state.searchMode === 'exploratory') {
+  if (
+    hasReached(state.currentStep, 'country') &&
+    (state.searchMode === 'exploratory' || (isSuppliers && !!state.referenceCompanyName))
+  ) {
     messages.push({
       id: 'assistant-country-question',
       role: 'assistant',
@@ -147,9 +173,11 @@ export function deriveWizardMessages(
       id: 'assistant-industry-question',
       role: 'assistant',
       messageType: 'choice',
-      content: isSubindustrySelectionEnabled(state.catalogVersion)
-        ? '¿En qué industria?'
-        : '¿En qué macro industria?',
+      content: isSuppliers
+        ? '¿De qué industria deberían ser los proveedores?'
+        : isSubindustrySelectionEnabled(state.catalogVersion)
+          ? '¿En qué industria?'
+          : '¿En qué macro industria?',
       step: 'industry',
     });
 
