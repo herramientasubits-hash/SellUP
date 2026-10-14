@@ -30,6 +30,9 @@ import {
   buildEsPlacspNifRegistryRow,
   buildEsPublicEntityRow,
   esAliasKeysForNames,
+  dominantCodeWithMajority,
+  esDirectoryPriorityScore,
+  ES_PUBLIC_ENTITY_PRIORITY_BASE,
   esPreferredLegalName,
   esPreferredPublicName,
   esPublicEntityDisplayName,
@@ -339,6 +342,45 @@ describe('capa gratuita de empresas', () => {
   });
 });
 
+describe('orden de la capa gratuita (SOURCES-ES-RANKING-1)', () => {
+  const score = (kind: Parameters<typeof esDirectoryPriorityScore>[0]['kind'], workers: number | null, awardedEur: number, large = false) =>
+    esDirectoryPriorityScore({ kind, workers, awardedEur, large });
+
+  it('«gran empresa» y bancos primero; entes de INVENTE pequeños al final', () => {
+    assert.ok(score('bdns_large', null, 0, true) > score('placsp_awardee', null, 200_000_000));
+    assert.ok(score('bde_financial', null, 0) > score('invente_company', 45_000, 0));
+    assert.ok(score('invente_company', 52, 0) < score('placsp_awardee', null, 1_000_000));
+  });
+
+  it('adjudicatarias y entes de INVENTE grandes se mezclan por fuerza', () => {
+    assert.ok(score('placsp_awardee', null, 60_000_000) > score('invente_company', 300, 0));
+    assert.ok(score('invente_company', 1_100, 0) > score('placsp_awardee', null, 2_000_000));
+  });
+
+  it('en Gobierno las entidades públicas van por delante de cualquier empresa', () => {
+    assert.ok(ES_PUBLIC_ENTITY_PRIORITY_BASE > score('bdns_large', 99_999, 999_999_999, true));
+  });
+
+  it('la actividad de la BDNS sólo vale con la mitad de los programas (Eulen no es tecnológica)', () => {
+    assert.equal(dominantCodeWithMajority({ '61': 1, H: 1, '84.1': 1, '96': 1 }, resolveSpainCnaeMacro), null);
+    assert.equal(dominantCodeWithMajority({ '62': 2, '84.1': 1 }, resolveSpainCnaeMacro), '62');
+    assert.equal(dominantCodeWithMajority({ '62': 1, C: 1 }, resolveSpainCnaeMacro), '62');
+    const eulen = buildEsFreeDirectoryRow(
+      { nif: 'A28517308', awardee: null, bdns: bdns({ nif: 'A28517308', names: { 'EULEN, S.A.': 1 }, cnae: { '61': 1, H: 1, '84.1': 1, '96': 1 } }), invente: null, bde: null },
+      { ...params, sharedDomains: new Set<string>() },
+    );
+    assert.deepEqual(eulen, { excluded: 'no_macro' });
+  });
+
+  it('NIF de no residente (N) fuera', () => {
+    const result = buildEsFreeDirectoryRow(
+      { nif: 'N9007326C', awardee: null, bdns: null, invente: invente({ nif: 'N9007326C', name: 'Informa D&B Portugal, Lda.', cnae: 'J6201' }), bde: null },
+      { ...params, sharedDomains: new Set<string>() },
+    );
+    assert.deepEqual(result, { excluded: 'foreign' });
+  });
+});
+
 describe('capa gratuita de Gobierno', () => {
   const publicParams = { ...params, sharedDomains: new Set<string>() };
 
@@ -346,6 +388,7 @@ describe('capa gratuita de Gobierno', () => {
     assert.equal(esPublicEntityDisplayName('Junta de Gobierno del Ayuntamiento de Cuenca'), 'Ayuntamiento de Cuenca');
     assert.equal(esPublicEntityDisplayName('Presidencia del Organismo Autónomo Terra de Sanxenxo'), 'Organismo Autónomo Terra de Sanxenxo');
     assert.equal(esPublicEntityDisplayName('Consejo de Administración de Metropolitano de Tenerife, S.A.'), 'Metropolitano de Tenerife, S.A.');
+    assert.equal(esPublicEntityDisplayName('Letrado-a Mayor del Senado'), 'Senado');
     assert.equal(esPreferredPublicName({ 'Alcaldía del Ayuntamiento de Getafe': 3, 'Pleno del Ayuntamiento de Getafe': 2 }), 'Ayuntamiento de Getafe');
   });
 
@@ -360,6 +403,22 @@ describe('capa gratuita de Gobierno', () => {
     assert.equal(result.row.raw_data['entity_kind'], 'municipality');
     assert.equal(result.row.raw_data['public_key'], 'AYUNTAMIENTO CUENCA');
     assert.equal(result.row.raw_data['macro_industry_key'], 'government');
+  });
+
+  it('Estado y comunidades antes que ayuntamientos; entre iguales, el que más contrata', () => {
+    const body = (nif: string, name: string, url: string, n: number, typeCode: string | null) =>
+      ({ nif, dir3: null, names: { [name]: n }, urls: [url], emails: [], typeCode });
+    const row = (nif: string, name: string, url: string, n: number, typeCode: string | null) => {
+      const r = buildEsPublicEntityRow({ nif, body: body(nif, name, url, n, typeCode), invente: null }, publicParams);
+      assert.ok('row' in r, name);
+      return r.row;
+    };
+    const ministry = row('Q2818014I', 'Ministerio de Cultura', 'https://www.cultura.gob.es', 3, '1');
+    const big = row('P1607900F', 'Ayuntamiento de Cuenca', 'http://www.cuenca.es', 500, '3');
+    const small = row('P2807900B', 'Ayuntamiento de Getafe', 'http://www.getafe.es', 2, '3');
+    assert.ok(ministry.priority_score > big.priority_score);
+    assert.ok(big.priority_score > small.priority_score);
+    assert.ok(small.priority_score >= ES_PUBLIC_ENTITY_PRIORITY_BASE);
   });
 
   it('sin web propia, con NIF de sociedad o con web compartida: fuera', () => {
