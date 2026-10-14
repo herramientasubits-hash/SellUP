@@ -247,7 +247,11 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     setStep('failed');
   }
 
-  /** Como en «por criterios»: aviso, lista actualizada y, si hay qué revisar, panel cerrado. */
+  /**
+   * Como en «por criterios»: aviso, lista de «Por revisar» actualizada y el agente se
+   * cierra SIEMPRE (dueña 14-10). El lote se abre desde el aviso, «Búsquedas» o el
+   * Centro de procesos.
+   */
   function finish(next: Outcome) {
     router.refresh();
     const name = root?.name ?? 'la empresa';
@@ -264,14 +268,14 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
         description:
           next.inReview === null
             ? 'Ya puedes revisar sus ramas en el lote.'
-            : `${next.inReview} ${next.inReview === 1 ? 'empresa relacionada' : 'empresas relacionadas'} para revisar.`,
+            : `${next.inReview} ${next.inReview === 1 ? 'empresa relacionada quedó' : 'empresas relacionadas quedaron'} en «Por revisar». ${corporateTreePendingSummary(next.pending ?? null)}`,
         action: openBatch,
       });
     }
     if (!mounted.current) return;
     setOutcome(next);
     setStep('done');
-    if (next.inReview !== 0) onClose?.();
+    onClose?.();
   }
 
   function restart() {
