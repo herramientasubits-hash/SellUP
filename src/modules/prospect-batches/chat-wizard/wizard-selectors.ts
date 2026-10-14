@@ -1,6 +1,6 @@
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import { SEARCH_MODE_DEFINITIONS } from './wizard-config';
+import { REFERENCE_COMPANY_LIMITS, resolveSearchModeDefinitions } from './wizard-config';
 import type {
   ProspectSearchMode,
   ProspectWizardState,
@@ -31,15 +31,14 @@ const PROGRESS_STEPS: ProspectWizardStep[] = [
  */
 export function getWizardProgressSteps(
   catalogVersion: string | null | undefined,
-  searchMode: ProspectSearchMode | null = null,
+  searchMode?: ProspectSearchMode | null,
 ): ProspectWizardStep[] {
-  // «Competidores»: la referencia va justo después del tipo de búsqueda.
-  const steps: ProspectWizardStep[] =
-    searchMode === 'competitors'
-      ? ['search_type', 'reference_company', ...PROGRESS_STEPS.slice(1)]
-      : PROGRESS_STEPS;
-  if (isSubindustrySelectionEnabled(catalogVersion)) return steps;
-  return steps.filter((step) => step !== 'subindustries');
+  const base = isSubindustrySelectionEnabled(catalogVersion)
+    ? PROGRESS_STEPS
+    : PROGRESS_STEPS.filter((step) => step !== 'subindustries');
+  // «Proveedores» y «Competidores»: la empresa de referencia es un paso más.
+  if (searchMode !== 'suppliers' && searchMode !== 'competitors') return base;
+  return base.flatMap((step) => (step === 'search_type' ? [step, 'reference_company' as const] : [step]));
 }
 
 export function getWizardProgress(state: ProspectWizardState): WizardProgress {
@@ -87,8 +86,10 @@ export function getPreviousWizardStep(
   catalogVersion?: string | null,
   searchMode?: ProspectSearchMode | null,
 ): ProspectWizardStep | null {
+  // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores», el país vuelve a la empresa de referencia.
+  if (step === 'country' && searchMode === 'suppliers') return 'reference_company';
   // «Competidores»: antes del país está la ficha de la referencia (ya pagada:
-  // volver ahí no repite la búsqueda), no el tipo de búsqueda.
+  // volver ahí no repite la búsqueda).
   if (step === 'country' && searchMode === 'competitors') return 'reference_confirm';
   const prev = PREV_MAP[step] ?? null;
   if (prev === 'subindustries' && !isSubindustrySelectionEnabled(catalogVersion)) {
@@ -110,13 +111,19 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
       return (
         state.searchMode !== null &&
         !hasBlocking &&
-        (SEARCH_MODE_DEFINITIONS.find((d) => d.mode === state.searchMode)
+        (resolveSearchModeDefinitions(state).find((d) => d.mode === state.searchMode)
           ?.availability === 'enabled')
       );
 
     case 'reference_company':
+      // «Proveedores»: el nombre escrito; «Competidores»: la ficha encontrada.
+      return (
+        (state.searchMode === 'competitors' ? hasCompetitorReference(state) : hasValidReferenceCompany(state)) &&
+        !hasBlocking
+      );
+
     case 'reference_confirm':
-      return (state.referenceCompany ?? null) !== null && !hasBlocking;
+      return hasCompetitorReference(state) && !hasBlocking;
 
     case 'country':
       return state.countryCode !== null && !hasBlocking;
@@ -138,16 +145,32 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
   }
 }
 
-/** Un modo con todo lo que necesita para buscar (competidores: la referencia). */
-function hasCompleteSearchMode(state: ProspectWizardState): boolean {
+/** AGENT1-SUPPLIER-SEARCH-1 — ¿hay una empresa de referencia utilizable? */
+export function hasValidReferenceCompany(state: ProspectWizardState): boolean {
+  const length = (state.referenceCompanyName ?? '').trim().length;
+  return length >= REFERENCE_COMPANY_LIMITS.minChars && length <= REFERENCE_COMPANY_LIMITS.maxChars;
+}
+
+/** «Competidores de una empresa»: ¿hay ficha de la referencia? */
+function hasCompetitorReference(state: ProspectWizardState): boolean {
+  return (state.referenceCompany ?? null) !== null;
+}
+
+/** Formas de búsqueda que pueden validarse y ejecutarse con lo elegido. */
+function isExecutableSearchMode(state: ProspectWizardState): boolean {
   if (state.searchMode === 'exploratory') return true;
-  return state.searchMode === 'competitors' && (state.referenceCompany ?? null) !== null;
+  if (state.searchMode === 'competitors') return hasCompetitorReference(state);
+  return (
+    state.searchMode === 'suppliers' &&
+    state.supplierSearchEnabled === true &&
+    hasValidReferenceCompany(state)
+  );
 }
 
 export function canValidateWizard(state: ProspectWizardState): boolean {
   return (
     state.currentStep === 'summary' &&
-    hasCompleteSearchMode(state) &&
+    isExecutableSearchMode(state) &&
     state.countryCode !== null &&
     state.industryId !== null &&
     state.requestedCount !== null &&
@@ -161,8 +184,10 @@ export function isWizardComplete(state: ProspectWizardState): boolean {
 
 // ── Mode availability ─────────────────────────────────────────────────────────
 
-export function getAvailableSearchModes(): ProspectSearchModeDefinition[] {
-  return SEARCH_MODE_DEFINITIONS;
+export function getAvailableSearchModes(
+  options: { supplierSearchEnabled?: boolean } = {},
+): ProspectSearchModeDefinition[] {
+  return resolveSearchModeDefinitions(options);
 }
 
 // ── Form payload builder ──────────────────────────────────────────────────────
@@ -176,8 +201,10 @@ export function buildExploratoryFormInput(
   const { min, max } = EXPLORATORY_SEARCH_LIMITS.requestedCount;
   const maxSubs = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
+  // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores» valida el mismo país × industria del
+  // catálogo; la empresa de referencia viaja aparte, en la solicitud de ejecución.
   if (
-    !hasCompleteSearchMode(state) ||
+    !isExecutableSearchMode(state) ||
     !state.countryCode ||
     !state.industryId ||
     state.requestedCount === null ||
@@ -251,7 +278,7 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
   }
 
   const modeEnabled =
-    SEARCH_MODE_DEFINITIONS.find((d) => d.mode === state.searchMode)?.availability === 'enabled';
+    resolveSearchModeDefinitions(state).find((d) => d.mode === state.searchMode)?.availability === 'enabled';
   if (
     state.searchMode &&
     !modeEnabled &&
@@ -266,8 +293,24 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
   }
 
   if (
+    state.currentStep === 'reference_company' &&
+    state.searchMode !== 'suppliers' &&
+    state.searchMode !== 'competitors'
+  ) {
+    violations.push('reference_company step reached outside suppliers or competitors mode');
+  }
+
+  if (
+    state.searchMode === 'suppliers' &&
+    state.currentStep === 'validated' &&
+    !hasValidReferenceCompany(state)
+  ) {
+    violations.push('validated suppliers state missing referenceCompanyName');
+  }
+
+  if (
     state.searchMode === 'competitors' &&
-    (state.referenceCompany ?? null) === null &&
+    !hasCompetitorReference(state) &&
     (state.currentStep === 'reference_confirm' ||
       state.currentStep === 'country' ||
       state.currentStep === 'summary')

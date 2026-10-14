@@ -29,7 +29,10 @@ export type ProspectSearchModeDefinition = {
 export type ProspectWizardStep =
   | 'welcome'
   | 'search_type'
-  /** «Competidores de una empresa»: qué empresa es la referencia. */
+  /**
+   * Empresa de referencia: en «Proveedores» se escribe su nombre; en «Competidores»
+   * se elige o se escribe y SellUp arma su ficha.
+   */
   | 'reference_company'
   /** «Competidores de una empresa»: la ficha encontrada, para confirmarla. */
   | 'reference_confirm'
@@ -64,6 +67,7 @@ export type WizardWarningCode =
   | 'CRITERIA_OUTSIDE_CATALOG';
 
 export type WizardBlockingIssueCode =
+  | 'REFERENCE_COMPANY_INVALID'
   | 'COUNTRY_REQUIRED'
   | 'INDUSTRY_REQUIRED'
   | 'TOO_MANY_SUBINDUSTRIES'
@@ -104,11 +108,24 @@ export type ProspectWizardState = {
 
   searchMode: ProspectSearchMode | null;
   /**
+   * AGENT1-SUPPLIER-SEARCH-1 — la empresa de la que se buscan proveedores, tal como la
+   * escribió la persona (ya recortada). `null` en «Empresas por criterios». Ausente =
+   * estado guardado antes de este cambio.
+   */
+  referenceCompanyName?: string | null;
+  /**
    * «Competidores de una empresa»: la ficha de la referencia. Se fija al
    * encontrarla y queda confirmada al pasar de `reference_confirm`. Ausente o
-   * null en las búsquedas por criterios (y en estados guardados antes del modo).
+   * null en las demás búsquedas (y en estados guardados antes del modo).
    */
   referenceCompany?: CompetitorReferenceCard | null;
+  /**
+   * Resuelto en el servidor (`ENABLE_AGENT1_SUPPLIER_SEARCH`) y fijo durante la
+   * conversación: con `true` la opción «Proveedores de una empresa» deja de ser
+   * «Próximamente». Ausente = apagada. No autoriza nada: el servidor vuelve a mirar
+   * la bandera al ejecutar.
+   */
+  supplierSearchEnabled?: boolean;
   countryCode: string | null;
   industryId: string | null;
   subindustryIds: string[];
@@ -201,6 +218,7 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
+  | { type: 'SET_REFERENCE_COMPANY'; value: string }
   /** La ficha de la referencia llegó del servidor: se muestra para confirmarla. */
   | { type: 'REFERENCE_RESOLVED'; reference: CompetitorReferenceCard }
   | { type: 'CONFIRM_REFERENCE' }

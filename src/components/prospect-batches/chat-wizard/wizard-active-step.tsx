@@ -9,7 +9,10 @@ import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { COMPETITOR_REFERENCE_LIMITS } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
-import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard';
+import {
+  REFERENCE_COMPANY_LIMITS,
+  resolveSearchModeDefinitions,
+} from '@/modules/prospect-batches/chat-wizard';
 import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import type {
@@ -69,7 +72,13 @@ export function WizardActiveStep({
       return <SearchTypeStep state={state} dispatch={dispatch} titleRef={stepTitleRef} />;
 
     case 'reference_company':
-      return <ReferenceCompanyStep dispatch={dispatch} titleRef={stepTitleRef} />;
+      // Proveedores: se escribe el nombre. Competidores: se elige o se escribe y
+      // SellUp arma la ficha.
+      return state.searchMode === 'competitors' ? (
+        <CompetitorReferenceStep dispatch={dispatch} titleRef={stepTitleRef} />
+      ) : (
+        <ReferenceCompanyStep state={state} dispatch={dispatch} titleRef={stepTitleRef} />
+      );
 
     case 'reference_confirm':
       return (
@@ -148,12 +157,14 @@ function hasIssues(state: ProspectWizardState, step: string): boolean {
 // ── Search type step ──────────────────────────────────────────────────────────
 
 /** Las formas de búsqueda, como opciones numeradas de la pregunta del agente. */
-const SEARCH_TYPE_OPTIONS: readonly ChatQuestionOptionDetail[] = SEARCH_MODE_DEFINITIONS.map((def) => ({
-  value: def.mode,
-  label: def.label,
-  description: def.description,
-  ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
-}));
+function buildSearchTypeOptions(state: ProspectWizardState): ChatQuestionOptionDetail[] {
+  return resolveSearchModeDefinitions(state).map((def) => ({
+    value: def.mode,
+    label: def.label,
+    description: def.description,
+    ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
+  }));
+}
 
 function SearchTypeStep({
   state,
@@ -165,6 +176,7 @@ function SearchTypeStep({
   titleRef: TitleRef;
 }) {
   const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON');
+  const definitions = resolveSearchModeDefinitions(state);
 
   // Una opción «Próximamente» se puede tocar: el reductor responde con el aviso
   // de abajo en vez de avanzar, que es como explica por qué no sirve.
@@ -173,10 +185,10 @@ function SearchTypeStep({
       aria-label="Tipo de búsqueda de prospectos"
       title="¿Qué tipo de prospectos quieres encontrar?"
       titleRef={titleRef}
-      options={SEARCH_TYPE_OPTIONS}
+      options={buildSearchTypeOptions(state)}
       selected={state.searchMode ? [state.searchMode] : []}
       onAnswer={(mode) => {
-        const definition = SEARCH_MODE_DEFINITIONS.find((def) => def.mode === mode);
+        const definition = definitions.find((def) => def.mode === mode);
         if (definition) dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
       }}
       footerNotice={
@@ -192,7 +204,7 @@ function SearchTypeStep({
   );
 }
 
-// ── Reference company step («Competidores de una empresa») ───────────────────
+// ── Competitor reference step («Competidores de una empresa») ────────────────
 
 type ReferenceLookup =
   | { status: 'idle'; message: null }
@@ -204,7 +216,7 @@ type ReferenceLookup =
  * filtro) o lo que escriba en «Otro». SellUp arma su ficha con Claude y la
  * muestra para confirmar.
  */
-function ReferenceCompanyStep({
+function CompetitorReferenceStep({
   dispatch,
   titleRef,
 }: {
@@ -269,6 +281,38 @@ function ReferenceCompanyStep({
           <Alert variant="warning" role="status">
             <AlertDescription className="text-xs">{lookup.message}</AlertDescription>
           </Alert>
+        ) : undefined
+      }
+    />
+  );
+}
+
+// ── Reference company step (AGENT1-SUPPLIER-SEARCH-1) ─────────────────────────
+
+/** «Proveedores de una empresa»: la empresa se escribe; no hay lista que elegir. */
+function ReferenceCompanyStep({
+  state,
+  dispatch,
+  titleRef,
+}: {
+  state: ProspectWizardState;
+  dispatch: React.Dispatch<ProspectWizardAction>;
+  titleRef: TitleRef;
+}) {
+  return (
+    <ChatQuestionPanel
+      aria-label="Empresa de referencia"
+      title="¿De qué empresa quieres encontrar proveedores?"
+      description="Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden."
+      titleRef={titleRef}
+      options={[]}
+      otherLabel="Empresa"
+      otherPlaceholder="Nombre de la empresa"
+      otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
+      onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
+      footerNotice={
+        hasIssues(state, 'reference_company') ? (
+          <StepBlockingIssues state={state} step="reference_company" />
         ) : undefined
       }
     />
@@ -384,9 +428,11 @@ function IndustryStep({
     <ChatQuestionPanel
       aria-label={macro ? 'Macro industria de la búsqueda' : 'Industria de la búsqueda'}
       title={
-        macro
-          ? '¿En qué macro industria deberían operar las empresas?'
-          : '¿En qué industria deberían operar las empresas?'
+        state.searchMode === 'suppliers'
+          ? '¿De qué industria deberían ser los proveedores?'
+          : macro
+            ? '¿En qué macro industria deberían operar las empresas?'
+            : '¿En qué industria deberían operar las empresas?'
       }
       titleRef={titleRef}
       options={options}

@@ -37,6 +37,8 @@ export interface ChatQuestionPanelProps {
   onSubmitSelection?: (values: string[]) => void;
   /** Placeholder de «Otro»; sin él no hay campo libre. */
   otherPlaceholder?: string;
+  /** Rótulo del campo libre; por defecto «Otro» (sin opciones, p. ej. «Empresa»). */
+  otherLabel?: string;
   onOther?: (text: string) => void;
   otherMaxLength?: number;
   /** Sin él no hay «Omitir». */
@@ -95,6 +97,7 @@ export function ChatQuestionPanel({
   onSelectionChange,
   onSubmitSelection,
   otherPlaceholder,
+  otherLabel = "Otro",
   onOther,
   otherMaxLength,
   onSkip,
@@ -299,7 +302,7 @@ export function ChatQuestionPanel({
               </li>
             );
           })}
-          {visible.length === 0 && (
+          {visible.length === 0 && all.length > 0 && (
             <li className="px-3 py-2.5 text-sm text-muted-foreground">
               Ninguna opción coincide.
             </li>
@@ -309,7 +312,7 @@ export function ChatQuestionPanel({
             <li className="flex flex-col gap-2 rounded-xl bg-surface-subtle px-3 py-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">
-                  Otro
+                  {otherLabel}
                 </span>
                 <Kbd aria-hidden="true">{otherIndex}</Kbd>
               </div>

@@ -23,6 +23,7 @@ import { buildTavilyOfficialIdentityEnricher } from '../tavily-official-identity
 import type { ProspectingPipelineOutput } from '../types';
 import { withClaudeSearchContext, type ClaudeSearchRunContext } from '../web-search-providers/claude-web-search-provider';
 import { resolveActiveAnthropicModel } from './classify-batch-candidates.server';
+import { SUPPLIER_SEARCH_METADATA_KEY } from '@/modules/prospect-batches/chat-wizard-execution/wizard-idempotency';
 import {
   CLAUDE_COMPANY_SEARCH_METADATA_KEY,
   CLAUDE_COMPANY_SEARCH_RESULTS_PER_QUERY,
@@ -68,6 +69,12 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
         ? pilot.macro_industry_key
         : null;
   const subindustries = stringList(metadata.subindustries);
+  // AGENT1-SUPPLIER-SEARCH-1 — el lote de «Proveedores» guarda la empresa de referencia.
+  const supplierSearch = (metadata[SUPPLIER_SEARCH_METADATA_KEY] ?? {}) as { reference_company_name?: unknown };
+  const referenceCompanyName =
+    typeof supplierSearch.reference_company_name === 'string' && supplierSearch.reference_company_name.trim()
+      ? supplierSearch.reference_company_name.trim()
+      : null;
   return {
     id: row.id,
     country: row.country,
@@ -77,6 +84,7 @@ async function loadSourceBatch(batchId: string): Promise<SourceBatch | null> {
     macroIndustryKey,
     subindustries: subindustries.length > 0 ? subindustries : stringList(taxonomy.requested_subindustries),
     additionalCriteria: typeof metadata.additional_criteria === 'string' ? metadata.additional_criteria : null,
+    referenceCompanyName,
     competitorReference: readCompetitorReference(metadata),
   };
 }
@@ -205,6 +213,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         industryName: source.industry,
         subindustries: source.subindustries,
         additionalCriteria: source.additionalCriteria,
+        referenceCompanyName: source.referenceCompanyName ?? null,
         competitorReference: source.competitorReference ?? null,
         excludeDomains: [...excludeDomains],
         calls: [],
@@ -227,7 +236,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       );
       return { pipelineOutput, calls: context.calls };
     },
-    writeCandidates: async ({ pipelineOutput, metadata, existingBatchId }) => {
+    writeCandidates: async ({ pipelineOutput, metadata, existingBatchId, depositSurplusToBank = true }) => {
       // Paso del asistente: cuando Claude termina, el escritor de Apollo ya cerró el lote
       // (`ready_for_review`) y el escritor no admite lotes cerrados (Prod 02-10, lote
       // ab11727e: 2 llamadas pagadas, 0 escritas). Se reabre JUSTO antes de escribir, y
@@ -248,7 +257,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
         });
         if (reopened && output.status === 'failed') await restoreClosedBatch(existingBatchId as string);
         // AGENT1-DELIVERY-CAP-HARD-1 — lo que no cupo en los 10 del vendedor va al banco.
-        if (output.status !== 'failed') {
+        if (output.status !== 'failed' && depositSurplusToBank) {
           await depositWebSurplusToBank({
             countryCode: enrichedOutput.input?.countryCode ?? null,
             industryName: enrichedOutput.input?.industry ?? null,

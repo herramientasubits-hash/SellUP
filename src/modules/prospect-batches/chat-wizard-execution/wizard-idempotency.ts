@@ -90,6 +90,12 @@ export type WizardExecutionReservationInput = {
      */
     discoveryTaxonomy?: Record<string, unknown>;
     /**
+     * AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa». Aterriza en el INSERT
+     * inicial: es un hecho de la PETICIÓN (lo que se buscó) y la corrida de Claude lo
+     * relee del lote. Ausente ⇒ el metadata queda exactamente igual que antes.
+     */
+    supplierSearch?: { referenceCompanyName: string };
+    /**
      * Agente 1 · «Competidores de una empresa» — la empresa de referencia
      * (`competitor_search`). Ausente en las búsquedas por criterios ⇒ el metadata
      * queda exactamente igual que antes.
@@ -250,6 +256,9 @@ export async function reserveWizardExecutionSlot(
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 function buildBatchName(payload: WizardExecutionReservationInput['initialBatchPayload']): string {
+  if (payload.supplierSearch) {
+    return `Proveedores de ${payload.supplierSearch.referenceCompanyName} / ${payload.countryCode}`;
+  }
   return `Wizard: ${payload.industryId} / ${payload.countryCode}`;
 }
 
@@ -270,11 +279,22 @@ function buildMetadata(
     ...(payload.discoveryTaxonomy
       ? { apollo_discovery_taxonomy: payload.discoveryTaxonomy }
       : {}),
+    ...(payload.supplierSearch
+      ? {
+          search_mode: 'suppliers',
+          [SUPPLIER_SEARCH_METADATA_KEY]: {
+            reference_company_name: payload.supplierSearch.referenceCompanyName,
+          },
+        }
+      : {}),
     ...(payload.competitorSearch
-      ? { [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch }
+      ? { search_mode: 'competitors', [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch }
       : {}),
   };
 }
+
+/** AGENT1-SUPPLIER-SEARCH-1 — bloque del lote con la empresa de referencia. */
+export const SUPPLIER_SEARCH_METADATA_KEY = 'supplier_search';
 
 // ── Lectura del proveedor del intento anterior (§ 9) ──────────────────────────
 

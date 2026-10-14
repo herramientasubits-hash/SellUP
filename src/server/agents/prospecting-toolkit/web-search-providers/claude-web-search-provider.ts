@@ -29,6 +29,8 @@ export type ClaudeSearchRunContext = {
   industryName: string;
   subindustries: readonly string[];
   additionalCriteria: string | null;
+  /** AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa»; ausente = por criterios. */
+  referenceCompanyName?: string | null;
   /** «Competidores de una empresa»: la referencia del lote (null = búsqueda por criterios). */
   competitorReference?: CompetitorReference | null;
   /** Ya vistas para este país × industria; la corrida suma las que Claude va trayendo. */
@@ -97,6 +99,7 @@ export async function runClaudeWebSearch(input: WebSearchInput, maxResults: numb
       ...(ctx.competitorReference ? { competitorOf: ctx.competitorReference } : {}),
       excludeDomains: [...ctx.excludeDomains, ...(input.excludeDomains ?? [])],
       maxCompanies: maxResults,
+      referenceCompanyName: ctx.referenceCompanyName ?? null,
     },
     ctx.model,
     {

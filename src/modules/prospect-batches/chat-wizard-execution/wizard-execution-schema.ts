@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { competitorReferenceSchema } from '@/modules/prospect-batches/competitor-search/competitor-reference';
+import { REFERENCE_COMPANY_LIMITS } from '@/modules/prospect-batches/chat-wizard/wizard-config';
 
 // ── Request schema ────────────────────────────────────────────────────────────
 // .strict() rejects unknown fields — targetCount and userId sent from the client
@@ -50,15 +51,34 @@ export const wizardExecutionRequestSchema = z
       .enum(['tavily', 'apollo_organizations', 'lusha_companies'])
       .optional(),
     /**
-     * Agente 1 · «Competidores de una empresa». Ausente = búsqueda por criterios,
-     * exactamente la solicitud de siempre.
+     * AGENT1-SUPPLIER-SEARCH-1 — forma de la búsqueda. Ausente = «Empresas por
+     * criterios», así que toda solicitud anterior sigue siendo idéntica. «Proveedores»
+     * exige `referenceCompanyName` y la bandera `ENABLE_AGENT1_SUPPLIER_SEARCH` (que
+     * el servidor mira al ejecutar, no aquí). «Competidores» exige `referenceCompany`
+     * (la ficha confirmada en el asistente).
      */
-    searchMode: z.enum(['exploratory', 'competitors']).optional(),
-    /** La empresa de referencia; obligatoria con `competitors` y prohibida sin él. */
+    searchMode: z.enum(['exploratory', 'suppliers', 'competitors']).optional(),
+    referenceCompanyName: z
+      .string()
+      // Va dentro de una instrucción a Claude: sin comillas, ángulos ni saltos que
+      // permitan salirse del texto citado.
+      .transform((value) => sanitizeReferenceCompanyName(value))
+      .pipe(
+        z
+          .string()
+          .min(REFERENCE_COMPANY_LIMITS.minChars, 'Escribe el nombre de la empresa de referencia.')
+          .max(
+            REFERENCE_COMPANY_LIMITS.maxChars,
+            `La empresa de referencia puede tener máximo ${REFERENCE_COMPANY_LIMITS.maxChars} caracteres.`,
+          ),
+      )
+      .optional(),
+    /** «Competidores de una empresa»: la ficha de la referencia. */
     referenceCompany: competitorReferenceSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    // «Competidores»: la ficha es obligatoria y sólo existe en ese modo.
     const isCompetitors = value.searchMode === 'competitors';
     if (isCompetitors && !value.referenceCompany) {
       ctx.addIssue({
@@ -74,7 +94,42 @@ export const wizardExecutionRequestSchema = z
         message: 'La empresa de referencia sólo aplica a la búsqueda de competidores.',
       });
     }
+
+    if (value.searchMode === 'suppliers') {
+      if (!value.referenceCompanyName) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['referenceCompanyName'],
+          message: 'Escribe la empresa de la que quieres encontrar proveedores.',
+        });
+        return;
+      }
+      // Va dentro de un prompt de Claude: mismas guardas que el criterio adicional.
+      if (validateAndNormalizeCriteria(value.referenceCompanyName).ok === false) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['referenceCompanyName'],
+          message: 'La empresa de referencia contiene texto que no se puede procesar.',
+        });
+      }
+      return;
+    }
+    if (value.referenceCompanyName !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['referenceCompanyName'],
+        message: 'La empresa de referencia sólo aplica a «Proveedores de una empresa».',
+      });
+    }
   });
+
+/** AGENT1-SUPPLIER-SEARCH-1 — nombre de empresa apto para citarlo en un prompt. */
+export function sanitizeReferenceCompanyName(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f«»"'`<>{}\[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export type WizardExecutionRequestParsed = z.infer<typeof wizardExecutionRequestSchema>;
 

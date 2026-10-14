@@ -39,9 +39,14 @@ export type SourceBatch = {
   subindustries: string[];
   additionalCriteria: string | null;
   /**
+   * AGENT1-SUPPLIER-SEARCH-1 — `metadata.supplier_search.reference_company_name`: el
+   * lote es de «Proveedores de una empresa». Ausente/null = búsqueda por criterios.
+   */
+  referenceCompanyName?: string | null;
+  /**
    * «Competidores de una empresa»: la empresa de referencia del lote. Con ella las
    * consultas buscan sus competidores en vez de «empresas de {industria}». Ausente
-   * (null) en las búsquedas por criterios.
+   * (null) en las demás búsquedas.
    */
   competitorReference?: CompetitorReference | null;
 };
@@ -88,6 +93,11 @@ export type ClaudeCompanySearchDeps = {
     pipelineOutput: unknown;
     metadata: Record<string, unknown>;
     existingBatchId?: string;
+    /**
+     * AGENT1-SUPPLIER-SEARCH-1 — `false`: lo que no cupo NO va al banco de empresas.
+     * Un proveedor de X no es un candidato general del país × industria. Ausente = sí.
+     */
+    depositSurplusToBank?: boolean;
   }) => Promise<WrittenCandidates>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   newRunId: () => string;
@@ -166,6 +176,22 @@ export function buildCompetitorSearchQueries(reference: CompetitorReference, cou
   return queries.slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
 }
 
+/**
+ * AGENT1-SUPPLIER-SEARCH-1 — consultas de «Proveedores de una empresa». Dos ángulos:
+ * los proveedores que la nombran (casos de éxito, «nuestros clientes») y la relación
+ * dicha desde fuera (notas, contratos). Siempre de la industria pedida y en el país.
+ */
+export function buildSupplierSearchQueries(
+  source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>,
+  referenceCompanyName: string,
+): string[] {
+  const subject = source.subindustries[0] ?? source.industry;
+  return [
+    `empresas de ${subject} que son proveedores de ${referenceCompanyName} en ${source.country}`,
+    `${referenceCompanyName} cliente caso de éxito ${subject} ${source.country}`,
+  ].slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
+}
+
 function addCounts(target: Record<string, number>, extra: Partial<Record<string, number>>): Record<string, number> {
   const next = { ...target };
   for (const [key, value] of Object.entries(extra)) next[key] = (next[key] ?? 0) + (value ?? 0);
@@ -179,7 +205,15 @@ function addCounts(target: Record<string, number>, extra: Partial<Record<string,
  */
 export function buildCompanySearchUsageLog(
   call: CompanySearchCall,
-  context: { runId: string; sourceBatchId: string; triggeredBy: string; index: number; batchId?: string | null },
+  context: {
+    runId: string;
+    sourceBatchId: string;
+    triggeredBy: string;
+    index: number;
+    batchId?: string | null;
+    /** AGENT1-SUPPLIER-SEARCH-1 — para separar en Uso de IA lo de «Proveedores». */
+    referenceCompanyName?: string | null;
+  },
 ): LogProviderUsageInput | null {
   if (!call.usage) return null;
   const isError = call.errorCode !== null;
@@ -208,6 +242,9 @@ export function buildCompanySearchUsageLog(
       rejected: call.rejected,
       web_search_requests: call.usage.webSearchRequests,
       pricing_source: call.usage.pricingSource,
+      ...(context.referenceCompanyName
+        ? { search_mode: 'suppliers', reference_company_name: context.referenceCompanyName }
+        : {}),
     },
   };
 }
@@ -243,8 +280,15 @@ export async function runClaudeCompanySearch(
   // La empresa de referencia nunca es su propia competidora.
   const referenceDomain = source.competitorReference?.domain ?? null;
   if (referenceDomain && !excludeDomains.includes(referenceDomain)) excludeDomains = [referenceDomain, ...excludeDomains];
-  const previousRuns = await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
-  const queries = buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
+  const referenceCompanyName = source.referenceCompanyName?.trim() || null;
+  // Proveedores y competidores no rotan regiones: sus consultas nombran a la referencia.
+  const previousRuns =
+    referenceCompanyName || source.competitorReference
+      ? 0
+      : await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
+  const queries = referenceCompanyName
+    ? buildSupplierSearchQueries(source, referenceCompanyName)
+    : buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
   const runId = deps.newRunId();
   let callIndex = 0;
   const onCall = async (call: CompanySearchCall) => {
@@ -254,6 +298,7 @@ export async function runClaudeCompanySearch(
       triggeredBy: params.triggeredBy,
       index: callIndex++,
       batchId: intoBatchId,
+      referenceCompanyName,
     });
     if (log) await deps.logUsage(log);
   };
@@ -285,6 +330,7 @@ export async function runClaudeCompanySearch(
       ? await deps.writeCandidates({
           pipelineOutput: search.pipelineOutput,
           ...(intoBatchId ? { existingBatchId: intoBatchId } : {}),
+          ...(referenceCompanyName ? { depositSurplusToBank: false } : {}),
           metadata: {
             // En el lote del asistente estas claves ya existen: no se tocan.
             ...(!intoBatchId && source.industryId ? { industry_id: source.industryId } : {}),
@@ -292,7 +338,8 @@ export async function runClaudeCompanySearch(
             [CLAUDE_COMPANY_SEARCH_METADATA_KEY]: {
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
               pilot: !intoBatchId,
-              mode: intoBatchId ? 'wizard_leg' : 'button',
+              mode: referenceCompanyName ? 'supplier_search' : intoBatchId ? 'wizard_leg' : 'button',
+              ...(referenceCompanyName ? { reference_company_name: referenceCompanyName } : {}),
               run_id: runId,
               ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               ...(source.competitorReference

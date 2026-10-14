@@ -113,6 +113,10 @@ export type WizardExecutionRequest = {
   additionalCriteriaRaw: string | null;
   catalogVersion: string;
   clientRequestId: string;
+  /** AGENT1-SUPPLIER-SEARCH-1 — ausente = «Empresas por criterios». */
+  searchMode?: 'exploratory' | 'suppliers';
+  /** Sólo con `searchMode: 'suppliers'`: la empresa de la que se buscan proveedores. */
+  referenceCompanyName?: string;
 };
 
 // ── Resolved catalog entities ─────────────────────────────────────────────────

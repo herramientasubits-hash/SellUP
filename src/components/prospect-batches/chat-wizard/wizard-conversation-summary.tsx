@@ -151,6 +151,22 @@ export function WizardConversationSummary({
     return <ValidatingPanel />;
   }
 
+  // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores» no usa Apollo, Lusha ni Tavily: sólo
+  // Claude, regido por la cuota de Proveedores. Panel propio, sin selector de
+  // proveedor ni preflight del presupuesto del piloto (que no aplican).
+  if (state.currentStep === 'validated' && state.searchMode === 'suppliers') {
+    return (
+      <SupplierValidatedPanel
+        state={state}
+        executionEnabled={executionEnabled}
+        onExecute={onExecute}
+        executionError={state.executionError}
+        onEditSearch={onEditSearch}
+        dispatch={dispatch}
+      />
+    );
+  }
+
   if (state.currentStep === 'validated') {
     return (
       <ValidatedPanel
@@ -682,6 +698,70 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   );
 }
 
+// ── «Proveedores de una empresa»: listo para buscar ──────────────────────────
+
+type SupplierValidatedPanelProps = {
+  state: ProspectWizardState;
+  executionEnabled: boolean;
+  onExecute: () => void;
+  executionError: ProspectWizardState['executionError'];
+  onEditSearch: () => void;
+  dispatch: React.Dispatch<ProspectWizardAction>;
+};
+
+function SupplierValidatedPanel({
+  state,
+  executionEnabled,
+  onExecute,
+  executionError,
+  onEditSearch,
+  dispatch,
+}: SupplierValidatedPanelProps) {
+  const reference = state.referenceCompanyName ?? '';
+  return (
+    <div className="space-y-4 animate-su-fade-in" role="status" data-testid="wizard-supplier-validated-panel">
+      <Alert variant="success" role={undefined}>
+        <AlertTitle className="text-sm">La configuración es válida.</AlertTitle>
+        <AlertDescription className="text-xs">
+          {executionEnabled
+            ? `Claude buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
+            : 'La generación real todavía no está habilitada.'}
+        </AlertDescription>
+      </Alert>
+
+      {executionError && (
+        <Alert variant="destructive" role={undefined}>
+          <p className="min-w-0 break-words text-xs leading-relaxed text-destructive">{executionError.message}</p>
+        </Alert>
+      )}
+
+      {executionEnabled && (
+        <Button type="button" size="sm" className="w-full" onClick={onExecute}>
+          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          Buscar proveedores
+        </Button>
+      )}
+
+      <div className="space-y-2 pt-1">
+        <Button type="button" variant="outline" size="sm" className="w-full" onClick={onEditSearch}>
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Editar búsqueda
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="mx-auto flex text-muted-foreground"
+          onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
+        >
+          <RotateCcw aria-hidden />
+          Comenzar de nuevo
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Aviso de discovery no aplicable ───────────────────────────────────────────
 // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — sustituye al aviso de «Lusha
 // deshabilitado», que afirmaba «esta búsqueda utiliza un proveedor que todavía no
@@ -894,18 +974,30 @@ function DecisionRows({
   const change = (step: EditableWizardStep) => () => dispatch({ type: 'EDIT_STEP', step, returnToSummary: true });
   return (
     <dl className="divide-y divide-border/50 rounded-xl border border-border/60 bg-card">
-      <SummaryRow
-        label="Tipo de búsqueda"
-        value={referenceLabel !== null ? 'Competidores de una empresa' : 'Empresas por criterios'}
-      />
-      {referenceLabel !== null && (
-        <SummaryRow
-          label="Empresa de referencia"
-          value={referenceLabel}
-          onEdit={change('reference_company')}
-          actionLabel={actionLabel}
-          wrap
-        />
+      {state.searchMode === 'suppliers' ? (
+        <>
+          <SummaryRow label="Tipo de búsqueda" value="Proveedores de una empresa" />
+          <SummaryRow
+            label="Empresa de referencia"
+            value={state.referenceCompanyName ?? '—'}
+            onEdit={change('reference_company')}
+            actionLabel={actionLabel}
+            wrap
+          />
+        </>
+      ) : referenceLabel !== null ? (
+        <>
+          <SummaryRow label="Tipo de búsqueda" value="Competidores de una empresa" />
+          <SummaryRow
+            label="Empresa de referencia"
+            value={referenceLabel}
+            onEdit={change('reference_company')}
+            actionLabel={actionLabel}
+            wrap
+          />
+        </>
+      ) : (
+        <SummaryRow label="Tipo de búsqueda" value="Empresas por criterios" />
       )}
       <SummaryRow label="País" value={countryLabel} onEdit={change('country')} actionLabel={actionLabel} />
       <SummaryRow

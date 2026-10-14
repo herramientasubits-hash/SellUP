@@ -174,6 +174,12 @@ type ProspectChatWizardProps = {
    * rechazo ya se conoce. Ausente/`null` ⇒ sin instantánea, no se bloquea nada.
    */
   budgetPreflight?: WizardBudgetPreflight | null;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`, resuelto en el
+   * servidor. Sólo enciende la opción «Proveedores de una empresa» en el chat; el
+   * servidor vuelve a mirar la bandera al ejecutar. Ausente ⇒ `false`.
+   */
+  supplierSearchEnabled?: boolean;
 };
 
 export function ProspectChatWizard({
@@ -186,6 +192,7 @@ export function ProspectChatWizard({
   providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
   apolloRunModeLimits = null,
   budgetPreflight = null,
+  supplierSearchEnabled = false,
   ref,
   onRestartAvailabilityChange,
   onRunningChange,
@@ -197,6 +204,7 @@ export function ProspectChatWizard({
       createInitialProspectWizardState({
         catalogVersion: catalog.version,
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
+        supplierSearchEnabled,
       }),
   );
 
@@ -656,18 +664,30 @@ export function ProspectChatWizard({
     const countryName =
       LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
+    // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores» la empresa de referencia encabeza el
+    // título y la clave de concurrencia (los proveedores de Ecopetrol no son los de
+    // Bancolombia aunque compartan país e industria). Igual en «Competidores».
+    const supplierReference =
+      state.searchMode === 'suppliers' ? (state.referenceCompanyName ?? '').trim() : '';
     const searchModePayload = buildSearchModePayload(state);
     const competitorReference = 'referenceCompany' in searchModePayload ? searchModePayload.referenceCompany : null;
-    const runTitle = competitorReference
-      ? [`Competidores de ${competitorReference.name}`, countryName].filter(Boolean).join(' · ')
-      : [countryName, industryName].filter(Boolean).join(' · ');
+    const runTitle = [
+      supplierReference ? `Proveedores de ${supplierReference}` : '',
+      competitorReference ? `Competidores de ${competitorReference.name}` : '',
+      countryName,
+      competitorReference ? '' : industryName,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     const execute = (payload: Parameters<typeof executeWizardRunViaRoute>[0]) =>
       runsStore
         ? runsStore.startRun({
             title: runTitle,
-            // Mismo país × industria = mismas empresas: nunca corren juntas. Los
+            // Mismo país × industria = mismas empresas: nunca corren juntas. Proveedores y
             // competidores de una empresa son otra búsqueda: su clave es la referencia.
-            concurrencyKey: competitorReference
+            concurrencyKey: supplierReference
+              ? `suppliers:${supplierReference.toLowerCase()}:${state.countryCode ?? ''}:${state.industryId ?? ''}`
+              : competitorReference
               ? `competitors:${competitorReference.domain ?? competitorReference.name}:${state.countryCode ?? ''}`
               : `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
             payload,
@@ -682,8 +702,12 @@ export function ProspectChatWizard({
         additionalCriteriaRaw: state.additionalCriteriaRaw,
         catalogVersion: state.catalogVersion,
         clientRequestId: clientRequestIdRef.current,
-        // «Competidores de una empresa»: modo + referencia. Vacío en las búsquedas
-        // por criterios, que viajan exactamente como antes.
+        // AGENT1-SUPPLIER-SEARCH-1 — sólo en «Proveedores»: una búsqueda por criterios
+        // produce exactamente la misma solicitud que antes.
+        ...(supplierReference
+          ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
+          : {}),
+        // «Competidores de una empresa»: modo + ficha. Vacío en las demás búsquedas.
         ...searchModePayload,
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
         // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
@@ -748,8 +772,16 @@ export function ProspectChatWizard({
         // por `mapExecutionError` a secas descartaría `persistenceNotReady.reason`
         // —la diferencia entre «falta la migración» y «no se pudo comprobar»— y
         // sustituiría el `retryable` que decidió el servidor por el de una tabla.
-        const mapped =
-          result.code === 'PROVIDER_UNAVAILABLE'
+        // AGENT1-SUPPLIER-SEARCH-1 — el camino de «Proveedores» devuelve su propio
+        // texto (cuota de Claude agotada, modelo sin configurar…): se muestra tal cual.
+        // Su lote fallido ya quedó sellado: reintentar con el MISMO id devolvería
+        // «ya empezada» sin buscar, así que el reintento es una corrida nueva.
+        if (supplierReference && result.code === 'GENERATION_FAILED') {
+          clientRequestIdRef.current = crypto.randomUUID();
+        }
+        const mapped = supplierReference && result.code === 'GENERATION_FAILED'
+          ? { message: result.message, retryable: result.retryable }
+          : result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)
             : result.code === 'PERSISTENCE_NOT_READY'
               ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
