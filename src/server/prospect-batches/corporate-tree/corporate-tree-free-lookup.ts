@@ -9,8 +9,14 @@
  *
  * Búsqueda por PREFIJO del nombre normalizado («cencosud» encuentra «CENCOSUD PERU
  * S.A.» y «CENCOSUD RETAIL S.A.»), con el índice `(source_key, normalized_legal_name)`:
- * un rango `>= core` y `< siguiente` por fuente, acotado. Medido en Prod el 14-10:
- * Cencosud aparece con número fiscal en CL, PE, BR, AR y CO sin pagar nada.
+ * un rango `>= core` y `< siguiente` por fuente, acotado (0,25 ms en `cl_sii_registry`,
+ * 1,7 M filas). Medido en Prod el 14-10: Cencosud aparece con número fiscal en CL, PE,
+ * BR, AR y CO sin pagar nada.
+ *
+ * 🔴 Casi todas las fuentes guardan el nombre normalizado en MAYÚSCULAS (sólo co_siis en
+ * minúsculas). El rango en minúsculas las cubre porque la base ordena con `en_US.UTF-8`
+ * (mayúsculas y minúsculas comparten orden primario). Lo que el rango cuele de más se
+ * descarta aquí al confirmar el prefijo.
  *
  * Lo gratis encuentra a la familia que COMPARTE el nombre (sedes en otros países,
  * filiales «X Retail», «X Perú»). La matriz y las filiales con otro nombre (Banco

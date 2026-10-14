@@ -117,7 +117,10 @@ export default async function BatchDetailPage({ params }: Props) {
         batch.metadata?.source_provider === 'datos_gob_cl'));
 
   const isStructuredOfficial = isStructuredRues || isStructuredChile;
-  const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1';
+  // AGENT1-CORPORATE-TREE-2 — el lote del árbol es del Agente 1 pero de varios
+  // países: se titula con su nombre («Árbol · Cencosud»), no con país · industria.
+  const isCorporateTreeBatch = batch.metadata?.search_mode === 'corporate_tree';
+  const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1' && !isCorporateTreeBatch;
 
   const pageTitle =
     (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)

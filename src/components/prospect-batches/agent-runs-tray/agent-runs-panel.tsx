@@ -102,7 +102,7 @@ export function AgentRunsPanel() {
               <li key={row.batchId} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {[row.country, row.industry].filter(Boolean).join(' · ') || 'Búsqueda'}
+                    {row.title || [row.country, row.industry].filter(Boolean).join(' · ') || 'Búsqueda'}
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatAppDateTime(row.createdAt)}</span>

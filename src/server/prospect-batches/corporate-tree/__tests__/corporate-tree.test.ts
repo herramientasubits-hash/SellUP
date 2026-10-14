@@ -41,7 +41,8 @@ import {
   describeCorporateTreeItemStatus,
   type CorporateTreeRelationshipRecord,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-associations';
-import { readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { CORPORATE_TREE_BATCH_INDUSTRY, readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { reserveWizardExecutionSlot, type IdempotencyDbClient } from '@/modules/prospect-batches/chat-wizard-execution/wizard-idempotency';
 import { RUN_PROGRESS_PERCENT, RUN_PROGRESS_STAGES } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import { TREE_RUN_RECOVERY_TIMEOUT_MS, waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
 import { createAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
@@ -572,6 +573,7 @@ describe('G. El loader avanza como en «por criterios» y la respuesta perdida s
     let t = 0;
     const answers = [
       [],
+      [{ clientRequestId: 'r', progress: null, batch: { id: 'b1', status: 'draft', candidateCount: 0 } }],
       [{ clientRequestId: 'r', progress: { stage: 'tree_saving' as const, label: 'x' }, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
       [{ clientRequestId: 'r', progress: null, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
     ];
@@ -623,5 +625,55 @@ describe('G. El loader avanza como en «por criterios» y la respuesta perdida s
 
     await store.startRun({ title: 'CO · Tec', payload: { clientRequestId: 'crit-1' } }).catch(() => undefined);
     assert.equal(store.getSnapshot().find((r) => r.clientRequestId === 'crit-1')?.status, 'failed', 'por criterios no cambia');
+  });
+});
+
+describe('H. El lote del árbol es del Agente 1 desde el primer instante', () => {
+  it('la reserva crea un lote agent_1 «Árbol · X» con su forma de búsqueda y sin industria pedida', async () => {
+    let inserted: Record<string, unknown> | null = null;
+    const db = {
+      from: () => ({
+        insert: (row: Record<string, unknown>) => {
+          inserted = row;
+          return { select: () => ({ single: async () => ({ data: { id: 'b-1' }, error: null }) }) };
+        },
+      }),
+    } as unknown as IdempotencyDbClient;
+    const result = await reserveWizardExecutionSlot(
+      {
+        userId: 'u-1',
+        clientRequestId: 'r-1',
+        initialBatchPayload: {
+          requestSource: 'chat_wizard',
+          catalogVersionId: null,
+          industryId: null,
+          subindustryIds: [],
+          countryCode: 'CL',
+          additionalCriteria: null,
+          targetCount: 30,
+          country: 'Chile',
+          industry: CORPORATE_TREE_BATCH_INDUSTRY,
+          searchDepth: 'standard',
+          corporateTree: {
+            rootName: 'Cencosud',
+            rootCountryCode: 'CL',
+            branches: ['group', 'other_country'],
+            countryCodes: ['CL', 'PE'],
+            rootCandidateId: null,
+            rootAccountId: null,
+          },
+        },
+      },
+      db,
+    );
+    assert.deepEqual(result, { status: 'reserved', batchId: 'b-1' });
+    const row = inserted as unknown as Record<string, unknown>;
+    assert.equal(row.source, 'agent_1');
+    assert.equal(row.name, 'Árbol · Cencosud');
+    assert.equal(row.client_request_id, 'r-1');
+    const metadata = row.metadata as Record<string, unknown>;
+    assert.equal(metadata.search_mode, 'corporate_tree');
+    assert.equal(metadata.industry_id, null);
+    assert.deepEqual((metadata.corporate_tree as Record<string, unknown>).country_codes, ['CL', 'PE']);
   });
 });
