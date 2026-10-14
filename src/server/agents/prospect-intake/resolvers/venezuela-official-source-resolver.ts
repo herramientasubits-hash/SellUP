@@ -18,8 +18,9 @@
  * (pista, nunca llena las columnas fiscales). El resultado siempre dice
  * `ve_rif_registry`: el alias es otra forma de encontrar el mismo RIF.
  *
- * Tamaño: ninguna fuente venezolana alcanzable lo publica (el SENIAT no publica la
- * lista de contribuyentes especiales), así que el resultado no trae `workforce`.
+ * Tamaño: el SENIAT no publica la lista de contribuyentes especiales. Sólo los bancos
+ * (SUDEBAN, 2022) y unas pocas empresas de Great Place to Work traen trabajadores
+ * (SOURCES-VE-SIZE-1): viajan como `workforce`; el resto, sin tamaño.
  *
  * SAFE CLIENT PATTERN: puro respecto a E/S. La lectura llega INYECTADA.
  */
@@ -40,6 +41,7 @@ import type {
   OfficialSourceEnrichmentResult,
   OfficialSourceResolver,
   OfficialSourceResolverInput,
+  OfficialWorkforce,
 } from '../source-enrichment';
 import {
   SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
@@ -51,6 +53,8 @@ export interface VenezuelaNameRow {
   taxId: string | null;
   legalName: string | null;
   normalizedLegalName: string | null;
+  /** SOURCES-VE-SIZE-1 — trabajadores publicados (SUDEBAN o Great Place to Work). */
+  workforce?: OfficialWorkforce | null;
   /** `true` si la fila es un alias (`ve_rif_name_alias`). */
   alias?: boolean;
 }
@@ -85,6 +89,7 @@ function distinctByRif(rows: readonly VenezuelaNameRow[]): VenezuelaNameRow[] {
   return [...groups.entries()].map(([taxId, group]) => ({
     ...(group.find((row) => row.alias !== true) ?? group[0]),
     taxId,
+    workforce: group.find((row) => row.workforce)?.workforce ?? null,
   }));
 }
 
@@ -182,6 +187,7 @@ export function createVenezuelaOfficialSourceResolver(config: VenezuelaOfficialS
         status: 'matched',
         confidence: SNAPSHOT_NAME_EXACT_MATCH_CONFIDENCE,
         safeMetadata: domainConfirms ? { ...metadata, singleWordConfirmedByDomain: true } : metadata,
+        ...(best.workforce ? { workforce: { ...best.workforce } } : {}),
       };
     },
   };

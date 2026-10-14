@@ -33,6 +33,7 @@ import {
   venezuelaRegistryAliasKeys,
 } from './ve-name-keys';
 import { venezuelaCompanyDomain, venezuelaPublicEntityDomain } from './ve-domain';
+import { veOfficialWorkforceFor, veWorkforceRaw } from './ve-official-workforce';
 import type { VePublicEntity } from './ve-public-entities';
 import type { VeWebEntity } from './ve-web-entities';
 import {
@@ -178,6 +179,8 @@ export function buildVeRifRegistryRow(entry: VeRifEntry, params: { sourceYear: n
       origins: entryOrigins(entry),
       ...(entry.bvcIssuer ? { stock_exchange_listed: true, bvc_sector: entry.bvcIssuer.sector } : {}),
       ...(entry.sudeaseg ? { sudeaseg_category: entry.sudeaseg.category } : {}),
+      // SOURCES-VE-SIZE-1 — trabajadores publicados (SUDEBAN o Great Place to Work).
+      ...veWorkforceRaw(veOfficialWorkforceFor(entry.rif, null)),
     },
     imported_at: params.importedAt,
     record_identity_key: identity.status === 'resolved' ? identity.recordIdentityKey : null,
@@ -397,7 +400,10 @@ function directoryRaw(params: {
 }): Record<string, unknown> {
   const { classification, entry, listings, domain } = params;
   const publicListing = listings.find((l) => l.kind === 'public_entity' || l.kind === 'state_company');
+  // SOURCES-VE-SIZE-1 — trabajadores publicados, por RIF o (sin RIF) por la web.
+  const workforce = veOfficialWorkforceFor(entry?.rif ?? null, domain);
   return {
+    ...veWorkforceRaw(workforce),
     directory_kind: classification.kind,
     activity_code: classification.code,
     macro_industry_key: resolveVeDirectoryMacro(classification.kind, classification.code),
