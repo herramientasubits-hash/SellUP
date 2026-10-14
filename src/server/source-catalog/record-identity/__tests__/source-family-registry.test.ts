@@ -32,6 +32,10 @@ const TAX_GRAIN_SOURCE_KEYS = [
   'us_sec_edgar_registry',
   'us_irs_eo_registry',
   'es_placsp_registry',
+  // SOURCES-ES-CLOSE-1 — un NIF, una fila (BDNS, INVENTE, Banco de España; capa gratuita y Gobierno).
+  'es_official_nif_registry',
+  'es_free_directory',
+  'es_public_entities',
   'mx_compranet_rfc_registry',
   'mx_rfc_public_lists_registry',
   'pa_panamacompra_ruc_registry',
@@ -117,6 +121,8 @@ const NATIVE_RECORD_GRAIN_SOURCE_KEYS = [
   'sv_public_entities',
   'uy_rupe_name_alias',
   'uy_public_entities',
+  // SOURCES-ES-CLOSE-1 — varias claves de nombre por NIF.
+  'es_nif_name_alias',
 ] as const;
 
 // ── getSourceFamily ──────────────────────────────────────────────────────────
