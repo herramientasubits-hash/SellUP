@@ -45,6 +45,9 @@ import type {
   CountrySourceDiscoveryResult,
 } from './country-source-types';
 
+/** Etiqueta del tramo «grande» de las aseguradoras para la ficha. */
+export const VE_LARGE_INSURER_SIZE_LABEL = 'SUDEASEG – 15 aseguradoras con más primas (2024)' as const;
+
 /** `source_key` que esta proyección declara. */
 export const VE_FREE_DIRECTORY_DISCOVERY_SOURCE_KEY = 've_free_directory_discovery' as const;
 
@@ -74,6 +77,8 @@ export type VeFreeDirectorySnapshotReadRow = {
   workers: number | null;
   metrics_year: number | null;
   workforce_source: string | null;
+  /** SOURCES-VE-SIZE-2 — «large» si es una de las 15 aseguradoras con más primas. */
+  official_size_band: string | null;
   priority_score: number | null;
 };
 
@@ -121,6 +126,10 @@ function toCompany(row: VeFreeDirectorySnapshotReadRow, macroIndustryKey: string
       row.metrics_year,
       VE_WORKFORCE_SOURCE_LABEL[row.workforce_source as VeWorkforceSource] ?? 'Venezuela',
     ),
+    // SOURCES-VE-SIZE-2 — tramo «grande» de las aseguradoras con más primas (SUDEASEG).
+    ...(row.official_size_band === 'large'
+      ? { officialSizeBand: { band: 'large' as const, sourceLabel: VE_LARGE_INSURER_SIZE_LABEL } }
+      : {}),
     officialMacroIndustry: {
       macroIndustryKeys: [macroIndustryKey],
       tableVersion: VE_FREE_DIRECTORY_MACRO_TABLE_VERSION,
