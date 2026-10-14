@@ -370,7 +370,7 @@ export function buildLiveCorporateTreeDeps(params: {
       return true;
     },
 
-    sealBatch: async (batchId, { persisted, failed, metadata }) => {
+    sealBatch: async (batchId, { persisted, failed, metadata, country }) => {
       const decision = resolveBatchTerminalStatusDecision({
         preExisting: durableCandidatesFromCount(0),
         persistedCandidates: persisted,
@@ -381,6 +381,7 @@ export function buildLiveCorporateTreeDeps(params: {
         .from('prospect_batches')
         .update({
           ...(decision.action === 'write' ? { status: decision.status } : {}),
+          ...(country ? { country: country.name, country_code: country.code } : {}),
           name: corporateTreeBatchName(params.rootNameForLogs()),
           metadata: composeFreeOnlyTerminalBatchMetadata(current?.metadata, metadata),
         })

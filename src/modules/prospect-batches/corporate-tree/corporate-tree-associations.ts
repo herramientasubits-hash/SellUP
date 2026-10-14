@@ -7,6 +7,7 @@ import {
   CORPORATE_TREE_RELATION_LABELS,
   CORPORATE_TREE_RELATION_ORDER,
   isCorporateTreeRelation,
+  normalizeTreeName,
   type CorporateTreeRelation,
 } from './corporate-tree-types';
 
@@ -56,6 +57,41 @@ export type CorporateTreeAssociationsResponse =
   | { available: true; trees: CorporateTreeView[] }
   /** La tabla no está (migración 148 sin aplicar) o no se pudo leer. */
   | { available: false; trees: [] };
+
+/** Una empresa del lote del árbol, para vincularla con su asociación. */
+export type CorporateTreeBatchCandidateRef = {
+  id: string;
+  batch_id: string;
+  name: string;
+  country_code: string | null;
+};
+
+/**
+ * Una asociación guardada sin empresa (no tenía web y quedó en «Descartadas»)
+ * se vincula con la empresa que el rescate trajo después al MISMO lote con el
+ * mismo nombre y país. Puro; no cambia las filas recibidas.
+ */
+export function linkTreeRecordsToCandidates<T extends CorporateTreeRelationshipRecord>(
+  records: readonly T[],
+  candidates: readonly CorporateTreeBatchCandidateRef[],
+): T[] {
+  const keyOf = (batchId: string, name: string, countryCode: string | null) =>
+    `${batchId}|${normalizeTreeName(name)}|${(countryCode ?? '').toUpperCase()}`;
+  const linked = new Set(records.map((r) => r.related_candidate_id).filter((id): id is string => !!id));
+  const byKey = new Map<string, string>();
+  for (const c of candidates) {
+    const key = keyOf(c.batch_id, c.name, c.country_code);
+    if (!linked.has(c.id) && !byKey.has(key)) byKey.set(key, c.id);
+  }
+  const taken = new Set<string>();
+  return records.map((r) => {
+    if (r.related_candidate_id || r.relation_type === 'root') return r;
+    const id = byKey.get(keyOf(r.batch_id, r.related_name, r.related_country_code));
+    if (!id || taken.has(id)) return r;
+    taken.add(id);
+    return { ...r, related_candidate_id: id };
+  });
+}
 
 /** Agrupa las filas por árbol (lote) y por rama, en el orden de siempre. */
 export function buildCorporateTreeViews(

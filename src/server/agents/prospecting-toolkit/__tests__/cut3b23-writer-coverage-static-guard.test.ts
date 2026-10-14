@@ -402,7 +402,13 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // RLS de lectura para usuarios activos y escritura sólo service_role. No es de teléfono, ni del
 // catálogo, ni de BR, ni de CUT3B4, y no toca el registro de identidad del lote ni la valla; su
 // autoría se policía por CONTENIDO en la prueba dedicada de abajo. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '148_agent1_company_relationships.sql';
+// 🔴 AGENT1-CORPORATE-TREE-2 subió el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+// `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+// (`prospect_batches.metadata->>'search_mode'`) y su relleno de `provider_usage_logs.search_mode`.
+// No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no toca el registro de identidad
+// del lote ni la valla; su autoría se policía por CONTENIDO en la prueba dedicada de abajo.
+// AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '149_provider_usage_search_mode_from_batch_metadata.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -412,6 +418,7 @@ const CANDIDATE_ASSIGNMENT_MIGRATION = '145_prospect_candidate_assignment.sql';
 const TAX_IDENTIFIER_RIF_MIGRATION = '146_tax_identifier_type_rif.sql';
 const USAGE_LOG_DIMENSIONS_MIGRATION = '147_provider_usage_log_dimensions.sql';
 const COMPANY_RELATIONSHIPS_MIGRATION = '148_agent1_company_relationships.sql';
+const USAGE_SEARCH_MODE_MIGRATION = '149_provider_usage_search_mode_from_batch_metadata.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -630,6 +637,22 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     }
   });
 
+  it('la 149 existe, es de AGENT1-CORPORATE-TREE-2 y NO de este corte', () => {
+    // AGENT1-CORPORATE-TREE-2 tomó la 149 (`provider_usage_batch_dimensions` desde la metadata del
+    // lote) de forma independiente. Se exige que la 149 sea EXACTAMENTE esa y que no nombre ningún
+    // símbolo de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('149')),
+      [USAGE_SEARCH_MODE_MIGRATION],
+      'la 149 tiene que ser la de la forma de búsqueda del uso de IA, y sólo ella',
+    );
+    const sql = executableSql(USAGE_SEARCH_MODE_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 149 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
   it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
     // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE) de forma independiente,
     // mientras BR-SOURCE CUT A.1 seguía en revisión. La afirmación de CUT-3B23 —«yo no
@@ -678,7 +701,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 148 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 149 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -711,7 +734,9 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // por AUTORÍA en su prueba dedicada.
     // AGENT1-CORPORATE-TREE-1 lo movió a la 148 (`agent1_company_relationships`), policiada igual
     // por AUTORÍA en su prueba dedicada.
-    assert.ok(last.startsWith('148'), `última migración inesperada: ${last}`);
+    // AGENT1-CORPORATE-TREE-2 lo movió a la 149 (`provider_usage_batch_dimensions` desde la
+    // metadata del lote), policiada igual por AUTORÍA en su prueba dedicada.
+    assert.ok(last.startsWith('149'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
@@ -722,6 +747,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.ok(migrations.includes(TAX_IDENTIFIER_RIF_MIGRATION));
     assert.ok(migrations.includes(USAGE_LOG_DIMENSIONS_MIGRATION));
     assert.ok(migrations.includes(COMPANY_RELATIONSHIPS_MIGRATION));
+    assert.ok(migrations.includes(USAGE_SEARCH_MODE_MIGRATION));
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));

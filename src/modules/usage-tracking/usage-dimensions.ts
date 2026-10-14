@@ -239,6 +239,13 @@ export const SEARCH_MODE_BY_BATCH_SOURCE: Readonly<Record<string, string>> = {
   external_import: 'import',
 };
 
+/**
+ * Formas que el lote declara en `metadata.search_mode` y que ganan sobre la de
+ * `source` (espejo de la migración 149): árbol, proveedores y competidores
+ * también son lotes `agent_1`.
+ */
+export const SEARCH_MODES_FROM_BATCH_METADATA = ['corporate_tree', 'suppliers', 'competitors'] as const;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -256,6 +263,12 @@ export const BATCH_MACRO_METADATA_BLOCKS = [
   'lusha_run_observability',
 ] as const;
 
+function searchModeFromBatch(source: string | null, metadata: Record<string, unknown>): string | null {
+  const declared = nonEmpty(metadata['search_mode']);
+  if (declared && (SEARCH_MODES_FROM_BATCH_METADATA as readonly string[]).includes(declared)) return declared;
+  return source ? SEARCH_MODE_BY_BATCH_SOURCE[source] ?? null : null;
+}
+
 export function resolveBatchDimensions(batch: BatchDimensionSource | null | undefined): BatchDimensions {
   if (!batch) return { countryCode: null, macroIndustryKey: null, searchMode: null };
   const metadata = batch.metadata ?? {};
@@ -267,7 +280,7 @@ export function resolveBatchDimensions(batch: BatchDimensionSource | null | unde
   return {
     countryCode: nonEmpty(batch.country_code)?.toUpperCase() ?? null,
     macroIndustryKey,
-    searchMode: batch.source ? SEARCH_MODE_BY_BATCH_SOURCE[batch.source] ?? null : null,
+    searchMode: searchModeFromBatch(batch.source, metadata),
   };
 }
 
@@ -298,6 +311,7 @@ export const SEARCH_MODE_LABELS: Readonly<Record<string, string>> = {
   exploratory: 'Empresas por industria',
   competitors: 'Competidores',
   suppliers: 'Proveedores',
+  corporate_tree: 'Árbol de empresa',
   import: 'Importación',
 };
 

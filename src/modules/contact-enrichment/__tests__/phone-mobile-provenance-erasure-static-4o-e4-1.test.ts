@@ -570,8 +570,13 @@ describe('4O-E4.1 estático — alcance', () => {
       // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
       // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      148,
-      'la 148 (las asociaciones entre empresas de la búsqueda en árbol, AGENT1-CORPORATE-TREE-1) es la última',
+      // AGENT1-CORPORATE-TREE-2 mueve el techo a la 149: sin tabla nueva; CREATE OR REPLACE de
+      // `provider_usage_batch_dimensions` para que `search_mode` prefiera la forma que declara el lote
+      // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
+      // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      149,
+      'la 149 (la forma de búsqueda del uso de IA desde la metadata del lote, AGENT1-CORPORATE-TREE-2) es la última',
     );
   });
 

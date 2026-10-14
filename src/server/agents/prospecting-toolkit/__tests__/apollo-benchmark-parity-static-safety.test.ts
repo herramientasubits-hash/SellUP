@@ -464,7 +464,9 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // un disparador que sólo rellena NULL y su relleno). No es de este corte; la ventana sube a la 148.
     // AGENT1-CORPORATE-TREE-1 declara la 148 (`agent1_company_relationships`: asociaciones entre
     // empresas de la búsqueda en árbol). No es de este corte; la ventana sube a la 149.
-      migrations.filter((f) => f.startsWith('149')).length,
+    // AGENT1-CORPORATE-TREE-2 declara la 149 (`provider_usage_batch_dimensions` desde la metadata del
+    // lote: CREATE OR REPLACE y su relleno). No es de este corte; la ventana sube a la 150.
+      migrations.filter((f) => f.startsWith('150')).length,
       0,
       'este corte no añade migración',
     );
@@ -494,7 +496,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('145') ||
         f.startsWith('146') ||
         f.startsWith('147') ||
-        f.startsWith('148'),
+        f.startsWith('148') ||
+        f.startsWith('149'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
