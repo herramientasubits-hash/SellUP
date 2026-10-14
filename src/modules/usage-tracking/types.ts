@@ -247,6 +247,12 @@ export interface LogProviderUsageInput {
   error_message?: string;
   duration_ms?: number;
   triggered_by?: string;
+  /**
+   * Forma de búsqueda (`competitors`, `suppliers`…) cuando el lote no la dice por su
+   * `source`. Ausente ⇒ la deriva el disparador de la migración 147 desde el lote
+   * (`agent_1` ⇒ `exploratory`); presente, el disparador la respeta (COALESCE).
+   */
+  search_mode?: string;
   metadata?: Record<string, unknown>;
 }
 

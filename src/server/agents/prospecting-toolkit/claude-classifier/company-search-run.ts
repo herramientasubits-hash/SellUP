@@ -235,6 +235,8 @@ export function buildCompanySearchUsageLog(
     batchId?: string | null;
     /** AGENT1-SUPPLIER-SEARCH-1 — para separar en Uso de IA lo de «Proveedores». */
     referenceCompanyName?: string | null;
+    /** «Competidores de una empresa»: la referencia, para separarlo en Uso de IA. */
+    competitorReferenceName?: string | null;
   },
 ): LogProviderUsageInput | null {
   if (!call.usage) return null;
@@ -254,6 +256,13 @@ export function buildCompanySearchUsageLog(
     error_code: call.errorCode ?? undefined,
     duration_ms: call.durationMs,
     triggered_by: context.triggeredBy,
+    // La forma de búsqueda en su columna (el disparador de la 147 la respeta); sin
+    // esto, el lote del asistente la deriva como «exploratory».
+    ...(context.referenceCompanyName
+      ? { search_mode: 'suppliers' }
+      : context.competitorReferenceName
+        ? { search_mode: 'competitors' }
+        : {}),
     metadata: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
       flow: 'claude_company_search',
@@ -266,7 +275,9 @@ export function buildCompanySearchUsageLog(
       pricing_source: call.usage.pricingSource,
       ...(context.referenceCompanyName
         ? { search_mode: 'suppliers', reference_company_name: context.referenceCompanyName }
-        : {}),
+        : context.competitorReferenceName
+          ? { search_mode: 'competitors', reference_company_name: context.competitorReferenceName }
+          : {}),
     },
   };
 }
@@ -328,6 +339,7 @@ export async function runClaudeCompanySearch(
       index: callIndex++,
       batchId: intoBatchId,
       referenceCompanyName,
+      competitorReferenceName: source.competitorReference?.name ?? null,
     });
     if (log) await deps.logUsage(log);
   };

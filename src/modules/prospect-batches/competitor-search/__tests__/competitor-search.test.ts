@@ -45,8 +45,10 @@ import {
   type CompetitorReference,
   type CompetitorReferenceCard,
 } from '../competitor-reference';
+import { buildProviderUsageLogInsertPayload } from '@/modules/usage-tracking/logging';
 import {
   buildCompanySearchQueries,
+  buildCompanySearchUsageLog,
   buildCompetitorSearchQueries,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run';
 import {
@@ -910,6 +912,50 @@ describe('H — resultado honesto y loader por rondas', () => {
     await executeCompetitorSearchRun(RUN_INPUT, deps);
     assert.deepEqual(stages, ['competitor_round_1', 'competitor_round_2', 'reviewing']);
     assert.deepEqual(used, ['competitor', 'competitor']);
+  });
+});
+
+describe('I — Uso de IA separa «Competidores»', () => {
+  const call = {
+    results: [],
+    proposed: 3,
+    rejected: {},
+    usage: {
+      model: 'claude-test',
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      webSearchRequests: 1,
+      webFetchRequests: 0,
+      estimatedCostUsd: 0.1,
+      pricingSource: 'test',
+    },
+    errorCode: null,
+    query: 'competidores de Alpina en Colombia',
+    durationMs: 10,
+  } as unknown as Parameters<typeof buildCompanySearchUsageLog>[0];
+
+  it('I1: la llamada de competidores lleva su forma de búsqueda en la columna', () => {
+    const log = buildCompanySearchUsageLog(call, {
+      runId: 'r',
+      sourceBatchId: 'b',
+      triggeredBy: 'u',
+      index: 0,
+      batchId: 'b',
+      competitorReferenceName: 'Alpina',
+    });
+    assert.equal(log?.search_mode, 'competitors');
+    assert.equal(log?.metadata?.reference_company_name, 'Alpina');
+  });
+
+  it('I2: sin forma declarada, la fila queda como siempre (la deriva el lote)', () => {
+    const log = buildCompanySearchUsageLog(call, { runId: 'r', sourceBatchId: 'b', triggeredBy: 'u', index: 0 });
+    assert.equal(log?.search_mode, undefined);
+    const payload = buildProviderUsageLogInsertPayload(log!, { roleKey: null, groupId: null });
+    assert.equal('search_mode' in payload, false);
+    const declared = buildProviderUsageLogInsertPayload({ ...log!, search_mode: 'competitors' }, { roleKey: null, groupId: null });
+    assert.equal(declared.search_mode, 'competitors');
   });
 });
 
