@@ -243,7 +243,7 @@ function dominantCode(counts: Readonly<Record<string, number>>, resolve: (code: 
 }
 
 /**
- * Código dominante sólo si su macro reúne al menos la mitad de los votos (todos los
+ * Código dominante sólo si su macro reúne MÁS de la mitad de los votos (todos los
  * códigos cuentan, también los que no tienen macro). `null` si la empresa no tiene
  * una actividad clara.
  */
@@ -259,7 +259,9 @@ export function dominantCodeWithMajority(
     if (macro !== null) byMacro.set(macro, (byMacro.get(macro) ?? 0) + n);
   }
   const best = [...byMacro.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
-  if (best === undefined || best[1] * 2 < total) return null;
+  // MÁS de la mitad: un empate (1 programa de servicios de información y 1 de hoteles)
+  // no decide; «H Santos D» (Hoteles Santos) salía en Tecnología.
+  if (best === undefined || best[1] * 2 <= total) return null;
   return dominantCode(
     Object.fromEntries(Object.entries(counts).filter(([code]) => resolve(code) === best[0])),
     resolve,
