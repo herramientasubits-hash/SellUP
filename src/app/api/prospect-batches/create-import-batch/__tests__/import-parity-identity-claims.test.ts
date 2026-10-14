@@ -275,14 +275,23 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
     assert.equal((inserted.metadata as Row).tax_identifier_validation, 'valid_check_digit_computed');
   });
 
-  it('las reglas de país y tamaño dejan marcas de revisión, no descartan (PARITY-3)', async () => {
-    await importRows([company('Grupo Bimbo', 'https://www.grupobimbo.com.mx', { company_size: '11-50' })]);
+  it('la regla de país deja una marca de revisión, no descarta (PARITY-3)', async () => {
+    await importRows([company('Grupo Bimbo', 'https://www.grupobimbo.com.mx', { company_size: '5000' })]);
     const [inserted] = spy.candidateInserts;
     assert.equal(inserted.status, 'needs_review');
     assert.deepEqual(
       [...(inserted.review_flags as string[])].filter((f) => f.startsWith('import_')).sort(),
-      ['import_below_icp_size', 'import_country_mismatch'],
+      ['import_country_mismatch'],
     );
+  });
+
+  it('por debajo de 200 empleados va a Descartadas con el motivo, como en el Agente 1 (IMPORT-SAME-PIPELINE-1)', async () => {
+    await importRows([company('Pyme SAS', 'https://pyme.com.co', { company_size: '11-50' })]);
+    const [inserted] = spy.candidateInserts;
+    assert.equal(inserted.status, 'discarded');
+    assert.ok((inserted.review_flags as string[]).includes('import_below_icp_size'));
+    assert.match(String(inserted.review_notes), /^Descartada automáticamente: menos de 200 empleados según el archivo/);
+    assert.equal(((inserted.metadata as Row).icp_size_gate as Row).decision, 'block');
   });
 
   it('una fila sin NIT lo obtiene del catálogo gratuito y ese NIT decide la identidad (PARITY-8)', async () => {

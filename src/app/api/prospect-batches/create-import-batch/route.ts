@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loader';
@@ -31,6 +31,8 @@ import {
   type ImportTaxIdentifierResolution,
 } from '@/modules/prospect-batches/import-tax-identifier';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import { resolveImportIcpSize } from '@/server/prospect-batches/import-icp-size';
+import { scheduleClaudeRescueAfterImport } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
 import {
   IMPORT_SOURCE_ENRICHMENT_METADATA_KEY,
   enrichImportRowsWithOfficialSources,
@@ -155,6 +157,8 @@ function candidateToClassifiableRow(
 }
 
 export async function POST(request: NextRequest) {
+  // AGENT1-IMPORT-SAME-PIPELINE-1 — el rescate en `after()` comparte los 300 s de esta función.
+  const requestStartedAtMs = Date.now();
   try {
     const supabase = await createClient();
 
@@ -419,7 +423,13 @@ export async function POST(request: NextRequest) {
       const normalizedName = normalizeName(candidate.company_name);
       const admission = admissionPlan[i];
       const isDuplicateOnImport = admission.kind === 'duplicate';
-      const candidateStatus = isDuplicateOnImport ? 'duplicate' : 'needs_review';
+      // AGENT1-IMPORT-SAME-PIPELINE-1 — tamaño ICP como el Agente 1: registro
+      // oficial o archivo; por debajo de 200 ⇒ Descartadas con el motivo.
+      const icpSize = resolveImportIcpSize({
+        companySize: candidate.company_size?.trim() || null,
+        official: officialSourceOutcomes.get(rowNumber) ?? null,
+      });
+      const candidateStatus = isDuplicateOnImport ? 'duplicate' : icpSize.discard ? 'discarded' : 'needs_review';
       // AGENT1-IMPORT-PARITY-3 — reglas de país/plataforma/dominio/tamaño de
       // Apollo/Lusha en modo revisión: marcan, no descartan.
       const qualityGates = evaluateImportQualityGates({
@@ -434,6 +444,7 @@ export async function POST(request: NextRequest) {
       if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
       if (candidate.notes) notesArr.push(candidate.notes);
 
+      if (icpSize.discard && !isDuplicateOnImport && icpSize.discardNote) notesArr.unshift(icpSize.discardNote);
       const reviewNotes = notesArr.length > 0 ? notesArr.join('\n') : null;
 
       // AGENT1-CUT4-B1 § 8 — la metadata del candidato se nombra ANTES de la fila
@@ -450,6 +461,7 @@ export async function POST(request: NextRequest) {
         ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
         [IMPORT_ADMISSION_METADATA_KEY]: toImportAdmissionMetadata(admission),
         [IMPORT_QUALITY_GATES_METADATA_KEY]: qualityGates.metadata,
+        icp_size_gate: { ...icpSize.gate, source: icpSize.source },
         ...(officialSourceOutcomes.has(rowNumber)
           ? { [IMPORT_SOURCE_ENRICHMENT_METADATA_KEY]: officialSourceOutcomes.get(rowNumber)!.metadata }
           : {}),
@@ -554,7 +566,7 @@ export async function POST(request: NextRequest) {
 
       if (!candidateError) {
         candidatesCreated++;
-        if (createdRow?.id && !isDuplicateOnImport) createdCandidateIds.push(createdRow.id as string);
+        if (createdRow?.id && candidateStatus === 'needs_review') createdCandidateIds.push(createdRow.id as string);
       }
     }
 
@@ -647,16 +659,24 @@ export async function POST(request: NextRequest) {
     // algo que valga la pena (la elegibilidad ya filtró duplicados, avisos y el
     // tope). Sin cron programado, esto es lo que hace que el enriquecimiento
     // exista. Si `after` no está disponible, los trabajos quedan `pending`.
-    if (AUTO_ENRICH_CONFIG.enabled && autoEnrichPendingCount > 0) {
-      try {
-        after(async () => {
-          const drain = await drainEnrichmentJobs();
-          console.info('[create-import-batch] post-import enrichment drain:', drain);
-        });
-      } catch (afterErr) {
-        console.error('[create-import-batch] could not schedule enrichment drain:', afterErr);
-      }
-    }
+    //
+    // AGENT1-IMPORT-SAME-PIPELINE-1 — y DESPUÉS, el mismo rescate con Claude del
+    // Agente 1 (tamaño y sector de lo que quedó en revisión sin tamaño). En
+    // secuencia: los dos escriben la metadata del candidato.
+    const drainBeforeRescue =
+      AUTO_ENRICH_CONFIG.enabled && autoEnrichPendingCount > 0
+        ? async () => {
+            const drain = await drainEnrichmentJobs();
+            console.info('[create-import-batch] post-import enrichment drain:', drain);
+          }
+        : null;
+    scheduleClaudeRescueAfterImport({
+      batchId: batch.id as string,
+      triggeredBy: internalUserId,
+      actionStartedAtMs: requestStartedAtMs,
+      hasReviewRows: createdCandidateIds.length > 0,
+      before: drainBeforeRescue,
+    });
 
     const stats = {
       totalProcessed,
