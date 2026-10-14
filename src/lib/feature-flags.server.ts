@@ -1071,3 +1071,43 @@ export const AGENT1_CLAUDE_COMPANY_SEARCH_AUTO_FLAG = 'ENABLE_AGENT1_CLAUDE_COMP
 export function isAgent1ClaudeCompanySearchAutoEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CLAUDE_COMPANY_SEARCH_AUTO_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · Búsqueda en árbol de una empresa (AGENT1-CORPORATE-TREE-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_CORPORATE_TREE_SEARCH_FLAG = 'ENABLE_AGENT1_CORPORATE_TREE_SEARCH';
+
+/**
+ * Desde una empresa, Claude busca su grupo y matriz, sus filiales y la misma
+ * empresa en otros países; lo encontrado entra por la importación (mismas
+ * compuertas) y queda en «Por revisar». Sólo gasta Claude (≈ una llamada por
+ * rama); nunca Apollo ni Lusha. Apagada, la opción del chat dice «Próximamente».
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1CorporateTreeSearchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CORPORATE_TREE_SEARCH_FLAG]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · «Proveedores de una empresa» — Fase 1 (AGENT1-SUPPLIER-SEARCH-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_SUPPLIER_SEARCH_FLAG = 'ENABLE_AGENT1_SUPPLIER_SEARCH';
+
+/**
+ * ¿Ofrece el asistente la forma de búsqueda «Proveedores de una empresa»? La persona
+ * escribe una empresa de referencia (p. ej. «Ecopetrol»), país e industria, y Claude
+ * busca en la web empresas de esa industria con evidencia pública de que le venden
+ * (casos de éxito, «nuestros clientes»). Pasan por la cadena de siempre (sitio,
+ * duplicados SellUp y HubSpot en sólo lectura, número fiscal, país, sector, tamaño,
+ * «una empresa, un vendedor»). Tope: 2 llamadas a Claude por corrida (≈ US$0,25),
+ * regido por la cuota de Proveedores. NUNCA aprueba nada; 0 Apollo, 0 Lusha.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ * Apagada, la opción sigue como «Próximamente» y el servidor rechaza el modo.
+ */
+export function isAgent1SupplierSearchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_SUPPLIER_SEARCH_FLAG]);
+}

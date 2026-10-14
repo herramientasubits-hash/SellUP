@@ -670,7 +670,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
-      '147_provider_usage_log_dimensions.sql',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '148_agent1_company_relationships.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

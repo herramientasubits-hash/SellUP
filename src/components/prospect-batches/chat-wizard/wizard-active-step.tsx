@@ -8,7 +8,11 @@ import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
-import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard';
+import {
+  REFERENCE_COMPANY_LIMITS,
+  resolveSearchModeDefinitions,
+} from '@/modules/prospect-batches/chat-wizard';
+import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -25,6 +29,7 @@ import type { MultiSelectOption } from '@/components/forms/multi-select';
  */
 export const WIZARD_QUESTION_STEPS: ReadonlySet<ProspectWizardStep> = new Set<ProspectWizardStep>([
   'search_type',
+  'reference_company',
   'country',
   'industry',
   'subindustries',
@@ -62,6 +67,9 @@ export function WizardActiveStep({
 
     case 'search_type':
       return <SearchTypeStep state={state} dispatch={dispatch} titleRef={stepTitleRef} />;
+
+    case 'reference_company':
+      return <ReferenceCompanyStep state={state} dispatch={dispatch} titleRef={stepTitleRef} />;
 
     case 'country':
       return <CountryStep state={state} onCountryChange={onCountryChange} titleRef={stepTitleRef} />;
@@ -129,13 +137,22 @@ function hasIssues(state: ProspectWizardState, step: string): boolean {
 
 // ── Search type step ──────────────────────────────────────────────────────────
 
-/** Las formas de búsqueda, como opciones numeradas de la pregunta del agente. */
-const SEARCH_TYPE_OPTIONS: readonly ChatQuestionOptionDetail[] = SEARCH_MODE_DEFINITIONS.map((def) => ({
-  value: def.mode,
-  label: def.label,
-  description: def.description,
-  ...(def.availability === 'coming_soon' ? { hint: 'Próximamente', unavailable: true } : {}),
-}));
+/**
+ * Las formas de búsqueda, como opciones numeradas de la pregunta del agente.
+ * AGENT1-CORPORATE-TREE-1 — el árbol se ofrece sólo si la ruta dice que está
+ * encendido; si no, se ve «Próximamente» como las demás que aún no están.
+ */
+function buildSearchTypeOptions(state: ProspectWizardState, corporateTreeEnabled: boolean): ChatQuestionOptionDetail[] {
+  return resolveSearchModeDefinitions(state).map((def) => {
+    const comingSoon = def.availability === 'coming_soon' || (def.mode === 'corporate_tree' && !corporateTreeEnabled);
+    return {
+      value: def.mode,
+      label: def.label,
+      description: def.description,
+      ...(comingSoon ? { hint: 'Próximamente', unavailable: true } : {}),
+    };
+  });
+}
 
 function SearchTypeStep({
   state,
@@ -146,7 +163,10 @@ function SearchTypeStep({
   dispatch: React.Dispatch<ProspectWizardAction>;
   titleRef: TitleRef;
 }) {
-  const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON');
+  const corporateTreeEnabled = useCorporateTreeEnabled();
+  const [treeUnavailable, setTreeUnavailable] = React.useState(false);
+  const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON') ?? (treeUnavailable ? true : undefined);
+  const definitions = resolveSearchModeDefinitions(state);
 
   // Una opción «Próximamente» se puede tocar: el reductor responde con el aviso
   // de abajo en vez de avanzar, que es como explica por qué no sirve.
@@ -155,11 +175,17 @@ function SearchTypeStep({
       aria-label="Tipo de búsqueda de prospectos"
       title="¿Qué tipo de prospectos quieres encontrar?"
       titleRef={titleRef}
-      options={SEARCH_TYPE_OPTIONS}
+      options={buildSearchTypeOptions(state, corporateTreeEnabled)}
       selected={state.searchMode ? [state.searchMode] : []}
       onAnswer={(mode) => {
-        const definition = SEARCH_MODE_DEFINITIONS.find((def) => def.mode === mode);
-        if (definition) dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
+        const definition = definitions.find((def) => def.mode === mode);
+        if (!definition) return;
+        if (definition.mode === 'corporate_tree' && !corporateTreeEnabled) {
+          setTreeUnavailable(true);
+          return;
+        }
+        setTreeUnavailable(false);
+        dispatch({ type: 'SELECT_SEARCH_MODE', mode: definition.mode });
       }}
       footerNotice={
         comingSoonWarning ? (
@@ -168,6 +194,38 @@ function SearchTypeStep({
               Esta forma de búsqueda estará disponible próximamente. Por ahora puedes buscar empresas por criterios.
             </AlertDescription>
           </Alert>
+        ) : undefined
+      }
+    />
+  );
+}
+
+// ── Reference company step (AGENT1-SUPPLIER-SEARCH-1) ─────────────────────────
+
+/** «Proveedores de una empresa»: la empresa se escribe; no hay lista que elegir. */
+function ReferenceCompanyStep({
+  state,
+  dispatch,
+  titleRef,
+}: {
+  state: ProspectWizardState;
+  dispatch: React.Dispatch<ProspectWizardAction>;
+  titleRef: TitleRef;
+}) {
+  return (
+    <ChatQuestionPanel
+      aria-label="Empresa de referencia"
+      title="¿De qué empresa quieres encontrar proveedores?"
+      description="Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden."
+      titleRef={titleRef}
+      options={[]}
+      otherLabel="Empresa"
+      otherPlaceholder="Nombre de la empresa"
+      otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
+      onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
+      footerNotice={
+        hasIssues(state, 'reference_company') ? (
+          <StepBlockingIssues state={state} step="reference_company" />
         ) : undefined
       }
     />
@@ -232,9 +290,11 @@ function IndustryStep({
     <ChatQuestionPanel
       aria-label={macro ? 'Macro industria de la búsqueda' : 'Industria de la búsqueda'}
       title={
-        macro
-          ? '¿En qué macro industria deberían operar las empresas?'
-          : '¿En qué industria deberían operar las empresas?'
+        state.searchMode === 'suppliers'
+          ? '¿De qué industria deberían ser los proveedores?'
+          : macro
+            ? '¿En qué macro industria deberían operar las empresas?'
+            : '¿En qué industria deberían operar las empresas?'
       }
       titleRef={titleRef}
       options={options}

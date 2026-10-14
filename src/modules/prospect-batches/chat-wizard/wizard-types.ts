@@ -9,7 +9,7 @@ import type {
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
-export type ProspectSearchMode = 'exploratory' | 'competitors' | 'suppliers';
+export type ProspectSearchMode = 'exploratory' | 'corporate_tree' | 'competitors' | 'suppliers';
 
 export type ProspectSearchModeAvailability = 'enabled' | 'coming_soon' | 'disabled';
 
@@ -25,6 +25,10 @@ export type ProspectSearchModeDefinition = {
 export type ProspectWizardStep =
   | 'welcome'
   | 'search_type'
+  /** AGENT1-CORPORATE-TREE-1 — la conversación del árbol toma el panel entero. */
+  | 'corporate_tree'
+  /** AGENT1-SUPPLIER-SEARCH-1 — sólo en «Proveedores de una empresa». */
+  | 'reference_company'
   | 'country'
   | 'industry'
   | 'subindustries'
@@ -40,6 +44,7 @@ export type ProspectWizardStep =
 
 export type EditableWizardStep =
   | 'search_type'
+  | 'reference_company'
   | 'country'
   | 'industry'
   | 'subindustries'
@@ -55,6 +60,7 @@ export type WizardWarningCode =
   | 'CRITERIA_OUTSIDE_CATALOG';
 
 export type WizardBlockingIssueCode =
+  | 'REFERENCE_COMPANY_INVALID'
   | 'COUNTRY_REQUIRED'
   | 'INDUSTRY_REQUIRED'
   | 'TOO_MANY_SUBINDUSTRIES'
@@ -94,6 +100,19 @@ export type ProspectWizardState = {
   currentStep: ProspectWizardStep;
 
   searchMode: ProspectSearchMode | null;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-1 — la empresa de la que se buscan proveedores, tal como la
+   * escribió la persona (ya recortada). `null` en «Empresas por criterios». Ausente =
+   * estado guardado antes de este cambio.
+   */
+  referenceCompanyName?: string | null;
+  /**
+   * Resuelto en el servidor (`ENABLE_AGENT1_SUPPLIER_SEARCH`) y fijo durante la
+   * conversación: con `true` la opción «Proveedores de una empresa» deja de ser
+   * «Próximamente». Ausente = apagada. No autoriza nada: el servidor vuelve a mirar
+   * la bandera al ejecutar.
+   */
+  supplierSearchEnabled?: boolean;
   countryCode: string | null;
   industryId: string | null;
   subindustryIds: string[];
@@ -186,6 +205,7 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
+  | { type: 'SET_REFERENCE_COMPANY'; value: string }
   | { type: 'SELECT_COUNTRY'; countryCode: string }
   | { type: 'SELECT_INDUSTRY'; industryId: string }
   /**

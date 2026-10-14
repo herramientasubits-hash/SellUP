@@ -330,8 +330,14 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
       '147_provider_usage_log_dimensions.sql',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '148_agent1_company_relationships.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF y las dimensiones de las consultas a proveedores',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores y las asociaciones entre empresas de la búsqueda en árbol',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

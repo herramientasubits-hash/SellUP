@@ -307,6 +307,8 @@ type GenerateAIBatchDrawerProps = {
    * no bloquea por presupuesto.
    */
   budgetPreflight?: WizardBudgetPreflight | null;
+  /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`, resuelto en el servidor. */
+  supplierSearchEnabled?: boolean;
   /**
    * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
    * acciones de la pantalla) y el drawer no pinta su propio botón. Sólo cambia
@@ -316,7 +318,7 @@ type GenerateAIBatchDrawerProps = {
   onOpenChange?: (open: boolean) => void;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const agentRuns = useAgentRuns();
   const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;
@@ -753,6 +755,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               providerOverrideCapability={providerOverrideCapability}
               apolloRunModeLimits={apolloRunModeLimits}
               budgetPreflight={budgetPreflight}
+              supplierSearchEnabled={supplierSearchEnabled}
             />
           </div>
           {chatView === 'runs' && <AgentRunsPanel />}

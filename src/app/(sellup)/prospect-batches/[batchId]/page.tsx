@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
+import { CorporateTreeBatchSections } from '@/components/prospect-batches/corporate-tree/corporate-tree-batch-sections';
 import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
 import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
 import { batchRunAttention } from '@/modules/prospect-batches/stuck-runs/stuck-runs-policy';
@@ -516,6 +517,9 @@ export default async function BatchDetailPage({ params }: Props) {
           </SurfaceCard>
         );
       })()}
+
+      {/* AGENT1-CORPORATE-TREE-1 — lote de una búsqueda en árbol: ramas sobre la tabla. */}
+      <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} />
 
       {/* Candidates table */}
       <SurfaceCard noPadding>

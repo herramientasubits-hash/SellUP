@@ -565,8 +565,13 @@ describe('4O-E4.1 estático — alcance', () => {
       // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
       // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
       // NO APLICADA.
-      147,
-      'la 147 (las dimensiones de las consultas a proveedores, AI-USAGE-FASE-2) es la última',
+      // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+      // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+      // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+      // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+      // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      148,
+      'la 148 (las asociaciones entre empresas de la búsqueda en árbol, AGENT1-CORPORATE-TREE-1) es la última',
     );
   });
 

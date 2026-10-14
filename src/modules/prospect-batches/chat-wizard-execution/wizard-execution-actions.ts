@@ -22,6 +22,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
+import { executeSupplierSearchRun } from './wizard-supplier-search';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -127,6 +128,7 @@ import {
   isWizardRunProviderOverrideEffective,
   isAgent1TavilyFirstEffective,
   isAgent1ClaudeCompanySearchAutoEnabled,
+  isAgent1SupplierSearchEnabled,
   isAgent1ClaudeRescueEnabled,
   isWizardRunProviderOverrideEnabled,
 } from '@/lib/feature-flags.server';
@@ -558,6 +560,10 @@ export type WizardExecutionDeps = {
    */
   resolveClaudeSearchLeg?: () => boolean;
   runClaudeCompanySearchLeg?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
+  resolveSupplierSearchEnabled?: () => boolean;
+  /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
+  runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
   /**
    * AGENT1-WATERFALL-LEG-DURABLE-TRACE — publica la traza de la pierna en la
    * metadata del lote.
@@ -1064,6 +1070,36 @@ export async function executeProspectWizardGenerationAction(
         passedPreFilter: summary.passedPreFilter,
       };
     },
+    // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa», detrás de su bandera.
+    resolveSupplierSearchEnabled: isAgent1SupplierSearchEnabled,
+    runClaudeSupplierSearch: async ({ batchId, phaseMs }) => {
+      const auth = await requireActiveUser();
+      const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
+        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
+        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
+      ]);
+      let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
+      try {
+        summary = await runClaudeCompanySearch(
+          { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
+          buildLiveClaudeCompanySearchDeps(auth.internalUserId),
+        );
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error('[supplier-search] failed:', detail);
+        return { executed: false, reason: `failed:${detail.slice(0, 160)}` };
+      }
+      if (!summary.ok) return { executed: false, reason: summary.error };
+      return {
+        executed: true,
+        persistedCandidates: summary.candidatesCreated,
+        completeValidCandidates: summary.completeValidCandidates,
+        acceptedIdentities: summary.acceptedCandidateIds.map((id) => `candidate:${id}`),
+        estimatedCostUsd: summary.estimatedCostUsd,
+        proposed: summary.proposed,
+        passedPreFilter: summary.passedPreFilter,
+      };
+    },
     // ── AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza, durable ───────────────
     //
     // 🔴 NO se acuña un segundo mecanismo: es el MISMO par que CUT-9B usa para
@@ -1194,6 +1230,26 @@ export async function executeProspectWizardGeneration(
       message: 'El catálogo ha cambiado. Por favor, vuelve a configurar la búsqueda.',
       retryable: false,
     };
+  }
+
+  // 4b. AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa» tiene su propio camino
+  // corto (sólo Claude): no resuelve proveedor, no corre capa gratuita, banco, Tavily,
+  // Apollo ni Lusha, y no reserva del presupuesto del piloto. Ver wizard-supplier-search.
+  if (req.searchMode === 'suppliers' && req.referenceCompanyName) {
+    return executeSupplierSearchRun(
+      {
+        userId,
+        clientRequestId: req.clientRequestId,
+        countryCode: req.countryCode,
+        countryName: LATAM_COUNTRIES.find((c) => c.code === req.countryCode)?.name ?? req.countryCode,
+        catalogVersion: req.catalogVersion,
+        additionalCriteria: req.additionalCriteriaRaw,
+        referenceCompanyName: req.referenceCompanyName,
+        catalogResolution,
+        searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
+      },
+      deps,
+    );
   }
 
   // 5a. Resolve discovery provider (server-side, double gate)

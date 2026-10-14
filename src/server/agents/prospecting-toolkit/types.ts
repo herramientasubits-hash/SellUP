@@ -560,6 +560,12 @@ export type ProspectingPipelineCandidate = {
   sourceUrl: string | null;
   sourceTitle: string | null;
   sourceSnippet: string | null;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-1 — por qué esta empresa encaja en una búsqueda de
+   * «Proveedores de una empresa»: a quién le vende y la página que lo prueba. Sólo
+   * trazabilidad para quien revisa; nunca identidad. Ausente en el resto.
+   */
+  relationshipEvidence?: CandidateRelationshipEvidence | null;
   inferredNameSource?: NameInferenceSource | null;
   websiteVerification: WebsiteVerificationOutput | null;
   duplicateCheck: DuplicateCheckResult | null;
@@ -1032,4 +1038,14 @@ export type SearchStrategyV1 = {
     queryOnlyConfidenceCap: number;
     blocksMediaDirectoriesMarketplaces: boolean;
   };
+};
+
+/** AGENT1-SUPPLIER-SEARCH-1 — la relación que justifica a un candidato de «Proveedores». */
+export type CandidateRelationshipEvidence = {
+  kind: 'supplier_of';
+  referenceCompanyName: string;
+  /** Página que prueba la relación (caso de éxito, «nuestros clientes»…). */
+  evidenceUrl: string | null;
+  /** Frase de esa página. */
+  evidence: string | null;
 };

@@ -25,6 +25,9 @@ export const RUN_PROGRESS_STAGES = [
   'apollo',
   'lusha',
   'claude_search',
+  // AGENT1-CORPORATE-TREE-1 — búsqueda en árbol de una empresa.
+  'tree_searching',
+  'tree_checking',
   'reviewing',
 ] as const;
 
@@ -39,6 +42,8 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   apollo: 'Buscando empresas con Apollo y completando sus datos',
   lusha: 'Completando la búsqueda con Lusha',
   claude_search: 'Claude está buscando más empresas en la web',
+  tree_searching: 'Claude está buscando el grupo, las filiales y la empresa en otros países',
+  tree_checking: 'Revisando HubSpot, duplicados, número fiscal y tamaño de lo encontrado',
   reviewing: 'Revisando lo encontrado',
 };
 
@@ -57,6 +62,8 @@ export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 're
   apollo: 55,
   lusha: 75,
   claude_search: 88,
+  tree_searching: 20,
+  tree_checking: 75,
 };
 
 /** El avance tras ver `stage`: nunca retrocede (una etapa saltada no resta). */
@@ -78,6 +85,8 @@ const STAGE_BY_DEP = {
   runApolloPipeline: 'apollo',
   runLushaWaterfallLeg: 'lusha',
   runClaudeCompanySearchLeg: 'claude_search',
+  // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores»: Claude es el único paso.
+  runClaudeSupplierSearch: 'claude_search',
 } as const satisfies Record<string, RunProgressStage>;
 
 type StageDepName = keyof typeof STAGE_BY_DEP;

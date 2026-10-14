@@ -582,7 +582,12 @@ describe('4O-G — alcance', () => {
     // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
     // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
     // NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 147);
+    // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+    // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+    // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+    // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 148);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -613,7 +618,8 @@ describe('4O-G — alcance', () => {
     // 145 archivos para los números 001-145: la 145 tampoco deja hueco.
     // 146 archivos para los números 001-146: la 146 tampoco deja hueco.
     // 147 archivos para los números 001-147: la 147 tampoco deja hueco.
-    assert.equal(numbered.length, 147);
+    // 148 archivos para los números 001-148: la 148 tampoco deja hueco.
+    assert.equal(numbered.length, 148);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

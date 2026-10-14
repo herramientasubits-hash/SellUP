@@ -15,6 +15,19 @@ interface CandidateFoundReasonSectionProps {
   searchTrace: Record<string, unknown> | undefined;
   sourceTitle: string | undefined;
   sourceSnippet: string | undefined;
+  /** AGENT1-SUPPLIER-SEARCH-1 — `metadata.relationship` de un candidato de «Proveedores». */
+  relationship?: Record<string, unknown> | undefined;
+}
+
+/** Sólo enlaces http(s): la URL viene de la web y se pinta como `href`. */
+function safeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** «Por qué fue encontrado»: la consulta, el título y el fragmento que lo trajeron. */
@@ -22,11 +35,34 @@ export function CandidateFoundReasonSection({
   searchTrace,
   sourceTitle,
   sourceSnippet,
+  relationship,
 }: CandidateFoundReasonSectionProps) {
+  const supplierOf =
+    relationship?.kind === 'supplier_of' && typeof relationship.reference_company_name === 'string'
+      ? relationship.reference_company_name
+      : null;
+  const evidenceUrl = supplierOf ? safeHttpUrl(relationship?.evidence_url) : null;
   return (
     <DrawerSection title="Por qué fue encontrado" icon={Search}>
       <div className="space-y-3">
         <DetailList className="sm:grid-cols-1">
+          {supplierOf && (
+            <DetailItem label="Proveedor de">
+              <span className="font-medium leading-snug">{supplierOf}</span>
+            </DetailItem>
+          )}
+          {evidenceUrl && (
+            <DetailItem label="Página que lo prueba">
+              <a
+                href={evidenceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+              >
+                {evidenceUrl}
+              </a>
+            </DetailItem>
+          )}
           {!!searchTrace?.query_text && (
             <DetailItem label="Consulta de búsqueda">
               <span className="text-xs leading-snug font-mono bg-surface-subtle rounded-md px-2.5 py-1.5">
