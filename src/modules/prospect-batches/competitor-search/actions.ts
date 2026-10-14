@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { isAgent1ClaudeCompanySearchAutoEnabled } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { loadActiveDiscoveryCatalog } from '@/modules/industry-catalog/discovery-catalog-loader';
@@ -68,6 +69,11 @@ export async function resolveCompetitorReferenceAction(
   request: unknown,
 ): Promise<ResolveCompetitorReferenceResult> {
   const { internalUserId } = await requireActiveUser();
+  // Sin «Claude busca empresas» la búsqueda de competidores no puede correr: no se
+  // paga la ficha de una referencia que después no se podría usar.
+  if (!isAgent1ClaudeCompanySearchAutoEnabled()) {
+    return { ok: false, message: 'La búsqueda de competidores usa a Claude, que no está activo en este momento.' };
+  }
   const parsed = requestSchema.safeParse(request);
   if (!parsed.success) return { ok: false, message: 'Solicitud inválida.' };
 

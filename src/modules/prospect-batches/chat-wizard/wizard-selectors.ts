@@ -87,8 +87,9 @@ export function getPreviousWizardStep(
   catalogVersion?: string | null,
   searchMode?: ProspectSearchMode | null,
 ): ProspectWizardStep | null {
-  // «Competidores»: antes del país está la referencia, no el tipo de búsqueda.
-  if (step === 'country' && searchMode === 'competitors') return 'reference_company';
+  // «Competidores»: antes del país está la ficha de la referencia (ya pagada:
+  // volver ahí no repite la búsqueda), no el tipo de búsqueda.
+  if (step === 'country' && searchMode === 'competitors') return 'reference_confirm';
   const prev = PREV_MAP[step] ?? null;
   if (prev === 'subindustries' && !isSubindustrySelectionEnabled(catalogVersion)) {
     return PREV_MAP.subindustries ?? null;

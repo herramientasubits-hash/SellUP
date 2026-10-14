@@ -221,8 +221,8 @@ describe('B — Claude busca competidores', () => {
     );
     const system = String(body.system);
     const user = String((body.messages[0] as { content: string }).content);
-    assert.match(system, /COMPETIDORES de «Alpina»/);
-    assert.match(system, /Nunca entregues a «Alpina»/);
+    assert.match(system, /COMPETIDORES de la «Empresa de referencia»/);
+    assert.doesNotMatch(system, /Alpina/, 'el texto del cliente no entra al system');
     assert.match(user, /Empresa de referencia: Alpina \(alpina\.com\)/);
     assert.match(user, /Qué hace la referencia: Lácteos/);
   });
@@ -395,8 +395,8 @@ describe('D — asistente', () => {
     assert.ok(validateWizardStateInvariants(state).some((v) => v.includes('without a reference company')));
   });
 
-  it('D9: atrás desde el país vuelve a la referencia', () => {
-    assert.equal(getPreviousWizardStep('country', MACRO_INDUSTRY_CATALOG_VERSION, 'competitors'), 'reference_company');
+  it('D9: atrás desde el país vuelve a la ficha (sin pagar otra búsqueda)', () => {
+    assert.equal(getPreviousWizardStep('country', MACRO_INDUSTRY_CATALOG_VERSION, 'competitors'), 'reference_confirm');
     assert.equal(getPreviousWizardStep('country', MACRO_INDUSTRY_CATALOG_VERSION, 'exploratory'), 'search_type');
   });
 
