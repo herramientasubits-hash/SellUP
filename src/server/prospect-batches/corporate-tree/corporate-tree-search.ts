@@ -30,7 +30,7 @@ import {
 import { anySearchConfirms } from '@/server/agents/prospecting-toolkit/claude-classifier/site-match';
 import { WEB_SEARCH_TOOL_TYPE } from '@/server/agents/prospecting-toolkit/claude-classifier/prompt';
 import type { ClassifierUsage } from '@/server/agents/prospecting-toolkit/claude-classifier/types';
-import type { CorporateTreeBranch } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { normalizeTreeName, type CorporateTreeBranch } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 
 export const SUBMIT_CORPORATE_TREE_TOOL_NAME = 'submit_corporate_tree';
 export const CORPORATE_TREE_MAX_WEB_SEARCHES = 6;
@@ -47,10 +47,12 @@ export type CorporateTreeSearchInput = {
   countries: readonly TreeCountry[];
   maxCompanies: number;
   /**
-   * AGENT1-CORPORATE-TREE-2 — lo ya encontrado GRATIS (registros oficiales y banco):
-   * Claude no lo repite y no se paga dos veces. `{ name, countryCode }`.
+   * AGENT1-CORPORATE-TREE-2 — lo ya encontrado GRATIS (registros oficiales y banco).
+   * `confirmed`: ya es de la familia; Claude la devuelve sólo si conoce su web (se une a
+   * la fila del registro y el rescate no paga por buscarla). Sin confirmar: Claude la
+   * devuelve sólo si es de la familia, con su fuente (si no, no entra).
    */
-  knownCompanies?: readonly { name: string; countryCode: string }[];
+  knownCompanies?: readonly { name: string; countryCode: string; confirmed: boolean }[];
 };
 
 export type CorporateTreeRejection =
@@ -58,7 +60,6 @@ export type CorporateTreeRejection =
   | 'country_not_requested'
   | 'source_not_in_search'
   | 'is_root'
-  | 'already_found_free'
   | 'duplicate_in_response';
 
 /** Una empresa de la rama que pasó los filtros. */
@@ -201,11 +202,11 @@ export function buildCorporateTreeRequestBody(input: CorporateTreeSearchInput, m
           input.rootWebsite ? `Web conocida: ${input.rootWebsite}` : null,
           input.rootCountry ? `País de la empresa de partida: ${input.rootCountry.name}` : null,
           BRANCH_INSTRUCTIONS[input.branch],
-          (input.knownCompanies ?? []).length > 0
-            ? `Ya encontradas en registros oficiales (no las repitas): ${(input.knownCompanies ?? [])
-                .slice(0, 60)
-                .map((c) => `${c.name} (${c.countryCode})`)
-                .join('; ')}`
+          knownList(input.knownCompanies, true).length > 0
+            ? `Ya confirmadas del grupo (inclúyelas SÓLO si conoces su web oficial): ${knownList(input.knownCompanies, true)}`
+            : null,
+          knownList(input.knownCompanies, false).length > 0
+            ? `Encontradas en registros oficiales, SIN confirmar (inclúyelas SÓLO si pertenecen a este grupo, con su fuente): ${knownList(input.knownCompanies, false)}`
             : null,
         ]
           .filter(Boolean)
@@ -213,6 +214,14 @@ export function buildCorporateTreeRequestBody(input: CorporateTreeSearchInput, m
       },
     ],
   };
+}
+
+function knownList(known: CorporateTreeSearchInput['knownCompanies'], confirmed: boolean): string {
+  return (known ?? [])
+    .filter((c) => c.confirmed === confirmed)
+    .slice(0, 40)
+    .map((c) => `${c.name} (${c.countryCode})`)
+    .join('; ');
 }
 
 type RawRoot = { website_url?: unknown; country_code?: unknown };
@@ -242,23 +251,7 @@ function httpUrl(value: unknown): string | null {
   }
 }
 
-/** Formas societarias al final del nombre: «Alpina Perú S.A.C.» y «Alpina Perú» son la misma. */
-const LEGAL_SUFFIX =
-  /(?:\s+(?:sas|sac|saa|sa|srl|s de rl(?: de cv)?|de cv|ltda|limitada|cia|inc|llc|corp|ltd|eirl))+$/;
-
-/** Nombre para comparar: minúsculas, sin acentos, sin signos ni forma societaria. */
-export function normalizeTreeName(text: string): string {
-  const base = text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/\./g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const stripped = base.replace(LEGAL_SUFFIX, '').trim();
-  return stripped || base;
-}
+export { normalizeTreeName };
 
 function readSubmission(content: AnthropicConversationResult['content']): { root: RawRoot | null; companies: RawCompany[] } {
   const block = [...content].reverse().find((b) => b.type === 'tool_use' && b.name === SUBMIT_CORPORATE_TREE_TOOL_NAME);
@@ -310,7 +303,6 @@ export async function filterCorporateTreeProposals(
   };
 
   const rootKey = normalizeTreeName(input.rootName);
-  const known = new Set((input.knownCompanies ?? []).map((c) => `${normalizeTreeName(c.name)}|${c.countryCode}`));
   const root = readRoot(submission.root, searchDomains);
 
   const seen = new Set<string>();
@@ -339,10 +331,6 @@ export async function filterCorporateTreeProposals(
       continue;
     }
     const key = `${normalizeTreeName(name)}|${countryCode}`;
-    if (known.has(key)) {
-      reject('already_found_free');
-      continue;
-    }
     if (seen.has(key)) {
       reject('duplicate_in_response');
       continue;

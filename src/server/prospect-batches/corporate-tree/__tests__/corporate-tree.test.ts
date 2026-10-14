@@ -6,6 +6,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import type { AnthropicConversationResult } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
@@ -180,6 +181,7 @@ const FREE_HIT = (name: string, countryCode: string, extra: Partial<CorporateTre
   countryCode,
   name,
   core: name.toLowerCase(),
+  confirmation: 'confirmed',
   taxId: `${countryCode}-1`,
   domain: null,
   workers: null,
@@ -498,7 +500,9 @@ describe('D. runCorporateTreeSearch — por el camino del Agente 1, gratis prime
     const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
     assert.ok(result.ok && result.alreadyStarted);
     assert.equal(result.batchId, 'batch-0');
-    assert.deepEqual(calls.stages, []);
+    assert.deepEqual(calls.stages, ['tree_free'], 'lo gratis puede repetirse; Claude no');
+    assert.equal(calls.usageLogs.length, 0);
+    assert.equal(calls.sealed.length, 0);
   });
 
   it('desde una empresa que ya existe: usa sus datos y no la vuelve a escribir', async () => {
@@ -711,5 +715,30 @@ describe('H. El lote del árbol es del Agente 1 desde el primer instante', () =>
     assert.equal(metadata.search_mode, 'corporate_tree');
     assert.equal(metadata.industry_id, null);
     assert.deepEqual((metadata.corporate_tree as Record<string, unknown>).country_codes, ['CL', 'PE']);
+  });
+});
+
+describe('I. La sección del lote se pinta en el servidor (Prod 14-10: «This page couldn’t load»)', () => {
+  it('no importa nada de un módulo «use client» para LLAMARLO (sólo componentes)', () => {
+    const file = 'src/components/prospect-batches/corporate-tree/corporate-tree-batch-sections.tsx';
+    const source = readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /^'use client'/m, 'la sección es un componente de servidor');
+    assert.doesNotMatch(source, /account-form-helpers/, 'getFlagEmoji de cuentas es de cliente: llamarlo en el servidor rompe la página');
+    const helperPath = 'src/components/prospect-batches/candidate-detail-helpers.ts';
+    assert.doesNotMatch(readFileSync(helperPath, 'utf8'), /^'use client'/m);
+  });
+
+  it('agrupa también lo que entró después por el rescate y lo que sigue sin web en «Descartadas»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [{ id: 'x', name: 'CENCOSUD PERU S.A.C.', country_code: 'PE', status: 'needs_review', matched_hubspot_company_id: null, metadata: {} }],
+      [
+        { related_candidate_id: null, related_name: 'Cencosud Perú SAC', related_country_code: 'PE', relation_type: 'other_country', relation_detail: null, evidence_url: null },
+        { related_candidate_id: null, related_name: 'Banco París', related_country_code: 'CL', relation_type: 'group', relation_detail: null, evidence_url: null },
+      ],
+    );
+    const byRelation = new Map(groups.map((g) => [g.relation, g.items]));
+    assert.equal(byRelation.get('other_country')?.[0].candidateId, 'x', 'mismo nombre sin forma societaria');
+    assert.equal(byRelation.get('group')?.[0].statusLabel, 'En Descartadas: sin web');
+    assert.equal(byRelation.get('group')?.[0].candidateId, null);
   });
 });
