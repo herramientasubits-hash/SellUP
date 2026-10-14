@@ -81,6 +81,7 @@ const SUMMARY_STEPS = new Set([
 /** Cómo se llama cada paso en el indicador de progreso. Cortos: caben seis en el panel. */
 const STEP_LABELS: Record<string, string> = {
   search_type: 'Tipo',
+  reference_company: 'Empresa',
   country: 'País',
   industry: 'Industria',
   subindustries: 'Enfoque',
@@ -92,6 +93,7 @@ const STEP_LABELS: Record<string, string> = {
 /** Pasos a los que se puede volver tocando el indicador. */
 const STEPPER_EDITABLE_STEPS = new Set<string>([
   'search_type',
+  'reference_company',
   'country',
   'industry',
   'subindustries',
@@ -171,6 +173,12 @@ type ProspectChatWizardProps = {
    * rechazo ya se conoce. Ausente/`null` ⇒ sin instantánea, no se bloquea nada.
    */
   budgetPreflight?: WizardBudgetPreflight | null;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`, resuelto en el
+   * servidor. Sólo enciende la opción «Proveedores de una empresa» en el chat; el
+   * servidor vuelve a mirar la bandera al ejecutar. Ausente ⇒ `false`.
+   */
+  supplierSearchEnabled?: boolean;
 };
 
 export function ProspectChatWizard({
@@ -183,6 +191,7 @@ export function ProspectChatWizard({
   providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
   apolloRunModeLimits = null,
   budgetPreflight = null,
+  supplierSearchEnabled = false,
   ref,
   onRestartAvailabilityChange,
   onRunningChange,
@@ -194,6 +203,7 @@ export function ProspectChatWizard({
       createInitialProspectWizardState({
         catalogVersion: catalog.version,
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
+        supplierSearchEnabled,
       }),
   );
 
@@ -653,13 +663,26 @@ export function ProspectChatWizard({
     const countryName =
       LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode ?? '';
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
-    const runTitle = [countryName, industryName].filter(Boolean).join(' · ');
+    // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores» la empresa de referencia encabeza el
+    // título y la clave de concurrencia (los proveedores de Ecopetrol no son los de
+    // Bancolombia aunque compartan país e industria).
+    const supplierReference =
+      state.searchMode === 'suppliers' ? (state.referenceCompanyName ?? '').trim() : '';
+    const runTitle = [
+      supplierReference ? `Proveedores de ${supplierReference}` : '',
+      countryName,
+      industryName,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     const execute = (payload: Parameters<typeof executeWizardRunViaRoute>[0]) =>
       runsStore
         ? runsStore.startRun({
             title: runTitle,
             // Mismo país × industria = mismas empresas: nunca corren juntas.
-            concurrencyKey: `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
+            concurrencyKey: supplierReference
+              ? `suppliers:${supplierReference.toLowerCase()}:${state.countryCode ?? ''}:${state.industryId ?? ''}`
+              : `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
             payload,
           })
         : executeWizardRunViaRoute(payload);
@@ -672,6 +695,11 @@ export function ProspectChatWizard({
         additionalCriteriaRaw: state.additionalCriteriaRaw,
         catalogVersion: state.catalogVersion,
         clientRequestId: clientRequestIdRef.current,
+        // AGENT1-SUPPLIER-SEARCH-1 — sólo en «Proveedores»: una búsqueda por criterios
+        // produce exactamente la misma solicitud que antes.
+        ...(supplierReference
+          ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
+          : {}),
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
         // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
         // `isAdmin`, `providerAuthorized`, `authority` ni `overrideAllowed`; el
@@ -735,8 +763,16 @@ export function ProspectChatWizard({
         // por `mapExecutionError` a secas descartaría `persistenceNotReady.reason`
         // —la diferencia entre «falta la migración» y «no se pudo comprobar»— y
         // sustituiría el `retryable` que decidió el servidor por el de una tabla.
-        const mapped =
-          result.code === 'PROVIDER_UNAVAILABLE'
+        // AGENT1-SUPPLIER-SEARCH-1 — el camino de «Proveedores» devuelve su propio
+        // texto (cuota de Claude agotada, modelo sin configurar…): se muestra tal cual.
+        // Su lote fallido ya quedó sellado: reintentar con el MISMO id devolvería
+        // «ya empezada» sin buscar, así que el reintento es una corrida nueva.
+        if (supplierReference && result.code === 'GENERATION_FAILED') {
+          clientRequestIdRef.current = crypto.randomUUID();
+        }
+        const mapped = supplierReference && result.code === 'GENERATION_FAILED'
+          ? { message: result.message, retryable: result.retryable }
+          : result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)
             : result.code === 'PERSISTENCE_NOT_READY'
               ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
@@ -778,8 +814,8 @@ export function ProspectChatWizard({
   // dice dónde estás, qué falta, y deja volver a un paso ya contestado.
 
   const progressSteps = React.useMemo(
-    () => getWizardProgressSteps(state.catalogVersion),
-    [state.catalogVersion],
+    () => getWizardProgressSteps(state.catalogVersion, state.searchMode),
+    [state.catalogVersion, state.searchMode],
   );
   const inReviewPhase = SUMMARY_STEPS.has(state.currentStep);
   const stepperSteps = React.useMemo<StepperStep[]>(
