@@ -41,7 +41,7 @@ En cada corrida del Agente 1 cada país tiene dos capas gratuitas antes de pagar
 | Uruguay | RUT | RUPE 30.315 + 2.282 alias | ARCE 2.315 · Gobierno 108 |
 | Venezuela | RIF | RIF oficial 636 + 138 alias | Directorio con RIF 573 · entidades con web 155 |
 
-**Capa común LATAM** (`latam_curated_directory`, 7.106 filas en 16 países): universidades, reguladores, rankings Merco y Great Place to Work, entre otros. Va detrás de la capa de cada país y sólo aparece cuando ésta se queda sin empresas nuevas.
+**Capa común LATAM** (`latam_curated_directory`, 7.106 filas en 16 países): universidades, reguladores, rankings Merco y Great Place to Work, entre otros. Desde el 14-10-2026 lo curado con web va primero, hasta la mitad de cada lectura; después la capa del país y al final lo curado sin web.
 
 **Descartadas** (no se conectan): OpenCorporates (API comercial de pago), cnpj.ws (tercero no oficial), EKOS Ecuador (directorio privado sin términos validados) y PRODUCE Perú (sin API). **Congelada**: la carga nacional pesada de Receita (Brasil funciona con la capa liviana).
 
