@@ -52,6 +52,10 @@ import {
 import { VE_WEB_ENTITIES, type VeWebEntity } from '../ve-web-entities';
 import { VE_PUBLIC_ENTITIES, type VePublicEntity } from '../ve-public-entities';
 import { VE_OFFICIAL_WORKFORCE } from '../ve-official-workforce';
+import { VE_LARGE_INSURERS } from '../ve-insurer-premiums';
+import { VE_ONAPRE_POSTS } from '../ve-onapre-posts';
+import { workforceFromRawData } from '@/server/prospect-batches/snapshot-name-query';
+import { VE_LARGE_INSURER_SIZE_LABEL } from '@/server/prospect-batches/country-source-discovery/ve-free-directory-discovery-adapter';
 import { veCompanyWebCandidates, veCompanyWebVerdict, type VeFetchedPage } from '../ve-company-web';
 import {
   createVenezuelaOfficialSourceResolver,
@@ -592,6 +596,35 @@ describe('filas de la capa gratuita', () => {
     }
   });
 
+  it('SOURCES-VE-SIZE-2: una de las 15 aseguradoras con más primas lleva el tramo «grande» (sin número)', () => {
+    const { registryRows, taxRows } = build({ sudeaseg: [SEGUROS_CARACAS, OCCIDENTAL] });
+    const caracas = taxRows.find((r) => r.tax_id === SEGUROS_CARACAS.rif)!;
+    assert.equal(caracas.raw_data['official_size_band'], 'large');
+    assert.equal(caracas.raw_data['insurer_premium_rank'], 2);
+    assert.equal(taxRows.find((r) => r.tax_id === OCCIDENTAL.rif)!.raw_data['official_size_band'], undefined);
+    const band = workforceFromRawData(registryRows.find((r) => r.tax_id === SEGUROS_CARACAS.rif)!.raw_data, 'x');
+    assert.equal(band?.sizeBand, 'aseguradora grande por primas (SUDEASEG 2024)');
+    assert.equal(band?.workers, 0);
+  });
+
+  it('SOURCES-VE-SIZE-2: un ente público con cargos de la ONAPRE 2016, con y sin RIF', () => {
+    const { webRows } = build({ publicEntities: [pub({ domain: 'ivss.gob.ve', name: 'Instituto Venezolano de los Seguros Sociales (IVSS)' })] });
+    assert.equal(webRows[0].raw_data['workers'], 51860);
+    assert.equal(webRows[0].raw_data['metrics_year'], 2016);
+    assert.equal(webRows[0].raw_data['workforce_source'], 'onapre');
+    const withRif = build({ publicEntities: [pub({ domain: 'conatel.gob.ve', name: 'Comisión Nacional de Telecomunicaciones (CONATEL)', rif: 'G-20000826-1' })] });
+    assert.equal(withRif.taxRows[0].raw_data['workers'], 906);
+    assert.equal(withRif.registryRows[0].raw_data['workers'], 906);
+  });
+
+  it('SOURCES-VE-SIZE-2: las tablas de primas y de cargos son coherentes', () => {
+    assert.equal(VE_LARGE_INSURERS.length, 15);
+    for (const i of VE_LARGE_INSURERS) assert.equal(canonicalVenezuelaRif(i.rif), i.rif, i.name);
+    const domains = VE_ONAPRE_POSTS.map((p) => p.domain);
+    assert.equal(new Set(domains).size, domains.length);
+    for (const p of VE_ONAPRE_POSTS) assert.ok(Number.isInteger(p.posts) && p.posts > 0, p.name);
+  });
+
   it('un dominio compartido por dos entidades no identifica a ninguna', () => {
     const { webRows } = build({ publicEntities: [pub({}), pub({ name: 'Otro ente', wikidata: 'Q1' })] });
     assert.equal(webRows.length, 1);
@@ -660,6 +693,7 @@ function readRow(overrides: Partial<VeFreeDirectorySnapshotReadRow>): VeFreeDire
     workers: null,
     metrics_year: null,
     workforce_source: null,
+    official_size_band: null,
     priority_score: 1_000_001,
     ...overrides,
   };
@@ -681,6 +715,12 @@ describe('adaptador de la capa gratuita de Venezuela', () => {
     const { adapter } = adapterWith([readRow({ rif: 'J-30984132-7', directory_kind: 'bvc_member', activity_code: null, workers: 1580, metrics_year: 2022, workforce_source: 'sudeban' })]);
     const result = await adapter({ macroIndustryKey: 'insurance_financial_services', limit: 10 } as never);
     assert.deepEqual(result.companies[0].officialWorkforce, { workers: 1580, year: 2022, sourceLabel: 'SUDEBAN (Boletín Mensual, jun-2022)' });
+  });
+
+  it('SOURCES-VE-SIZE-2: una aseguradora grande llega con el tramo «grande» de la SUDEASEG', async () => {
+    const { adapter } = adapterWith([readRow({ rif: 'J-00038923-3', directory_kind: 'sudeaseg', activity_code: 'empresas-seguros', official_size_band: 'large' })]);
+    const result = await adapter({ macroIndustryKey: 'insurance_financial_services', limit: 10 } as never);
+    assert.deepEqual(result.companies[0].officialSizeBand, { band: 'large', sourceLabel: VE_LARGE_INSURER_SIZE_LABEL });
   });
 
   it('ofrece la empresa con RIF, web y tabla oficial; sin tamaño oficial', async () => {
