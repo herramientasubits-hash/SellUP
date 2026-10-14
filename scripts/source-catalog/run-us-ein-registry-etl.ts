@@ -15,6 +15,10 @@
  *                                 Business Master File (https://www.irs.gov/pub/
  *                                 irs-soi/eoN.csv). Opcional --min-revenue=<USD>.
  *
+ *   --irs990-file=<csv>  (opcional) extracto anual del Formulario 990 del IRS
+ *                        (https://www.irs.gov/pub/irs-soi/24eoextract990.zip): pone los
+ *                        empleados oficiales (W-3) en raw_data.workers por EIN.
+ *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-us-ein-registry-etl.ts --source=sec --dir=…
  *
@@ -45,6 +49,10 @@ import {
   US_SEC_EDGAR_REGISTRY_SOURCE_KEY,
   type UsEinRegistryRow,
 } from '../../src/server/source-catalog/connectors/us-ein/us-ein-registry-rows';
+import {
+  attachIrs990Workforce,
+  buildIrs990WorkforceIndex,
+} from '../../src/server/source-catalog/connectors/us-ein/us-irs-990-workforce';
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
@@ -117,12 +125,28 @@ async function readRows(config: Config, importedAt: string): Promise<{ rows: UsE
   return { rows, read };
 }
 
+async function readIrs990(file: string) {
+  const records: Record<string, string>[] = [];
+  for await (const record of readCsvFile(file)) {
+    records.push({ EIN: record['EIN'] ?? '', noemplyeesw3cnt: record['noemplyeesw3cnt'] ?? '', tax_pd: record['tax_pd'] ?? '' });
+  }
+  return buildIrs990WorkforceIndex(records);
+}
+
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
   const sourceKey = config.source === 'sec' ? US_SEC_EDGAR_REGISTRY_SOURCE_KEY : US_IRS_EO_REGISTRY_SOURCE_KEY;
   console.log(`US EIN REGISTRY ETL (${sourceKey}) — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
 
-  const { rows, read } = await readRows(config, new Date().toISOString());
+  const loaded = await readRows(config, new Date().toISOString());
+  const read = loaded.read;
+  let rows = loaded.rows;
+  const irs990File = process.argv.find((arg) => arg.startsWith('--irs990-file='))?.slice('--irs990-file='.length);
+  if (irs990File) {
+    const result = attachIrs990Workforce(rows, await readIrs990(irs990File));
+    rows = result.rows;
+    console.log(`  Empleados del Formulario 990: ${result.attached}`);
+  }
   const cores = new Map<string, number>();
   for (const row of rows) cores.set(row.normalized_legal_name, (cores.get(row.normalized_legal_name) ?? 0) + 1);
   const unique = rows.filter((row) => cores.get(row.normalized_legal_name) === 1).length;

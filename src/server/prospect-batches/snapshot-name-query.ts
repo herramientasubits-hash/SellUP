@@ -199,6 +199,9 @@ export const BO_TAXPAYER_CATEGORY_BANDS: Readonly<Record<string, string>> = {
   // SOURCES-NI-CLOSE-2 — Grandes Contribuyentes de la DGI de Nicaragua (lista de
   // 2019-2020 del Internet Archive). Mismo trato: «empresa grande» que no decide sola.
   NI_GRAN_CONTRIBUYENTE: 'gran contribuyente (DGI Nicaragua)',
+  // SOURCES-VE-SIZE-2 — una de las 15 aseguradoras con más primas de Venezuela
+  // (SUDEASEG 2024, 91 % del mercado). Mismo trato: «grande» que no decide sola.
+  VE_ASEGURADORA_GRANDE: 'aseguradora grande por primas (SUDEASEG 2024)',
   // SOURCES-ES-CLOSE-1 — «GRAN EMPRESA» en las ayudas de Estado de la BDNS (definición
   // de la UE: 250+ personas o ventas y balance altos). La declara el órgano que
   // concede y a veces la misma empresa sale como PYME: «grande» que no decide sola.

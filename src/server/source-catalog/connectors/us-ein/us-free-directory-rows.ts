@@ -208,6 +208,10 @@ const IPEDS_SIZE_TEXT: Readonly<Record<string, string>> = Object.freeze({
   '5': '20.000 estudiantes o más',
 });
 
+/** Relevancia por tramo de estudiantes (públicas en la escala de Gobierno A-D). */
+const IPEDS_PUBLIC_PRIORITY: Readonly<Record<string, number>> = Object.freeze({ '5': 4500, '4': 3500, '3': 2500 });
+const IPEDS_PRIVATE_PRIORITY: Readonly<Record<string, number>> = Object.freeze({ '5': 1500, '4': 700, '3': 300 });
+
 /** Web de IPEDS («www.ua.edu/», «https://www.uab.edu/») → dominio, o `null`. */
 export function ipedsWebsiteDomain(raw: string | null | undefined): string | null {
   const value = raw?.trim().toLowerCase() ?? '';
@@ -235,8 +239,9 @@ export function buildUsIpedsDirectoryRow(
     legalName,
     city: text(record['CITY']),
     region: text(record['STABBR']),
-    // Las de más estudiantes delante, entre las grandes del IRS (≈ US$ 100-1.000 M).
-    priority: Number(size) * 100,
+    // Públicas: en el orden de Gobierno (SOURCES-US-GOV-ORDER-1: 20.000+ = A, 10.000+ = B,
+    // 5.000+ = C). Privadas: entre las del IRS, como unos US$ 300-1.500 M de ingresos.
+    priority: isPublic ? IPEDS_PUBLIC_PRIORITY[size]! : IPEDS_PRIVATE_PRIORITY[size]!,
     rawData: {
       directory_kind: 'ipeds' satisfies UsFreeDirectoryKind,
       macro_industry_key: isPublic ? 'government' : 'services_company',

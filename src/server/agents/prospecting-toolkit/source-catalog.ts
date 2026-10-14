@@ -134,7 +134,7 @@ export const COUNTRY_RISKS: Record<string, string[]> = {
   VE: [
     'Venezuela no publica un padrón de empresas con RIF alcanzable: el RNC prohíbe el rastreo (robots.txt), el SENIAT bloquea las consultas desde fuera del país y no publica la lista de contribuyentes especiales. El RIF por nombre sale de la Bolsa de Caracas, la SUDEASEG, la SUNAVAL (copia de 2022), GLEIF y las webs oficiales que lo muestran: cubre sobre todo finanzas, seguros, empresas que cotizan y entes públicos.',
     'Una empresa privada que no cotiza ni está regulada (Polar, Farmatodo, las petroleras mixtas) no aparece: queda sin RIF.',
-    'Tamaño oficial casi inexistente: el SENIAT no publica la condición de contribuyente especial; sólo 13 bancos traen trabajadores (SUDEBAN, junio de 2022) y 4 empresas los de Great Place to Work. El resto lo pone el proveedor en la corrida.',
+    'Tamaño parcial: el SENIAT no publica la condición de contribuyente especial. Traen tamaño los 13 bancos (trabajadores de SUDEBAN, junio de 2022), las 15 aseguradoras con más primas (tramo «grande» de la SUDEASEG 2024, no decide solo), 78 entes públicos (cargos de la Ley de Presupuesto 2016 de la ONAPRE, presupuestados) y 4 empresas de Great Place to Work. Corredoras, ajustadoras, alcaldías, gobernaciones y el resto: lo pone el proveedor en la corrida.',
     'Nombres repetidos o genéricos no dan un RIF seguro.',
   ],
   PY: [
@@ -2750,7 +2750,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Capa gratuita del Agente 1 para Venezuela: propone, por industria y antes de pagar a Apollo, entidades con RIF (empresas que cotizan primero, luego aseguradoras, casas de bolsa y reguladas de la SUNAVAL). La industria sale de lo que la fuente dice de la entidad: una tabla para las empresas del Estado (a su industria; medios del Estado en Gobierno), una tabla empresa → industria leída del objeto social de cada emisora de la Bolsa de Caracas y la SUNAVAL, la categoría de la SUDEASEG (todo Seguros y Servicios Financieros), las casas de bolsa (Financieras), el tipo de la SUNAVAL (fondos, calificadoras y asesores → Financieras; contadores → Servicios) y una tabla para las empresas con web comprobada. La web sale de la ficha de la Bolsa, de la web oficial o de una búsqueda por nombre comprobada con la propia página.',
     limitations: [
-      'Tamaño sólo para 17 entidades: 13 bancos con trabajadores de SUDEBAN (junio de 2022) y 4 empresas de Great Place to Work (no oficial). El resto sin tamaño: decide lo que traigan los demás pasos.',
+      'Tamaño para 110 de 728: 13 bancos (trabajadores de SUDEBAN, junio de 2022), 15 aseguradoras (tramo «grande» por primas de la SUDEASEG 2024), 78 entes públicos (cargos presupuestados de la ONAPRE 2016) y 4 empresas de Great Place to Work (no oficial). El resto sin tamaño: decide lo que traigan los demás pasos.',
       'Muy cargada hacia Seguros y Servicios Financieros; en Retail, Tecnología o Salud son pocas decenas.',
       'Las reguladas de la SUDEASEG casi nunca traen web: dependen de la búsqueda por nombre o del rescate.',
     ],
@@ -3216,6 +3216,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     recommendedUse:
       'Archivo maestro de organizaciones exentas del IRS (Exempt Organizations BMF): 65.044 organizaciones sin ánimo de lucro —universidades, hospitales, fundaciones— con ingresos o recaudación de US$5 millones o más. Es la segunda fuente de Estados Unidos para completar el EIN por nombre en cada corrida del Agente 1, después de la SEC. EIN seguro sólo cuando exactamente un EIN tiene ese mismo núcleo de nombre; los homónimos quedan como señal y los nombres genéricos nunca se buscan.',
     limitations: [
+      'SOURCES-US-SIZE-990-1: lleva los empleados oficiales del Formulario 990 (extracto 2024) en 43.812 de 65.204 organizaciones; llegan a la ficha por el filtro de tamaño de siempre.',
       'Sólo organizaciones sin ánimo de lucro grandes (US$5 millones o más): no cubre empresas con fines de lucro.',
       'El EIN no tiene dígito verificador: un error de transcripción no se detecta.',
       'Sin coincidencias aproximadas: el núcleo del nombre debe coincidir exactamente.',
@@ -3232,11 +3233,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web: la de IPEDS o la de su registro en SAM.gov por nombre + estado). Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
+      'SOURCES-US-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (carga autorizada por la dueña): 14.206 filas — 11.456 organizaciones del IRS con ingresos ≥ US$ 25 M, 1.922 cotizadas de la SEC «Large accelerated» o «Accelerated» y 828 universidades y colegios de IPEDS con 5.000+ estudiantes; 5.967 marcadas como grandes; 5.979 con web (IPEDS o SAM.gov por nombre + estado). 1.ª corrida EE. UU. × Salud (lote 35d843ae, 14-10): 10/10 gratis con EIN y web, US$ 0. SOURCES-US-GOV-ORDER-1: las universidades públicas entran en el orden de Gobierno A-D. Tabla NTEE/SIC → industria y cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=… --ipeds-file=… --sam-file=… --apply.',
     countryCodes: ['US'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf',
     automationLevel: 'high',
@@ -3245,7 +3246,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     limitations: [
       'Ni el IRS ni la SEC publican la web: sólo 5.979 de 14.206 la traen (IPEDS o SAM.gov por nombre + estado); las demás van a Descartadas y dependen del rescate con Claude.',
       'Las empresas privadas con fines de lucro que no cotizan no aparecen: no hay registro público gratuito con su EIN.',
-      'Sin empleados: sólo «grande» (ingresos ≥ US$ 100 M en el IRS, emisor «Large accelerated» en la SEC o 10.000+ estudiantes en IPEDS), que nunca decide solo.',
+      'Empleados oficiales (Formulario 990 del IRS, SOURCES-US-SIZE-990-1) sólo para las organizaciones sin ánimo de lucro que lo presentan: 9.747 de 14.206. Las cotizadas de la SEC y las universidades públicas quedan con «grande» (emisor «Large accelerated» o 10.000+ estudiantes), que nunca decide solo.',
       'Fundaciones, arte, religión, sindicatos, clubes y fideicomisos de salud de empleados no se proponen; no hay industria de Gobierno.',
       'Snapshot estático — requiere recarga para reflejar altas y bajas.',
     ],
@@ -3261,16 +3262,16 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      'SOURCES-US-CLOSE-1: construido, CARGA PENDIENTE de autorización (dry-run del 14-10-2026: 1.829 entidades — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más). Cortes aprobados por la dueña el 14-10-2026. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --apply.',
+      'SOURCES-US-CLOSE-1: CARGADO y verificado en Prod el 14-10-2026 (carga autorizada por la dueña): 1.829 entidades con web .gov — 268 agencias federales, 436 gobiernos estatales y sus agencias, 512 condados y 613 ciudades de 50.000 habitantes o más. 1.ª corrida EE. UU. × Gobierno (lote 550038e2, 14-10): 10/10 gratis con web, US$ 0, pero en orden alfabético (comisiones federales chicas primero) ⇒ SOURCES-US-GOV-ORDER-1 (orden aprobado por la dueña el 14-10-2026): A = federales con presupuesto ≥ US$ 10.000 M (USAspending), gobiernos estatales principales, locales de 1 M+ habitantes y universidades públicas de 20.000+; B, C y D por presupuesto, población o estudiantes; comités y juntas federales al final. Carga: scripts/source-catalog/run-us-public-entities-etl.ts --dotgov-file=current-full.csv --census-file=sub-est2024.csv --usaspending-file=toptier_agencies.json --apply.',
     countryCodes: ['US'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'official_registry',
     url: 'https://github.com/cisagov/dotgov-data',
     automationLevel: 'high',
     recommendedUse:
-      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las federales y estatales y luego las locales con más habitantes.',
+      'Capa gratuita de Gobierno de Estados Unidos: agencias federales, gobiernos estatales y sus agencias, y condados y ciudades de 50.000 habitantes o más (estimación del Censo de 2024), cada una con su web .gov oficial. Las universidades públicas llegan por IPEDS en la capa gratuita por industria. Antes de pagar a Apollo o Lusha, el Agente 1 propone de aquí, primero las más grandes: departamentos federales por presupuesto (USAspending), estados por población, condados y ciudades por habitantes; los comités y juntas federales al final.',
     limitations: [
       'Sin EIN: la entidad se identifica por su web .gov.',
       'Sólo entidades con un dominio .gov que lleve su nombre o su sigla: las que usan otro dominio (.mil, .us, .org) no aparecen.',

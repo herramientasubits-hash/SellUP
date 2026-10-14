@@ -74,7 +74,85 @@ export type DotGovDomainRecord = {
 export type UsPopulationLookup = {
   county: (name: string, stateName: string) => number | null;
   city: (name: string, stateName: string) => number | null;
+  /** Población del estado (para ordenar su gobierno y sus agencias). */
+  state?: (stateName: string) => number | null;
 };
+
+/** Presupuesto (USD) de una agencia federal de primer nivel por su nombre (USAspending), o `null`. */
+export type UsFederalBudgetLookup = (organization: string) => number | null;
+
+/**
+ * SOURCES-US-GOV-ORDER-1 — orden de Gobierno aprobado por la dueña el 14-10-2026,
+ * de mayor a menor (dentro de cada nivel, por presupuesto, población o estudiantes):
+ *
+ *   A · federales con presupuesto ≥ US$ 10.000 M (y sus suborganismos), gobiernos
+ *       estatales principales, condados y ciudades de 1 M+ habitantes, universidades
+ *       públicas de 20.000+ estudiantes;
+ *   B · federales de US$ 1.000-10.000 M, locales de 250.000-1 M, universidades
+ *       públicas de 10.000-20.000, demás agencias estatales;
+ *   C · locales de 50.000-250.000, universidades públicas de 5.000-10.000,
+ *       federales de US$ 100-1.000 M;
+ *   D · comisiones y juntas federales con presupuesto menor o desconocido (al final).
+ */
+export const US_GOVERNMENT_TIER_BASE = Object.freeze({ A: 4000, B: 3000, C: 2000, D: 100 });
+
+export type UsGovernmentTier = keyof typeof US_GOVERNMENT_TIER_BASE;
+
+function tierScore(tier: UsGovernmentTier, offset: number): number {
+  return US_GOVERNMENT_TIER_BASE[tier] + Math.max(0, Math.min(999, Math.round(offset)));
+}
+
+/** Suborganismos que nunca suben: comités, comisiones, consejos, juntas, grupos de trabajo. */
+const SMALL_FEDERAL_UNIT = /\b(committee|commission|council|board|advisory|task force|panel|working group|inspector general)\b/i;
+
+/**
+ * Nivel y relevancia de una agencia federal por su presupuesto (escala logarítmica:
+ * US$ 10.000 M = 0 … US$ 10 billones = 999). Un suborganismo hereda el presupuesto
+ * de su agencia pero baja un nivel; los comités y juntas van siempre al final.
+ */
+export function federalGovernmentPriority(
+  budgetUsd: number | null,
+  options: { suborganization?: boolean; name?: string } = {},
+): { tier: UsGovernmentTier; score: number } {
+  const budget = budgetUsd ?? 0;
+  if (options.suborganization && options.name !== undefined && SMALL_FEDERAL_UNIT.test(options.name)) {
+    return { tier: 'D', score: tierScore('D', 0) };
+  }
+  const logOffset = budget > 0 ? (Math.log10(budget) - 10) * 333 : 0;
+  if (budget >= 10_000_000_000) {
+    return options.suborganization ? { tier: 'B', score: tierScore('B', logOffset) } : { tier: 'A', score: tierScore('A', logOffset) };
+  }
+  if (budget >= 1_000_000_000) {
+    const offset = (Math.log10(budget) - 9) * 999;
+    return options.suborganization ? { tier: 'C', score: tierScore('C', offset) } : { tier: 'B', score: tierScore('B', offset) };
+  }
+  if (budget >= 100_000_000 && !options.suborganization) {
+    return { tier: 'C', score: tierScore('C', (Math.log10(budget) - 8) * 999) };
+  }
+  return { tier: 'D', score: tierScore('D', budget / 10_000_000) };
+}
+
+/** Nivel y relevancia de un condado o una ciudad por sus habitantes. */
+export function localGovernmentPriority(inhabitants: number): { tier: UsGovernmentTier; score: number } {
+  if (inhabitants >= 1_000_000) return { tier: 'A', score: tierScore('A', inhabitants / 10_000) };
+  if (inhabitants >= 250_000) return { tier: 'B', score: tierScore('B', inhabitants / 1_000) };
+  return { tier: 'C', score: tierScore('C', inhabitants / 250) };
+}
+
+const STATE_GOVERNMENT_NAME = /^(the\s+)?(state|commonwealth|territory|government)\s+of\s+/i;
+
+/** ¿Es el gobierno principal del estado («State of Ohio», «State of Arizona, Executive Branch»)? */
+export function isMainStateGovernment(name: string, stateCode: string | null): boolean {
+  const stateName = stateCode !== null ? US_STATE_NAMES[stateCode] : undefined;
+  if (stateName === undefined) return false;
+  const head = name.replace(/[,(-].*$/, '').trim().toLowerCase();
+  return head === stateName.toLowerCase() || (STATE_GOVERNMENT_NAME.test(head) && head.replace(STATE_GOVERNMENT_NAME, '') === stateName.toLowerCase());
+}
+
+/** Núcleo de un nombre de agencia federal para cruzarlo con USAspending. */
+export function federalAgencyKey(name: string): string {
+  return normalizeUsCompanyCore(name.replace(/\bU\.?\s?S\.?\b/gi, ' ').replace(/\bUnited States\b/gi, ' '));
+}
 
 export type UsPublicEntityRow = {
   source_key: typeof US_PUBLIC_ENTITIES_SOURCE_KEY;
@@ -176,6 +254,7 @@ export function buildUsPublicEntityRows(
   records: readonly DotGovDomainRecord[],
   population: UsPopulationLookup,
   params: { sourceYear: number; importedAt: string },
+  federalBudget: UsFederalBudgetLookup = () => null,
 ): UsPublicEntityRow[] {
   const groups = new Map<string, Group>();
   for (const record of records) {
@@ -219,6 +298,33 @@ export function buildUsPublicEntityRows(
     if (core.length < 2) continue;
     const identity = buildRecordIdentityKey(US_PUBLIC_ENTITY_IDENTITY_NAMESPACE, domain);
     seenDomains.add(domain);
+
+    // Orden aprobado (A-D): federales por presupuesto (los suborganismos heredan el de
+    // su agencia), estados por su población, locales por habitantes.
+    let budget: number | null = null;
+    let tier: UsGovernmentTier;
+    let priority: number;
+    let sizeSource: string | null = inhabitants !== null ? 'Censo 2024 – habitantes' : null;
+    if (group.level === 'federal') {
+      const own = federalBudget(group.name);
+      budget = own ?? (group.parent !== null ? federalBudget(group.parent) : null);
+      ({ tier, score: priority } = federalGovernmentPriority(budget, {
+        suborganization: own === null && group.parent !== null,
+        name: group.name,
+      }));
+      if (tier === 'A') sizeSource = 'USAspending – presupuesto federal';
+    } else if (group.level === 'state') {
+      const stateName = group.state !== null ? US_STATE_NAMES[group.state] : undefined;
+      const statePopulation = stateName !== undefined ? population.state?.(stateName) ?? null : null;
+      tier = isMainStateGovernment(group.name, group.state) ? 'A' : 'B';
+      priority = tierScore(tier, (statePopulation ?? 0) / 50_000);
+      if (tier === 'A') sizeSource = 'Censo 2024 – habitantes del estado';
+    } else {
+      ({ tier, score: priority } = localGovernmentPriority(inhabitants ?? 0));
+    }
+    const large =
+      tier === 'A' || (inhabitants !== null && inhabitants >= US_LOCAL_GOVERNMENT_LARGE_POPULATION);
+
     rows.push({
       source_key: US_PUBLIC_ENTITIES_SOURCE_KEY,
       country_code: US_COUNTRY_CODE,
@@ -229,9 +335,7 @@ export function buildUsPublicEntityRows(
       normalized_legal_name: core,
       city: group.level === 'city' ? group.city : null,
       region: group.state,
-      // Federal y estatal delante; las locales por habitantes (en miles).
-      priority_score:
-        group.level === 'federal' ? 3000 : group.level === 'state' ? 2000 : Math.min(1999, Math.round((inhabitants ?? 0) / 1000)),
+      priority_score: priority,
       raw_data: {
         directory_kind: 'public_entity',
         government_level: group.level,
@@ -239,8 +343,10 @@ export function buildUsPublicEntityRows(
         macro_industry_key: 'government',
         activity_text: 'Entidad pública',
         inhabitants,
-        size_band: inhabitants !== null && inhabitants >= US_LOCAL_GOVERNMENT_LARGE_POPULATION ? 'large' : null,
-        size_source: inhabitants !== null ? 'Censo 2024 – habitantes' : null,
+        federal_budget_usd: budget,
+        government_tier: tier,
+        size_band: large && sizeSource !== null ? 'large' : null,
+        size_source: sizeSource,
         website_domain: domain,
       },
       imported_at: params.importedAt,

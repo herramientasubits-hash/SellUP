@@ -18,6 +18,10 @@
  *
  * Si un EIN está en varias, manda la SEC, luego IPEDS (trae web y tamaño), luego el IRS.
  *
+ *   --irs990-file=<csv>  (opcional) extracto anual del Formulario 990 del IRS
+ *                        (https://www.irs.gov/pub/irs-soi/24eoextract990.zip): pone los
+ *                        empleados oficiales (W-3) en raw_data.workers por EIN.
+ *
  * Uso (DRY-RUN por defecto: lee, cuenta y NO escribe):
  *   npx tsx scripts/source-catalog/run-us-free-directory-etl.ts --irs-dir=… --sec-dir=…
  *
@@ -52,6 +56,10 @@ import {
   buildSamWebIndex,
   type SamEntityWebRecord,
 } from '../../src/server/source-catalog/connectors/us-ein/us-sam-websites';
+import {
+  attachIrs990Workforce,
+  buildIrs990WorkforceIndex,
+} from '../../src/server/source-catalog/connectors/us-ein/us-irs-990-workforce';
 import { readCsvFile } from '../../src/server/source-catalog/connectors/rns-argentina/streaming-csv';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
@@ -164,6 +172,14 @@ function summarize(rows: readonly UsFreeDirectoryRow[]): void {
   console.log(`  Con web: ${withWeb}`);
 }
 
+async function readIrs990(file: string) {
+  const records: Record<string, string>[] = [];
+  for await (const record of readCsvFile(file)) {
+    records.push({ EIN: record['EIN'] ?? '', noemplyeesw3cnt: record['noemplyeesw3cnt'] ?? '', tax_pd: record['tax_pd'] ?? '' });
+  }
+  return buildIrs990WorkforceIndex(records);
+}
+
 async function main(): Promise<void> {
   const config = parseArgs(process.argv.slice(2));
   console.log(`US FREE DIRECTORY ETL (${US_FREE_DIRECTORY_SOURCE_KEY}) — ${config.apply ? 'APPLY' : 'DRY-RUN (no escribe)'}`);
@@ -171,6 +187,12 @@ async function main(): Promise<void> {
   const loaded = await readRows(config, new Date().toISOString());
   let rows = loaded.rows;
   const read = loaded.read;
+  const irs990File = process.argv.find((arg) => arg.startsWith('--irs990-file='))?.slice('--irs990-file='.length);
+  if (irs990File) {
+    const result = attachIrs990Workforce(rows, await readIrs990(irs990File));
+    rows = result.rows;
+    console.log(`  Empleados del Formulario 990: ${result.attached}`);
+  }
   if (config.samFile) {
     const result = attachSamWebsites(rows, buildSamWebIndex(await readSamRecords(config.samFile)));
     rows = result.rows;
