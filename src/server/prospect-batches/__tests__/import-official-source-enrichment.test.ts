@@ -69,14 +69,30 @@ describe('enrichImportRowsWithOfficialSources', () => {
     assert.equal(r.typedColumns.tax_identifier, null);
   });
 
-  it('fila que YA trae NIT no se busca (no se gasta consulta)', async () => {
+  it('fila que YA trae NIT con OTRO NIT en el registro → se ignora (el registro encontró otra empresa)', async () => {
     const calls: string[] = [];
     const out = await enrichImportRowsWithOfficialSources(
       [row({ rowNumber: 1, taxIdentifier: '800111222-3' })],
       [fakeResolver('CO', 0.95, calls)],
     );
+    assert.equal(calls.length, 1);
     assert.equal(out.size, 0);
-    assert.equal(calls.length, 0);
+  });
+
+  it('fila que YA trae NIT y el registro confirma el MISMO NIT → se usa (tamaño oficial)', async () => {
+    const out = await enrichImportRowsWithOfficialSources(
+      [row({ rowNumber: 1, taxIdentifier: '900123456' })],
+      [fakeResolver('CO', 0.95)],
+    );
+    assert.equal(out.get(1)?.strongIdentityAvailable, true);
+  });
+
+  it('fila que YA trae NIT y el registro sólo da una coincidencia débil → se ignora', async () => {
+    const out = await enrichImportRowsWithOfficialSources(
+      [row({ rowNumber: 1, taxIdentifier: '900123456-8' })],
+      [fakeResolver('CO', 0.5)],
+    );
+    assert.equal(out.size, 0);
   });
 
   it('país sin catálogo conectado (p. ej. México) no se busca', async () => {
