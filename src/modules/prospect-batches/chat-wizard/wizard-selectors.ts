@@ -8,6 +8,7 @@ import type {
   ProspectSearchModeDefinition,
   WizardProgress,
   WizardFormPayload,
+  WizardSearchModePayload,
 } from './wizard-types';
 
 // ── Progress ──────────────────────────────────────────────────────────────────
@@ -35,8 +36,8 @@ export function getWizardProgressSteps(
   const base = isSubindustrySelectionEnabled(catalogVersion)
     ? PROGRESS_STEPS
     : PROGRESS_STEPS.filter((step) => step !== 'subindustries');
-  // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores» la empresa de referencia es un paso más.
-  if (searchMode !== 'suppliers') return base;
+  // «Proveedores» y «Competidores»: la empresa de referencia es un paso más.
+  if (searchMode !== 'suppliers' && searchMode !== 'competitors') return base;
   return base.flatMap((step) => (step === 'search_type' ? [step, 'reference_company' as const] : [step]));
 }
 
@@ -47,7 +48,8 @@ export function getWizardProgress(state: ProspectWizardState): WizardProgress {
     return { currentStepIndex: steps.length, totalSteps: steps.length, percentage: 100 };
   }
 
-  const idx = steps.indexOf(state.currentStep);
+  // La ficha por confirmar cuenta como el paso de la referencia.
+  const idx = steps.indexOf(state.currentStep === 'reference_confirm' ? 'reference_company' : state.currentStep);
   const currentStepIndex = idx === -1 ? 0 : idx;
   const totalSteps = steps.length;
   const percentage = Math.round((currentStepIndex / totalSteps) * 100);
@@ -59,7 +61,9 @@ export function getWizardProgress(state: ProspectWizardState): WizardProgress {
 
 const PREV_MAP: Partial<Record<ProspectWizardStep, ProspectWizardStep>> = {
   search_type: 'welcome',
+  corporate_tree: 'search_type',
   reference_company: 'search_type',
+  reference_confirm: 'reference_company',
   country: 'search_type',
   industry: 'country',
   subindustries: 'industry',
@@ -85,6 +89,9 @@ export function getPreviousWizardStep(
 ): ProspectWizardStep | null {
   // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores», el país vuelve a la empresa de referencia.
   if (step === 'country' && searchMode === 'suppliers') return 'reference_company';
+  // «Competidores»: antes del país está la ficha de la referencia (ya pagada:
+  // volver ahí no repite la búsqueda).
+  if (step === 'country' && searchMode === 'competitors') return 'reference_confirm';
   const prev = PREV_MAP[step] ?? null;
   if (prev === 'subindustries' && !isSubindustrySelectionEnabled(catalogVersion)) {
     return PREV_MAP.subindustries ?? null;
@@ -110,7 +117,14 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
       );
 
     case 'reference_company':
-      return hasValidReferenceCompany(state) && !hasBlocking;
+      // «Proveedores»: el nombre escrito; «Competidores»: la ficha encontrada.
+      return (
+        (state.searchMode === 'competitors' ? hasCompetitorReference(state) : hasValidReferenceCompany(state)) &&
+        !hasBlocking
+      );
+
+    case 'reference_confirm':
+      return hasCompetitorReference(state) && !hasBlocking;
 
     case 'country':
       return state.countryCode !== null && !hasBlocking;
@@ -138,9 +152,15 @@ export function hasValidReferenceCompany(state: ProspectWizardState): boolean {
   return length >= REFERENCE_COMPANY_LIMITS.minChars && length <= REFERENCE_COMPANY_LIMITS.maxChars;
 }
 
+/** «Competidores de una empresa»: ¿hay ficha de la referencia? */
+function hasCompetitorReference(state: ProspectWizardState): boolean {
+  return (state.referenceCompany ?? null) !== null;
+}
+
 /** Formas de búsqueda que pueden validarse y ejecutarse con lo elegido. */
 function isExecutableSearchMode(state: ProspectWizardState): boolean {
   if (state.searchMode === 'exploratory') return true;
+  if (state.searchMode === 'competitors') return hasCompetitorReference(state);
   return (
     state.searchMode === 'suppliers' &&
     state.supplierSearchEnabled === true &&
@@ -217,6 +237,25 @@ export function buildExploratoryFormInput(
   };
 }
 
+/**
+ * Lo que el modo añade a la solicitud de ejecución. La validación de criterios
+ * (`buildExploratoryFormInput`) no lo lleva: valida país, industria y criterios,
+ * que son los mismos en los dos modos.
+ */
+export function buildSearchModePayload(state: ProspectWizardState): WizardSearchModePayload {
+  const reference = state.referenceCompany ?? null;
+  if (state.searchMode !== 'competitors' || reference === null) return {};
+  return {
+    searchMode: 'competitors',
+    referenceCompany: {
+      name: reference.name,
+      domain: reference.domain,
+      description: reference.description,
+      accountId: reference.accountId,
+    },
+  };
+}
+
 // ── Invariant validator (dev/test use) ────────────────────────────────────────
 
 export function validateWizardStateInvariants(state: ProspectWizardState): string[] {
@@ -239,10 +278,11 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     if (state.requestedCount === null) violations.push('validated state missing requestedCount');
   }
 
+  const modeEnabled =
+    resolveSearchModeDefinitions(state).find((d) => d.mode === state.searchMode)?.availability === 'enabled';
   if (
     state.searchMode &&
-    state.searchMode !== 'exploratory' &&
-    !(state.searchMode === 'suppliers' && state.supplierSearchEnabled === true) &&
+    !modeEnabled &&
     (state.currentStep === 'country' ||
       state.currentStep === 'industry' ||
       state.currentStep === 'subindustries' ||
@@ -253,8 +293,12 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     );
   }
 
-  if (state.currentStep === 'reference_company' && state.searchMode !== 'suppliers') {
-    violations.push('reference_company step reached outside suppliers mode');
+  if (
+    state.currentStep === 'reference_company' &&
+    state.searchMode !== 'suppliers' &&
+    state.searchMode !== 'competitors'
+  ) {
+    violations.push('reference_company step reached outside suppliers or competitors mode');
   }
 
   if (
@@ -263,6 +307,16 @@ export function validateWizardStateInvariants(state: ProspectWizardState): strin
     !hasValidReferenceCompany(state)
   ) {
     violations.push('validated suppliers state missing referenceCompanyName');
+  }
+
+  if (
+    state.searchMode === 'competitors' &&
+    !hasCompetitorReference(state) &&
+    (state.currentStep === 'reference_confirm' ||
+      state.currentStep === 'country' ||
+      state.currentStep === 'summary')
+  ) {
+    violations.push(`competitors mode reached step "${state.currentStep}" without a reference company`);
   }
 
   if (state.currentStep === 'validating' && state.blockingIssues.length > 0) {

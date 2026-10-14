@@ -63,4 +63,38 @@ describe('buildAccountProfileUpdate', () => {
     assert.equal(update.patch.owner_id, undefined);
     assert.equal(update.ownerSource, null);
   });
+
+  // ALWAYS-OWNER-ON-CREATE-1 — la empresa recién creada ya nace con responsable
+  // (quien buscó). Ese responsable es provisional: el dueño de HubSpot manda.
+  it('empresa recién creada con responsable provisional: manda el dueño de HubSpot', () => {
+    const update = buildAccountProfileUpdate(
+      { ...EMPTY_ACCOUNT, owner_id: 'u-busca' },
+      profile('u-hs'),
+      'u-busca',
+      { ownerIsProvisional: true },
+    );
+    assert.equal(update.patch.owner_id, 'u-hs');
+    assert.equal(update.ownerSource, 'hubspot_owner');
+  });
+
+  it('empresa recién creada sin dueño de HubSpot: se queda quien la creó/buscó', () => {
+    const update = buildAccountProfileUpdate(
+      { ...EMPTY_ACCOUNT, owner_id: 'u-busca' },
+      profile(null),
+      'u-busca',
+      { ownerIsProvisional: true },
+    );
+    assert.equal(update.patch.owner_id, undefined);
+  });
+
+  it('responsable provisional igual al de HubSpot: no reescribe nada', () => {
+    const update = buildAccountProfileUpdate(
+      { ...EMPTY_ACCOUNT, owner_id: 'u-hs' },
+      profile('u-hs'),
+      'u-busca',
+      { ownerIsProvisional: true },
+    );
+    assert.equal(update.patch.owner_id, undefined);
+    assert.equal(update.ownerSource, null);
+  });
 });

@@ -486,7 +486,13 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AI-USAGE-FASE-2 mueve el techo a la 147: dimensiones de `provider_usage_logs` (cinco columnas
     // nulas, un disparador que sólo rellena NULL y su relleno). No es de CUT3B4. AUTORADA y NO
     // APLICADA.
-    const CEILING = '147_provider_usage_log_dimensions.sql';
+    const USAGE_LOG_DIMENSIONS_147 = '147_provider_usage_log_dimensions.sql';
+    // AGENT1-CORPORATE-TREE-1 mueve el techo a la 148: una tabla nueva
+    // `agent1_company_relationships` (asociaciones entre empresas de la búsqueda en árbol del
+    // Agente 1: grupo/matriz, filiales, la misma empresa en otros países), RLS de lectura para
+    // usuarios activos y escritura sólo service_role. No es tabla ni función de la cadena de
+    // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    const CEILING = '148_agent1_company_relationships.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -508,6 +514,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       CONCURRENT_EXECUTIONS_144,
       CANDIDATE_ASSIGNMENT_145,
       TAX_IDENTIFIER_RIF_146,
+      USAGE_LOG_DIMENSIONS_147,
       CEILING,
     ]) {
       assert.equal(
@@ -528,7 +535,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-PARALLEL-RUNS-PHASE2-1 añade la 144 y el conteo sube con ella.
     // BULK-COMPANY-ASSIGNMENT-1 añade la 145 y el conteo sube con ella.
     // SOURCES-VE-CLOSE-1 añade la 146 y el conteo sube con ella.
-    assert.equal(migrations.length, 147);
+    // AI-USAGE-FASE-2 añade la 147 y el conteo sube con ella.
+    // AGENT1-CORPORATE-TREE-1 añade la 148 y el conteo sube con ella.
+    assert.equal(migrations.length, 148);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

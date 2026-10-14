@@ -9,6 +9,7 @@
  * Tavily; el origen se marca en la metadata del lote. Nada se aprueba solo.
  */
 
+import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { ActiveAnthropicModel } from './classify-batch-candidates';
 import type { CompanySearchOutcome } from './company-search';
@@ -42,6 +43,12 @@ export type SourceBatch = {
    * lote es de «Proveedores de una empresa». Ausente/null = búsqueda por criterios.
    */
   referenceCompanyName?: string | null;
+  /**
+   * «Competidores de una empresa»: la empresa de referencia del lote. Con ella las
+   * consultas buscan sus competidores en vez de «empresas de {industria}». Ausente
+   * (null) en las demás búsquedas.
+   */
+  competitorReference?: CompetitorReference | null;
 };
 
 export type CompanySearchCall = CompanySearchOutcome & { query: string; durationMs: number };
@@ -131,10 +138,11 @@ export type ClaudeCompanySearchSummary =
  *    CO×Tec, 8 de 10 ya vistas o sin sitio propio en la búsqueda).
  */
 export function buildCompanySearchQueries(
-  source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>,
+  source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries' | 'competitorReference'>,
   previousRuns = 0,
   regions: readonly string[] = [],
 ): string[] {
+  if (source.competitorReference) return buildCompetitorSearchQueries(source.competitorReference, source.country);
   const subject = source.subindustries[0] ?? source.industry;
   if (previousRuns > 0 && regions.length > 0) {
     const start = ((previousRuns - 1) * CLAUDE_COMPANY_SEARCH_MAX_QUERIES) % regions.length;
@@ -157,6 +165,20 @@ export function buildCompanySearchQueries(
 /** «Transporte & Logística» → «transporte y logística»: así lo escribe la gente en la web. */
 export function supplierIndustryPhrase(industry: string): string {
   return industry.replace(/\s*&\s*/g, ' y ').replace(/\s*\/\s*/g, ', ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * «Competidores de una empresa»: las dos consultas nombran a la referencia. La
+ * segunda añade qué vende, para que Claude no se quede sólo con las famosas.
+ */
+export function buildCompetitorSearchQueries(reference: CompetitorReference, country: string): string[] {
+  const queries = [`competidores de ${reference.name} en ${country}`];
+  queries.push(
+    reference.description
+      ? `empresas similares a ${reference.name} (${reference.description}) en ${country}`
+      : `empresas que compiten con ${reference.name} en ${country}`,
+  );
+  return queries.slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
 }
 
 /**
@@ -263,10 +285,15 @@ export async function runClaudeCompanySearch(
   } catch (err) {
     return { ok: false, error: 'exclusions_unavailable', detail: err instanceof Error ? err.message : String(err) };
   }
+  // La empresa de referencia nunca es su propia competidora.
+  const referenceDomain = source.competitorReference?.domain ?? null;
+  if (referenceDomain && !excludeDomains.includes(referenceDomain)) excludeDomains = [referenceDomain, ...excludeDomains];
   const referenceCompanyName = source.referenceCompanyName?.trim() || null;
-  const previousRuns = referenceCompanyName
-    ? 0
-    : await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
+  // Proveedores y competidores no rotan regiones: sus consultas nombran a la referencia.
+  const previousRuns =
+    referenceCompanyName || source.competitorReference
+      ? 0
+      : await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
   const queries = referenceCompanyName
     ? buildSupplierSearchQueries(source, referenceCompanyName)
     : buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
@@ -323,6 +350,9 @@ export async function runClaudeCompanySearch(
               ...(referenceCompanyName ? { reference_company_name: referenceCompanyName } : {}),
               run_id: runId,
               ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
+              ...(source.competitorReference
+                ? { competitor_of: { name: source.competitorReference.name, domain: source.competitorReference.domain } }
+                : {}),
               source_batch_id: source.id,
               queries,
               previous_runs: previousRuns,

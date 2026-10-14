@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { HubSpotAccountResolutionDeps } from '@/modules/contact-enrichment/hubspot-account-resolver';
 import { syncAccountFromHubSpotProfile } from '@/modules/accounts/hubspot-company-profile-sync.server';
 import { scheduleAccountOfficialEnrichment } from '@/modules/accounts/account-official-enrichment.server';
+import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 export type HubSpotAccountCreatedFrom =
   | 'contact_enrichment_approval'
@@ -39,6 +40,9 @@ export function buildHubSpotAccountResolutionDeps(
 ): HubSpotAccountResolutionDeps {
   const fromApproval = createdFrom === 'contact_enrichment_approval';
   const fromReassignment = createdFrom === 'contact_candidate_reassignment';
+  // ALWAYS-OWNER-ON-CREATE-1 — empresas que crea ESTE juego de dependencias: nacen
+  // con responsable provisional (quien buscó) y el dueño de HubSpot puede corregirlo.
+  const createdAccountIds = new Set<string>();
   return {
     findByHubspotId: async (hid) => {
       // `limit(1)` y no `maybeSingle()` a secas: con dos cuentas vinculadas al mismo
@@ -97,12 +101,18 @@ export function buildHubSpotAccountResolutionDeps(
               ...(fromApproval ? { applied_on_candidate_approval: true } : {}),
             },
           },
+          // ALWAYS-OWNER-ON-CREATE-1 — quien buscó los contactos; si no, quien actúa.
+          owner_id: requireOwnerForCreate(
+            { chosenOwnerId: searcherUserId, actorUserId: internalUserId },
+            'la empresa',
+          ),
           created_by: internalUserId,
           updated_by: internalUserId,
         })
         .select('id')
         .single();
       if (error) return { error: error.message };
+      createdAccountIds.add(data.id as string);
       return { id: data.id as string };
     },
     linkHubspotId: async (accountId, hubspotId) => {
@@ -118,6 +128,7 @@ export function buildHubSpotAccountResolutionDeps(
         searcherUserId,
         actorUserId: internalUserId,
         nowIso: new Date().toISOString(),
+        ownerIsProvisional: createdAccountIds.has(accountId),
       });
       scheduleAccountOfficialEnrichment(accountId, internalUserId);
     },

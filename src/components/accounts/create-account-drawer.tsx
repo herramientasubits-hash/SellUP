@@ -42,6 +42,11 @@ import { buildIndustryOptions } from './industry-options';
 interface CreateAccountDrawerProps {
   users: InternalUserOption[];
   /**
+   * ALWAYS-OWNER-ON-CREATE-1 — usuario que crea la empresa. Es el responsable por
+   * defecto: toda empresa nace con responsable (el servidor aplica la misma regla).
+   */
+  currentUserId?: string | null;
+  /**
    * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
    * acciones de la pantalla) y el drawer no pinta su propio botón.
    */
@@ -66,6 +71,7 @@ const EMPTY_FORM = {
 
 export function CreateAccountDrawer({
   users,
+  currentUserId = null,
   open: controlledOpen,
   onOpenChange,
 }: CreateAccountDrawerProps) {
@@ -79,7 +85,14 @@ export function CreateAccountDrawer({
   };
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [form, setForm] = React.useState(EMPTY_FORM);
+  // El responsable por defecto es quien crea, si está entre los usuarios activos.
+  const defaultOwnerId =
+    currentUserId && users.some((u) => u.id === currentUserId) ? currentUserId : '';
+  const initialForm = React.useMemo(
+    () => ({ ...EMPTY_FORM, owner_id: defaultOwnerId }),
+    [defaultOwnerId],
+  );
+  const [form, setForm] = React.useState(initialForm);
 
   function set(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -88,7 +101,7 @@ export function CreateAccountDrawer({
   function handleClose() {
     setOpen(false);
     setError(null);
-    setForm(EMPTY_FORM);
+    setForm(initialForm);
   }
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === form.country_code);
@@ -353,7 +366,10 @@ export function CreateAccountDrawer({
         {/* Asignación */}
         <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
           {users.length > 0 && (
-            <Field label="Owner / Responsable">
+            <Field
+              label="Owner / Responsable"
+              description="Si no eliges a nadie, el responsable eres tú."
+            >
               <Select
                 value={form.owner_id}
                 onValueChange={(v) => set('owner_id', v ?? '')}
@@ -374,7 +390,7 @@ export function CreateAccountDrawer({
                       </span>
                     </span>
                   ) : (
-                    <SelectValue placeholder="Sin asignar" />
+                    <SelectValue placeholder="Tú (quien la crea)" />
                   )}
                 </SelectTrigger>
                 <SelectContent className="!w-auto min-w-[var(--anchor-width)]">

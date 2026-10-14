@@ -11,6 +11,7 @@ import {
   getWizardProgress,
   canValidateWizard,
   buildExploratoryFormInput,
+  buildSearchModePayload,
 } from '@/modules/prospect-batches/chat-wizard';
 import type {
   EditableWizardStep,
@@ -30,6 +31,7 @@ import { ChatComposer } from '@/components/chat';
 import { Stepper, type StepperStep } from '@/components/navigation/stepper';
 import { getWizardProgressSteps } from '@/modules/prospect-batches/chat-wizard/wizard-selectors';
 import { WizardMessageList } from './wizard-message-list';
+import { CorporateTreeFlow } from '@/components/prospect-batches/corporate-tree/corporate-tree-flow';
 import { WizardActiveStep, WIZARD_QUESTION_STEPS } from './wizard-active-step';
 import { SubmittingPanel } from './wizard-execution-panels';
 import {
@@ -665,13 +667,16 @@ export function ProspectChatWizard({
     const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
     // AGENT1-SUPPLIER-SEARCH-1 — en «Proveedores» la empresa de referencia encabeza el
     // título y la clave de concurrencia (los proveedores de Ecopetrol no son los de
-    // Bancolombia aunque compartan país e industria).
+    // Bancolombia aunque compartan país e industria). Igual en «Competidores».
     const supplierReference =
       state.searchMode === 'suppliers' ? (state.referenceCompanyName ?? '').trim() : '';
+    const searchModePayload = buildSearchModePayload(state);
+    const competitorReference = 'referenceCompany' in searchModePayload ? searchModePayload.referenceCompany : null;
     const runTitle = [
       supplierReference ? `Proveedores de ${supplierReference}` : '',
+      competitorReference ? `Competidores de ${competitorReference.name}` : '',
       countryName,
-      industryName,
+      competitorReference ? '' : industryName,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -679,9 +684,12 @@ export function ProspectChatWizard({
       runsStore
         ? runsStore.startRun({
             title: runTitle,
-            // Mismo país × industria = mismas empresas: nunca corren juntas.
+            // Mismo país × industria = mismas empresas: nunca corren juntas. Proveedores y
+            // competidores de una empresa son otra búsqueda: su clave es la referencia.
             concurrencyKey: supplierReference
               ? `suppliers:${supplierReference.toLowerCase()}:${state.countryCode ?? ''}:${state.industryId ?? ''}`
+              : competitorReference
+              ? `competitors:${competitorReference.domain ?? competitorReference.name}:${state.countryCode ?? ''}`
               : `${state.countryCode ?? ''}:${state.industryId ?? ''}`,
             payload,
           })
@@ -700,6 +708,8 @@ export function ProspectChatWizard({
         ...(supplierReference
           ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
           : {}),
+        // «Competidores de una empresa»: modo + ficha. Vacío en las demás búsquedas.
+        ...searchModePayload,
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
         // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
         // `isAdmin`, `providerAuthorized`, `authority` ni `overrideAllowed`; el
@@ -890,6 +900,12 @@ export function ProspectChatWizard({
       onSubmitCriteria={submitCriteria}
     />
   );
+
+  // AGENT1-CORPORATE-TREE-1 — el árbol de una empresa tiene su propia
+  // conversación; «Elegir otro tipo de búsqueda» vuelve a la primera pregunta.
+  if (state.currentStep === 'corporate_tree') {
+    return <CorporateTreeFlow onBack={() => dispatch({ type: 'GO_BACK' })} onOpenBatch={onClose} />;
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   // Es el cuerpo del panel del agente: el hilo desplaza arriba y la caja de

@@ -217,13 +217,14 @@ describe('Section B — Happy path exploratory', () => {
 // ── Section C — Coming-soon modes ────────────────────────────────────────────
 
 describe('Section C — Coming-soon modes', () => {
-  it('C1: competitors does not advance from search_type', () => {
+  it('C1: competitors (enabled 14-10) advances to the reference company step', () => {
     const state = dispatchMany(freshState(), [
       { type: 'START' },
       { type: 'SELECT_SEARCH_MODE', mode: 'competitors' },
     ]);
-    assert.strictEqual(state.currentStep, 'search_type');
+    assert.strictEqual(state.currentStep, 'reference_company');
     assert.strictEqual(state.searchMode, 'competitors');
+    assert.ok(!state.warnings.some((w) => w.code === 'MODE_COMING_SOON'));
   });
 
   it('C2: suppliers does not advance from search_type', () => {
@@ -238,7 +239,7 @@ describe('Section C — Coming-soon modes', () => {
   it('C3: selecting coming-soon mode generates MODE_COMING_SOON warning', () => {
     const state = dispatchMany(freshState(), [
       { type: 'START' },
-      { type: 'SELECT_SEARCH_MODE', mode: 'competitors' },
+      { type: 'SELECT_SEARCH_MODE', mode: 'suppliers' },
     ]);
     assert.ok(state.warnings.some((w) => w.code === 'MODE_COMING_SOON'));
   });
@@ -787,7 +788,7 @@ describe('Section K — Form payload', () => {
   it('K5: payload null when searchMode is coming-soon', () => {
     const state: ProspectWizardState = {
       ...reachSummary(),
-      searchMode: 'competitors',
+      searchMode: 'suppliers',
     };
     const payload = buildExploratoryFormInput(state);
     assert.strictEqual(payload, null);
@@ -834,7 +835,7 @@ describe('Section L — Invariants', () => {
     const state: ProspectWizardState = {
       ...freshState(),
       currentStep: 'country',
-      searchMode: 'competitors',
+      searchMode: 'suppliers',
     };
     const violations = validateWizardStateInvariants(state);
     assert.ok(violations.some((v) => v.includes('coming_soon')));

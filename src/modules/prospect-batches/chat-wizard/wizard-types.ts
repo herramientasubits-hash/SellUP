@@ -6,10 +6,14 @@ import type {
   WizardExecutionStatus,
   WizardFreeContribution,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+import type {
+  CompetitorReference,
+  CompetitorReferenceCard,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
-export type ProspectSearchMode = 'exploratory' | 'competitors' | 'suppliers';
+export type ProspectSearchMode = 'exploratory' | 'corporate_tree' | 'competitors' | 'suppliers';
 
 export type ProspectSearchModeAvailability = 'enabled' | 'coming_soon' | 'disabled';
 
@@ -25,8 +29,15 @@ export type ProspectSearchModeDefinition = {
 export type ProspectWizardStep =
   | 'welcome'
   | 'search_type'
-  /** AGENT1-SUPPLIER-SEARCH-1 — sólo en «Proveedores de una empresa». */
+  /** AGENT1-CORPORATE-TREE-1 — la conversación del árbol toma el panel entero. */
+  | 'corporate_tree'
+  /**
+   * Empresa de referencia: en «Proveedores» se escribe su nombre; en «Competidores»
+   * se elige o se escribe y SellUp arma su ficha.
+   */
   | 'reference_company'
+  /** «Competidores de una empresa»: la ficha encontrada, para confirmarla. */
+  | 'reference_confirm'
   | 'country'
   | 'industry'
   | 'subindustries'
@@ -104,6 +115,12 @@ export type ProspectWizardState = {
    * estado guardado antes de este cambio.
    */
   referenceCompanyName?: string | null;
+  /**
+   * «Competidores de una empresa»: la ficha de la referencia. Se fija al
+   * encontrarla y queda confirmada al pasar de `reference_confirm`. Ausente o
+   * null en las demás búsquedas (y en estados guardados antes del modo).
+   */
+  referenceCompany?: CompetitorReferenceCard | null;
   /**
    * Resuelto en el servidor (`ENABLE_AGENT1_SUPPLIER_SEARCH`) y fijo durante la
    * conversación: con `true` la opción «Proveedores de una empresa» deja de ser
@@ -204,6 +221,11 @@ export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
   | { type: 'SET_REFERENCE_COMPANY'; value: string }
+  /** La ficha de la referencia llegó del servidor: se muestra para confirmarla. */
+  | { type: 'REFERENCE_RESOLVED'; reference: CompetitorReferenceCard }
+  | { type: 'CONFIRM_REFERENCE' }
+  /** «No, es otra»: se vuelve a preguntar por la referencia. */
+  | { type: 'REJECT_REFERENCE' }
   | { type: 'SELECT_COUNTRY'; countryCode: string }
   | { type: 'SELECT_INDUSTRY'; industryId: string }
   /**
@@ -304,3 +326,11 @@ export type WizardFormPayload = {
   requestedCount: number;
   catalogVersion: string;
 };
+
+/**
+ * Lo que la búsqueda de competidores añade a la solicitud de ejecución. Vacío en
+ * las búsquedas por criterios: la solicitud queda exactamente como antes.
+ */
+export type WizardSearchModePayload =
+  | Record<string, never>
+  | { searchMode: 'competitors'; referenceCompany: CompetitorReference };

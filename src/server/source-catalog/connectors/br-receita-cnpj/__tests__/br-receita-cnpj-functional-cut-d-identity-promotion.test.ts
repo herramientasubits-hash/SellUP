@@ -1437,7 +1437,11 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // AI-USAGE-FASE-2 moves the ceiling to 147: five nullable dimension columns on
     // `provider_usage_logs`, a BEFORE INSERT trigger that only fills NULLs, and its idempotent
     // backfill. Not phone, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(numbered[numbered.length - 1], '147_provider_usage_log_dimensions.sql');
+    // AGENT1-CORPORATE-TREE-1 moves the ceiling to 148: one new table
+    // `agent1_company_relationships` (associations between companies found by the Agent 1
+    // corporate-tree search), RLS read for active users and writes only by service_role. Not
+    // phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
+    assert.equal(numbered[numbered.length - 1], '148_agent1_company_relationships.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);
