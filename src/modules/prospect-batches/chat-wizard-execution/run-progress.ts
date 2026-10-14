@@ -26,6 +26,7 @@ export const RUN_PROGRESS_STAGES = [
   'lusha',
   'claude_search',
   // AGENT1-CORPORATE-TREE-1 — búsqueda en árbol de una empresa.
+  'tree_free',
   'tree_searching',
   'tree_branch_1',
   'tree_branch_2',
@@ -45,7 +46,8 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   apollo: 'Buscando empresas con Apollo y completando sus datos',
   lusha: 'Completando la búsqueda con Lusha',
   claude_search: 'Claude está buscando más empresas en la web',
-  tree_searching: 'Claude está buscando el grupo, las filiales y la empresa en otros países',
+  tree_searching: 'Claude busca lo que falta: la matriz, las filiales con otro nombre y otros países',
+  tree_free: 'Buscando gratis en el banco de empresas y en los registros oficiales de cada país',
   tree_branch_1: 'Claude terminó una rama del árbol y sigue con las demás',
   tree_branch_2: 'Claude terminó dos ramas del árbol; falta la última',
   tree_checking: 'Revisando HubSpot, duplicados, número fiscal y tamaño de lo encontrado',
@@ -69,11 +71,12 @@ export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 're
   lusha: 75,
   claude_search: 88,
   // Las ramas van en paralelo: la barra avanza cuando cada una TERMINA.
-  tree_searching: 15,
-  tree_branch_1: 35,
-  tree_branch_2: 50,
-  tree_checking: 65,
-  tree_saving: 85,
+  tree_free: 10,
+  tree_searching: 25,
+  tree_branch_1: 40,
+  tree_branch_2: 55,
+  tree_checking: 70,
+  tree_saving: 88,
 };
 
 /** El avance tras ver `stage`: nunca retrocede (una etapa saltada no resta). */

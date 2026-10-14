@@ -16,6 +16,9 @@ import { buildLiveCorporateTreeDeps } from '@/server/prospect-batches/corporate-
  */
 export const maxDuration = 300;
 
+/** Desde el inicio: última escritura que se empieza; deja tiempo para sellar el lote. */
+const CORPORATE_TREE_WRITE_DEADLINE_MS = 240_000;
+
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 const REQUEST_ERROR_MESSAGES: Record<string, string> = {
@@ -62,33 +65,19 @@ export async function POST(request: NextRequest) {
     .single();
   if (!internalUser) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
 
-  // El mismo id dos veces (reintento, doble clic) no vuelve a pagar a Claude.
-  const { data: previous } = await supabase
-    .from('prospect_batches')
-    .select('id, status')
-    .eq('created_by', internalUser.id as string)
-    .eq('client_request_id', parsed.request.clientRequestId)
-    .maybeSingle();
-  if (previous) {
-    const response: WizardExecutionActionResult = {
-      ok: true,
-      status: 'already_started',
-      batchId: previous.id as string,
-      batchStatus: (previous.status as string) ?? 'ready_for_review',
-      redirectPath: `/prospect-batches/${previous.id as string}`,
-    };
-    return NextResponse.json(response, { headers: NO_STORE });
-  }
-
   const progress = await openRunProgress({ clientRequestId: parsed.request.clientRequestId });
   try {
     const result = await runCorporateTreeSearch(
       parsed.request,
-      { internalUserId: internalUser.id as string, keyOf: corporateTreeRowKey },
+      {
+        internalUserId: internalUser.id as string,
+        keyOf: corporateTreeRowKey,
+        writeDeadlineAtMs: actionStartedAtMs + CORPORATE_TREE_WRITE_DEADLINE_MS,
+      },
       buildLiveCorporateTreeDeps({
         supabase,
         internalUserId: internalUser.id as string,
-        requestUrl: request.url,
+        clientRequestId: parsed.request.clientRequestId,
         actionStartedAtMs,
         rootNameForLogs: () => parsed.request.rootName,
         report: progress.report,
@@ -97,14 +86,20 @@ export async function POST(request: NextRequest) {
     const response: WizardExecutionActionResult = result.ok
       ? {
           ok: true,
-          status: result.inReview > 0 ? 'success_partial' : 'no_new_candidates',
+          status: result.alreadyStarted ? 'already_started' : result.inReview > 0 ? 'success_partial' : 'no_new_candidates',
           batchId: result.batchId,
           batchStatus: 'ready_for_review',
           // Como en «por criterios»: las que quedaron para revisar.
           candidateCount: result.inReview,
           redirectPath: result.redirectPath,
         }
-      : failure(result.message);
+      : {
+          ...failure(result.message),
+          // El lote se reservó al empezar: aunque falle, se puede abrir («Ver lote»).
+          ...(result.batchId
+            ? { freeContribution: { batchId: result.batchId, persistedCandidates: 0, redirectPath: `/prospect-batches/${result.batchId}` } }
+            : {}),
+        };
     return NextResponse.json(response, { headers: NO_STORE });
   } catch (error) {
     console.error('[corporate-tree-runs] Error:', error);
