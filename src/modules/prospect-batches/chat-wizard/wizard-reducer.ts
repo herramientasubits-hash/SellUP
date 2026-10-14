@@ -27,6 +27,7 @@ export function hasWizardSelections(state: ProspectWizardState): boolean {
   return (
     state.searchMode !== null ||
     (state.referenceCompanyName ?? '').trim().length > 0 ||
+    (state.referenceCompany ?? null) !== null ||
     state.countryCode !== null ||
     state.industryId !== null ||
     state.subindustryIds.length > 0 ||
@@ -55,6 +56,7 @@ export function createInitialProspectWizardState(
     currentStep: 'welcome',
     searchMode: null,
     referenceCompanyName: null,
+    referenceCompany: null,
     supplierSearchEnabled: params.supplierSearchEnabled === true,
     countryCode: null,
     industryId: null,
@@ -173,6 +175,22 @@ export function prospectWizardReducer(
           searchMode: action.mode,
           currentStep: 'corporate_tree',
           referenceCompanyName: null,
+          referenceCompany: null,
+          warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
+        };
+      }
+
+      // «Competidores» necesita la ficha de la referencia antes que nada; cambiar de
+      // forma borra la empresa de la forma anterior.
+      if (action.mode === 'competitors') {
+        const hasReference = (state.referenceCompany ?? null) !== null;
+        return {
+          ...state,
+          searchMode: action.mode,
+          referenceCompanyName: null,
+          ...(hasReference && state.searchMode === 'competitors' && state.editReturnsToSummary === true
+            ? afterEditedStep(state, 'reference_company')
+            : { currentStep: 'reference_company' as const }),
           warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
         };
       }
@@ -186,6 +204,7 @@ export function prospectWizardReducer(
         return {
           ...state,
           searchMode: action.mode,
+          referenceCompany: null,
           ...(hasReference && state.searchMode === 'suppliers'
             ? afterEditedStep(state, 'reference_company')
             : { currentStep: 'reference_company' as const }),
@@ -197,6 +216,7 @@ export function prospectWizardReducer(
         ...state,
         searchMode: action.mode,
         referenceCompanyName: null,
+        referenceCompany: null,
         ...afterEditedStep(state, 'country'),
         warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
       };
@@ -231,6 +251,39 @@ export function prospectWizardReducer(
       };
     }
 
+    // ── REFERENCE_RESOLVED ──────────────────────────────────────────────────
+    case 'REFERENCE_RESOLVED': {
+      if (state.currentStep !== 'reference_company' || state.searchMode !== 'competitors') return state;
+      return { ...state, referenceCompany: action.reference, currentStep: 'reference_confirm' };
+    }
+
+    // ── CONFIRM_REFERENCE ───────────────────────────────────────────────────
+    // La industria de la referencia pasa a ser la de la búsqueda (se puede
+    // cambiar desde el resumen). El país se pregunta siempre: «¿dónde buscamos sus
+    // competidores?» no tiene por qué ser el país de la referencia.
+    case 'CONFIRM_REFERENCE': {
+      const reference = state.referenceCompany ?? null;
+      if (state.currentStep !== 'reference_confirm' || reference === null) return state;
+      const industryId = reference.industryId ?? state.industryId;
+      const industryChanged = industryId !== state.industryId;
+      const canReturnToSummary =
+        state.editReturnsToSummary === true && state.countryCode !== null && industryId !== null;
+      return {
+        ...state,
+        industryId,
+        subindustryIds: industryChanged ? [] : state.subindustryIds,
+        ...(canReturnToSummary
+          ? { currentStep: 'summary' as const, editReturnsToSummary: false }
+          : { currentStep: 'country' as const }),
+      };
+    }
+
+    // ── REJECT_REFERENCE ────────────────────────────────────────────────────
+    case 'REJECT_REFERENCE': {
+      if (state.currentStep !== 'reference_confirm') return state;
+      return { ...state, referenceCompany: null, currentStep: 'reference_company' };
+    }
+
     // ── SELECT_COUNTRY ──────────────────────────────────────────────────────
     case 'SELECT_COUNTRY': {
       if (state.currentStep !== 'country') return state;
@@ -251,10 +304,14 @@ export function prospectWizardReducer(
         };
       }
 
+      // «Competidores» con la industria ya tomada de la referencia: se salta la
+      // pregunta de industria (se cambia desde el resumen si hace falta).
+      const nextAfterCountry =
+        state.searchMode === 'competitors' && state.industryId !== null ? 'additional_criteria' : 'industry';
       return {
         ...state,
         countryCode: action.countryCode,
-        ...afterEditedStep(state, 'industry'),
+        ...afterEditedStep(state, nextAfterCountry),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'),
         lastEditedStep: state.lastEditedStep,
       };
@@ -539,8 +596,12 @@ export function prospectWizardReducer(
       if (action.step === 'subindustries' && !isSubindustrySelectionEnabled(state.catalogVersion)) {
         return state;
       }
-      // La empresa de referencia sólo existe en «Proveedores».
-      if (action.step === 'reference_company' && state.searchMode !== 'suppliers') {
+      // La empresa de referencia sólo existe en «Proveedores» y «Competidores».
+      if (
+        action.step === 'reference_company' &&
+        state.searchMode !== 'suppliers' &&
+        state.searchMode !== 'competitors'
+      ) {
         return state;
       }
       return {
