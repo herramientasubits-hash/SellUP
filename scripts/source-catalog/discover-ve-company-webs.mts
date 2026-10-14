@@ -3,7 +3,8 @@
  *
  * Arma la capa gratuita igual que el ETL (`run-ve-sources-etl.ts`) y, por cada
  * entidad con RIF que llega SIN web (sobre todo las reguladas de la SUDEASEG y la
- * SUNAVAL), prueba las direcciones que salen de sus nombres (`veCompanyWebCandidates`).
+ * SUNAVAL), prueba primero el dominio de sus correos en la Bolsa y luego las
+ * direcciones que salen de sus nombres (`veCompanyWebCandidates`).
  * Una dirección sólo vale si su propia página nombra a la entidad
  * (`veCompanyWebVerdict`). Escribe un JSONL local `{ rif, domain, check }` que el ETL
  * lee con `--web-map=`.
@@ -39,6 +40,7 @@ import {
   veCompanyWebVerdict,
   type VeFetchedPage,
 } from '../../src/server/source-catalog/connectors/ve-sources/ve-company-web';
+import { venezuelaCompanyDomain } from '../../src/server/source-catalog/connectors/ve-sources/ve-domain';
 
 const TIMEOUT_MS = 8_000;
 const CONCURRENCY = 6;
@@ -121,9 +123,14 @@ async function main(): Promise<void> {
     for (;;) {
       const row = targets[next++];
       if (row === undefined) return;
-      const names = veAllNames(entries.get(row.tax_id!)!);
+      const entry = entries.get(row.tax_id!)!;
+      const names = veAllNames(entry);
+      // Primero los dominios de sus correos en la Bolsa (sólo valen si la página los confirma).
+      const emailHosts = [...(entry.bvcIssuer?.emailDomains ?? []), ...(entry.bvcMember?.emailDomains ?? [])]
+        .map((d) => venezuelaCompanyDomain(d))
+        .filter((d): d is string => d !== null);
       let found: { domain: string; check: string; matchedKey: string; host: string } | null = null;
-      for (const host of veCompanyWebCandidates(names)) {
+      for (const host of [...new Set([...emailHosts, ...veCompanyWebCandidates(names)])]) {
         const verdict = veCompanyWebVerdict(await fetchPage(host), names);
         if ('domain' in verdict) {
           found = { ...verdict, host };
