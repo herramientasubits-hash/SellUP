@@ -30,6 +30,7 @@ import { wizardExecutionRequestSchema } from '@/modules/prospect-batches/chat-wi
 import {
   executeCompetitorSearchRun,
   resolveCompetitorPhaseMs,
+  type CompetitorBatchOutcome,
   type CompetitorRunDeps,
   type CompetitorRunInput,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-competitor-run';
@@ -39,6 +40,7 @@ import {
   competitorReferenceSchema,
   normalizeReferenceDomain,
   readCompetitorReference,
+  competitorSearchTitle,
   toCompetitorSearchMetadata,
   type CompetitorReference,
   type CompetitorReferenceCard,
@@ -47,7 +49,13 @@ import {
   buildCompanySearchQueries,
   buildCompetitorSearchQueries,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run';
-import { buildCompanySearchRequestBody } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search';
+import {
+  SUBMIT_COMPANIES_TOOL_NAME,
+  buildCompanySearchRequestBody,
+  searchCompaniesWithClaude,
+  type CompanySearchInput,
+} from '@/server/agents/prospecting-toolkit/claude-classifier/company-search';
+import { readRelationshipEvidence } from '@/server/agents/prospecting-toolkit/prospecting-pipeline';
 import {
   SUBMIT_REFERENCE_TOOL_NAME,
   identifyReferenceCompany,
@@ -749,3 +757,159 @@ describe('F — corrida de competidores', () => {
     assert.equal(rounds[1]?.outcome.reason, 'not_enough_time');
   });
 });
+
+// ── G — Paridad con «Proveedores» y el resto del Agente 1 ─────────────────────
+
+const SEARCH_INPUT: CompanySearchInput = {
+  query: 'competidores de Alpina en Colombia',
+  countryName: 'Colombia',
+  countryCode: 'CO',
+  industryName: 'Consumo masivo',
+  subindustries: [],
+  additionalCriteria: null,
+  competitorOf: REFERENCE,
+  excludeDomains: [],
+  maxCompanies: 5,
+};
+
+function companiesConversation(
+  companies: Array<Record<string, unknown>>,
+  searchUrls: readonly string[],
+): AnthropicConversationResult {
+  return {
+    content: [
+      { type: 'web_search_tool_result', content: searchUrls.map((url) => ({ type: 'web_search_result', url, title: 't' })) },
+      { type: 'tool_use', name: SUBMIT_COMPANIES_TOOL_NAME, input: { companies } },
+    ],
+    stopReason: 'tool_use',
+    usage: EMPTY_USAGE,
+    requests: 1,
+  };
+}
+
+describe('G — competidores con las reglas de la empresa de referencia', () => {
+  it('G1: marca la relación «competidor de» y la evidencia viaja al candidato', async () => {
+    const conv = companiesConversation(
+      [{ name: 'Colanta', website_url: 'https://colanta.com.co', evidence: 'Compite con Alpina en lácteos', source_url: 'https://www.larepublica.co/x' }],
+      ['https://colanta.com.co', 'https://www.larepublica.co/x'],
+    );
+    const out = await searchCompaniesWithClaude(SEARCH_INPUT, 'claude-test', { runConversation: async () => conv });
+    assert.equal(out.results.length, 1);
+    assert.equal(out.results[0].metadata?.competitor_of, 'Alpina');
+    assert.equal(out.results[0].metadata?.supplier_of, undefined);
+    assert.deepEqual(readRelationshipEvidence(out.results[0]), {
+      kind: 'competitor_of',
+      referenceCompanyName: 'Alpina',
+      evidenceUrl: 'https://www.larepublica.co/x',
+      evidence: 'Compite con Alpina en lácteos',
+    });
+  });
+
+  it('G2: descarta a la propia referencia (por nombre o dominio) y a los competidores de UBITS', async () => {
+    const conv = companiesConversation(
+      [
+        { name: 'Alpina Productos Alimenticios', website_url: 'https://www.alpina.com', evidence: 'x', source_url: 'https://www.alpina.com' },
+        { name: 'Coursera', website_url: 'https://coursera.org', evidence: 'x', source_url: 'https://coursera.org' },
+      ],
+      ['https://www.alpina.com', 'https://coursera.org'],
+    );
+    const out = await searchCompaniesWithClaude(SEARCH_INPUT, 'claude-test', { runConversation: async () => conv });
+    assert.equal(out.results.length, 0);
+    assert.deepEqual(out.rejected, { reference_company: 1, ubits_competitor: 1 });
+  });
+
+  it('G3: un sitio que bloquea la descarga se confirma con la página de evidencia', async () => {
+    const evidence = 'https://www.revista.co/competidores-alpina';
+    const conv = companiesConversation(
+      [{ name: 'Colanta', website_url: 'https://colanta.com.co', evidence: 'x', source_url: evidence }],
+      [evidence],
+    );
+    const out = await searchCompaniesWithClaude(SEARCH_INPUT, 'claude-test', {
+      runConversation: async () => conv,
+      fetchPage: async (url: string) =>
+        url.includes('revista.co')
+          ? ({ html: '<a href="https://colanta.com.co">Colanta</a>', httpStatus: 200 } as never)
+          : ({ html: '', httpStatus: 403 } as never),
+    });
+    assert.equal(out.results.length, 1);
+    assert.equal(out.results[0].metadata?.outside_search_verification, 'evidence_source_link');
+  });
+
+  it('G4: el lote y Búsquedas se titulan por la referencia', () => {
+    assert.equal(competitorSearchTitle('Alpina'), 'Competidores de Alpina');
+  });
+});
+
+describe('H — resultado honesto y loader por rondas', () => {
+  it('H1: si todo lo hallado ya estaba en HubSpot, la corrida dice «sin nuevas» con su causa', async () => {
+    const outcome: CompetitorBatchOutcome = { reviewable: 0, hubspotDuplicates: 3, sellupDuplicates: 0 };
+    const { deps } = fakeDeps({
+      countCompetitorBatchOutcome: async () => outcome,
+      runClaudeCompanySearchLeg: async () => ({
+        executed: true,
+        persistedCandidates: 3,
+        completeValidCandidates: 0,
+        acceptedIdentities: [],
+        estimatedCostUsd: 0.23,
+        proposed: 10,
+        passedPreFilter: 5,
+      }),
+    });
+    const result = await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.status, 'no_new_candidates');
+    assert.equal(result.candidateCount, 0);
+    assert.equal(result.noNewCandidatesBreakdown?.hubspotDuplicateCount, 3);
+  });
+
+  it('H2: la segunda ronda se decide por lo que llega a Por revisar', async () => {
+    let calls = 0;
+    const { deps, recorded } = fakeDeps({
+      // El escritor «aceptó» 5, pero sólo 2 quedaron para revisar.
+      countCompetitorBatchOutcome: async () => ({ reviewable: calls === 1 ? 2 : 6, hubspotDuplicates: 3, sellupDuplicates: 0 }),
+      runClaudeCompanySearchLeg: async (input) => {
+        calls += 1;
+        recorded.legs.push(input);
+        return {
+          executed: true,
+          persistedCandidates: 5,
+          completeValidCandidates: 5,
+          acceptedIdentities: [`candidate:${calls}a`],
+          estimatedCostUsd: 0.2,
+          proposed: 8,
+          passedPreFilter: 6,
+        };
+      },
+    });
+    const result = await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.equal(recorded.legs.length, 2);
+    assert.equal(result.ok && result.candidateCount, 6);
+  });
+
+  it('H3: el chat ve «ronda 1», «ronda 2» y el cierre; la ronda propia tiene prioridad', async () => {
+    const stages: string[] = [];
+    const used: string[] = [];
+    const leg = (name: string) => async () => {
+      used.push(name);
+      return {
+        executed: true as const,
+        persistedCandidates: 1,
+        completeValidCandidates: 1,
+        acceptedIdentities: [`candidate:${used.length}`],
+        estimatedCostUsd: 0.2,
+        proposed: 4,
+        passedPreFilter: 2,
+      };
+    };
+    const { deps } = fakeDeps({
+      reportProgress: (stage) => stages.push(stage),
+      runClaudeCompetitorRound: leg('competitor'),
+      runClaudeCompanySearchLeg: leg('generic'),
+    });
+    await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.deepEqual(stages, ['competitor_round_1', 'competitor_round_2', 'reviewing']);
+    assert.deepEqual(used, ['competitor', 'competitor']);
+  });
+});
+

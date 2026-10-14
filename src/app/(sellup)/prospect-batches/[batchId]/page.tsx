@@ -44,6 +44,7 @@ import { resolveBatchCandidatesPanelState } from '@/components/prospect-batches/
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { competitorSearchTitle, readCompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
   socrata_colombia: 'Fuente oficial',
@@ -122,8 +123,11 @@ export default async function BatchDetailPage({ params }: Props) {
   const isCorporateTreeBatch = batch.metadata?.search_mode === 'corporate_tree';
   const isApolloCandidateBatch = !isStructuredOfficial && batch.source === 'agent_1' && !isCorporateTreeBatch;
 
-  const pageTitle =
-    (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
+  // «Competidores de una empresa»: el título dice de quién («Competidores de Alpina · Colombia»).
+  const competitorReference = readCompetitorReference(batch.metadata);
+  const pageTitle = competitorReference
+    ? `${competitorSearchTitle(competitorReference.name)}${batch.country ? ` · ${batch.country}` : ''}`
+    : (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
       ? isStructuredChile
         ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}`
         : `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`

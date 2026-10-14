@@ -1040,9 +1040,9 @@ export type SearchStrategyV1 = {
   };
 };
 
-/** AGENT1-SUPPLIER-SEARCH-1 — la relación que justifica a un candidato de «Proveedores». */
+/** La relación que justifica a un candidato de «Proveedores» o «Competidores». */
 export type CandidateRelationshipEvidence = {
-  kind: 'supplier_of';
+  kind: 'supplier_of' | 'competitor_of';
   referenceCompanyName: string;
   /** Página que prueba la relación (caso de éxito, «nuestros clientes»…). */
   evidenceUrl: string | null;
