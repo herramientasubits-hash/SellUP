@@ -791,15 +791,24 @@ export type ProspectingCandidateBuildResult = {
  * Sin créditos de proveedor: `verifyWebsite` y `checkCompanyDuplicate` consultan
  * nuestra base y HubSpot; ninguna llama a Apollo ni a Lusha.
  */
-/** AGENT1-SUPPLIER-SEARCH-1 — `supplier_of` + `evidence_source_url` del resultado de Claude. */
+/** `supplier_of` / `competitor_of` + `evidence_source_url` del resultado de Claude. */
 export function readRelationshipEvidence(result: WebSearchResult): CandidateRelationshipEvidence | null {
   const metadata = result.metadata ?? {};
+  // «Proveedores» (`supplier_of`) o «Competidores» (`competitor_of`).
   const supplierOf = metadata['supplier_of'];
-  if (typeof supplierOf !== 'string' || !supplierOf.trim()) return null;
+  const competitorOf = metadata['competitor_of'];
+  const kind: CandidateRelationshipEvidence['kind'] | null =
+    typeof supplierOf === 'string' && supplierOf.trim()
+      ? 'supplier_of'
+      : typeof competitorOf === 'string' && competitorOf.trim()
+        ? 'competitor_of'
+        : null;
+  if (kind === null) return null;
+  const referenceCompanyName = (kind === 'supplier_of' ? supplierOf : competitorOf) as string;
   const evidenceUrl = metadata['evidence_source_url'];
   return {
-    kind: 'supplier_of',
-    referenceCompanyName: supplierOf.trim(),
+    kind,
+    referenceCompanyName: referenceCompanyName.trim(),
     evidenceUrl: typeof evidenceUrl === 'string' && evidenceUrl.trim() ? evidenceUrl.trim() : null,
     evidence: result.snippet?.trim() ? result.snippet.trim().slice(0, 300) : null,
   };
