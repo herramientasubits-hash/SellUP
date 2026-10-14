@@ -1756,7 +1756,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_identity_in_run',
     connectionMode: 'read_only_snapshot',
     nextAction:
-      '6.245 Sociedades con NIT cargadas en el snapshot 2025, 0 duplicados. SOURCES-GT-CLOSE-1: sus filas entran también en el registro unido gt_nit_registry, que el Agente 1 consulta primero; este snapshot queda como respaldo del NIT por nombre. El cargador rechazaba los NIT con dígito verificador K (~1 de cada 11): corregido para la próxima recarga.',
+      '6.245 Sociedades con NIT cargadas en el snapshot 2025, 0 duplicados. SOURCES-GT-CLOSE-1: sus filas entran también en el registro unido gt_nit_registry, que el Agente 1 consulta primero; este snapshot queda como respaldo del NIT por nombre en cada corrida del Agente 1; un nombre repetido sólo queda como señal para revisión humana. El cargador rechazaba los NIT con dígito verificador K (~1 de cada 11): corregido para la próxima recarga.',
     countryCodes: ['GT'],
     sectors: [],
     priority: 'P2',
