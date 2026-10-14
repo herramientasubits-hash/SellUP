@@ -129,9 +129,10 @@ describe('EKOS (ec_ekos) — clasificación', () => {
     assert.notEqual(action.kind, 'connect');
   });
 
-  it('nextAction exige validación de uso/cobertura/legalidad antes de integrar', () => {
-    assert.match(ekos().nextAction, /validar/i);
-    assert.match(ekos().nextAction, /legalidad/i);
+  it('descartada (14-10-2026): directorio privado con términos sin validar, no se conecta', () => {
+    assert.equal(ekos().operationalStatus, 'discarded_paid_or_tos');
+    assert.match(ekos().nextAction, /descartada/i);
+    assert.match(ekos().nextAction, /términos/i);
   });
 
   it('no promete live / expansión completa / enrichment operativo', () => {
