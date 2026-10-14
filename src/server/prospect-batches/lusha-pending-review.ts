@@ -33,6 +33,7 @@
  *   - Never persists raw provider payloads or secrets.
  */
 
+import { macroIndustrySectorLabel } from '@/modules/macro-industry-catalog/macro-industry-sector-label';
 import {
   resolveLushaDiscardDisposition,
   classifyLushaExactDuplicateSource,
@@ -505,6 +506,12 @@ export interface LushaPendingReviewCandidateRow {
   country: string | null;
   country_code: string | null;
   industry: string | null;
+  /**
+   * AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — el sector tal como lo declara Lusha
+   * («Healthcare», «Government»). La columna `industry` («Sector» en la ficha) lleva
+   * la industria del lote en español, como en las demás fuentes.
+   */
+  sector_description: string | null;
   company_size: string | null;
   /**
    * AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 12 — el conteo EXACTO de empleados en su
@@ -2070,7 +2077,11 @@ export function buildLushaPendingReviewCandidateRows(
     domain: company.domain,
     country: company.country,
     country_code: company.countryIso2,
-    industry: company.industry,
+    // AGENT1-FREE-LAYER-SECTOR-IS-MACRO-1 — «Sector» = industria del lote en español
+    // («Salud & Farmacéuticos»), no la etiqueta en inglés de Lusha, que queda en
+    // `sector_description`. Sin macro conocida, la de Lusha como antes.
+    industry: macroIndustrySectorLabel(macroPrecision?.macroIndustryKey) ?? company.industry,
+    sector_description: company.industry ?? null,
     company_size: employeesLabel(company),
     // § 12 — la columna tipada, no sólo la etiqueta de texto.
     employee_count: typeof company.employeesExact === 'number' ? company.employeesExact : null,
