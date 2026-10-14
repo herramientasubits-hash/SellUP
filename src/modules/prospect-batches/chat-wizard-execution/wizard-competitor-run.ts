@@ -159,10 +159,7 @@ export function shouldRunAnotherCompetitorRound(
  * Sin nada para Por revisar, el resultado lo dice con su causa (Prod 14-10: «Se
  * generaron 3 candidatos» cuando las 3 eran duplicadas de HubSpot).
  */
-export function buildCompetitorNoNewBreakdown(
-  outcome: CompetitorBatchOutcome,
-  leg: ExecutedLeg,
-): NoNewCandidatesBreakdown {
+export function buildCompetitorNoNewBreakdown(outcome: CompetitorBatchOutcome): NoNewCandidatesBreakdown {
   return {
     hubspotDuplicateCount: outcome.hubspotDuplicates,
     sellupDuplicateCount: outcome.sellupDuplicates,
@@ -172,7 +169,10 @@ export function buildCompetitorNoNewBreakdown(
     countryRejectedCount: 0,
     sectorRejectedCount: 0,
     ownershipRejectedCount: 0,
-    uniqueResultsCount: leg.proposed,
+    // «Empresas únicas» = las que llegaron al lote. Lo que Claude propuso y se cayó
+    // antes (sitio sin confirmar, plataformas) no tiene causa por empresa: contarlo
+    // aquí saldría como «sin clasificar».
+    uniqueResultsCount: outcome.reviewable + outcome.hubspotDuplicates + outcome.sellupDuplicates,
     noveltyExhausted: false,
   };
 }
@@ -370,7 +370,7 @@ export async function executeCompetitorSearchRun(
     batchStatus: claudeLeg.persistedCandidates > 0 ? 'ready_for_review' : 'nothing_to_write',
     candidateCount: reviewable,
     ...(!hasReviewable && batchOutcome
-      ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome, claudeLeg) }
+      ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) }
       : {}),
     redirectPath: `/prospect-batches/${batchId}`,
     targetPersistibleCandidates: input.target,
