@@ -22,7 +22,6 @@ import {
   type SourceBatch,
 } from '../company-search-run';
 import { readRelationshipEvidence } from '../../prospecting-pipeline';
-import { supplierIndustryPhrase } from '../company-search-run';
 import { isUbitsCompetitorDomain } from '../ubits-competitors';
 
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -180,7 +179,7 @@ describe('C. corrida de «Proveedores»', () => {
     assert.equal(queries.length, 2);
     for (const q of queries) {
       assert.match(q, /Ecopetrol/);
-      assert.match(q, /tecnología/);
+      assert.match(q, /Tecnología/);
       assert.match(q, /Colombia/);
     }
   });
@@ -278,18 +277,13 @@ describe('D. mejoras de la prueba real (AGENT1-SUPPLIER-SEARCH-2)', () => {
     assert.match(String(buildCompanySearchRequestBody(INPUT, MODEL).system), /competidores de quien prospecta/);
   });
 
-  it('consultas con la industria como la escribe la gente', () => {
-    assert.equal(supplierIndustryPhrase('Transporte & Logística'), 'transporte y logística');
-    assert.equal(
-      supplierIndustryPhrase('Gas / Petróleo / Energía / Minería / Medio Ambiente'),
-      'gas, petróleo, energía, minería, medio ambiente',
+  it('las consultas son las medidas en Prod (no las de #692)', () => {
+    assert.deepEqual(
+      buildSupplierSearchQueries({ country: 'Colombia', industry: 'Tecnología', subindustries: [] }, 'Ecopetrol'),
+      [
+        'empresas de Tecnología que son proveedores de Ecopetrol en Colombia',
+        'Ecopetrol cliente caso de éxito Tecnología Colombia',
+      ],
     );
-    const [q1, q2] = buildSupplierSearchQueries(
-      { country: 'Colombia', industry: 'Transporte & Logística', subindustries: [] },
-      'Grupo Éxito',
-    );
-    assert.equal(q1, 'proveedores de transporte y logística de Grupo Éxito en Colombia');
-    assert.match(q2, /Grupo Éxito proveedores destacados o aliados de transporte y logística en Colombia/);
-    assert.match(String(buildCompanySearchRequestBody(INPUT, MODEL).system), /la de los PROVEEDORES/);
   });
 });
