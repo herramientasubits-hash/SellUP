@@ -27,7 +27,15 @@ import {
   type AnthropicRequestBody,
 } from './anthropic-messages-client';
 import { forceSubmission, toUsage } from './classify-company';
-import { extractSearchResultEntries, sameSite, verifyProposedWebsite, type DomainFinderDeps } from './domain-finder';
+import {
+  domainCarriesName,
+  extractSearchResultEntries,
+  sameSite,
+  verifyProposedWebsite,
+  type DomainFinderDeps,
+} from './domain-finder';
+import { extractVisibleText } from './page-text';
+import { isUbitsCompetitorDomain } from './ubits-competitors';
 import { anySearchConfirms } from './site-match';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import type { ClassifierUsage } from './types';
@@ -64,7 +72,9 @@ export type CompanySearchRejection =
   | 'duplicate_in_response'
   | 'invalid_url'
   /** «Proveedores»: Claude propuso la propia empresa de referencia. */
-  | 'reference_company';
+  | 'reference_company'
+  /** «Proveedores»: formación corporativa / e-learning — competidor de UBITS, no prospecto. */
+  | 'ubits_competitor';
 
 export type CompanySearchOutcome = {
   results: WebSearchResult[];
@@ -168,6 +178,8 @@ function buildSupplierSearchRequestBody(
       '- Usa la búsqueda web. Busca sobre todo en las páginas de los PROVEEDORES (casos de éxito, «nuestros clientes»), no sólo en la de la empresa de referencia.',
       '- Entrega el sitio OFICIAL de cada proveedor (su dominio propio) y en `source_url` la página que prueba la relación.',
       `- Nunca entregues a «${reference}» ni a empresas de su mismo grupo, ni a sus clientes o competidores.`,
+      '- Nunca entregues empresas de formación corporativa, e-learning o plataformas de aprendizaje (Degreed, Crehana, Coursera…): son competidores de quien prospecta.',
+      '- La industria pedida es la de los PROVEEDORES, no la de la empresa de referencia. Si no son del mismo sector, busca cómo se nombra esa relación: operador, aliado, contratista, socio, «proveedores destacados de», «premio a proveedores», «alianza con», «caso de éxito», «nuestros clientes».',
       `- Sólo proveedores que operan en ${input.countryName} y encajan en la industria pedida.`,
       '- Prioriza empresas medianas y grandes (más de 200 empleados) cuando haya señales.',
       '- Nunca entregues LinkedIn, directorios, rankings, noticias, marketplaces ni redes sociales como sitio.',
@@ -253,6 +265,46 @@ function readCompanies(content: AnthropicConversationResult['content']): RawComp
   const block = [...content].reverse().find((b) => b.type === 'tool_use' && b.name === SUBMIT_COMPANIES_TOOL_NAME);
   const companies = (block?.input as { companies?: unknown } | undefined)?.companies;
   return Array.isArray(companies) ? (companies.filter((c) => c && typeof c === 'object') as RawCompany[]) : [];
+}
+
+const HREF_PATTERN = /href\s*=\s*["']([^"'#\s]+)["']/gi;
+
+function plainText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * AGENT1-SUPPLIER-SEARCH-2 — confirma el sitio con la página de EVIDENCIA (la que nombra
+ * la relación y que salió de la búsqueda), no con la portada del proveedor:
+ *  - `evidence_source_link`: la página enlaza a ese dominio (p. ej. la lista de
+ *    «proveedores destacados» de Ecopetrol enlaza a minsait.com);
+ *  - `evidence_source_name`: el dominio lleva el nombre de la empresa Y la página la
+ *    nombra con todas sus palabras.
+ * Nada inventado: la página la devolvió la búsqueda y la descargamos nosotros.
+ */
+async function verifyViaEvidenceSource(
+  proposal: { name: string; domain: string; sourceUrl: string | null },
+  fetchPage: NonNullable<DomainFinderDeps['fetchPage']>,
+): Promise<'evidence_source_link' | 'evidence_source_name' | null> {
+  if (!proposal.sourceUrl) return null;
+  const page = await fetchPage(proposal.sourceUrl);
+  const html = page?.html ?? '';
+  if (!html || (page.httpStatus ?? 0) >= 400) return null;
+  for (const match of html.matchAll(HREF_PATTERN)) {
+    const linked = normalizeDomain(match[1]);
+    if (linked && sameSite(linked, proposal.domain)) return 'evidence_source_link';
+  }
+  const name = plainText(proposal.name);
+  if (name.length >= 3 && domainCarriesName(proposal.domain, [proposal.name])) {
+    const text = ` ${plainText(extractVisibleText(html))} `;
+    if (text.includes(` ${name} `)) return 'evidence_source_name';
+  }
+  return null;
 }
 
 /** Formas societarias y conectores que no distinguen a una empresa de otra. */
@@ -356,6 +408,10 @@ export async function filterProposedCompanies(
       reject('platform_domain');
       continue;
     }
+    if (referenceKey && isUbitsCompetitorDomain(domain)) {
+      reject('ubits_competitor');
+      continue;
+    }
     if (isExcluded(domain, excluded)) {
       reject('excluded_domain');
       continue;
@@ -393,6 +449,14 @@ export async function filterProposedCompanies(
         },
         fetchPage,
       ).catch(() => null);
+      // «Proveedores»: segundo intento con la página de evidencia, que SÍ salió de la
+      // búsqueda (Prod 14-10: 10 de 37 propuestas caían aquí, casi todas porque el sitio
+      // del proveedor bloquea nuestra descarga).
+      const viaEvidence =
+        !check?.found && input.referenceCompanyName && p.sourceUrl
+          ? await verifyViaEvidenceSource(p, fetchPage).catch(() => null)
+          : null;
+      if (viaEvidence) return { ...p, finalDomain: p.domain, outsideVerification: viaEvidence };
       if (!check?.found) {
         reject('outside_search_unverified');
         return null;
