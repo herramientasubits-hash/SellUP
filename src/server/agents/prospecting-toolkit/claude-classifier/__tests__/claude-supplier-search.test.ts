@@ -22,6 +22,8 @@ import {
   type SourceBatch,
 } from '../company-search-run';
 import { readRelationshipEvidence } from '../../prospecting-pipeline';
+import { supplierIndustryPhrase } from '../company-search-run';
+import { isUbitsCompetitorDomain } from '../ubits-competitors';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 const USAGE = {
@@ -178,7 +180,7 @@ describe('C. corrida de «Proveedores»', () => {
     assert.equal(queries.length, 2);
     for (const q of queries) {
       assert.match(q, /Ecopetrol/);
-      assert.match(q, /Tecnología/);
+      assert.match(q, /tecnología/);
       assert.match(q, /Colombia/);
     }
   });
@@ -196,5 +198,98 @@ describe('C. corrida de «Proveedores»', () => {
     assert.equal(log?.metadata?.reference_company_name, 'Ecopetrol');
     const plain = buildCompanySearchUsageLog(CALL, { runId: 'r', sourceBatchId: 'b1', triggeredBy: 'u1', index: 0 });
     assert.equal(plain?.metadata?.search_mode, undefined);
+  });
+});
+
+describe('D. mejoras de la prueba real (AGENT1-SUPPLIER-SEARCH-2)', () => {
+  const page = (html: string) => async (url: string) => ({
+    requestedUrl: url,
+    finalUrl: url,
+    httpStatus: 200,
+    redirected: false,
+    html,
+    error: null,
+  });
+  const EVIDENCE = 'https://www.ecopetrol.com.co/proveedor-iconico-2023';
+  const blockedSites = (evidenceHtml: string) => async (url: string) =>
+    url === EVIDENCE
+      ? page(evidenceHtml)(url)
+      : { requestedUrl: url, finalUrl: url, httpStatus: 403, redirected: false, html: null, error: 'http_403' };
+
+  it('sitio bloqueado: vale si la página de evidencia enlaza a ese dominio', async () => {
+    const conv = conversation(
+      [{ name: 'Minsait', website_url: 'https://www.minsait.com', evidence: 'Proveedor icónico', source_url: EVIDENCE }],
+      [EVIDENCE],
+    );
+    const fetchPage = blockedSites('<html><body><a href="https://www.minsait.com/es">Minsait</a></body></html>');
+    const out = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv, fetchPage });
+    assert.deepEqual(out.results.map((r) => r.url), ['https://minsait.com']);
+    assert.equal(out.results[0].metadata?.outside_search_verification, 'evidence_source_link');
+  });
+
+  it('sin enlace: vale si el dominio lleva el nombre y la página nombra a la empresa', async () => {
+    const FILLER = ' Reconocimiento a proveedores por su aporte a la transformación digital.'.repeat(4);
+    const conv = conversation(
+      [{ name: 'Honeywell', website_url: 'https://www.honeywell.com', evidence: 'x', source_url: EVIDENCE }],
+      [EVIDENCE],
+    );
+    const fetchPage = blockedSites(`<html><body><p>${FILLER} Ganadores: Honeywell, Minsait.</p></body></html>`);
+    const out = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv, fetchPage });
+    assert.equal(out.results[0]?.metadata?.outside_search_verification, 'evidence_source_name');
+  });
+
+  it('sin enlace ni nombre en la página: sigue rechazada', async () => {
+    const conv = conversation(
+      [{ name: 'Inventada SAS', website_url: 'https://inventada.co', evidence: 'x', source_url: EVIDENCE }],
+      [EVIDENCE],
+    );
+    const out = await searchCompaniesWithClaude(INPUT, MODEL, {
+      runConversation: async () => conv,
+      fetchPage: blockedSites('<html><body><p>Otra cosa</p></body></html>'),
+    });
+    assert.equal(out.results.length, 0);
+    assert.deepEqual(out.rejected, { outside_search_unverified: 1 });
+  });
+
+  it('la segunda verificación es sólo de «Proveedores»', async () => {
+    const conv = conversation(
+      [{ name: 'Minsait', website_url: 'https://www.minsait.com', evidence: 'x', source_url: EVIDENCE }],
+      [EVIDENCE],
+    );
+    const out = await searchCompaniesWithClaude({ ...INPUT, referenceCompanyName: null }, MODEL, {
+      runConversation: async () => conv,
+      fetchPage: blockedSites('<a href="https://minsait.com">Minsait</a>'),
+    });
+    assert.equal(out.results.length, 0);
+  });
+
+  it('descarta competidores de formación corporativa (también con dominio de país)', async () => {
+    const conv = conversation(
+      [
+        { name: 'Degreed', website_url: 'https://degreed.com', evidence: 'x', source_url: 'https://degreed.com/ecopetrol' },
+        { name: 'Crehana', website_url: 'https://www.crehana.co', evidence: 'x', source_url: 'https://www.crehana.co/x' },
+      ],
+      ['https://degreed.com/ecopetrol', 'https://www.crehana.co/x'],
+    );
+    const out = await searchCompaniesWithClaude(INPUT, MODEL, { runConversation: async () => conv });
+    assert.equal(out.results.length, 0);
+    assert.deepEqual(out.rejected, { ubits_competitor: 2 });
+    assert.equal(isUbitsCompetitorDomain('https://www.universidad-ejemplo.edu.co'), false);
+    assert.match(String(buildCompanySearchRequestBody(INPUT, MODEL).system), /competidores de quien prospecta/);
+  });
+
+  it('consultas con la industria como la escribe la gente', () => {
+    assert.equal(supplierIndustryPhrase('Transporte & Logística'), 'transporte y logística');
+    assert.equal(
+      supplierIndustryPhrase('Gas / Petróleo / Energía / Minería / Medio Ambiente'),
+      'gas, petróleo, energía, minería, medio ambiente',
+    );
+    const [q1, q2] = buildSupplierSearchQueries(
+      { country: 'Colombia', industry: 'Transporte & Logística', subindustries: [] },
+      'Grupo Éxito',
+    );
+    assert.equal(q1, 'proveedores de transporte y logística de Grupo Éxito en Colombia');
+    assert.match(q2, /Grupo Éxito proveedores destacados o aliados de transporte y logística en Colombia/);
+    assert.match(String(buildCompanySearchRequestBody(INPUT, MODEL).system), /la de los PROVEEDORES/);
   });
 });
