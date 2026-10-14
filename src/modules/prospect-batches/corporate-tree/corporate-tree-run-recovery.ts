@@ -29,9 +29,10 @@ export async function waitForTreeRunResult(
     if (deps.isCancelled?.()) return null;
     const statuses = await deps.fetchStatus([clientRequestId]).catch(() => []);
     const status = statuses.find((s) => s.clientRequestId === clientRequestId);
-    // El lote del árbol recibe su id al final de la corrida, ya etiquetado: si está, terminó.
-    // Mientras el servidor anota etapas, todavía no terminó de guardar.
-    if (status?.batch && !status.progress) {
+    // El lote existe desde el inicio (AGENT1-CORPORATE-TREE-2): terminó cuando ya no
+    // está en curso (`draft`/`generating`) y el servidor dejó de anotar etapas.
+    const sealed = !!status?.batch && status.batch.status !== 'draft' && status.batch.status !== 'generating';
+    if (status?.batch && sealed && !status.progress) {
       return { batchId: status.batch.id, candidateCount: status.batch.candidateCount };
     }
     await deps.sleep(TREE_RUN_RECOVERY_POLL_MS);

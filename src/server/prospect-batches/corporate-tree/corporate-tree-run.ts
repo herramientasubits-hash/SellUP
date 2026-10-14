@@ -1,15 +1,18 @@
 /**
- * Agente 1 · Búsqueda en árbol — una corrida completa (puro; todo lo que toca
- * red o base se inyecta).
+ * Agente 1 · Búsqueda en árbol — una corrida completa, por el camino del Agente 1
+ * (AGENT1-CORPORATE-TREE-2; puro: todo lo que toca red o base se inyecta).
  *
  *   1. Valida lo que mandó el navegador.
- *   2. Claude busca cada rama pedida, en paralelo (una llamada por rama).
- *   3. Planea las filas (sin repetidas, web del grupo como referencia).
- *   4. Las manda por la importación: mismas compuertas que cualquier búsqueda.
- *   5. Marca el lote y cada fila con su rama y guarda las asociaciones.
+ *   2. Reserva el lote del Agente 1 AL EMPEZAR (Búsquedas, Centro de procesos, Uso de IA).
+ *   3. PRIMERO lo gratis: registros oficiales de cada país y banco, por nombre.
+ *   4. Claude busca sólo lo que falta (matriz, filiales con otro nombre, otros países).
+ *   5. Escribe por las vías de siempre: capa gratuita, escritor del Agente 1, y
+ *      «Descartadas» sin web (el rescate les busca la web).
+ *   6. Etiqueta cada fila con su rama, guarda las asociaciones, sella el lote y
+ *      programa el rescate.
  *
- * Sin Apollo ni Lusha (decisión de la dueña, 14-10): no toca créditos del pool.
- * Lo único que se paga es Claude, y cada llamada queda en Uso de IA al terminar.
+ * Sin Apollo ni Lusha (decisión de la dueña, 14-10). Lo único que se paga es Claude,
+ * y cada llamada queda en Uso de IA con el lote.
  */
 
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -21,9 +24,17 @@ import {
   type CorporateTreeCandidateMetadata,
   type CorporateTreeRelation,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
-import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
-import { planCorporateTreeImport, type CorporateTreeImportCandidate, type CorporateTreePlan, type CorporateTreeRoot } from './corporate-tree-plan';
+import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
+import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
+import {
+  planCorporateTreeWrites,
+  type CorporateTreePlannedRow,
+  type CorporateTreeRoot,
+  type CorporateTreeWebItem,
+  type CorporateTreeWritePlan,
+} from './corporate-tree-plan';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
@@ -86,7 +97,13 @@ export function parseCorporateTreeRequest(raw: unknown): { ok: true; request: Co
   };
 }
 
-export type CorporateTreeStage = 'tree_searching' | 'tree_branch_1' | 'tree_branch_2' | 'tree_checking' | 'tree_saving';
+export type CorporateTreeStage =
+  | 'tree_free'
+  | 'tree_searching'
+  | 'tree_branch_1'
+  | 'tree_branch_2'
+  | 'tree_checking'
+  | 'tree_saving';
 
 /** La etapa que se anota cuando termina la rama número `done` (de `total`). */
 export function branchDoneStage(done: number, total: number): CorporateTreeStage | null {
@@ -98,6 +115,7 @@ export type CorporateTreeBatchCandidate = {
   id: string;
   name: string;
   country_code: string | null;
+  domain: string | null;
   status: string;
   matched_hubspot_company_id: string | null;
   metadata: Record<string, unknown> | null;
@@ -122,42 +140,70 @@ export type CorporateTreeRelationshipRow = {
   created_by: string;
 };
 
-export type CorporateTreeImportOutcome =
-  | { ok: true; batchId: string; candidatesCreated: number }
-  | { ok: false; message: string };
+export type CorporateTreeReservation = { status: 'reserved' | 'already_reserved'; batchId: string };
 
 export type CorporateTreeRunDeps = {
   /** La empresa de partida cuando viene de una fila (sólo se leen sus datos). */
   loadExistingRoot: (ref: { candidateId: string | null; accountId: string | null }) => Promise<Partial<CorporateTreeRoot> | null>;
+  /** El lote del Agente 1 de esta corrida (idempotente por usuario + clientRequestId). */
+  reserveBatch: (input: {
+    root: CorporateTreeRoot;
+    batchCountry: TreeCountry;
+    branches: readonly CorporateTreeBranch[];
+    countryCodes: readonly string[];
+  }) => Promise<CorporateTreeReservation>;
+  findFreeHits: (input: {
+    rootName: string;
+    rootCountryCode: string | null;
+    countryCodes: readonly string[];
+  }) => Promise<{ hits: CorporateTreeFreeHit[]; rootCountryCode: string | null; queries: number; errors: number }>;
   resolveActiveModel: () => Promise<{ model: string; apiKey: string } | { error: string }>;
   checkQuota: () => Promise<{ allowed: boolean }>;
   searchBranch: (input: CorporateTreeSearchInput, model: string, apiKey: string) => Promise<CorporateTreeSearchOutcome>;
-  /** Registra lo pagado de cada llamada apenas termina. */
-  logBranchUsage: (outcome: CorporateTreeSearchOutcome, runId: string) => Promise<void>;
-  importRows: (candidates: CorporateTreeImportCandidate[]) => Promise<CorporateTreeImportOutcome>;
-  markBatch: (batchId: string, params: { name: string; clientRequestId: string; metadata: Record<string, unknown> }) => Promise<void>;
-  loadBatchCandidates: (batchId: string) => Promise<CorporateTreeBatchCandidate[]>;
+  /** Registra lo pagado de cada llamada apenas termina, con el lote. */
+  logBranchUsage: (outcome: CorporateTreeSearchOutcome, ctx: { runId: string; batchId: string }) => Promise<void>;
+  /** Capa gratuita: registros oficiales con web. */
+  writeFreeCatalog: (batchId: string, country: TreeCountry, companies: CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
+  /** Escritor del Agente 1 (Claude y banco con web). */
+  writeWeb: (batchId: string, country: TreeCountry, items: CorporateTreeWebItem[]) => Promise<{ written: number; errors: string[] }>;
+  /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
+  recordWithoutWebsite: (batchId: string, countryCode: string, companies: CountrySourceCompany[]) => Promise<number>;
+  /** `null` si no se pudo leer (no se sella como vacío un lote que sí tiene filas). */
+  loadBatchCandidates: (batchId: string) => Promise<CorporateTreeBatchCandidate[] | null>;
   tagCandidate: (candidateId: string, metadata: Record<string, unknown>) => Promise<void>;
-  /** `false` si la tabla de asociaciones no está (migración 148 sin aplicar): la corrida sigue. */
+  /**
+   * La etiqueta de industria del lote sólo sirve para escribir: en TODO el lote se deja
+   * sin industria pedida antes del rescate (también lo que no se reencontró por nombre).
+   */
+  clearBatchIndustryLabel: (batchId: string) => Promise<void>;
+  /** `false` si la tabla de asociaciones no está: la corrida sigue. */
   insertRelationships: (rows: CorporateTreeRelationshipRow[]) => Promise<boolean>;
+  /** Sella el estado del lote (la misma máquina de estados que la capa gratuita) y su metadata. */
+  sealBatch: (batchId: string, input: { persisted: number; failed: boolean; metadata: Record<string, unknown> }) => Promise<void>;
+  /** El rescate de siempre (sector, tamaño y web de las que quedaron sin web). */
+  scheduleRescue: (batchId: string) => void;
   report: (stage: CorporateTreeStage) => void;
   newRunId: () => string;
   nowIso: () => string;
+  nowMs: () => number;
 };
 
 export type CorporateTreeRunResult =
   | {
       ok: true;
       batchId: string;
-      candidateCount: number;
+      alreadyStarted: boolean;
+      /** Las que quedaron para revisar. */
       inReview: number;
       redirectPath: string;
       estimatedCostUsd: number;
     }
   | {
       ok: false;
-      code: 'model_not_configured' | 'quota_exhausted' | 'search_failed' | 'nothing_found' | 'import_failed';
+      code: 'reservation_failed' | 'nothing_found' | 'run_failed';
       message: string;
+      /** El lote ya existe (se reservó al empezar): se puede abrir. */
+      batchId: string | null;
       estimatedCostUsd: number;
     };
 
@@ -165,60 +211,47 @@ function roundUsd(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-export function corporateTreeBatchName(rootName: string): string {
-  return `Árbol · ${rootName}`;
-}
-
-/** Une cada fila del lote con su fila planeada (por nombre × país). */
+/** Une cada fila del lote con su fila planeada (nombre × país; si no, dominio). */
 export function matchPlannedRows(
-  plan: CorporateTreePlan,
+  rows: readonly CorporateTreePlannedRow[],
   candidates: readonly CorporateTreeBatchCandidate[],
   keyOf: (name: string, countryCode: string | null) => string,
 ): Map<string, CorporateTreeBatchCandidate> {
   const byKey = new Map<string, CorporateTreeBatchCandidate>();
+  const byDomain = new Map<string, CorporateTreeBatchCandidate>();
   for (const c of candidates) {
     const key = keyOf(c.name, c.country_code);
     if (!byKey.has(key)) byKey.set(key, c);
+    if (c.domain && !byDomain.has(`${c.domain}|${c.country_code ?? ''}`)) byDomain.set(`${c.domain}|${c.country_code ?? ''}`, c);
   }
   const matched = new Map<string, CorporateTreeBatchCandidate>();
-  for (const row of plan.rows) {
-    const candidate = byKey.get(row.key);
+  for (const row of rows) {
+    const candidate = byKey.get(row.key) ?? (row.domain ? byDomain.get(`${row.domain}|${row.countryCode ?? ''}`) : undefined);
     if (candidate) matched.set(row.key, candidate);
   }
   return matched;
 }
 
-export async function runCorporateTreeSearch(
+type ClaudePhase = {
+  outcomes: CorporateTreeSearchOutcome[];
+  skipped: string | null;
+};
+
+async function runClaudePhase(
   request: CorporateTreeRequest,
-  context: { internalUserId: string; keyOf: (name: string, countryCode: string | null) => string },
+  root: CorporateTreeRoot,
+  freeHits: readonly CorporateTreeFreeHit[],
+  ctx: { runId: string; batchId: string },
   deps: CorporateTreeRunDeps,
-): Promise<CorporateTreeRunResult> {
-  const existing =
-    request.rootCandidateId || request.rootAccountId
-      ? await deps.loadExistingRoot({ candidateId: request.rootCandidateId, accountId: request.rootAccountId }).catch(() => null)
-      : null;
-  const rootWebsite = existing?.website ?? request.rootWebsite;
-  let root: CorporateTreeRoot = {
-    name: existing?.name ?? request.rootName,
-    website: rootWebsite,
-    domain: rootWebsite ? normalizeDomain(rootWebsite) : null,
-    countryCode: existing?.countryCode ?? request.rootCountryCode,
-    candidateId: existing ? request.rootCandidateId : null,
-    accountId: existing ? request.rootAccountId : null,
-  };
-
+): Promise<ClaudePhase> {
   const active = await deps.resolveActiveModel();
-  if ('error' in active) {
-    return { ok: false, code: 'model_not_configured', message: 'Claude no está configurado en Configuración → IA.', estimatedCostUsd: 0 };
-  }
-  if (!(await deps.checkQuota()).allowed) {
-    return { ok: false, code: 'quota_exhausted', message: 'Se agotó la cuota de Claude de este mes.', estimatedCostUsd: 0 };
-  }
+  if ('error' in active) return { outcomes: [], skipped: 'model_not_configured' };
+  if (!(await deps.checkQuota()).allowed) return { outcomes: [], skipped: 'quota_exhausted' };
 
-  const runId = deps.newRunId();
   deps.report('tree_searching');
-  const rootCountry = request.countries.find((c) => c.code === root.countryCode)
-    ?? (root.countryCode ? { code: root.countryCode, name: root.countryCode } : null);
+  const rootCountry =
+    request.countries.find((c) => c.code === root.countryCode) ?? (root.countryCode ? { code: root.countryCode, name: root.countryCode } : null);
+  const knownCompanies = freeHits.map((h) => ({ name: h.name, countryCode: h.countryCode }));
   let branchesDone = 0;
   const outcomes = await Promise.all(
     request.branches.map(async (branch) => {
@@ -230,6 +263,7 @@ export async function runCorporateTreeSearch(
           rootCountry,
           countries: request.countries,
           maxCompanies: CORPORATE_TREE_LIMITS.companiesPerBranch,
+          knownCompanies,
         },
         active.model,
         active.apiKey,
@@ -237,17 +271,132 @@ export async function runCorporateTreeSearch(
       branchesDone++;
       const stage = branchDoneStage(branchesDone, request.branches.length);
       if (stage) deps.report(stage);
-      await deps.logBranchUsage(outcome, runId).catch(() => undefined);
+      await deps.logBranchUsage(outcome, ctx).catch(() => undefined);
       return outcome;
     }),
   );
-  const estimatedCostUsd = roundUsd(outcomes.reduce((acc, o) => acc + (o.usage?.estimatedCostUsd ?? 0), 0));
-  if (outcomes.every((o) => o.errorCode !== null)) {
-    return { ok: false, code: 'search_failed', message: 'Claude no respondió. Inténtalo de nuevo en unos minutos.', estimatedCostUsd };
-  }
+  return { outcomes, skipped: null };
+}
 
-  // Lo que Claude confirmó de la empresa de partida completa lo que no se sabía.
-  const rootFinding = outcomes.map((o) => o.root).find((r) => r && (r.domain || r.countryCode)) ?? null;
+async function writePlan(
+  plan: CorporateTreeWritePlan,
+  batchId: string,
+  countries: readonly TreeCountry[],
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<{ written: number; withoutWebsite: number; errors: string[] }> {
+  const countryOf = (code: string): TreeCountry => countries.find((c) => c.code === code) ?? { code, name: code };
+  let written = 0;
+  let withoutWebsite = 0;
+  const errors: string[] = [];
+  // Sin tiempo para otra escritura: lo que falta se anota y la corrida cierra el lote a tiempo.
+  const outOfTime = (what: string) => {
+    if (deps.nowMs() < deadlineAtMs) return false;
+    errors.push(`time_budget:${what}`);
+    return true;
+  };
+  // Uno a uno por país: el escritor adopta el lote y aplica las compuertas del país.
+  for (const [code, companies] of plan.freeCatalog) {
+    if (outOfTime(`free_catalog:${code}`)) continue;
+    const result = await deps.writeFreeCatalog(batchId, countryOf(code), companies).catch(() => ({ written: 0, failed: true }));
+    written += result.written;
+    if (result.failed) errors.push(`free_catalog:${code}`);
+  }
+  for (const [code, items] of plan.web) {
+    if (outOfTime(`writer:${code}`)) continue;
+    const result = await deps.writeWeb(batchId, countryOf(code), items).catch((err: unknown) => ({
+      written: 0,
+      errors: [err instanceof Error ? err.message : String(err)],
+    }));
+    written += result.written;
+    errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
+  }
+  for (const [code, companies] of plan.withoutWebsite) {
+    if (outOfTime(`without_website:${code}`)) continue;
+    withoutWebsite += await deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0);
+  }
+  return { written, withoutWebsite, errors };
+}
+
+export async function runCorporateTreeSearch(
+  request: CorporateTreeRequest,
+  context: {
+    internalUserId: string;
+    keyOf: (name: string, countryCode: string | null) => string;
+    /** Hasta cuándo se puede empezar a escribir (deja tiempo para sellar dentro de los 300 s). */
+    writeDeadlineAtMs: number;
+  },
+  deps: CorporateTreeRunDeps,
+): Promise<CorporateTreeRunResult> {
+  const existing =
+    request.rootCandidateId || request.rootAccountId
+      ? await deps.loadExistingRoot({ candidateId: request.rootCandidateId, accountId: request.rootAccountId }).catch(() => null)
+      : null;
+  const rootWebsite = existing?.website ?? request.rootWebsite;
+  const root: CorporateTreeRoot = {
+    name: existing?.name ?? request.rootName,
+    website: rootWebsite,
+    domain: rootWebsite ? normalizeDomain(rootWebsite) : null,
+    countryCode: existing?.countryCode ?? request.rootCountryCode,
+    candidateId: existing ? request.rootCandidateId : null,
+    accountId: existing ? request.rootAccountId : null,
+  };
+
+  // 1. El lote, ANTES de cualquier gasto: es del Agente 1 desde el primer instante.
+  const batchCountry =
+    request.countries.find((c) => c.code === root.countryCode) ?? request.countries[0];
+  let reservation: CorporateTreeReservation;
+  try {
+    reservation = await deps.reserveBatch({
+      root,
+      batchCountry,
+      branches: request.branches,
+      countryCodes: request.countries.map((c) => c.code),
+    });
+  } catch {
+    return { ok: false, code: 'reservation_failed', message: 'No se pudo iniciar la búsqueda. Inténtalo de nuevo.', batchId: null, estimatedCostUsd: 0 };
+  }
+  const batchId = reservation.batchId;
+  if (reservation.status === 'already_reserved') {
+    return { ok: true, batchId, alreadyStarted: true, inReview: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
+  }
+  const runId = deps.newRunId();
+  try {
+    return await runAfterReservation(request, context, deps, { root, batchId, runId });
+  } catch (err) {
+    // Nunca queda un lote colgado en curso: se cierra y se puede abrir desde la bandeja.
+    const detail = err instanceof Error ? err.message : String(err);
+    await deps
+      .sealBatch(batchId, {
+        persisted: 0,
+        failed: true,
+        metadata: { [CORPORATE_TREE_METADATA_KEY]: { run_id: runId, root_name: root.name, error: detail.slice(0, 200), searched_at: deps.nowIso() } },
+      })
+      .catch(() => undefined);
+    return { ok: false, code: 'run_failed', message: 'No fue posible completar la búsqueda en árbol. Inténtalo de nuevo.', batchId, estimatedCostUsd: 0 };
+  }
+}
+
+async function runAfterReservation(
+  request: CorporateTreeRequest,
+  context: { internalUserId: string; keyOf: (name: string, countryCode: string | null) => string; writeDeadlineAtMs: number },
+  deps: CorporateTreeRunDeps,
+  start: { root: CorporateTreeRoot; batchId: string; runId: string },
+): Promise<CorporateTreeRunResult> {
+  const { batchId, runId } = start;
+  let root = start.root;
+
+  // 2. PRIMERO lo gratis.
+  deps.report('tree_free');
+  const free = await deps
+    .findFreeHits({ rootName: root.name, rootCountryCode: root.countryCode, countryCodes: request.countries.map((c) => c.code) })
+    .catch(() => ({ hits: [] as CorporateTreeFreeHit[], rootCountryCode: root.countryCode, queries: 0, errors: 1 }));
+  root = { ...root, countryCode: root.countryCode ?? free.rootCountryCode };
+
+  // 3. Claude, sólo por lo que falta.
+  const claude = await runClaudePhase(request, root, free.hits, { runId, batchId }, deps);
+  const estimatedCostUsd = roundUsd(claude.outcomes.reduce((acc, o) => acc + (o.usage?.estimatedCostUsd ?? 0), 0));
+  const rootFinding = claude.outcomes.map((o) => o.root).find((r) => r && (r.domain || r.countryCode)) ?? null;
   if (rootFinding) {
     root = {
       ...root,
@@ -256,56 +405,18 @@ export async function runCorporateTreeSearch(
       countryCode: root.countryCode ?? rootFinding.countryCode,
     };
   }
+  const nodes = claude.outcomes.flatMap((o) => o.nodes);
 
-  const nodes = outcomes.flatMap((o) => o.nodes);
-  const plan = planCorporateTreeImport({ root, nodes, countries: request.countries });
-  if (plan.rows.length === 0 || nodes.length === 0) {
-    return {
-      ok: false,
-      code: 'nothing_found',
-      message: `No encontramos empresas relacionadas con ${root.name} con una fuente que lo pruebe.`,
-      estimatedCostUsd,
-    };
-  }
-
+  // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
-  const imported = await deps.importRows(plan.rows.map((r) => r.candidate));
-  if (!imported.ok) {
-    return { ok: false, code: 'import_failed', message: imported.message, estimatedCostUsd };
-  }
+  const plan = planCorporateTreeWrites({ root, freeHits: free.hits, nodes });
+  const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
-  const at = deps.nowIso();
-  await deps.markBatch(imported.batchId, {
-    name: corporateTreeBatchName(root.name),
-    clientRequestId: request.clientRequestId,
-    metadata: {
-      source_label: 'Árbol de empresa',
-      [CORPORATE_TREE_METADATA_KEY]: {
-        run_id: runId,
-        root_name: root.name,
-        root_country_code: root.countryCode,
-        root_domain: root.domain,
-        root_candidate_id: root.candidateId,
-        root_account_id: root.accountId,
-        branches: request.branches,
-        country_codes: request.countries.map((c) => c.code),
-        proposed: outcomes.reduce((acc, o) => acc + o.proposed, 0),
-        accepted: nodes.length,
-        rows: plan.rows.length,
-        dropped_by_cap: plan.droppedByCap,
-        shared_websites: plan.sharedWebsites,
-        websites_dropped: outcomes.reduce((acc, o) => acc + o.websitesDropped, 0),
-        rejected: Object.fromEntries(outcomes.map((o) => [o.branch, o.rejected])),
-        errors: outcomes.filter((o) => o.errorCode).map((o) => ({ branch: o.branch, code: o.errorCode })),
-        estimated_cost_usd: estimatedCostUsd,
-        searched_at: at,
-      },
-    },
-  });
-
+  // 5. Rama de cada fila y asociaciones.
   deps.report('tree_saving');
-  const candidates = await deps.loadBatchCandidates(imported.batchId);
-  const matched = matchPlannedRows(plan, candidates, context.keyOf);
+  const loaded = await deps.loadBatchCandidates(batchId).catch(() => null);
+  const candidates = loaded ?? [];
+  const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
   await Promise.all(
     plan.rows.map(async (row) => {
       const candidate = matched.get(row.key);
@@ -321,37 +432,84 @@ export async function runCorporateTreeSearch(
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
   );
-
   await deps
-    .insertRelationships(
-      buildRelationshipRows({ plan, matched, root, runId, batchId: imported.batchId, createdBy: context.internalUserId }),
-    )
+    .insertRelationships(buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }))
     .catch(() => false);
 
+  // 6. Sellado y rescate.
   const inReview = candidates.filter((c) => c.status === 'needs_review').length;
-  return {
-    ok: true,
-    batchId: imported.batchId,
-    candidateCount: candidates.length,
-    inReview,
-    redirectPath: `/prospect-batches/${imported.batchId}`,
-    estimatedCostUsd,
+  const treeMetadata = {
+    [CORPORATE_TREE_METADATA_KEY]: {
+      run_id: runId,
+      root_name: root.name,
+      root_country_code: root.countryCode,
+      root_domain: root.domain,
+      root_candidate_id: root.candidateId,
+      root_account_id: root.accountId,
+      branches: request.branches,
+      country_codes: request.countries.map((c) => c.code),
+      free_first: {
+        queries: free.queries,
+        errors: free.errors,
+        hits: free.hits.length,
+        from_catalog: free.hits.filter((h) => h.origin === 'catalog').length,
+        from_bank: free.hits.filter((h) => h.origin === 'bank').length,
+      },
+      claude: {
+        skipped: claude.skipped,
+        proposed: claude.outcomes.reduce((acc, o) => acc + o.proposed, 0),
+        accepted: nodes.length,
+        rejected: Object.fromEntries(claude.outcomes.map((o) => [o.branch, o.rejected])),
+        errors: claude.outcomes.filter((o) => o.errorCode).map((o) => ({ branch: o.branch, code: o.errorCode })),
+        estimated_cost_usd: estimatedCostUsd,
+      },
+      rows: plan.rows.length,
+      written: writes.written,
+      without_website: writes.withoutWebsite,
+      dropped_by_cap: plan.droppedByCap,
+      shared_websites: plan.sharedWebsites,
+      write_errors: writes.errors.slice(0, 10),
+      searched_at: deps.nowIso(),
+    },
   };
+  await deps
+    .sealBatch(batchId, {
+      // Lo escrito según los escritores, o lo que el lote tiene si se pudo leer (lo mayor).
+      persisted: Math.max(writes.written, candidates.length),
+      failed: loaded !== null && candidates.length === 0 && writes.errors.length > 0,
+      metadata: treeMetadata,
+    })
+    .catch(() => undefined);
+  await deps.clearBatchIndustryLabel(batchId).catch(() => undefined);
+  if (plan.rows.length > 0) deps.scheduleRescue(batchId);
+
+  if (plan.rows.length === 0) {
+    return {
+      ok: false,
+      code: 'nothing_found',
+      message: claude.skipped === 'quota_exhausted'
+        ? `No encontramos a ${root.name} en los registros gratuitos y se agotó la cuota de Claude de este mes.`
+        : `No encontramos empresas relacionadas con ${root.name} con una fuente que lo pruebe.`,
+      batchId,
+      estimatedCostUsd,
+    };
+  }
+  return { ok: true, batchId, alreadyStarted: false, inReview, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd };
 }
 
-/** Una asociación por fila planeada (también las que ya estaban en HubSpot). */
+/** Una asociación por fila planeada (también las que ya estaban en HubSpot o quedaron sin web). */
 export function buildRelationshipRows(params: {
-  plan: CorporateTreePlan;
+  rows: readonly CorporateTreePlannedRow[];
   matched: ReadonlyMap<string, CorporateTreeBatchCandidate>;
   root: CorporateTreeRoot;
   runId: string;
   batchId: string;
   createdBy: string;
 }): CorporateTreeRelationshipRow[] {
-  const { plan, matched, root } = params;
-  const rootRow = plan.rows.find((r) => r.relation === 'root');
+  const { rows, matched, root } = params;
+  const rootRow = rows.find((r) => r.relation === 'root');
   const rootCandidateId = root.candidateId ?? (rootRow ? matched.get(rootRow.key)?.id ?? null : null);
-  return plan.rows.map((row) => {
+  return rows.map((row) => {
     const candidate = matched.get(row.key) ?? null;
     return {
       batch_id: params.batchId,

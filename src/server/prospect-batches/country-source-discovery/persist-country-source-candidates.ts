@@ -66,6 +66,12 @@ export type PersistCountrySourceCandidatesInput = {
   /** Telemetría previa al pago, para que el lote la conserve. */
   metadata?: Record<string, unknown>;
   /**
+   * AGENT1-CORPORATE-TREE-2 — la búsqueda en árbol NO pasa por la puerta previa al
+   * pago (que ya revisó HubSpot), así que pide la revisión de HubSpot aquí, de sólo
+   * lectura. Ausente = `false`, como siempre.
+   */
+  runHubspotCheck?: boolean;
+  /**
    * SOURCES-FREE-LAYER-IDENTITY-CLAIMS-1 — reclama las identidades (número fiscal,
    * dominio) de lo recién escrito. Por defecto, el reclamo global de siempre.
    */
@@ -186,7 +192,7 @@ export async function persistCountrySourceCandidates(
       // La comprobación canónica de HubSpot YA corrió en la capa previa al pago,
       // por candidato y de sólo lectura. Repetirla aquí sería una segunda ronda
       // de llamadas para responder lo mismo.
-      runHubspotCheck: false,
+      runHubspotCheck: input.runHubspotCheck === true,
       metadata: {
         ...(input.metadata ?? {}),
         // Explícitos DESPUÉS del spread: la telemetría del caller no puede

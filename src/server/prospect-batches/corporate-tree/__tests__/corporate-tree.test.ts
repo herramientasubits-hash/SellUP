@@ -16,7 +16,16 @@ import {
   type CorporateTreeSearchInput,
   type CorporateTreeSearchOutcome,
 } from '../corporate-tree-search';
-import { corporateTreeRowKey, planCorporateTreeImport, type CorporateTreeRoot } from '../corporate-tree-plan';
+import { corporateTreeRowKey, planCorporateTreeWrites, type CorporateTreeRoot } from '../corporate-tree-plan';
+import {
+  corporateTreeNameCores,
+  escapeLikePrefix,
+  findCorporateTreeFreeHits,
+  prefixUpperBound,
+  type CorporateTreeFreeHit,
+  type FreeSnapshotRow,
+} from '../corporate-tree-free-lookup';
+import { resolveAgentDimensions } from '@/modules/usage-tracking/usage-dimensions';
 import {
   branchDoneStage,
   parseCorporateTreeRequest,
@@ -33,7 +42,8 @@ import {
   describeCorporateTreeItemStatus,
   type CorporateTreeRelationshipRecord,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-associations';
-import { readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { CORPORATE_TREE_BATCH_INDUSTRY, readCorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { reserveWizardExecutionSlot, type IdempotencyDbClient } from '@/modules/prospect-batches/chat-wizard-execution/wizard-idempotency';
 import { RUN_PROGRESS_PERCENT, RUN_PROGRESS_STAGES } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import { TREE_RUN_RECOVERY_TIMEOUT_MS, waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
 import { createAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
@@ -164,40 +174,122 @@ const ROOT: CorporateTreeRoot = {
   accountId: null,
 };
 
-describe('B. planCorporateTreeImport — la web del grupo nunca aparta a las hermanas', () => {
-  it('incluye la empresa de partida si no existe en SellUp y guarda la web compartida sólo como referencia', () => {
-    const plan = planCorporateTreeImport({
+const FREE_HIT = (name: string, countryCode: string, extra: Partial<CorporateTreeFreeHit> = {}): CorporateTreeFreeHit => ({
+  origin: 'catalog',
+  relation: 'other_country',
+  countryCode,
+  name,
+  core: name.toLowerCase(),
+  taxId: `${countryCode}-1`,
+  domain: null,
+  workers: null,
+  sourceKey: 'pe_sunat_registry',
+  company: {
+    recordIdentityKey: `${countryCode}:${name}`,
+    legalName: name,
+    normalizedLegalName: name.toLowerCase(),
+    taxId: `${countryCode}-1`,
+    taxIdentifierType: 'RUC',
+    countryCode,
+    city: null,
+    region: null,
+    domain: extra.domain ?? null,
+    declaredIndustry: null,
+    industryCode: null,
+    coarseSector: null,
+  },
+  bankCandidate: null,
+  ...extra,
+});
+
+describe('B. planCorporateTreeWrites — cada empresa por la vía del Agente 1', () => {
+  it('registro con web ⇒ capa gratuita; Claude con web ⇒ escritor; sin web ⇒ «Descartadas»; la web del grupo nunca aparta a las hermanas', () => {
+    const plan = planCorporateTreeWrites({
       root: ROOT,
+      freeHits: [
+        FREE_HIT('Nutresa Peru S.A.', 'PE', { domain: 'nutresa.com.pe' }),
+        FREE_HIT('Nutresa Chile', 'CL'),
+      ],
       nodes: [
         NODE('Zenú', 'CO', { website: 'https://gruponutresa.com', domain: 'gruponutresa.com' }),
         NODE('Noel', 'CO', { website: 'https://noel.com.co', domain: 'noel.com.co' }),
-        NODE('Tresmontes', 'CL', { branch: 'other_country', website: 'https://tmluc.cl', domain: 'tmluc.cl' }),
-        NODE('Pozuelo', 'CR', { website: 'https://tmluc.cl', domain: 'tmluc.cl' }),
-        NODE('Noel', 'CO', { branch: 'group' }),
+        NODE('Nutresa Perú SA', 'PE', { branch: 'other_country', website: 'https://x.pe', domain: 'x.pe' }),
       ],
-      countries: [CO, { code: 'CL', name: 'Chile' }, { code: 'CR', name: 'Costa Rica' }],
     });
-    assert.deepEqual(plan.rows.map((r) => r.relation), ['root', 'subsidiary', 'subsidiary', 'other_country', 'subsidiary']);
     const byName = new Map(plan.rows.map((r) => [r.name, r]));
-    assert.equal(byName.get('Zenú')?.candidate.website, undefined, 'misma web que la empresa de partida');
+    assert.equal(byName.get('Nutresa Peru S.A.')?.route, 'free_catalog');
+    assert.equal(byName.get('Nutresa Chile')?.route, 'without_website');
+    assert.equal(byName.get('Noel')?.route, 'agent1_writer');
+    assert.equal(byName.get('Zenú')?.route, 'without_website', 'misma web que la empresa de partida');
     assert.equal(byName.get('Zenú')?.groupWebsite, 'https://gruponutresa.com');
-    assert.equal(byName.get('Noel')?.candidate.website, 'https://noel.com.co');
-    assert.equal(byName.get('Tresmontes')?.candidate.website, undefined, 'web usada por dos ramas');
-    assert.equal(byName.get('Pozuelo')?.groupWebsite, 'https://tmluc.cl');
-    assert.equal(plan.sharedWebsites, 3);
-    assert.equal(byName.get('Tresmontes')?.candidate.country, 'Chile');
-    assert.match(byName.get('Zenú')?.candidate.notes ?? '', /Árbol de Grupo Nutresa: filiales y subsidiarias/);
+    assert.equal(byName.has('Nutresa Perú SA'), false, 'lo gratis ya la tenía: Claude no la repite');
+    assert.equal(byName.get('Grupo Nutresa')?.relation, 'root', 'la empresa de partida entra si no estaba');
+    assert.deepEqual([...plan.freeCatalog.keys()], ['PE']);
+    assert.deepEqual([...plan.web.keys()].sort(), ['CO']);
+    assert.deepEqual([...plan.withoutWebsite.keys()].sort(), ['CL', 'CO']);
   });
 
-  it('una empresa de partida que ya existe no se vuelve a importar; respeta el tope de filas', () => {
-    const plan = planCorporateTreeImport({
+  it('una empresa de partida que ya existe no se vuelve a escribir; respeta el tope de filas', () => {
+    const plan = planCorporateTreeWrites({
       root: { ...ROOT, candidateId: '11111111-1111-4111-8111-111111111111' },
+      freeHits: [FREE_HIT('Grupo Nutresa', 'CO', { relation: 'root' })],
       nodes: [NODE('A', 'CO'), NODE('B', 'CO'), NODE('C', 'CO')],
-      countries: [CO],
       maxRows: 2,
     });
     assert.deepEqual(plan.rows.map((r) => r.name), ['A', 'B']);
     assert.equal(plan.droppedByCap, 1);
+  });
+});
+
+describe('B2. Lo gratis primero — registros oficiales y banco por nombre', () => {
+  const SNAP = (sourceKey: string, countryCode: string, legalName: string, raw: Record<string, unknown> = {}): FreeSnapshotRow => ({
+    source_key: sourceKey,
+    country_code: countryCode,
+    legal_name: legalName,
+    normalized_legal_name: legalName.toLowerCase(),
+    tax_id: `${countryCode}${legalName.length}`,
+    normalized_tax_id: `${countryCode}${legalName.length}`,
+    city: null,
+    region: null,
+    record_identity_key: `${sourceKey}:${legalName}`,
+    raw_data: raw,
+  });
+
+  it('busca por prefijo en cada fuente del país, deduplica, clasifica la rama e infiere el país de partida', async () => {
+    const asked: string[] = [];
+    const result = await findCorporateTreeFreeHits(
+      { rootName: 'Cencosud S.A.', rootCountryCode: null, countryCodes: ['CL', 'PE'] },
+      {
+        querySnapshotsByPrefix: async (sourceKey, prefix) => {
+          asked.push(`${sourceKey}:${prefix}`);
+          if (sourceKey === 'cl_sii_directory') return [SNAP('cl_sii_directory', 'CL', 'CENCOSUD S.A.', { workers: 120000, website_domain: 'cencosud.com' }), SNAP('cl_sii_directory', 'CL', 'CENCOSUD RETAIL S.A.')];
+          if (sourceKey === 'cl_sii_registry') return [SNAP('cl_sii_registry', 'CL', 'CENCOSUD S.A.'), SNAP('cl_sii_registry', 'CL', 'CENCOSURE LTDA')];
+          if (sourceKey === 'pe_sunat_registry') return [SNAP('pe_sunat_registry', 'PE', 'CENCOSUD PERU S.A.')];
+          return [];
+        },
+        queryBankByNamePrefix: async () => [],
+        readBankCandidate: () => null,
+      },
+    );
+    assert.ok(asked.includes('cl_sii_directory:cencosud'));
+    assert.ok(asked.includes('pe_sunat_name_alias:cencosud'));
+    assert.equal(result.rootCountryCode, 'CL', 'el nombre exacto con más trabajadores');
+    const byName = new Map(result.hits.map((h) => [h.name, h]));
+    assert.equal(byName.get('CENCOSUD S.A.')?.relation, 'root');
+    assert.equal(byName.get('CENCOSUD S.A.')?.domain, 'cencosud.com');
+    assert.equal(byName.get('CENCOSUD S.A.')?.company?.officialWorkforce?.workers, 120000);
+    assert.equal(byName.get('CENCOSUD RETAIL S.A.')?.relation, 'subsidiary');
+    assert.equal(byName.get('CENCOSUD PERU S.A.')?.relation, 'other_country');
+    assert.equal(byName.has('CENCOSURE LTDA'), false, 'vecino del rango que no empieza por el nombre');
+    assert.equal(result.hits.filter((h) => h.name === 'CENCOSUD S.A.').length, 1, 'una sola vez aunque salga en dos fuentes');
+  });
+
+  it('«Grupo X» también busca «X»; nombres muy cortos no buscan nada', () => {
+    assert.deepEqual(corporateTreeNameCores('Grupo Nutresa S.A.'), ['grupo nutresa', 'nutresa']);
+    assert.deepEqual(corporateTreeNameCores('Bi'), []);
+    assert.ok(prefixUpperBound('grupo diaz') > 'grupo diaz s a', 'un prefijo que termina en «z» no vacía el rango');
+    assert.ok(prefixUpperBound('3m') > '3m colombia');
+    assert.equal(escapeLikePrefix('a_b%c'), 'a\\_b\\%c');
   });
 });
 
@@ -256,35 +348,61 @@ const REQUEST: CorporateTreeRequest = {
 
 function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
   const calls = {
-    imported: [] as unknown[],
+    reserved: [] as unknown[],
+    freeCatalog: [] as Array<{ country: string; names: string[] }>,
+    web: [] as Array<{ country: string; names: string[] }>,
+    withoutWebsite: [] as Array<{ country: string; names: string[] }>,
     tagged: new Map<string, Record<string, unknown>>(),
     relationships: [] as CorporateTreeRelationshipRow[],
-    marked: [] as Array<{ name: string; metadata: Record<string, unknown> }>,
+    sealed: [] as Array<{ persisted: number; metadata: Record<string, unknown> }>,
+    rescued: [] as string[],
+    knownToClaude: [] as string[],
+    clearedIndustry: [] as string[],
     stages: [] as string[],
-    usageLogs: 0,
+    usageLogs: [] as Array<{ batchId: string }>,
   };
   const batchCandidates: CorporateTreeBatchCandidate[] = [
-    { id: 'c-root', name: 'Grupo Nutresa', country_code: 'CO', status: 'duplicate', matched_hubspot_company_id: 'hs-1', metadata: {} },
-    { id: 'c-noel', name: 'Noel', country_code: 'CO', status: 'needs_review', matched_hubspot_company_id: null, metadata: { notes: 'x' } },
-    { id: 'c-pe', name: 'Nutresa Perú', country_code: 'PE', status: 'needs_review', matched_hubspot_company_id: null, metadata: {} },
+    { id: 'c-root', name: 'Grupo Nutresa', country_code: 'CO', domain: null, status: 'duplicate', matched_hubspot_company_id: 'hs-1', metadata: {} },
+    { id: 'c-noel', name: 'Noel', country_code: 'CO', domain: 'noel.com.co', status: 'needs_review', matched_hubspot_company_id: null, metadata: { notes: 'x' } },
+    { id: 'c-pe', name: 'Nutresa Peru S.A.', country_code: 'PE', domain: 'nutresa.com.pe', status: 'needs_review', matched_hubspot_company_id: null, metadata: {} },
   ];
   const deps: CorporateTreeRunDeps = {
     loadExistingRoot: async () => null,
+    reserveBatch: async (input) => {
+      calls.reserved.push(input);
+      return { status: 'reserved', batchId: 'batch-1' };
+    },
+    findFreeHits: async () => ({
+      hits: [
+        FREE_HIT('Grupo Nutresa', 'CO', { relation: 'root', domain: 'gruponutresa.com' }),
+        FREE_HIT('Nutresa Peru S.A.', 'PE', { domain: 'nutresa.com.pe' }),
+      ],
+      rootCountryCode: 'CO',
+      queries: 7,
+      errors: 0,
+    }),
     resolveActiveModel: async () => ({ model: MODEL, apiKey: 'k' }),
     checkQuota: async () => ({ allowed: true }),
-    searchBranch: async (input) =>
-      input.branch === 'subsidiary'
-        ? { ...outcomeFor('subsidiary', [NODE('Noel', 'CO')]), root: { website: 'https://gruponutresa.com', domain: 'gruponutresa.com', countryCode: 'CO' } }
-        : outcomeFor('other_country', [NODE('Nutresa Perú', 'PE', { branch: 'other_country' })]),
-    logBranchUsage: async () => {
-      calls.usageLogs++;
+    searchBranch: async (input) => {
+      calls.knownToClaude = (input.knownCompanies ?? []).map((c) => c.name);
+      return input.branch === 'subsidiary'
+        ? outcomeFor('subsidiary', [NODE('Noel', 'CO', { website: 'https://noel.com.co', domain: 'noel.com.co' })])
+        : outcomeFor('other_country', [NODE('Nutresa Chile', 'CL', { branch: 'other_country' })]);
     },
-    importRows: async (rows) => {
-      calls.imported.push(...rows);
-      return { ok: true, batchId: 'batch-1', candidatesCreated: rows.length };
+    logBranchUsage: async (_outcome, ctx) => {
+      calls.usageLogs.push({ batchId: ctx.batchId });
     },
-    markBatch: async (_id, params) => {
-      calls.marked.push({ name: params.name, metadata: params.metadata });
+    writeFreeCatalog: async (_batch, country, companies) => {
+      calls.freeCatalog.push({ country: country.code, names: companies.map((c) => c.legalName ?? '') });
+      return { written: companies.length, failed: false };
+    },
+    writeWeb: async (_batch, country, items) => {
+      calls.web.push({ country: country.code, names: items.map((i) => i.node?.name ?? i.bankCandidate?.name ?? '') });
+      return { written: items.length, errors: [] };
+    },
+    recordWithoutWebsite: async (_batch, countryCode, companies) => {
+      calls.withoutWebsite.push({ country: countryCode, names: companies.map((c) => c.legalName ?? '') });
+      return companies.length;
     },
     loadBatchCandidates: async () => batchCandidates,
     tagCandidate: async (id, metadata) => {
@@ -294,6 +412,16 @@ function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
       calls.relationships.push(...rows);
       return true;
     },
+    sealBatch: async (_batch, input) => {
+      calls.sealed.push({ persisted: input.persisted, metadata: input.metadata });
+    },
+    scheduleRescue: (batchId) => {
+      calls.rescued.push(batchId);
+    },
+    clearBatchIndustryLabel: async (batchId) => {
+      calls.clearedIndustry.push(batchId);
+    },
+    nowMs: () => 1_000,
     report: (stage) => calls.stages.push(stage),
     newRunId: () => 'run-1',
     nowIso: () => '2026-10-14T12:00:00.000Z',
@@ -302,72 +430,123 @@ function fakeDeps(overrides: Partial<CorporateTreeRunDeps> = {}) {
   return { deps, calls };
 }
 
-const CONTEXT = { internalUserId: 'user-1', keyOf: corporateTreeRowKey };
+const CONTEXT = { internalUserId: 'user-1', keyOf: corporateTreeRowKey, writeDeadlineAtMs: 1_000_000 };
+const REQUEST_ALL: CorporateTreeRequest = { ...REQUEST, countries: [CO, PE, { code: 'CL', name: 'Chile' }] };
 
-describe('D. runCorporateTreeSearch — la corrida completa', () => {
-  it('importa raíz + ramas, marca el lote, etiqueta cada fila y guarda las asociaciones (también la que ya estaba en HubSpot)', async () => {
+describe('D. runCorporateTreeSearch — por el camino del Agente 1, gratis primero', () => {
+  it('reserva el lote al empezar, escribe lo gratis, Claude sólo lo que falta, etiqueta, asocia, sella y rescata', async () => {
     const { deps, calls } = fakeDeps();
-    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
     assert.ok(result.ok);
     assert.equal(result.batchId, 'batch-1');
     assert.equal(result.inReview, 2);
-    assert.equal(result.redirectPath, '/prospect-batches/batch-1');
-    assert.equal(result.estimatedCostUsd, 0.2);
-    assert.deepEqual(calls.stages, ['tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
-    assert.equal(calls.usageLogs, 2, 'una entrada de Uso de IA por rama');
-    assert.equal(calls.imported.length, 3);
-    assert.equal(calls.marked[0].name, 'Árbol · Grupo Nutresa');
-    assert.equal((calls.marked[0].metadata.corporate_tree as Record<string, unknown>).root_domain, 'gruponutresa.com');
+    assert.equal(calls.reserved.length, 1);
+    assert.deepEqual(calls.stages, ['tree_free', 'tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
+    assert.deepEqual(calls.knownToClaude, ['Grupo Nutresa', 'Nutresa Peru S.A.'], 'Claude no repite lo gratis');
+    assert.deepEqual(calls.usageLogs, [{ batchId: 'batch-1' }, { batchId: 'batch-1' }], 'el costo queda con el lote');
+    assert.deepEqual(calls.freeCatalog.map((c) => c.country).sort(), ['CO', 'PE']);
+    assert.deepEqual(calls.web, [{ country: 'CO', names: ['Noel'] }]);
+    assert.deepEqual(calls.withoutWebsite, [{ country: 'CL', names: ['Nutresa Chile'] }]);
 
     assert.equal(readCorporateTreeRelation(calls.tagged.get('c-noel')), 'subsidiary');
     assert.equal(calls.tagged.get('c-noel')?.notes, 'x', 'la metadata anterior se conserva');
     assert.equal(readCorporateTreeRelation(calls.tagged.get('c-pe')), 'other_country');
+    assert.equal(readCorporateTreeRelation(calls.tagged.get('c-root')), 'root');
 
     const rootRow = calls.relationships.find((r) => r.relation_type === 'root');
     assert.equal(rootRow?.matched_hubspot_company_id, 'hs-1');
     assert.ok(calls.relationships.every((r) => r.root_candidate_id === 'c-root'));
-    assert.equal(calls.relationships.find((r) => r.related_name === 'Nutresa Perú')?.related_candidate_id, 'c-pe');
+    assert.equal(calls.relationships.find((r) => r.related_name === 'Nutresa Chile')?.related_candidate_id, null, 'sin web: asociación sin candidato');
+
+    assert.equal(calls.sealed.length, 1);
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, Record<string, unknown>>;
+    assert.equal(tree.free_first.hits, 2);
+    assert.equal(tree.claude.accepted, 2);
+    assert.deepEqual(calls.rescued, ['batch-1']);
+    assert.deepEqual(calls.clearedIndustry, ['batch-1'], 'todo el lote queda sin industria pedida antes del rescate');
   });
 
-  it('desde una empresa que ya existe: usa sus datos y no la reimporta', async () => {
+  it('si algo falla después de reservar, el lote se cierra como fallado y se puede abrir', async () => {
     const { deps, calls } = fakeDeps({
-      loadExistingRoot: async () => ({ name: 'Grupo Nutresa S.A.', website: 'https://gruponutresa.com', countryCode: 'CO' }),
+      resolveActiveModel: async () => {
+        throw new Error('boom');
+      },
     });
-    const result = await runCorporateTreeSearch({ ...REQUEST, rootAccountId: '44444444-4444-4444-8444-444444444444' }, CONTEXT, deps);
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.equal(result.ok ? 'ok' : result.code, 'run_failed');
+    assert.equal(result.ok ? null : result.batchId, 'batch-1');
+    assert.equal(calls.sealed.length, 1);
+    assert.equal(calls.sealed[0].persisted, 0);
+  });
+
+  it('sin tiempo para escribir, no empieza más escrituras pero cierra el lote', async () => {
+    const { deps, calls } = fakeDeps({ nowMs: () => 2_000_000 });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.equal(calls.freeCatalog.length + calls.web.length + calls.withoutWebsite.length, 0);
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
+    assert.ok((tree.write_errors as string[]).every((e) => e.startsWith('time_budget:')));
+  });
+
+  it('si la lectura del lote falla no se sella como vacío', async () => {
+    const { deps, calls } = fakeDeps({ loadBatchCandidates: async () => null });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(calls.sealed[0].persisted > 0, 'cuenta lo que escribieron los escritores');
+  });
+
+  it('el mismo id dos veces no vuelve a pagar: devuelve el lote de la primera', async () => {
+    const { deps, calls } = fakeDeps({ reserveBatch: async () => ({ status: 'already_reserved', batchId: 'batch-0' }) });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok && result.alreadyStarted);
+    assert.equal(result.batchId, 'batch-0');
+    assert.deepEqual(calls.stages, []);
+  });
+
+  it('desde una empresa que ya existe: usa sus datos y no la vuelve a escribir', async () => {
+    const { deps, calls } = fakeDeps({
+      loadExistingRoot: async () => ({ name: 'Grupo Nutresa', website: 'https://gruponutresa.com', countryCode: 'CO' }),
+    });
+    const result = await runCorporateTreeSearch({ ...REQUEST_ALL, rootAccountId: '44444444-4444-4444-8444-444444444444' }, CONTEXT, deps);
     assert.ok(result.ok);
-    assert.equal(calls.imported.length, 2);
+    assert.deepEqual(calls.freeCatalog.map((c) => c.country), ['PE']);
     assert.ok(calls.relationships.every((r) => r.root_account_id === '44444444-4444-4444-8444-444444444444'));
     assert.ok(!calls.relationships.some((r) => r.relation_type === 'root'));
   });
 
-  it('sin asociaciones guardadas (migración 148 sin aplicar) la corrida sigue bien', async () => {
-    const { deps } = fakeDeps({ insertRelationships: async () => false });
-    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+  it('sin Claude (cuota o modelo) lo gratis igual se guarda', async () => {
+    const { deps, calls } = fakeDeps({ checkQuota: async () => ({ allowed: false }) });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
     assert.ok(result.ok);
+    assert.equal(calls.usageLogs.length, 0);
+    assert.deepEqual(calls.freeCatalog.map((c) => c.country).sort(), ['CO', 'PE']);
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, Record<string, unknown>>;
+    assert.equal(tree.claude.skipped, 'quota_exhausted');
   });
 
-  it('sin ramas encontradas no crea lote; sin modelo no busca; todas con error ⇒ search_failed', async () => {
-    const empty = fakeDeps({ searchBranch: async (input) => outcomeFor(input.branch, []) });
-    const r1 = await runCorporateTreeSearch(REQUEST, CONTEXT, empty.deps);
-    assert.equal(r1.ok ? 'ok' : r1.code, 'nothing_found');
-    assert.equal(empty.calls.imported.length, 0);
-
-    const noModel = fakeDeps({ resolveActiveModel: async () => ({ error: 'x' }) });
-    const r2 = await runCorporateTreeSearch(REQUEST, CONTEXT, noModel.deps);
-    assert.equal(r2.ok ? 'ok' : r2.code, 'model_not_configured');
-    assert.deepEqual(noModel.calls.stages, []);
-
-    const failing = fakeDeps({ searchBranch: async (input) => outcomeFor(input.branch, [], { errorCode: 'rate_limited' }) });
-    const r3 = await runCorporateTreeSearch(REQUEST, CONTEXT, failing.deps);
-    assert.equal(r3.ok ? 'ok' : r3.code, 'search_failed');
+  it('sin nada que escribir: falla con el lote para poder abrirlo', async () => {
+    const { deps, calls } = fakeDeps({
+      findFreeHits: async () => ({ hits: [], rootCountryCode: null, queries: 1, errors: 0 }),
+      searchBranch: async (input) => outcomeFor(input.branch, []),
+    });
+    const result = await runCorporateTreeSearch({ ...REQUEST, rootCountryCode: null }, CONTEXT, deps);
+    assert.equal(result.ok ? 'ok' : result.code, 'nothing_found');
+    assert.equal(result.ok ? null : result.batchId, 'batch-1');
+    assert.deepEqual(calls.rescued, []);
+    assert.equal(calls.sealed.length, 1, 'el lote se cierra igual');
   });
 
-  it('el uso de IA queda con su flujo, rama y costo', () => {
-    const log = buildCorporateTreeUsageLog(outcomeFor('group', [NODE('X', 'CO')]), { runId: 'run-9', triggeredBy: 'u', rootName: 'R' });
-    assert.equal(log?.operation_key, 'corporate_tree_search');
-    assert.equal(log?.usage_key, 'corporate_tree_search:run-9:group');
+  it('el uso de IA va como «Claude busca empresas», con el lote, el flujo y la forma «árbol»', () => {
+    const log = buildCorporateTreeUsageLog(outcomeFor('group', [NODE('X', 'CO')]), { runId: 'run-9', batchId: 'b-9', triggeredBy: 'u', rootName: 'R' });
+    assert.equal(log?.operation_key, 'company_search');
+    assert.equal(log?.batch_id, 'b-9');
+    assert.equal(log?.usage_key, 'company_search:run-9:group');
     assert.equal(log?.estimated_cost_usd, 0.1);
-    assert.equal((log?.metadata as Record<string, unknown>).flow, 'corporate_tree_search');
+    const metadata = log?.metadata as Record<string, unknown>;
+    assert.equal(metadata.flow, 'corporate_tree_search');
+    assert.equal(metadata.search_mode, 'corporate_tree');
+    assert.deepEqual(resolveAgentDimensions('anthropic', 'company_search', 'corporate_tree_search'), {
+      agentKey: 'agent1',
+      agentStep: 'claude_busca_empresas',
+    });
   });
 });
 
@@ -418,18 +597,19 @@ describe('G. El loader avanza como en «por criterios» y la respuesta perdida s
     assert.equal(branchDoneStage(1, 1), null);
     const { deps, calls } = fakeDeps();
     await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
-    assert.deepEqual(calls.stages, ['tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
-    const percents = ['tree_searching', 'tree_branch_1', 'tree_branch_2', 'tree_checking', 'tree_saving'].map(
+    assert.deepEqual(calls.stages, ['tree_free', 'tree_searching', 'tree_branch_1', 'tree_checking', 'tree_saving']);
+    const percents = ['tree_free', 'tree_searching', 'tree_branch_1', 'tree_branch_2', 'tree_checking', 'tree_saving'].map(
       (s) => RUN_PROGRESS_PERCENT[s as keyof typeof RUN_PROGRESS_PERCENT],
     );
     assert.deepEqual([...percents].sort((a, b) => a - b), percents, 'nunca retrocede');
-    for (const s of ['tree_branch_1', 'tree_branch_2', 'tree_saving']) assert.ok(RUN_PROGRESS_STAGES.includes(s as never));
+    for (const s of ['tree_free', 'tree_branch_1', 'tree_branch_2', 'tree_saving']) assert.ok(RUN_PROGRESS_STAGES.includes(s as never));
   });
 
   it('sin respuesta, espera a que el lote tenga el id de la corrida y ya no tenga etapa en curso', async () => {
     let t = 0;
     const answers = [
       [],
+      [{ clientRequestId: 'r', progress: null, batch: { id: 'b1', status: 'draft', candidateCount: 0 } }],
       [{ clientRequestId: 'r', progress: { stage: 'tree_saving' as const, label: 'x' }, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
       [{ clientRequestId: 'r', progress: null, batch: { id: 'b1', status: 'ready_for_review', candidateCount: 17 } }],
     ];
@@ -481,5 +661,55 @@ describe('G. El loader avanza como en «por criterios» y la respuesta perdida s
 
     await store.startRun({ title: 'CO · Tec', payload: { clientRequestId: 'crit-1' } }).catch(() => undefined);
     assert.equal(store.getSnapshot().find((r) => r.clientRequestId === 'crit-1')?.status, 'failed', 'por criterios no cambia');
+  });
+});
+
+describe('H. El lote del árbol es del Agente 1 desde el primer instante', () => {
+  it('la reserva crea un lote agent_1 «Árbol · X» con su forma de búsqueda y sin industria pedida', async () => {
+    let inserted: Record<string, unknown> | null = null;
+    const db = {
+      from: () => ({
+        insert: (row: Record<string, unknown>) => {
+          inserted = row;
+          return { select: () => ({ single: async () => ({ data: { id: 'b-1' }, error: null }) }) };
+        },
+      }),
+    } as unknown as IdempotencyDbClient;
+    const result = await reserveWizardExecutionSlot(
+      {
+        userId: 'u-1',
+        clientRequestId: 'r-1',
+        initialBatchPayload: {
+          requestSource: 'chat_wizard',
+          catalogVersionId: null,
+          industryId: null,
+          subindustryIds: [],
+          countryCode: 'CL',
+          additionalCriteria: null,
+          targetCount: 30,
+          country: 'Chile',
+          industry: CORPORATE_TREE_BATCH_INDUSTRY,
+          searchDepth: 'standard',
+          corporateTree: {
+            rootName: 'Cencosud',
+            rootCountryCode: 'CL',
+            branches: ['group', 'other_country'],
+            countryCodes: ['CL', 'PE'],
+            rootCandidateId: null,
+            rootAccountId: null,
+          },
+        },
+      },
+      db,
+    );
+    assert.deepEqual(result, { status: 'reserved', batchId: 'b-1' });
+    const row = inserted as unknown as Record<string, unknown>;
+    assert.equal(row.source, 'agent_1');
+    assert.equal(row.name, 'Árbol · Cencosud');
+    assert.equal(row.client_request_id, 'r-1');
+    const metadata = row.metadata as Record<string, unknown>;
+    assert.equal(metadata.search_mode, 'corporate_tree');
+    assert.equal(metadata.industry_id, null);
+    assert.deepEqual((metadata.corporate_tree as Record<string, unknown>).country_codes, ['CL', 'PE']);
   });
 });

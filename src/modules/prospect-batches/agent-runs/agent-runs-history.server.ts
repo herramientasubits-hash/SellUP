@@ -20,6 +20,11 @@ export type AgentRunHistoryRow = {
   industry: string | null;
   status: string;
   candidateCount: number;
+  /**
+   * AGENT1-CORPORATE-TREE-2 — el nombre del lote cuando la búsqueda no es «país ·
+   * industria» («Árbol · Cencosud»). `null` = búsqueda por criterios.
+   */
+  title?: string | null;
 };
 
 export type AgentRunsHistory = { rows: AgentRunHistoryRow[]; failed: boolean };
@@ -32,7 +37,7 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
     const since = new Date(nowMs - AGENT_RUNS_HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: batches, error } = await supabase
       .from('prospect_batches')
-      .select('id, created_at, country, industry, status')
+      .select('id, created_at, country, industry, status, name, search_mode:metadata->>search_mode')
       .eq('source', 'agent_1')
       .eq('created_by', me.id)
       .gte('created_at', since)
@@ -51,8 +56,9 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
 
     return {
       failed: false,
-      rows: (batches as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string }>).map(
+      rows: (batches as unknown as Array<{ id: string; created_at: string; country: string | null; industry: string | null; status: string; name: string | null; search_mode: string | null }>).map(
         (batch) => ({
+          title: batch.search_mode === 'corporate_tree' ? batch.name : null,
           batchId: batch.id,
           createdAt: batch.created_at,
           country: batch.country,
