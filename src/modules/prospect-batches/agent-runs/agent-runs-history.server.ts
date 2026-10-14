@@ -64,7 +64,9 @@ export async function readAgentRunsHistory(nowMs: number = Date.now()): Promise<
           title:
             batch.search_mode === 'corporate_tree'
               ? batch.name
-              : batch.search_mode === 'competitors' && batch.competitor_name
+              : // «Competidores»: por la referencia guardada en el lote, no por
+                // `search_mode` (el escritor lo pisa al adoptar el lote).
+                batch.competitor_name
                 ? competitorSearchTitle(batch.competitor_name)
                 : null,
           batchId: batch.id,
