@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +18,12 @@ import {
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { SubmittingPanel } from '@/components/prospect-batches/chat-wizard/wizard-execution-panels';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import { executeAgentRunViaRoute, getAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import {
+  executeAgentRunViaRoute,
+  fetchAgentRunsStatus,
+  getAgentRunsStore,
+} from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
 import {
   CORPORATE_TREE_BRANCHES,
   CORPORATE_TREE_BRANCH_DESCRIPTIONS,
@@ -39,7 +46,8 @@ import {
 
 type Step = 'company' | 'branches' | 'countries' | 'confirm' | 'running' | 'done' | 'failed';
 
-type Outcome = { redirectPath: string | null; candidateCount: number | null; message: string | null };
+/** `inReview`: las que quedaron en «Por revisar»; `null` = no se sabe (respuesta recuperada). */
+type Outcome = { redirectPath: string | null; inReview: number | null; message: string | null };
 
 export type CorporateTreeFlowProps = {
   /** Empresa elegida desde una fila: se salta la pregunta del nombre. */
@@ -48,6 +56,11 @@ export type CorporateTreeFlowProps = {
   onBack?: () => void;
   /** Al abrir el lote desde el resultado. */
   onOpenBatch?: () => void;
+  /**
+   * Como en «por criterios»: al terminar con empresas para revisar se avisa, se
+   * actualiza la lista y se cierra el panel. Sin él, el resultado queda en el hilo.
+   */
+  onClose?: () => void;
 };
 
 const BRANCH_OPTIONS: readonly ChatQuestionOptionDetail[] = CORPORATE_TREE_BRANCHES.map((branch) => ({
@@ -87,13 +100,26 @@ function countriesSummary(codes: readonly string[]): string {
     .join(', ');
 }
 
+/** Fuera del componente: se llama sólo desde el lanzamiento (evento), nunca al pintar. */
+function nowMs(): number {
+  return Date.now();
+}
+
 function newClientRequestId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : '00000000-0000-4000-8000-000000000000'.replace(/0/g, () => Math.floor(Math.random() * 16).toString(16));
 }
 
-export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch }: CorporateTreeFlowProps) {
+export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onClose }: CorporateTreeFlowProps) {
+  const router = useRouter();
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [root, setRoot] = React.useState<CorporateTreeRootRef | null>(initialRoot);
   const [step, setStep] = React.useState<Step>(initialRoot ? 'branches' : 'company');
   const [nameDraft, setNameDraft] = React.useState('');
@@ -127,9 +153,11 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch }: C
       list.push(
         agent(
           'tree-done',
-          outcome.candidateCount && outcome.candidateCount > 0
-            ? `Listo: encontré ${outcome.candidateCount} ${outcome.candidateCount === 1 ? 'empresa relacionada' : 'empresas relacionadas'} de ${root?.name ?? 'la empresa'}. Las que pasaron las revisiones están en «Por revisar»; las que ya estaban en HubSpot o en SellUp quedan marcadas en el lote.`
-            : `Terminé, pero ninguna empresa nueva pasó las revisiones.`,
+          outcome.inReview === null
+            ? `Listo: el árbol de ${root?.name ?? 'la empresa'} quedó guardado. Abre el lote para ver cada rama.`
+            : outcome.inReview > 0
+              ? `Listo: ${outcome.inReview} ${outcome.inReview === 1 ? 'empresa relacionada quedó' : 'empresas relacionadas quedaron'} en «Por revisar». Las que ya estaban en HubSpot o en SellUp quedan en el lote como referencia.`
+              : `Terminé: las empresas relacionadas de ${root?.name ?? 'la empresa'} ya estaban en HubSpot o en SellUp, o no pasaron las revisiones. Quedan en el lote como referencia.`,
         ),
       );
     }
@@ -151,7 +179,8 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch }: C
   async function launch() {
     if (!root) return;
     const id = newClientRequestId();
-    setRun({ id, startedAtMs: Date.now() });
+    const startedAtMs = nowMs();
+    setRun({ id, startedAtMs });
     setStep('running');
     const payload: CorporateTreeRunPayload = {
       searchMode: 'corporate_tree',
@@ -170,16 +199,63 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch }: C
         ? await store.startRun({ title: `Árbol · ${root.name}`, concurrencyKey: `tree:${root.name.toLowerCase()}`, payload })
         : await executeAgentRunViaRoute(payload);
       if (result.ok) {
-        setOutcome({ redirectPath: result.redirectPath, candidateCount: result.candidateCount ?? null, message: null });
-        setStep('done');
+        finish({ redirectPath: result.redirectPath, inReview: result.candidateCount ?? null, message: null });
       } else {
-        setOutcome({ redirectPath: null, candidateCount: null, message: result.message ?? 'No fue posible completar la búsqueda.' });
-        setStep('failed');
+        fail(result.message ?? 'No fue posible completar la búsqueda.');
       }
-    } catch {
-      setOutcome({ redirectPath: null, candidateCount: null, message: 'No fue posible completar la búsqueda. Revisa tu conexión e inténtalo de nuevo.' });
-      setStep('failed');
+    } catch (error) {
+      // La respuesta no llegó, pero la corrida puede haber terminado en el servidor:
+      // se sigue por su id (el loader sigue) antes de decir que falló.
+      console.warn('[corporate-tree] la respuesta de la corrida no llegó; se sigue por su id', error);
+      const recovered = await waitForTreeRunResult(id, {
+        fetchStatus: fetchAgentRunsStatus,
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        nowMs,
+        startedAtMs,
+        isCancelled: () => !mounted.current,
+      });
+      if (recovered) {
+        store?.reconcile(id, { status: 'succeeded', batchId: recovered.batchId, candidateCount: recovered.candidateCount });
+        finish({ redirectPath: `/prospect-batches/${recovered.batchId}`, inReview: null, message: null });
+      } else {
+        const message = 'No recibimos la respuesta de la búsqueda. Si terminó, su lote aparece en «Búsquedas»; si no, inténtalo de nuevo.';
+        store?.reconcile(id, { status: 'failed', message });
+        fail(message);
+      }
     }
+  }
+
+  function fail(message: string) {
+    if (!mounted.current) return;
+    setOutcome({ redirectPath: null, inReview: null, message });
+    setStep('failed');
+  }
+
+  /** Como en «por criterios»: aviso, lista actualizada y, si hay qué revisar, panel cerrado. */
+  function finish(next: Outcome) {
+    router.refresh();
+    const name = root?.name ?? 'la empresa';
+    const openBatch = next.redirectPath
+      ? { label: 'Ver el lote', onClick: () => router.push(next.redirectPath as string) }
+      : undefined;
+    if (next.inReview === 0) {
+      toast.info(`Árbol de ${name}: nada nuevo para revisar`, {
+        description: 'Las empresas relacionadas ya estaban en HubSpot o en SellUp; quedan en el lote como referencia.',
+        action: openBatch,
+      });
+    } else {
+      toast.success(`Árbol de ${name} listo`, {
+        description:
+          next.inReview === null
+            ? 'Ya puedes revisar sus ramas en el lote.'
+            : `${next.inReview} ${next.inReview === 1 ? 'empresa relacionada' : 'empresas relacionadas'} para revisar.`,
+        action: openBatch,
+      });
+    }
+    if (!mounted.current) return;
+    setOutcome(next);
+    setStep('done');
+    if (next.inReview !== 0) onClose?.();
   }
 
   function restart() {

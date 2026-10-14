@@ -34,6 +34,7 @@ export function CorporateTreeSearchPanel({
           key={`${root.candidateId ?? ''}:${root.accountId ?? ''}:${root.name}`}
           initialRoot={root}
           onOpenBatch={onClose}
+          onClose={onClose}
         />
       )}
     </ChatPanel>

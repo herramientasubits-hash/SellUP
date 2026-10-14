@@ -86,7 +86,13 @@ export function parseCorporateTreeRequest(raw: unknown): { ok: true; request: Co
   };
 }
 
-export type CorporateTreeStage = 'tree_searching' | 'tree_checking';
+export type CorporateTreeStage = 'tree_searching' | 'tree_branch_1' | 'tree_branch_2' | 'tree_checking' | 'tree_saving';
+
+/** La etapa que se anota cuando termina la rama número `done` (de `total`). */
+export function branchDoneStage(done: number, total: number): CorporateTreeStage | null {
+  if (done >= total) return null;
+  return done === 1 ? 'tree_branch_1' : done === 2 ? 'tree_branch_2' : null;
+}
 
 export type CorporateTreeBatchCandidate = {
   id: string;
@@ -213,6 +219,7 @@ export async function runCorporateTreeSearch(
   deps.report('tree_searching');
   const rootCountry = request.countries.find((c) => c.code === root.countryCode)
     ?? (root.countryCode ? { code: root.countryCode, name: root.countryCode } : null);
+  let branchesDone = 0;
   const outcomes = await Promise.all(
     request.branches.map(async (branch) => {
       const outcome = await deps.searchBranch(
@@ -227,6 +234,9 @@ export async function runCorporateTreeSearch(
         active.model,
         active.apiKey,
       );
+      branchesDone++;
+      const stage = branchDoneStage(branchesDone, request.branches.length);
+      if (stage) deps.report(stage);
       await deps.logBranchUsage(outcome, runId).catch(() => undefined);
       return outcome;
     }),
@@ -293,6 +303,7 @@ export async function runCorporateTreeSearch(
     },
   });
 
+  deps.report('tree_saving');
   const candidates = await deps.loadBatchCandidates(imported.batchId);
   const matched = matchPlannedRows(plan, candidates, context.keyOf);
   await Promise.all(
