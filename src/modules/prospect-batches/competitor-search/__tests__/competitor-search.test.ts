@@ -18,6 +18,7 @@ import { MACRO_INDUSTRY_CATALOG_VERSION } from '@/modules/macro-industry-catalog
 import {
   buildSearchModePayload,
   canValidateWizard,
+  getSearchCountryCodes,
   createInitialProspectWizardState,
   deriveWizardMessages,
   getPreviousWizardStep,
@@ -195,6 +196,13 @@ describe('B — Claude busca competidores', () => {
       'competidores de Alpina en México',
       'empresas que compiten con Alpina en México',
     ]);
+  });
+
+  it('B2b: la segunda ronda pide empresas menos conocidas', () => {
+    const queries = buildCompetitorSearchQueries(REFERENCE, 'Colombia', 1);
+    assert.equal(queries.length, 2);
+    assert.match(queries[0], /medianas y regionales que compiten con Alpina en Colombia/);
+    assert.match(queries[1], /menos conocidas/);
   });
 
   it('B3: sin referencia, las consultas son las de siempre', () => {
@@ -412,7 +420,69 @@ describe('D — asistente', () => {
     assert.ok(ids.includes('assistant-industry-from-reference'));
     assert.ok(!ids.includes('assistant-industry-question'));
     const country = messages.find((m) => m.id === 'assistant-country-question');
-    assert.equal(country?.content, '¿En qué país buscamos sus competidores?');
+    assert.equal(country?.content, '¿En qué países buscamos sus competidores?');
+  });
+});
+
+describe('D — varios países (una búsqueda por país)', () => {
+  function toCountryStep(): ProspectWizardState {
+    return run(freshState(MACRO_INDUSTRY_CATALOG_VERSION), [
+      { type: 'START' },
+      { type: 'SELECT_SEARCH_MODE', mode: 'competitors' },
+      { type: 'REFERENCE_RESOLVED', reference: CARD },
+      { type: 'CONFIRM_REFERENCE' },
+    ]);
+  }
+
+  it('D11: el país de la referencia viene sugerido', () => {
+    assert.deepEqual(toCountryStep().competitorCountryCodes, ['CO']);
+  });
+
+  it('D12: hasta 3 países; el primero es el principal y todos viajan en orden', () => {
+    const state = run(toCountryStep(), [
+      { type: 'SET_COMPETITOR_COUNTRIES', countryCodes: ['MX', 'CO', 'PE'] },
+      { type: 'SELECT_COUNTRY', countryCode: 'MX' },
+    ]);
+    assert.equal(state.countryCode, 'MX');
+    assert.deepEqual(getSearchCountryCodes(state), ['MX', 'CO', 'PE']);
+    const messages = deriveWizardMessages(state, {
+      countries: [
+        { code: 'CO', name: 'Colombia' },
+        { code: 'MX', name: 'México' },
+        { code: 'PE', name: 'Perú' },
+      ],
+      industries: [{ id: INDUSTRY_ID, name: 'Consumo masivo' }],
+      subindustries: [],
+    });
+    assert.equal(messages.find((m) => m.id === 'user-country-answer')?.content, 'México, Colombia, Perú');
+  });
+
+  it('D13: más de 3, repetidos o códigos inválidos no cambian la selección', () => {
+    const base = toCountryStep();
+    assert.deepEqual(
+      prospectWizardReducer(base, { type: 'SET_COMPETITOR_COUNTRIES', countryCodes: ['CO', 'MX', 'PE', 'CL'] })
+        .competitorCountryCodes,
+      ['CO'],
+    );
+    assert.deepEqual(
+      prospectWizardReducer(base, { type: 'SET_COMPETITOR_COUNTRIES', countryCodes: ['CO', 'XX'] }).competitorCountryCodes,
+      ['CO'],
+    );
+    assert.deepEqual(
+      prospectWizardReducer(base, { type: 'SET_COMPETITOR_COUNTRIES', countryCodes: ['CO', 'CO', 'MX'] })
+        .competitorCountryCodes,
+      ['CO', 'MX'],
+    );
+  });
+
+  it('D14: en la búsqueda por criterios sólo cuenta un país', () => {
+    const state = run(freshState(), [
+      { type: 'START' },
+      { type: 'SELECT_SEARCH_MODE', mode: 'exploratory' },
+      { type: 'SET_COMPETITOR_COUNTRIES', countryCodes: ['CO', 'MX'] },
+      { type: 'SELECT_COUNTRY', countryCode: 'CO' },
+    ]);
+    assert.deepEqual(getSearchCountryCodes(state), ['CO']);
   });
 });
 
@@ -472,7 +542,7 @@ const RUN_INPUT: CompetitorRunInput = {
 
 type Recorded = {
   slots: WizardExecutionReservationInput[];
-  legs: Array<{ batchId: string; phaseMs: number }>;
+  legs: Array<{ batchId: string; phaseMs: number; round?: number }>;
   seals: Array<{ batchId: string; status: string; metadata?: Record<string, unknown> | null }>;
   failed: string[];
 };
@@ -488,11 +558,12 @@ function fakeDeps(overrides: Partial<CompetitorRunDeps> = {}): { deps: Competito
     resolveClaudeSearchLeg: () => true,
     runClaudeCompanySearchLeg: async (input) => {
       recorded.legs.push(input);
+      const r = input.round ?? 0;
       return {
         executed: true,
         persistedCandidates: 3,
         completeValidCandidates: 3,
-        acceptedIdentities: ['candidate:a', 'candidate:b', 'candidate:c'],
+        acceptedIdentities: [`candidate:a${r}`, `candidate:b${r}`, `candidate:c${r}`],
         estimatedCostUsd: 0.21,
         proposed: 6,
         passedPreFilter: 4,
@@ -522,17 +593,22 @@ describe('F — corrida de competidores', () => {
     assert.equal(payload.industryId, INDUSTRY_ID);
     assert.equal(payload.targetCount, 5);
 
-    assert.deepEqual(recorded.legs, [{ batchId: 'batch-1', phaseMs: 150_000 }]);
+    // 3 aceptadas < meta 5 ⇒ segunda ronda, con las mismas reglas de tiempo.
+    assert.deepEqual(recorded.legs, [
+      { batchId: 'batch-1', phaseMs: 110_000, round: 0 },
+      { batchId: 'batch-1', phaseMs: 110_000, round: 1 },
+    ]);
     assert.equal(recorded.seals.length, 1);
     assert.equal(recorded.seals[0].status, 'ready_for_review');
     assert.ok(recorded.seals[0].metadata?.accepted_for_target);
     assert.ok(recorded.seals[0].metadata?.claude_search_leg);
+    assert.equal((recorded.seals[0].metadata?.competitor_search_rounds as unknown[]).length, 2);
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.status, 'success_partial');
-    assert.equal(result.candidateCount, 3);
-    assert.equal(result.acceptedForTarget?.acceptedForTargetTotal, 3);
+    assert.equal(result.status, 'success_target_reached');
+    assert.equal(result.candidateCount, 6);
+    assert.equal(result.targetReached, true);
     assert.equal(result.redirectPath, '/prospect-batches/batch-1');
   });
 
@@ -599,8 +675,77 @@ describe('F — corrida de competidores', () => {
   });
 
   it('F7: el tiempo de búsqueda respeta la cola de escritura de los 300 s', () => {
-    assert.equal(resolveCompetitorPhaseMs(0), 150_000);
-    assert.equal(resolveCompetitorPhaseMs(100_000), 110_000);
+    assert.equal(resolveCompetitorPhaseMs(0), 110_000);
+    assert.equal(resolveCompetitorPhaseMs(150_000), 60_000);
     assert.equal(resolveCompetitorPhaseMs(200_000), null);
+  });
+
+  it('F8: con la meta cubierta en la primera ronda no paga una segunda', async () => {
+    const { deps, recorded } = fakeDeps({
+      runClaudeCompanySearchLeg: async (input) => {
+        recorded.legs.push(input);
+        return {
+          executed: true,
+          persistedCandidates: 5,
+          completeValidCandidates: 5,
+          acceptedIdentities: ['candidate:1', 'candidate:2', 'candidate:3', 'candidate:4', 'candidate:5'],
+          estimatedCostUsd: 0.2,
+          proposed: 8,
+          passedPreFilter: 6,
+        };
+      },
+    });
+    const result = await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.equal(recorded.legs.length, 1);
+    assert.equal(result.ok && result.status, 'success_target_reached');
+  });
+
+  it('F9: si la segunda ronda falla, se entrega lo de la primera', async () => {
+    const { deps, recorded } = fakeDeps({
+      runClaudeCompanySearchLeg: async (input) => {
+        recorded.legs.push(input);
+        if ((input.round ?? 0) > 0) return { executed: false, reason: 'failed:timeout' };
+        return {
+          executed: true,
+          persistedCandidates: 2,
+          completeValidCandidates: 2,
+          acceptedIdentities: ['candidate:x', 'candidate:y'],
+          estimatedCostUsd: 0.2,
+          proposed: 6,
+          passedPreFilter: 3,
+        };
+      },
+    });
+    const result = await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.equal(recorded.legs.length, 2);
+    assert.deepEqual(recorded.failed, []);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.candidateCount, 2);
+    assert.equal(result.status, 'success_partial');
+  });
+
+  it('F10: sin tiempo para otra ronda, no la empieza', async () => {
+    let clock = 6_000;
+    const { deps, recorded } = fakeDeps({
+      nowMs: () => clock,
+      runClaudeCompanySearchLeg: async (input) => {
+        recorded.legs.push(input);
+        clock += 200_000; // la primera ronda tardó 200 s
+        return {
+          executed: true,
+          persistedCandidates: 1,
+          completeValidCandidates: 1,
+          acceptedIdentities: ['candidate:z'],
+          estimatedCostUsd: 0.2,
+          proposed: 4,
+          passedPreFilter: 2,
+        };
+      },
+    });
+    await executeCompetitorSearchRun(RUN_INPUT, deps);
+    assert.equal(recorded.legs.length, 1);
+    const rounds = recorded.seals[0].metadata?.competitor_search_rounds as Array<{ outcome: { reason?: string } }>;
+    assert.equal(rounds[1]?.outcome.reason, 'not_enough_time');
   });
 });

@@ -35,7 +35,7 @@ import {
   resolveWizardDiscoveryAvailability,
   type WizardDiscoveryUnavailableReason,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-discovery-availability';
-import { VALID_COUNTRY_CODES } from '@/modules/prospect-batches/chat-wizard';
+import { VALID_COUNTRY_CODES, getSearchCountryCodes } from '@/modules/prospect-batches/chat-wizard';
 import {
   buildWizardFinalRecap,
   buildWizardSubindustrySelectionRecap,
@@ -603,8 +603,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <Alert variant="info" role={undefined} data-testid="wizard-competitor-search-notice">
             <AlertDescription className="text-xs leading-relaxed">
               Claude buscará en la web empresas que compiten con la referencia y SellUp revisará cada una
-              (sitio, duplicados y tamaño) antes de entregarla. No usa créditos de Apollo; cuesta cerca de
-              US$0,25 por búsqueda.
+              (sitio, duplicados y tamaño) antes de entregarla. Si las primeras ya están en HubSpot, hace una
+              segunda ronda con empresas menos conocidas. No usa créditos de Apollo; cuesta entre US$0,25 y
+              US$0,50 por país.
+              {getSearchCountryCodes(state).length > 1
+                ? ` Se lanzará una búsqueda por país (${getSearchCountryCodes(state).length}); las verás en el Centro de procesos.`
+                : ''}
             </AlertDescription>
           </Alert>
         )}
@@ -941,8 +945,13 @@ function useDecisionLabels(state: ProspectWizardState, catalog: ActiveIndustryCa
   // selección conservado y ningún id descartado en silencio.
   const subsRecap = buildWizardSubindustrySelectionRecap(state, catalog);
 
+  // «Competidores» puede llevar varios países: se listan todos (una búsqueda por país).
   const countryLabel = countryEntry
-    ? `${getFlagEmoji(countryEntry.code)} ${countryEntry.name}`
+    ? getSearchCountryCodes(state)
+        .map((code) => LATAM_COUNTRIES.find((c) => c.code === code))
+        .filter((entry): entry is (typeof LATAM_COUNTRIES)[number] => entry !== undefined)
+        .map((entry) => `${getFlagEmoji(entry.code)} ${entry.name}`)
+        .join(', ')
     : '—';
   const industryLabel = industryEntry?.name ?? '—';
   const subsLabel =

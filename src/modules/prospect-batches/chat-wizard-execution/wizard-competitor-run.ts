@@ -55,8 +55,8 @@ import type { WizardExecutionActionResult } from './wizard-execution-types';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult } from './wizard-idempotency';
 import { WIZARD_PIPELINE_DEFAULTS } from './wizard-pipeline-adapter';
 
-/** Tope para EMPEZAR consultas a Claude: dos llamadas de hasta ~45 s cada una. */
-export const COMPETITOR_SEARCH_MAX_PHASE_MS = 150_000;
+/** Tope por ronda para EMPEZAR consultas: con dos rondas, las dos caben en los 300 s. */
+export const COMPETITOR_SEARCH_MAX_PHASE_MS = 110_000;
 /** Con menos que esto por delante no se empieza: Claude + verificar + escribir. */
 export const COMPETITOR_SEARCH_MIN_PHASE_MS = 60_000;
 
@@ -65,7 +65,11 @@ export type CompetitorRunDeps = {
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
   /** La bandera de «Claude busca empresas»: sin ella no hay con qué buscar competidores. */
   resolveClaudeSearchLeg?: () => boolean;
-  runClaudeCompanySearchLeg?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  runClaudeCompanySearchLeg?: (input: {
+    batchId: string;
+    phaseMs: number;
+    round?: number;
+  }) => Promise<ClaudeSearchLegOutcome>;
   sealFreeOnlyBatchStatus?: (input: {
     batchId: string;
     status: BatchTerminalStatus;
@@ -86,6 +90,37 @@ export type CompetitorRunInput = {
   catalogResolution: CatalogResolutionOutput;
   target: number;
 };
+
+/**
+ * Rondas de Claude por corrida. Prod 14-10 (lote 16205dfb): la 1.ª ronda trae las
+ * competidoras famosas, que ya están en HubSpot y quedan como duplicadas; la 2.ª
+ * pide medianas y menos conocidas, con lo ya visto excluido. Tope ≈ US$0,50.
+ */
+export const COMPETITOR_SEARCH_MAX_ROUNDS = 2;
+
+type ExecutedLeg = Extract<ClaudeSearchLegOutcome, { executed: true }>;
+
+/** Las rondas suman como una sola pierna: filas, aceptadas, identidades y costo. */
+export function combineCompetitorRounds(a: ExecutedLeg, b: ExecutedLeg): ExecutedLeg {
+  return {
+    executed: true,
+    persistedCandidates: a.persistedCandidates + b.persistedCandidates,
+    completeValidCandidates:
+      a.completeValidCandidates === null || b.completeValidCandidates === null
+        ? null
+        : a.completeValidCandidates + b.completeValidCandidates,
+    acceptedIdentities: [...a.acceptedIdentities, ...b.acceptedIdentities],
+    estimatedCostUsd: Math.round((a.estimatedCostUsd + b.estimatedCostUsd) * 1_000_000) / 1_000_000,
+    proposed: a.proposed + b.proposed,
+    passedPreFilter: a.passedPreFilter + b.passedPreFilter,
+  };
+}
+
+/** ¿Vale la pena otra ronda? Sólo si faltan empresas nuevas aceptadas. */
+export function shouldRunAnotherCompetitorRound(leg: ExecutedLeg, target: number, round: number): boolean {
+  if (round + 1 >= COMPETITOR_SEARCH_MAX_ROUNDS) return false;
+  return (leg.completeValidCandidates ?? 0) < target;
+}
 
 /** Tiempo para empezar consultas; `null` = ya no cabe una búsqueda útil. */
 export function resolveCompetitorPhaseMs(elapsedMs: number): number | null {
@@ -182,15 +217,36 @@ export async function executeCompetitorSearchRun(
   }
   const batchId = reservation.batchId;
 
-  let claudeLeg: ClaudeSearchLegOutcome;
-  try {
-    claudeLeg = await deps.runClaudeCompanySearchLeg({ batchId, phaseMs });
-  } catch {
-    claudeLeg = { executed: false, reason: 'failed' };
-  }
-  if (!claudeLeg.executed) {
+  const runLeg = deps.runClaudeCompanySearchLeg;
+  const runRound = async (round: number, roundPhaseMs: number): Promise<ClaudeSearchLegOutcome> => {
+    try {
+      return await runLeg({ batchId, phaseMs: roundPhaseMs, round });
+    } catch {
+      return { executed: false, reason: 'failed' };
+    }
+  };
+
+  const first = await runRound(0, phaseMs);
+  if (!first.executed) {
     await deps.markBatchFailed(batchId, 'pipeline_error').catch(() => undefined);
     return failure('GENERATION_FAILED', 'La búsqueda de competidores falló. Intenta de nuevo en unos minutos.', true);
+  }
+
+  // Rondas siguientes: sólo si faltan aceptadas y queda tiempo. Una ronda que falla
+  // no tumba lo que la anterior ya dejó en el lote.
+  let claudeLeg: ExecutedLeg = first;
+  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: first }];
+  for (let round = 0; shouldRunAnotherCompetitorRound(claudeLeg, input.target, round); round += 1) {
+    const elapsed = deps.actionStartedAtMs === undefined ? 0 : now() - deps.actionStartedAtMs;
+    const nextPhaseMs = resolveCompetitorPhaseMs(elapsed);
+    if (nextPhaseMs === null) {
+      rounds.push({ round: round + 1, outcome: { executed: false, reason: 'not_enough_time' } });
+      break;
+    }
+    const next = await runRound(round + 1, nextPhaseMs);
+    rounds.push({ round: round + 1, outcome: next });
+    if (!next.executed) break;
+    claudeLeg = combineCompetitorRounds(claudeLeg, next);
   }
 
   const facts: RunAcceptanceFacts = {
@@ -220,6 +276,7 @@ export async function executeCompetitorSearchRun(
         metadata: {
           [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget),
           claude_search_leg: claudeLeg,
+          competitor_search_rounds: rounds,
         },
       })
       .catch(() => undefined);
