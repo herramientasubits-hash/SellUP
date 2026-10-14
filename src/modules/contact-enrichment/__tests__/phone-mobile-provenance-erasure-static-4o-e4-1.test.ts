@@ -560,8 +560,13 @@ describe('4O-E4.1 estático — alcance', () => {
       // (amplía los CHECK `accounts_tax_identifier_type_check` y
       // `prospect_candidates_tax_identifier_type_check`, misma forma que la 141; ninguna fila de
       // datos). No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      146,
-      'la 146 (los tipos fiscales aceptan RIF, SOURCES-VE-CLOSE-1) es la última',
+      // AI-USAGE-FASE-2 mueve el techo a la 147: cinco columnas nulas de dimensión en
+      // `provider_usage_logs` (agente, paso, país, macro industria, forma de búsqueda), un disparador
+      // BEFORE INSERT que sólo rellena lo que llega en NULL y su relleno idempotente. No es tabla ni
+      // función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y
+      // NO APLICADA.
+      147,
+      'la 147 (las dimensiones de las consultas a proveedores, AI-USAGE-FASE-2) es la última',
     );
   });
 
