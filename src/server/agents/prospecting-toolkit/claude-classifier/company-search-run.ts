@@ -10,6 +10,7 @@
  */
 
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
+import { buildSupplierBatchName } from '@/modules/prospect-batches/chat-wizard-execution/supplier-batch-name';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { ActiveAnthropicModel } from './classify-batch-candidates';
 import type { CompanySearchOutcome } from './company-search';
@@ -98,6 +99,11 @@ export type ClaudeCompanySearchDeps = {
      * Un proveedor de X no es un candidato general del país × industria. Ausente = sí.
      */
     depositSurplusToBank?: boolean;
+    /**
+     * AGENT1-SUPPLIER-SEARCH-3 — nombre del lote. El escritor lo recalcula al adoptar;
+     * sin esto un lote de «Proveedores» quedaba como «Agente 1 · Pipeline · …».
+     */
+    batchName?: string;
   }) => Promise<WrittenCandidates>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   newRunId: () => string;
@@ -231,6 +237,8 @@ export function buildCompanySearchUsageLog(
     batchId?: string | null;
     /** AGENT1-SUPPLIER-SEARCH-1 — para separar en Uso de IA lo de «Proveedores». */
     referenceCompanyName?: string | null;
+    /** «Competidores de una empresa»: la referencia, para separarlo en Uso de IA. */
+    competitorReferenceName?: string | null;
   },
 ): LogProviderUsageInput | null {
   if (!call.usage) return null;
@@ -250,6 +258,13 @@ export function buildCompanySearchUsageLog(
     error_code: call.errorCode ?? undefined,
     duration_ms: call.durationMs,
     triggered_by: context.triggeredBy,
+    // La forma de búsqueda en su columna (el disparador de la 147 la respeta); sin
+    // esto, el lote del asistente la deriva como «exploratory».
+    ...(context.referenceCompanyName
+      ? { search_mode: 'suppliers' }
+      : context.competitorReferenceName
+        ? { search_mode: 'competitors' }
+        : {}),
     metadata: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
       flow: 'claude_company_search',
@@ -262,7 +277,9 @@ export function buildCompanySearchUsageLog(
       pricing_source: call.usage.pricingSource,
       ...(context.referenceCompanyName
         ? { search_mode: 'suppliers', reference_company_name: context.referenceCompanyName }
-        : {}),
+        : context.competitorReferenceName
+          ? { search_mode: 'competitors', reference_company_name: context.competitorReferenceName }
+          : {}),
     },
   };
 }
@@ -324,6 +341,7 @@ export async function runClaudeCompanySearch(
       index: callIndex++,
       batchId: intoBatchId,
       referenceCompanyName,
+      competitorReferenceName: source.competitorReference?.name ?? null,
     });
     if (log) await deps.logUsage(log);
   };
@@ -355,7 +373,12 @@ export async function runClaudeCompanySearch(
       ? await deps.writeCandidates({
           pipelineOutput: search.pipelineOutput,
           ...(intoBatchId ? { existingBatchId: intoBatchId } : {}),
-          ...(referenceCompanyName ? { depositSurplusToBank: false } : {}),
+          ...(referenceCompanyName
+            ? {
+                depositSurplusToBank: false,
+                batchName: buildSupplierBatchName(referenceCompanyName, source.country, source.industry),
+              }
+            : {}),
           metadata: {
             // En el lote del asistente estas claves ya existen: no se tocan.
             ...(!intoBatchId && source.industryId ? { industry_id: source.industryId } : {}),

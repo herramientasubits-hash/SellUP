@@ -22,7 +22,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
-import { executeCompetitorSearchRun } from './wizard-competitor-run';
+import { executeCompetitorSearchRun, type CompetitorRunDeps } from './wizard-competitor-run';
 import { executeSupplierSearchRun } from './wizard-supplier-search';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -566,6 +566,10 @@ export type WizardExecutionDeps = {
     /** «Competidores de una empresa»: ronda de la corrida (ausente = 0). */
     round?: number;
   }) => Promise<ClaudeSearchLegOutcome>;
+  /** «Competidores de una empresa» — ver `CompetitorRunDeps`. */
+  runClaudeCompetitorRound?: CompetitorRunDeps['runClaudeCompetitorRound'];
+  reportProgress?: CompetitorRunDeps['reportProgress'];
+  countCompetitorBatchOutcome?: CompetitorRunDeps['countCompetitorBatchOutcome'];
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
@@ -617,6 +621,47 @@ const resolveIsApolloDiscoveryRolePermitted = isWizardApolloDiscoveryRolePermitt
 // de diagnóstico de la superficie: un segundo constructor podría desviarse de
 // éste y dejar el aviso leyendo con credenciales que no ven la tabla.
 const createWizardBudgetClient = createWizardBudgetServiceClient;
+
+/** «Claude busca empresas» en el lote de la corrida (paso automático y competidores). */
+const runClaudeCompanySearchLegLive: NonNullable<WizardExecutionDeps['runClaudeCompanySearchLeg']> = async ({
+  batchId,
+  phaseMs,
+  round,
+}) => {
+  const auth = await requireActiveUser();
+  const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
+    import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
+    import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
+  ]);
+  let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
+  try {
+    summary = await runClaudeCompanySearch(
+      {
+        sourceBatchId: batchId,
+        triggeredBy: auth.internalUserId,
+        writeIntoSourceBatch: true,
+        phaseMs,
+        ...(round !== undefined ? { round } : {}),
+      },
+      buildLiveClaudeCompanySearchDeps(auth.internalUserId),
+    );
+  } catch (err) {
+    // El motivo queda en la traza del lote (antes sólo decía «failed»).
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[claude-search-leg] failed:', detail);
+    return { executed: false, reason: `failed:${detail.slice(0, 160)}` };
+  }
+  if (!summary.ok) return { executed: false, reason: summary.error };
+  return {
+    executed: true,
+    persistedCandidates: summary.candidatesCreated,
+    completeValidCandidates: summary.completeValidCandidates,
+    acceptedIdentities: summary.acceptedCandidateIds.map((id) => `candidate:${id}`),
+    estimatedCostUsd: summary.estimatedCostUsd,
+    proposed: summary.proposed,
+    passedPreFilter: summary.passedPreFilter,
+  };
+};
 
 export async function executeProspectWizardGenerationAction(
   request: unknown,
@@ -1047,39 +1092,22 @@ export async function executeProspectWizardGenerationAction(
     runLushaWaterfallLeg: (legInput) => runLushaWaterfallLeg(legInput),
     // AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1 — último paso, detrás de su bandera.
     resolveClaudeSearchLeg: isAgent1ClaudeCompanySearchAutoEnabled,
-    runClaudeCompanySearchLeg: async ({ batchId, phaseMs, round }) => {
-      const auth = await requireActiveUser();
-      const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
-        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
-        import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server'),
-      ]);
-      let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
-      try {
-        summary = await runClaudeCompanySearch(
-          {
-            sourceBatchId: batchId,
-            triggeredBy: auth.internalUserId,
-            writeIntoSourceBatch: true,
-            phaseMs,
-            ...(round !== undefined ? { round } : {}),
-          },
-          buildLiveClaudeCompanySearchDeps(auth.internalUserId),
-        );
-      } catch (err) {
-        // El motivo queda en la traza del lote (antes sólo decía «failed»).
-        const detail = err instanceof Error ? err.message : String(err);
-        console.error('[claude-search-leg] failed:', detail);
-        return { executed: false, reason: `failed:${detail.slice(0, 160)}` };
-      }
-      if (!summary.ok) return { executed: false, reason: summary.error };
+    runClaudeCompanySearchLeg: runClaudeCompanySearchLegLive,
+    // «Competidores de una empresa»: la misma pierna, sin la etapa genérica; la
+    // corrida anota «ronda 1» / «ronda 2» con `reportProgress`.
+    runClaudeCompetitorRound: runClaudeCompanySearchLegLive,
+    reportProgress: progress.report,
+    countCompetitorBatchOutcome: async (batchId) => {
+      const { data, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('status, duplicate_check:metadata->duplicate_check->>status')
+        .eq('batch_id', batchId);
+      if (error || !data) return null;
+      const rows = data as Array<{ status: string | null; duplicate_check: string | null }>;
       return {
-        executed: true,
-        persistedCandidates: summary.candidatesCreated,
-        completeValidCandidates: summary.completeValidCandidates,
-        acceptedIdentities: summary.acceptedCandidateIds.map((id) => `candidate:${id}`),
-        estimatedCostUsd: summary.estimatedCostUsd,
-        proposed: summary.proposed,
-        passedPreFilter: summary.passedPreFilter,
+        reviewable: rows.filter((r) => r.status !== 'duplicate' && r.status !== 'discarded').length,
+        hubspotDuplicates: rows.filter((r) => r.status === 'duplicate' && r.duplicate_check === 'existing_in_hubspot').length,
+        sellupDuplicates: rows.filter((r) => r.status === 'duplicate' && r.duplicate_check !== 'existing_in_hubspot').length,
       };
     },
     // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa», detrás de su bandera.

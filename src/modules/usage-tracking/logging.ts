@@ -287,6 +287,8 @@ export function buildProviderUsageLogInsertPayload(
     triggered_by: input.triggered_by ?? null,
     triggered_by_role_key: userSnapshot.roleKey,
     triggered_by_group_id: userSnapshot.groupId,
+    // Sólo cuando se declara: sin ella la fila queda idéntica a la de siempre.
+    ...(input.search_mode ? { search_mode: input.search_mode } : {}),
     metadata: sanitizeMetadata(input.metadata ?? {}),
   };
 }

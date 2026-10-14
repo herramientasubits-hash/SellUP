@@ -129,6 +129,7 @@ export async function resolveCompetitorReferenceAction(
       error_code: outcome.errorCode ?? undefined,
       duration_ms: Date.now() - startedMs,
       triggered_by: internalUserId,
+      search_mode: 'competitors',
       metadata: {
         contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
         flow: 'competitor_reference',

@@ -87,6 +87,11 @@ export const competitorReferenceSchema = z
   })
   .strict();
 
+/** Nombre del lote y título en Búsquedas: «Competidores de Alpina». */
+export function competitorSearchTitle(referenceName: string): string {
+  return `Competidores de ${referenceName}`;
+}
+
 /** La forma que queda en el lote. */
 export function toCompetitorSearchMetadata(reference: CompetitorReference): Record<string, unknown> {
   return {

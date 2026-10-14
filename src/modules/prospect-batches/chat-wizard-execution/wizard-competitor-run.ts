@@ -52,6 +52,8 @@ import {
   type ClaudeSearchLegOutcome,
 } from './wizard-claude-search-leg';
 import type { WizardExecutionActionResult } from './wizard-execution-types';
+import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+import type { RunProgressStage } from './run-progress';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult } from './wizard-idempotency';
 import { WIZARD_PIPELINE_DEFAULTS } from './wizard-pipeline-adapter';
 
@@ -70,6 +72,22 @@ export type CompetitorRunDeps = {
     phaseMs: number;
     round?: number;
   }) => Promise<ClaudeSearchLegOutcome>;
+  /**
+   * La ronda sin envoltura de etapa: la corrida anota SU etapa («ronda 1»,
+   * «ronda 2») con `reportProgress`. Ausente ⇒ `runClaudeCompanySearchLeg`.
+   */
+  runClaudeCompetitorRound?: (input: {
+    batchId: string;
+    phaseMs: number;
+    round?: number;
+  }) => Promise<ClaudeSearchLegOutcome>;
+  /** Etapa en vivo del chat (informativo; un fallo no cambia la corrida). */
+  reportProgress?: (stage: RunProgressStage) => void;
+  /**
+   * Lo que quedó en el lote: cuántas van a Por revisar y cuántas eran duplicadas
+   * (HubSpot / SellUp). `null` = no se pudo leer (se decide con lo que dijo Claude).
+   */
+  countCompetitorBatchOutcome?: (batchId: string) => Promise<CompetitorBatchOutcome | null>;
   sealFreeOnlyBatchStatus?: (input: {
     batchId: string;
     status: BatchTerminalStatus;
@@ -78,6 +96,13 @@ export type CompetitorRunDeps = {
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
   actionStartedAtMs?: number;
   nowMs?: () => number;
+};
+
+export type CompetitorBatchOutcome = {
+  /** Filas que el vendedor ve en Por revisar (ni duplicadas ni descartadas). */
+  reviewable: number;
+  hubspotDuplicates: number;
+  sellupDuplicates: number;
 };
 
 export type CompetitorRunInput = {
@@ -116,10 +141,40 @@ export function combineCompetitorRounds(a: ExecutedLeg, b: ExecutedLeg): Execute
   };
 }
 
-/** ¿Vale la pena otra ronda? Sólo si faltan empresas nuevas aceptadas. */
-export function shouldRunAnotherCompetitorRound(leg: ExecutedLeg, target: number, round: number): boolean {
+/**
+ * ¿Vale la pena otra ronda? Sólo si faltan empresas NUEVAS: las que llegan a Por
+ * revisar (`reviewable`, si se pudo contar) o, si no, las aceptadas por el escritor.
+ */
+export function shouldRunAnotherCompetitorRound(
+  leg: ExecutedLeg,
+  target: number,
+  round: number,
+  reviewable: number | null = null,
+): boolean {
   if (round + 1 >= COMPETITOR_SEARCH_MAX_ROUNDS) return false;
-  return (leg.completeValidCandidates ?? 0) < target;
+  return (reviewable ?? leg.completeValidCandidates ?? 0) < target;
+}
+
+/**
+ * Sin nada para Por revisar, el resultado lo dice con su causa (Prod 14-10: «Se
+ * generaron 3 candidatos» cuando las 3 eran duplicadas de HubSpot).
+ */
+export function buildCompetitorNoNewBreakdown(outcome: CompetitorBatchOutcome): NoNewCandidatesBreakdown {
+  return {
+    hubspotDuplicateCount: outcome.hubspotDuplicates,
+    sellupDuplicateCount: outcome.sellupDuplicates,
+    cooldownCount: 0,
+    repeatedAcrossRoundsCount: 0,
+    qualityRejectedCount: 0,
+    countryRejectedCount: 0,
+    sectorRejectedCount: 0,
+    ownershipRejectedCount: 0,
+    // «Empresas únicas» = las que llegaron al lote. Lo que Claude propuso y se cayó
+    // antes (sitio sin confirmar, plataformas) no tiene causa por empresa: contarlo
+    // aquí saldría como «sin clasificar».
+    uniqueResultsCount: outcome.reviewable + outcome.hubspotDuplicates + outcome.sellupDuplicates,
+    noveltyExhausted: false,
+  };
 }
 
 /** Tiempo para empezar consultas; `null` = ya no cabe una búsqueda útil. */
@@ -217,8 +272,18 @@ export async function executeCompetitorSearchRun(
   }
   const batchId = reservation.batchId;
 
-  const runLeg = deps.runClaudeCompanySearchLeg;
+  const runLeg = deps.runClaudeCompetitorRound ?? deps.runClaudeCompanySearchLeg;
+  const report = (stage: RunProgressStage) => {
+    try {
+      deps.reportProgress?.(stage);
+    } catch {
+      // Informativo: nunca cambia la corrida.
+    }
+  };
+  const readOutcome = async (): Promise<CompetitorBatchOutcome | null> =>
+    deps.countCompetitorBatchOutcome ? await deps.countCompetitorBatchOutcome(batchId).catch(() => null) : null;
   const runRound = async (round: number, roundPhaseMs: number): Promise<ClaudeSearchLegOutcome> => {
+    report(round === 0 ? 'competitor_round_1' : 'competitor_round_2');
     try {
       return await runLeg({ batchId, phaseMs: roundPhaseMs, round });
     } catch {
@@ -235,8 +300,13 @@ export async function executeCompetitorSearchRun(
   // Rondas siguientes: sólo si faltan aceptadas y queda tiempo. Una ronda que falla
   // no tumba lo que la anterior ya dejó en el lote.
   let claudeLeg: ExecutedLeg = first;
+  let batchOutcome = await readOutcome();
   const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: first }];
-  for (let round = 0; shouldRunAnotherCompetitorRound(claudeLeg, input.target, round); round += 1) {
+  for (
+    let round = 0;
+    shouldRunAnotherCompetitorRound(claudeLeg, input.target, round, batchOutcome?.reviewable ?? null);
+    round += 1
+  ) {
     const elapsed = deps.actionStartedAtMs === undefined ? 0 : now() - deps.actionStartedAtMs;
     const nextPhaseMs = resolveCompetitorPhaseMs(elapsed);
     if (nextPhaseMs === null) {
@@ -247,7 +317,9 @@ export async function executeCompetitorSearchRun(
     rounds.push({ round: round + 1, outcome: next });
     if (!next.executed) break;
     claudeLeg = combineCompetitorRounds(claudeLeg, next);
+    batchOutcome = await readOutcome();
   }
+  report('reviewing');
 
   const facts: RunAcceptanceFacts = {
     demand: fullTargetResultDemand(input.target),
@@ -277,22 +349,29 @@ export async function executeCompetitorSearchRun(
           [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget),
           claude_search_leg: claudeLeg,
           competitor_search_rounds: rounds,
+          ...(batchOutcome ? { competitor_search_outcome: batchOutcome } : {}),
         },
       })
       .catch(() => undefined);
   }
 
-  const hasCandidates = claudeLeg.persistedCandidates > 0;
+  // Lo que cuenta para la persona es lo que ve en Por revisar: si todo lo hallado
+  // ya estaba en HubSpot/SellUp, la corrida no «generó candidatos».
+  const reviewable = batchOutcome?.reviewable ?? claudeLeg.persistedCandidates;
+  const hasReviewable = reviewable > 0;
   return {
     ok: true,
-    status: hasCandidates
+    status: hasReviewable
       ? acceptedForTarget.targetReached
         ? 'success_target_reached'
         : 'success_partial'
       : 'no_new_candidates',
     batchId,
-    batchStatus: hasCandidates ? 'ready_for_review' : 'nothing_to_write',
-    candidateCount: claudeLeg.persistedCandidates,
+    batchStatus: claudeLeg.persistedCandidates > 0 ? 'ready_for_review' : 'nothing_to_write',
+    candidateCount: reviewable,
+    ...(!hasReviewable && batchOutcome
+      ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) }
+      : {}),
     redirectPath: `/prospect-batches/${batchId}`,
     targetPersistibleCandidates: input.target,
     targetReached: acceptedForTarget.targetReached,

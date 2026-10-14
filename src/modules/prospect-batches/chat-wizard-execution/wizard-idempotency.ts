@@ -12,7 +12,11 @@
  * - Non-23505 errors propagate as typed WizardIdempotencyError.
  */
 
-import { COMPETITOR_SEARCH_METADATA_KEY } from '@/modules/prospect-batches/competitor-search/competitor-reference';
+import {
+  COMPETITOR_SEARCH_METADATA_KEY,
+  competitorSearchTitle,
+  readCompetitorReference,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
   CORPORATE_TREE_METADATA_KEY,
   corporateTreeBatchName,
@@ -21,6 +25,7 @@ import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
 } from './wizard-run-provider-selection';
+import { buildSupplierBatchName } from './supplier-batch-name';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -279,9 +284,12 @@ export async function reserveWizardExecutionSlot(
 
 function buildBatchName(payload: WizardExecutionReservationInput['initialBatchPayload']): string {
   if (payload.supplierSearch) {
-    return `Proveedores de ${payload.supplierSearch.referenceCompanyName} / ${payload.countryCode}`;
+    return buildSupplierBatchName(payload.supplierSearch.referenceCompanyName, payload.country, payload.industry);
   }
   if (payload.corporateTree) return corporateTreeBatchName(payload.corporateTree.rootName);
+  // «Competidores de una empresa»: el lote se nombra por su referencia.
+  const competitorReference = readCompetitorReference({ [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch });
+  if (competitorReference) return `${competitorSearchTitle(competitorReference.name)} / ${payload.countryCode}`;
   return `Wizard: ${payload.industryId} / ${payload.countryCode}`;
 }
 

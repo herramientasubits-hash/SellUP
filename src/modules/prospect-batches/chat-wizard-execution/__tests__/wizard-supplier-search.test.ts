@@ -170,7 +170,10 @@ describe('B. executeSupplierSearchRun', () => {
 
     assert.equal(f.seals.length, 1);
     assert.equal(f.seals[0].status, 'ready_for_review');
-    assert.deepEqual(f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY], EXECUTED);
+    assert.deepEqual(f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY], {
+      ...EXECUTED,
+      inline_rescue: { reviewed: false, window_ms: null, accepted_after_rescue: null },
+    });
     assert.ok(f.seals[0].metadata?.accepted_for_target);
 
     assert.equal(result.ok, true);
@@ -271,7 +274,7 @@ describe('D. el lote guarda la empresa de referencia', () => {
     const f = fakeDeps({ reserveSlot: (input) => reserveWizardExecutionSlot(input, db) });
     await executeSupplierSearchRun(RUN_INPUT, f.deps);
     const row = inserted[0];
-    assert.equal(row.name, 'Proveedores de Ecopetrol / CO');
+    assert.equal(row.name, 'Proveedores de Ecopetrol · Colombia · Tecnología');
     const metadata = row.metadata as Record<string, unknown>;
     assert.equal(metadata.search_mode, 'suppliers');
     assert.deepEqual(metadata[SUPPLIER_SEARCH_METADATA_KEY], { reference_company_name: 'Ecopetrol' });
