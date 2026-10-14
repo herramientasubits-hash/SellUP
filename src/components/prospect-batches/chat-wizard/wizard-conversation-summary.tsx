@@ -386,9 +386,9 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // «Competidores de una empresa» busca con Claude: no gasta créditos de Apollo,
   // Tavily ni Lusha, así que ni su preflight ni su selector aplican.
   const isCompetitorSearch = state.searchMode === 'competitors';
-  const budgetProvider = requestedProvider ?? defaultDiscoveryProvider;
+  const budgetProvider = isCompetitorSearch ? null : (requestedProvider ?? defaultDiscoveryProvider);
   const preExecutionBudgetBlock =
-    !useLushaFinalSearch && !isCompetitorSearch && budgetProvider
+    !useLushaFinalSearch && budgetProvider
       ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
       : null;
 
