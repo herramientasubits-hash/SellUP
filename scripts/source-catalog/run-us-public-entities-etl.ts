@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     byTier.set(tier, (byTier.get(tier) ?? 0) + 1);
   }
   for (const [tier, n] of [...byTier.entries()].sort()) console.log(`    nivel ${tier}: ${n}`);
-  console.log(`  Primeras 15: ${rows.slice(0, 15).map((row) => row.legal_name).join(' · ')}`);
+  console.log(`  Primeras 30: ${rows.slice(0, 30).map((row) => `${row.legal_name} (${String(row.raw_data['website_domain'])})`).join(' · ')}`);
 
   if (!apply) {
     console.log('  DRY-RUN: no se escribió nada. Usa --apply (con autorización) para persistir.');
