@@ -198,6 +198,10 @@ export type CorporateTreeRunResult =
       alreadyStarted: boolean;
       /** Las que quedaron para revisar. */
       inReview: number;
+      /** Sin web: esperan en «Descartadas» a que el rescate se la busque. */
+      waitingWebsite: number;
+      /** Sólo con la web del grupo: quedan en el lote como referencia. */
+      groupReferences: number;
       redirectPath: string;
       estimatedCostUsd: number;
     }
@@ -375,7 +379,7 @@ export async function runCorporateTreeSearch(
   }
   const batchId = reservation.batchId;
   if (reservation.status === 'already_reserved') {
-    return { ok: true, batchId, alreadyStarted: true, inReview: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
+    return { ok: true, batchId, alreadyStarted: true, inReview: 0, waitingWebsite: 0, groupReferences: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
   }
   const runId = deps.newRunId();
   try {
@@ -481,6 +485,7 @@ async function runAfterReservation(
       rows: plan.rows.length,
       written: writes.written,
       without_website: writes.withoutWebsite,
+      group_references: plan.rows.filter((r) => r.route === 'group_reference').length,
       dropped_by_cap: plan.droppedByCap,
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
@@ -499,7 +504,8 @@ async function runAfterReservation(
     })
     .catch(() => undefined);
   await deps.clearBatchIndustryLabel(batchId).catch(() => undefined);
-  if (plan.rows.length > 0) deps.scheduleRescue(batchId);
+  // El rescate sólo tiene trabajo si alguna quedó sin web (las del grupo no lo necesitan).
+  if (writes.withoutWebsite > 0) deps.scheduleRescue(batchId);
 
   if (plan.rows.length === 0) {
     return {
@@ -512,7 +518,16 @@ async function runAfterReservation(
       estimatedCostUsd,
     };
   }
-  return { ok: true, batchId, alreadyStarted: false, inReview, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd };
+  return {
+    ok: true,
+    batchId,
+    alreadyStarted: false,
+    inReview,
+    waitingWebsite: writes.withoutWebsite,
+    groupReferences: plan.rows.filter((r) => r.route === 'group_reference').length,
+    redirectPath: `/prospect-batches/${batchId}`,
+    estimatedCostUsd,
+  };
 }
 
 /** Una asociación por fila planeada (también las que ya estaban en HubSpot o quedaron sin web). */

@@ -47,8 +47,13 @@ export type CorporateTreePlannedRow = {
   relationDetail: string | null;
   evidenceUrl: string | null;
   groupWebsite: string | null;
-  /** Por dónde entra al lote. */
-  route: 'free_catalog' | 'agent1_writer' | 'without_website';
+  /**
+   * Por dónde entra al lote. `group_reference`: sólo se conoce la web del grupo
+   * (ge.com/ar): no entra como candidata (la web ya es de otra empresa) ni pasa por
+   * el rescate pagado; queda como referencia del árbol (Prod 14-10, General Electric:
+   * 9 al rescate, 0 webs propias).
+   */
+  route: 'free_catalog' | 'agent1_writer' | 'without_website' | 'group_reference';
 };
 
 export type CorporateTreeWebItem = { key: string; node: CorporateTreeNode | null; bankCandidate: ProspectingPipelineCandidate | null };
@@ -69,6 +74,16 @@ export type CorporateTreeWritePlan = {
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
   return `${normalizeTreeName(name)}|${countryCode ?? ''}`;
+}
+
+/** `https://www.ge.com/ar` ⇒ `ge.com`: la web del grupo que usa la referencia. */
+function groupDomainOf(website: string | null): string | null {
+  if (!website) return null;
+  try {
+    return new URL(website).hostname.replace(/^www\./, '') || null;
+  } catch {
+    return null;
+  }
 }
 
 function push<T>(map: Map<string, T[]>, key: string, value: T): void {
@@ -148,7 +163,11 @@ export function planCorporateTreeWrites(params: {
     // Productos Alimenticios S.A.S. BIC»): en su país y con su misma web, es ella.
     const sameSiteAsRoot =
       !!root.domain && !!hit.domain && hit.domain === root.domain && hit.countryCode === root.countryCode;
-    const isRoot = hit.relation === 'root' || key === rootKey || sameSiteAsRoot;
+    // La misma razón base en OTRO país no es la empresa de partida (Prod 14-10: «GENERAL
+    // ELECTRIC S R L» de Argentina quedó como raíz de General Electric, EE. UU.).
+    const rootByName = hit.relation === 'root' && (!root.countryCode || hit.countryCode === root.countryCode);
+    const isRoot = rootByName || key === rootKey || sameSiteAsRoot;
+    const hitRelation: CorporateTreeRelation = hit.relation === 'root' && !isRoot ? 'other_country' : hit.relation;
     if (seen.has(key) || (isRoot && seen.has(rootKey))) continue;
     if (isRoot && rootIsExisting) {
       seen.add(key);
@@ -175,14 +194,16 @@ export function planCorporateTreeWrites(params: {
       ? 'agent1_writer'
       : domain && hit.company
         ? 'free_catalog'
-        : 'without_website';
+        : sharedDomain && !isRoot
+          ? 'group_reference'
+          : 'without_website';
     const row: CorporateTreePlannedRow = {
       key,
       origin: hit.origin,
-      relation: isRoot ? 'root' : node ? node.branch : hit.relation,
+      relation: isRoot ? 'root' : node ? node.branch : hitRelation,
       name: hit.name,
       countryCode: hit.countryCode,
-      domain,
+      domain: route === 'group_reference' ? groupDomainOf(groupWebsite) : domain,
       taxId: hit.taxId,
       relationDetail:
         node?.relationDetail ?? (hit.origin === 'bank' ? 'Encontrada en el banco de empresas' : `Registro oficial: ${hit.sourceKey}`),
@@ -203,7 +224,7 @@ export function planCorporateTreeWrites(params: {
               base: hit.company ? { ...hit.company, domain: null } : null,
             })
           : null,
-      priority: isRoot ? 0 : route === 'without_website' ? 2 : 1,
+      priority: isRoot ? 0 : route === 'without_website' || route === 'group_reference' ? 2 : 1,
     });
   }
 
@@ -223,16 +244,16 @@ export function planCorporateTreeWrites(params: {
         relation: node.branch,
         name: node.name,
         countryCode: node.countryCode,
-        domain: effective.domain,
+        domain: shared ? node.domain : effective.domain,
         taxId: null,
         relationDetail: node.relationDetail,
         evidenceUrl: node.evidenceUrl,
         groupWebsite: shared ? node.website : null,
-        route: ownWebsite ? 'agent1_writer' : 'without_website',
+        route: ownWebsite ? 'agent1_writer' : shared ? 'group_reference' : 'without_website',
       },
       freeCompany: null,
       webItem: ownWebsite ? { key, node: effective, bankCandidate: null } : null,
-      withoutWebsite: ownWebsite ? null : companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }),
+      withoutWebsite: ownWebsite || shared ? null : companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }),
       priority: ownWebsite ? 1 : 3,
     });
   }
