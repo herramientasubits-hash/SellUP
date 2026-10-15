@@ -12,6 +12,8 @@ import { PA_LOADER } from './pa.loader';
 import { AR_LOADER } from './ar.loader';
 import { UY_LOADER } from './uy.loader';
 import { ES_LOADER } from './es.loader';
+import { CR_LOADER } from './cr.loader';
+import { EC_LOADER } from './ec.loader';
 import type { ProcurementLoaderSource } from './types';
 
 export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSource>> = {
@@ -24,4 +26,6 @@ export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSourc
   AR: AR_LOADER,
   UY: UY_LOADER,
   ES: ES_LOADER,
+  EC: EC_LOADER,
+  CR: CR_LOADER,
 };

@@ -20,4 +20,6 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'AR', // COMPR.AR, adjudicaciones cargadas (tabla de rubros BORRADOR)
   'UY', // ARCE, adjudicaciones OCDS cargadas (tabla SICE aprobada)
   'ES', // PLACSP, adjudicaciones ATOM/CODICE mensuales cargadas (tabla CPV aprobada)
+  'CR', // SICOP datos abiertos (mensual), cargado; proveedor por nombre → cédula, industria por CIIU
+  'EC', // SERCOP datos abiertos OCDS (anual), cargado; industria por CIIU del proveedor
 ];

@@ -15,6 +15,8 @@ import { PA_COUNTRY } from './pa';
 import { AR_COUNTRY } from './ar';
 import { UY_COUNTRY } from './uy';
 import { ES_COUNTRY } from './es';
+import { CR_COUNTRY } from './cr';
+import { EC_COUNTRY } from './ec';
 import type { PublicBuyerCountrySource } from './types';
 import { US_COUNTRY } from './us';
 
@@ -32,6 +34,8 @@ export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   AR_COUNTRY,
   UY_COUNTRY,
   ES_COUNTRY,
+  EC_COUNTRY,
+  CR_COUNTRY,
 ];
 
 export function publicBuyerCountry(countryCode: string): PublicBuyerCountrySource | null {

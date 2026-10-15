@@ -37,4 +37,10 @@ export const PUBLIC_PROCUREMENT_CATALOG_SOURCES: readonly CatalogSource[] = [
   AR_COMPRAR_CATALOG_SOURCE,
   UY_ARCE_AWARDS_CATALOG_SOURCE,
   ES_PLACSP_AWARDS_CATALOG_SOURCE,
+import { CR_CATALOG_SOURCE } from './cr.catalog';
+import { EC_CATALOG_SOURCE } from './ec.catalog';
+
+export const PUBLIC_PROCUREMENT_CATALOG_SOURCES: readonly CatalogSource[] = [
+  EC_CATALOG_SOURCE,
+  CR_CATALOG_SOURCE,
 ];
