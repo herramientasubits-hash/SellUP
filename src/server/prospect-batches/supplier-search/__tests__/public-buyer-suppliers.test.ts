@@ -216,8 +216,8 @@ describe('3. el paso completo', () => {
     assert.equal(outcome.relationships[0].evidenceUrl, 'https://community.secop.gov.co/900092385');
   });
 
-  it('fuera de Colombia y Chile, o una empresa privada, no corre', async () => {
-    assert.deepEqual(await runPublicBuyerSupplierStep({ ...STEP_INPUT, countryCode: 'PE' }, stepDeps().deps), {
+  it('en un país sin compras públicas conectadas (Bolivia), o con una empresa privada, no corre', async () => {
+    assert.deepEqual(await runPublicBuyerSupplierStep({ ...STEP_INPUT, countryCode: 'BO' }, stepDeps().deps), {
       executed: false,
       reason: 'country_not_supported',
     });

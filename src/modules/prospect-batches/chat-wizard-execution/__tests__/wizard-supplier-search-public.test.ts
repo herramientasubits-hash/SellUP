@@ -176,9 +176,10 @@ describe('compras públicas en la corrida de Proveedores', () => {
     assert.deepEqual(f.tags, []);
   });
 
-  it('fuera de Colombia y Chile no se consulta', async () => {
+  // Bolivia no tiene compras públicas abiertas (Fase 0: SICOES con captcha): sin fuente.
+  it('en un país sin compras públicas conectadas no se consulta', async () => {
     const f = deps({});
-    await executeSupplierSearchRun({ ...INPUT, countryCode: 'PE', countryName: 'Perú' }, f.d);
+    await executeSupplierSearchRun({ ...INPUT, countryCode: 'BO', countryName: 'Bolivia' }, f.d);
     assert.deepEqual(f.publicCalls, []);
     assert.equal(f.seals[0].metadata?.[SUPPLIER_PUBLIC_BUYER_METADATA_KEY], undefined);
   });
