@@ -3,17 +3,17 @@
  * Una línea por país.
  */
 
-import { CL_LOADER } from './cl.loader';
-import { GT_LOADER } from './gt.loader';
-import { HN_LOADER } from './hn.loader';
-import { PE_LOADER } from './pe.loader';
-import { PY_LOADER } from './py.loader';
-import { PA_LOADER } from './pa.loader';
 import { AR_LOADER } from './ar.loader';
-import { UY_LOADER } from './uy.loader';
-import { ES_LOADER } from './es.loader';
+import { CL_LOADER } from './cl.loader';
 import { CR_LOADER } from './cr.loader';
 import { EC_LOADER } from './ec.loader';
+import { ES_LOADER } from './es.loader';
+import { GT_LOADER } from './gt.loader';
+import { HN_LOADER } from './hn.loader';
+import { PA_LOADER } from './pa.loader';
+import { PE_LOADER } from './pe.loader';
+import { PY_LOADER } from './py.loader';
+import { UY_LOADER } from './uy.loader';
 import type { ProcurementLoaderSource } from './types';
 
 export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSource>> = {

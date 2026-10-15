@@ -3,22 +3,22 @@
  * Una línea por país; ver `types.ts` para el contrato.
  */
 
+import { AR_COUNTRY } from './ar';
 import { BR_COUNTRY } from './br';
 import { CL_COUNTRY } from './cl';
 import { CO_COUNTRY } from './co';
+import { CR_COUNTRY } from './cr';
+import { DO_COUNTRY } from './do';
+import { EC_COUNTRY } from './ec';
+import { ES_COUNTRY } from './es';
 import { GT_COUNTRY } from './gt';
 import { HN_COUNTRY } from './hn';
+import { PA_COUNTRY } from './pa';
 import { PE_COUNTRY } from './pe';
 import { PY_COUNTRY } from './py';
-import { DO_COUNTRY } from './do';
-import { PA_COUNTRY } from './pa';
-import { AR_COUNTRY } from './ar';
-import { UY_COUNTRY } from './uy';
-import { ES_COUNTRY } from './es';
-import { CR_COUNTRY } from './cr';
-import { EC_COUNTRY } from './ec';
-import type { PublicBuyerCountrySource } from './types';
 import { US_COUNTRY } from './us';
+import { UY_COUNTRY } from './uy';
+import type { PublicBuyerCountrySource } from './types';
 
 export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   CO_COUNTRY,
