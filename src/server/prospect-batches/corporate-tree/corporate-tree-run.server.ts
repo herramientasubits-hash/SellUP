@@ -73,7 +73,7 @@ import {
 } from '@/server/agents/prospecting-toolkit/apollo-organizations-response-normalizer';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
-import { normalizeTreeName } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { normalizeTreeName, stripBranchSuffix } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
 import {
   buildCountrySourceOfficialTaxIdLookup,
@@ -92,8 +92,7 @@ export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_P
 export function corporateTreeApolloQueryName(name: string): string {
   // «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «citigroup global markets europe»:
   // la sucursal de una extranjera está en Apollo con el nombre de su casa matriz.
-  const withoutBranch = name.replace(/[,(]?\s*\b(sucursal|branch|agencia)\b[\s\S]*$/i, '').trim();
-  return normalizeTreeName(withoutBranch) || normalizeTreeName(name) || name.trim();
+  return normalizeTreeName(stripBranchSuffix(name)) || normalizeTreeName(name) || name.trim();
 }
 
 /**

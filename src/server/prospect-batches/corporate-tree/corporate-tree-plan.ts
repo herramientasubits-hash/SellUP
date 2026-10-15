@@ -21,6 +21,7 @@ import {
 import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
 import { normalizeTreeName, type CorporateTreeNode } from './corporate-tree-search';
+import { stripBranchSuffix } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
 
 export type CorporateTreeRoot = {
@@ -95,7 +96,7 @@ export type CorporateTreeWritePlan = {
 export type CorporateTreePossibleDuplicate = { company: CountrySourceCompany; matchedName: string | null };
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
-  return `${normalizeTreeName(name)}|${countryCode ?? ''}`;
+  return `${normalizeTreeName(stripBranchSuffix(name))}|${countryCode ?? ''}`;
 }
 
 /** `https://www.ge.com/ar` ⇒ `ge.com`: la web del grupo que usa la referencia. */

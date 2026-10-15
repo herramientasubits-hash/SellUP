@@ -1210,3 +1210,24 @@ describe('P. Citigroup 4.ª corrida (Prod 15-10): Apollo acepta lo que es y el l
     assert.deepEqual(ownDomainsWithoutCandidate(rels).sort(), ['citibank.com.co', 'citigroup.com']);
   });
 });
+
+describe('Q. La sucursal de una empresa en un país es esa empresa en ese país', () => {
+  it('«X, Sucursal en España» y «X» en España son la misma fila; una palabra suelta no corta el nombre', () => {
+    assert.equal(
+      corporateTreeRowKey('Citigroup Global Markets Europe AG, Sucursal en España', 'ES'),
+      corporateTreeRowKey('Citigroup Global Markets Europe AG', 'ES'),
+    );
+    assert.equal(corporateTreeRowKey('Citibank N.A. - Sucursal Argentina', 'AR'), 'citibank|AR');
+    assert.equal(corporateTreeRowKey('Banco Agencia de Viajes SA', 'CO'), 'banco agencia de viajes|CO');
+    assert.notEqual(corporateTreeRowKey('Citigroup Global Markets Europe AG', 'ES'), corporateTreeRowKey('Citigroup Global Markets Europe AG', 'DE'));
+  });
+
+  it('el plan no la repite', () => {
+    const plan = planCorporateTreeWrites({
+      root: { name: 'Citigroup', website: 'https://www.citigroup.com', domain: 'citigroup.com', countryCode: 'US', candidateId: null, accountId: null },
+      freeHits: [],
+      nodes: [NODE('Citigroup Global Markets Europe AG', 'ES'), NODE('Citigroup Global Markets Europe AG, Sucursal en España', 'ES')],
+    });
+    assert.equal(plan.rows.filter((r) => r.countryCode === 'ES').length, 1);
+  });
+});
