@@ -208,8 +208,18 @@ export function buildCompetitorSearchQueries(
 export function buildSupplierSearchQueries(
   source: Pick<SourceBatch, 'country' | 'industry' | 'subindustries'>,
   referenceCompanyName: string,
+  round = 0,
 ): string[] {
   const subject = source.subindustries[0] ?? source.industry;
+  // AGENT1-SUPPLIER-SEARCH-4 — ronda 2+: los proveedores famosos ya están en HubSpot/SellUp
+  // (Prod 14-10, Bancolombia: 4 de 5 duplicados). Misma forma que las medidas, pidiendo
+  // medianos y menos conocidos; lo ya visto queda excluido solo.
+  if (round > 0) {
+    return [
+      `empresas medianas de ${subject} que son proveedores de ${referenceCompanyName} en ${source.country}`,
+      `${referenceCompanyName} caso de éxito ${subject} ${source.country} empresa nacional menos conocida`,
+    ].slice(0, CLAUDE_COMPANY_SEARCH_MAX_QUERIES);
+  }
   return [
     `empresas de ${subject} que son proveedores de ${referenceCompanyName} en ${source.country}`,
     `${referenceCompanyName} cliente caso de éxito ${subject} ${source.country}`,
@@ -327,7 +337,7 @@ export async function runClaudeCompanySearch(
       ? 0
       : await deps.countPreviousRuns(source.countryCode, source.industry).catch(() => 0);
   const queries = referenceCompanyName
-    ? buildSupplierSearchQueries(source, referenceCompanyName)
+    ? buildSupplierSearchQueries(source, referenceCompanyName, params.round ?? 0)
     : source.competitorReference
       ? buildCompetitorSearchQueries(source.competitorReference, source.country, params.round ?? 0)
       : buildCompanySearchQueries(source, previousRuns, deps.resolveRegions(source.countryCode));
@@ -387,7 +397,9 @@ export async function runClaudeCompanySearch(
               contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
               pilot: !intoBatchId,
               mode: referenceCompanyName ? 'supplier_search' : intoBatchId ? 'wizard_leg' : 'button',
-              ...(referenceCompanyName ? { reference_company_name: referenceCompanyName } : {}),
+              ...(referenceCompanyName
+                ? { reference_company_name: referenceCompanyName, supplier_round: params.round ?? 0 }
+                : {}),
               run_id: runId,
               ...(source.macroIndustryKey ? { macro_industry_key: source.macroIndustryKey } : {}),
               ...(source.competitorReference

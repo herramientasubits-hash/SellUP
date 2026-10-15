@@ -573,7 +573,7 @@ export type WizardExecutionDeps = {
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
-  runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number; round?: number }) => Promise<ClaudeSearchLegOutcome>;
   /**
    * AGENT1-WATERFALL-LEG-DURABLE-TRACE — publica la traza de la pierna en la
    * metadata del lote.
@@ -1112,7 +1112,7 @@ export async function executeProspectWizardGenerationAction(
     },
     // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa», detrás de su bandera.
     resolveSupplierSearchEnabled: isAgent1SupplierSearchEnabled,
-    runClaudeSupplierSearch: async ({ batchId, phaseMs }) => {
+    runClaudeSupplierSearch: async ({ batchId, phaseMs, round }) => {
       const auth = await requireActiveUser();
       const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([
         import('@/server/agents/prospecting-toolkit/claude-classifier/company-search-run'),
@@ -1121,7 +1121,7 @@ export async function executeProspectWizardGenerationAction(
       let summary: Awaited<ReturnType<typeof runClaudeCompanySearch>>;
       try {
         summary = await runClaudeCompanySearch(
-          { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs },
+          { sourceBatchId: batchId, triggeredBy: auth.internalUserId, writeIntoSourceBatch: true, phaseMs, round },
           buildLiveClaudeCompanySearchDeps(auth.internalUserId),
         );
       } catch (err) {

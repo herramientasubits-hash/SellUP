@@ -141,6 +141,7 @@ describe('4. aceptadas tras el rescate de Claude dentro de la corrida', () => {
       },
       rescueBatchInline: async (input) => (rescues.push(input), true),
       listAcceptedCandidateIds: async () => ['c1', 'c2'],
+      countCompetitorBatchOutcome: async () => ({ reviewable: 10, hubspotDuplicates: 0, sellupDuplicates: 0 }),
       actionStartedAtMs: 0,
       nowMs: () => 100_000,
       ...overrides,
