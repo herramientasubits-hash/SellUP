@@ -35,6 +35,7 @@ import {
   promoteRowsFoundInApollo,
   type CorporateTreeApolloMatch,
   type CorporateTreeKnownCompany,
+  type CorporateTreePossibleDuplicate,
   type CorporateTreePlannedRow,
   type CorporateTreeRoot,
   type CorporateTreeWebItem,
@@ -189,6 +190,8 @@ export type CorporateTreeRunDeps = {
     query: { name: string; countryCode: string; rootDomain: string | null },
     ctx: { batchId: string },
   ) => Promise<CorporateTreeApolloMatch | null>;
+  /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
+  recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
   recordWithoutWebsite: (batchId: string, countryCode: string, companies: CountrySourceCompany[]) => Promise<number>;
   /** `null` si no se pudo leer (no se sella como vacío un lote que sí tiene filas). */
@@ -227,6 +230,8 @@ export type CorporateTreeRunResult =
       groupReferences: number;
       /** Sin web pero ya en HubSpot: no fueron al rescate. */
       alreadyKnown: number;
+      /** Sin web y con un nombre parecido en HubSpot: en «Descartadas», sin rescate. */
+      possibleKnown: number;
       redirectPath: string;
       estimatedCostUsd: number;
     }
@@ -375,7 +380,8 @@ async function withKnownCompanies(
     );
     slice.forEach((row, index) => {
       const match = found[index];
-      // Con su ficha de HubSpot: así el lote y la ficha pueden decir «Ya en HubSpot».
+      // Con su ficha de HubSpot: así el lote y la ficha pueden decir «Ya en HubSpot» (o
+      // «posible duplicado», que va a «Descartadas» sin rescate).
       if (match?.hubspotCompanyId) known.set(row.key, match);
     });
   }
@@ -414,6 +420,10 @@ async function writePlan(
     }));
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
+  }
+  for (const [code, items] of plan.possibleDuplicates) {
+    if (outOfTime(`possible_duplicate:${code}`) || !deps.recordPossibleDuplicates) continue;
+    await deps.recordPossibleDuplicates(batchId, code, items).catch(() => 0);
   }
   for (const [code, companies] of plan.withoutWebsite) {
     if (outOfTime(`without_website:${code}`)) continue;
@@ -470,7 +480,7 @@ export async function runCorporateTreeSearch(
   }
   const batchId = reservation.batchId;
   if (reservation.status === 'already_reserved') {
-    return { ok: true, batchId, alreadyStarted: true, inReview: 0, waitingWebsite: 0, groupReferences: 0, alreadyKnown: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
+    return { ok: true, batchId, alreadyStarted: true, inReview: 0, waitingWebsite: 0, groupReferences: 0, alreadyKnown: 0, possibleKnown: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
   }
   const runId = deps.newRunId();
   try {
@@ -583,6 +593,7 @@ async function runAfterReservation(
       without_website: writes.withoutWebsite,
       group_references: plan.rows.filter((r) => r.route === 'group_reference').length,
       already_known: plan.rows.filter((r) => r.route === 'already_known').length,
+      possible_known: plan.rows.filter((r) => r.route === 'possible_known').length,
       group_with_tax_id: plan.rows.filter((r) => r.route === 'free_catalog' && !!r.groupWebsite).length,
       apollo: { lookups: apollo.lookups, found: plan.rows.filter((r) => r.foundInApollo).length },
       dropped_by_cap: plan.droppedByCap,
@@ -625,6 +636,7 @@ async function runAfterReservation(
     waitingWebsite: writes.withoutWebsite,
     groupReferences: plan.rows.filter((r) => r.route === 'group_reference').length,
     alreadyKnown: plan.rows.filter((r) => r.route === 'already_known').length,
+    possibleKnown: plan.rows.filter((r) => r.route === 'possible_known').length,
     redirectPath: `/prospect-batches/${batchId}`,
     estimatedCostUsd,
   };
@@ -659,7 +671,8 @@ export function buildRelationshipRows(params: {
       relation_type: row.relation,
       relation_detail: row.relationDetail,
       evidence_url: row.evidenceUrl,
-      matched_hubspot_company_id: candidate?.matched_hubspot_company_id ?? row.knownHubspotCompanyId ?? null,
+      matched_hubspot_company_id:
+        candidate?.matched_hubspot_company_id ?? (row.route === 'already_known' ? row.knownHubspotCompanyId ?? null : null),
       created_by: params.createdBy,
     };
   });

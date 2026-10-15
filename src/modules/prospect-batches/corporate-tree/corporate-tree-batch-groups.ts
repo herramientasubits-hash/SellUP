@@ -22,6 +22,8 @@ export type CorporateTreeBatchRelationship = {
   related_domain?: string | null;
   /** Ya estaba en HubSpot (por su nombre): no fue al rescate. */
   matched_hubspot_company_id?: string | null;
+  /** Motivo con que quedó en «Descartadas», si quedó ahí. */
+  discard_reason_code?: string | null;
   relation_type: string;
   relation_detail: string | null;
   evidence_url: string | null;
@@ -31,6 +33,9 @@ export type CorporateTreeBatchRelationship = {
 export const CORPORATE_TREE_WAITING_WEBSITE_LABEL = 'En Descartadas: sin web';
 /** Sólo se conoce la web del grupo: queda como referencia, sin rescate. */
 export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del grupo';
+/** En «Descartadas» porque HubSpot tiene un nombre parecido en su país (sin rescate). */
+export const CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL = 'En Descartadas: posible duplicado en HubSpot';
+export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_hubspot_duplicate';
 
 export type CorporateTreeBatchCandidateInput = {
   id: string;
@@ -157,10 +162,16 @@ export function groupBatchCandidatesByTreeRelation(
       countryCode: rel.related_country_code,
       statusLabel: rel.matched_hubspot_company_id
         ? 'Ya en HubSpot'
-        : rel.related_domain
-          ? CORPORATE_TREE_GROUP_WEBSITE_LABEL
-          : CORPORATE_TREE_WAITING_WEBSITE_LABEL,
-      statusTone: rel.matched_hubspot_company_id || rel.related_domain ? 'info' : 'neutral',
+        : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
+          ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
+          : rel.related_domain
+            ? CORPORATE_TREE_GROUP_WEBSITE_LABEL
+            : CORPORATE_TREE_WAITING_WEBSITE_LABEL,
+      statusTone: rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
+        ? 'warning'
+        : rel.matched_hubspot_company_id || rel.related_domain
+          ? 'info'
+          : 'neutral',
       relationDetail: rel.relation_detail,
       evidenceUrl: rel.evidence_url,
       groupWebsite: rel.related_domain ? `https://${rel.related_domain}` : null,
@@ -175,7 +186,7 @@ export function groupBatchCandidatesByTreeRelation(
 }
 
 /** Lo que no entró a «Por revisar» al terminar la corrida. */
-export type CorporateTreePending = { waitingWebsite: number; groupReferences: number; alreadyKnown?: number };
+export type CorporateTreePending = { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number };
 
 /**
  * Qué pasó con lo que no entró a «Por revisar», sin inventar causas (Prod 14-10,
@@ -196,6 +207,11 @@ export function corporateTreePendingSummary(pending: CorporateTreePending | null
   }
   if ((pending.alreadyKnown ?? 0) > 0) {
     parts.push(`${pending.alreadyKnown} ya ${pending.alreadyKnown === 1 ? 'estaba' : 'estaban'} en HubSpot`);
+  }
+  if ((pending.possibleKnown ?? 0) > 0) {
+    parts.push(
+      `${pending.possibleKnown} ${pending.possibleKnown === 1 ? 'parece' : 'parecen'} ya estar en HubSpot (en «Descartadas», sin rescate)`,
+    );
   }
   if (parts.length === 0) return 'Las demás ya estaban en HubSpot o en SellUp.';
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0];

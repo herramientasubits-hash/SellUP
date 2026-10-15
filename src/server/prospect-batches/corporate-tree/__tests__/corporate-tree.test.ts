@@ -51,7 +51,7 @@ import {
   type CorporateTreeRequest,
   type CorporateTreeRunDeps,
 } from '../corporate-tree-run';
-import { buildCorporateTreeUsageLog } from '../corporate-tree-run.server';
+import { buildCorporateTreeUsageLog, corporateTreeApolloQueryName } from '../corporate-tree-run.server';
 import { corporateTreePendingSummary, groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   buildCorporateTreeViews,
@@ -912,9 +912,23 @@ describe('L. Citigroup (Prod 15-10): menos rescate pagado y webs de bancos', () 
 
   it('sólo coincidencias exactas y del mismo país cuentan como «ya conocida»', () => {
     const exact = { source: 'hubspot' as const, status: 'existing_in_hubspot', confidence: 82, matchedId: 'hs-1', raw: { country: 'Colombia' } };
-    assert.deepEqual(pickKnownCompany({ hubspot: [exact], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), { hubspotCompanyId: 'hs-1', accountId: null });
+    assert.deepEqual(pickKnownCompany({ hubspot: [exact], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), {
+      hubspotCompanyId: 'hs-1',
+      accountId: null,
+      kind: 'exact',
+      matchedName: null,
+    });
     assert.equal(pickKnownCompany({ hubspot: [{ ...exact, raw: { country: 'United States' } }], sellup: [], countryCode: 'UY', countryName: 'Uruguay' }), null, 'otro país');
-    assert.equal(pickKnownCompany({ hubspot: [{ ...exact, status: 'possible_duplicate', confidence: 65 }], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), null, 'parecido no basta');
+    assert.equal(
+      pickKnownCompany({ hubspot: [{ ...exact, status: 'possible_duplicate', confidence: 65 }], sellup: [], countryCode: 'CO', countryName: 'Colombia' })?.kind,
+      'possible',
+      'parecido en el mismo país = posible duplicado, no «ya conocida»',
+    );
+    assert.equal(
+      pickKnownCompany({ hubspot: [{ ...exact, status: 'possible_duplicate', confidence: 50 }], sellup: [], countryCode: 'CO', countryName: 'Colombia' }),
+      null,
+      'similitud baja no cuenta',
+    );
     assert.deepEqual(
       pickKnownCompany({
         hubspot: [],
@@ -923,7 +937,7 @@ describe('L. Citigroup (Prod 15-10): menos rescate pagado y webs de bancos', () 
         countryName: 'Colombia',
         accountHubspotId: () => 'hs-9',
       }),
-      { hubspotCompanyId: 'hs-9', accountId: 'acc-1' },
+      { hubspotCompanyId: 'hs-9', accountId: 'acc-1', kind: 'exact', matchedName: null },
     );
   });
 
@@ -1055,5 +1069,55 @@ describe('M. Filiales con la web del grupo y Apollo por nombre', () => {
     assert.equal(deps.findInApollo, undefined);
     const flags = readFileSync('src/lib/feature-flags.server.ts', 'utf8');
     assert.match(flags, /isEnvFlagEnabled\(process\.env\[AGENT1_CORPORATE_TREE_APOLLO_FLAG\]\)/);
+  });
+});
+
+describe('N. Citigroup 2.ª corrida (Prod 15-10): Apollo y HubSpot', () => {
+  it('Apollo recibe el nombre sin forma societaria', () => {
+    assert.equal(corporateTreeApolloQueryName('CITIGROUP CHILE SPA'), 'citigroup chile');
+    assert.equal(corporateTreeApolloQueryName('Citibank del Perú S.A.'), 'citibank del peru');
+  });
+
+  it('y el país en inglés, con la tabla del Agente 1', () => {
+    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
+    assert.match(source, /resolveApolloCountryLocation\(query\.countryCode/);
+    assert.match(source, /q_organization_name: corporateTreeApolloQueryName\(query\.name\)/);
+  });
+
+  it('un nombre parecido exige que HubSpot diga el MISMO país (también en inglés)', () => {
+    const possible = { source: 'hubspot' as const, status: 'possible_duplicate', confidence: 65, matchedId: 'hs-7', matchedName: 'Citibank', raw: { country: 'United States' } };
+    assert.deepEqual(
+      pickKnownCompany({ hubspot: [possible], sellup: [], countryCode: 'US', countryName: 'Estados Unidos', countryAliases: ['United States'] }),
+      { hubspotCompanyId: 'hs-7', accountId: null, kind: 'possible', matchedName: 'Citibank' },
+    );
+    assert.equal(pickKnownCompany({ hubspot: [{ ...possible, raw: {} }], sellup: [], countryCode: 'US', countryName: 'Estados Unidos' }), null, 'sin país no se adivina');
+  });
+
+  it('el posible duplicado va a «Descartadas» como duplicado (sin rescate) y el lote lo dice', async () => {
+    const recorded: string[] = [];
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary' ? outcomeFor('subsidiary', []) : outcomeFor('other_country', [NODE('Nutresa Chile', 'CL', { branch: 'other_country' })]),
+      findKnownCompany: async () => ({ hubspotCompanyId: 'hs-x', accountId: null, kind: 'possible', matchedName: 'Nutresa' }),
+      recordPossibleDuplicates: async (_batch, _cc, items) => {
+        recorded.push(...items.map((i) => `${i.company.legalName}→${i.matchedName}`));
+        return items.length;
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(recorded, ['Nutresa Chile→Nutresa']);
+    assert.deepEqual(calls.withoutWebsite, [], 'no va al rescate');
+    assert.deepEqual(calls.rescued, []);
+    assert.equal(result.possibleKnown, 1);
+    assert.equal(result.alreadyKnown, 0);
+    assert.equal(calls.relationships.find((r) => r.related_name === 'Nutresa Chile')?.matched_hubspot_company_id, null, 'no se afirma «Ya en HubSpot»');
+
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Nutresa Chile', related_country_code: 'CL', relation_type: 'other_country', relation_detail: null, evidence_url: null, discard_reason_code: 'corporate_tree_possible_hubspot_duplicate' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'En Descartadas: posible duplicado en HubSpot');
+    assert.match(corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0, possibleKnown: 2 }), /2 parecen ya estar en HubSpot/);
   });
 });
