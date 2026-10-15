@@ -38,6 +38,8 @@ import { CLAUDE_COMPANY_SEARCH_OPERATION_KEY } from '@/server/agents/prospecting
 import { withOfficialIdentity } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server';
 import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
 import { fetchSafePageHtml } from '@/server/agents/prospecting-toolkit/website-verifier';
+import { checkHubSpotDuplicates } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
+import { checkSellUpDuplicates } from '@/server/agents/prospecting-toolkit/sellup-duplicate-checker';
 import { buildProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/prospecting-pipeline';
 import { getCatalogContext } from '@/server/agents/prospecting-toolkit/catalog-context-retriever';
 import { writeProspectingCandidates } from '@/server/agents/prospecting-toolkit/candidate-writer';
@@ -55,12 +57,25 @@ import {
   type FreeBankRow,
   type FreeSnapshotRow,
 } from './corporate-tree-free-lookup';
-import type { CorporateTreeWebItem } from './corporate-tree-plan';
+import { pickApolloOrganization, pickKnownCompany, type CorporateTreeWebItem } from './corporate-tree-plan';
+import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
+import { searchApolloOrganizations } from '@/server/integrations/apollo-client';
+import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
+import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
+import { normalizeTreeName } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import {
+  buildCountrySourceOfficialTaxIdLookup,
+  fillMissingOfficialTaxIds,
+} from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
+import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
 export const CORPORATE_TREE_USAGE_FLOW = 'corporate_tree_search';
+/** Resultados por búsqueda por nombre en Apollo: la empresa suele salir primero. */
+const CORPORATE_TREE_APOLLO_PER_PAGE = 5;
 /**
  * Tiempo de CADA rama de Claude (van en paralelo), contando la segunda llamada que
  * fuerza la entrega. Deja el resto de los 300 s a lo gratis, la escritura y el rescate.
@@ -142,6 +157,7 @@ export function corporateTreeNodeToSearchResult(node: CorporateTreeNode, rank: n
       claude_company_search: true,
       corporate_tree_relation: node.branch,
       evidence_source_url: node.evidenceUrl,
+      ...(node.websiteUnverified ? { website_unverified: true } : {}),
       ...(node.linkedinUrl ? { linkedin_url: node.linkedinUrl } : {}),
     },
   };
@@ -203,6 +219,20 @@ export function buildLiveCorporateTreeDeps(params: {
   let admin: SupabaseClient | null = null;
   const adminClient = () => (admin ??= createSupabaseAdminClient());
   const limit = limiter(FREE_LOOKUP_CONCURRENCY);
+  // La cuota de Apollo se mira una vez por corrida; sin cuota no se llama.
+  let apolloQuota: Promise<{ allowed: boolean }> | null = null;
+  const apolloCreditUnitCost = async (): Promise<number | null> => {
+    const { data } = await adminClient()
+      .from('provider_pricing_config')
+      .select('unit_cost_usd')
+      .eq('provider_key', 'apollo')
+      .eq('operation_key', 'credit')
+      .eq('is_active', true)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data ? Number(data.unit_cost_usd) : null;
+  };
 
   return {
     loadExistingRoot: (ref) => loadExistingRoot(params.supabase, ref),
@@ -283,6 +313,53 @@ export function buildLiveCorporateTreeDeps(params: {
       if (log) await logProviderUsage(log);
     },
 
+    fillOfficialTaxIds: async (companies) => {
+      const lookUp = buildCountrySourceOfficialTaxIdLookup(buildColombiaOfficialSourceResolvers());
+      return fillMissingOfficialTaxIds(companies, lookUp);
+    },
+
+    findInApollo: isAgent1CorporateTreeApolloEnabled()
+      ? async (query, ctx) => {
+          apolloQuota ??= checkProviderQuotaAvailable('apollo').catch(() => ({ allowed: false }));
+          if (!(await apolloQuota).allowed) return null;
+          const country = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? query.countryCode;
+          const startedAt = Date.now();
+          const result = await searchApolloOrganizations({
+            q_organization_name: query.name,
+            organization_locations: [country],
+            per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
+            page: 1,
+          });
+          const organizations = result.data ?? [];
+          // 1 crédito por página con resultados (Apollo Support); una vacía no cobra.
+          const credits = organizations.length > 0 ? 1 : 0;
+          const unitCostUsd = await apolloCreditUnitCost();
+          await logProviderUsage({
+            batch_id: ctx.batchId,
+            usage_key: `corporate_tree_apollo:${params.clientRequestId}:${normalizeTreeName(query.name)}:${query.countryCode}`,
+            provider_key: 'apollo',
+            operation_key: 'mixed_companies_search',
+            credits_used: credits,
+            results_returned: organizations.length,
+            estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
+            status: result.success ? 'success' : 'error',
+            error_message: result.error?.message,
+            duration_ms: Date.now() - startedAt,
+            triggered_by: params.internalUserId,
+            metadata: {
+              flow: CORPORATE_TREE_USAGE_FLOW,
+              search_mode: 'corporate_tree',
+              country_code: query.countryCode,
+              non_empty_pages_charged: credits,
+              pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
+              [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
+            },
+          }).catch(() => undefined);
+          if (!result.success) return null;
+          return pickApolloOrganization(organizations, query, (website) => normalizeDomain(website));
+        }
+      : undefined,
+
     writeFreeCatalog: async (batchId, country, companies) => {
       const result = await persistCountrySourceCandidates(params.supabase, {
         companies,
@@ -326,6 +403,31 @@ export function buildLiveCorporateTreeDeps(params: {
         maxDeliveredCandidates: null,
       });
       return { written: output.status === 'failed' ? 0 : output.candidatesCreated, errors: output.errors };
+    },
+
+    findKnownCompany: async ({ name, countryCode }) => {
+      const countryName = LATAM_COUNTRIES.find((c) => c.code === countryCode)?.name ?? null;
+      const input = { name, countryCode, country: countryName };
+      const [hubspot, sellup] = await Promise.all([
+        checkHubSpotDuplicates(input).catch(() => ({ connected: false as const, skipped: true as const, matches: [] as [] })),
+        checkSellUpDuplicates(input).catch(() => []),
+      ]);
+      const sellupMatches = sellup.filter((m) => m.status === 'existing_in_sellup' && !!m.matchedId);
+      const hubspotIdByAccount = new Map<string, string | null>();
+      if (sellupMatches.length > 0) {
+        const { data } = await params.supabase
+          .from('accounts')
+          .select('id, hubspot_company_id')
+          .in('id', sellupMatches.map((m) => m.matchedId as string));
+        for (const row of data ?? []) hubspotIdByAccount.set(row.id as string, (row.hubspot_company_id as string | null) ?? null);
+      }
+      return pickKnownCompany({
+        hubspot: hubspot.matches,
+        sellup: sellupMatches,
+        countryCode,
+        countryName,
+        accountHubspotId: (id) => hubspotIdByAccount.get(id) ?? null,
+      });
     },
 
     recordWithoutWebsite: async (batchId, countryCode, companies) => {

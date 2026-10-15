@@ -8,8 +8,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { AnthropicConversationResult } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
+  blockedSiteDomainCarriesName,
   buildCorporateTreeRequestBody,
   searchCorporateTreeBranch,
   SUBMIT_CORPORATE_TREE_TOOL_NAME,
@@ -17,7 +19,16 @@ import {
   type CorporateTreeSearchInput,
   type CorporateTreeSearchOutcome,
 } from '../corporate-tree-search';
-import { corporateTreeRowKey, planCorporateTreeWrites, type CorporateTreeRoot } from '../corporate-tree-plan';
+import {
+  corporateTreeRowKey,
+  markKnownCompanies,
+  pickApolloOrganization,
+  pickKnownCompany,
+  planCorporateTreeWrites,
+  promoteGroupCompaniesWithTaxIds,
+  promoteRowsFoundInApollo,
+  type CorporateTreeRoot,
+} from '../corporate-tree-plan';
 import {
   corporateTreeNameCores,
   escapeLikePrefix,
@@ -871,5 +882,178 @@ describe('K. Lo que no entró a revisión se dice como es', () => {
     assert.equal(byRelation.get('subsidiary')?.statusLabel, 'Referencia: usa la web del grupo');
     assert.equal(byRelation.get('subsidiary')?.groupWebsite, 'https://ge.com');
     assert.equal(byRelation.get('other_country')?.statusLabel, 'En Descartadas: sin web');
+  });
+});
+
+describe('L. Citigroup (Prod 15-10): menos rescate pagado y webs de bancos', () => {
+  const CITI: CorporateTreeRoot = { name: 'Citigroup', website: 'https://www.citigroup.com', domain: 'citigroup.com', countryCode: 'US', candidateId: null, accountId: null };
+
+  it('la empresa de partida del registro sin web usa la web que ya conocemos', () => {
+    const plan = planCorporateTreeWrites({ root: CITI, freeHits: [FREE_HIT('CITIGROUP INC', 'US', { relation: 'root' })], nodes: [] });
+    const row = plan.rows.find((r) => r.relation === 'root');
+    assert.equal(row?.domain, 'citigroup.com');
+    assert.equal(row?.route, 'free_catalog');
+    assert.equal(plan.withoutWebsite.size, 0, 'no va a «Descartadas»');
+  });
+
+  it('las que ya están en HubSpot por su nombre no van al rescate y quedan con su ficha', () => {
+    const plan = planCorporateTreeWrites({
+      root: CITI,
+      freeHits: [],
+      nodes: [NODE('Citibank-Colombia S.A.', 'CO'), NODE('Citibank N.A. Ecuador', 'EC')],
+    });
+    const marked = markKnownCompanies(plan, new Map([[corporateTreeRowKey('Citibank-Colombia S.A.', 'CO'), { hubspotCompanyId: '123', accountId: null }]]));
+    const byName = new Map(marked.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get('Citibank-Colombia S.A.')?.route, 'already_known');
+    assert.equal(byName.get('Citibank-Colombia S.A.')?.knownHubspotCompanyId, '123');
+    assert.deepEqual([...marked.withoutWebsite.keys()], ['EC']);
+    assert.equal(plan.rows.find((r) => r.name === 'Citibank-Colombia S.A.')?.route, 'without_website', 'el plan original no cambia');
+  });
+
+  it('sólo coincidencias exactas y del mismo país cuentan como «ya conocida»', () => {
+    const exact = { source: 'hubspot' as const, status: 'existing_in_hubspot', confidence: 82, matchedId: 'hs-1', raw: { country: 'Colombia' } };
+    assert.deepEqual(pickKnownCompany({ hubspot: [exact], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), { hubspotCompanyId: 'hs-1', accountId: null });
+    assert.equal(pickKnownCompany({ hubspot: [{ ...exact, raw: { country: 'United States' } }], sellup: [], countryCode: 'UY', countryName: 'Uruguay' }), null, 'otro país');
+    assert.equal(pickKnownCompany({ hubspot: [{ ...exact, status: 'possible_duplicate', confidence: 65 }], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), null, 'parecido no basta');
+    assert.deepEqual(
+      pickKnownCompany({
+        hubspot: [],
+        sellup: [{ source: 'sellup', status: 'existing_in_sellup', confidence: 88, matchedId: 'acc-1' }],
+        countryCode: 'CO',
+        countryName: 'Colombia',
+        accountHubspotId: () => 'hs-9',
+      }),
+      { hubspotCompanyId: 'hs-9', accountId: 'acc-1' },
+    );
+  });
+
+  it('la corrida pregunta antes de mandar al rescate y no lo agenda si no queda ninguna sin web', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary' ? outcomeFor('subsidiary', []) : outcomeFor('other_country', [NODE('Nutresa Chile', 'CL', { branch: 'other_country' })]),
+      findKnownCompany: async ({ name }) => (name === 'Nutresa Chile' ? { hubspotCompanyId: 'hs-cl', accountId: null } : null),
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.equal(result.alreadyKnown, 1);
+    assert.deepEqual(calls.withoutWebsite, []);
+    assert.deepEqual(calls.rescued, [], 'sin filas sin web, no hay rescate que pagar');
+    assert.equal(calls.relationships.find((r) => r.related_name === 'Nutresa Chile')?.matched_hubspot_company_id, 'hs-cl');
+  });
+
+  it('una web que el sitio no deja comprobar sólo vale con su nombre propio y la terminación de su país', () => {
+    assert.equal(blockedSiteDomainCarriesName('Citibank del Perú S.A.', 'citibank.com.pe', 'PE'), true);
+    assert.equal(blockedSiteDomainCarriesName('Grupo Financiero Citibanamex', 'banamex.com', 'MX'), true);
+    assert.equal(blockedSiteDomainCarriesName('Citibank N.A. Ecuador', 'citi.com.ec', 'EC'), false, 'el dominio no lleva el nombre');
+    assert.equal(blockedSiteDomainCarriesName('Citibank del Perú S.A.', 'citibank.com.ar', 'PE'), false, 'otro país');
+    assert.equal(blockedSiteDomainCarriesName('Banco de Chile', 'chile.cl', 'CL'), false, 'palabras genéricas no cuentan');
+  });
+
+  it('el aviso nombra también las que ya estaban en HubSpot', () => {
+    assert.equal(
+      corporateTreePendingSummary({ waitingWebsite: 3, groupReferences: 1, alreadyKnown: 7 }),
+      '3 esperan su web en «Descartadas», 1 queda como referencia (web del grupo) y 7 ya estaban en HubSpot.',
+    );
+  });
+
+  it('el lote dice «Ya en HubSpot» y marca la web no comprobada', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [{ id: 'p', name: 'Citibank del Perú', country_code: 'PE', status: 'needs_review', matched_hubspot_company_id: null, metadata: { corporate_tree: { relation: 'subsidiary', website_unverified: true } } }],
+      [{ related_candidate_id: null, related_name: 'Citibank Colombia', related_country_code: 'CO', related_domain: null, matched_hubspot_company_id: '123', relation_type: 'group', relation_detail: null, evidence_url: null }],
+    );
+    const byRelation = new Map(groups.map((g) => [g.relation, g.items[0]]));
+    assert.equal(byRelation.get('group')?.statusLabel, 'Ya en HubSpot');
+    assert.equal(byRelation.get('subsidiary')?.websiteUnverified, true);
+  });
+
+  it('la cuenta ve los árboles en que aparece: por su HubSpot o porque se buscó desde ella', () => {
+    const rec = (extra: Partial<CorporateTreeRelationshipRecord>): CorporateTreeRelationshipRecord => ({
+      batch_id: 'b1', root_name: 'Citigroup', root_candidate_id: null, root_account_id: null, related_candidate_id: null,
+      related_name: 'Citibank Colombia', related_country_code: 'CO', relation_type: 'group', relation_detail: null,
+      evidence_url: null, matched_hubspot_company_id: null, created_at: '2026-10-15T00:00:00Z', ...extra,
+    });
+    const [byHubspot] = buildCorporateTreeViews([rec({ matched_hubspot_company_id: '123' })], { candidateIds: new Set(), hubspotCompanyId: '123', accountId: 'acc' }, new Map());
+    assert.equal(byHubspot.selfRelation, 'group');
+    const [asRoot] = buildCorporateTreeViews([rec({ batch_id: 'b2', root_account_id: 'acc' })], { candidateIds: new Set(), accountId: 'acc' }, new Map());
+    assert.equal(asRoot.selfRelation, 'root');
+  });
+});
+
+describe('M. Filiales con la web del grupo y Apollo por nombre', () => {
+  const GE: CorporateTreeRoot = { name: 'General Electric', website: 'https://www.ge.com', domain: 'ge.com', countryCode: 'US', candidateId: null, accountId: null };
+  const MX = 'General Electric México, S.A. de C.V.';
+
+  it('la filial con la web del grupo entra a revisión SIN web propia si tiene número fiscal oficial', () => {
+    const plan = planCorporateTreeWrites({
+      root: GE,
+      freeHits: [],
+      nodes: [NODE(MX, 'MX', { website: 'https://www.ge.com/mx', domain: 'ge.com' }), NODE('GE Energy Colombia S.A.', 'CO', { website: 'https://www.ge.com/co', domain: 'ge.com' })],
+    });
+    const key = corporateTreeRowKey(MX, 'MX');
+    assert.ok(plan.groupCompanies.has(key));
+    const promoted = promoteGroupCompaniesWithTaxIds(plan, new Map([[key, { ...(plan.groupCompanies.get(key) as CountrySourceCompany), taxId: 'GEM123456AB1', taxIdentifierType: 'RFC' as const }]]));
+    const byName = new Map(promoted.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get(MX)?.route, 'free_catalog');
+    assert.equal(byName.get(MX)?.domain, null, 'nunca reclama ge.com');
+    assert.equal(byName.get(MX)?.groupWebsite, 'https://www.ge.com/mx');
+    assert.equal(promoted.freeCatalog.get('MX')?.[0].taxId, 'GEM123456AB1');
+    assert.equal(promoted.freeCatalog.get('MX')?.[0].domain, null);
+    assert.equal(byName.get('GE Energy Colombia S.A.')?.route, 'group_reference', 'sin número sigue como referencia');
+  });
+
+  it('Apollo por nombre: misma empresa, web propia y nunca la de la empresa de partida', () => {
+    const toDomain = (w: string) => w.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    const org = (name: string, website: string) => ({ name, website_url: website, linkedin_url: null });
+    assert.deepEqual(
+      pickApolloOrganization([org('Otra Cosa SA', 'https://otra.com'), org('Citibank del Perú', 'https://www.citibank.com.pe')], { name: 'Citibank del Perú S.A.', rootDomain: 'citigroup.com' }, toDomain),
+      { website: 'https://citibank.com.pe', domain: 'citibank.com.pe', linkedinUrl: null },
+    );
+    assert.equal(pickApolloOrganization([org('General Electric Mexico', 'https://ge.com')], { name: MX, rootDomain: 'ge.com' }, toDomain), null, 'la web del grupo no');
+    assert.equal(pickApolloOrganization([org('Citibanamex Seguros', 'https://seguros.com')], { name: 'Citibank', rootDomain: null }, toDomain), null, 'nombre parecido no basta');
+  });
+
+  it('lo que encontró Apollo pasa al escritor del Agente 1 y sale de «Descartadas»', () => {
+    const plan = planCorporateTreeWrites({ root: GE, freeHits: [], nodes: [NODE('ProlecGE', 'MX'), NODE('GE Vernova Chile', 'CL')] });
+    const promoted = promoteRowsFoundInApollo(plan, new Map([[corporateTreeRowKey('ProlecGE', 'MX'), { website: 'https://prolecge.com', domain: 'prolecge.com', linkedinUrl: null }]]));
+    const row = promoted.rows.find((r) => r.name === 'ProlecGE');
+    assert.equal(row?.route, 'agent1_writer');
+    assert.equal(row?.foundInApollo, true);
+    assert.equal(promoted.web.get('MX')?.[0].node?.domain, 'prolecge.com');
+    assert.deepEqual([...promoted.withoutWebsite.keys()], ['CL']);
+  });
+
+  it('la corrida: número fiscal gratis primero, Apollo sólo para las que siguen sin web y con tope', async () => {
+    const asked: string[] = [];
+    const many = Array.from({ length: 8 }, (_, i) => NODE(`Filial Uno ${i}`, 'CL', { branch: 'other_country' }));
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Nutresa Mexico', 'MX', { website: 'https://gruponutresa.com/mx', domain: 'gruponutresa.com' })])
+          : outcomeFor('other_country', many),
+      fillOfficialTaxIds: async (companies) => companies.map((c) => ({ ...c, taxId: 'NUT010101AA1', taxIdentifierType: 'RFC' as const })),
+      findInApollo: async ({ name }) => {
+        asked.push(name);
+        return name === 'Filial Uno 0' ? { website: 'https://filialuno.cl', domain: 'filialuno.cl', linkedinUrl: null } : null;
+      },
+    });
+    const result = await runCorporateTreeSearch(
+      { ...REQUEST_ALL, rootWebsite: 'https://gruponutresa.com', countries: [...REQUEST_ALL.countries, { code: 'MX', name: 'México' }] },
+      CONTEXT,
+      deps,
+    );
+    assert.ok(result.ok);
+    assert.equal(asked.length, 5, 'como mucho 5 búsquedas pagadas');
+    assert.ok(calls.freeCatalog.some((c) => c.country === 'MX' && c.names.includes('Nutresa Mexico')), 'la filial con número entra por la capa gratuita');
+    assert.ok(calls.web.some((c) => c.names.includes('Filial Uno 0')), 'la de Apollo entra por el escritor');
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
+    assert.deepEqual(tree.apollo, { lookups: 5, found: 1 });
+    assert.equal(tree.group_with_tax_id, 1);
+  });
+
+  it('sin la bandera de Apollo no se llama a Apollo', async () => {
+    const { deps } = fakeDeps();
+    assert.equal(deps.findInApollo, undefined);
+    const flags = readFileSync('src/lib/feature-flags.server.ts', 'utf8');
+    assert.match(flags, /isEnvFlagEnabled\(process\.env\[AGENT1_CORPORATE_TREE_APOLLO_FLAG\]\)/);
   });
 });

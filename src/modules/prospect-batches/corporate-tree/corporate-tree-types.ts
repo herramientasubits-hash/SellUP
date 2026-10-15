@@ -89,6 +89,10 @@ export type CorporateTreeCandidateMetadata = {
   evidence_url: string | null;
   /** Web compartida del grupo (no se usa como web propia: varias empresas la comparten). */
   group_website: string | null;
+  /** La web no se pudo comprobar (el sitio bloquea la descarga): revisarla a mano. */
+  website_unverified?: boolean;
+  /** La web la encontró Apollo buscando por el nombre. */
+  found_in_apollo?: boolean;
 };
 
 export function isCorporateTreeBranch(value: unknown): value is CorporateTreeBranch {
