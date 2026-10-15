@@ -1284,3 +1284,13 @@ describe('T. La filial que admitió el rescate con la web del grupo se ve así e
     assert.equal(item.groupWebsite, 'https://grupobimbo.com');
   });
 });
+
+describe('U. Lo que el rescate encontró ya existente se dice así', () => {
+  it('«Ya existía (el rescate encontró su web)» en vez de «sin web»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'BIMBO DE COLOMBIA S A', related_country_code: 'CO', relation_type: 'group', relation_detail: null, evidence_url: null, discard_reason_code: 'missing_domain_final', rescue_decision: 'duplicate' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'Ya existía (el rescate encontró su web)');
+  });
+});

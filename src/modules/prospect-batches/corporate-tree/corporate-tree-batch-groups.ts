@@ -24,6 +24,8 @@ export type CorporateTreeBatchRelationship = {
   matched_hubspot_company_id?: string | null;
   /** Motivo con que quedó en «Descartadas», si quedó ahí. */
   discard_reason_code?: string | null;
+  /** Lo que decidió el rescate con ella (p. ej. `duplicate`: le encontró la web y ya existía). */
+  rescue_decision?: string | null;
   /** La web de la empresa de partida (para distinguir la web del grupo de una propia). */
   root_domain?: string | null;
   /** Tiene web propia (no la del grupo) y aun así no entró al lote. */
@@ -43,6 +45,8 @@ export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del gr
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL = 'En Descartadas: posible duplicado en HubSpot';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_hubspot_duplicate';
 export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
+/** El rescate le encontró su web y ya existía en SellUp o HubSpot. */
+export const CORPORATE_TREE_RESCUE_DUPLICATE_LABEL = 'Ya existía (el rescate encontró su web)';
 /** Con web propia, no entró y no está en SellUp: HubSpot ya la tenía o no pasó las revisiones. */
 export const CORPORATE_TREE_NOT_WRITTEN_LABEL = 'No entró: ya existía o no pasó las revisiones';
 
@@ -198,7 +202,9 @@ export function groupBatchCandidatesByTreeRelation(
           ? CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL
           : rel.own_website
             ? CORPORATE_TREE_NOT_WRITTEN_LABEL
-            : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
+            : rel.rescue_decision === 'duplicate'
+              ? CORPORATE_TREE_RESCUE_DUPLICATE_LABEL
+              : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
           ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
           : rel.related_domain
             ? CORPORATE_TREE_GROUP_WEBSITE_LABEL
