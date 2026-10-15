@@ -16,6 +16,11 @@
  *  - Lo que no cabe en los 10 no va al banco de empresas (un proveedor de X no es un
  *    candidato general del país × industria).
  *  - Nada se aprueba solo. 0 escrituras en HubSpot.
+ *
+ * AGENT1-SUPPLIER-SEARCH-PUBLIC-1 (Fase 2) — si la referencia es una ENTIDAD PÚBLICA de
+ * un país con compras públicas conectadas (hoy Colombia, SECOP II), sus proveedores de
+ * la industria salen primero de ahí, gratis y con el contrato como prueba. Claude corre
+ * después sólo si faltan empresas para Por revisar.
  */
 
 import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
@@ -49,6 +54,12 @@ import {
   toDiscoveryTaxonomyMetadata,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import {
+  PUBLIC_BUYER_SUPPLIER_COUNTRIES,
+  SUPPLIER_PUBLIC_BUYER_METADATA_KEY,
+  type PublicBuyerRelationship,
+  type PublicBuyerStepOutcome,
+} from '@/server/prospect-batches/supplier-search/public-buyer-suppliers';
 
 /** Lo que el producto promete entregar, igual que «Empresas por criterios». */
 export const SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES = 10;
@@ -94,6 +105,24 @@ export type SupplierSearchRunDeps = {
   rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
   /** Ids de las filas web del lote que cuentan para la meta, leídos tras el rescate. */
   listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — proveedores de una entidad pública según las
+   * compras públicas del país (gratis). Ausente = Fase 1 tal cual.
+   */
+  runPublicBuyerSuppliers?: (input: {
+    batchId: string;
+    referenceCompanyName: string;
+    countryCode: string;
+    macroIndustryKey: string;
+  }) => Promise<PublicBuyerStepOutcome>;
+  /** Ids de las filas oficiales (no web) del lote que cuentan para la meta, tras el rescate. */
+  listAcceptedPublicCandidateIds?: (batchId: string) => Promise<string[] | null>;
+  /** «Proveedor de X» con la prueba del contrato en los candidatos con ese NIT. */
+  tagPublicBuyerSuppliers?: (input: {
+    batchId: string;
+    referenceCompanyName: string;
+    relationships: readonly PublicBuyerRelationship[];
+  }) => Promise<number>;
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   /** Sella el estado del lote y publica su metadata terminal en la MISMA escritura. */
@@ -171,6 +200,45 @@ export function describeSupplierSearchFailure(reason: string): { message: string
     message: 'No se pudo completar la búsqueda de proveedores. Inténtalo de nuevo en unos minutos.',
     retryable: true,
   };
+}
+
+type ExecutedLeg = Extract<ClaudeSearchLegOutcome, { executed: true }>;
+
+/**
+ * Lo que dejaron las compras públicas, con la forma de una ronda (costo 0) para sumar
+ * con Claude. La aceptación de esas filas se relee tras el rescate (sin tamaño no
+ * cuentan antes). `null` si no corrió o no dejó nada en el lote.
+ */
+export function publicLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | null {
+  if (!step?.executed || (step.written === 0 && step.recordedWithoutWebsite === 0)) return null;
+  return {
+    executed: true,
+    persistedCandidates: step.written,
+    completeValidCandidates: 0,
+    acceptedIdentities: [],
+    estimatedCostUsd: 0,
+    proposed: step.offered,
+    passedPreFilter: step.written,
+  };
+}
+
+/** El bloque del lote: qué hizo el paso, sin las frases de prueba (van en cada candidato). */
+export function publicStepMetadata(step: PublicBuyerStepOutcome, tagged: number | null): Record<string, unknown> {
+  if (!step.executed) return { executed: false, reason: step.reason };
+  const { relationships, ...rest } = step;
+  return { ...rest, suppliers: relationships.length, tagged };
+}
+
+async function listAcceptedAfterRescue(
+  batchId: string,
+  deps: SupplierSearchRunDeps,
+  withPublic: boolean,
+): Promise<string[] | null> {
+  const web = await deps.listAcceptedCandidateIds?.(batchId).catch(() => null);
+  if (web === null || web === undefined) return null;
+  if (!withPublic || !deps.listAcceptedPublicCandidateIds) return web;
+  const official = await deps.listAcceptedPublicCandidateIds(batchId).catch(() => null);
+  return official === null ? web : [...new Set([...web, ...official])];
 }
 
 export async function executeSupplierSearchRun(
@@ -279,18 +347,42 @@ export async function executeSupplierSearchRun(
   const readOutcome = async (): Promise<CompetitorBatchOutcome | null> =>
     deps.countCompetitorBatchOutcome ? await deps.countCompetitorBatchOutcome(batchId).catch(() => null) : null;
 
-  let leg: ClaudeSearchLegOutcome = await runRound(
-    0,
-    resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()),
-  );
-  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: leg }];
-  let batchOutcome = leg.executed ? await readOutcome() : null;
+  // 4-pre. AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — compras públicas primero (gratis). Un
+  //        tropiezo no tumba la corrida: Claude sigue como en la Fase 1.
+  const publicStep: PublicBuyerStepOutcome | null =
+    deps.runPublicBuyerSuppliers && macroIndustryKey && PUBLIC_BUYER_SUPPLIER_COUNTRIES.includes(input.countryCode)
+      ? await deps
+          .runPublicBuyerSuppliers({
+            batchId,
+            referenceCompanyName: input.referenceCompanyName,
+            countryCode: input.countryCode,
+            macroIndustryKey,
+          })
+          .catch((err): PublicBuyerStepOutcome => ({
+            executed: false,
+            reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`,
+          }))
+      : null;
+  const publicLeg = publicLegOf(publicStep);
+  let batchOutcome = publicLeg && publicLeg.persistedCandidates > 0 ? await readOutcome() : null;
+  const publicEnough = (batchOutcome?.reviewable ?? 0) >= SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES;
+
+  const firstRound: ClaudeSearchLegOutcome = publicEnough
+    ? { executed: false, reason: 'public_buyer_enough' }
+    : await runRound(0, resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()));
+  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: firstRound }];
+  let leg: ClaudeSearchLegOutcome = firstRound.executed
+    ? publicLeg
+      ? combineCompetitorRounds(publicLeg, firstRound)
+      : firstRound
+    : (publicLeg ?? firstRound);
+  if (firstRound.executed) batchOutcome = await readOutcome();
 
   // 4a. AGENT1-SUPPLIER-SEARCH-4 — 2.ª ronda: sólo si faltan nuevas y queda tiempo. Una
   //     ronda que falla no tumba lo que la anterior ya dejó en el lote.
   for (
     let round = 0;
-    leg.executed && shouldRunAnotherSupplierRound(leg, round, batchOutcome?.reviewable ?? null);
+    firstRound.executed && leg.executed && shouldRunAnotherSupplierRound(leg, round, batchOutcome?.reviewable ?? null);
     round += 1
   ) {
     const phaseMs = resolveSupplierRoundPhaseMs(elapsed());
@@ -315,17 +407,38 @@ export async function executeSupplierSearchRun(
     acceptedIds: null,
     windowMs: null,
   };
-  if (leg.executed && leg.persistedCandidates > 0 && deps.rescueBatchInline && deps.listAcceptedCandidateIds) {
+  const publicWithoutWebsite = publicStep?.executed ? publicStep.recordedWithoutWebsite : 0;
+  if (
+    leg.executed &&
+    (leg.persistedCandidates > 0 || publicWithoutWebsite > 0) &&
+    deps.rescueBatchInline &&
+    deps.listAcceptedCandidateIds
+  ) {
     const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
     const windowMs = resolveSupplierRescueWindowMs(
       deps.actionStartedAtMs === undefined ? null : nowMs - deps.actionStartedAtMs,
     );
     if (windowMs !== null) {
       const reviewed = await deps.rescueBatchInline({ batchId, windowMs }).catch(() => false);
-      const acceptedIds = reviewed ? await deps.listAcceptedCandidateIds(batchId).catch(() => null) : null;
+      const acceptedIds = reviewed ? await listAcceptedAfterRescue(batchId, deps, publicLeg !== null) : null;
       rescue = { reviewed, acceptedIds, windowMs };
+      // Las sin web de compras públicas que el rescate admitió entran a Por revisar.
+      if (reviewed && publicWithoutWebsite > 0) batchOutcome = (await readOutcome()) ?? batchOutcome;
     }
   }
+
+  // 4c. AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — «Proveedor de X» con el contrato como prueba,
+  //     también en las que el rescate acaba de admitir.
+  const publicTagged =
+    publicStep?.executed && publicStep.relationships.length > 0 && deps.tagPublicBuyerSuppliers
+      ? await deps
+          .tagPublicBuyerSuppliers({
+            batchId,
+            referenceCompanyName: input.referenceCompanyName,
+            relationships: publicStep.relationships,
+          })
+          .catch(() => 0)
+      : null;
 
   // 5. La aceptación: la MISMA autoridad que el resto del asistente, con Claude como
   //    único aporte (en la posición de las piernas tardías, como en la corrida normal).
@@ -340,11 +453,14 @@ export async function executeSupplierSearchRun(
             : {}),
         }
       : writerTruth;
-  const persisted = legTruth?.persistedCandidates ?? 0;
+  // Las sin web de compras públicas que el rescate admitió desde Descartadas también son
+  // filas del lote: se cuentan con la lectura de Por revisar tras el rescate.
+  const rescuedPublic = rescue.reviewed && publicWithoutWebsite > 0;
+  const persisted = Math.max(legTruth?.persistedCandidates ?? 0, rescuedPublic ? (batchOutcome?.reviewable ?? 0) : 0);
   const acceptedForTarget = resolveAcceptanceFromRunFacts(
     { demand: fullTargetResultDemand(SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES), freePersistedCandidates: 0 },
     PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
-    legTruth ?? PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
+    legTruth ? { ...legTruth, persistedCandidates: persisted } : PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
     persisted,
   );
 
@@ -371,6 +487,7 @@ export async function executeSupplierSearchRun(
               accepted_after_rescue: rescue.acceptedIds?.length ?? null,
             },
           },
+          ...(publicStep ? { [SUPPLIER_PUBLIC_BUYER_METADATA_KEY]: publicStepMetadata(publicStep, publicTagged) } : {}),
           ...(leg.executed ? { [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget) } : {}),
         },
       })

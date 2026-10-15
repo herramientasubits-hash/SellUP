@@ -23,7 +23,7 @@ import {
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { executeCompetitorSearchRun, type CompetitorRunDeps } from './wizard-competitor-run';
-import { executeSupplierSearchRun } from './wizard-supplier-search';
+import { executeSupplierSearchRun, type SupplierSearchRunDeps } from './wizard-supplier-search';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -574,6 +574,10 @@ export type WizardExecutionDeps = {
   resolveSupplierSearchEnabled?: () => boolean;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
   runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number; round?: number }) => Promise<ClaudeSearchLegOutcome>;
+  /** AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — compras públicas de una entidad (ver `wizard-supplier-search`). */
+  runPublicBuyerSuppliers?: SupplierSearchRunDeps['runPublicBuyerSuppliers'];
+  listAcceptedPublicCandidateIds?: SupplierSearchRunDeps['listAcceptedPublicCandidateIds'];
+  tagPublicBuyerSuppliers?: SupplierSearchRunDeps['tagPublicBuyerSuppliers'];
   /**
    * AGENT1-WATERFALL-LEG-DURABLE-TRACE — publica la traza de la pierna en la
    * metadata del lote.
@@ -1112,6 +1116,45 @@ export async function executeProspectWizardGenerationAction(
     },
     // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa», detrás de su bandera.
     resolveSupplierSearchEnabled: isAgent1SupplierSearchEnabled,
+    // AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — proveedores de una entidad pública según las
+    // compras públicas (SECOP II, gratis). Lecturas de fuentes con service_role;
+    // escrituras del lote con la sesión, como el árbol.
+    runPublicBuyerSuppliers: async ({ batchId, referenceCompanyName, countryCode, macroIndustryKey }) => {
+      const auth = await requireActiveUser();
+      const [{ runPublicBuyerSupplierStep }, { buildLivePublicBuyerStepDeps }] = await Promise.all([
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers'),
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers.server'),
+      ]);
+      return runPublicBuyerSupplierStep(
+        { batchId, referenceCompanyName, countryCode, macroIndustryKey, nowIso: new Date().toISOString() },
+        buildLivePublicBuyerStepDeps({
+          sessionClient: supabase as unknown as SupabaseClient,
+          serviceClient: budgetClient as unknown as SupabaseClient,
+          batchId,
+          countryCode,
+          countryName: LATAM_COUNTRIES.find((c) => c.code === countryCode)?.name ?? countryCode,
+          macroIndustryKey,
+          requestedByUserId: auth.internalUserId,
+        }),
+      );
+    },
+    listAcceptedPublicCandidateIds: async (batchId) => {
+      const { data, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('id')
+        .eq('batch_id', batchId)
+        .neq('source_primary', 'web_ai')
+        .not('status', 'in', '(duplicate,discarded)')
+        .eq('metadata->target_completeness->>counts_toward_target', 'true');
+      return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
+    },
+    tagPublicBuyerSuppliers: async (input) => {
+      const [{ tagPublicBuyerSuppliers }, { buildLivePublicBuyerTagDeps }] = await Promise.all([
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers'),
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers.server'),
+      ]);
+      return tagPublicBuyerSuppliers(input, buildLivePublicBuyerTagDeps(supabase as unknown as SupabaseClient));
+    },
     runClaudeSupplierSearch: async ({ batchId, phaseMs, round }) => {
       const auth = await requireActiveUser();
       const [{ runClaudeCompanySearch }, { buildLiveClaudeCompanySearchDeps }] = await Promise.all([

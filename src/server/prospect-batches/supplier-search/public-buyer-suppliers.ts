@@ -1,0 +1,283 @@
+/**
+ * AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — «Proveedores de una empresa», Fase 2: cuando la
+ * empresa de referencia es una ENTIDAD PÚBLICA, sus proveedores salen de las compras
+ * públicas oficiales (gratis) antes de pagar a Claude.
+ *
+ *  1. ¿La referencia es una entidad pública del país? Sólo con una coincidencia única
+ *     por nombre (exacta, o el comienzo del nombre prefiriendo la cabeza de la
+ *     entidad). Una empresa privada («Bancolombia») no coincide y el paso no corre.
+ *  2. Sus proveedores en la industria pedida, de más a menos monto (fuente del país:
+ *     hoy SECOP II en Colombia; Chile entra igual cuando tenga su ticket).
+ *  3. Fuera las otras entidades públicas (convenios interadministrativos: ESU, ITM…).
+ *  4. Con web (registro oficial) ⇒ al lote con el escritor de fuentes oficiales.
+ *     Sin web ⇒ a Descartadas «sin sitio» con su NIT: el rescate de Claude busca el
+ *     sitio (regla de la dueña 01-10: sin web no cuenta para la meta).
+ *  5. Al final de la corrida, a cada candidato con ese NIT se le pone «Proveedor de X»
+ *     con la página del contrato en SECOP como prueba.
+ *
+ * Puro: dependencias inyectadas. 0 escrituras en HubSpot (su revisión es de lectura).
+ */
+
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
+import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
+
+/** Países con compras públicas conectadas a «Proveedores». Chile: falta su ticket. */
+export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = ['CO'];
+/** Proveedores que se ofrecen como mucho (con y sin web). */
+export const PUBLIC_BUYER_MAX_SUPPLIERS = 12;
+/** Clave del bloque del lote con lo que hizo el paso. */
+export const SUPPLIER_PUBLIC_BUYER_METADATA_KEY = 'supplier_public_buyer';
+
+/** Un proveedor de la entidad, con su industria por lo que le vende. */
+export type PublicBuyerSupplier = {
+  taxId: string;
+  name: string;
+  totalAmount: number;
+  contractCount: number;
+  lastSignedAt: string | null;
+  macroIndustryKey: string;
+  macroShare: number;
+  /** Rubro en palabras de lo que más le vende («Servicios informáticos»). */
+  rubro: string | null;
+  evidenceUrl: string | null;
+};
+
+export type PublicBuyerSuppliersResult =
+  | { ok: true; suppliers: PublicBuyerSupplier[]; read: number; outsideIndustry: number; tableVersion: string }
+  | { ok: false; reason: 'industry_without_unspsc' | 'source_unavailable' };
+
+/** Una entidad pública candidata a ser la referencia. */
+export type PublicEntityRow = {
+  taxId: string;
+  /** Nombre normalizado del registro (mayúsculas, sin tildes ni puntuación). */
+  normalizedLegalName: string;
+  /** Nombre corto que publica la fuente («Santiago de Cali»), si lo hay. */
+  shortName: string | null;
+  isHead: boolean;
+};
+
+export type PublicBuyerRelationship = {
+  taxId: string;
+  name: string;
+  evidenceUrl: string | null;
+  evidence: string;
+};
+
+export type PublicBuyerStepSkipReason =
+  | 'country_not_supported'
+  | 'not_public_entity'
+  | 'ambiguous_entity'
+  | 'industry_without_unspsc'
+  | 'source_unavailable'
+  | 'failed';
+
+export type PublicBuyerStepOutcome =
+  | { executed: false; reason: PublicBuyerStepSkipReason | string }
+  | {
+      executed: true;
+      buyer: { taxId: string; name: string; matchedBy: 'exact' | 'prefix' };
+      sourceKey: string;
+      tableVersion: string;
+      read: number;
+      outsideIndustry: number;
+      publicEntitiesExcluded: number;
+      offered: number;
+      /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
+      written: number;
+      writeFailed: boolean;
+      /** Sin web, a Descartadas para que el rescate de Claude busque su sitio. */
+      recordedWithoutWebsite: number;
+      relationships: PublicBuyerRelationship[];
+    };
+
+export type PublicBuyerStepInput = {
+  batchId: string;
+  referenceCompanyName: string;
+  countryCode: string;
+  macroIndustryKey: string;
+  nowIso: string;
+};
+
+export type PublicBuyerStepDeps = {
+  sourceKey: string;
+  /** Entidades públicas del país cuyo nombre es o empieza por el normalizado. */
+  findPublicEntities: (normalizedName: string) => Promise<PublicEntityRow[]>;
+  listSuppliers: (input: { buyerTaxId: string; macroIndustryKey: string; nowIso: string }) => Promise<PublicBuyerSuppliersResult>;
+  /** NIT que son entidades públicas y NO empresas del registro mercantil. */
+  listPublicOnlyTaxIds: (taxIds: readonly string[]) => Promise<ReadonlySet<string>>;
+  findDomainsByTaxId: (taxIds: readonly string[]) => Promise<ReadonlyMap<string, string>>;
+  writeWithWebsite: (companies: readonly CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
+  recordWithoutWebsite: (companies: readonly CountrySourceCompany[]) => Promise<number>;
+};
+
+/** «Alcaldía de Medellín» → «ALCALDIA DE MEDELLIN» (como `normalized_legal_name`). */
+export function normalizePublicEntityName(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9Ñ ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueByTaxId(rows: readonly PublicEntityRow[]): PublicEntityRow[] {
+  const seen = new Map<string, PublicEntityRow>();
+  for (const row of rows) if (!seen.has(row.taxId)) seen.set(row.taxId, row);
+  return [...seen.values()];
+}
+
+/** Una sola entidad, o ninguna: mejor no correr que comprarle a otra entidad. */
+function pickOne(rows: readonly PublicEntityRow[]): PublicEntityRow | 'ambiguous' | null {
+  const unique = uniqueByTaxId(rows);
+  if (unique.length === 0) return null;
+  if (unique.length === 1) return unique[0];
+  const heads = unique.filter((row) => row.isHead);
+  return heads.length === 1 ? heads[0] : 'ambiguous';
+}
+
+export function pickPublicBuyer(
+  referenceCompanyName: string,
+  rows: readonly PublicEntityRow[],
+): { entity: PublicEntityRow; matchedBy: 'exact' | 'prefix' } | { entity: null; reason: 'not_public_entity' | 'ambiguous_entity' } {
+  const wanted = normalizePublicEntityName(referenceCompanyName);
+  if (wanted.length < 4) return { entity: null, reason: 'not_public_entity' };
+  const names = (row: PublicEntityRow) => [row.normalizedLegalName, row.shortName ? normalizePublicEntityName(row.shortName) : null];
+  const exact = pickOne(rows.filter((row) => names(row).includes(wanted)));
+  if (exact === 'ambiguous') return { entity: null, reason: 'ambiguous_entity' };
+  if (exact) return { entity: exact, matchedBy: 'exact' };
+  const prefix = pickOne(rows.filter((row) => names(row).some((n) => n?.startsWith(`${wanted} `))));
+  if (prefix === 'ambiguous') return { entity: null, reason: 'ambiguous_entity' };
+  if (prefix) return { entity: prefix, matchedBy: 'prefix' };
+  return { entity: null, reason: 'not_public_entity' };
+}
+
+const MILLIONS = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+
+/** La frase que el vendedor ve en «Por qué fue encontrado». */
+export function describePublicBuyerSupplier(supplier: PublicBuyerSupplier, buyerName: string, sinceYear: string): string {
+  const contracts = supplier.contractCount === 1 ? '1 contrato' : `${supplier.contractCount} contratos`;
+  const amount =
+    supplier.totalAmount >= 1_000_000
+      ? `$${MILLIONS.format(Math.round(supplier.totalAmount / 1_000_000))} millones`
+      : `$${MILLIONS.format(Math.round(supplier.totalAmount))}`;
+  const last = supplier.lastSignedAt ? `; el último firmado el ${supplier.lastSignedAt}` : '';
+  const rubro = supplier.rubro ? ` (${supplier.rubro.toLowerCase()})` : '';
+  return `${contracts}${rubro} con ${buyerName} en compras públicas desde ${sinceYear} por ${amount}${last}.`;
+}
+
+function toCompany(
+  supplier: PublicBuyerSupplier,
+  input: { countryCode: string; sourceKey: string; tableVersion: string },
+  domain: string | null,
+): CountrySourceCompany {
+  return {
+    recordIdentityKey: `tax:${supplier.taxId}`,
+    legalName: supplier.name,
+    normalizedLegalName: null,
+    taxId: supplier.taxId,
+    taxIdentifierType: 'NIT',
+    countryCode: input.countryCode,
+    city: null,
+    region: null,
+    domain,
+    declaredIndustry: supplier.rubro,
+    industryCode: null,
+    coarseSector: null,
+    // La industria la prueba lo que le vende al Estado (tabla UNSPSC aprobada).
+    officialMacroIndustry: { macroIndustryKeys: [supplier.macroIndustryKey], tableVersion: input.tableVersion },
+    originSourceKey: input.sourceKey,
+  };
+}
+
+export async function runPublicBuyerSupplierStep(
+  input: PublicBuyerStepInput,
+  deps: PublicBuyerStepDeps,
+): Promise<PublicBuyerStepOutcome> {
+  if (!PUBLIC_BUYER_SUPPLIER_COUNTRIES.includes(input.countryCode)) {
+    return { executed: false, reason: 'country_not_supported' };
+  }
+  const normalized = normalizePublicEntityName(input.referenceCompanyName);
+  const picked = pickPublicBuyer(input.referenceCompanyName, await deps.findPublicEntities(normalized));
+  if (picked.entity === null) return { executed: false, reason: picked.reason };
+  const buyer = picked.entity;
+
+  const listed = await deps.listSuppliers({
+    buyerTaxId: buyer.taxId,
+    macroIndustryKey: input.macroIndustryKey,
+    nowIso: input.nowIso,
+  });
+  if (!listed.ok) return { executed: false, reason: listed.reason };
+
+  const publicOnly = listed.suppliers.length > 0 ? await deps.listPublicOnlyTaxIds(listed.suppliers.map((s) => s.taxId)) : new Set<string>();
+  const offered = listed.suppliers.filter((s) => !publicOnly.has(s.taxId)).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
+  const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
+  const companyInput = { countryCode: input.countryCode, sourceKey: deps.sourceKey, tableVersion: listed.tableVersion };
+  const withWebsite = offered.filter((s) => domains.has(s.taxId)).map((s) => toCompany(s, companyInput, domains.get(s.taxId) ?? null));
+  const withoutWebsite = offered.filter((s) => !domains.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
+
+  const write = withWebsite.length > 0 ? await deps.writeWithWebsite(withWebsite) : { written: 0, failed: false };
+  const recordedWithoutWebsite = withoutWebsite.length > 0 ? await deps.recordWithoutWebsite(withoutWebsite).catch(() => 0) : 0;
+
+  const buyerName = input.referenceCompanyName.trim();
+  const sinceYear = String(Number(input.nowIso.slice(0, 4)) - 2);
+  return {
+    executed: true,
+    buyer: { taxId: buyer.taxId, name: buyer.normalizedLegalName, matchedBy: picked.matchedBy },
+    sourceKey: deps.sourceKey,
+    tableVersion: listed.tableVersion,
+    read: listed.read,
+    outsideIndustry: listed.outsideIndustry,
+    publicEntitiesExcluded: listed.suppliers.filter((s) => publicOnly.has(s.taxId)).length,
+    offered: offered.length,
+    written: write.written,
+    writeFailed: write.failed,
+    recordedWithoutWebsite,
+    relationships: offered.map((s) => ({
+      taxId: s.taxId,
+      name: s.name,
+      evidenceUrl: s.evidenceUrl,
+      evidence: describePublicBuyerSupplier(s, buyerName, sinceYear),
+    })),
+  };
+}
+
+/** Candidato del lote, lo justo para etiquetarlo. */
+export type TaggableCandidate = { id: string; taxIdentifier: string | null; metadata: Record<string, unknown> | null };
+
+/**
+ * «Proveedor de X» con la prueba de SECOP en cada candidato del lote con ese NIT —
+ * los escritos con web y los que el rescate de Claude rescató. No pisa una relación
+ * que ya trae (la de Claude, con su caso de éxito). Devuelve cuántos etiquetó.
+ */
+export async function tagPublicBuyerSuppliers(
+  input: { batchId: string; referenceCompanyName: string; relationships: readonly PublicBuyerRelationship[] },
+  deps: {
+    loadCandidates: (batchId: string) => Promise<TaggableCandidate[]>;
+    updateMetadata: (candidateId: string, metadata: Record<string, unknown>) => Promise<boolean>;
+  },
+): Promise<number> {
+  if (input.relationships.length === 0) return 0;
+  const byTaxId = new Map(input.relationships.map((r) => [r.taxId, r]));
+  let tagged = 0;
+  for (const candidate of await deps.loadCandidates(input.batchId)) {
+    const taxId = normalizeEntityNit(candidate.taxIdentifier);
+    const relationship = taxId ? byTaxId.get(taxId) : undefined;
+    if (!relationship) continue;
+    const metadata = candidate.metadata ?? {};
+    const existing = metadata.relationship as { kind?: unknown } | undefined;
+    if (existing && typeof existing === 'object' && existing.kind === 'supplier_of') continue;
+    const ok = await deps.updateMetadata(candidate.id, {
+      ...metadata,
+      relationship: {
+        kind: 'supplier_of',
+        reference_company_name: input.referenceCompanyName.trim(),
+        evidence_url: relationship.evidenceUrl,
+        evidence: relationship.evidence,
+        source: 'public_procurement',
+      },
+    });
+    if (ok) tagged += 1;
+  }
+  return tagged;
+}
