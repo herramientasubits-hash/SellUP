@@ -2,14 +2,19 @@
  * Agente 1 · «Competidores de una empresa» — la corrida (pura; dependencias
  * inyectadas por la acción del asistente).
  *
- * Decisión de la dueña (14-10): la referencia se escribe o se toma de Cuentas, las
- * competidoras pueden ser de cualquier tamaño dentro de la industria y no se gasta
- * crédito de Apollo. Por eso esta corrida NO pasa por la capa gratuita, el banco,
- * Tavily, Apollo ni Lusha —todas buscan «empresas de la industria», no
- * competidoras—: la fuente es «Claude busca empresas» con consultas que nombran a
- * la referencia. Lo que Claude propone entra por la cadena de siempre (sitio
- * verificado, duplicados SellUp/HubSpot, número fiscal, «una empresa, un
- * vendedor», revisión). Nada se aprueba solo.
+ * Decisión de la dueña (14-10): la referencia se escribe o se toma de Cuentas y las
+ * competidoras pueden ser de cualquier tamaño dentro de la industria. Orden:
+ *
+ *   1. lo GRATUITO —registros oficiales del país (en Colombia, por el CIIU exacto
+ *      de la referencia) y banco de empresas— filtrado por el juez de Claude: sólo
+ *      entra lo que compite con la referencia (`runCompetitorFreeSources`);
+ *   2. «Claude busca empresas» en la web, con consultas que nombran a la
+ *      referencia, sólo si lo gratuito no llenó la meta (hasta 2 rondas).
+ *
+ * Tavily, Apollo y Lusha no corren: buscan «empresas de la industria», no
+ * competidoras. Todo entra por la cadena de siempre (sitio verificado, duplicados
+ * SellUp/HubSpot, número fiscal, «una empresa, un vendedor», revisión). Nada se
+ * aprueba solo.
  *
  * Lote: el mismo slot idempotente del asistente (`clientRequestId`), con la
  * referencia en `metadata.competitor_search`. Aceptación y sellado: las mismas
@@ -28,7 +33,10 @@ import {
   toCompetitorSearchMetadata,
   type CompetitorReference,
 } from '@/modules/prospect-batches/competitor-search/competitor-reference';
-import { fullTargetResultDemand } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+import {
+  fullTargetResultDemand,
+  resolveProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import {
   resolveDiscoveryTaxonomyCapability,
   toDiscoveryTaxonomyMetadata,
@@ -62,7 +70,34 @@ export const COMPETITOR_SEARCH_MAX_PHASE_MS = 110_000;
 /** Con menos que esto por delante no se empieza: Claude + verificar + escribir. */
 export const COMPETITOR_SEARCH_MIN_PHASE_MS = 60_000;
 
+/** Lo que necesita lo gratuito de Competidores (ver `competitor-free-sources.server.ts`). */
+export type CompetitorFreeSourcesRequest = {
+  batchId: string;
+  reference: CompetitorReference;
+  countryCode: string;
+  countryName: string;
+  macroIndustryKey: string | null;
+  industryName: string;
+  target: number;
+  userId: string;
+};
+
+export type CompetitorFreeSourcesOutcome = {
+  /** Filas que lo gratuito dejó en el lote. */
+  persistedCount: number;
+  /** De ellas, las que ya cuentan para la meta (medido por la capa y el banco). */
+  acceptedCount: number;
+  telemetry: Record<string, unknown>;
+};
+
 export type CompetitorRunDeps = {
+  /**
+   * Catálogos del país + banco, filtrados por el juez de Claude, en el lote de la
+   * corrida. `null` ⇒ no aportó. Ausente ⇒ sólo Claude en la web (como en la fase 1).
+   */
+  runCompetitorFreeSources?: (
+    input: CompetitorFreeSourcesRequest,
+  ) => Promise<CompetitorFreeSourcesOutcome | null>;
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
   /** La bandera de «Claude busca empresas»: sin ella no hay con qué buscar competidores. */
@@ -184,6 +219,14 @@ export function resolveCompetitorPhaseMs(elapsedMs: number): number | null {
   return phaseMs >= COMPETITOR_SEARCH_MIN_PHASE_MS ? phaseMs : null;
 }
 
+/** La macro industria de la búsqueda (la misma que queda en la fila del lote). */
+export function resolveCompetitorMacroIndustryKey(catalogResolution: CatalogResolutionOutput): string | null {
+  return resolveMacroIndustryKey({
+    slug: catalogResolution.industry.slug,
+    displayName: catalogResolution.industry.name,
+  });
+}
+
 /** La fila del lote: la misma que una corrida por criterios, más la referencia. */
 export function buildCompetitorBatchPayload(
   input: CompetitorRunInput,
@@ -202,10 +245,7 @@ export function buildCompetitorBatchPayload(
     searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
     discoveryTaxonomy: {
       ...toDiscoveryTaxonomyMetadata(resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version)),
-      macro_industry_key: resolveMacroIndustryKey({
-        slug: catalogResolution.industry.slug,
-        displayName: catalogResolution.industry.name,
-      }),
+      macro_industry_key: resolveCompetitorMacroIndustryKey(catalogResolution),
       macro_industry_display_name: catalogResolution.industry.name,
       requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
     },
@@ -291,19 +331,50 @@ export async function executeCompetitorSearchRun(
     }
   };
 
-  const first = await runRound(0, phaseMs);
-  if (!first.executed) {
-    await deps.markBatchFailed(batchId, 'pipeline_error').catch(() => undefined);
-    return failure('GENERATION_FAILED', 'La búsqueda de competidores falló. Intenta de nuevo en unos minutos.', true);
+  // 1. Lo gratuito, filtrado por el juez de Claude.
+  let freeSources: CompetitorFreeSourcesOutcome | null = null;
+  if (deps.runCompetitorFreeSources) {
+    report('competitor_free');
+    freeSources = await deps
+      .runCompetitorFreeSources({
+        batchId,
+        reference: input.reference,
+        countryCode: input.countryCode,
+        countryName: input.countryName,
+        macroIndustryKey: resolveCompetitorMacroIndustryKey(input.catalogResolution),
+        industryName: input.catalogResolution.industry.name,
+        target: input.target,
+        userId: input.userId,
+      })
+      .catch(() => null);
+  }
+  const freePersisted = Math.max(0, freeSources?.persistedCount ?? 0);
+  let batchOutcome = freePersisted > 0 ? await readOutcome() : null;
+
+  // 2. Claude en la web, sólo si lo gratuito no llenó la meta.
+  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [];
+  let claudeLeg: ExecutedLeg | null = null;
+  const freeCovers = freePersisted > 0 && (batchOutcome?.reviewable ?? freePersisted) >= input.target;
+  if (!freeCovers) {
+    const elapsed = deps.actionStartedAtMs === undefined ? 0 : now() - deps.actionStartedAtMs;
+    const firstPhaseMs = resolveCompetitorPhaseMs(elapsed);
+    const first: ClaudeSearchLegOutcome =
+      firstPhaseMs === null ? { executed: false, reason: 'not_enough_time' } : await runRound(0, firstPhaseMs);
+    rounds.push({ round: 0, outcome: first });
+    if (first.executed) {
+      claudeLeg = first;
+      batchOutcome = await readOutcome();
+    } else if (freePersisted === 0) {
+      await deps.markBatchFailed(batchId, 'pipeline_error').catch(() => undefined);
+      return failure('GENERATION_FAILED', 'La búsqueda de competidores falló. Intenta de nuevo en unos minutos.', true);
+    }
   }
 
   // Rondas siguientes: sólo si faltan aceptadas y queda tiempo. Una ronda que falla
   // no tumba lo que la anterior ya dejó en el lote.
-  let claudeLeg: ExecutedLeg = first;
-  let batchOutcome = await readOutcome();
-  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: first }];
   for (
     let round = 0;
+    claudeLeg !== null &&
     shouldRunAnotherCompetitorRound(claudeLeg, input.target, round, batchOutcome?.reviewable ?? null);
     round += 1
   ) {
@@ -321,23 +392,37 @@ export async function executeCompetitorSearchRun(
   }
   report('reviewing');
 
+  const claudePersisted = claudeLeg?.persistedCandidates ?? 0;
+  const totalPersisted = freePersisted + claudePersisted;
+  const freeAccepted = Math.min(Math.max(0, freeSources?.acceptedCount ?? 0), freePersisted, input.target);
   const facts: RunAcceptanceFacts = {
-    demand: fullTargetResultDemand(input.target),
-    freePersistedCandidates: 0,
+    demand:
+      freeSources === null
+        ? fullTargetResultDemand(input.target)
+        : resolveProviderResultDemand(
+            {
+              requestedTarget: input.target,
+              acceptedBeforeProvider: freeAccepted,
+              residualGap: input.target - freeAccepted,
+              providerRequired: freeAccepted < input.target,
+            },
+            input.target,
+          ),
+    freePersistedCandidates: freePersisted,
   };
-  const legTruth = claudeLegWriterTruth(claudeLeg) ?? PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
+  const legTruth = (claudeLeg ? claudeLegWriterTruth(claudeLeg) : null) ?? PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
   const acceptedForTarget = resolveAcceptanceFromRunFacts(
     facts,
     legTruth,
     PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
-    claudeLeg.persistedCandidates,
+    totalPersisted,
   );
 
   // Sellado terminal: el escritor ya dejó `ready_for_review` si escribió; sin
   // filas, el lote se cierra como `completed`. Viaja con la aceptación y la traza.
   const seal = resolveBatchTerminalStatusDecision({
     preExisting: NO_PRE_EXISTING_DURABLE_CANDIDATES,
-    persistedCandidates: claudeLeg.persistedCandidates,
+    persistedCandidates: totalPersisted,
     persistenceFailureCount: 0,
   });
   if (seal.action === 'write' && deps.sealFreeOnlyBatchStatus) {
@@ -347,8 +432,9 @@ export async function executeCompetitorSearchRun(
         status: seal.status,
         metadata: {
           [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget),
-          claude_search_leg: claudeLeg,
+          claude_search_leg: claudeLeg ?? { executed: false, reason: freeCovers ? 'free_sources_covered_target' : 'not_run' },
           competitor_search_rounds: rounds,
+          ...(freeSources ? { competitor_free_sources: freeSources.telemetry } : {}),
           // La forma de búsqueda, otra vez al cerrar: es la última escritura del lote.
           search_mode: 'competitors',
           ...(batchOutcome ? { competitor_search_outcome: batchOutcome } : {}),
@@ -359,7 +445,7 @@ export async function executeCompetitorSearchRun(
 
   // Lo que cuenta para la persona es lo que ve en Por revisar: si todo lo hallado
   // ya estaba en HubSpot/SellUp, la corrida no «generó candidatos».
-  const reviewable = batchOutcome?.reviewable ?? claudeLeg.persistedCandidates;
+  const reviewable = batchOutcome?.reviewable ?? totalPersisted;
   const hasReviewable = reviewable > 0;
   return {
     ok: true,
@@ -369,7 +455,7 @@ export async function executeCompetitorSearchRun(
         : 'success_partial'
       : 'no_new_candidates',
     batchId,
-    batchStatus: claudeLeg.persistedCandidates > 0 ? 'ready_for_review' : 'nothing_to_write',
+    batchStatus: totalPersisted > 0 ? 'ready_for_review' : 'nothing_to_write',
     candidateCount: reviewable,
     ...(!hasReviewable && batchOutcome
       ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) }
@@ -378,6 +464,6 @@ export async function executeCompetitorSearchRun(
     targetPersistibleCandidates: input.target,
     targetReached: acceptedForTarget.targetReached,
     acceptedForTarget,
-    claudeSearchLeg: claudeLeg,
+    ...(claudeLeg ? { claudeSearchLeg: claudeLeg } : {}),
   };
 }

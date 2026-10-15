@@ -128,6 +128,8 @@ export type PrePaidNoveltyGateInput = {
    * Que el compilador lo exija es una guarda más fuerte que una prueba estática.
    */
   provider: ProviderSeenProvider;
+  /** «Competidores» — códigos de actividad de la referencia (ver `CountrySourceCriteria`). */
+  activityCodes?: readonly string[];
 };
 
 export type PrePaidNoveltyGateResult = {
@@ -392,6 +394,7 @@ export async function runPrePaidNoveltyGate(
       countryCode: input.countryCode,
       macroIndustryKey: input.macroIndustryKey,
       requestedTarget: input.requestedTarget,
+      ...(input.activityCodes && input.activityCodes.length > 0 ? { activityCodes: input.activityCodes } : {}),
     },
     {
       adapter: deps.countrySourceAdapter,

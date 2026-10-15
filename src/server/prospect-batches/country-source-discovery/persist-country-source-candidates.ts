@@ -127,6 +127,18 @@ function toSourceDiscoveryCandidate(
       ...(company.curatedOrigins && company.curatedOrigins.length > 0
         ? { curated_origins: [...company.curatedOrigins] }
         : {}),
+      // «Competidores de una empresa» — Claude la eligió como competidora: la
+      // relación viaja como en lo que encuentra Claude en la web (sin página).
+      ...(company.competitorRelationship
+        ? {
+            relationship: {
+              kind: 'competitor_of',
+              reference_company_name: company.competitorRelationship.referenceCompanyName,
+              evidence_url: null,
+              evidence: company.competitorRelationship.reason,
+            },
+          }
+        : {}),
       // SOURCES-MX-FREE-LAYER-RFC-1 — el número fiscal lo puso el registro oficial
       // por nombre (la fuente no lo publica). Ausente ⇒ venía de la fuente.
       ...(company.officialTaxIdLookup?.sourceKey

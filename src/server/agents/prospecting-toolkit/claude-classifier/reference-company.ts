@@ -12,7 +12,10 @@
  * el país tienen que estar en las listas que se le dieron.
  */
 
-import { normalizeReferenceDomain } from '@/modules/prospect-batches/competitor-search/competitor-reference';
+import {
+  normalizeReferenceDomain,
+  normalizeReferenceKeywords,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
   AnthropicApiError,
   type AnthropicConversationResult,
@@ -48,6 +51,8 @@ export type ReferenceCompanyCard = {
   /** Uno de `input.industries`, o null si Claude no supo. */
   industryName: string | null;
   description: string | null;
+  /** Palabras clave en inglés de lo que vende (para bases B2B como Apollo). */
+  keywords: string[];
 };
 
 export type ReferenceCompanyOutcome = {
@@ -67,7 +72,7 @@ function buildTool(input: ReferenceCompanyInput) {
     input_schema: {
       type: 'object',
       additionalProperties: false,
-      required: ['found', 'name', 'website_url', 'country_code', 'industry', 'description'],
+      required: ['found', 'name', 'website_url', 'country_code', 'industry', 'description', 'keywords'],
       properties: {
         found: { type: 'boolean', description: 'false si no estás seguro de qué empresa es.' },
         name: { type: 'string', description: 'Nombre comercial de la empresa.' },
@@ -86,6 +91,12 @@ function buildTool(input: ReferenceCompanyInput) {
         description: {
           anyOf: [{ type: 'string' }, { type: 'null' }],
           description: `Qué vende y a quién, en una frase de máximo ${REFERENCE_DESCRIPTION_MAX_CHARS} caracteres.`,
+        },
+        keywords: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'De 3 a 6 palabras clave EN INGLÉS de lo que vende, como las usan las bases de empresas B2B (p. ej. «aluminum extrusion», «dairy products»).',
         },
       },
     },
@@ -134,6 +145,7 @@ type RawCard = {
   country_code?: unknown;
   industry?: unknown;
   description?: unknown;
+  keywords?: unknown;
 };
 
 function readSubmission(content: AnthropicConversationResult['content']): RawCard | null {
@@ -181,6 +193,7 @@ export function toReferenceCompanyCard(
     countryCode,
     industryName,
     description: text(raw.description, REFERENCE_DESCRIPTION_MAX_CHARS),
+    keywords: normalizeReferenceKeywords(raw.keywords),
   };
 }
 

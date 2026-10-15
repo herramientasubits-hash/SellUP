@@ -195,7 +195,13 @@ export function buildCoSiisDiscoveryAdapter(query: CoSiisSnapshotQuery): Country
     const empty = { sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY, companies: [], recordsRead: 0 };
     const macroIndustryKey = criteria.macroIndustryKey ?? '';
     const isPublicEntityMacro = CO_PUBLIC_ENTITY_DISCOVERY_MACROS.has(macroIndustryKey);
-    const ciiuCodes = isPublicEntityMacro ? [] : listCoCiiuCodesForMacro(macroIndustryKey);
+    // «Competidores»: los CIIU de la referencia, si se conocen; si no, los de la macro.
+    const referenceCodes = (criteria.activityCodes ?? []).filter((code) => /^\d{3,4}$/.test(code.trim()));
+    const ciiuCodes = isPublicEntityMacro
+      ? []
+      : referenceCodes.length > 0
+        ? referenceCodes.map((code) => code.trim())
+        : listCoCiiuCodesForMacro(macroIndustryKey);
 
     // Fail-closed: sin códigos (ni directorio público) no hay pregunta que hacer.
     // Consultar sin filtro devolvería la población entera y § 4 lo prohíbe.
