@@ -1446,7 +1446,12 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // (`prospect_batches.metadata->>'search_mode'`: corporate tree, suppliers, competitors), plus an
     // idempotent backfill of `provider_usage_logs.search_mode`. Not phone chain 109–117, not
     // catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(numbered[numbered.length - 1], '149_provider_usage_search_mode_from_batch_metadata.sql');
+    // AGENT1-SUPPLIER-SEARCH-CL-1 moves the ceiling to 150: one new table
+    // `public_procurement_supplier_links` (summary buyer entity × supplier from public procurement;
+    // today ChileCompra monthly purchase orders), RLS enabled with NO policies: only service_role
+    // reads and writes. Not phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT
+    // APPLIED.
+    assert.equal(numbered[numbered.length - 1], '150_public_procurement_supplier_links.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

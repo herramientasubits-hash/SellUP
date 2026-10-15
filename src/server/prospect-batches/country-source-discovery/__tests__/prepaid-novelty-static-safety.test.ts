@@ -342,8 +342,14 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '149_provider_usage_search_mode_from_batch_metadata.sql',
+      // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+      // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+      // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+      // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+      // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '150_public_procurement_supplier_links.sql',
     ],
-    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol y la forma de búsqueda del uso de IA desde la metadata del lote',
+    'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol, la forma de búsqueda del uso de IA desde la metadata del lote y quién le vende a cada entidad pública',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada

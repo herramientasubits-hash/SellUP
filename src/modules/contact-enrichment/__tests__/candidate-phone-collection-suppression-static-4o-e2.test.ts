@@ -305,6 +305,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '149_provider_usage_search_mode_from_batch_metadata.sql',
+      // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+      // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+      // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+      // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+      // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '150_public_procurement_supplier_links.sql',
     ]);
   });
 

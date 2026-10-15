@@ -199,6 +199,14 @@ const MIGRATION_148_COMPANY_RELATIONSHIPS = '148_agent1_company_relationships.sq
  * its SQL rather than trusting this comment. AUTHORED and NOT APPLIED.
  */
 const MIGRATION_149_USAGE_SEARCH_MODE = '149_provider_usage_search_mode_from_batch_metadata.sql';
+/**
+ * AGENT1-SUPPLIER-SEARCH-CL-1. One new table `public_procurement_supplier_links` (summary buyer
+ * entity × supplier from public procurement; today ChileCompra monthly purchase orders), RLS
+ * enabled with NO policies (service_role only). Not phone, not catalog, not BR, not CUT3B4. Names
+ * no source-catalog object, which the sweep below proves over its SQL rather than trusting this
+ * comment. AUTHORED and NOT APPLIED.
+ */
+const MIGRATION_150_PROCUREMENT_SUPPLIER_LINKS = '150_public_procurement_supplier_links.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -294,7 +302,12 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // (`prospect_batches.metadata->>'search_mode'`: corporate tree, suppliers, competitors), plus an
     // idempotent backfill of `provider_usage_logs.search_mode`. Not phone chain 109–117, not
     // catalog, not BR, not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 149);
+    // AGENT1-SUPPLIER-SEARCH-CL-1 moves the ceiling to 150: one new table
+    // `public_procurement_supplier_links` (summary buyer entity × supplier from public procurement;
+    // today ChileCompra monthly purchase orders), RLS enabled with NO policies: only service_role
+    // reads and writes. Not phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT
+    // APPLIED.
+    assert.equal(highest, 150);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -396,7 +409,11 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('149')),
       [MIGRATION_149_USAGE_SEARCH_MODE],
     );
-    assert.equal(files.some((f) => f.startsWith('150')), false);
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('150')),
+      [MIGRATION_150_PROCUREMENT_SUPPLIER_LINKS],
+    );
+    assert.equal(files.some((f) => f.startsWith('151')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
@@ -418,6 +435,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       MIGRATION_147_USAGE_LOG_DIMENSIONS,
       MIGRATION_148_COMPANY_RELATIONSHIPS,
       MIGRATION_149_USAGE_SEARCH_MODE,
+      MIGRATION_150_PROCUREMENT_SUPPLIER_LINKS,
     ]) {
       const sql = readMigration(foreign);
       for (const owned of [

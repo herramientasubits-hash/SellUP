@@ -1065,7 +1065,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
     // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.match(last, /^149_/);
+    // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+    // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+    // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+    // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.match(last, /^150_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1234,6 +1239,12 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '149_provider_usage_search_mode_from_batch_metadata.sql',
+      // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+      // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+      // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+      // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+      // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '150_public_procurement_supplier_links.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
