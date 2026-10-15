@@ -19,6 +19,9 @@ export const COMPETITOR_REFERENCE_LIMITS = {
   nameMaxChars: 120,
   domainMaxChars: 253,
   descriptionMaxChars: 300,
+  /** Palabras clave de la referencia (para Apollo): cuántas y de qué largo. */
+  keywordsMax: 6,
+  keywordMaxChars: 40,
 } as const;
 
 /** Lo que la búsqueda necesita saber de la empresa de referencia. */
@@ -31,6 +34,12 @@ export type CompetitorReference = {
   description: string | null;
   /** La cuenta de SellUp de la que salió, si salió de Cuentas. */
   accountId: string | null;
+  /**
+   * Palabras clave de lo que vende, en inglés y como las usan las bases B2B
+   * («aluminum extrusion», «dairy products»). Las pide Claude al armar la ficha y
+   * las usa Apollo como último recurso. Ausente en fichas anteriores.
+   */
+  keywords?: readonly string[];
 };
 
 /**
@@ -63,6 +72,26 @@ export function normalizeReferenceDomain(value: string | null | undefined): stri
   return DOMAIN_PATTERN.test(host) ? host : null;
 }
 
+/**
+ * Palabras clave saneadas: minúsculas, sólo letras/números/espacio/«&»/«-», sin
+ * repetir y hasta el tope. Lo que no encaja se descarta (no invalida la ficha).
+ */
+export function normalizeReferenceKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const keyword = collapseReferenceText(item.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+      .replace(/[^a-z0-9 &-]/g, '')
+      .trim();
+    if (keyword.length < 2 || keyword.length > COMPETITOR_REFERENCE_LIMITS.keywordMaxChars) continue;
+    if (detectPromptInjection(keyword) || out.includes(keyword)) continue;
+    out.push(keyword);
+    if (out.length >= COMPETITOR_REFERENCE_LIMITS.keywordsMax) break;
+  }
+  return out;
+}
+
 const referenceText = (max: number) =>
   z
     .string()
@@ -84,6 +113,11 @@ export const competitorReferenceSchema = z
       .transform((value) => normalizeReferenceDomain(value)),
     description: referenceText(COMPETITOR_REFERENCE_LIMITS.descriptionMaxChars).nullable(),
     accountId: z.string().uuid().nullable(),
+    keywords: z
+      .array(z.string().max(COMPETITOR_REFERENCE_LIMITS.keywordMaxChars * 2))
+      .max(COMPETITOR_REFERENCE_LIMITS.keywordsMax * 2)
+      .optional()
+      .transform((value) => (value === undefined ? undefined : normalizeReferenceKeywords(value))),
   })
   .strict();
 
@@ -109,6 +143,7 @@ export function toCompetitorSearchMetadata(reference: CompetitorReference): Reco
       domain: reference.domain,
       description: reference.description,
       account_id: reference.accountId,
+      ...(reference.keywords && reference.keywords.length > 0 ? { keywords: [...reference.keywords] } : {}),
     },
   };
 }
@@ -139,5 +174,6 @@ export function readCompetitorReference(metadata: unknown): CompetitorReference 
     domain: normalizeReferenceDomain(typeof raw.domain === 'string' ? raw.domain : null),
     description: description && !detectPromptInjection(description) ? description : null,
     accountId: typeof raw.account_id === 'string' ? raw.account_id : null,
+    ...(normalizeReferenceKeywords(raw.keywords).length > 0 ? { keywords: normalizeReferenceKeywords(raw.keywords) } : {}),
   };
 }

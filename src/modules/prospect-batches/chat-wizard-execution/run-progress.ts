@@ -32,7 +32,8 @@ export const RUN_PROGRESS_STAGES = [
   'tree_branch_2',
   'tree_checking',
   'tree_saving',
-  // «Competidores de una empresa»: Claude busca por rondas.
+  // «Competidores de una empresa»: lo gratuito filtrado y Claude por rondas.
+  'competitor_free',
   'competitor_round_1',
   'competitor_round_2',
   'reviewing',
@@ -55,6 +56,7 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   tree_branch_2: 'Claude terminó dos ramas del árbol; falta la última',
   tree_checking: 'Revisando HubSpot, duplicados, número fiscal y tamaño de lo encontrado',
   tree_saving: 'Guardando el árbol: cada empresa con su rama y sus asociaciones',
+  competitor_free: 'Revisando los registros gratuitos del país y el banco: Claude elige las que compiten',
   competitor_round_1: 'Claude busca en la web empresas que compiten con la referencia',
   competitor_round_2: 'Las primeras ya estaban en HubSpot: Claude busca competidoras menos conocidas',
   reviewing: 'Revisando lo encontrado',
@@ -82,6 +84,7 @@ export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 're
   tree_branch_2: 55,
   tree_checking: 70,
   tree_saving: 88,
+  competitor_free: 10,
   competitor_round_1: 25,
   competitor_round_2: 65,
 };

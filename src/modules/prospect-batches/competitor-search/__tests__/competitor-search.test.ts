@@ -280,6 +280,7 @@ describe('C — ficha de la referencia', () => {
       country_code: 'CO',
       industry: 'Consumo masivo',
       description: 'Lácteos',
+      keywords: ['Dairy Products', 'dairy products', 'yogurt', 'x'],
     };
     const confirmed = toReferenceCompanyCard(submission, conversation(submission, ['https://www.alpina.com/es']), REFERENCE_INPUT);
     assert.deepEqual(confirmed, {
@@ -288,6 +289,8 @@ describe('C — ficha de la referencia', () => {
       countryCode: 'CO',
       industryName: 'Consumo masivo',
       description: 'Lácteos',
+      // Normalizadas: minúsculas, sin repetidas ni de una letra.
+      keywords: ['dairy products', 'yogurt'],
     });
     const invented = toReferenceCompanyCard(submission, conversation(submission, ['https://otra.com']), REFERENCE_INPUT);
     assert.equal(invented?.domain, null, 'un sitio que no salió de la búsqueda no se acepta');

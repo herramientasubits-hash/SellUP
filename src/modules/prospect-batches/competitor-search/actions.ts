@@ -157,6 +157,7 @@ export async function resolveCompetitorReferenceAction(
       domain: card.domain,
       description: card.description,
       accountId: account?.id ?? null,
+      ...(card.keywords.length > 0 ? { keywords: card.keywords } : {}),
       countryCode: card.countryCode,
       industryId: catalog.industries.find((i) => i.name === card.industryName)?.id ?? null,
     },

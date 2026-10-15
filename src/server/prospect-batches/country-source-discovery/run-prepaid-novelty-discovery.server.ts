@@ -102,6 +102,7 @@ import {
   selectUnverifiedForThisSearch,
 } from './free-source-unverified';
 import type { BankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
+import type { CountrySourceCompany } from './country-source-types';
 
 export type PrePaidNoveltyDiscoveryInput = {
   /**
@@ -164,6 +165,19 @@ export type PrePaidNoveltyDiscoveryInput = {
    * (telemetría del lote) o `null` si no corrió. Ausente ⇒ no se intenta.
    */
   rescueUnverifiedFreeLayer?: (batchId: string) => Promise<Record<string, unknown> | null>;
+  /**
+   * «Competidores de una empresa» — códigos oficiales de actividad de la
+   * referencia (CIIU en Colombia): la fuente que sabe filtrar por código lee ésos
+   * en vez de todos los de la macro. Ausente ⇒ como siempre.
+   */
+  activityCodes?: readonly string[];
+  /**
+   * «Competidores de una empresa» — elige, de lo que la capa gratuita aceptó,
+   * cuáles le compiten a la referencia (devuelve las elegidas, con su relación).
+   * `null` ⇒ no se pudo elegir y la capa gratuita NO aporta nada: nunca entra
+   * una empresa sin filtrar. Ausente en cualquier otra búsqueda.
+   */
+  selectFreeCompanies?: (companies: readonly CountrySourceCompany[]) => Promise<CountrySourceCompany[] | null>;
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
@@ -464,6 +478,7 @@ async function runFreeCatalogLayer(
     countryCode: input.countryCode,
     macroIndustryKey: input.macroIndustryKey,
     requestedTarget: input.requestedTarget,
+    ...(input.activityCodes && input.activityCodes.length > 0 ? { activityCodes: input.activityCodes } : {}),
   });
 
   // Todo-o-nada: la ruta no puede reducir su objetivo y la fuente no lo cerró
@@ -483,12 +498,25 @@ async function runFreeCatalogLayer(
     });
   }
 
-  if (gate.acceptedCompanies.length === 0) {
+  // «Competidores» — sólo las que el juez elige; si no pudo elegir, ninguna.
+  const selectedCompanies = input.selectFreeCompanies
+    ? (await input.selectFreeCompanies(gate.acceptedCompanies).catch(() => null)) ?? []
+    : gate.acceptedCompanies;
+  const selectionTelemetry = input.selectFreeCompanies
+    ? { competitor_selection: { judged: gate.acceptedCompanies.length, selected: selectedCompanies.length } }
+    : {};
+
+  if (selectedCompanies.length === 0) {
+    // «Competidores» con nada elegido: lo aceptado por la puerta no se guardó, así
+    // que no cierra hueco (§ 13/§ 14 — sólo lo GUARDADO cuenta).
+    const emptyContext = input.selectFreeCompanies
+      ? withFreeSourcePersistenceOutcome(gate.context, { persistedCount: 0 })
+      : gate.context;
     return {
-      requestedTarget: gate.context.requestedTarget,
-      residualGap: gate.context.residualGap,
-      acceptedBeforeProvider: gate.context.acceptedBeforeProvider,
-      providerRequired: gate.context.providerRequired,
+      requestedTarget: emptyContext.requestedTarget,
+      residualGap: emptyContext.residualGap,
+      acceptedBeforeProvider: emptyContext.acceptedBeforeProvider,
+      providerRequired: emptyContext.providerRequired,
       batchId: null,
       persistedCount: 0,
       knownSuppressionDomains: gate.context.knownSuppressionDomains,
@@ -496,7 +524,7 @@ async function runFreeCatalogLayer(
       providerSeenLoad: gate.providerSeen,
       providerExclusionPlan: gate.providerExclusionPlan,
       freeSource: gate.context.freeSource,
-      telemetry: gate.telemetry,
+      telemetry: { ...gate.telemetry, ...selectionTelemetry },
     };
   }
 
@@ -523,7 +551,7 @@ async function runFreeCatalogLayer(
   // sitio al terminar la corrida (si lo encuentra, la envía a revisión). Como
   // sólo lo GUARDADO cierra hueco, basta con no guardarla para que los
   // proveedores de pago corran por lo que falta.
-  const { withDomain, withoutDomain } = partitionFreeCompaniesByDomain(gate.acceptedCompanies);
+  const { withDomain, withoutDomain } = partitionFreeCompaniesByDomain(selectedCompanies);
   const deliveryCap =
     deps.maxDeliveredCandidates === undefined
       ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
@@ -551,6 +579,7 @@ async function runFreeCatalogLayer(
   );
 
   const unverifiedTelemetry = {
+    ...selectionTelemetry,
     unverified_without_domain: withoutDomain.length,
     unverified_sent_to_discards: 0,
     unverified_left_in_source: withoutDomain.length - sentToDiscards.length,
