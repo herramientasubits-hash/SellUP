@@ -21,6 +21,11 @@
 import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import { claudeLegWriterTruth, CLAUDE_SEARCH_LEG_TAIL_MS, WIZARD_FUNCTION_LIMIT_MS } from './wizard-claude-search-leg';
 import type { WizardExecutionActionResult } from './wizard-execution-types';
+import {
+  buildCompetitorNoNewBreakdown,
+  combineCompetitorRounds,
+  type CompetitorBatchOutcome,
+} from './wizard-competitor-run';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult } from './wizard-idempotency';
 import type { CatalogResolutionOutput } from './wizard-catalog-resolver';
 import {
@@ -51,6 +56,19 @@ export const SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES = 10;
 export const SUPPLIER_SEARCH_MAX_PHASE_MS = 170_000;
 /** Clave del bloque del lote con lo que hizo el paso (qué aportó o por qué no corrió). */
 export const SUPPLIER_SEARCH_LEG_METADATA_KEY = 'supplier_search_leg';
+/**
+ * AGENT1-SUPPLIER-SEARCH-4 — rondas de Claude por corrida. Prod 14-10: los proveedores
+ * famosos de una gran empresa ya están en HubSpot/SellUp (Bancolombia: 4 de 5
+ * duplicados); la 2.ª ronda pide medianos y menos conocidos, con lo visto excluido.
+ * Tope ≈ US$0,50 por corrida.
+ */
+export const SUPPLIER_SEARCH_MAX_ROUNDS = 2;
+/** Tope por ronda para EMPEZAR consultas: con dos rondas y el rescate, cabe en los 300 s. */
+export const SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS = 110_000;
+/** Con menos que esto por delante no se empieza una ronda. */
+export const SUPPLIER_SEARCH_ROUND_MIN_PHASE_MS = 50_000;
+/** Lo que una ronda deja al final: escribir (90 s) y el rescate en línea (60 s). */
+export const SUPPLIER_SEARCH_ROUND_TAIL_MS = 150_000;
 /** Ventana máxima para que el rescate de Claude EMPIECE empresas dentro de la corrida. */
 export const SUPPLIER_SEARCH_RESCUE_WINDOW_MS = 60_000;
 /** Por debajo de esto no vale la pena empezar a revisar. */
@@ -62,7 +80,13 @@ export type SupplierSearchRunDeps = {
   /** `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** «Claude busca proveedores» escribiendo en el lote de la corrida. */
-  runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number }) => Promise<ClaudeSearchLegOutcome>;
+  runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number; round?: number }) => Promise<ClaudeSearchLegOutcome>;
+  /**
+   * AGENT1-SUPPLIER-SEARCH-4 — lo que quedó en el lote (para Por revisar, duplicadas de
+   * HubSpot / SellUp). Decide la 2.ª ronda y el «sin empresas nuevas» honesto. `null` =
+   * no se pudo leer (se decide con lo que dijo el escritor).
+   */
+  countCompetitorBatchOutcome?: (batchId: string) => Promise<CompetitorBatchOutcome | null>;
   /**
    * AGENT1-SUPPLIER-SEARCH-3 — el MISMO rescate de Claude que corre en segundo plano
    * (sector y tamaño), aquí dentro de la corrida y con ventana corta. `true` = revisó.
@@ -98,6 +122,25 @@ export type SupplierSearchRunInput = {
 export function resolveSupplierSearchPhaseMs(elapsedMs: number | null): number {
   const remaining = WIZARD_FUNCTION_LIMIT_MS - (elapsedMs ?? 0);
   return Math.max(0, Math.min(SUPPLIER_SEARCH_MAX_PHASE_MS, remaining - CLAUDE_SEARCH_LEG_TAIL_MS));
+}
+
+/** Tiempo para EMPEZAR una ronda, o `null` si ya no cabe con la escritura y el rescate. */
+export function resolveSupplierRoundPhaseMs(elapsedMs: number | null): number | null {
+  const phase = Math.min(
+    SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS,
+    WIZARD_FUNCTION_LIMIT_MS - (elapsedMs ?? 0) - SUPPLIER_SEARCH_ROUND_TAIL_MS,
+  );
+  return phase >= SUPPLIER_SEARCH_ROUND_MIN_PHASE_MS ? phase : null;
+}
+
+/** ¿Otra ronda? Sólo si faltan empresas NUEVAS para Por revisar y quedan rondas. */
+export function shouldRunAnotherSupplierRound(
+  leg: Extract<ClaudeSearchLegOutcome, { executed: true }>,
+  round: number,
+  reviewable: number | null,
+): boolean {
+  if (round + 1 >= SUPPLIER_SEARCH_MAX_ROUNDS) return false;
+  return (reviewable ?? leg.completeValidCandidates ?? 0) < SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES;
 }
 
 /** Ventana del rescate en línea, o `null` si ya no hay tiempo para empezar. */
@@ -223,13 +266,43 @@ export async function executeSupplierSearchRun(
   const batchId = reservation.batchId;
 
   // 4. Claude busca proveedores y escribe en el lote (el escritor decide el estado).
-  const elapsedMs =
+  const elapsed = (): number | null =>
     deps.actionStartedAtMs === undefined ? null : (deps.nowMs ? deps.nowMs() : Date.now()) - deps.actionStartedAtMs;
-  let leg: ClaudeSearchLegOutcome;
-  try {
-    leg = await deps.runClaudeSupplierSearch({ batchId, phaseMs: resolveSupplierSearchPhaseMs(elapsedMs) });
-  } catch (err) {
-    leg = { executed: false, reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}` };
+  const runSupplierSearch = deps.runClaudeSupplierSearch;
+  const runRound = async (round: number, phaseMs: number): Promise<ClaudeSearchLegOutcome> => {
+    try {
+      return await runSupplierSearch({ batchId, phaseMs, round });
+    } catch (err) {
+      return { executed: false, reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}` };
+    }
+  };
+  const readOutcome = async (): Promise<CompetitorBatchOutcome | null> =>
+    deps.countCompetitorBatchOutcome ? await deps.countCompetitorBatchOutcome(batchId).catch(() => null) : null;
+
+  let leg: ClaudeSearchLegOutcome = await runRound(
+    0,
+    resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()),
+  );
+  const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: leg }];
+  let batchOutcome = leg.executed ? await readOutcome() : null;
+
+  // 4a. AGENT1-SUPPLIER-SEARCH-4 — 2.ª ronda: sólo si faltan nuevas y queda tiempo. Una
+  //     ronda que falla no tumba lo que la anterior ya dejó en el lote.
+  for (
+    let round = 0;
+    leg.executed && shouldRunAnotherSupplierRound(leg, round, batchOutcome?.reviewable ?? null);
+    round += 1
+  ) {
+    const phaseMs = resolveSupplierRoundPhaseMs(elapsed());
+    if (phaseMs === null) {
+      rounds.push({ round: round + 1, outcome: { executed: false, reason: 'not_enough_time' } });
+      break;
+    }
+    const next = await runRound(round + 1, phaseMs);
+    rounds.push({ round: round + 1, outcome: next });
+    if (!next.executed) break;
+    leg = combineCompetitorRounds(leg, next);
+    batchOutcome = await readOutcome();
   }
 
   // 4b. AGENT1-SUPPLIER-SEARCH-3 — el escritor mide la aceptación ANTES de saber el
@@ -291,6 +364,7 @@ export async function executeSupplierSearchRun(
         metadata: {
           [SUPPLIER_SEARCH_LEG_METADATA_KEY]: {
             ...leg,
+            rounds,
             inline_rescue: {
               reviewed: rescue.reviewed,
               window_ms: rescue.windowMs,
@@ -313,9 +387,14 @@ export async function executeSupplierSearchRun(
     };
   }
 
+  // AGENT1-SUPPLIER-SEARCH-4 — si todo lo escrito eran duplicadas (Prod 14-10, Bancolombia:
+  // 4 de 5), el resultado lo dice con su causa en vez de «se generaron N».
+  const reviewable = batchOutcome?.reviewable ?? null;
+  const nothingNew = persisted === 0 || reviewable === 0;
   return {
     ok: true,
-    status: persisted > 0 ? (acceptedForTarget.targetReached ? 'success_target_reached' : 'success_partial') : 'no_new_candidates',
+    status: nothingNew ? 'no_new_candidates' : acceptedForTarget.targetReached ? 'success_target_reached' : 'success_partial',
+    ...(batchOutcome && reviewable === 0 ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) } : {}),
     batchId,
     batchStatus: persisted > 0 ? 'ready_for_review' : 'nothing_to_write',
     candidateCount: persisted,
