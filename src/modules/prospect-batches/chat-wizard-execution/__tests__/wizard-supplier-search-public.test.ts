@@ -104,7 +104,7 @@ function deps(options: {
 }
 
 describe('compras públicas en la corrida de Proveedores', () => {
-  it('corren primero con la macro de la industria; Claude completa lo que falta', async () => {
+  it('corren primero con la macro de la industria; con proveedores, Claude no corre', async () => {
     const f = deps({
       outcomes: [
         { reviewable: 3, hubspotDuplicates: 0, sellupDuplicates: 0 },
@@ -115,11 +115,12 @@ describe('compras públicas en la corrida de Proveedores', () => {
     assert.deepEqual(f.publicCalls, [
       { batchId: 'b1', referenceCompanyName: 'Alcaldía de Medellín', countryCode: 'CO', macroIndustryKey: 'technology' },
     ]);
-    assert.ok(f.claudeCalls.length >= 1);
-    assert.equal(result.ok && result.claudeSearchLeg?.executed && result.claudeSearchLeg.persistedCandidates, 3 + 2 * f.claudeCalls.length);
+    // AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — SECOP trajo proveedores ⇒ 0 rondas de Claude.
+    assert.deepEqual(f.claudeCalls, []);
+    assert.equal(result.ok && result.claudeSearchLeg?.executed && result.claudeSearchLeg.persistedCandidates, 3);
     assert.deepEqual(f.tags, [['900092385']]);
-    // Aceptadas tras el rescate: las web y las oficiales.
-    assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, 3);
+    // Aceptadas tras el rescate: las de compras públicas (la mitad gratuita).
+    assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, 2);
     const block = f.seals[0].metadata?.[SUPPLIER_PUBLIC_BUYER_METADATA_KEY] as Record<string, unknown>;
     assert.equal(block.written, 3);
     assert.equal(block.suppliers, 1);
@@ -141,13 +142,11 @@ describe('compras públicas en la corrida de Proveedores', () => {
     const f = deps({
       publicStep: async () => step(0, 4),
       claude: { ...CLAUDE, persistedCandidates: 0, passedPreFilter: 0 },
-      outcomes: [
-        { reviewable: 0, hubspotDuplicates: 0, sellupDuplicates: 0 },
-        { reviewable: 0, hubspotDuplicates: 0, sellupDuplicates: 0 },
-        { reviewable: 3, hubspotDuplicates: 0, sellupDuplicates: 0 },
-      ],
+      // Única lectura: la de después del rescate (nada escrito antes y Claude no corre).
+      outcomes: [{ reviewable: 3, hubspotDuplicates: 0, sellupDuplicates: 0 }],
     });
     const result = await executeSupplierSearchRun(INPUT, f.d);
+    assert.deepEqual(f.claudeCalls, []);
     assert.equal(f.rescues.length, 1);
     assert.equal(result.ok, true);
     if (!result.ok) return;

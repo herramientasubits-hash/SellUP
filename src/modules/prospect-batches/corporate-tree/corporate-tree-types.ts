@@ -145,9 +145,30 @@ const LEGAL_SUFFIX = new RegExp(
       'ltd',
       'plc',
       'gmbh',
+      // Prod 15-10 (Citigroup): «AG» alemana, «N.A.» de los bancos de EE. UU. y las españolas.
+      'ag',
+      'n ?a',
+      's ?a ?u',
+      's ?l ?u',
+      's ?l',
     ].join('|') +
     '))+$',
 );
+
+/**
+ * «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «Citigroup Global Markets Europe AG»:
+ * la sucursal en un país es, para el árbol, la misma empresa en ese país (Prod 15-10, Citigroup:
+ * salía dos veces en España y fue dos veces al rescate).
+ */
+export function stripBranchSuffix(name: string): string {
+  // Sólo «…, Sucursal …», «… - Sucursal …», «… (Branch …)» o «… Sucursal en/de …»: nunca una
+  // palabra suelta dentro del nombre («Banco Agencia de Viajes»).
+  const stripped = name
+    .replace(/\s*[,(–-]\s*(sucursal|branch)\b[\s\S]*$/i, '')
+    .replace(/\s+(sucursal|branch)\s+(en|de|del|in|of)\b[\s\S]*$/i, '')
+    .trim();
+  return stripped || name.trim();
+}
 
 /** Nombre para comparar: minúsculas, sin acentos, sin signos ni forma societaria. */
 export function normalizeTreeName(text: string): string {

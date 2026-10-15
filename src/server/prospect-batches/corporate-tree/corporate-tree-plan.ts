@@ -21,6 +21,7 @@ import {
 import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
 import { normalizeTreeName, type CorporateTreeNode } from './corporate-tree-search';
+import { stripBranchSuffix } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
 
 export type CorporateTreeRoot = {
@@ -95,7 +96,7 @@ export type CorporateTreeWritePlan = {
 export type CorporateTreePossibleDuplicate = { company: CountrySourceCompany; matchedName: string | null };
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
-  return `${normalizeTreeName(name)}|${countryCode ?? ''}`;
+  return `${normalizeTreeName(stripBranchSuffix(name))}|${countryCode ?? ''}`;
 }
 
 /** `https://www.ge.com/ar` ⇒ `ge.com`: la web del grupo que usa la referencia. */
@@ -551,6 +552,25 @@ export type CorporateTreeApolloOrganization = {
   linkedin_url: string | null;
 };
 
+/** Palabras que no identifican a una empresa (no bastan para decir que dos nombres son la misma). */
+const APOLLO_GENERIC_WORDS = new Set([
+  'grupo', 'group', 'financiero', 'financial', 'banco', 'bank', 'compania', 'company', 'corporacion', 'corporation',
+  'holding', 'holdings', 'servicios', 'services', 'international', 'internacional', 'global', 'de', 'del', 'la', 'el',
+  'los', 'las', 'y', 'and', 'the', 'of', 'sucursal', 'branch', 'mexico', 'chile', 'peru', 'colombia', 'argentina',
+]);
+
+/**
+ * ¿El nombre de Apollo está DENTRO del buscado, por palabras completas y con al menos una
+ * palabra propia de 5+ letras? «Banamex» dentro de «Grupo Financiero Banamex» sí (Prod 15-10,
+ * Citigroup: Apollo devolvió 1 y no se aceptó); «Banco» dentro de «Banco de Chile» no.
+ */
+function namedWithin(core: string, wanted: string): boolean {
+  const wantedWords = new Set(wanted.split(' '));
+  const words = core.split(' ').filter(Boolean);
+  if (words.length === 0 || !words.every((w) => wantedWords.has(w))) return false;
+  return words.some((w) => w.length >= 5 && !APOLLO_GENERIC_WORDS.has(w));
+}
+
 /**
  * ¿Cuál de lo que devolvió Apollo es ESTA empresa? Sólo con el mismo nombre (sin forma
  * societaria) o uno que lo contiene por palabras completas, y con web propia: la de la
@@ -566,7 +586,8 @@ export function pickApolloOrganization(
   for (const org of organizations) {
     const core = normalizeTreeName(org.name ?? '');
     if (!core) continue;
-    const sameName = core === wanted || core.startsWith(`${wanted} `) || wanted.startsWith(`${core} `);
+    // Exacto; o uno contiene al otro por palabras completas Y lo común tiene una palabra propia.
+    const sameName = core === wanted || namedWithin(core, wanted) || namedWithin(wanted, core);
     if (!sameName) continue;
     const domain = org.primary_domain?.trim().toLowerCase() || (org.website_url ? toDomain(org.website_url) : null);
     if (!domain || (query.rootDomain && domain === query.rootDomain)) continue;

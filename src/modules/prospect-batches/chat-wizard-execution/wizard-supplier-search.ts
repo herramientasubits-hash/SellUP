@@ -78,14 +78,6 @@ export const SUPPLIER_SEARCH_LEG_METADATA_KEY = 'supplier_search_leg';
  * Tope ≈ US$0,50 por corrida.
  */
 export const SUPPLIER_SEARCH_MAX_ROUNDS = 2;
-/**
- * AGENT1-SUPPLIER-SEARCH-PUBLIC-2 — con tantas empresas de compras públicas para Por
- * revisar, Claude no corre. Prod 15-10 (Alcaldía de Medellín × Tecnología): SECOP dejó
- * 7 nuevas gratis y las 2 rondas de Claude gastaron US$0,50 en 2 empresas descartadas.
- */
-export const SUPPLIER_PUBLIC_SKIP_CLAUDE_MIN_REVIEWABLE = 5;
-/** Con menos (pero alguna), Claude hace una sola ronda. */
-export const SUPPLIER_SEARCH_MAX_ROUNDS_AFTER_PUBLIC = 1;
 /** Tope por ronda para EMPEZAR consultas: con dos rondas y el rescate, cabe en los 300 s. */
 export const SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS = 110_000;
 /** Con menos que esto por delante no se empieza una ronda. */
@@ -247,12 +239,15 @@ export function publicStepMetadata(step: PublicBuyerStepOutcome, tagged: number 
 }
 
 /**
- * ¿Cuántas rondas de Claude? Ninguna si compras públicas ya dejó bastantes para Por
- * revisar; una si dejó alguna; dos (Fase 1) si no dejó nada o no corrió.
+ * AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — ¿cuántas rondas de Claude? NINGUNA si la referencia
+ * es una entidad pública y compras públicas trajo proveedores de la industria (decisión
+ * de la dueña, 15-10). Claude no encuentra nada útil para entidades públicas: Prod 15-10,
+ * Alcaldía de Medellín 2 rondas (US$0,50) → 2 empresas descartadas; Ministerio de
+ * Educación 1 ronda (US$0,23) → 0 propuestas. Si compras públicas no corrió o no trajo
+ * a nadie, Claude hace sus dos rondas de siempre (Fase 1).
  */
-export function resolveClaudeRoundsAfterPublic(publicReviewable: number): number {
-  if (publicReviewable >= SUPPLIER_PUBLIC_SKIP_CLAUDE_MIN_REVIEWABLE) return 0;
-  return publicReviewable > 0 ? SUPPLIER_SEARCH_MAX_ROUNDS_AFTER_PUBLIC : SUPPLIER_SEARCH_MAX_ROUNDS;
+export function resolveClaudeRoundsAfterPublic(step: PublicBuyerStepOutcome | null): number {
+  return step?.executed && step.offered > 0 ? 0 : SUPPLIER_SEARCH_MAX_ROUNDS;
 }
 
 /**
@@ -398,12 +393,12 @@ export async function executeSupplierSearchRun(
       : null;
   const publicLeg = publicLegOf(publicStep);
   let batchOutcome = publicLeg && publicLeg.persistedCandidates > 0 ? await readOutcome() : null;
-  // AGENT1-SUPPLIER-SEARCH-PUBLIC-2 — Claude no gasta si compras públicas ya trajo buenas.
-  const claudeRounds = resolveClaudeRoundsAfterPublic(publicLeg ? (batchOutcome?.reviewable ?? 0) : 0);
+  // AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — si compras públicas trajo proveedores, Claude no corre.
+  const claudeRounds = resolveClaudeRoundsAfterPublic(publicStep);
 
   const firstRound: ClaudeSearchLegOutcome =
     claudeRounds === 0
-    ? { executed: false, reason: 'public_buyer_enough' }
+    ? { executed: false, reason: 'public_buyer_suppliers_found' }
     : await runRound(0, resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()));
   const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: firstRound }];
   let leg: ClaudeSearchLegOutcome = firstRound.executed

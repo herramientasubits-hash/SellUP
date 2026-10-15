@@ -40,6 +40,11 @@ export type CompetitorReference = {
    * las usa Apollo como último recurso. Ausente en fichas anteriores.
    */
   keywords?: readonly string[];
+  /**
+   * País de la sede de la referencia (el que identificó Claude). Decide, p. ej., si
+   * se busca su CIIU en el registro colombiano. Ausente en fichas anteriores.
+   */
+  homeCountryCode?: string | null;
 };
 
 /**
@@ -118,6 +123,11 @@ export const competitorReferenceSchema = z
       .max(COMPETITOR_REFERENCE_LIMITS.keywordsMax * 2)
       .optional()
       .transform((value) => (value === undefined ? undefined : normalizeReferenceKeywords(value))),
+    homeCountryCode: z
+      .string()
+      .regex(/^[A-Z]{2}$/)
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -144,6 +154,7 @@ export function toCompetitorSearchMetadata(reference: CompetitorReference): Reco
       description: reference.description,
       account_id: reference.accountId,
       ...(reference.keywords && reference.keywords.length > 0 ? { keywords: [...reference.keywords] } : {}),
+      ...(reference.homeCountryCode ? { home_country_code: reference.homeCountryCode } : {}),
     },
   };
 }
@@ -175,5 +186,8 @@ export function readCompetitorReference(metadata: unknown): CompetitorReference 
     description: description && !detectPromptInjection(description) ? description : null,
     accountId: typeof raw.account_id === 'string' ? raw.account_id : null,
     ...(normalizeReferenceKeywords(raw.keywords).length > 0 ? { keywords: normalizeReferenceKeywords(raw.keywords) } : {}),
+    ...(typeof raw.home_country_code === 'string' && /^[A-Z]{2}$/.test(raw.home_country_code)
+      ? { homeCountryCode: raw.home_country_code }
+      : {}),
   };
 }

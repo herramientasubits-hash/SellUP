@@ -25,6 +25,8 @@ import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-so
 import {
   buildReferenceNamePattern,
   COMPETITOR_BANK_DRAW_LIMIT,
+  isExactReferenceRow,
+  shouldResolveReferenceActivityCodes,
   pickReferenceActivityCodes,
   selectCompetitorBankCandidates,
   selectCompetitorCompanies,
@@ -47,8 +49,9 @@ export type CompetitorFreeSourcesInput = {
 
 
 /**
- * CIIU de la referencia en el registro colombiano (por web o por nombre), sólo
- * los de la industria elegida. Vacío ⇒ se lee por toda la macro, como siempre.
+ * CIIU de la referencia en el registro colombiano, sólo si una fila ES la
+ * referencia (misma web o mismo nombre completo) y sólo los códigos de la
+ * industria elegida. Vacío ⇒ se lee por toda la macro, como siempre.
  */
 export async function resolveCoReferenceActivityCodes(
   reference: Pick<CompetitorReference, 'name' | 'domain'>,
@@ -66,12 +69,15 @@ export async function resolveCoReferenceActivityCodes(
     if (filters.length === 0) return [];
     const { data, error } = await client
       .from('source_company_snapshots')
-      .select('ciiu:raw_data->>CIIU')
+      .select('legal_name, website_domain:raw_data->>website_domain, ciiu:raw_data->>CIIU')
       .eq('source_key', CO_SIIS_SNAPSHOT_SOURCE_KEY)
       .or(filters.join(','))
       .limit(REFERENCE_LOOKUP_LIMIT);
     if (error || !data) return [];
-    return pickReferenceActivityCodes(data as Array<{ ciiu: string | null }>, macroCodes, normalizeCoCiiuCode);
+    const rows = (data as Array<{ legal_name: string | null; website_domain: string | null; ciiu: string | null }>).filter(
+      (row) => isExactReferenceRow(reference, { legalName: row.legal_name, websiteDomain: row.website_domain }),
+    );
+    return pickReferenceActivityCodes(rows, macroCodes, normalizeCoCiiuCode);
   } catch {
     return [];
   }
@@ -83,7 +89,9 @@ export async function runCompetitorFreeSourcesLive(
 ): Promise<CompetitorFreeSourcesOutcome | null> {
   try {
     const activityCodes =
-      input.countryCode === 'CO' ? await resolveCoReferenceActivityCodes(input.reference, input.macroIndustryKey) : [];
+      shouldResolveReferenceActivityCodes(input.countryCode, input.reference)
+        ? await resolveCoReferenceActivityCodes(input.reference, input.macroIndustryKey)
+        : [];
     const judgeLive = buildLiveCompetitorJudge(input.userId);
     const context: CompetitorJudgeContext = {
       reference: input.reference,

@@ -24,6 +24,12 @@ export type CorporateTreeBatchRelationship = {
   matched_hubspot_company_id?: string | null;
   /** Motivo con que quedó en «Descartadas», si quedó ahí. */
   discard_reason_code?: string | null;
+  /** La web de la empresa de partida (para distinguir la web del grupo de una propia). */
+  root_domain?: string | null;
+  /** Tiene web propia (no la del grupo) y aun así no entró al lote. */
+  own_website?: boolean;
+  /** Su web propia ya está en otra búsqueda o en una cuenta de SellUp. */
+  known_in_sellup?: boolean;
   relation_type: string;
   relation_detail: string | null;
   evidence_url: string | null;
@@ -36,6 +42,29 @@ export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del gr
 /** En «Descartadas» porque HubSpot tiene un nombre parecido en su país (sin rescate). */
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL = 'En Descartadas: posible duplicado en HubSpot';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_hubspot_duplicate';
+export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
+/** Con web propia, no entró y no está en SellUp: HubSpot ya la tenía o no pasó las revisiones. */
+export const CORPORATE_TREE_NOT_WRITTEN_LABEL = 'No entró: ya existía o no pasó las revisiones';
+
+/**
+ * Webs PROPIAS de las empresas que no entraron al lote: ni la de la empresa de partida
+ * (salvo para ella misma) ni una que comparten dos o más filas (ésas son del grupo).
+ */
+export function isOwnWebsiteRow(
+  rel: CorporateTreeBatchRelationship,
+  all: readonly CorporateTreeBatchRelationship[],
+): boolean {
+  if (rel.related_candidate_id || !rel.related_domain || rel.discard_reason_code || rel.matched_hubspot_company_id) return false;
+  if (rel.relation_type === 'root') return true;
+  const uses = all.filter((other) => other.related_domain === rel.related_domain).length;
+  return rel.related_domain !== rel.root_domain && uses === 1;
+}
+
+export function ownDomainsWithoutCandidate(relationships: readonly CorporateTreeBatchRelationship[]): string[] {
+  return [
+    ...new Set(relationships.filter((rel) => isOwnWebsiteRow(rel, relationships)).map((rel) => rel.related_domain as string)),
+  ];
+}
 
 export type CorporateTreeBatchCandidateInput = {
   id: string;
@@ -162,7 +191,11 @@ export function groupBatchCandidatesByTreeRelation(
       countryCode: rel.related_country_code,
       statusLabel: rel.matched_hubspot_company_id
         ? 'Ya en HubSpot'
-        : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
+        : rel.known_in_sellup
+          ? CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL
+          : rel.own_website
+            ? CORPORATE_TREE_NOT_WRITTEN_LABEL
+            : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
           ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
           : rel.related_domain
             ? CORPORATE_TREE_GROUP_WEBSITE_LABEL
@@ -174,7 +207,7 @@ export function groupBatchCandidatesByTreeRelation(
           : 'neutral',
       relationDetail: rel.relation_detail,
       evidenceUrl: rel.evidence_url,
-      groupWebsite: rel.related_domain ? `https://${rel.related_domain}` : null,
+      groupWebsite: rel.related_domain && !rel.own_website ? `https://${rel.related_domain}` : null,
     });
   }
 

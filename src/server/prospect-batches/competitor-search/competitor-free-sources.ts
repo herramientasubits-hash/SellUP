@@ -71,6 +71,36 @@ export function pickReferenceActivityCodes(
   return [...picked].sort();
 }
 
+/**
+ * ¿Se busca el CIIU de la referencia? Sólo si la búsqueda es en Colombia Y la
+ * referencia es colombiana: una empresa de otro país no está en el registro y su
+ * nombre puede coincidir con otra (Prod 15-10: «Grupo Caballero», mexicana, cayó
+ * en una confeccionista colombiana «… Caballero» y se leyó el CIIU 1410).
+ */
+export function shouldResolveReferenceActivityCodes(
+  searchCountryCode: string,
+  reference: { homeCountryCode?: string | null },
+): boolean {
+  return searchCountryCode === 'CO' && reference.homeCountryCode === 'CO';
+}
+
+/**
+ * ¿Esta fila del registro ES la referencia? Coincidencia EXACTA: misma web, o el
+ * mismo nombre normalizado completo de al menos dos palabras (una sola palabra
+ * —«caballero»— es demasiado común para identificar a nadie).
+ */
+export function isExactReferenceRow(
+  reference: { name: string; domain: string | null },
+  row: { legalName: string | null; websiteDomain: string | null },
+): boolean {
+  const refDomain = reference.domain?.toLowerCase().replace(/^www\./, '') ?? null;
+  const rowDomain = row.websiteDomain?.toLowerCase().replace(/^www\./, '') ?? null;
+  if (refDomain && rowDomain && refDomain === rowDomain) return true;
+  const refName = normalizeReferenceName(reference.name);
+  if (refName.split(' ').length < 2 || !row.legalName) return false;
+  return normalizeReferenceName(row.legalName) === refName;
+}
+
 /** ¿Es la referencia misma? Mismo dominio, o mismo nombre normalizado. */
 export function isReferenceItself(
   reference: { name: string; domain: string | null },

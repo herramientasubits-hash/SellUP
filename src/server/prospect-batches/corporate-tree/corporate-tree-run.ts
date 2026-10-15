@@ -349,6 +349,10 @@ async function withApolloByName(
     .filter((row) => row.route === 'without_website' && row.relation !== 'root' && !!row.countryCode)
     .slice(0, CORPORATE_TREE_APOLLO_MAX_LOOKUPS);
   const found = new Map<string, CorporateTreeApolloMatch>();
+  // Una web que ya usa otra empresa del árbol (la del grupo, citibank.com) no es la de esta sucursal.
+  const usedDomains = new Set(
+    [root.domain, ...plan.rows.map((row) => row.domain)].filter((d): d is string => !!d).map((d) => d.toLowerCase()),
+  );
   let lookups = 0;
   for (const row of pending) {
     if (deps.nowMs() >= deadlineAtMs) break;
@@ -356,7 +360,10 @@ async function withApolloByName(
     const match = await deps
       .findInApollo({ name: row.name, countryCode: row.countryCode as string, rootDomain: root.domain }, { batchId })
       .catch(() => null);
-    if (match) found.set(row.key, match);
+    if (match && !usedDomains.has(match.domain.toLowerCase())) {
+      found.set(row.key, match);
+      usedDomains.add(match.domain.toLowerCase());
+    }
   }
   return { plan: promoteRowsFoundInApollo(plan, found), lookups };
 }
