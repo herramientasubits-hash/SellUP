@@ -53,7 +53,7 @@ export type CorporateTreePlannedRow = {
    * el rescate pagado; queda como referencia del árbol (Prod 14-10, General Electric:
    * 9 al rescate, 0 webs propias).
    */
-  route: 'free_catalog' | 'agent1_writer' | 'without_website' | 'group_reference' | 'already_known';
+  route: 'free_catalog' | 'agent1_writer' | 'without_website' | 'group_reference' | 'already_known' | 'possible_known';
   /**
    * `already_known`: sin web, pero ya está en HubSpot o en SellUp por su nombre. No va al
    * rescate pagado (Prod 15-10, Citigroup: 7 de 14 rescates encontraron empresas ya conocidas).
@@ -64,6 +64,8 @@ export type CorporateTreePlannedRow = {
   /** La web la encontró Apollo buscando por el nombre. */
   foundInApollo?: boolean;
   knownAccountId?: string | null;
+  /** `possible_known`: el nombre parecido en HubSpot (mismo país). Va a «Descartadas» sin rescate. */
+  knownMatchedName?: string | null;
 };
 
 export type CorporateTreeWebItem = { key: string; node: CorporateTreeNode | null; bankCandidate: ProspectingPipelineCandidate | null };
@@ -81,11 +83,16 @@ export type CorporateTreeWritePlan = {
    * gratuita SIN web propia si se le encuentra su número fiscal oficial.
    */
   groupCompanies: Map<string, CountrySourceCompany>;
+  /** Por país: sin web y con un nombre parecido en HubSpot ⇒ «Descartadas» sin rescate. */
+  possibleDuplicates: Map<string, CorporateTreePossibleDuplicate[]>;
   droppedByCap: number;
   sharedWebsites: number;
   /** De registros sin confirmar que Claude no confirmó: no entran. */
   unconfirmedDropped: number;
 };
+
+/** Una empresa sin web que en HubSpot tiene un nombre parecido en su mismo país. */
+export type CorporateTreePossibleDuplicate = { company: CountrySourceCompany; matchedName: string | null };
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
   return `${normalizeTreeName(name)}|${countryCode ?? ''}`;
@@ -344,6 +351,7 @@ export function planCorporateTreeWrites(params: {
     web: new Map(),
     withoutWebsite: new Map(),
     groupCompanies: new Map(),
+    possibleDuplicates: new Map(),
     droppedByCap: entries.length - kept.length,
     sharedWebsites,
     unconfirmedDropped,
@@ -359,7 +367,18 @@ export function planCorporateTreeWrites(params: {
 }
 
 /** Una empresa sin web que ya existe en HubSpot o en SellUp (por su nombre y país). */
-export type CorporateTreeKnownCompany = { hubspotCompanyId: string | null; accountId: string | null };
+export type CorporateTreeKnownCompany = {
+  hubspotCompanyId: string | null;
+  accountId: string | null;
+  /**
+   * `exact`: el mismo nombre (o la cuenta de SellUp). `possible`: HubSpot tiene un nombre
+   * que contiene al buscado, o al revés, en el MISMO país (Prod 15-10, Citigroup:
+   * «Citibank-Colombia S.A.» frente a «Citibank Colombia»). Ausente = `exact`.
+   */
+  kind?: 'exact' | 'possible';
+  /** El nombre con que está en HubSpot (para decirlo en «Descartadas»). */
+  matchedName?: string | null;
+};
 
 /**
  * Las filas sin web que ya se conocen dejan de ir a «Descartadas» (y al rescate) y quedan
@@ -372,16 +391,29 @@ export function markKnownCompanies(
   if (known.size === 0) return plan;
   const rows = plan.rows.map((row) => {
     const match = row.route === 'without_website' ? known.get(row.key) : undefined;
-    return match
-      ? { ...row, route: 'already_known' as const, knownHubspotCompanyId: match.hubspotCompanyId, knownAccountId: match.accountId }
-      : row;
+    if (!match) return row;
+    return {
+      ...row,
+      route: match.kind === 'possible' ? ('possible_known' as const) : ('already_known' as const),
+      knownHubspotCompanyId: match.hubspotCompanyId,
+      knownAccountId: match.accountId,
+      knownMatchedName: match.matchedName ?? null,
+    };
   });
   const withoutWebsite = new Map<string, CountrySourceCompany[]>();
+  const possibleDuplicates = new Map<string, CorporateTreePossibleDuplicate[]>(
+    [...plan.possibleDuplicates].map(([cc, list]) => [cc, [...list]]),
+  );
   for (const [code, companies] of plan.withoutWebsite) {
-    const kept = companies.filter((c) => !known.has(corporateTreeRowKey(c.legalName ?? '', c.countryCode)));
+    const kept: CountrySourceCompany[] = [];
+    for (const company of companies) {
+      const match = known.get(corporateTreeRowKey(company.legalName ?? '', company.countryCode));
+      if (!match) kept.push(company);
+      else if (match.kind === 'possible') push(possibleDuplicates, code, { company, matchedName: match.matchedName ?? null });
+    }
     if (kept.length > 0) withoutWebsite.set(code, kept);
   }
-  return { ...plan, rows, withoutWebsite };
+  return { ...plan, rows, withoutWebsite, possibleDuplicates };
 }
 
 type KnownMatch = {
@@ -389,6 +421,7 @@ type KnownMatch = {
   status: string;
   confidence: number;
   matchedId?: string | null;
+  matchedName?: string | null;
   raw?: unknown;
 };
 
@@ -405,24 +438,45 @@ export function pickKnownCompany(params: {
   sellup: readonly KnownMatch[];
   countryCode: string | null;
   countryName: string | null;
+  /** Otros nombres del país (en inglés, como suele estar en HubSpot: «United States»). */
+  countryAliases?: readonly string[];
   /** HubSpot de la cuenta de SellUp encontrada, si lo tiene. */
   accountHubspotId?: (accountId: string) => string | null;
 }): CorporateTreeKnownCompany | null {
-  const wanted = [params.countryCode, params.countryName].filter((v): v is string => !!v).map(foldText);
-  const sameCountry = (raw: unknown) => {
+  const wanted = [params.countryCode, params.countryName, ...(params.countryAliases ?? [])]
+    .filter((v): v is string => !!v)
+    .map(foldText);
+  const countryOf = (raw: unknown) => {
     const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>)['country'] : null;
-    const country = typeof value === 'string' ? foldText(value) : '';
+    return typeof value === 'string' ? foldText(value) : '';
+  };
+  const sameCountry = (raw: unknown) => {
+    const country = countryOf(raw);
     return !country || wanted.length === 0 || wanted.includes(country);
+  };
+  // Un nombre sólo parecido exige que HubSpot DIGA el mismo país (sin país no se adivina).
+  const surelySameCountry = (raw: unknown) => {
+    const country = countryOf(raw);
+    return !!country && wanted.includes(country);
   };
   const hub = params.hubspot.find(
     (m) => m.status === 'existing_in_hubspot' && m.confidence >= 80 && !!m.matchedId && sameCountry(m.raw),
   );
   const account = params.sellup.find((m) => m.status === 'existing_in_sellup' && !!m.matchedId);
-  if (!hub && !account) return null;
+  if (!hub && !account) {
+    const possible = params.hubspot.find(
+      (m) => m.status === 'possible_duplicate' && m.confidence >= 65 && !!m.matchedId && surelySameCountry(m.raw),
+    );
+    return possible
+      ? { hubspotCompanyId: possible.matchedId ?? null, accountId: null, kind: 'possible', matchedName: possible.matchedName ?? null }
+      : null;
+  }
   const accountId = account?.matchedId ?? null;
   return {
     hubspotCompanyId: hub?.matchedId ?? (accountId ? params.accountHubspotId?.(accountId) ?? null : null),
     accountId,
+    kind: 'exact',
+    matchedName: hub?.matchedName ?? account?.matchedName ?? null,
   };
 }
 

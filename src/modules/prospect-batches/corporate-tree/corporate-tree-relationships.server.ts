@@ -17,7 +17,17 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
       .eq('batch_id', batchId)
       .limit(MAX_ROWS);
     if (error) return [];
-    return (data ?? []) as CorporateTreeBatchRelationship[];
+    const relationships = (data ?? []) as CorporateTreeBatchRelationship[];
+    // Por qué está en «Descartadas» la que no entró (sin web o posible duplicado en HubSpot).
+    const { data: discards } = await supabase
+      .from('prospect_discarded_dispositions')
+      .select('name, reason_code')
+      .eq('batch_id', batchId)
+      .limit(MAX_ROWS);
+    const reasonByName = new Map((discards ?? []).map((d) => [String(d.name).trim().toLowerCase(), (d.reason_code as string | null) ?? null]));
+    return relationships.map((rel) =>
+      rel.related_candidate_id ? rel : { ...rel, discard_reason_code: reasonByName.get(rel.related_name.trim().toLowerCase()) ?? null },
+    );
   } catch {
     return [];
   }
