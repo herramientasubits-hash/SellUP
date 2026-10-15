@@ -263,6 +263,7 @@ export function buildSearchModePayload(state: ProspectWizardState): WizardSearch
       domain: reference.domain,
       description: reference.description,
       accountId: reference.accountId,
+      ...(reference.keywords && reference.keywords.length > 0 ? { keywords: [...reference.keywords] } : {}),
     },
   };
 }

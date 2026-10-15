@@ -80,6 +80,8 @@ export type CountrySourcePrePaidDiscoveryInput = {
    * no cerrarlo nunca. La lectura es gratis; el techo lo pone el adapter.
    */
   readLimit?: number;
+  /** «Competidores» — códigos de actividad de la referencia (ver `CountrySourceCriteria`). */
+  activityCodes?: readonly string[];
 };
 
 export type CountrySourcePrePaidDiscoveryDeps = {
@@ -198,6 +200,7 @@ export async function runCountrySourcePrePaidDiscovery(
       countryCode: input.countryCode,
       macroIndustryKey: input.macroIndustryKey,
       limit: readLimit,
+      ...(input.activityCodes && input.activityCodes.length > 0 ? { activityCodes: input.activityCodes } : {}),
     });
     sourceKey = discovery.sourceKey;
     rawReturned = discovery.companies.length;

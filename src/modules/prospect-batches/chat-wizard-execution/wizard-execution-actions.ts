@@ -567,6 +567,7 @@ export type WizardExecutionDeps = {
     round?: number;
   }) => Promise<ClaudeSearchLegOutcome>;
   /** «Competidores de una empresa» — ver `CompetitorRunDeps`. */
+  runCompetitorFreeSources?: CompetitorRunDeps['runCompetitorFreeSources'];
   runClaudeCompetitorRound?: CompetitorRunDeps['runClaudeCompetitorRound'];
   reportProgress?: CompetitorRunDeps['reportProgress'];
   countCompetitorBatchOutcome?: CompetitorRunDeps['countCompetitorBatchOutcome'];
@@ -1096,6 +1097,13 @@ export async function executeProspectWizardGenerationAction(
     // «Competidores de una empresa»: la misma pierna, sin la etapa genérica; la
     // corrida anota «ronda 1» / «ronda 2» con `reportProgress`.
     runClaudeCompetitorRound: runClaudeCompanySearchLegLive,
+    // Catálogos del país + banco, filtrados por el juez de Claude (sin web).
+    runCompetitorFreeSources: async (freeInput) => {
+      const { runCompetitorFreeSourcesLive } = await import(
+        '@/server/prospect-batches/competitor-search/competitor-free-sources.server'
+      );
+      return runCompetitorFreeSourcesLive(supabase as unknown as SupabaseClient, freeInput);
+    },
     reportProgress: progress.report,
     countCompetitorBatchOutcome: async (batchId) => {
       const { data, error } = await budgetClient
@@ -1293,9 +1301,9 @@ export async function executeProspectWizardGeneration(
   }
 
   // 4c. Agente 1 · «Competidores de una empresa» — corrida propia, ANTES de
-  // elegir proveedor: no usa la capa gratuita, el banco, Tavily, Apollo ni Lusha
-  // (todas buscan «empresas de la industria»), sino «Claude busca empresas» con la
-  // referencia. Ver `wizard-competitor-run.ts`.
+  // elegir proveedor: lo gratuito (catálogos + banco) filtrado por el juez de
+  // Claude y después «Claude busca empresas» con la referencia; sin Tavily, Apollo
+  // ni Lusha. Ver `wizard-competitor-run.ts`.
   if (req.searchMode === 'competitors' && req.referenceCompany) {
     const competitorCountry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
     return executeCompetitorSearchRun(

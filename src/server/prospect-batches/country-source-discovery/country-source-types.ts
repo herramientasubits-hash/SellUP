@@ -90,6 +90,12 @@ export type CountrySourceCompany = {
   originSourceKey?: string | null;
   /** SOURCES-LATAM-CURATED-1 — listas en las que aparece («SNIES», «Merco Empresas 2025»…). */
   curatedOrigins?: readonly string[] | null;
+  /**
+   * «Competidores de una empresa» — Claude la eligió como competidora de la
+   * referencia (motivo en una línea). Viaja a `metadata.relationship` del candidato.
+   * Ausente en cualquier otra búsqueda.
+   */
+  competitorRelationship?: { referenceCompanyName: string; reason: string } | null;
 };
 
 /** Tamaño oficial por tramo: hoy sólo «grande», con la fuente que lo dice. */
@@ -143,6 +149,13 @@ export type CountrySourceCriteria = {
   macroIndustryKey: string;
   /** Cuántas empresas como máximo se quieren leer. Acotado por el llamador. */
   limit: number;
+  /**
+   * «Competidores de una empresa» — códigos oficiales de actividad de la
+   * referencia (hoy CIIU en Colombia). Presentes, la fuente que sabe filtrar por
+   * código pregunta por ELLOS en vez de por todos los de la macro; las demás los
+   * ignoran. Ausente en cualquier otra búsqueda.
+   */
+  activityCodes?: readonly string[];
 };
 
 /** Puerta de E/S inyectada. Sólo lectura, siempre. */

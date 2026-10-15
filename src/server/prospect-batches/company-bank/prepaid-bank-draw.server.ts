@@ -33,6 +33,7 @@ import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalizati
 import { writeProspectingCandidates } from '@/server/agents/prospecting-toolkit/candidate-writer';
 import { buildTavilyOfficialIdentityEnricher } from '@/server/agents/prospecting-toolkit/tavily-official-identity.server';
 import type {
+  CandidateRelationshipEvidence,
   CandidateWriterOutput,
   DuplicateCheckInput,
   DuplicateCheckResult,
@@ -70,6 +71,21 @@ export type BankFirstDrawInput = {
   requestedByUserId: string;
   /** El lote de la búsqueda, resuelto perezosamente (sólo si hay algo que escribir). */
   resolveBatchId: () => Promise<string>;
+  /**
+   * «Competidores de una empresa» — cuántas sacar del banco para elegir (en vez
+   * del tope de entrega): se saca más porque sólo unas pocas le compiten a la
+   * referencia; las no elegidas vuelven al banco.
+   */
+  drawLimit?: number;
+  /**
+   * «Competidores de una empresa» — elige, de lo que salió del banco, cuáles
+   * entran al lote (índices de `candidates`) y con qué relación. `null` ⇒ no se
+   * pudo elegir y no entra NINGUNA. Las no elegidas vuelven al banco. Ausente en
+   * cualquier otra búsqueda: entra todo, como siempre.
+   */
+  selectCandidates?: (
+    candidates: readonly ProspectingPipelineCandidate[],
+  ) => Promise<ReadonlyArray<{ index: number; relationshipEvidence: CandidateRelationshipEvidence }> | null>;
 };
 
 export type BankFirstContribution = {
@@ -166,6 +182,37 @@ async function refreshBankOfficialIdentity(
   } catch {
     return candidates;
   }
+}
+
+type UsableBankEntry = {
+  id: string;
+  domain: string;
+  candidate: ProspectingPipelineCandidate;
+  provenance: 'apollo' | null;
+};
+
+/**
+ * «Competidores» — deja en `usable` sólo lo elegido (con su relación) y devuelve
+ * el resto al banco. Sin `selectCandidates` no toca nada. Muta las dos listas
+ * locales de `drawBankFirst` a propósito (son suyas).
+ */
+async function applyBankSelection(
+  input: BankFirstDrawInput,
+  usable: UsableBankEntry[],
+  closing: CompanyBankSettleItem[],
+): Promise<{ notSelected: number; failed: boolean }> {
+  if (!input.selectCandidates || usable.length === 0) return { notSelected: 0, failed: false };
+  const picked = await input.selectCandidates(usable.map((entry) => entry.candidate)).catch(() => null);
+  const byIndex = new Map((picked ?? []).map((item) => [item.index, item.relationshipEvidence]));
+  const kept: UsableBankEntry[] = [];
+  usable.forEach((entry, index) => {
+    const relationshipEvidence = byIndex.get(index);
+    if (relationshipEvidence) kept.push({ ...entry, candidate: { ...entry.candidate, relationshipEvidence } });
+    else closing.push({ id: entry.id, outcome: 'released' });
+  });
+  const notSelected = usable.length - kept.length;
+  usable.splice(0, usable.length, ...kept);
+  return { notSelected, failed: picked === null };
 }
 
 const nothing = (telemetry: Record<string, unknown>): BankFirstContribution => ({
@@ -274,7 +321,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
   if (!port || !input.macroIndustryKey || !input.countryCode) return nothing({ status: 'not_attempted' });
 
   const drawId = deps.newDrawId();
-  const limit = deps.resolveCap() ?? APOLLO_BANK_DRAW_PER_RUN;
+  const limit = input.drawLimit ?? deps.resolveCap() ?? APOLLO_BANK_DRAW_PER_RUN;
   const draw = await port.store.draw({
     countryCode: input.countryCode,
     macroIndustryKey: input.macroIndustryKey,
@@ -286,12 +333,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
   if (draw.status !== 'ok') return nothing({ status: 'unavailable', reason: draw.reason });
 
   const closing: CompanyBankSettleItem[] = [];
-  const usable: Array<{
-    id: string;
-    domain: string;
-    candidate: ProspectingPipelineCandidate;
-    provenance: 'apollo' | null;
-  }> = [];
+  const usable: UsableBankEntry[] = [];
   for (const company of draw.companies) {
     const candidate = readBankPipelineCandidate(company.payload);
     const domain = candidate?.domain ? normalizeDomain(candidate.domain) : null;
@@ -307,12 +349,15 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
   }
 
   const releasedForApollo = closing.filter((item) => item.outcome === 'released').length;
+  const drawnUsable = usable.length;
+  const selection = await applyBankSelection(input, usable, closing);
   const baseTelemetry = {
     status: 'ok',
     drawn: draw.companies.length,
-    usable: usable.length,
+    usable: drawnUsable,
     released_for_apollo: releasedForApollo,
-    unreadable: closing.length - releasedForApollo,
+    unreadable: closing.length - releasedForApollo - selection.notSelected,
+    ...(input.selectCandidates ? { selected: usable.length, not_selected: selection.notSelected, selection_failed: selection.failed } : {}),
   };
 
   if (usable.length === 0) {
