@@ -21,7 +21,10 @@
  */
 
 import { loadEnvConfig } from '@next/env';
-loadEnvConfig(process.cwd());
+// `--env-dir <carpeta>`: lee el .env.local de otra carpeta (p. ej. el checkout principal
+// cuando se corre desde un worktree sin credenciales). Por defecto, la carpeta actual.
+const envDirIndex = process.argv.indexOf('--env-dir');
+loadEnvConfig(envDirIndex >= 0 && process.argv[envDirIndex + 1] ? process.argv[envDirIndex + 1] : process.cwd());
 
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs';

@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  findGenericActivities,
+  formatCompetitorJudgeItems,
   buildCompetitorJudgeRequestBody,
   judgeCompetitors,
   readCompetitorJudgeVerdicts,
@@ -183,6 +185,42 @@ describe('K — el juez de Claude', () => {
     const schema = JSON.stringify(body.tools);
     assert.match(schema, /shared_offering/);
     assert.match(schema, /"enum":\["high","medium","low"\]/);
+  });
+
+  it('K2c: 🔴 Prod 15-10 (Paraguay) — una actividad que comparten muchas filas se marca GENÉRICA', () => {
+    const generic = 'Servicios de producción y fabricación industrial';
+    const list: CompetitorJudgeItem[] = [
+      ...Array.from({ length: 6 }, (_, i) => ({ key: `e${i + 1}`, name: `EMPRESA ${i + 1}`, activity: generic, activityCode: null })),
+      { key: 'e7', name: 'Soldaduras Asunción', activity: 'Servicios de soldadura y pruebas no destructivas', activityCode: null },
+    ];
+    assert.deepEqual([...findGenericActivities(list).entries()], [[generic.toLowerCase(), 6]]);
+    const text = formatCompetitorJudgeItems(list);
+    assert.match(text, /e1 \| EMPRESA 1 \| Servicios de producción y fabricación industrial \(GENÉRICA: la comparten 6 de la lista\)/);
+    assert.doesNotMatch(text.split('\n')[6], /GENÉRICA/, 'la actividad propia no se marca');
+    const body = buildCompetitorJudgeRequestBody({ ...CONTEXT, items: list }, 'claude-test');
+    assert.match(String(body.system), /GENÉRICA es la categoría de la fuente/);
+
+    // Un motivo que repite (o empieza por) la actividad genérica se rechaza.
+    const verdicts = readCompetitorJudgeVerdicts(
+      conversation({
+        competitors: [
+          { key: 'e1', shared_offering: 'Servicios de producción y fabricación industrial, maquinado', confidence: 'high' },
+          { key: 'e7', shared_offering: 'Soldadura y pruebas no destructivas', confidence: 'high' },
+        ],
+      }).content,
+      list,
+    );
+    assert.deepEqual(verdicts.map((v) => v.key), ['e7']);
+  });
+
+  it('K2d: pocas filas con la misma actividad no la vuelven genérica', () => {
+    const list: CompetitorJudgeItem[] = Array.from({ length: 4 }, (_, i) => ({
+      key: `e${i + 1}`,
+      name: `E${i + 1}`,
+      activity: 'Extrusión de aluminio',
+      activityCode: null,
+    }));
+    assert.equal(findGenericActivities(list).size, 0);
   });
 
   it('K3: lista vacía ⇒ no llama; error de la API ⇒ sin veredictos y con su código', async () => {

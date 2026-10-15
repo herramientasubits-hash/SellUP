@@ -34,7 +34,7 @@ export type CorporateTreeRoot = {
   accountId: string | null;
 };
 
-export type CorporateTreeRowOrigin = 'catalog' | 'bank' | 'claude' | 'root';
+export type CorporateTreeRowOrigin = 'catalog' | 'bank' | 'claude' | 'root' | 'apollo';
 
 export type CorporateTreePlannedRow = {
   /** `nombre normalizado|país`: así se reencuentra la fila en el lote. */
@@ -544,16 +544,6 @@ export function promoteRowsFoundInApollo(
   return { ...plan, rows, web, withoutWebsite };
 }
 
-/** Una organización tal como la devuelve la búsqueda de Apollo (sólo lo que se usa). */
-export type CorporateTreeApolloOrganization = {
-  name: string | null;
-  website_url: string | null;
-  primary_domain?: string | null;
-  linkedin_url: string | null;
-  /** País de la sede según Apollo. */
-  country?: string | null;
-};
-
 /** Palabras que no identifican a una empresa (no bastan para decir que dos nombres son la misma). */
 const APOLLO_GENERIC_WORDS = new Set([
   'grupo', 'group', 'financiero', 'financial', 'banco', 'bank', 'compania', 'company', 'corporacion', 'corporation',
@@ -574,35 +564,117 @@ function namedWithin(core: string, wanted: string): boolean {
 }
 
 /**
- * ¿Cuál de lo que devolvió Apollo es ESTA empresa? Sólo con el mismo nombre (sin forma
- * societaria) o uno que lo contiene por palabras completas, y con web propia: la de la
- * empresa de partida no vale (sería la del grupo).
+ * Una filial de la empresa de partida según Apollo (`suborganizations` de su ficha, que se
+ * pide UNA vez por corrida: Apollo Support 15-10 — la búsqueda por nombre no sirve para esto).
  */
-export function pickApolloOrganization(
-  organizations: readonly CorporateTreeApolloOrganization[],
-  query: {
-    name: string;
-    rootDomain: string | null;
-    /** Si se buscó sin país: sólo vale una organización que diga uno de estos países. */
-    countryNames?: readonly string[] | null;
-  },
-  toDomain: (website: string) => string | null,
-): CorporateTreeApolloMatch | null {
-  const wanted = normalizeTreeName(query.name);
-  if (!wanted) return null;
-  const allowedCountries = query.countryNames?.map(foldText) ?? null;
-  for (const org of organizations) {
-    if (allowedCountries && !allowedCountries.includes(foldText(org.country ?? ''))) continue;
-    const core = normalizeTreeName(org.name ?? '');
-    if (!core) continue;
-    // Exacto, o el nombre de Apollo está DENTRO del buscado con una palabra propia («Banamex» en
-    // «Grupo Financiero Banamex»). Nunca al revés: Prod 15-10, «Citicorp» tomó «Citicorp Diners
-    // Club» (otra empresa con el mismo comienzo).
-    const sameName = core === wanted || namedWithin(core, wanted);
-    if (!sameName) continue;
-    const domain = org.primary_domain?.trim().toLowerCase() || (org.website_url ? toDomain(org.website_url) : null);
-    if (!domain || (query.rootDomain && domain === query.rootDomain)) continue;
-    return { website: `https://${domain}`, domain, linkedinUrl: org.linkedin_url ?? null };
+export type CorporateTreeApolloSubsidiary = {
+  name: string;
+  domain: string | null;
+  website: string | null;
+  linkedinUrl: string | null;
+  /** País de su sede si Apollo lo trae. */
+  countryCode: string | null;
+};
+
+/** Dominio de país (.co, .com.mx…) ⇒ código del asistente. Un .com no dice el país. */
+const COUNTRY_BY_TLD: Readonly<Record<string, string>> = {
+  co: 'CO', mx: 'MX', cl: 'CL', ar: 'AR', br: 'BR', pe: 'PE', uy: 'UY', ec: 'EC', py: 'PY', bo: 'BO', ve: 'VE',
+  gt: 'GT', hn: 'HN', sv: 'SV', ni: 'NI', cr: 'CR', pa: 'PA', do: 'DO', es: 'ES',
+};
+
+export function countryFromDomain(domain: string): string | null {
+  const tld = domain.toLowerCase().split('.').pop() ?? '';
+  return COUNTRY_BY_TLD[tld] ?? null;
+}
+
+/** Como mucho, filiales NUEVAS que Apollo agrega al árbol por corrida. */
+export const CORPORATE_TREE_APOLLO_FAMILY_MAX_NEW = 8;
+
+/**
+ * Las filiales que dio Apollo:
+ *   1. completan la web de una fila del árbol que no la tenía (mismo nombre o el de Apollo
+ *      contenido en el de la fila, y el país no contradice);
+ *   2. si no estaban en el árbol, entran como filiales nuevas sólo si su país se sabe (lo dice
+ *      Apollo o el dominio de país) y está entre los pedidos.
+ * Nunca la web del grupo ni una que ya tenga otra fila. Puro.
+ */
+export function applyApolloFamily(params: {
+  plan: CorporateTreeWritePlan;
+  root: CorporateTreeRoot;
+  subsidiaries: readonly CorporateTreeApolloSubsidiary[];
+  countryCodes: readonly string[];
+  maxRows?: number;
+}): { plan: CorporateTreeWritePlan; matched: number; added: number } {
+  const { root, countryCodes } = params;
+  const maxRows = params.maxRows ?? CORPORATE_TREE_LIMITS.maxRows;
+  const used = new Set(
+    [root.domain, ...params.plan.rows.map((r) => r.domain)].filter((d): d is string => !!d).map((d) => d.toLowerCase()),
+  );
+  const usable = params.subsidiaries
+    .map((sub) => ({ ...sub, domain: sub.domain?.toLowerCase() ?? null }))
+    .filter((sub): sub is CorporateTreeApolloSubsidiary & { domain: string } => !!sub.domain && !used.has(sub.domain));
+  const countryOf = (sub: { domain: string; countryCode: string | null }) => sub.countryCode ?? countryFromDomain(sub.domain);
+
+  // 1. Completar la web de las filas sin web.
+  const found = new Map<string, CorporateTreeApolloMatch>();
+  const taken = new Set<string>();
+  for (const row of params.plan.rows) {
+    if (row.route !== 'without_website' || row.relation === 'root' || !row.countryCode) continue;
+    const rowCore = normalizeTreeName(stripBranchSuffix(row.name));
+    const match = usable.find((sub) => {
+      if (taken.has(sub.domain)) return false;
+      const subCountry = countryOf(sub);
+      if (subCountry && subCountry !== row.countryCode) return false;
+      const subCore = normalizeTreeName(sub.name);
+      return !!subCore && (subCore === rowCore || namedWithin(subCore, rowCore));
+    });
+    if (!match) continue;
+    taken.add(match.domain);
+    found.set(row.key, { website: match.website ?? `https://${match.domain}`, domain: match.domain, linkedinUrl: match.linkedinUrl });
   }
-  return null;
+  let plan = promoteRowsFoundInApollo(params.plan, found);
+
+  // 2. Filiales nuevas con país conocido y pedido.
+  const existingKeys = new Set(plan.rows.map((r) => r.key));
+  const room = Math.max(0, Math.min(CORPORATE_TREE_APOLLO_FAMILY_MAX_NEW, maxRows - plan.rows.length));
+  const web = new Map([...plan.web].map(([cc, list]) => [cc, [...list]]));
+  const newRows: CorporateTreePlannedRow[] = [];
+  for (const sub of usable) {
+    if (newRows.length >= room || taken.has(sub.domain)) continue;
+    const countryCode = countryOf(sub);
+    if (!countryCode || !countryCodes.includes(countryCode)) continue;
+    const key = corporateTreeRowKey(sub.name, countryCode);
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    taken.add(sub.domain);
+    const website = sub.website ?? `https://${sub.domain}`;
+    const node: CorporateTreeNode = {
+      branch: 'subsidiary',
+      name: sub.name,
+      legalName: null,
+      countryCode,
+      website,
+      domain: sub.domain,
+      linkedinUrl: sub.linkedinUrl,
+      relationDetail: `Filial de ${root.name} según Apollo`,
+      evidenceUrl: website,
+    };
+    push(web, countryCode, { key, node, bankCandidate: null });
+    newRows.push({
+      key,
+      origin: 'apollo',
+      relation: 'subsidiary',
+      name: sub.name,
+      countryCode,
+      domain: sub.domain,
+      taxId: null,
+      relationDetail: node.relationDetail,
+      evidenceUrl: null,
+      groupWebsite: null,
+      route: 'agent1_writer',
+      foundInApollo: true,
+    });
+  }
+  plan = { ...plan, rows: [...plan.rows, ...newRows], web };
+  return { plan, matched: found.size, added: newRows.length };
 }

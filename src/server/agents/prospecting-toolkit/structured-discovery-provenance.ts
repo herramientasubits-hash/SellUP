@@ -92,6 +92,12 @@ export type StructuredDiscoveryProvenance = {
    */
   official_tax_id_lookup?: { source_key: string; confidence: number | null };
   /**
+   * AGENT1-RESCUE-SIZE-UNFILTERED-1 — la fuente NO filtró por tamaño (p. ej. proveedores
+   * de compras públicas en «Proveedores de una empresa»): el rescate no la trata como
+   * «tamaño ya medido» aunque el país tenga capa gratuita con tamaño (Chile, 100+).
+   */
+  official_size_unfiltered?: true;
+  /**
    * «Competidores de una empresa» — Claude eligió esta empresa del catálogo como
    * competidora de la referencia. La MISMA forma que escribe el escritor de la
    * búsqueda web (`relationship`), para que la ficha la muestre igual.
@@ -150,6 +156,7 @@ function ownValue(record: Record<string, unknown>, key: string): unknown {
  *   - `website_available` sobrevive SÓLO si es `boolean` (incluido `false`);
  *   - `official_tax_id_lookup` sobrevive SÓLO con `source_key` de snake_case y
  *     `confidence` entre 0 y 1 (o `null`); copia sólo esas dos claves;
+ *   - `official_size_unfiltered` sobrevive SÓLO como `true`;
  *   - `relationship` sobrevive SÓLO como `competitor_of` con nombre y motivo de
  *     texto acotado; la página de evidencia siempre es `null`;
  *   - cualquier otra clave NO se copia, exista o no en la entrada;
@@ -191,6 +198,10 @@ export function sanitizeStructuredDiscoveryProvenance(
     if (typeof sourceKey === 'string' && /^[a-z0-9_]{1,64}$/.test(sourceKey) && validConfidence) {
       provenance.official_tax_id_lookup = { source_key: sourceKey, confidence: confidence as number | null };
     }
+  }
+
+  if (ownValue(value, 'official_size_unfiltered') === true) {
+    provenance.official_size_unfiltered = true;
   }
 
   const relationship = ownValue(value, 'relationship');

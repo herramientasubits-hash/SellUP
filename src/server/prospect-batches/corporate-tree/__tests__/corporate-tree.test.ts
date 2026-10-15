@@ -22,11 +22,11 @@ import {
 import {
   corporateTreeRowKey,
   markKnownCompanies,
-  pickApolloOrganization,
   pickKnownCompany,
   planCorporateTreeWrites,
+  applyApolloFamily,
+  countryFromDomain,
   promoteGroupCompaniesWithTaxIds,
-  promoteRowsFoundInApollo,
   type CorporateTreeRoot,
 } from '../corporate-tree-plan';
 import {
@@ -51,7 +51,7 @@ import {
   type CorporateTreeRequest,
   type CorporateTreeRunDeps,
 } from '../corporate-tree-run';
-import { buildCorporateTreeUsageLog, corporateTreeApolloQueryName, readCorporateTreeApolloPage } from '../corporate-tree-run.server';
+import { buildCorporateTreeUsageLog, readApolloSubsidiaries } from '../corporate-tree-run.server';
 import {
   corporateTreePendingSummary,
   groupBatchCandidatesByTreeRelation,
@@ -1023,75 +1023,9 @@ describe('M. Filiales con la web del grupo y Apollo por nombre', () => {
     assert.equal(byName.get('GE Energy Colombia S.A.')?.route, 'group_reference', 'sin número sigue como referencia');
   });
 
-  it('Apollo por nombre: misma empresa, web propia y nunca la de la empresa de partida', () => {
-    const toDomain = (w: string) => w.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-    const org = (name: string, website: string) => ({ name, website_url: website, linkedin_url: null });
-    assert.deepEqual(
-      pickApolloOrganization([org('Otra Cosa SA', 'https://otra.com'), org('Citibank del Perú', 'https://www.citibank.com.pe')], { name: 'Citibank del Perú S.A.', rootDomain: 'citigroup.com' }, toDomain),
-      { website: 'https://citibank.com.pe', domain: 'citibank.com.pe', linkedinUrl: null },
-    );
-    assert.equal(pickApolloOrganization([org('General Electric Mexico', 'https://ge.com')], { name: MX, rootDomain: 'ge.com' }, toDomain), null, 'la web del grupo no');
-    assert.equal(pickApolloOrganization([org('Citibanamex Seguros', 'https://seguros.com')], { name: 'Citibank', rootDomain: null }, toDomain), null, 'nombre parecido no basta');
-  });
-
-  it('lo que encontró Apollo pasa al escritor del Agente 1 y sale de «Descartadas»', () => {
-    const plan = planCorporateTreeWrites({ root: GE, freeHits: [], nodes: [NODE('ProlecGE', 'MX'), NODE('GE Vernova Chile', 'CL')] });
-    const promoted = promoteRowsFoundInApollo(plan, new Map([[corporateTreeRowKey('ProlecGE', 'MX'), { website: 'https://prolecge.com', domain: 'prolecge.com', linkedinUrl: null }]]));
-    const row = promoted.rows.find((r) => r.name === 'ProlecGE');
-    assert.equal(row?.route, 'agent1_writer');
-    assert.equal(row?.foundInApollo, true);
-    assert.equal(promoted.web.get('MX')?.[0].node?.domain, 'prolecge.com');
-    assert.deepEqual([...promoted.withoutWebsite.keys()], ['CL']);
-  });
-
-  it('la corrida: número fiscal gratis primero, Apollo sólo para las que siguen sin web y con tope', async () => {
-    const asked: string[] = [];
-    const many = Array.from({ length: 8 }, (_, i) => NODE(`Filial Uno ${i}`, 'CL', { branch: 'other_country' }));
-    const { deps, calls } = fakeDeps({
-      searchBranch: async (input) =>
-        input.branch === 'subsidiary'
-          ? outcomeFor('subsidiary', [NODE('Nutresa Mexico', 'MX', { website: 'https://gruponutresa.com/mx', domain: 'gruponutresa.com' })])
-          : outcomeFor('other_country', many),
-      fillOfficialTaxIds: async (companies) => companies.map((c) => ({ ...c, taxId: 'NUT010101AA1', taxIdentifierType: 'RFC' as const })),
-      findInApollo: async ({ name }) => {
-        asked.push(name);
-        return name === 'Filial Uno 0' ? { website: 'https://filialuno.cl', domain: 'filialuno.cl', linkedinUrl: null } : null;
-      },
-    });
-    const result = await runCorporateTreeSearch(
-      { ...REQUEST_ALL, rootWebsite: 'https://gruponutresa.com', countries: [...REQUEST_ALL.countries, { code: 'MX', name: 'México' }] },
-      CONTEXT,
-      deps,
-    );
-    assert.ok(result.ok);
-    assert.equal(asked.length, 5, 'como mucho 5 búsquedas pagadas');
-    assert.ok(calls.freeCatalog.some((c) => c.country === 'MX' && c.names.includes('Nutresa Mexico')), 'la filial con número entra por la capa gratuita');
-    assert.ok(calls.web.some((c) => c.names.includes('Filial Uno 0')), 'la de Apollo entra por el escritor');
-    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
-    assert.deepEqual(tree.apollo, { lookups: 5, found: 1 });
-    assert.equal(tree.group_with_tax_id, 1);
-  });
-
-  it('sin la bandera de Apollo no se llama a Apollo', async () => {
-    const { deps } = fakeDeps();
-    assert.equal(deps.findInApollo, undefined);
-    const flags = readFileSync('src/lib/feature-flags.server.ts', 'utf8');
-    assert.match(flags, /isEnvFlagEnabled\(process\.env\[AGENT1_CORPORATE_TREE_APOLLO_FLAG\]\)/);
-  });
 });
 
 describe('N. Citigroup 2.ª corrida (Prod 15-10): Apollo y HubSpot', () => {
-  it('Apollo recibe el nombre sin forma societaria', () => {
-    assert.equal(corporateTreeApolloQueryName('CITIGROUP CHILE SPA'), 'citigroup chile');
-    assert.equal(corporateTreeApolloQueryName('Citibank del Perú S.A.'), 'citibank peru', 'sin palabras vacías');
-  });
-
-  it('y el país en inglés, con la tabla del Agente 1', () => {
-    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
-    assert.match(source, /resolveApolloCountryLocation\(query\.countryCode/);
-    assert.match(source, /const queryName = corporateTreeApolloQueryName\(query\.name\)/);
-    assert.match(source, /q_organization_name: queryName/);
-  });
 
   it('un nombre parecido exige que HubSpot diga el MISMO país (también en inglés)', () => {
     const possible = { source: 'hubspot' as const, status: 'possible_duplicate', confidence: 65, matchedId: 'hs-7', matchedName: 'Citibank', raw: { country: 'United States' } };
@@ -1131,62 +1065,7 @@ describe('N. Citigroup 2.ª corrida (Prod 15-10): Apollo y HubSpot', () => {
   });
 });
 
-describe('O. Citigroup 3.ª corrida (Prod 15-10): la respuesta de Apollo se lee entera', () => {
-  it('un «accounts» vacío ya no esconde las organizaciones', () => {
-    const page = readCorporateTreeApolloPage({
-      accounts: [],
-      organizations: [{ id: 'org-1', name: 'Citibank del Perú', website_url: 'https://www.citibank.com.pe', primary_domain: 'citibank.com.pe', linkedin_url: null }],
-    });
-    assert.equal(page.rawCount, 1);
-    assert.equal(page.organizations.length, 1);
-    assert.equal(page.organizations[0].name, 'Citibank del Perú');
-    assert.equal(
-      pickApolloOrganization(page.organizations, { name: 'Citibank del Perú S.A.', rootDomain: 'citigroup.com' }, (w) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0])?.domain,
-      'citibank.com.pe',
-    );
-  });
-
-  it('una respuesta vacía o rota no cobra ni encuentra nada', () => {
-    assert.deepEqual(readCorporateTreeApolloPage(null), { organizations: [], rawCount: 0 });
-    assert.deepEqual(readCorporateTreeApolloPage({ organizations: [], accounts: [] }), { organizations: [], rawCount: 0 });
-  });
-
-  it('el árbol llama a Apollo por el mismo camino que el resto del Agente 1', () => {
-    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
-    assert.match(source, /searchApolloOrganizationsPage\(/);
-    assert.doesNotMatch(source, /searchApolloOrganizations\(/);
-  });
-});
-
-describe('P. Citigroup 4.ª corrida (Prod 15-10): Apollo acepta lo que es y el lote no confunde «ya en SellUp» con «web del grupo»', () => {
-  const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-  const org = (name: string, domain: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null });
-
-  it('Apollo: el nombre devuelto puede estar DENTRO del buscado (palabra propia de 5+ letras)', () => {
-    assert.equal(pickApolloOrganization([org('Banamex', 'banamex.com')], { name: 'Grupo Financiero Banamex, S.A. de C.V.', rootDomain: 'citigroup.com' }, toDomain)?.domain, 'banamex.com');
-    assert.equal(pickApolloOrganization([org('Banco', 'banco.com')], { name: 'Banco de Chile', rootDomain: null }, toDomain), null, 'una palabra genérica no basta');
-    assert.equal(pickApolloOrganization([org('Citi', 'citi.com')], { name: 'Citigroup Chile', rootDomain: null }, toDomain), null, 'por palabras completas');
-  });
-
-  it('la búsqueda en Apollo va sin sucursal ni formas societarias (AG, N.A., SAU)', () => {
-    assert.equal(corporateTreeApolloQueryName('Citigroup Global Markets Europe AG, Sucursal en España'), 'citigroup global markets europe');
-    assert.equal(corporateTreeApolloQueryName('Citibank N.A. - Sucursal Argentina'), 'citibank');
-    assert.equal(corporateTreeApolloQueryName('GENERAL ELECTRIC HEALTHCARE ESPAÑA SAU'), 'general electric healthcare espana');
-  });
-
-  it('Apollo no le asigna a una sucursal la web que ya usa otra empresa del árbol', async () => {
-    const { deps, calls } = fakeDeps({
-      searchBranch: async (input) =>
-        input.branch === 'subsidiary'
-          ? outcomeFor('subsidiary', [NODE('Noel', 'CO', { website: 'https://noel.com.co', domain: 'noel.com.co' })])
-          : outcomeFor('other_country', [NODE('Noel Chile', 'CL', { branch: 'other_country' })]),
-      findInApollo: async () => ({ website: 'https://noel.com.co', domain: 'noel.com.co', linkedinUrl: null }),
-    });
-    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
-    assert.ok(!calls.web.some((c) => c.names.includes('Noel Chile')), 'noel.com.co ya es de Noel');
-    assert.ok(calls.withoutWebsite.find((c) => c.country === 'CL')?.names.includes('Noel Chile'), 'sigue esperando su web');
-  });
-
+describe('P. Citigroup 4.ª corrida (Prod 15-10): el lote no confunde «ya en SellUp» con «web del grupo»', () => {
   it('el lote: web propia ya en SellUp ≠ web del grupo ≠ no entró', () => {
     const base = { related_candidate_id: null, relation_detail: null, evidence_url: null, root_domain: 'citigroup.com' };
     const rels = [
@@ -1236,43 +1115,6 @@ describe('Q. La sucursal de una empresa en un país es esa empresa en ese país'
   });
 });
 
-describe('R. Citigroup 5.ª corrida (Prod 15-10): Apollo nunca toma un nombre MÁS largo', () => {
-  it('«Citicorp» no es «Citicorp Diners Club»', () => {
-    const org = (name: string, domain: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null });
-    const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-    assert.equal(pickApolloOrganization([org('Citicorp Diners Club', 'dinersclubus.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain), null);
-    assert.equal(pickApolloOrganization([org('Citicorp', 'citicorp.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain)?.domain, 'citicorp.com');
-  });
-});
-
-describe('S. Bimbo (Prod 15-10): Apollo vacío con «bimbo de colombia» en Colombia', () => {
-  it('la búsqueda va sin palabras vacías', () => {
-    assert.equal(corporateTreeApolloQueryName('BIMBO DE COLOMBIA S A'), 'bimbo colombia');
-    assert.equal(corporateTreeApolloQueryName('Panificadora Bimbo del Uruguay S.A.'), 'panificadora bimbo uruguay');
-  });
-
-  it('sin país en la búsqueda, sólo vale la organización que diga SU país', () => {
-    const org = (name: string, domain: string, country: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null, country });
-    const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-    const found = [org('Bimbo de Colombia', 'bimbo.com.mx', 'Mexico'), org('Bimbo de Colombia', 'bimbo.com.co', 'Colombia')];
-    assert.equal(
-      pickApolloOrganization(found, { name: 'BIMBO DE COLOMBIA S A', rootDomain: 'grupobimbo.com', countryNames: ['Colombia', 'CO'] }, toDomain)?.domain,
-      'bimbo.com.co',
-    );
-    assert.equal(
-      pickApolloOrganization([found[0]], { name: 'BIMBO DE COLOMBIA S A', rootDomain: 'grupobimbo.com', countryNames: ['Colombia', 'CO'] }, toDomain),
-      null,
-      'la de otro país no',
-    );
-  });
-
-  it('el reintento sin país sólo ocurre si la búsqueda en su país vino vacía (y una vacía no cobra)', () => {
-    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
-    assert.match(source, /if \(inCountry && inCountry\.rawCount > 0\) return pick\(inCountry\.organizations, null\);/);
-    assert.match(source, /const credits = page\.rawCount > 0 \? 1 : 0;/);
-  });
-});
-
 describe('T. La filial que admitió el rescate con la web del grupo se ve así en el lote', () => {
   it('«Sin web propia: usa la del grupo», también si la marca la puso el rescate', () => {
     const groups = groupBatchCandidatesByTreeRelation(
@@ -1292,5 +1134,102 @@ describe('U. Lo que el rescate encontró ya existente se dice así', () => {
       [{ related_candidate_id: null, related_name: 'BIMBO DE COLOMBIA S A', related_country_code: 'CO', relation_type: 'group', relation_detail: null, evidence_url: null, discard_reason_code: 'missing_domain_final', rescue_decision: 'duplicate' }],
     );
     assert.equal(groups[0].items[0].statusLabel, 'Ya existía (el rescate encontró su web)');
+  });
+});
+
+describe('V. Apollo da la FAMILIA de la empresa de partida (1 crédito), no busca por nombre', () => {
+  const BIMBO: CorporateTreeRoot = { name: 'Bimbo', website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX', candidateId: null, accountId: null };
+  const sub = (name: string, domain: string | null, countryCode: string | null = null) => ({ name, domain, website: domain ? `https://${domain}` : null, linkedinUrl: null, countryCode });
+
+  it('lee las filiales de la ficha de Apollo, tolerante a lo que traiga', () => {
+    const subs = readApolloSubsidiaries({
+      name: 'Grupo Bimbo',
+      suborganizations: [
+        { id: '1', name: 'Bimbo de Colombia', website_url: 'https://www.bimbo.com.co' },
+        { id: '2', name: 'Bimbo Canada', primary_domain: 'bimbo.ca', country: 'Canada' },
+        { id: '3', name: 'Bimbo Chile', primary_domain: 'ideal.cl', country: 'Chile' },
+        { id: '4' },
+        'basura',
+      ],
+    });
+    assert.deepEqual(subs.map((s) => [s.name, s.domain, s.countryCode]), [
+      ['Bimbo de Colombia', 'bimbo.com.co', null],
+      ['Bimbo Canada', 'bimbo.ca', null],
+      ['Bimbo Chile', 'ideal.cl', 'CL'],
+    ]);
+    assert.deepEqual(readApolloSubsidiaries(null), []);
+    assert.deepEqual(readApolloSubsidiaries({ name: 'X' }), []);
+  });
+
+  it('el país sale del dominio de país; un .com no dice el país', () => {
+    assert.equal(countryFromDomain('bimbo.com.co'), 'CO');
+    assert.equal(countryFromDomain('ideal.cl'), 'CL');
+    assert.equal(countryFromDomain('grupobimbo.com'), null);
+  });
+
+  it('completa la web de la fila sin web que coincide, y agrega filiales nuevas sólo de países pedidos', () => {
+    const plan = planCorporateTreeWrites({
+      root: BIMBO,
+      freeHits: [],
+      nodes: [NODE('BIMBO DE COLOMBIA S A', 'CO'), NODE('Bimbo Perú', 'PE')],
+    });
+    const applied = applyApolloFamily({
+      plan,
+      root: BIMBO,
+      countryCodes: ['MX', 'CO', 'PE', 'CL'],
+      subsidiaries: [
+        sub('Bimbo Colombia', 'bimbo.com.co'),
+        sub('Bimbo Chile', 'ideal.cl', 'CL'),
+        sub('Bimbo Canada', 'bimbo.ca'),
+        sub('Grupo Bimbo Global', 'grupobimbo.com'),
+        sub('Bimbo Perú Retail', 'bimbo.com.ar'),
+      ],
+    });
+    const byName = new Map(applied.plan.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get('BIMBO DE COLOMBIA S A')?.route, 'agent1_writer');
+    assert.equal(byName.get('BIMBO DE COLOMBIA S A')?.domain, 'bimbo.com.co');
+    assert.equal(byName.get('Bimbo Chile')?.route, 'agent1_writer', 'filial nueva de un país pedido');
+    assert.equal(byName.get('Bimbo Chile')?.foundInApollo, true);
+    assert.equal(byName.has('Bimbo Canada'), false, 'país no pedido / no se sabe');
+    assert.equal(byName.has('Grupo Bimbo Global'), false, 'la web del grupo nunca');
+    assert.equal(byName.get('Bimbo Perú')?.route, 'without_website', 'un dominio .ar no es de Perú');
+    assert.equal(applied.matched, 1);
+    assert.equal(applied.added, 1);
+  });
+
+  it('la corrida pregunta UNA vez, por la web de la empresa de partida, y lo cuenta en el lote', async () => {
+    const asked: string[] = [];
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary' ? outcomeFor('subsidiary', []) : outcomeFor('other_country', [NODE('Nutresa Chile', 'CL', { branch: 'other_country' })]),
+      findApolloFamily: async ({ rootDomain }) => {
+        asked.push(rootDomain);
+        return [sub('Nutresa Chile', 'nutresa.cl', 'CL')];
+      },
+    });
+    const result = await runCorporateTreeSearch({ ...REQUEST_ALL, rootWebsite: 'https://gruponutresa.com' }, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(asked, ['gruponutresa.com']);
+    assert.ok(calls.web.some((c) => c.country === 'CL' && c.names.includes('Nutresa Chile')));
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
+    assert.deepEqual(tree.apollo, { asked: true, subsidiaries: 1, matched: 1, added: 0 });
+  });
+
+  it('sin web de la empresa de partida no se pregunta (no hay con qué)', async () => {
+    let asked = 0;
+    const { deps } = fakeDeps({
+      findFreeHits: async () => ({ hits: [], rootCountryCode: 'CO', queries: 0, errors: 0 }),
+      findApolloFamily: async () => (asked++, []),
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.equal(asked, 0);
+  });
+
+  it('ya no existe la búsqueda por nombre; el paso sigue tras la bandera y la cuota de Apollo', () => {
+    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
+    assert.doesNotMatch(source, /searchApolloOrganizations|q_organization_name/);
+    assert.match(source, /findApolloFamily: isAgent1CorporateTreeApolloEnabled\(\)/);
+    assert.match(source, /checkProviderQuotaAvailable\('apollo'\)/);
+    assert.match(source, /enrichApolloOrganization\(\{ domain: rootDomain/);
   });
 });

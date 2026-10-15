@@ -41,13 +41,33 @@ export type OfficialSizeSignal = {
 
 const NOT_MEASURED: OfficialSizeSignal = { measured: false, minEmployees: DEFAULT_ICP_MIN_EMPLOYEES };
 
+/** Clave (evidencia de la descartada o metadata del candidato) de una fuente sin filtro de tamaño. */
+export const OFFICIAL_SIZE_UNFILTERED_KEY = 'official_size_unfiltered';
+
+/**
+ * AGENT1-RESCUE-SIZE-UNFILTERED-1 — ¿la fila viene de una fuente oficial que NO filtró
+ * por tamaño (proveedores de compras públicas)? Prod 15-10 (Subsecretaría de Salud × CL,
+ * 28a13bfd): AZAR PRODUCCIONES (2 empleados) volvió a revisión y VICONF entró sin web
+ * como «filial grande», porque en Chile toda fila oficial se daba por «100+ medido».
+ */
+export function isSizeUnfiltered(record: Record<string, unknown> | null | undefined): boolean {
+  return record?.[OFFICIAL_SIZE_UNFILTERED_KEY] === true;
+}
+
 /**
  * ¿El tamaño de esta fila lo midió una fuente oficial? Sólo filas del buscador
- * gratuito (`fromFreeLayer`) de los países de la tabla.
+ * gratuito (`fromFreeLayer`) de los países de la tabla, y nunca las de una fuente que
+ * no filtró por tamaño (`sizeUnfiltered`).
  */
-export function officialSizeSignal(params: { countryCode: string | null; fromFreeLayer: boolean }): OfficialSizeSignal {
+export function officialSizeSignal(params: {
+  countryCode: string | null;
+  fromFreeLayer: boolean;
+  sizeUnfiltered?: boolean;
+}): OfficialSizeSignal {
   if (!params.fromFreeLayer) return NOT_MEASURED;
   const country = (params.countryCode ?? '').trim().toUpperCase();
   const min = OFFICIAL_SIZE_MIN_EMPLOYEES[country];
+  // Sin filtro de la fuente: no está medido, pero rige el umbral aprobado del país.
+  if (params.sizeUnfiltered === true) return min === undefined ? NOT_MEASURED : { measured: false, minEmployees: min };
   return min === undefined ? NOT_MEASURED : { measured: true, minEmployees: min };
 }

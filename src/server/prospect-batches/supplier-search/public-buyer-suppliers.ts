@@ -32,6 +32,12 @@ import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public
 export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = ['CO', 'CL'];
 /** Proveedores que se ofrecen como mucho (con y sin web). */
 export const PUBLIC_BUYER_MAX_SUPPLIERS = 12;
+/**
+ * AGENT1-RESCUE-SIZE-UNFILTERED-1 — con el tamaño oficial a mano (Chile: trabajadores del
+ * SII), las de menos de esto no se ofrecen (umbral aprobado de Chile) y las de más van
+ * primero: el rescate de Claude busca su web en ese orden y su ventana es corta.
+ */
+export const PUBLIC_BUYER_MIN_OFFICIAL_WORKERS = 100;
 /** Clave del bloque del lote con lo que hizo el paso. */
 export const SUPPLIER_PUBLIC_BUYER_METADATA_KEY = 'supplier_public_buyer';
 
@@ -98,6 +104,8 @@ export type PublicBuyerStepOutcome =
       read: number;
       outsideIndustry: number;
       publicEntitiesExcluded: number;
+      /** Con tamaño oficial menor que `PUBLIC_BUYER_MIN_OFFICIAL_WORKERS`: no se ofrecen. */
+      knownSmallExcluded?: number;
       offered: number;
       /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
       written: number;
@@ -218,7 +226,22 @@ function toCompany(
     // La industria la prueba lo que le vende al Estado (tabla UNSPSC aprobada).
     officialMacroIndustry: { macroIndustryKeys: [supplier.macroIndustryKey], tableVersion: input.tableVersion },
     originSourceKey: input.sourceKey,
+    // Compras públicas no filtran por tamaño: el rescate lo comprueba como con cualquiera.
+    sizeNotFilteredBySource: true,
   };
+}
+
+/** ¿El tamaño oficial ya la deja fuera? Sin dato, no se sabe y sigue. */
+function isKnownSmall(supplier: PublicBuyerSupplier): boolean {
+  return supplier.officialWorkers ? supplier.officialWorkers.workers < PUBLIC_BUYER_MIN_OFFICIAL_WORKERS : false;
+}
+
+/** Las grandes según el registro oficial primero (de más a menos trabajadores); el resto, por monto. */
+export function prioritizeLargeSuppliers(suppliers: readonly PublicBuyerSupplier[]): PublicBuyerSupplier[] {
+  const large = suppliers
+    .filter((s) => (s.officialWorkers?.workers ?? 0) >= PUBLIC_BUYER_MIN_OFFICIAL_WORKERS)
+    .sort((a, b) => (b.officialWorkers?.workers ?? 0) - (a.officialWorkers?.workers ?? 0));
+  return [...large, ...suppliers.filter((s) => !large.includes(s))];
 }
 
 export async function runPublicBuyerSupplierStep(
@@ -242,7 +265,9 @@ export async function runPublicBuyerSupplierStep(
   if (!listed.ok) return { executed: false, reason: listed.reason };
 
   const publicOnly = listed.suppliers.length > 0 ? await deps.listPublicOnlyTaxIds(listed.suppliers.map((s) => s.taxId)) : new Set<string>();
-  const offered = listed.suppliers.filter((s) => !publicOnly.has(s.taxId)).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
+  const notPublic = listed.suppliers.filter((s) => !publicOnly.has(s.taxId));
+  const knownSmall = notPublic.filter(isKnownSmall);
+  const offered = prioritizeLargeSuppliers(notPublic.filter((s) => !isKnownSmall(s))).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
   const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
   const companyInput = {
     countryCode: input.countryCode,
@@ -266,6 +291,7 @@ export async function runPublicBuyerSupplierStep(
     read: listed.read,
     outsideIndustry: listed.outsideIndustry,
     publicEntitiesExcluded: listed.suppliers.filter((s) => publicOnly.has(s.taxId)).length,
+    knownSmallExcluded: knownSmall.length,
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
