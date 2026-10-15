@@ -349,6 +349,8 @@ export async function executeCompetitorSearchRun(
           [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget),
           claude_search_leg: claudeLeg,
           competitor_search_rounds: rounds,
+          // La forma de búsqueda, otra vez al cerrar: es la última escritura del lote.
+          search_mode: 'competitors',
           ...(batchOutcome ? { competitor_search_outcome: batchOutcome } : {}),
         },
       })

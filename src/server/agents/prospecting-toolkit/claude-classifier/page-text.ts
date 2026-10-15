@@ -91,8 +91,42 @@ export function normalizeForQuoteMatch(text: string): string {
 /** Longitud mínima de una cita para que cuente como evidencia. */
 export const MIN_QUOTE_CHARS = 12;
 
+/**
+ * AGENT1-CLAUDE-SECTOR-QUOTE-1 — la misma cita sin puntuación: «Intelligent
+ * automation, RPA» y «intelligent automation (RPA)» son el mismo texto de la página.
+ * Sólo letras, números y espacios; las palabras siguen tienen que estar TODAS y en
+ * el mismo orden.
+ */
+function lettersOnly(text: string): string {
+  return normalizeForQuoteMatch(text)
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/** «…» o «...» separan trozos de una cita recortada. */
+const QUOTE_ELLIPSIS = /\s*(?:…|\.{3,})\s*/;
+
 export function quoteAppearsInText(quote: string, text: string): boolean {
   const q = normalizeForQuoteMatch(quote);
   if (q.length < MIN_QUOTE_CHARS) return false;
-  return normalizeForQuoteMatch(text).includes(q);
+  const normalizedText = normalizeForQuoteMatch(text);
+  if (normalizedText.includes(q)) return true;
+
+  // AGENT1-CLAUDE-SECTOR-QUOTE-1 — Prod 14-10: 7 de 49 sectores rechazados con
+  // `quote_not_found_in_official_page` aunque la página estaba descargada. Dos
+  // tolerancias que NO inventan texto: (1) la puntuación no cuenta; (2) una cita
+  // recortada con «…» vale si CADA trozo (de MIN_QUOTE_CHARS o más) aparece, en orden.
+  const plainText = ` ${lettersOnly(text)} `;
+  const fragments = q
+    .split(QUOTE_ELLIPSIS)
+    .map((f) => lettersOnly(f))
+    .filter((f) => f.length > 0);
+  if (fragments.length === 0 || fragments.some((f) => f.length < MIN_QUOTE_CHARS)) return false;
+  let from = 0;
+  for (const fragment of fragments) {
+    const at = plainText.indexOf(` ${fragment} `, from);
+    if (at === -1) return false;
+    from = at + fragment.length;
+  }
+  return true;
 }
