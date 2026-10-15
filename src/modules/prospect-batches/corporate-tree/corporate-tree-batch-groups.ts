@@ -48,6 +48,13 @@ export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del gr
 /** En «Descartadas» porque HubSpot tiene un nombre parecido en su país (sin rescate). */
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL = 'En Descartadas: posible duplicado en HubSpot';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_hubspot_duplicate';
+/**
+ * El control de «¿esta web es de esta empresa?» la rechazó: queda en «Descartadas» con su
+ * web para enviarla a revisión a mano (Prod 15-10: «Walmart de México y Centroamérica»,
+ * walmex.mx). No va al rescate: no se paga nada.
+ */
+export const CORPORATE_TREE_OWNERSHIP_REJECTED_REASON = 'corporate_tree_ownership_rejected';
+export const CORPORATE_TREE_OWNERSHIP_REJECTED_LABEL = 'En Descartadas: revisa si la web es suya';
 export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
 /** El rescate le encontró su web y ya existía en SellUp o HubSpot. */
 export const CORPORATE_TREE_RESCUE_DUPLICATE_LABEL = 'Ya existía (el rescate encontró su web)';
@@ -233,6 +240,8 @@ export function groupBatchCandidatesByTreeRelation(
               ? CORPORATE_TREE_KNOWN_TAX_ID_LABEL
               : rel.rescue_decision === 'duplicate'
               ? CORPORATE_TREE_RESCUE_DUPLICATE_LABEL
+              : rel.discard_reason_code === CORPORATE_TREE_OWNERSHIP_REJECTED_REASON
+              ? CORPORATE_TREE_OWNERSHIP_REJECTED_LABEL
               : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
           ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
           : rel.related_domain

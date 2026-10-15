@@ -1452,3 +1452,78 @@ describe('AB. Se dice por qué el escritor no escribió cada empresa (Prod 15-10
     assert.equal(groups[0].items[0].statusLabel, 'No entró: su país no coincide');
   });
 });
+
+describe('AC. Walmart y Chevron (Prod 15-10): el motivo encuentra su empresa y Apollo pasa el tamaño', () => {
+  it('el escritor no devuelve la web: el motivo la toma de la fila del árbol', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Purina', 'CL', { website: 'https://purina.cl', domain: 'purina.cl' })])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({ written: 0, errors: [], skipped: [{ name: 'Purina', reason: 'company_ownership:reject' }] }),
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    const tree = calls.sealed[0].metadata.corporate_tree as { not_written: Array<{ domain: string | null }> };
+    assert.equal(tree.not_written[0].domain, 'purina.cl');
+  });
+
+  it('las filiales de Apollo llevan sus empleados al escritor', () => {
+    const root: CorporateTreeRoot = { name: 'Walmart', website: 'https://walmart.com', domain: 'walmart.com', countryCode: 'US', candidateId: null, accountId: null };
+    const applied = applyApolloFamily({
+      plan: planCorporateTreeWrites({ root, freeHits: [], nodes: [] }),
+      root,
+      countryCodes: ['US'],
+      subsidiaries: [{ name: "Sam's Club", domain: 'samsclub.com', website: 'https://samsclub.com', linkedinUrl: null, countryCode: 'US', employeeCount: 100000 }],
+    });
+    const item = [...applied.plan.web.values()].flat().find((i) => i.node?.name === "Sam's Club");
+    assert.equal(item?.node?.employeeCount, 100000);
+  });
+
+  it('el motivo «company_ownership:reject» se dice en palabras', () => {
+    assert.equal(corporateTreeNotWrittenLabel('company_ownership:reject'), 'No entró: la web no parece ser de esa empresa');
+    assert.equal(corporateTreeNotWrittenLabel('icp_size_below_threshold'), 'No entró: por su tamaño');
+    assert.equal(corporateTreeNotWrittenLabel('qualityLabel=discard'), 'No entró: no pasó la revisión de calidad');
+  });
+});
+
+describe('AD. Walmart de México (Prod 15-10): la que el control de propiedad rechaza queda en «Descartadas» para revisarla', () => {
+  it('sólo las rechazadas por propiedad y con web van a «Descartadas»; las demás no', async () => {
+    const recorded: Array<{ country: string; names: string[] }> = [];
+    const { deps } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [
+              NODE('Walmart de México y Centroamérica', 'CL', { website: 'https://walmex.mx', domain: 'walmex.mx' }),
+              NODE('Hayneedle', 'CL', { website: 'https://hayneedle.cl', domain: 'hayneedle.cl' }),
+            ])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({
+        written: 0,
+        errors: [],
+        skipped: [
+          { name: 'Walmart de México y Centroamérica', reason: 'company_ownership:reject' },
+          { name: 'Hayneedle', reason: 'qualityLabel=discard' },
+        ],
+      }),
+      recordOwnershipRejected: async (_batch, countryCode, items) => {
+        recorded.push({ country: countryCode, names: items.map((i) => i.name) });
+        return items.length;
+      },
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.deepEqual(recorded, [{ country: 'CL', names: ['Walmart de México y Centroamérica'] }]);
+  });
+
+  it('el lote la muestra como «revisa si la web es suya»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Walmart de México y Centroamérica', related_country_code: 'MX', related_domain: 'walmex.mx', relation_type: 'subsidiary', relation_detail: null, evidence_url: null, discard_reason_code: 'corporate_tree_ownership_rejected' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'En Descartadas: revisa si la web es suya');
+  });
+
+  it('esa razón no es de las que el rescate paga', () => {
+    const rescue = readFileSync('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-dispositions.ts', 'utf8');
+    assert.doesNotMatch(rescue, /corporate_tree_ownership_rejected/);
+  });
+});

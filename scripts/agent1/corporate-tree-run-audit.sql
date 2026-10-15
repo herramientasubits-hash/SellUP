@@ -105,7 +105,9 @@ findings AS (
   UNION ALL
   SELECT d.batch_id, 'error', 'paid_search_known_tax', d.name,
          format('Buscó su web (pagado) aunque «%s» ya tiene ese número fiscal (%s).', l.name, d.tax_id)
-  FROM disp d JOIN live l ON l.tax_identifier = d.tax_id AND l.batch_id <> d.batch_id
+  -- Sólo si la otra ya existía al registrar ésta (Prod 15-10: dos Chevron seguidas; la
+  -- segunda escribió después y no fue un gasto de más).
+  FROM disp d JOIN live l ON l.tax_identifier = d.tax_id AND l.batch_id <> d.batch_id AND l.created_at < d.created_at
   WHERE d.tax_id IS NOT NULL
     AND d.evidence -> 'claude_domain_search' ->> 'searched_at' IS NOT NULL
     AND coalesce(d.evidence -> 'claude_domain_search' ->> 'skipped', '') = ''
@@ -147,6 +149,7 @@ findings AS (
     SELECT e ->> 'reason' AS reason
     FROM jsonb_array_elements(coalesce(b.t -> 'not_written', '[]')) e
     WHERE lower(e ->> 'domain') = lower(r.related_domain)
+       OR (lower(e ->> 'name') = lower(r.related_name) AND e ->> 'countryCode' = r.related_country_code)
     LIMIT 1
   ) nw ON true
   WHERE r.related_candidate_id IS NULL AND r.related_domain IS NOT NULL AND r.relation_type <> 'root'

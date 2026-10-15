@@ -184,6 +184,11 @@ export type CorporateTreeRunDeps = {
    */
   findKnownCompany?: (query: { name: string; countryCode: string | null }) => Promise<CorporateTreeKnownCompany | null>;
   /**
+   * Las que el control de propiedad del escritor rechazó, a «Descartadas» con su web (sin
+   * rescate, sin costo): una persona decide si la web es suya. Ausente = se pierden.
+   */
+  recordOwnershipRejected?: (batchId: string, countryCode: string, items: readonly CorporateTreeNotWritten[]) => Promise<number>;
+  /**
    * Número fiscal oficial por nombre (el mismo buscador de la capa gratuita). Para las
    * filiales con la web del grupo: con número entran a «Por revisar» sin web propia.
    */
@@ -422,8 +427,19 @@ async function writePlan(
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
     // Por qué el escritor no escribió cada una (Prod 15-10: Purina, HSBC Bank USA… sin motivo).
+    // El escritor casi nunca devuelve la web (Prod 15-10: todas sin web): sale de la fila.
+    const domainByName = new Map(
+      items.map((item) => [(item.node?.name ?? item.bankCandidate?.name ?? '').trim().toLowerCase(), item.node?.domain ?? item.bankCandidate?.domain ?? null]),
+    );
+    const countryNotWritten: CorporateTreeNotWritten[] = [];
     for (const skip of 'skipped' in result ? (result.skipped ?? []) : []) {
-      notWritten.push({ name: skip.name, countryCode: code, domain: skip.domain ?? null, reason: skip.reason.slice(0, 120) });
+      const domain = skip.domain ?? domainByName.get(skip.name.trim().toLowerCase()) ?? null;
+      countryNotWritten.push({ name: skip.name, countryCode: code, domain, reason: skip.reason.slice(0, 120) });
+    }
+    notWritten.push(...countryNotWritten);
+    const ownershipRejected = countryNotWritten.filter((n) => n.domain && n.reason.startsWith('company_ownership'));
+    if (ownershipRejected.length > 0 && deps.recordOwnershipRejected && !outOfTime(`ownership_rejected:${code}`)) {
+      await deps.recordOwnershipRejected(batchId, code, ownershipRejected).catch(() => 0);
     }
   }
   for (const [code, items] of plan.possibleDuplicates) {
