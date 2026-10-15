@@ -112,13 +112,40 @@ export function mergeRootFindings(
   freeHits: readonly Pick<CorporateTreeFreeHit, 'relation' | 'countryCode' | 'domain'>[],
 ): CorporateTreeRoot {
   const known = findings.filter((f): f is NonNullable<typeof f> => !!f);
-  const withDomain = known.find((f) => !!f.domain) ?? null;
-  const countryCode = root.countryCode ?? known.find((f) => !!f.countryCode)?.countryCode ?? null;
+  const withDomain = pickRootFinding(root.name, known);
+  const countryCode =
+    root.countryCode ?? withDomain?.countryCode ?? known.find((f) => !!f.countryCode)?.countryCode ?? null;
   const freeRootDomain =
     freeHits.find((h) => h.relation === 'root' && !!h.domain && (!countryCode || h.countryCode === countryCode))?.domain ?? null;
   const domain = root.domain ?? withDomain?.domain ?? freeRootDomain;
   const website = root.website ?? withDomain?.website ?? (domain ? `https://${domain}` : null);
   return { ...root, website, domain, countryCode };
+}
+
+/** Palabras del nombre que sirven para reconocerlo en una web (4+ letras, sin forma societaria). */
+function rootNameTokens(name: string): string[] {
+  return normalizeTreeName(name)
+    .split(' ')
+    .filter((token) => token.length >= 4 && !['grupo', 'group', 'holding', 'holdings', 'corporacion', 'corporation'].includes(token));
+}
+
+/**
+ * Qué respuesta de Claude describe a la empresa de partida. Cada rama la cuenta por su
+ * lado y la del grupo puede dar la de su MATRIZ (Prod 15-10, Monsanto 2d25d55a: la rama
+ * «grupo» dijo bayer.com/DE y las otras dos monsanto.com/US; ganó la primera y Apollo
+ * enriqueció a Bayer). Gana la web que lleva el nombre de la empresa; si ninguna lo
+ * lleva, la que más ramas repiten; si empatan, la primera.
+ */
+function pickRootFinding<T extends { domain: string | null }>(rootName: string, known: readonly T[]): T | null {
+  const withDomain = known.filter((f) => !!f.domain);
+  if (withDomain.length === 0) return null;
+  const tokens = rootNameTokens(rootName);
+  const label = (domain: string) => domain.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const named = withDomain.find((f) => tokens.some((token) => label(f.domain!).includes(token)));
+  if (named) return named;
+  const votes = new Map<string, number>();
+  for (const f of withDomain) votes.set(f.domain!, (votes.get(f.domain!) ?? 0) + 1);
+  return withDomain.reduce((best, f) => ((votes.get(f.domain!) ?? 0) > (votes.get(best.domain!) ?? 0) ? f : best));
 }
 
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {

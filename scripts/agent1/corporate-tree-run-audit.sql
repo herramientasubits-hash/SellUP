@@ -72,6 +72,19 @@ findings AS (
   SELECT b.id, 'warn', 'apollo_not_asked', b.t ->> 'root_domain', 'Había web de la empresa de partida pero Apollo no se consultó (¿bandera, cupo o tiempo?).'
   FROM batches b WHERE coalesce(b.t ->> 'root_domain', '') <> '' AND coalesce((b.t -> 'apollo' ->> 'asked')::boolean, false) = false
 
+  -- ── La web de partida no lleva su nombre (¿es la de su matriz?) ─
+  -- Prod 15-10, Monsanto: quedó bayer.com y Apollo enriqueció a Bayer.
+  UNION ALL
+  SELECT b.id, 'warn', 'root_domain_other_name', b.t ->> 'root_domain',
+         format('La web de «%s» no lleva su nombre: ¿es la de su matriz?', b.t ->> 'root_name')
+  FROM batches b
+  WHERE coalesce(b.t ->> 'root_domain', '') <> ''
+    AND NOT EXISTS (
+      SELECT 1 FROM regexp_split_to_table(lower(translate(b.t ->> 'root_name', 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')), '[^a-z0-9]+') tok
+      WHERE length(tok) >= 4 AND tok NOT IN ('grupo', 'group', 'holding', 'holdings', 'corporacion', 'corporation')
+        AND position(tok IN replace(b.t ->> 'root_domain', '-', '')) > 0
+    )
+
   -- ── Errores registrados por la corrida ────────────────────
   UNION ALL
   SELECT b.id, 'error', 'write_error', e.value #>> '{}', 'Error al escribir.'

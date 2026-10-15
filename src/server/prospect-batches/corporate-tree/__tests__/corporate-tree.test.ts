@@ -1373,3 +1373,47 @@ describe('Z. Varias búsquedas del árbol a la vez (Prod 15-10: el «+» quedaba
     assert.match(flow, /Apollo da las filiales con 1 crédito/);
   });
 });
+
+describe('AA. La web de la empresa de partida es la suya, no la de su matriz (Prod 15-10, Monsanto 2d25d55a)', () => {
+  const ROOT: CorporateTreeRoot = { name: 'Monsanto', website: null, domain: null, countryCode: null, candidateId: null, accountId: null };
+
+  it('la rama «grupo» dice bayer.com/DE y las otras monsanto.com/US: gana monsanto.com, y su país', () => {
+    const merged = mergeRootFindings(
+      ROOT,
+      [
+        { website: 'https://www.bayer.com', domain: 'bayer.com', countryCode: 'DE' },
+        { website: 'https://www.monsanto.com', domain: 'monsanto.com', countryCode: 'US' },
+        { website: 'https://www.monsanto.com', domain: 'monsanto.com', countryCode: 'US' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'monsanto.com');
+    assert.equal(merged.countryCode, 'US');
+  });
+
+  it('si ninguna lleva el nombre, gana la que más ramas repiten', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, name: 'Alphabet' },
+      [
+        { website: 'https://x.com', domain: 'x.com', countryCode: 'US' },
+        { website: 'https://abc.xyz', domain: 'abc.xyz', countryCode: 'US' },
+        { website: 'https://abc.xyz', domain: 'abc.xyz', countryCode: 'US' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'abc.xyz');
+  });
+
+  it('«Grupo» no cuenta como nombre: Grupo Bimbo reconoce grupobimbo.com por «bimbo»', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, name: 'Grupo Bimbo' },
+      [
+        { website: 'https://www.grupoexito.com.co', domain: 'grupoexito.com.co', countryCode: 'CO' },
+        { website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'grupobimbo.com');
+    assert.equal(merged.countryCode, 'MX');
+  });
+});
