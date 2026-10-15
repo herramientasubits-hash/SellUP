@@ -1146,14 +1146,16 @@ export async function executeProspectWizardGenerationAction(
         }),
       );
     },
+    // AGENT1-SUPPLIER-SEARCH-PUBLIC-2 — fuente oficial con web, ni duplicada ni descartada
+    // (como la capa gratuita): estas filas no llevan `target_completeness`.
     listAcceptedPublicCandidateIds: async (batchId) => {
       const { data, error } = await budgetClient
         .from('prospect_candidates')
         .select('id')
         .eq('batch_id', batchId)
-        .neq('source_primary', 'web_ai')
-        .not('status', 'in', '(duplicate,discarded)')
-        .eq('metadata->target_completeness->>counts_toward_target', 'true');
+        .eq('source_primary', 'public_source')
+        .not('domain', 'is', null)
+        .not('status', 'in', '(duplicate,discarded)');
       return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
     },
     tagPublicBuyerSuppliers: async (input) => {
