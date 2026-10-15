@@ -173,7 +173,7 @@ export function ImportCandidatesInputStep({
       <DrawerSection
         title="Datos a importar"
         icon={Table2}
-        hint="Pega una tabla o sube un archivo."
+        hint="Pega una tabla, una lista o un texto, o sube un archivo."
         contentClassName="space-y-4"
       >
         {/* Selector de método */}
@@ -192,8 +192,8 @@ export function ImportCandidatesInputStep({
         {/* Input: pegar tabla */}
         {fileMethod === 'paste' && (
           <Field
-            label="Pega el contenido copiado desde Google Sheets o Excel"
-            description="Acepta separadores tab, coma, punto y coma o tablas Markdown (incluso si vienen con texto explicativo alrededor). La primera fila válida será interpretada como encabezados. Si el archivo no trae país o industria, SellUp usará los valores seleccionados arriba."
+            label="Pega empresas en cualquier formato"
+            description="Una tabla de Google Sheets, Excel o Gemini (con o sin encabezados), una lista con una empresa por línea, o un texto que las mencione: SellUp reconoce las empresas y sus datos. Si no traen país o industria, se usan los valores seleccionados arriba; lo demás se completa al importar."
           >
             <Textarea
               id="import-paste-text"
@@ -218,17 +218,17 @@ export function ImportCandidatesInputStep({
           ) : (
             <div className="space-y-1.5">
               <UploadZone
-                label="Sube un archivo CSV o Excel (.xlsx)"
+                label="Sube un archivo CSV, Excel (.xlsx) o de texto (.txt)"
                 idleText="Arrastra el archivo aquí o haz clic para elegirlo"
                 activeText="Suelta el archivo aquí…"
-                description="Archivos .csv o .xlsx · máx. 2 MB · 500 filas"
+                description="Archivos .csv, .xlsx o .txt · máx. 2 MB · 500 filas"
                 error={fileError ?? undefined}
                 onChange={(files) => {
                   if (files[0]) onFileSelected(files[0]);
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                La primera fila debe contener los encabezados. Los archivos .xlsm no son soportados.
+                Las columnas se reconocen por su encabezado o por su contenido. Los archivos .xlsm no son soportados.
               </p>
             </div>
           ))}
@@ -238,7 +238,7 @@ export function ImportCandidatesInputStep({
 
       <Alert variant="info">
         <AlertDescription className="text-xs">
-          Puedes copiar desde Google Sheets/Excel o subir un archivo CSV/XLSX.
+          Con el formato oficial (ver la guía) la lectura es exacta. Fuera de él, SellUp detecta las empresas por su contenido y, si es texto corrido, las lee con IA.
         </AlertDescription>
       </Alert>
     </div>
