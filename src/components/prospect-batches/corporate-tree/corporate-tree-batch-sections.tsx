@@ -97,7 +97,7 @@ export function CorporateTreeBatchSections({
                               : `Web del grupo: ${item.groupWebsite}`}
                           </p>
                         )}
-                        {item.foundInApollo && <p className="text-xs text-muted-foreground">Web encontrada en Apollo por el nombre.</p>}
+                        {item.foundInApollo && <p className="text-xs text-muted-foreground">Filial y web según Apollo (filiales de la empresa de partida).</p>}
                         {item.websiteUnverified && (
                           <p className="text-xs text-warning">Web no comprobada: el sitio no deja revisarla. Confírmala antes de aprobar.</p>
                         )}

@@ -32,8 +32,8 @@ import {
   markKnownCompanies,
   planCorporateTreeWrites,
   promoteGroupCompaniesWithTaxIds,
-  promoteRowsFoundInApollo,
-  type CorporateTreeApolloMatch,
+  applyApolloFamily,
+  type CorporateTreeApolloSubsidiary,
   type CorporateTreeKnownCompany,
   type CorporateTreePossibleDuplicate,
   type CorporateTreePlannedRow,
@@ -183,13 +183,14 @@ export type CorporateTreeRunDeps = {
    */
   fillOfficialTaxIds?: (companies: CountrySourceCompany[]) => Promise<CountrySourceCompany[]>;
   /**
-   * Apollo por nombre, para las que siguen sin web antes del rescate. `undefined` = apagado
-   * (bandera o cuota). Cada llamada es pagada: se registra con el lote.
+   * Apollo: la ficha de la empresa de partida (por su web) y sus filiales
+   * (`suborganizations`). UNA llamada por corrida (1 crédito). `undefined` = apagado
+   * (bandera o cuota); `null` = Apollo no la conoce. Se registra con el lote.
    */
-  findInApollo?: (
-    query: { name: string; countryCode: string; rootDomain: string | null },
+  findApolloFamily?: (
+    query: { rootDomain: string; rootName: string },
     ctx: { batchId: string },
-  ) => Promise<CorporateTreeApolloMatch | null>;
+  ) => Promise<CorporateTreeApolloSubsidiary[] | null>;
   /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
   recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
@@ -321,8 +322,6 @@ async function runClaudePhase(
   return { outcomes, skipped: null };
 }
 
-/** Como mucho, búsquedas pagadas en Apollo por corrida. */
-export const CORPORATE_TREE_APOLLO_MAX_LOOKUPS = 5;
 
 async function withGroupTaxIds(plan: CorporateTreeWritePlan, deps: CorporateTreeRunDeps): Promise<CorporateTreeWritePlan> {
   const pendingKeys = plan.rows.filter((row) => row.route === 'group_reference' && plan.groupCompanies.has(row.key)).map((row) => row.key);
@@ -337,35 +336,20 @@ async function withGroupTaxIds(plan: CorporateTreeWritePlan, deps: CorporateTree
   return promoteGroupCompaniesWithTaxIds(plan, byKey);
 }
 
-async function withApolloByName(
+async function withApolloFamily(
   plan: CorporateTreeWritePlan,
   root: CorporateTreeRoot,
+  countryCodes: readonly string[],
   batchId: string,
   deps: CorporateTreeRunDeps,
   deadlineAtMs: number,
-): Promise<{ plan: CorporateTreeWritePlan; lookups: number }> {
-  if (!deps.findInApollo) return { plan, lookups: 0 };
-  const pending = plan.rows
-    .filter((row) => row.route === 'without_website' && row.relation !== 'root' && !!row.countryCode)
-    .slice(0, CORPORATE_TREE_APOLLO_MAX_LOOKUPS);
-  const found = new Map<string, CorporateTreeApolloMatch>();
-  // Una web que ya usa otra empresa del árbol (la del grupo, citibank.com) no es la de esta sucursal.
-  const usedDomains = new Set(
-    [root.domain, ...plan.rows.map((row) => row.domain)].filter((d): d is string => !!d).map((d) => d.toLowerCase()),
-  );
-  let lookups = 0;
-  for (const row of pending) {
-    if (deps.nowMs() >= deadlineAtMs) break;
-    lookups++;
-    const match = await deps
-      .findInApollo({ name: row.name, countryCode: row.countryCode as string, rootDomain: root.domain }, { batchId })
-      .catch(() => null);
-    if (match && !usedDomains.has(match.domain.toLowerCase())) {
-      found.set(row.key, match);
-      usedDomains.add(match.domain.toLowerCase());
-    }
-  }
-  return { plan: promoteRowsFoundInApollo(plan, found), lookups };
+): Promise<{ plan: CorporateTreeWritePlan; asked: boolean; subsidiaries: number; matched: number; added: number }> {
+  const none = { plan, asked: false, subsidiaries: 0, matched: 0, added: 0 };
+  if (!deps.findApolloFamily || !root.domain || deps.nowMs() >= deadlineAtMs) return none;
+  const subsidiaries = await deps.findApolloFamily({ rootDomain: root.domain, rootName: root.name }, { batchId }).catch(() => null);
+  if (!subsidiaries || subsidiaries.length === 0) return { ...none, asked: true };
+  const applied = applyApolloFamily({ plan, root, subsidiaries, countryCodes });
+  return { plan: applied.plan, asked: true, subsidiaries: subsidiaries.length, matched: applied.matched, added: applied.added };
 }
 
 /** Cuántas consultas a HubSpot/SellUp a la vez (y cuántas como mucho). */
@@ -538,7 +522,14 @@ async function runAfterReservation(
   deps.report('tree_checking');
   const withKnown = await withKnownCompanies(planCorporateTreeWrites({ root, freeHits: free.hits, nodes }), deps, context.writeDeadlineAtMs);
   const withGroupFiscal = await withGroupTaxIds(withKnown, deps);
-  const apollo = await withApolloByName(withGroupFiscal, root, batchId, deps, context.writeDeadlineAtMs);
+  const apollo = await withApolloFamily(
+    withGroupFiscal,
+    root,
+    request.countries.map((c) => c.code),
+    batchId,
+    deps,
+    context.writeDeadlineAtMs,
+  );
   const plan = apollo.plan;
   const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
@@ -604,7 +595,7 @@ async function runAfterReservation(
       already_known: plan.rows.filter((r) => r.route === 'already_known').length,
       possible_known: plan.rows.filter((r) => r.route === 'possible_known').length,
       group_with_tax_id: plan.rows.filter((r) => r.route === 'free_catalog' && !!r.groupWebsite).length,
-      apollo: { lookups: apollo.lookups, found: plan.rows.filter((r) => r.foundInApollo).length },
+      apollo: { asked: apollo.asked, subsidiaries: apollo.subsidiaries, matched: apollo.matched, added: apollo.added },
       dropped_by_cap: plan.droppedByCap,
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
