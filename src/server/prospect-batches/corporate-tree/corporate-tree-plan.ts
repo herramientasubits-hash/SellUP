@@ -600,7 +600,35 @@ export type CorporateTreeApolloSubsidiary = {
   linkedinUrl: string | null;
   /** País de su sede si Apollo lo trae. */
   countryCode: string | null;
+  /** Empleados según Apollo (`estimated_num_employees`), si lo trae. */
+  employeeCount?: number | null;
 };
+
+/**
+ * Por debajo de esto no es cliente de UBITS (el mismo mínimo del rescate): Apollo lista
+ * concesionarios y franquicias pequeñas como filiales (Prod 15-10: «Porsche Santa
+ * Clarita» en Volkswagen, «Jiffy Lube Southeast» en Shell).
+ */
+export const CORPORATE_TREE_APOLLO_MIN_EMPLOYEES = 200;
+
+const GENERIC_TLD = /\.(com|net|org|biz|info)$/i;
+
+/**
+ * Filial de un país que trae la web GLOBAL del grupo («Porsche Colombia SAS» con
+ * porsche.com, «Volkswagen do Brasil» con volkswagen.com): esa web no es suya y
+ * reclamarla le quitaría la web a la empresa del grupo. Se reconoce porque su nombre
+ * termina en su país y la web no es de ese país.
+ */
+export function apolloSubsidiaryUsesGlobalDomain(sub: { name: string; domain: string }, countryCode: string): boolean {
+  if (!GENERIC_TLD.test(sub.domain) || countryCode === 'US') return false;
+  const core = normalizeTreeName(stripBranchSuffix(sub.name));
+  return stripOwnCountryMarker(core, countryCode) !== core;
+}
+
+/** Las más grandes primero; las de tamaño desconocido al final, en el orden de Apollo. */
+function bySizeDesc(a: { employeeCount?: number | null }, b: { employeeCount?: number | null }): number {
+  return (b.employeeCount ?? -1) - (a.employeeCount ?? -1);
+}
 
 /** Dominio de país (.co, .com.mx…) ⇒ código del asistente. Un .com no dice el país. */
 const COUNTRY_BY_TLD: Readonly<Record<string, string>> = {
@@ -638,7 +666,9 @@ export function applyApolloFamily(params: {
   );
   const usable = params.subsidiaries
     .map((sub) => ({ ...sub, domain: sub.domain?.toLowerCase() ?? null }))
-    .filter((sub): sub is CorporateTreeApolloSubsidiary & { domain: string } => !!sub.domain && !used.has(sub.domain));
+    .filter((sub): sub is CorporateTreeApolloSubsidiary & { domain: string } => !!sub.domain && !used.has(sub.domain))
+    .filter((sub) => sub.employeeCount == null || sub.employeeCount >= CORPORATE_TREE_APOLLO_MIN_EMPLOYEES)
+    .sort(bySizeDesc);
   const countryOf = (sub: { domain: string; countryCode: string | null }) => sub.countryCode ?? countryFromDomain(sub.domain);
 
   // 1. Completar la web de las filas sin web.
@@ -651,6 +681,7 @@ export function applyApolloFamily(params: {
       if (taken.has(sub.domain)) return false;
       const subCountry = countryOf(sub);
       if (subCountry && subCountry !== row.countryCode) return false;
+      if (apolloSubsidiaryUsesGlobalDomain(sub, row.countryCode!)) return false;
       const subCore = normalizeTreeName(sub.name);
       return !!subCore && (subCore === rowCore || namedWithin(subCore, rowCore));
     });
@@ -669,6 +700,7 @@ export function applyApolloFamily(params: {
     if (newRows.length >= room || taken.has(sub.domain)) continue;
     const countryCode = countryOf(sub);
     if (!countryCode || !countryCodes.includes(countryCode)) continue;
+    if (apolloSubsidiaryUsesGlobalDomain(sub, countryCode)) continue;
     const key = corporateTreeRowKey(sub.name, countryCode);
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);

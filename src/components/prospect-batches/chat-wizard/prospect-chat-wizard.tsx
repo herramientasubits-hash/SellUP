@@ -936,7 +936,14 @@ export function ProspectChatWizard({
   // AGENT1-CORPORATE-TREE-1 — el árbol de una empresa tiene su propia
   // conversación; «Elegir otro tipo de búsqueda» vuelve a la primera pregunta.
   if (state.currentStep === 'corporate_tree') {
-    return <CorporateTreeFlow onBack={() => dispatch({ type: 'GO_BACK' })} onOpenBatch={onClose} onClose={onClose} />;
+    return (
+      <CorporateTreeFlow
+        onBack={() => dispatch({ type: 'GO_BACK' })}
+        onOpenBatch={onClose}
+        onClose={onClose}
+        onRunningChange={onRunningChange}
+      />
+    );
   }
 
   // ── Render ────────────────────────────────────────────────────────────────

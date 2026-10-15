@@ -104,7 +104,15 @@ export function readApolloSubsidiaries(organization: unknown): CorporateTreeApol
     const countryCode =
       (country && Object.entries(APOLLO_COUNTRY_LOCATION_BY_CODE).find(([, en]) => en.toLowerCase() === country.toLowerCase())?.[0]) ??
       (country && country.length === 2 ? country.toUpperCase() : null);
-    out.push({ name, domain, website, linkedinUrl: text(sub['linkedin_url']), countryCode });
+    const employees = sub['estimated_num_employees'];
+    out.push({
+      name,
+      domain,
+      website,
+      linkedinUrl: text(sub['linkedin_url']),
+      countryCode,
+      employeeCount: typeof employees === 'number' && Number.isFinite(employees) && employees > 0 ? Math.round(employees) : null,
+    });
   }
   return out;
 }
