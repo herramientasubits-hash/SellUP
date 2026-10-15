@@ -123,6 +123,7 @@ function fakeDeps(findKnownCompany: NonNullable<RescueBatchDeps['domainSearch']>
   const origins: SendToReviewOrigin[] = [];
   const asked: Array<{ batchId: string; taxId: string | null; names: readonly string[] }> = [];
   let classifiedCount = 0;
+  let searches = 0;
   const deps: RescueBatchDeps = {
     resolveActiveModel: async () => ({ model: MODEL, apiKey: 'test-key' }),
     checkQuota: async () => ({ allowed: true }),
@@ -142,7 +143,7 @@ function fakeDeps(findKnownCompany: NonNullable<RescueBatchDeps['domainSearch']>
     admitDisposition: async (id, origin) => (origins.push(origin), `new-${id}`),
     claimIdentities: async () => undefined,
     domainSearch: {
-      findWebsite: async () => ({
+      findWebsite: async () => (searches++, {
         found: true as const,
         website: 'https://polipapel.com',
         domain: 'polipapel.com',
@@ -163,7 +164,7 @@ function fakeDeps(findKnownCompany: NonNullable<RescueBatchDeps['domainSearch']>
     nowIso: () => AT,
     nowMs: () => NOW,
   };
-  return { deps, evidence, origins, asked, classified: () => classifiedCount };
+  return { deps, evidence, origins, asked, classified: () => classifiedCount, searches: () => searches };
 }
 
 describe('C. el rescate con la comprobación', () => {
@@ -181,7 +182,11 @@ describe('C. el rescate con la comprobación', () => {
     assert.equal(s.ok && s.dispositionsKept, 1);
     assert.equal(f.origins.length, 0);
     assert.equal(f.classified(), 0);
-    assert.deepEqual(f.asked, [{ batchId: 'b1', taxId: '0990000530001', names: ['PYCCA S.A.', 'PYCCA S.A.'] }]);
+    // Primero sólo por número fiscal (antes de pagar la búsqueda); después, con la web en la mano.
+    assert.deepEqual(f.asked, [
+      { batchId: 'b1', taxId: '0990000530001', names: [] },
+      { batchId: 'b1', taxId: '0990000530001', names: ['PYCCA S.A.', 'PYCCA S.A.'] },
+    ]);
     const ev = f.evidence.get('d1')!;
     assert.equal((ev.claude_rescue as { decision: string }).decision, 'duplicate');
     assert.equal((ev.claude_domain_search as { duplicate_status: string }).duplicate_status, 'existing_in_sellup');
@@ -204,6 +209,50 @@ describe('C. el rescate con la comprobación', () => {
   it('sin la comprobación cableada, el comportamiento de antes', async () => {
     const f = fakeDeps(undefined);
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+  });
+});
+
+describe('E. número fiscal ya conocido ⇒ no se paga la búsqueda de la web (Prod 15-10, árbol de Bimbo)', () => {
+  const sameTax = async (input: { batchId: string; taxId: string | null; names: readonly string[] }) =>
+    findKnownCompanyMatch({
+      names: input.names,
+      taxId: input.taxId,
+      batchRows: [],
+      taxRows: [{ name: 'BIMBO ECUADOR S.A.', tax_identifier: '0990000530001', status: 'needs_review' }],
+    });
+
+  it('otra candidata viva tiene su número fiscal ⇒ «ya existe», sin buscar ni clasificar', async () => {
+    const f = fakeDeps(sameTax);
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.searches(), 0);
+    assert.equal(f.classified(), 0);
+    assert.equal(s.ok && s.dispositionsKept, 1);
+    assert.equal(s.ok && s.estimatedCostUsd, 0);
+    const ev = f.evidence.get('d1')!;
+    assert.equal((ev.claude_rescue as { decision: string }).decision, 'duplicate');
+    const search = ev.claude_domain_search as { skipped: string; found: boolean; duplicate_status: string };
+    assert.equal(search.skipped, 'known_tax_id');
+    assert.equal(search.found, false);
+    assert.equal(search.duplicate_status, 'existing_in_sellup');
+  });
+
+  it('sin número fiscal no se pregunta antes: se busca como siempre', async () => {
+    const f = fakeDeps(sameTax);
+    f.deps.loadDispositions = async () => [
+      disposition({ provider_identifier: 'corporate_tree:EC:pycca', evidence: { provider_raw_name: 'PYCCA S.A.', tax_identifier_present: false } }),
+    ];
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.searches(), 1);
+  });
+
+  it('si la lectura previa falla, se busca como antes', async () => {
+    const f = fakeDeps(async (input) => {
+      if (input.names.length === 0) throw new Error('boom');
+      return null;
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.searches(), 1);
     assert.equal(s.ok && s.dispositionsAdmitted, 1);
   });
 });

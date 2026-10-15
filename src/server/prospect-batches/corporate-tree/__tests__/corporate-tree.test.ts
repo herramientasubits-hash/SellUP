@@ -1233,3 +1233,38 @@ describe('V. Apollo da la FAMILIA de la empresa de partida (1 crédito), no busc
     assert.match(source, /enrichApolloOrganization\(\{ domain: rootDomain/);
   });
 });
+
+describe('W. Bimbo 1.ª corrida con Apollo (Prod 15-10): sin repetir empresas ni pagar por las conocidas', () => {
+  it('«BIMBO SA (AR)», «BIMBO DE ARGENTINA S.A.» y «Bimbo Argentina» son la misma fila en Argentina', () => {
+    const key = corporateTreeRowKey('BIMBO DE ARGENTINA S.A.', 'AR');
+    assert.equal(key, 'bimbo|AR');
+    assert.equal(corporateTreeRowKey('BIMBO SA (AR)', 'AR'), key);
+    assert.equal(corporateTreeRowKey('Bimbo Argentina', 'AR'), key);
+    assert.equal(corporateTreeRowKey('PANIFICADORA BIMBO DEL PERU S.A.', 'PE'), 'panificadora bimbo|PE');
+    assert.equal(corporateTreeRowKey('BIMBO (MX)', 'MX'), corporateTreeRowKey('BIMBO', 'MX'));
+  });
+
+  it('sólo quita el país PROPIO y nunca deja el nombre vacío', () => {
+    assert.equal(corporateTreeRowKey('BIMBO DE ARGENTINA S.A.', 'CL'), 'bimbo de argentina|CL');
+    assert.equal(corporateTreeRowKey('Banco de Chile', 'CL'), 'banco|CL');
+    assert.equal(corporateTreeRowKey('De Chile', 'CL'), 'de chile|CL');
+    assert.equal(corporateTreeRowKey('Hospital del Salvador (CL)', 'CL'), 'hospital del salvador|CL');
+  });
+
+  it('el plan no repite la filial de Argentina', () => {
+    const plan = planCorporateTreeWrites({
+      root: { name: 'Bimbo', website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX', candidateId: null, accountId: null },
+      freeHits: [],
+      nodes: [NODE('BIMBO DE ARGENTINA S.A.', 'AR'), NODE('BIMBO SA (AR)', 'AR')],
+    });
+    assert.equal(plan.rows.filter((r) => r.countryCode === 'AR').length, 1);
+  });
+
+  it('el lote dice «Ya en SellUp (mismo número fiscal)» cuando el rescate no buscó su web', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'BIMBO ECUADOR S.A.', related_country_code: 'EC', relation_type: 'group', relation_detail: null, evidence_url: null, discard_reason_code: 'missing_domain_final', rescue_decision: 'duplicate', rescue_skipped: 'known_tax_id' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'Ya en SellUp (mismo número fiscal)');
+  });
+});
