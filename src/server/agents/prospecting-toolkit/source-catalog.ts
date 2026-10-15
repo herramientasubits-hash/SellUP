@@ -416,6 +416,34 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'cl_chilecompra_orders',
+    name: 'ChileCompra — órdenes de compra mensuales («Proveedores de una empresa»)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_snapshot',
+    nextAction:
+      'Conectada en el código (AGENT1-SUPPLIER-SEARCH-CL-1) sólo para «Proveedores de una empresa» en Chile. Necesita la migración 150 aplicada y la carga del resumen (scripts/source-catalog/run-cl-chilecompra-orders-load.ts, 12 meses). Sin carga, el paso no reconoce ninguna entidad y sigue sólo Claude.',
+    countryCodes: ['CL'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://datos-abiertos.chilecompra.cl/descargas',
+    automationLevel: 'medium',
+    recommendedUse:
+      'Sólo para «Proveedores de una empresa»: con la referencia reconocida entre las entidades compradoras cargadas (nombre normalizado, sin «I»/«Ilustre» de las municipalidades), se leen sus proveedores empresa con al menos CLP 10 millones comprados en la ventana, filtrados por la industria pedida según el UNSPSC de lo que más le venden a ESA entidad (tabla aprobada, regla del 50 %). Tamaño oficial con los trabajadores del SII. Casi ningún proveedor chileno trae web en nuestras fuentes: van a Descartadas para que el rescate de Claude busque el sitio. Cada candidato lleva «Proveedor de X» con la orden de compra en Mercado Público como prueba.',
+    limitations: [
+      'Sin consulta en vivo: la API de Mercado Público pide un ticket que no se pudo obtener; se cargan los archivos mensuales abiertos.',
+      'Hay que recargar cada mes para no quedar atrás.',
+      'Sólo proveedores con RUT de empresa (≥ 76.000.000) y pares con al menos CLP 10 millones en la ventana.',
+      'Casi sin web: el rendimiento depende del rescate de Claude (cuesta).',
+    ],
+    riskNotes: [
+      'Nunca se guardan personas, contactos, cuentas ni el texto de las órdenes: sólo el resumen comprador × proveedor.',
+      'Tabla public_procurement_supplier_links sólo para service_role (RLS sin políticas).',
+    ],
+  },
+  {
     key: 'co_secop2_buyer_suppliers',
     name: 'SECOP II — proveedores de una entidad pública («Proveedores de una empresa»)',
     sellupUse: 'enrichment',

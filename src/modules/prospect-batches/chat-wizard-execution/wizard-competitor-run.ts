@@ -9,10 +9,13 @@
  *      de la referencia) y banco de empresas— filtrado por el juez de Claude: sólo
  *      entra lo que compite con la referencia (`runCompetitorFreeSources`);
  *   2. «Claude busca empresas» en la web, con consultas que nombran a la
- *      referencia, sólo si lo gratuito no llenó la meta (hasta 2 rondas).
+ *      referencia, sólo si lo gratuito no llenó la meta (hasta 2 rondas);
+ *   3. Apollo como ÚLTIMO recurso (decisión de la dueña, 15-10): una página con
+ *      las palabras clave de la ficha, filtrada por el mismo juez de Claude, sólo
+ *      si Por revisar sigue bajo la meta y queda tiempo (`runCompetitorApollo`).
  *
- * Tavily, Apollo y Lusha no corren: buscan «empresas de la industria», no
- * competidoras. Todo entra por la cadena de siempre (sitio verificado, duplicados
+ * Tavily y Lusha no corren: buscan «empresas de la industria», no competidoras.
+ * Todo entra por la cadena de siempre (sitio verificado, duplicados
  * SellUp/HubSpot, número fiscal, «una empresa, un vendedor», revisión). Nada se
  * aprueba solo.
  *
@@ -64,11 +67,41 @@ import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
 import type { RunProgressStage } from './run-progress';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult } from './wizard-idempotency';
 import { WIZARD_PIPELINE_DEFAULTS } from './wizard-pipeline-adapter';
+import type { CompetitorApolloOutcome } from '@/server/prospect-batches/competitor-search/competitor-apollo';
+
+export type { CompetitorApolloOutcome };
 
 /** Tope por ronda para EMPEZAR consultas: con dos rondas, las dos caben en los 300 s. */
 export const COMPETITOR_SEARCH_MAX_PHASE_MS = 110_000;
 /** Con menos que esto por delante no se empieza: Claude + verificar + escribir. */
 export const COMPETITOR_SEARCH_MIN_PHASE_MS = 60_000;
+
+/**
+ * Apollo sólo empieza con al menos esto por delante: búsqueda (~5 s), juez de
+ * Claude (hasta 45 s), número fiscal y escritura.
+ */
+export const COMPETITOR_APOLLO_MIN_REMAINING_MS = 80_000;
+
+/** Lo que necesita Apollo como último recurso (ver `competitor-apollo.server.ts`). */
+export type CompetitorApolloRequest = {
+  batchId: string;
+  clientRequestId: string;
+  reference: CompetitorReference;
+  countryCode: string;
+  countryName: string;
+  industryName: string;
+  target: number;
+  userId: string;
+};
+
+/**
+ * ¿Corre Apollo? Sólo si Por revisar (o, sin conteo, lo escrito) sigue bajo la
+ * meta y quedan al menos `COMPETITOR_APOLLO_MIN_REMAINING_MS`.
+ */
+export function shouldRunCompetitorApollo(reviewable: number, target: number, elapsedMs: number): boolean {
+  if (reviewable >= target) return false;
+  return WIZARD_FUNCTION_LIMIT_MS - Math.max(0, elapsedMs) >= COMPETITOR_APOLLO_MIN_REMAINING_MS;
+}
 
 /** Lo que necesita lo gratuito de Competidores (ver `competitor-free-sources.server.ts`). */
 export type CompetitorFreeSourcesRequest = {
@@ -100,6 +133,11 @@ export type CompetitorRunDeps = {
   ) => Promise<CompetitorFreeSourcesOutcome | null>;
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
+  /**
+   * Apollo como último recurso, filtrado por el juez de Claude, en el lote de la
+   * corrida. Ausente ⇒ no corre (la corrida es la de siempre).
+   */
+  runCompetitorApollo?: (input: CompetitorApolloRequest) => Promise<CompetitorApolloOutcome>;
   /** La bandera de «Claude busca empresas»: sin ella no hay con qué buscar competidores. */
   resolveClaudeSearchLeg?: () => boolean;
   runClaudeCompanySearchLeg?: (input: {
@@ -390,10 +428,32 @@ export async function executeCompetitorSearchRun(
     claudeLeg = combineCompetitorRounds(claudeLeg, next);
     batchOutcome = await readOutcome();
   }
+
+  // 3. Apollo, último recurso: sólo si Por revisar sigue bajo la meta y hay tiempo.
+  const claudePersisted = claudeLeg?.persistedCandidates ?? 0;
+  let apollo: CompetitorApolloOutcome | null = null;
+  const reviewableSoFar = batchOutcome?.reviewable ?? freePersisted + claudePersisted;
+  const elapsedBeforeApollo = deps.actionStartedAtMs === undefined ? 0 : now() - deps.actionStartedAtMs;
+  if (deps.runCompetitorApollo && shouldRunCompetitorApollo(reviewableSoFar, input.target, elapsedBeforeApollo)) {
+    report('competitor_apollo');
+    apollo = await deps
+      .runCompetitorApollo({
+        batchId,
+        clientRequestId: input.clientRequestId,
+        reference: input.reference,
+        countryCode: input.countryCode,
+        countryName: input.countryName,
+        industryName: input.catalogResolution.industry.name,
+        target: input.target,
+        userId: input.userId,
+      })
+      .catch(() => null);
+    if ((apollo?.persistedCount ?? 0) > 0) batchOutcome = await readOutcome();
+  }
   report('reviewing');
 
-  const claudePersisted = claudeLeg?.persistedCandidates ?? 0;
-  const totalPersisted = freePersisted + claudePersisted;
+  const apolloPersisted = Math.max(0, apollo?.persistedCount ?? 0);
+  const totalPersisted = freePersisted + claudePersisted + apolloPersisted;
   const freeAccepted = Math.min(Math.max(0, freeSources?.acceptedCount ?? 0), freePersisted, input.target);
   const facts: RunAcceptanceFacts = {
     demand:
@@ -411,12 +471,12 @@ export async function executeCompetitorSearchRun(
     freePersistedCandidates: freePersisted,
   };
   const legTruth = (claudeLeg ? claudeLegWriterTruth(claudeLeg) : null) ?? PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
-  const acceptedForTarget = resolveAcceptanceFromRunFacts(
-    facts,
-    legTruth,
-    PAID_ROUTE_NOT_RUN_WRITER_TRUTH,
-    totalPersisted,
-  );
+  // Apollo entra como la segunda pierna de pago (la del escalonamiento).
+  const apolloTruth =
+    apolloPersisted > 0
+      ? { completeValidCandidates: apollo?.completeValidCandidates ?? null, persistedCandidates: apolloPersisted }
+      : PAID_ROUTE_NOT_RUN_WRITER_TRUTH;
+  const acceptedForTarget = resolveAcceptanceFromRunFacts(facts, legTruth, apolloTruth, totalPersisted);
 
   // Sellado terminal: el escritor ya dejó `ready_for_review` si escribió; sin
   // filas, el lote se cierra como `completed`. Viaja con la aceptación y la traza.
@@ -435,6 +495,7 @@ export async function executeCompetitorSearchRun(
           claude_search_leg: claudeLeg ?? { executed: false, reason: freeCovers ? 'free_sources_covered_target' : 'not_run' },
           competitor_search_rounds: rounds,
           ...(freeSources ? { competitor_free_sources: freeSources.telemetry } : {}),
+          ...(apollo ? { competitor_apollo: apollo.telemetry } : {}),
           // La forma de búsqueda, otra vez al cerrar: es la última escritura del lote.
           search_mode: 'competitors',
           ...(batchOutcome ? { competitor_search_outcome: batchOutcome } : {}),

@@ -571,6 +571,7 @@ export type WizardExecutionDeps = {
   runClaudeCompetitorRound?: CompetitorRunDeps['runClaudeCompetitorRound'];
   reportProgress?: CompetitorRunDeps['reportProgress'];
   countCompetitorBatchOutcome?: CompetitorRunDeps['countCompetitorBatchOutcome'];
+  runCompetitorApollo?: CompetitorRunDeps['runCompetitorApollo'];
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
   /** AGENT1-SUPPLIER-SEARCH-1 — «Claude busca proveedores» en el lote de la corrida. */
@@ -1108,6 +1109,13 @@ export async function executeProspectWizardGenerationAction(
       );
       return runCompetitorFreeSourcesLive(supabase as unknown as SupabaseClient, freeInput);
     },
+    // Apollo como último recurso, filtrado por el mismo juez (kill switch + cuota dentro).
+    runCompetitorApollo: async (apolloInput) => {
+      const { runCompetitorApolloLive } = await import(
+        '@/server/prospect-batches/competitor-search/competitor-apollo.server'
+      );
+      return runCompetitorApolloLive(apolloInput);
+    },
     reportProgress: progress.report,
     countCompetitorBatchOutcome: async (batchId) => {
       const { data, error } = await budgetClient
@@ -1347,8 +1355,8 @@ export async function executeProspectWizardGeneration(
 
   // 4c. Agente 1 · «Competidores de una empresa» — corrida propia, ANTES de
   // elegir proveedor: lo gratuito (catálogos + banco) filtrado por el juez de
-  // Claude y después «Claude busca empresas» con la referencia; sin Tavily, Apollo
-  // ni Lusha. Ver `wizard-competitor-run.ts`.
+  // Claude, después «Claude busca empresas» con la referencia y Apollo como último
+  // recurso (filtrado por el mismo juez); sin Tavily ni Lusha. Ver `wizard-competitor-run.ts`.
   if (req.searchMode === 'competitors' && req.referenceCompany) {
     const competitorCountry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
     return executeCompetitorSearchRun(

@@ -89,10 +89,15 @@ export const CORPORATE_TREE_USAGE_FLOW = 'corporate_tree_search';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON;
 
 /** El nombre para buscar en Apollo: sin forma societaria («CITIGROUP CHILE SPA» ⇒ «citigroup chile»). */
+/** Palabras vacías que estorban en la búsqueda por nombre de Apollo («bimbo de colombia» ⇒ «bimbo colombia»). */
+const APOLLO_QUERY_STOPWORDS = new Set(['de', 'del', 'do', 'da', 'la', 'las', 'los', 'y', 'e', 'the', 'of', 'and']);
+
 export function corporateTreeApolloQueryName(name: string): string {
   // «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «citigroup global markets europe»:
   // la sucursal de una extranjera está en Apollo con el nombre de su casa matriz.
-  return normalizeTreeName(stripBranchSuffix(name)) || normalizeTreeName(name) || name.trim();
+  const core = normalizeTreeName(stripBranchSuffix(name)) || normalizeTreeName(name) || name.trim();
+  const words = core.split(' ').filter((w) => w && !APOLLO_QUERY_STOPWORDS.has(w));
+  return words.length > 0 ? words.join(' ') : core;
 }
 
 /**
@@ -116,6 +121,7 @@ export function readCorporateTreeApolloPage(payload: unknown): {
       website_url: org.websiteUrl,
       primary_domain: org.primaryDomain,
       linkedin_url: org.linkedinUrl,
+      country: org.country,
     })),
   };
 }
@@ -373,48 +379,58 @@ export function buildLiveCorporateTreeDeps(params: {
           // Citigroup, 5 búsquedas vacías.
           const spanishName = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? null;
           const country = resolveApolloCountryLocation(query.countryCode, spanishName) ?? query.countryCode;
-          const startedAt = Date.now();
-          const result = await searchApolloOrganizationsPage({
-            q_organization_name: corporateTreeApolloQueryName(query.name),
-            organization_locations: [country],
-            per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
-            page: 1,
-          });
-          const page = readCorporateTreeApolloPage(result.ok ? result.payload : null);
-          const organizations = page.organizations;
-          // 1 crédito por página con resultados (Apollo Support); una vacía no cobra.
-          const credits = page.rawCount > 0 ? 1 : 0;
+          const queryName = corporateTreeApolloQueryName(query.name);
           const unitCostUsd = await apolloCreditUnitCost();
-          await logProviderUsage({
-            batch_id: ctx.batchId,
-            usage_key: `corporate_tree_apollo:${params.clientRequestId}:${normalizeTreeName(query.name)}:${query.countryCode}`,
-            provider_key: 'apollo',
-            operation_key: 'mixed_companies_search',
-            credits_used: credits,
-            results_returned: organizations.length,
-            estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
-            status: result.ok ? 'success' : 'error',
-            error_message: result.ok ? undefined : result.errorBody ?? `http_${result.status ?? 'none'}`,
-            duration_ms: Date.now() - startedAt,
-            triggered_by: params.internalUserId,
-            metadata: {
-              flow: CORPORATE_TREE_USAGE_FLOW,
-              search_mode: 'corporate_tree',
-              country_code: query.countryCode,
-              non_empty_pages_charged: credits,
-              // Qué devolvió Apollo (sólo nombres y dominios, sin PII): para saber por qué no se aceptó.
-              apollo_returned: organizations.slice(0, CORPORATE_TREE_APOLLO_PER_PAGE).map((o) => ({
-                name: o.name,
-                domain: o.primary_domain ?? null,
-              })),
-              query_name: corporateTreeApolloQueryName(query.name),
-              location: country,
-              pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
-              [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
-            },
-          }).catch(() => undefined);
-          if (!result.ok) return null;
-          return pickApolloOrganization(organizations, query, (website) => normalizeDomain(website));
+          // Una página: pide, cuenta el crédito (1 si trajo algo; vacía no cobra) y lo registra con el lote.
+          const searchPage = async (location: string | null) => {
+            const startedAt = Date.now();
+            const result = await searchApolloOrganizationsPage({
+              q_organization_name: queryName,
+              ...(location ? { organization_locations: [location] } : {}),
+              per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
+              page: 1,
+            });
+            const page = readCorporateTreeApolloPage(result.ok ? result.payload : null);
+            const credits = page.rawCount > 0 ? 1 : 0;
+            await logProviderUsage({
+              batch_id: ctx.batchId,
+              usage_key: `corporate_tree_apollo:${params.clientRequestId}:${normalizeTreeName(query.name)}:${query.countryCode}:${location ? 'loc' : 'any'}`,
+              provider_key: 'apollo',
+              operation_key: 'mixed_companies_search',
+              credits_used: credits,
+              results_returned: page.organizations.length,
+              estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
+              status: result.ok ? 'success' : 'error',
+              error_message: result.ok ? undefined : result.errorBody ?? `http_${result.status ?? 'none'}`,
+              duration_ms: Date.now() - startedAt,
+              triggered_by: params.internalUserId,
+              metadata: {
+                flow: CORPORATE_TREE_USAGE_FLOW,
+                search_mode: 'corporate_tree',
+                country_code: query.countryCode,
+                non_empty_pages_charged: credits,
+                // Qué devolvió Apollo (sólo nombres, dominios y país, sin PII): para saber por qué no se aceptó.
+                apollo_returned: page.organizations.slice(0, CORPORATE_TREE_APOLLO_PER_PAGE).map((o) => ({
+                  name: o.name,
+                  domain: o.primary_domain ?? null,
+                  country: o.country ?? null,
+                })),
+                query_name: queryName,
+                location,
+                pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
+                [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
+              },
+            }).catch(() => undefined);
+            return result.ok ? page : null;
+          };
+          const pick = (organizations: CorporateTreeApolloOrganization[], countryNames: string[] | null) =>
+            pickApolloOrganization(organizations, { ...query, countryNames }, (website) => normalizeDomain(website));
+          // Primero en su país; si viene vacío, una vez sin país, aceptando sólo lo que diga SU país
+          // (Prod 15-10, Bimbo: «bimbo colombia» en Colombia volvió vacío).
+          const inCountry = await searchPage(country);
+          if (inCountry && inCountry.rawCount > 0) return pick(inCountry.organizations, null);
+          const anywhere = await searchPage(null);
+          return anywhere ? pick(anywhere.organizations, [country, spanishName ?? '', query.countryCode].filter(Boolean)) : null;
         }
       : undefined,
 

@@ -81,6 +81,9 @@ export type CorporateTreeNode = {
   websiteUnverified?: boolean;
 };
 
+/** Una web propuesta por Claude que no se aceptó, y por qué. */
+export type CorporateTreeDroppedWebsite = { name: string; countryCode: string; url: string; reason: string };
+
 /** Lo que Claude dijo de la empresa de partida (web y país), si lo encontró. */
 export type CorporateTreeRootFinding = {
   website: string | null;
@@ -96,6 +99,11 @@ export type CorporateTreeSearchOutcome = {
   rejected: Partial<Record<CorporateTreeRejection, number>>;
   /** Webs propuestas que no se pudieron confirmar: la empresa entra sin web. */
   websitesDropped: number;
+  /**
+   * Cuáles y por qué (sin PII: nombre de empresa, web propuesta y motivo). Prod 15-10,
+   * Citigroup: 16 de 18 sin web y no había forma de saber si Claude no las dio o se rechazaron.
+   */
+  droppedWebsites?: CorporateTreeDroppedWebsite[];
   usage: ClassifierUsage | null;
   errorCode: string | null;
 };
@@ -298,7 +306,7 @@ export async function filterCorporateTreeProposals(
   conversation: AnthropicConversationResult,
   input: FilterContext,
   fetchPage?: DomainFinderDeps['fetchPage'],
-): Promise<Pick<CorporateTreeSearchOutcome, 'nodes' | 'root' | 'rejected' | 'websitesDropped'>> {
+): Promise<Pick<CorporateTreeSearchOutcome, 'nodes' | 'root' | 'rejected' | 'websitesDropped' | 'droppedWebsites'>> {
   const searchResults = extractSearchResultEntries(conversation.content);
   const searchDomains = searchResults.map((r) => r.domain);
   const allowed = allowedCountryCodes({ ...input });
@@ -356,11 +364,19 @@ export async function filterCorporateTreeProposals(
   }
 
   // La web: dentro de la búsqueda vale; fuera, SellUp baja la página y la confirma.
-  let websitesDropped = 0;
+  const droppedWebsites: CorporateTreeDroppedWebsite[] = [];
   const nodes = await Promise.all(
     accepted.map(async ({ claimedWebsite, ...node }): Promise<CorporateTreeNode> => {
-      const website = await confirmWebsite(claimedWebsite, node, searchResults, countryByCode, fetchPage);
-      if (claimedWebsite && !website) websitesDropped++;
+      const checked = await confirmWebsite(claimedWebsite, node, searchResults, countryByCode, fetchPage);
+      const website = 'website' in checked ? checked : null;
+      if (claimedWebsite && !website) {
+        droppedWebsites.push({
+          name: node.name,
+          countryCode: node.countryCode,
+          url: claimedWebsite.slice(0, 200),
+          reason: 'reason' in checked ? checked.reason : 'unknown',
+        });
+      }
       return {
         ...node,
         website: website?.website ?? null,
@@ -369,7 +385,7 @@ export async function filterCorporateTreeProposals(
       };
     }),
   );
-  return { nodes, root, rejected, websitesDropped };
+  return { nodes, root, rejected, websitesDropped: droppedWebsites.length, droppedWebsites };
 }
 
 function readRoot(raw: RawRoot | null, searchDomains: readonly string[]): CorporateTreeRootFinding | null {
@@ -420,12 +436,13 @@ async function confirmWebsite(
   searchResults: ReturnType<typeof extractSearchResultEntries>,
   countryByCode: ReadonlyMap<string, TreeCountry>,
   fetchPage?: DomainFinderDeps['fetchPage'],
-): Promise<{ website: string; domain: string; unverified?: boolean } | null> {
-  if (!claimedWebsite) return null;
+): Promise<{ website: string; domain: string; unverified?: boolean } | { reason: string }> {
+  if (!claimedWebsite) return { reason: 'none_proposed' };
   const domain = normalizeDomain(claimedWebsite);
-  if (!domain || !evaluateExternalPlatformGate(claimedWebsite, node.name).allowed) return null;
+  if (!domain) return { reason: 'invalid_url' };
+  if (!evaluateExternalPlatformGate(claimedWebsite, node.name).allowed) return { reason: 'platform_domain' };
   if (anySearchConfirms(domain, searchResults.map((r) => r.domain))) return { website: `https://${domain}`, domain };
-  if (!fetchPage) return null;
+  if (!fetchPage) return { reason: 'not_in_search_results' };
   const check = await verifyProposedWebsite(
     {
       name: node.name,
@@ -438,13 +455,14 @@ async function confirmWebsite(
     },
     fetchPage,
   ).catch(() => null);
-  if (check?.found) return { website: `https://${check.domain}`, domain: check.domain };
+  if (!check) return { reason: 'check_failed' };
+  if (check.found) return { website: `https://${check.domain}`, domain: check.domain };
   // El sitio no se deja abrir (Prod 15-10, Citigroup: citibank.com.pe, citi.com.ec):
   // sólo con su nombre en el dominio y la terminación de su país, y marcada.
-  if (check && !check.found && check.reason === 'page_unreachable' && blockedSiteDomainCarriesName(node.name, domain, node.countryCode)) {
+  if (check.reason === 'page_unreachable' && blockedSiteDomainCarriesName(node.name, domain, node.countryCode)) {
     return { website: `https://${domain}`, domain, unverified: true };
   }
-  return null;
+  return { reason: check.reason ?? 'not_confirmed' };
 }
 
 export async function searchCorporateTreeBranch(

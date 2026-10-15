@@ -592,7 +592,12 @@ describe('4O-G — alcance', () => {
     // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
     // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 149);
+    // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+    // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+    // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+    // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 150);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -625,7 +630,8 @@ describe('4O-G — alcance', () => {
     // 147 archivos para los números 001-147: la 147 tampoco deja hueco.
     // 148 archivos para los números 001-148: la 148 tampoco deja hueco.
     // 149 archivos para los números 001-149: la 149 tampoco deja hueco.
-    assert.equal(numbered.length, 149);
+    // 150 archivos para los números 001-150: la 150 tampoco deja hueco.
+    assert.equal(numbered.length, 150);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

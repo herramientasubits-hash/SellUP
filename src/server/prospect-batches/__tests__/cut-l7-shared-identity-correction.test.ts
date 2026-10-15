@@ -1098,9 +1098,26 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 149 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 150 o superior, se llame como se llame.
+    // 🔴 AGENT1-SUPPLIER-SEARCH-CL-1 reclamó después la 150: una tabla nueva
+    // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+    // públicas), RLS activada SIN políticas: sólo service_role. No es de teléfono, ni del catálogo,
+    // ni de BR, ni de CUT3B4. Misma exigencia por AUTORÍA que con la 137–149. AUTORADA y NO APLICADA.
+    assert.deepEqual(
+      migrations.filter((f) => /^150_/.test(f)),
+      ['150_public_procurement_supplier_links.sql'],
+      'la 150 tiene que ser la de los proveedores de compras públicas, y sólo ella',
+    );
+    const procurementSupplierLinks = read('supabase/migrations/150_public_procurement_supplier_links.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        procurementSupplierLinks.includes(foreign),
+        false,
+        `la 150 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 151 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15\d_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[1-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

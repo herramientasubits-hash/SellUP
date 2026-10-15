@@ -797,10 +797,15 @@ describe('la migración 128 — su contrato', () => {
     // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
     // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '149_provider_usage_search_mode_from_batch_metadata.sql');
+    // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+    // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+    // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+    // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '150_public_procurement_supplier_links.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 149);
-    assert.equal(files.length, 149,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 150);
+    assert.equal(files.length, 150,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

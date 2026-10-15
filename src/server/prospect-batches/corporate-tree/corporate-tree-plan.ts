@@ -550,6 +550,8 @@ export type CorporateTreeApolloOrganization = {
   website_url: string | null;
   primary_domain?: string | null;
   linkedin_url: string | null;
+  /** País de la sede según Apollo. */
+  country?: string | null;
 };
 
 /** Palabras que no identifican a una empresa (no bastan para decir que dos nombres son la misma). */
@@ -578,16 +580,25 @@ function namedWithin(core: string, wanted: string): boolean {
  */
 export function pickApolloOrganization(
   organizations: readonly CorporateTreeApolloOrganization[],
-  query: { name: string; rootDomain: string | null },
+  query: {
+    name: string;
+    rootDomain: string | null;
+    /** Si se buscó sin país: sólo vale una organización que diga uno de estos países. */
+    countryNames?: readonly string[] | null;
+  },
   toDomain: (website: string) => string | null,
 ): CorporateTreeApolloMatch | null {
   const wanted = normalizeTreeName(query.name);
   if (!wanted) return null;
+  const allowedCountries = query.countryNames?.map(foldText) ?? null;
   for (const org of organizations) {
+    if (allowedCountries && !allowedCountries.includes(foldText(org.country ?? ''))) continue;
     const core = normalizeTreeName(org.name ?? '');
     if (!core) continue;
-    // Exacto; o uno contiene al otro por palabras completas Y lo común tiene una palabra propia.
-    const sameName = core === wanted || namedWithin(core, wanted) || namedWithin(wanted, core);
+    // Exacto, o el nombre de Apollo está DENTRO del buscado con una palabra propia («Banamex» en
+    // «Grupo Financiero Banamex»). Nunca al revés: Prod 15-10, «Citicorp» tomó «Citicorp Diners
+    // Club» (otra empresa con el mismo comienzo).
+    const sameName = core === wanted || namedWithin(core, wanted);
     if (!sameName) continue;
     const domain = org.primary_domain?.trim().toLowerCase() || (org.website_url ? toDomain(org.website_url) : null);
     if (!domain || (query.rootDomain && domain === query.rootDomain)) continue;

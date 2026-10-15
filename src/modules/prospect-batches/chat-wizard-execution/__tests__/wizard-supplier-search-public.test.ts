@@ -176,10 +176,16 @@ describe('compras públicas en la corrida de Proveedores', () => {
     assert.deepEqual(f.tags, []);
   });
 
-  it('fuera de Colombia no se consulta (Chile espera su ticket)', async () => {
+  it('fuera de Colombia y Chile no se consulta', async () => {
     const f = deps({});
-    await executeSupplierSearchRun({ ...INPUT, countryCode: 'CL', countryName: 'Chile' }, f.d);
+    await executeSupplierSearchRun({ ...INPUT, countryCode: 'PE', countryName: 'Perú' }, f.d);
     assert.deepEqual(f.publicCalls, []);
     assert.equal(f.seals[0].metadata?.[SUPPLIER_PUBLIC_BUYER_METADATA_KEY], undefined);
+  });
+
+  it('Chile sí consulta (órdenes de compra de ChileCompra cargadas)', async () => {
+    const f = deps({});
+    await executeSupplierSearchRun({ ...INPUT, countryCode: 'CL', countryName: 'Chile' }, f.d);
+    assert.equal(f.publicCalls.length, 1);
   });
 });

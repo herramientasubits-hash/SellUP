@@ -101,6 +101,11 @@ export type RescueBatchDeps = {
    * traen completitud: se revisan también (AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1).
    */
   loadBatchHasClaudeCompanySearch?: (batchId: string) => Promise<boolean>;
+  /**
+   * AGENT1-CORPORATE-TREE-8 — las webs del GRUPO de un lote del árbol (la de la empresa de
+   * partida y las que comparten varias filiales). `[]` = no es un lote del árbol.
+   */
+  loadBatchGroupDomains?: (batchId: string) => Promise<string[]>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
@@ -359,6 +364,12 @@ type RescueRunContext = {
   halt: { accountError: boolean };
   /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
   slots: DeliverySlots;
+  /**
+   * AGENT1-CORPORATE-TREE-8 — webs del grupo de un lote del árbol. Si el buscador encuentra una
+   * de ellas para una filial con número fiscal, no es «duplicada»: usa la web de la matriz
+   * (Prod 15-10, Bimbo: Bimbo Ecuador, RUC y 1.154 trabajadores, quedó duplicada por grupobimbo.com).
+   */
+  groupDomains?: ReadonlySet<string>;
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -589,6 +600,22 @@ async function resolveDispositionWebsite(
       console.error('[claude-rescue] known company check failed:', err instanceof Error ? err.message : err);
     }
   }
+  // AGENT1-CORPORATE-TREE-8 — en el árbol, la web del GRUPO no hace duplicada a una filial con
+  // número fiscal: sigue por la vía de la filial sin web propia (la web queda de referencia).
+  if (
+    duplicate.status !== 'new_candidate' &&
+    ctx.groupDomains?.has(found.domain.toLowerCase()) &&
+    row.evidence?.tax_identifier_present === true
+  ) {
+    const parentOutcome = { found: false as const, reason: 'identity_not_confirmed' as const, claimedUrl: found.website, usage: null };
+    return {
+      kind: 'parent',
+      parent: { website: found.website, domain: found.domain },
+      outcome: parentOutcome,
+      searchedAt: deps.nowIso(),
+      cost,
+    };
+  }
   if (duplicate.status !== 'new_candidate') {
     const at = deps.nowIso();
     const kept = found;
@@ -660,11 +687,13 @@ async function rescueParentGroupDisposition(
   }
   if (duplicate.status !== 'new_candidate') return stays({ duplicate_status: duplicate.status }, step.cost);
 
+  // En el árbol no hay industria pedida: vale el parentesco con el grupo, no el sector.
+  const isTree = (ctx.groupDomains?.size ?? 0) > 0;
   const company = { ...dispositionToCompanyInput(row), name: displayName, websiteOrDomain: parent.website };
   const result = await safeClassify(
     ctx.requestedIndustry
       ? { ...company, currentIndustryId: ctx.requestedIndustry.id, currentIndustryName: null, requestedIndustryName: ctx.requestedIndustry.name }
-      : { ...company, requestedIndustryName: row.industry },
+      : { ...company, requestedIndustryName: isTree ? null : row.industry },
     ctx.catalog,
     ctx.active,
     deps,
@@ -676,11 +705,11 @@ async function rescueParentGroupDisposition(
   const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true });
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
-    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? (isTree ? null : row.industry),
     sizeAlreadyConfirmed: true,
     officialSizeMeasured: true,
   });
-  if (decision.kind !== 'admit' || !decision.sectorConfirmed) {
+  if (decision.kind !== 'admit' || (!decision.sectorConfirmed && !isTree)) {
     return stays({ sector_confirmed: false, decision: decision.kind }, cost);
   }
 
@@ -1047,6 +1076,11 @@ export async function rescueBatchWithClaude(
       : null,
     halt: { accountError: false },
     slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
+    groupDomains: new Set(
+      (deps.loadBatchGroupDomains ? await deps.loadBatchGroupDomains(params.batchId).catch(() => []) : []).map((d) =>
+        d.toLowerCase(),
+      ),
+    ),
   };
   const admittedIds: string[] = [];
   const storedReassigned = onlyFreeSource
