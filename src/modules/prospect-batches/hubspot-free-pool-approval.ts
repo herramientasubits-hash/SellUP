@@ -150,3 +150,32 @@ export function decideFreePoolOwnerWrite(input: {
   if (!input.sellerHubSpotOwnerId) return { write: false, reason: 'no_owner_mapping' };
   return { write: true, hubspotOwnerId: input.sellerHubSpotOwnerId };
 }
+
+export type SellerOwnerPorts = {
+  /** Tabla `hubspot_owner_mappings` (sólo unos pocos vendedores están cargados). */
+  findMappedOwnerId: (email: string) => Promise<string | null>;
+  /** Dueño ACTIVO de HubSpot con ese correo (`GET /crm/v3/owners?email=`), sólo lectura. */
+  findHubSpotOwnerIdByEmail: (email: string) => Promise<string | null>;
+};
+
+export type SellerOwnerResolution =
+  | { ownerId: string; source: 'mapping' | 'hubspot_email' }
+  | { ownerId: null; source: 'none' };
+
+/**
+ * El dueño de HubSpot del vendedor: primero la tabla de mapeo; si no está, su correo
+ * en HubSpot (medido 15-10: la tabla tenía 4 filas y 136 de 137 dueños de HubSpot
+ * llevan correo @ubits.co, así que sin este respaldo casi nadie podría tomar una
+ * empresa). Un fallo de una puerta cuenta como «no encontrado» en esa puerta.
+ */
+export async function resolveSellerHubSpotOwner(
+  email: string | null | undefined,
+  ports: SellerOwnerPorts,
+): Promise<SellerOwnerResolution> {
+  const clean = email?.trim().toLowerCase() ?? '';
+  if (!clean) return { ownerId: null, source: 'none' };
+  const mapped = await ports.findMappedOwnerId(clean).catch(() => null);
+  if (mapped) return { ownerId: mapped, source: 'mapping' };
+  const byEmail = await ports.findHubSpotOwnerIdByEmail(clean).catch(() => null);
+  return byEmail ? { ownerId: byEmail, source: 'hubspot_email' } : { ownerId: null, source: 'none' };
+}

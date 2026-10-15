@@ -17,6 +17,7 @@ import {
 } from '../hubspot-free-company-policy';
 import { resetHubSpotOwnerDirectoryCache } from '../hubspot-free-company-pool.server';
 import { claimHubSpotCompanyForOwner } from '../hubspot-free-company-claim.server';
+import { resolveSellerHubSpotOwner } from '@/modules/prospect-batches/hubspot-free-pool-approval';
 
 const NOW = new Date('2026-10-15T12:00:00Z');
 const owners = buildHubSpotOwnerDirectory(
@@ -175,5 +176,43 @@ describe('tomar la empresa en HubSpot', () => {
     );
     assert.equal(out.companyError, 'token_unavailable');
     assert.equal(hs.calls.length, 0);
+  });
+});
+
+describe('dueño de HubSpot del vendedor', () => {
+  const ports = (mapped: string | null, byEmail: string | null, calls: string[] = []) => ({
+    findMappedOwnerId: async (e: string) => {
+      calls.push(`map:${e}`);
+      return mapped;
+    },
+    findHubSpotOwnerIdByEmail: async (e: string) => {
+      calls.push(`hs:${e}`);
+      return byEmail;
+    },
+  });
+
+  it('primero la tabla de mapeo; HubSpot sólo si no está', async () => {
+    const calls: string[] = [];
+    assert.deepEqual(await resolveSellerHubSpotOwner(' EGarcia@ubits.co ', ports('11', '22', calls)), { ownerId: '11', source: 'mapping' });
+    assert.deepEqual(calls, ['map:egarcia@ubits.co']);
+    assert.deepEqual(await resolveSellerHubSpotOwner('egarcia@ubits.co', ports(null, '80684306')), {
+      ownerId: '80684306',
+      source: 'hubspot_email',
+    });
+  });
+
+  it('sin correo o sin dueño en ninguna parte ⇒ ninguno (la toma se salta)', async () => {
+    assert.deepEqual(await resolveSellerHubSpotOwner(null, ports('1', '2')), { ownerId: null, source: 'none' });
+    assert.deepEqual(await resolveSellerHubSpotOwner('x@ubits.co', ports(null, null)), { ownerId: null, source: 'none' });
+  });
+
+  it('una puerta que falla cuenta como «no encontrado» y sigue con la otra', async () => {
+    const out = await resolveSellerHubSpotOwner('a@ubits.co', {
+      findMappedOwnerId: async () => {
+        throw new Error('db caída');
+      },
+      findHubSpotOwnerIdByEmail: async () => '9',
+    });
+    assert.deepEqual(out, { ownerId: '9', source: 'hubspot_email' });
   });
 });
