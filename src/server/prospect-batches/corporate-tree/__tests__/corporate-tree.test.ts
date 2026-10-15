@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { AnthropicConversationResult } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
   blockedSiteDomainCarriesName,
@@ -21,8 +22,11 @@ import {
 import {
   corporateTreeRowKey,
   markKnownCompanies,
+  pickApolloOrganization,
   pickKnownCompany,
   planCorporateTreeWrites,
+  promoteGroupCompaniesWithTaxIds,
+  promoteRowsFoundInApollo,
   type CorporateTreeRoot,
 } from '../corporate-tree-plan';
 import {
@@ -972,5 +976,84 @@ describe('L. Citigroup (Prod 15-10): menos rescate pagado y webs de bancos', () 
     assert.equal(byHubspot.selfRelation, 'group');
     const [asRoot] = buildCorporateTreeViews([rec({ batch_id: 'b2', root_account_id: 'acc' })], { candidateIds: new Set(), accountId: 'acc' }, new Map());
     assert.equal(asRoot.selfRelation, 'root');
+  });
+});
+
+describe('M. Filiales con la web del grupo y Apollo por nombre', () => {
+  const GE: CorporateTreeRoot = { name: 'General Electric', website: 'https://www.ge.com', domain: 'ge.com', countryCode: 'US', candidateId: null, accountId: null };
+  const MX = 'General Electric México, S.A. de C.V.';
+
+  it('la filial con la web del grupo entra a revisión SIN web propia si tiene número fiscal oficial', () => {
+    const plan = planCorporateTreeWrites({
+      root: GE,
+      freeHits: [],
+      nodes: [NODE(MX, 'MX', { website: 'https://www.ge.com/mx', domain: 'ge.com' }), NODE('GE Energy Colombia S.A.', 'CO', { website: 'https://www.ge.com/co', domain: 'ge.com' })],
+    });
+    const key = corporateTreeRowKey(MX, 'MX');
+    assert.ok(plan.groupCompanies.has(key));
+    const promoted = promoteGroupCompaniesWithTaxIds(plan, new Map([[key, { ...(plan.groupCompanies.get(key) as CountrySourceCompany), taxId: 'GEM123456AB1', taxIdentifierType: 'RFC' as const }]]));
+    const byName = new Map(promoted.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get(MX)?.route, 'free_catalog');
+    assert.equal(byName.get(MX)?.domain, null, 'nunca reclama ge.com');
+    assert.equal(byName.get(MX)?.groupWebsite, 'https://www.ge.com/mx');
+    assert.equal(promoted.freeCatalog.get('MX')?.[0].taxId, 'GEM123456AB1');
+    assert.equal(promoted.freeCatalog.get('MX')?.[0].domain, null);
+    assert.equal(byName.get('GE Energy Colombia S.A.')?.route, 'group_reference', 'sin número sigue como referencia');
+  });
+
+  it('Apollo por nombre: misma empresa, web propia y nunca la de la empresa de partida', () => {
+    const toDomain = (w: string) => w.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    const org = (name: string, website: string) => ({ name, website_url: website, linkedin_url: null });
+    assert.deepEqual(
+      pickApolloOrganization([org('Otra Cosa SA', 'https://otra.com'), org('Citibank del Perú', 'https://www.citibank.com.pe')], { name: 'Citibank del Perú S.A.', rootDomain: 'citigroup.com' }, toDomain),
+      { website: 'https://citibank.com.pe', domain: 'citibank.com.pe', linkedinUrl: null },
+    );
+    assert.equal(pickApolloOrganization([org('General Electric Mexico', 'https://ge.com')], { name: MX, rootDomain: 'ge.com' }, toDomain), null, 'la web del grupo no');
+    assert.equal(pickApolloOrganization([org('Citibanamex Seguros', 'https://seguros.com')], { name: 'Citibank', rootDomain: null }, toDomain), null, 'nombre parecido no basta');
+  });
+
+  it('lo que encontró Apollo pasa al escritor del Agente 1 y sale de «Descartadas»', () => {
+    const plan = planCorporateTreeWrites({ root: GE, freeHits: [], nodes: [NODE('ProlecGE', 'MX'), NODE('GE Vernova Chile', 'CL')] });
+    const promoted = promoteRowsFoundInApollo(plan, new Map([[corporateTreeRowKey('ProlecGE', 'MX'), { website: 'https://prolecge.com', domain: 'prolecge.com', linkedinUrl: null }]]));
+    const row = promoted.rows.find((r) => r.name === 'ProlecGE');
+    assert.equal(row?.route, 'agent1_writer');
+    assert.equal(row?.foundInApollo, true);
+    assert.equal(promoted.web.get('MX')?.[0].node?.domain, 'prolecge.com');
+    assert.deepEqual([...promoted.withoutWebsite.keys()], ['CL']);
+  });
+
+  it('la corrida: número fiscal gratis primero, Apollo sólo para las que siguen sin web y con tope', async () => {
+    const asked: string[] = [];
+    const many = Array.from({ length: 8 }, (_, i) => NODE(`Filial Uno ${i}`, 'CL', { branch: 'other_country' }));
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Nutresa Mexico', 'MX', { website: 'https://gruponutresa.com/mx', domain: 'gruponutresa.com' })])
+          : outcomeFor('other_country', many),
+      fillOfficialTaxIds: async (companies) => companies.map((c) => ({ ...c, taxId: 'NUT010101AA1', taxIdentifierType: 'RFC' as const })),
+      findInApollo: async ({ name }) => {
+        asked.push(name);
+        return name === 'Filial Uno 0' ? { website: 'https://filialuno.cl', domain: 'filialuno.cl', linkedinUrl: null } : null;
+      },
+    });
+    const result = await runCorporateTreeSearch(
+      { ...REQUEST_ALL, rootWebsite: 'https://gruponutresa.com', countries: [...REQUEST_ALL.countries, { code: 'MX', name: 'México' }] },
+      CONTEXT,
+      deps,
+    );
+    assert.ok(result.ok);
+    assert.equal(asked.length, 5, 'como mucho 5 búsquedas pagadas');
+    assert.ok(calls.freeCatalog.some((c) => c.country === 'MX' && c.names.includes('Nutresa Mexico')), 'la filial con número entra por la capa gratuita');
+    assert.ok(calls.web.some((c) => c.names.includes('Filial Uno 0')), 'la de Apollo entra por el escritor');
+    const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
+    assert.deepEqual(tree.apollo, { lookups: 5, found: 1 });
+    assert.equal(tree.group_with_tax_id, 1);
+  });
+
+  it('sin la bandera de Apollo no se llama a Apollo', async () => {
+    const { deps } = fakeDeps();
+    assert.equal(deps.findInApollo, undefined);
+    const flags = readFileSync('src/lib/feature-flags.server.ts', 'utf8');
+    assert.match(flags, /isEnvFlagEnabled\(process\.env\[AGENT1_CORPORATE_TREE_APOLLO_FLAG\]\)/);
   });
 });

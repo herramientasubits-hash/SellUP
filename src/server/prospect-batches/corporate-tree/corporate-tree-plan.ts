@@ -61,6 +61,8 @@ export type CorporateTreePlannedRow = {
   knownHubspotCompanyId?: string | null;
   /** La web vino de Claude sin poder comprobarse (el sitio bloquea la descarga). */
   websiteUnverified?: boolean;
+  /** La web la encontró Apollo buscando por el nombre. */
+  foundInApollo?: boolean;
   knownAccountId?: string | null;
 };
 
@@ -74,6 +76,11 @@ export type CorporateTreeWritePlan = {
   web: Map<string, CorporateTreeWebItem[]>;
   /** Por país: sin web (a «Descartadas» para que el rescate la busque). */
   withoutWebsite: Map<string, CountrySourceCompany[]>;
+  /**
+   * Por fila (`key`): la empresa con la web del grupo, lista para entrar por la capa
+   * gratuita SIN web propia si se le encuentra su número fiscal oficial.
+   */
+  groupCompanies: Map<string, CountrySourceCompany>;
   droppedByCap: number;
   sharedWebsites: number;
   /** De registros sin confirmar que Claude no confirmó: no entran. */
@@ -131,6 +138,7 @@ type PlanEntry = {
   freeCompany: CountrySourceCompany | null;
   webItem: CorporateTreeWebItem | null;
   withoutWebsite: CountrySourceCompany | null;
+  groupCompany?: CountrySourceCompany | null;
   /** Menor = entra antes cuando hay tope: la partida, luego con web, luego sin web. */
   priority: number;
 };
@@ -242,6 +250,15 @@ export function planCorporateTreeWrites(params: {
               base: hit.company ? { ...hit.company, domain: null } : null,
             })
           : null,
+      groupCompany:
+        route === 'group_reference'
+          ? companyWithoutWebsite({
+              name: hit.name,
+              countryCode: hit.countryCode,
+              taxId: hit.taxId,
+              base: hit.company ? { ...hit.company, domain: null } : null,
+            })
+          : null,
       priority: isRoot ? 0 : route === 'without_website' || route === 'group_reference' ? 2 : 1,
     });
   }
@@ -273,6 +290,7 @@ export function planCorporateTreeWrites(params: {
       freeCompany: null,
       webItem: ownWebsite ? { key, node: effective, bankCandidate: null } : null,
       withoutWebsite: ownWebsite || shared ? null : companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }),
+      groupCompany: !ownWebsite && shared ? companyWithoutWebsite({ name: node.name, countryCode: node.countryCode }) : null,
       priority: ownWebsite ? 1 : 3,
     });
   }
@@ -325,6 +343,7 @@ export function planCorporateTreeWrites(params: {
     freeCatalog: new Map(),
     web: new Map(),
     withoutWebsite: new Map(),
+    groupCompanies: new Map(),
     droppedByCap: entries.length - kept.length,
     sharedWebsites,
     unconfirmedDropped,
@@ -334,6 +353,7 @@ export function planCorporateTreeWrites(params: {
     if (entry.freeCompany) push(plan.freeCatalog, cc, entry.freeCompany);
     if (entry.webItem) push(plan.web, cc, entry.webItem);
     if (entry.withoutWebsite) push(plan.withoutWebsite, cc, entry.withoutWebsite);
+    if (entry.groupCompany) plan.groupCompanies.set(entry.row.key, entry.groupCompany);
   }
   return plan;
 }
@@ -404,4 +424,99 @@ export function pickKnownCompany(params: {
     hubspotCompanyId: hub?.matchedId ?? (accountId ? params.accountHubspotId?.(accountId) ?? null : null),
     accountId,
   };
+}
+
+/**
+ * Filiales con la web del grupo (ge.com/mx) a las que el registro oficial les encontró su
+ * número fiscal: entran a «Por revisar» por la capa gratuita, SIN web propia (como las de
+ * los registros que no publican web). «Una empresa, un vendedor» las reclama por su número
+ * fiscal, no por la web, así que no chocan con la casa matriz. Las que no tienen número
+ * siguen como referencia. Puro: devuelve un plan nuevo.
+ */
+export function promoteGroupCompaniesWithTaxIds(
+  plan: CorporateTreeWritePlan,
+  withTaxIds: ReadonlyMap<string, CountrySourceCompany>,
+): CorporateTreeWritePlan {
+  const promoted = new Map([...withTaxIds].filter(([key, company]) => !!company.taxId && plan.groupCompanies.has(key)));
+  if (promoted.size === 0) return plan;
+  const freeCatalog = new Map([...plan.freeCatalog].map(([cc, list]) => [cc, [...list]]));
+  const rows = plan.rows.map((row) => {
+    const company = row.route === 'group_reference' ? promoted.get(row.key) : undefined;
+    if (!company) return row;
+    push(freeCatalog, row.countryCode ?? '', { ...company, domain: null });
+    return { ...row, route: 'free_catalog' as const, taxId: company.taxId, domain: null };
+  });
+  return { ...plan, rows, freeCatalog };
+}
+
+/** Lo que Apollo devolvió de una empresa buscada por su nombre. */
+export type CorporateTreeApolloMatch = { website: string; domain: string; linkedinUrl: string | null };
+
+/**
+ * Las filas sin web que Apollo encontró por su nombre pasan al escritor del Agente 1 con
+ * esa web, en vez de esperar al rescate. Nunca la empresa de partida. Puro.
+ */
+export function promoteRowsFoundInApollo(
+  plan: CorporateTreeWritePlan,
+  found: ReadonlyMap<string, CorporateTreeApolloMatch>,
+): CorporateTreeWritePlan {
+  if (found.size === 0) return plan;
+  const web = new Map([...plan.web].map(([cc, list]) => [cc, [...list]]));
+  const promotedKeys = new Set<string>();
+  const rows = plan.rows.map((row) => {
+    const match = row.route === 'without_website' && row.relation !== 'root' ? found.get(row.key) : undefined;
+    if (!match || row.relation === 'root' || !row.countryCode) return row;
+    promotedKeys.add(row.key);
+    const node: CorporateTreeNode = {
+      branch: row.relation,
+      name: row.name,
+      legalName: null,
+      countryCode: row.countryCode,
+      website: match.website,
+      domain: match.domain,
+      linkedinUrl: match.linkedinUrl,
+      relationDetail: row.relationDetail,
+      evidenceUrl: row.evidenceUrl ?? '',
+    };
+    push(web, row.countryCode, { key: row.key, node, bankCandidate: null });
+    return { ...row, route: 'agent1_writer' as const, domain: match.domain, foundInApollo: true };
+  });
+  const withoutWebsite = new Map<string, CountrySourceCompany[]>();
+  for (const [code, companies] of plan.withoutWebsite) {
+    const kept = companies.filter((c) => !promotedKeys.has(corporateTreeRowKey(c.legalName ?? '', c.countryCode)));
+    if (kept.length > 0) withoutWebsite.set(code, kept);
+  }
+  return { ...plan, rows, web, withoutWebsite };
+}
+
+/** Una organización tal como la devuelve la búsqueda de Apollo (sólo lo que se usa). */
+export type CorporateTreeApolloOrganization = {
+  name: string | null;
+  website_url: string | null;
+  primary_domain?: string | null;
+  linkedin_url: string | null;
+};
+
+/**
+ * ¿Cuál de lo que devolvió Apollo es ESTA empresa? Sólo con el mismo nombre (sin forma
+ * societaria) o uno que lo contiene por palabras completas, y con web propia: la de la
+ * empresa de partida no vale (sería la del grupo).
+ */
+export function pickApolloOrganization(
+  organizations: readonly CorporateTreeApolloOrganization[],
+  query: { name: string; rootDomain: string | null },
+  toDomain: (website: string) => string | null,
+): CorporateTreeApolloMatch | null {
+  const wanted = normalizeTreeName(query.name);
+  if (!wanted) return null;
+  for (const org of organizations) {
+    const core = normalizeTreeName(org.name ?? '');
+    if (!core) continue;
+    const sameName = core === wanted || core.startsWith(`${wanted} `) || wanted.startsWith(`${core} `);
+    if (!sameName) continue;
+    const domain = org.primary_domain?.trim().toLowerCase() || (org.website_url ? toDomain(org.website_url) : null);
+    if (!domain || (query.rootDomain && domain === query.rootDomain)) continue;
+    return { website: `https://${domain}`, domain, linkedinUrl: org.linkedin_url ?? null };
+  }
+  return null;
 }

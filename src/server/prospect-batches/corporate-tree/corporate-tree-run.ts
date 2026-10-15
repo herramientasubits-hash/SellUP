@@ -31,6 +31,9 @@ import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
 import {
   markKnownCompanies,
   planCorporateTreeWrites,
+  promoteGroupCompaniesWithTaxIds,
+  promoteRowsFoundInApollo,
+  type CorporateTreeApolloMatch,
   type CorporateTreeKnownCompany,
   type CorporateTreePlannedRow,
   type CorporateTreeRoot,
@@ -173,6 +176,19 @@ export type CorporateTreeRunDeps = {
    * al rescate (que es pagado). `null` = no se sabe (la fila sigue su camino).
    */
   findKnownCompany?: (query: { name: string; countryCode: string | null }) => Promise<CorporateTreeKnownCompany | null>;
+  /**
+   * Número fiscal oficial por nombre (el mismo buscador de la capa gratuita). Para las
+   * filiales con la web del grupo: con número entran a «Por revisar» sin web propia.
+   */
+  fillOfficialTaxIds?: (companies: CountrySourceCompany[]) => Promise<CountrySourceCompany[]>;
+  /**
+   * Apollo por nombre, para las que siguen sin web antes del rescate. `undefined` = apagado
+   * (bandera o cuota). Cada llamada es pagada: se registra con el lote.
+   */
+  findInApollo?: (
+    query: { name: string; countryCode: string; rootDomain: string | null },
+    ctx: { batchId: string },
+  ) => Promise<CorporateTreeApolloMatch | null>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
   recordWithoutWebsite: (batchId: string, countryCode: string, companies: CountrySourceCompany[]) => Promise<number>;
   /** `null` si no se pudo leer (no se sella como vacío un lote que sí tiene filas). */
@@ -298,6 +314,46 @@ async function runClaudePhase(
     }),
   );
   return { outcomes, skipped: null };
+}
+
+/** Como mucho, búsquedas pagadas en Apollo por corrida. */
+export const CORPORATE_TREE_APOLLO_MAX_LOOKUPS = 5;
+
+async function withGroupTaxIds(plan: CorporateTreeWritePlan, deps: CorporateTreeRunDeps): Promise<CorporateTreeWritePlan> {
+  const pendingKeys = plan.rows.filter((row) => row.route === 'group_reference' && plan.groupCompanies.has(row.key)).map((row) => row.key);
+  if (pendingKeys.length === 0) return plan;
+  const companies = pendingKeys.map((key) => plan.groupCompanies.get(key) as CountrySourceCompany);
+  const filled = deps.fillOfficialTaxIds ? await deps.fillOfficialTaxIds(companies).catch(() => companies) : companies;
+  const byKey = new Map<string, CountrySourceCompany>();
+  pendingKeys.forEach((key, index) => {
+    const company = filled[index];
+    if (company?.taxId) byKey.set(key, company);
+  });
+  return promoteGroupCompaniesWithTaxIds(plan, byKey);
+}
+
+async function withApolloByName(
+  plan: CorporateTreeWritePlan,
+  root: CorporateTreeRoot,
+  batchId: string,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<{ plan: CorporateTreeWritePlan; lookups: number }> {
+  if (!deps.findInApollo) return { plan, lookups: 0 };
+  const pending = plan.rows
+    .filter((row) => row.route === 'without_website' && row.relation !== 'root' && !!row.countryCode)
+    .slice(0, CORPORATE_TREE_APOLLO_MAX_LOOKUPS);
+  const found = new Map<string, CorporateTreeApolloMatch>();
+  let lookups = 0;
+  for (const row of pending) {
+    if (deps.nowMs() >= deadlineAtMs) break;
+    lookups++;
+    const match = await deps
+      .findInApollo({ name: row.name, countryCode: row.countryCode as string, rootDomain: root.domain }, { batchId })
+      .catch(() => null);
+    if (match) found.set(row.key, match);
+  }
+  return { plan: promoteRowsFoundInApollo(plan, found), lookups };
 }
 
 /** Cuántas consultas a HubSpot/SellUp a la vez (y cuántas como mucho). */
@@ -463,11 +519,10 @@ async function runAfterReservation(
 
   // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
-  const plan = await withKnownCompanies(
-    planCorporateTreeWrites({ root, freeHits: free.hits, nodes }),
-    deps,
-    context.writeDeadlineAtMs,
-  );
+  const withKnown = await withKnownCompanies(planCorporateTreeWrites({ root, freeHits: free.hits, nodes }), deps, context.writeDeadlineAtMs);
+  const withGroupFiscal = await withGroupTaxIds(withKnown, deps);
+  const apollo = await withApolloByName(withGroupFiscal, root, batchId, deps, context.writeDeadlineAtMs);
+  const plan = apollo.plan;
   const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
   // 5. Rama de cada fila y asociaciones.
@@ -487,6 +542,7 @@ async function runAfterReservation(
         evidence_url: row.evidenceUrl,
         group_website: row.groupWebsite,
         ...(row.websiteUnverified ? { website_unverified: true } : {}),
+        ...(row.foundInApollo ? { found_in_apollo: true } : {}),
       };
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
@@ -527,6 +583,8 @@ async function runAfterReservation(
       without_website: writes.withoutWebsite,
       group_references: plan.rows.filter((r) => r.route === 'group_reference').length,
       already_known: plan.rows.filter((r) => r.route === 'already_known').length,
+      group_with_tax_id: plan.rows.filter((r) => r.route === 'free_catalog' && !!r.groupWebsite).length,
+      apollo: { lookups: apollo.lookups, found: plan.rows.filter((r) => r.foundInApollo).length },
       dropped_by_cap: plan.droppedByCap,
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
