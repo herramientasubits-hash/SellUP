@@ -188,11 +188,17 @@ export const LUSHA_NO_SERVER_SIDE_EXCLUSION_REASON =
   'lusha_v3_no_server_side_exclusion_human_confirmed';
 
 /**
- * Lusha: NINGUNA exclusión server-side. Ni dominios ni ids.
+ * Lusha: ninguna exclusión POR ESTE PLANIFICADOR genérico.
  *
- * 🔴 CUT-L1 § 1 — confirmado por el soporte HUMANO de Lusha. Los dominios
- * conocidos siguen recogiéndose y siguen viajando en `availableValues`; lo que no
- * ocurre es que salgan en la petición.
+ * 🔴 CUT-L1 § 1 — el soporte de Lusha dijo (29-09) que no había exclusión
+ * server-side. El 15-10 otro agente del soporte (Kamal) lo probó contra la API y
+ * `filters.companies.exclude.domains` SÍ existe. Como con Apollo, la exclusión real
+ * NO sale de aquí: sale de `resolveLushaDomainExclusion`
+ * (`src/server/prospect-batches/lusha-domain-exclusion.ts`), detrás de
+ * `ENABLE_AGENT1_LUSHA_DOMAIN_EXCLUSION`, porque sólo debe enviar lo que ya es
+ * NUESTRO (`dedupeAuthorityValues`), nunca `provider_seen` a secas. Encender esta
+ * capacidad enviaría también lo sólo visto. Su telemetría es `domain_exclusion` en
+ * la metadata de la corrida; este motivo sigue describiendo al planificador.
  */
 export const LUSHA_EXCLUSION_CAPABILITY: ProviderExclusionCapability = {
   provider: 'lusha',

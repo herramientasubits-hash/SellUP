@@ -33,6 +33,10 @@
  *   - Never persists raw provider payloads or secrets.
  */
 
+import {
+  LUSHA_DOMAIN_EXCLUSION_DISABLED,
+  type LushaDomainExclusion,
+} from './lusha-domain-exclusion';
 import { macroIndustrySectorLabel } from '@/modules/macro-industry-catalog/macro-industry-sector-label';
 import {
   resolveLushaDiscardDisposition,
@@ -2688,6 +2692,12 @@ export interface LushaMultiBranchExecution {
    */
   pageCursor?: LushaPageCursorContext | null;
   /**
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — dominios nuestros que cada petición pide no
+   * recibir (`filters.companies.exclude.domains`). Ausente o vacío ⇒ la petición
+   * es la de antes. Fija durante la corrida (ver `lusha-domain-exclusion.ts`).
+   */
+  domainExclusion?: LushaDomainExclusion | null;
+  /**
    * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró.
    *
    * Ausente ⇒ memoria vacía y escritura no-op: 0 aciertos, 0 identidades nuevas y
@@ -3026,6 +3036,7 @@ export async function persistLushaPendingReviewBatch(
         })
       : [];
   const pageCursorActive = pageCursorDecisions.length > 0;
+  const domainExclusion: LushaDomainExclusion = execution?.domainExclusion ?? LUSHA_DOMAIN_EXCLUSION_DISABLED;
   const providerSeenBranchStopReasons: Record<number, string> = {};
   let hardFailure: PersistLushaPendingReviewResult | null = null;
 
@@ -3167,6 +3178,8 @@ export async function persistLushaPendingReviewBatch(
           // recortaría en silencio cualquier página por encima de 1. Sólo se
           // autoriza con el cursor activo, y nunca por encima de su tope.
           ...(pageCursorActive ? { authorizedMaxPage: LUSHA_PAGE_CURSOR_MAX_PAGE_INDEX } : {}),
+          // AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — lo nuestro no se vuelve a pagar.
+          ...(domainExclusion.domains.length > 0 ? { excludeDomains: domainExclusion.domains } : {}),
           // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
           // industria del sector, exactamente como hoy.
           ...(branch !== null
@@ -3934,6 +3947,7 @@ export async function persistLushaPendingReviewBatch(
     usefulResultsTotal: useful.length,
     reviewableFoundTotal,
     pageRequests: pageRequestObservations,
+    domainExclusion,
     pageCursor: {
       status: pageCursor?.status ?? 'disabled',
       ...(pageCursor?.status === 'history_unavailable' ? { reason: pageCursor.reason } : {}),
