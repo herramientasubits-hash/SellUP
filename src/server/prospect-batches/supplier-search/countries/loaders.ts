@@ -9,6 +9,9 @@ import { HN_LOADER } from './hn.loader';
 import { PE_LOADER } from './pe.loader';
 import { PY_LOADER } from './py.loader';
 import { PA_LOADER } from './pa.loader';
+import { AR_LOADER } from './ar.loader';
+import { UY_LOADER } from './uy.loader';
+import { ES_LOADER } from './es.loader';
 import type { ProcurementLoaderSource } from './types';
 
 export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSource>> = {
@@ -18,4 +21,7 @@ export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSourc
   GT: GT_LOADER,
   PY: PY_LOADER,
   PA: PA_LOADER,
+  AR: AR_LOADER,
+  UY: UY_LOADER,
+  ES: ES_LOADER,
 };

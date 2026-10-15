@@ -17,4 +17,7 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'DO', // DGCP (datos abiertos), en vivo
   'BR', // Compras.gov.br (federal) y PNCP, en vivo
   'US', // USAspending, en vivo
+  'AR', // COMPR.AR, adjudicaciones cargadas (tabla de rubros BORRADOR)
+  'UY', // ARCE, adjudicaciones OCDS cargadas (tabla SICE aprobada)
+  'ES', // PLACSP, adjudicaciones ATOM/CODICE mensuales cargadas (tabla CPV aprobada)
 ];
