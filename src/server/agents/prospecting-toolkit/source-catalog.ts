@@ -20,6 +20,7 @@
  */
 
 import type { CatalogSource } from './types';
+import { PUBLIC_PROCUREMENT_CATALOG_SOURCES } from '@/server/prospect-batches/supplier-search/countries/catalog';
 
 // ─── Identificadores fiscales por país ────────────────────────────────────────
 
@@ -3530,4 +3531,6 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
     riskNotes: ['Gasta créditos: respeta el presupuesto mensual del asistente.', 'Excluida de recommendedSources.'],
   },
+  // AGENT1-SUPPLIER-SEARCH-ALL-1 — compras públicas por país para «Proveedores de una empresa».
+  ...PUBLIC_PROCUREMENT_CATALOG_SOURCES,
 ];
