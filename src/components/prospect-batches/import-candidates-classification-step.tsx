@@ -5,7 +5,7 @@
 
 import { FilterChips } from '@/components/filters/filter-chips';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImportClassificationTable } from '@/components/prospect-batches/import-classification-table';
@@ -20,7 +20,11 @@ import type {
   ManualClassificationCorrection,
   CatalogVersionState,
 } from '@/modules/prospect-batches/import-classification/import-classification-ui-types';
-import { computeHasMappingConflict, type ImportCatalogData } from './import-candidates-helpers';
+import {
+  computeHasMappingConflict,
+  type ImportCatalogData,
+  type ImportDetectionNoticeContent,
+} from './import-candidates-helpers';
 
 /** Esqueleto mientras se clasifican las filas contra el catálogo. */
 export function ImportClassificationLoading() {
@@ -75,6 +79,8 @@ interface ImportClassificationReviewProps {
   catalogVersionChanged: boolean;
   onRevalidate: () => void;
   classificationError: string | null;
+  /** IMPORT-FREE-FORMAT-1 — cómo se leyó lo que entró, si no era el formato oficial. */
+  detectionNotice?: ImportDetectionNoticeContent | null;
   filterStatus: ClassificationFilterStatus;
   onFilterStatusChange: (status: ClassificationFilterStatus) => void;
   selectedIds: Set<number>;
@@ -100,6 +106,7 @@ export function ImportClassificationReview({
   catalogVersionChanged,
   onRevalidate,
   classificationError,
+  detectionNotice,
   filterStatus,
   onFilterStatusChange,
   selectedIds,
@@ -136,6 +143,13 @@ export function ImportClassificationReview({
               Revalidar archivo
             </Button>
           </AlertDescription>
+        </Alert>
+      )}
+
+      {detectionNotice && (
+        <Alert variant="info">
+          <AlertTitle className="text-xs">{detectionNotice.title}</AlertTitle>
+          <AlertDescription className="text-xs">{detectionNotice.description}</AlertDescription>
         </Alert>
       )}
 
