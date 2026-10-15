@@ -45,6 +45,13 @@ export type LushaPageRequestObservation = {
     subIndustryId: number | null;
     sizeBand: { min?: number; max?: number } | null;
     hasSearchText: boolean;
+    /**
+     * AGENT1-LUSHA-SUBINDUSTRY-ALONE-1 — false si la industria principal NO viajó
+     * (la rama lleva subindustria). `mainIndustryIds` sigue diciendo la rama.
+     */
+    mainIndustrySent: boolean;
+    /** AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — dominios pedidos excluir en esta página. */
+    excludedDomains: number;
     /** Avisos del constructor, p. ej. `branch_subindustry_not_under_main`. */
     warnings: string[];
   };
@@ -134,6 +141,8 @@ export function observeLushaPageRequest(input: {
       subIndustryId: finite(summary?.subIndustryId ?? null),
       sizeBand: summary?.sizeBand ? { ...summary.sizeBand } : null,
       hasSearchText: summary?.hasSearchText === true,
+      mainIndustrySent: summary?.mainIndustryOmittedForSubIndustry !== true,
+      excludedDomains: finite(summary?.excludedDomainsCount ?? null) ?? 0,
       warnings: Array.isArray(input.search.warnings) ? [...input.search.warnings] : [],
     },
     returned: {
@@ -158,6 +167,8 @@ export function toLushaPageRequestMetadata(
       sub_industry_id: o.requested.subIndustryId,
       size_band: o.requested.sizeBand,
       has_search_text: o.requested.hasSearchText,
+      main_industry_sent: o.requested.mainIndustrySent,
+      excluded_domains: o.requested.excludedDomains,
       warnings: [...o.requested.warnings],
     },
     returned: {

@@ -58,10 +58,14 @@ test('🔴 L1-A · la petición NUNCA emite filters.companies.exclude', () => {
   );
 });
 
-test('🔴 L1-A · ni con dominios conocidos en la mano aparece una exclusión', () => {
-  // La entrada del constructor ya NO tiene dónde poner una exclusión —el campo se
-  // retiró del tipo— así que el intento se hace por la puerta de atrás, como lo
-  // haría un llamador que reintrodujera el defecto con un cast.
+/**
+ * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — RATCHET INVERTIDO otra vez. El 15-10 el soporte
+ * de Lusha (Kamal) probó contra la API que `filters.companies.exclude.domains` SÍ
+ * existe. Lo que sigue prohibido es todo lo demás: ids de empresa y cualquier campo
+ * adivinado. Y la exclusión sólo sale si el llamador pasa dominios (el ejecutor
+ * pagado, con su bandera); sin ellos la petición es de inclusión pura (arriba).
+ */
+test('🔴 L1-A · con dominios, SÓLO `exclude.domains`; nunca ids ni otros campos', () => {
   const sneaked = {
     ...BASE,
     excludeDomains: ['conocida.example', 'otra.example'],
@@ -70,11 +74,10 @@ test('🔴 L1-A · ni con dominios conocidos en la mano aparece una exclusión',
 
   const companies = rawCompanies(buildLushaPreviewRequest(sneaked));
 
-  assert.equal(companies.exclude, undefined, '🔴 el constructor lo ignora entero');
-  assert.deepEqual(Object.keys(companies), ['include']);
-  // Y no se ha sustituido por otro campo adivinado en la raíz de la petición.
+  assert.deepEqual(companies.exclude, { domains: ['conocida.example', 'otra.example'] });
+  assert.deepEqual(Object.keys(companies), ['include', 'exclude']);
   const serialized = JSON.stringify(buildLushaPreviewRequest(sneaked));
-  for (const forbidden of ['exclude', 'excludeDomains', 'excludeCompanyIds']) {
+  for (const forbidden of ['excludeDomains', 'excludeCompanyIds', 'v1.ZpAq', '"ids"']) {
     assert.ok(!serialized.includes(forbidden), `🔴 ${forbidden} no viaja en el cuerpo`);
   }
 });

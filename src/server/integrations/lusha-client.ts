@@ -1291,17 +1291,16 @@ export type LushaCompanyProspectingV3Filters = {
       // Q3F-5AA: naics rechazado ("property naics should not exist") — omitido.
     };
     /**
-     * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — NO existe `exclude`.
+     * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — exclusión del lado de Lusha, SÓLO por
+     * dominio. CUT-L1 la había quitado por una respuesta del soporte (29-09); el
+     * soporte la probó contra la API el 15-10 (Kamal) y confirmó que existe. Ningún
+     * otro campo de exclusión está confirmado, así que el tipo no los declara.
      *
-     * El soporte HUMANO de Lusha confirmó que `POST /v3/companies/prospecting` no
-     * soporta exclusión del lado del servidor: ni `excludeDomains` ni
-     * `excludeCompanyIds`. Este tipo declaraba `exclude.domains` como si el
-     * contrato estuviera verificado; no lo estaba. Quitarlo del TIPO —y no sólo
-     * del constructor de la petición— convierte la regla en algo que el compilador
-     * impide violar.
-     *
-     * La supresión de empresas ya conocidas es CLIENTE y posterior a la respuesta.
+     * La supresión CLIENTE tras la respuesta sigue igual.
      */
+    exclude?: {
+      domains?: string[];
+    };
   };
 };
 
@@ -1312,7 +1311,7 @@ export type LushaCompanyProspectingV3Request = {
    * Enviar locations/sizes en el nivel raíz de filters era incorrecto.
    * Q3F-5F confirmó que filters DEBE ser un objeto (no array) — HTTP 400 si array.
    * Q3F-5H confirmó que filters sin companies.include válido → HTTP 400.
-   * CUT-L1: `companies.exclude` no existe — Lusha V3 no tiene exclusión server-side.
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1: `companies.exclude.domains` existe (soporte 15-10).
    */
   filters?: LushaCompanyProspectingV3Filters;
   pagination?: {
@@ -1611,7 +1610,7 @@ export async function searchLushaCompaniesV3(input: {
   }
 
   // Q3F-5N: schema anidado oficial — filters debe tener companies.include.*
-  // CUT-L1: sin `companies.exclude` — Lusha V3 no lo soporta.
+  // Una exclusión sola no es filtro: hace falta al menos un `include` útil.
   // Q3F-5H: filters:{} rechazado — HTTP 400 "filters.Company filters cannot be empty"
   if (!hasCompanyFilters(input.request.filters)) {
     return {

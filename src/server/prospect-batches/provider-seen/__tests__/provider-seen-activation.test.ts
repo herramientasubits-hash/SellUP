@@ -807,10 +807,10 @@ test('(17) · CUT-L1 — Lusha NO excluye server-side: ni ids NI dominios', () =
   // existe, y el proveedor no tiene dónde recibirlos.
   const preview = stripTsComments(read('src/server/prospect-batches/lusha-preview.ts'));
   for (const forbidden of [
-    'exclude:',
-    'exclude.domains',
+    // AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — `exclude.domains` SÍ existe (soporte de
+    // Lusha, 15-10, probado contra la API) y sale sólo con dominios del ejecutor
+    // pagado. Exclusión por id sigue sin contrato: prohibida.
     'exclude.ids',
-    'excludeDomains',
     'excludeIds',
     'excludeCompanyIds',
   ]) {
