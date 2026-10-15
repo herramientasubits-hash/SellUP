@@ -10,4 +10,5 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'CO', // SECOP II, en vivo
   'CL', // ChileCompra, órdenes de compra mensuales cargadas
   'BR', // Compras.gov.br (federal) y PNCP, en vivo
+  'US', // USAspending, en vivo
 ];
