@@ -446,7 +446,11 @@ export function buildLiveCorporateTreeDeps(params: {
         // El tope de 10 por vendedor es de «Empresas por criterios»: el árbol entrega su familia.
         maxDeliveredCandidates: null,
       });
-      return { written: output.status === 'failed' ? 0 : output.candidatesCreated, errors: output.errors };
+      return {
+        written: output.status === 'failed' ? 0 : output.candidatesCreated,
+        errors: output.errors,
+        skipped: output.skipped.map((skip) => ({ name: skip.name, domain: skip.domain ?? null, reason: skip.reason })),
+      };
     },
 
     findKnownCompany: async ({ name, countryCode }) => {

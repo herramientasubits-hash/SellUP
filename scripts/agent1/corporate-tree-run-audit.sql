@@ -72,6 +72,19 @@ findings AS (
   SELECT b.id, 'warn', 'apollo_not_asked', b.t ->> 'root_domain', 'Había web de la empresa de partida pero Apollo no se consultó (¿bandera, cupo o tiempo?).'
   FROM batches b WHERE coalesce(b.t ->> 'root_domain', '') <> '' AND coalesce((b.t -> 'apollo' ->> 'asked')::boolean, false) = false
 
+  -- ── La web de partida no lleva su nombre (¿es la de su matriz?) ─
+  -- Prod 15-10, Monsanto: quedó bayer.com y Apollo enriqueció a Bayer.
+  UNION ALL
+  SELECT b.id, 'warn', 'root_domain_other_name', b.t ->> 'root_domain',
+         format('La web de «%s» no lleva su nombre: ¿es la de su matriz?', b.t ->> 'root_name')
+  FROM batches b
+  WHERE coalesce(b.t ->> 'root_domain', '') <> ''
+    AND NOT EXISTS (
+      SELECT 1 FROM regexp_split_to_table(lower(translate(b.t ->> 'root_name', 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')), '[^a-z0-9]+') tok
+      WHERE length(tok) >= 4 AND tok NOT IN ('grupo', 'group', 'holding', 'holdings', 'corporacion', 'corporation')
+        AND position(tok IN replace(b.t ->> 'root_domain', '-', '')) > 0
+    )
+
   -- ── Errores registrados por la corrida ────────────────────
   UNION ALL
   SELECT b.id, 'error', 'write_error', e.value #>> '{}', 'Error al escribir.'
@@ -118,10 +131,24 @@ findings AS (
   -- El escritor común la frenó (identidad, propiedad, novedad…) sin guardar el motivo por
   -- fila. Puede estar bien (Prod 15-10: «Bakery Donuts Iberia», panrico.com, es la misma
   -- que «BIMBO DONUTS IBERIA», bimbo.es), pero hay que mirarla.
+  -- Desde el 15-10 la corrida guarda el motivo en `corporate_tree.not_written`: con
+  -- motivo es «info»; sin motivo, «warn».
   UNION ALL
-  SELECT r.batch_id, 'warn', 'not_written_no_trace', r.related_name,
-         format('Web %s: no es candidata del lote, ni está en Descartadas, ni existe en SellUp por esa web (el escritor la frenó sin motivo guardado).', r.related_domain)
+  SELECT r.batch_id,
+         CASE WHEN nw.reason IS NULL THEN 'warn' ELSE 'info' END,
+         CASE WHEN nw.reason IS NULL THEN 'not_written_no_trace' ELSE 'not_written' END,
+         r.related_name,
+         CASE WHEN nw.reason IS NULL
+              THEN format('Web %s: no es candidata del lote, ni está en Descartadas, ni existe en SellUp (el escritor la frenó sin motivo guardado).', r.related_domain)
+              ELSE format('Web %s: el escritor no la escribió (%s).', r.related_domain, nw.reason) END
   FROM rels r
+  JOIN batches b ON b.id = r.batch_id
+  LEFT JOIN LATERAL (
+    SELECT e ->> 'reason' AS reason
+    FROM jsonb_array_elements(coalesce(b.t -> 'not_written', '[]')) e
+    WHERE lower(e ->> 'domain') = lower(r.related_domain)
+    LIMIT 1
+  ) nw ON true
   WHERE r.related_candidate_id IS NULL AND r.related_domain IS NOT NULL AND r.relation_type <> 'root'
     AND r.related_domain <> coalesce(r.root_domain, '')
     AND r.matched_hubspot_company_id IS NULL
