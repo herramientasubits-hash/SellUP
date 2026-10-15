@@ -51,7 +51,7 @@ import {
   type CorporateTreeRequest,
   type CorporateTreeRunDeps,
 } from '../corporate-tree-run';
-import { buildCorporateTreeUsageLog, corporateTreeApolloQueryName } from '../corporate-tree-run.server';
+import { buildCorporateTreeUsageLog, corporateTreeApolloQueryName, readCorporateTreeApolloPage } from '../corporate-tree-run.server';
 import { corporateTreePendingSummary, groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   buildCorporateTreeViews,
@@ -1119,5 +1119,32 @@ describe('N. Citigroup 2.ª corrida (Prod 15-10): Apollo y HubSpot', () => {
     );
     assert.equal(groups[0].items[0].statusLabel, 'En Descartadas: posible duplicado en HubSpot');
     assert.match(corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0, possibleKnown: 2 }), /2 parecen ya estar en HubSpot/);
+  });
+});
+
+describe('O. Citigroup 3.ª corrida (Prod 15-10): la respuesta de Apollo se lee entera', () => {
+  it('un «accounts» vacío ya no esconde las organizaciones', () => {
+    const page = readCorporateTreeApolloPage({
+      accounts: [],
+      organizations: [{ id: 'org-1', name: 'Citibank del Perú', website_url: 'https://www.citibank.com.pe', primary_domain: 'citibank.com.pe', linkedin_url: null }],
+    });
+    assert.equal(page.rawCount, 1);
+    assert.equal(page.organizations.length, 1);
+    assert.equal(page.organizations[0].name, 'Citibank del Perú');
+    assert.equal(
+      pickApolloOrganization(page.organizations, { name: 'Citibank del Perú S.A.', rootDomain: 'citigroup.com' }, (w) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0])?.domain,
+      'citibank.com.pe',
+    );
+  });
+
+  it('una respuesta vacía o rota no cobra ni encuentra nada', () => {
+    assert.deepEqual(readCorporateTreeApolloPage(null), { organizations: [], rawCount: 0 });
+    assert.deepEqual(readCorporateTreeApolloPage({ organizations: [], accounts: [] }), { organizations: [], rawCount: 0 });
+  });
+
+  it('el árbol llama a Apollo por el mismo camino que el resto del Agente 1', () => {
+    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
+    assert.match(source, /searchApolloOrganizationsPage\(/);
+    assert.doesNotMatch(source, /searchApolloOrganizations\(/);
   });
 });

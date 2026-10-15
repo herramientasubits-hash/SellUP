@@ -422,11 +422,11 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_signal',
     nextAction:
-      'Conectada en el código (AGENT1-SUPPLIER-SEARCH-PUBLIC-1) sólo para «Proveedores de una empresa» en Colombia: cuando la referencia es una entidad pública, consulta en vivo los contratos firmados de SECOP II (datos.gov.co, dataset jbjy-vk9h) antes de pagar a Claude. Falta verla en una corrida real de Producción.',
+      'Conectada (AGENT1-SUPPLIER-SEARCH-PUBLIC-1/2) sólo para «Proveedores de una empresa» en Colombia: cuando la referencia es una entidad pública, consulta en vivo los contratos firmados de SECOP II (datos.gov.co, dataset jbjy-vk9h) antes de pagar a Claude. Verificada en Producción el 15-10-2026 (Alcaldía de Medellín × Tecnología: 59 proveedores leídos, 12 ofrecidos, 7 nuevos para revisar y no estaban en HubSpot, US$0 en SECOP). Sus filas cuentan para la meta como la capa gratuita y, con 5 o más para revisar, Claude no corre.',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P1',
-    operationalStatus: 'pending_validation',
+    operationalStatus: 'operational_verified',
     type: 'procurement',
     url: 'https://www.datos.gov.co/Gastos-Gubernamentales/SECOP-II-Contratos-Electr-nicos/jbjy-vk9h',
     automationLevel: 'high',
