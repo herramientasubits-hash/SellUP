@@ -1083,13 +1083,14 @@ describe('M. Filiales con la web del grupo y Apollo por nombre', () => {
 describe('N. Citigroup 2.ª corrida (Prod 15-10): Apollo y HubSpot', () => {
   it('Apollo recibe el nombre sin forma societaria', () => {
     assert.equal(corporateTreeApolloQueryName('CITIGROUP CHILE SPA'), 'citigroup chile');
-    assert.equal(corporateTreeApolloQueryName('Citibank del Perú S.A.'), 'citibank del peru');
+    assert.equal(corporateTreeApolloQueryName('Citibank del Perú S.A.'), 'citibank peru', 'sin palabras vacías');
   });
 
   it('y el país en inglés, con la tabla del Agente 1', () => {
     const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
     assert.match(source, /resolveApolloCountryLocation\(query\.countryCode/);
-    assert.match(source, /q_organization_name: corporateTreeApolloQueryName\(query\.name\)/);
+    assert.match(source, /const queryName = corporateTreeApolloQueryName\(query\.name\)/);
+    assert.match(source, /q_organization_name: queryName/);
   });
 
   it('un nombre parecido exige que HubSpot diga el MISMO país (también en inglés)', () => {
@@ -1241,5 +1242,33 @@ describe('R. Citigroup 5.ª corrida (Prod 15-10): Apollo nunca toma un nombre M�
     const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
     assert.equal(pickApolloOrganization([org('Citicorp Diners Club', 'dinersclubus.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain), null);
     assert.equal(pickApolloOrganization([org('Citicorp', 'citicorp.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain)?.domain, 'citicorp.com');
+  });
+});
+
+describe('S. Bimbo (Prod 15-10): Apollo vacío con «bimbo de colombia» en Colombia', () => {
+  it('la búsqueda va sin palabras vacías', () => {
+    assert.equal(corporateTreeApolloQueryName('BIMBO DE COLOMBIA S A'), 'bimbo colombia');
+    assert.equal(corporateTreeApolloQueryName('Panificadora Bimbo del Uruguay S.A.'), 'panificadora bimbo uruguay');
+  });
+
+  it('sin país en la búsqueda, sólo vale la organización que diga SU país', () => {
+    const org = (name: string, domain: string, country: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null, country });
+    const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+    const found = [org('Bimbo de Colombia', 'bimbo.com.mx', 'Mexico'), org('Bimbo de Colombia', 'bimbo.com.co', 'Colombia')];
+    assert.equal(
+      pickApolloOrganization(found, { name: 'BIMBO DE COLOMBIA S A', rootDomain: 'grupobimbo.com', countryNames: ['Colombia', 'CO'] }, toDomain)?.domain,
+      'bimbo.com.co',
+    );
+    assert.equal(
+      pickApolloOrganization([found[0]], { name: 'BIMBO DE COLOMBIA S A', rootDomain: 'grupobimbo.com', countryNames: ['Colombia', 'CO'] }, toDomain),
+      null,
+      'la de otro país no',
+    );
+  });
+
+  it('el reintento sin país sólo ocurre si la búsqueda en su país vino vacía (y una vacía no cobra)', () => {
+    const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
+    assert.match(source, /if \(inCountry && inCountry\.rawCount > 0\) return pick\(inCountry\.organizations, null\);/);
+    assert.match(source, /const credits = page\.rawCount > 0 \? 1 : 0;/);
   });
 });
