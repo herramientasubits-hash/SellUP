@@ -177,6 +177,8 @@ export function DuplicateCheckCell({ candidate }: { candidate: ProspectRow }) {
     hsStatus = sources.includes('hubspot') ? 'no_match' : undefined;
 
     for (const m of matches) {
+      // HUBSPOT-FREE-POOL-SOURCE-1 — una ficha LIBRE de HubSpot no es duplicado.
+      if (m.status === 'new_candidate') continue;
       if (m.source === 'sellup') {
         sellupStatus = m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'duplicate' : 'possible_duplicate';
       } else if (m.source === 'hubspot') {

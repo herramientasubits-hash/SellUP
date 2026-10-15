@@ -45,6 +45,21 @@ export type DuplicateMatch = {
   matchedTaxIdentifier?: string | null;
   reason: string;
   raw?: unknown;
+  /**
+   * HUBSPOT-FREE-POOL-SOURCE-1 — la empresa de HubSpot está LIBRE para tomarla
+   * (reciclada, en bolsa, sin dueño o con dueño desactivado). Presente sólo con la
+   * bandera encendida; entonces el `status` de la coincidencia ya NO es
+   * `existing_in_hubspot` sino `new_candidate`, y nadie la descarta como duplicada.
+   */
+  hubspotFreeToTake?: HubSpotFreeToTake;
+};
+
+/** HUBSPOT-FREE-POOL-SOURCE-1 — por qué una empresa de HubSpot se puede tomar. */
+export type HubSpotFreeToTake = {
+  hubspotCompanyId: string;
+  reason: 'recycled' | 'pool_owner' | 'no_owner' | 'deactivated_owner';
+  /** Dueño actual en HubSpot (una bolsa, una persona desactivada o nadie). */
+  ownerId: string | null;
 };
 
 export type DuplicateCheckResult = {
@@ -55,6 +70,11 @@ export type DuplicateCheckResult = {
   summary: string;
   checkedSources: Array<"sellup" | "hubspot">;
   errors?: string[];
+  /**
+   * HUBSPOT-FREE-POOL-SOURCE-1 — la coincidencia con HubSpot es una empresa LIBRE:
+   * se puede tomar, y al aprobar se enlaza a esa ficha de HubSpot.
+   */
+  hubspotFreeToTake?: HubSpotFreeToTake;
 };
 
 // ============================================================

@@ -1144,3 +1144,47 @@ export const AGENT1_SUPPLIER_SEARCH_FLAG = 'ENABLE_AGENT1_SUPPLIER_SEARCH';
 export function isAgent1SupplierSearchEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_SUPPLIER_SEARCH_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agentes 1 y 2 · empresas libres de HubSpot como fuente (HUBSPOT-FREE-POOL-SOURCE-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const HUBSPOT_FREE_POOL_FLAG = 'ENABLE_HUBSPOT_FREE_POOL';
+
+/**
+ * ¿Usa SellUp las empresas LIBRES de HubSpot (Recycled, en bolsa «Sales país», sin
+ * dueño o con dueño desactivado; nunca clientes ni con negocio abierto)?
+ *
+ * Encendida:
+ *   · el Agente 1 las busca PRIMERO en cada búsqueda por criterios (US$0);
+ *   · en todos los modos (Tavily, Apollo, Claude, banco, árbol, competidores,
+ *     proveedores) una coincidencia con una empresa libre de HubSpot deja de
+ *     descartarse como «ya existe en HubSpot» y entra marcada «Libre en HubSpot».
+ *
+ * Apagada, todo exactamente como antes: cualquier coincidencia con HubSpot se descarta.
+ * Sólo lectura de HubSpot; el cambio de dueño al aprobar va por su propia bandera.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isHubSpotFreePoolEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[HUBSPOT_FREE_POOL_FLAG]);
+}
+
+export const HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG = 'ENABLE_HUBSPOT_FREE_POOL_OWNER_WRITEBACK';
+
+/**
+ * Al APROBAR una empresa que estaba libre en HubSpot, ¿la toma el vendedor de SellUp
+ * en HubSpot? Decisión de la dueña (15-10): dueño = vendedor, estado de lead «New»
+ * (deja de verse libre y el ciclo de 120 días vuelve a empezar), Fecha Asignación =
+ * hoy, y los contactos de la empresa pasan al vendedor (salvo los de otro vendedor
+ * activo). Antes de escribir se vuelve a comprobar que siga libre; si alguien la tomó
+ * por HubSpot, no se toca.
+ *
+ * Es ESCRITURA en HubSpot de Producción: requiere autorización explícita de la dueña
+ * para encenderla.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isHubSpotFreePoolOwnerWritebackEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG]);
+}

@@ -150,6 +150,26 @@ function MatchDetail({ match }: { match: DuplicateMatch }) {
   );
 }
 
+/** HUBSPOT-FREE-POOL-SOURCE-1 — por qué la empresa está libre en HubSpot, o `null`. */
+const HUBSPOT_FREE_POOL_REASON_TEXT: Record<string, string> = {
+  recycled: 'reciclada',
+  pool_owner: 'en la bolsa del equipo',
+  no_owner: 'sin dueño',
+  deactivated_owner: 'su dueño ya no está en UBITS',
+};
+
+function readHubSpotFreePoolLabel(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const meta = metadata as Record<string, unknown>;
+  const fromWriter = meta.hubspot_free_pool as Record<string, unknown> | undefined;
+  const validation = meta.validation as Record<string, unknown> | undefined;
+  const hubspotCheck = validation?.hubspot_duplicate_check as Record<string, unknown> | undefined;
+  const fromImport = hubspotCheck?.free_to_take as Record<string, unknown> | undefined;
+  const reason = fromWriter?.reason ?? fromImport?.reason;
+  if (typeof reason !== 'string') return null;
+  return HUBSPOT_FREE_POOL_REASON_TEXT[reason] ?? 'libre';
+}
+
 function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithReviewer }) {
   const [detailOpen, setDetailOpen] = React.useState(false);
 
@@ -167,6 +187,8 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
     hsStatus = sources.includes('hubspot') ? 'no_match' : undefined;
 
     for (const m of matches) {
+      // HUBSPOT-FREE-POOL-SOURCE-1 — una ficha LIBRE de HubSpot no es duplicado.
+      if (m.status === 'new_candidate') continue;
       if (m.source === 'sellup') {
         sellupStatus = m.status === 'exact_duplicate' || m.status === 'duplicate' ? 'duplicate' : 'possible_duplicate';
       } else if (m.source === 'hubspot') {
@@ -213,8 +235,16 @@ function DuplicateCheckCell({ candidate }: { candidate: ProspectCandidateWithRev
   else if (hsStatus === 'error') hsTooltipLabel = 'HubSpot: error de verificación';
   else if (hsStatus === 'not_configured') hsTooltipLabel = 'HubSpot: no configurado';
 
+  const hubspotFreeLabel = readHubSpotFreePoolLabel(candidate.metadata);
+  if (hubspotFreeLabel) hsTooltipLabel = `HubSpot: libre para tomar (${hubspotFreeLabel})`;
+
   return (
     <div className="flex flex-col gap-1 w-fit">
+      {hubspotFreeLabel && (
+        <Badge variant="info" title={`Ya está en HubSpot y está libre: ${hubspotFreeLabel}. Al aprobar se enlaza a esa ficha.`}>
+          Libre en HubSpot
+        </Badge>
+      )}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger render={

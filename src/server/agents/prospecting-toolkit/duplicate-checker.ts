@@ -12,6 +12,7 @@
  * cuando no se pudo verificar una fuente.
  */
 
+import { resolveHubSpotFreeToTake } from './hubspot-free-match';
 import type { DuplicateCheckInput, DuplicateCheckResult, DuplicateStatus } from './types';
 import { buildCompanySearchTerms } from './normalization';
 import { checkSellUpDuplicates, resolveSellUpStatus } from './sellup-duplicate-checker';
@@ -201,6 +202,9 @@ export async function checkCompanyDuplicate(
     enrichedInput
   );
 
+  // HUBSPOT-FREE-POOL-SOURCE-1 — la ficha de HubSpot con la que se enlaza al aprobar.
+  const hubspotFreeToTake = resolveHubSpotFreeToTake(finalStatus, allMatches);
+
   return {
     status: finalStatus,
     confidence,
@@ -209,5 +213,6 @@ export async function checkCompanyDuplicate(
     summary,
     checkedSources,
     ...(errors.length > 0 ? { errors } : {}),
+    ...(hubspotFreeToTake ? { hubspotFreeToTake } : {}),
   };
 }

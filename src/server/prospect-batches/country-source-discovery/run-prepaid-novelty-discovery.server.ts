@@ -103,6 +103,7 @@ import {
 } from './free-source-unverified';
 import type { BankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
 import type { CountrySourceCompany } from './country-source-types';
+import type { HubSpotFreePoolDrawer } from '@/server/prospect-batches/hubspot-free-pool/hubspot-free-pool-draw';
 
 export type PrePaidNoveltyDiscoveryInput = {
   /**
@@ -158,6 +159,12 @@ export type PrePaidNoveltyDiscoveryInput = {
    * exactamente como antes.
    */
   drawCompanyBank?: BankFirstDrawer;
+  /**
+   * HUBSPOT-FREE-POOL-SOURCE-1 — las empresas LIBRES de HubSpot como PRIMERA fuente
+   * (antes de los registros oficiales y del banco). Sólo corre con `resolveBatchId`,
+   * igual que el banco. Ausente ⇒ todo exactamente como antes.
+   */
+  drawHubSpotFreePool?: HubSpotFreePoolDrawer;
   /**
    * AGENT1-FREE-LAYER-FIRST-1 — el rescate de Claude SÓLO sobre las sin web que la
    * capa gratuita acaba de mandar a Descartadas, ANTES del banco (las que encuentra
@@ -301,6 +308,94 @@ export async function runPrePaidNoveltyDiscovery(
   input: PrePaidNoveltyDiscoveryInput,
   /** Inyectable SÓLO para pruebas. Producción usa siempre las reales. */
   deps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
+): Promise<PrePaidNoveltyDiscoveryOutcome> {
+  // ── HUBSPOT-FREE-POOL-SOURCE-1 — primero las empresas libres de HubSpot ──
+  //
+  // Decisión de la dueña (15-10): «primero en cada búsqueda». Lo que aporte baja el
+  // objetivo de la capa gratuita oficial y del banco, que corren detrás por el hueco
+  // que queda, en el MISMO lote; su tope de entrega descuenta las filas ya escritas.
+  const resolveCanonical = input.resolveBatchId;
+  // Sólo donde un aporte parcial cabe en el MISMO lote (ruta Apollo/Competidores);
+  // la ruta todo-o-nada no puede repartirse la meta.
+  const hubspot =
+    input.drawHubSpotFreePool && resolveCanonical && input.partialGapSupported && input.requestedTarget > 0
+      ? await input
+          .drawHubSpotFreePool({
+            countryCode: input.countryCode,
+            countryName: input.countryName,
+            macroIndustryKey: input.macroIndustryKey,
+            requestedTarget: input.requestedTarget,
+            requestedByUserId: input.requestedByUserId,
+            resolveBatchId: resolveCanonical,
+          })
+          .catch((err) => {
+            console.error('[hubspot-free-pool] la capa falló:', err);
+            return {
+              batchId: null,
+              persistedCount: 0,
+              acceptedCount: 0,
+              telemetry: { status: 'error', error: err instanceof Error ? err.message.slice(0, 200) : String(err) },
+            };
+          })
+      : null;
+  if (!hubspot || hubspot.persistedCount <= 0) {
+    const rest = await runFreeLayerThenBank(client, input, deps);
+    return hubspot ? { ...rest, telemetry: { ...rest.telemetry, hubspot_free_pool_first: hubspot.telemetry } } : rest;
+  }
+
+  const hubspotAccepted = Math.min(Math.max(0, hubspot.acceptedCount), input.requestedTarget);
+  const remaining = input.requestedTarget - hubspotAccepted;
+  if (remaining === 0) {
+    return {
+      requestedTarget: input.requestedTarget,
+      residualGap: 0,
+      acceptedBeforeProvider: input.requestedTarget,
+      providerRequired: false,
+      batchId: hubspot.batchId,
+      persistedCount: hubspot.persistedCount,
+      knownSuppressionDomains: [],
+      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+      providerExclusionPlan: noGateExclusionPlan(input),
+      freeSource: notAttemptedFreeSourceOutcome(),
+      telemetry: { hubspot_free_pool_first: hubspot.telemetry },
+    };
+  }
+
+  // Lo que sigue corre por el hueco, en el mismo lote, y con el tope de entrega ya
+  // descontado de lo que HubSpot escribió.
+  const fullCap =
+    deps.maxDeliveredCandidates === undefined
+      ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
+      : deps.maxDeliveredCandidates;
+  const hubspotBatchId = hubspot.batchId;
+  const rest = await runFreeLayerThenBank(
+    client,
+    {
+      ...input,
+      requestedTarget: remaining,
+      ...(hubspotBatchId ? { resolveBatchId: async () => hubspotBatchId } : {}),
+    },
+    { ...deps, maxDeliveredCandidates: fullCap === null ? null : Math.max(0, fullCap - hubspot.persistedCount) },
+  );
+  const acceptedBeforeProvider = Math.min(input.requestedTarget, hubspotAccepted + rest.acceptedBeforeProvider);
+  const residualGap = Math.max(0, input.requestedTarget - acceptedBeforeProvider);
+  return {
+    ...rest,
+    requestedTarget: input.requestedTarget,
+    acceptedBeforeProvider,
+    residualGap,
+    providerRequired: residualGap > 0,
+    batchId: hubspotBatchId ?? rest.batchId,
+    persistedCount: hubspot.persistedCount + rest.persistedCount,
+    telemetry: { ...rest.telemetry, hubspot_free_pool_first: hubspot.telemetry },
+  };
+}
+
+async function runFreeLayerThenBank(
+  client: SupabaseClient,
+  input: PrePaidNoveltyDiscoveryInput,
+  deps: PrePaidNoveltyDiscoveryDeps,
 ): Promise<PrePaidNoveltyDiscoveryOutcome> {
   // ── AGENT1-FREE-LAYER-FIRST-1 — primero la capa gratuita oficial, después el banco ──
   //

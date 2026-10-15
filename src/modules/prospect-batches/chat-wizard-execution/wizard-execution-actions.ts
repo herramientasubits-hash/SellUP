@@ -53,6 +53,7 @@ import {
   type PrePaidNoveltyDiscoveryOutcome,
 } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import { resolveProductionBankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
+import { resolveProductionHubSpotFreePoolDrawer } from '@/server/prospect-batches/hubspot-free-pool/hubspot-free-pool-draw.server';
 import { loadApolloExclusionSellupDomains } from '@/server/prospect-batches/provider-seen/apollo-exclusion-sellup-domains.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
@@ -828,6 +829,12 @@ export async function executeProspectWizardGenerationAction(
         drawCompanyBank:
           resolveProductionBankFirstDrawer(input.industryName ?? '', {
             // Con Tavily-primero, su revisión de Claude ya cubre lo del banco: una sola pasada.
+            reviewInline: !isAgent1TavilyFirstEffective(),
+          }) ?? undefined,
+        // HUBSPOT-FREE-POOL-SOURCE-1 — antes que todo: las empresas libres de HubSpot
+        // (recicladas, en bolsa, sin dueño, dueño desactivado). Bandera apagada ⇒ ausente.
+        drawHubSpotFreePool:
+          resolveProductionHubSpotFreePoolDrawer(input.industryName ?? '', {
             reviewInline: !isAgent1TavilyFirstEffective(),
           }) ?? undefined,
         partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
