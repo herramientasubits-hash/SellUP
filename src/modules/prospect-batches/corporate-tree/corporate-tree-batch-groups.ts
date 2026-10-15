@@ -92,7 +92,7 @@ export type CorporateTreeBatchItem = {
   groupWebsite: string | null;
   /** Web no comprobada (el sitio bloquea la descarga). */
   websiteUnverified?: boolean;
-  /** Web encontrada en Apollo por el nombre. */
+  /** Filial y web según Apollo (filiales de la empresa de partida). */
   foundInApollo?: boolean;
 };
 

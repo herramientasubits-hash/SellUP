@@ -58,22 +58,16 @@ import {
   type FreeSnapshotRow,
 } from './corporate-tree-free-lookup';
 import {
-  pickApolloOrganization,
   pickKnownCompany,
-  type CorporateTreeApolloOrganization,
+  type CorporateTreeApolloSubsidiary,
   type CorporateTreeWebItem,
 } from './corporate-tree-plan';
 import { CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
-import { APOLLO_COUNTRY_LOCATION_BY_CODE, resolveApolloCountryLocation } from '@/server/agents/prospecting-toolkit/apollo-country-location';
+import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
-import { searchApolloOrganizationsPage } from '@/server/integrations/apollo-client';
-import {
-  normalizeApolloOrganizationsResponse,
-  type ApolloOrganizationsRawPayload,
-} from '@/server/agents/prospecting-toolkit/apollo-organizations-response-normalizer';
+import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
-import { normalizeTreeName, stripBranchSuffix } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
 import {
   buildCountrySourceOfficialTaxIdLookup,
@@ -89,45 +83,32 @@ export const CORPORATE_TREE_USAGE_FLOW = 'corporate_tree_search';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON;
 
 /** El nombre para buscar en Apollo: sin forma societaria («CITIGROUP CHILE SPA» ⇒ «citigroup chile»). */
-/** Palabras vacías que estorban en la búsqueda por nombre de Apollo («bimbo de colombia» ⇒ «bimbo colombia»). */
-const APOLLO_QUERY_STOPWORDS = new Set(['de', 'del', 'do', 'da', 'la', 'las', 'los', 'y', 'e', 'the', 'of', 'and']);
-
-export function corporateTreeApolloQueryName(name: string): string {
-  // «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «citigroup global markets europe»:
-  // la sucursal de una extranjera está en Apollo con el nombre de su casa matriz.
-  const core = normalizeTreeName(stripBranchSuffix(name)) || normalizeTreeName(name) || name.trim();
-  const words = core.split(' ').filter((w) => w && !APOLLO_QUERY_STOPWORDS.has(w));
-  return words.length > 0 ? words.join(' ') : core;
-}
-
 /**
- * Lo que devolvió Apollo, leído como lo lee el resto del Agente 1: `organizations[]` es
- * la fuente y `accounts[]` (lo ya guardado en nuestra cuenta de Apollo) sólo completa.
- * Prod 15-10 (Citigroup, 10 búsquedas): se leía `accounts ?? organizations`, y un
- * `accounts: []` vacío escondía todas las organizaciones.
+ * Las filiales de la ficha de Apollo (`suborganizations`; Apollo Support 15-10). Defensivo:
+ * no está documentado qué trae cada una, así que se toma lo que haya (nombre, web, LinkedIn,
+ * país de la sede) y se descarta lo que no tenga nombre.
  */
-export function readCorporateTreeApolloPage(payload: unknown): {
-  organizations: CorporateTreeApolloOrganization[];
-  rawCount: number;
-} {
-  const raw = (payload && typeof payload === 'object' ? payload : null) as ApolloOrganizationsRawPayload;
-  const rawCount =
-    (Array.isArray(raw?.organizations) ? raw!.organizations!.length : 0) + (Array.isArray(raw?.accounts) ? raw!.accounts!.length : 0);
-  const normalized = normalizeApolloOrganizationsResponse(raw);
-  return {
-    rawCount,
-    organizations: normalized.organizations.map((org) => ({
-      name: org.name,
-      website_url: org.websiteUrl,
-      primary_domain: org.primaryDomain,
-      linkedin_url: org.linkedinUrl,
-      country: org.country,
-    })),
-  };
+export function readApolloSubsidiaries(organization: unknown): CorporateTreeApolloSubsidiary[] {
+  const record = organization && typeof organization === 'object' ? (organization as Record<string, unknown>) : null;
+  const list = Array.isArray(record?.['suborganizations']) ? (record!['suborganizations'] as unknown[]) : [];
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+  const out: CorporateTreeApolloSubsidiary[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue;
+    const sub = entry as Record<string, unknown>;
+    const name = text(sub['name']);
+    if (!name) continue;
+    const website = text(sub['website_url']);
+    const domain = text(sub['primary_domain']) ?? text(sub['domain']) ?? (website ? normalizeDomain(website) : null);
+    const country = text(sub['country']) ?? text(sub['organization_country']) ?? text(sub['hq_country']);
+    const countryCode =
+      (country && Object.entries(APOLLO_COUNTRY_LOCATION_BY_CODE).find(([, en]) => en.toLowerCase() === country.toLowerCase())?.[0]) ??
+      (country && country.length === 2 ? country.toUpperCase() : null);
+    out.push({ name, domain, website, linkedinUrl: text(sub['linkedin_url']), countryCode });
+  }
+  return out;
 }
 
-/** Resultados por búsqueda por nombre en Apollo: la empresa suele salir primero. */
-const CORPORATE_TREE_APOLLO_PER_PAGE = 5;
 /**
  * Tiempo de CADA rama de Claude (van en paralelo), contando la segunda llamada que
  * fuerza la entrega. Deja el resto de los 300 s a lo gratis, la escritura y el rescate.
@@ -370,67 +351,45 @@ export function buildLiveCorporateTreeDeps(params: {
       return fillMissingOfficialTaxIds(companies, lookUp);
     },
 
-    findInApollo: isAgent1CorporateTreeApolloEnabled()
-      ? async (query, ctx) => {
+    findApolloFamily: isAgent1CorporateTreeApolloEnabled()
+      ? async ({ rootDomain, rootName }, ctx) => {
           apolloQuota ??= checkProviderQuotaAvailable('apollo').catch(() => ({ allowed: false }));
           if (!(await apolloQuota).allowed) return null;
-          // Apollo entiende los países en inglés («United States», no «Estados Unidos») y el
-          // nombre sin forma societaria («Citigroup Chile», no «CITIGROUP CHILE SPA»): Prod 15-10,
-          // Citigroup, 5 búsquedas vacías.
-          const spanishName = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? null;
-          const country = resolveApolloCountryLocation(query.countryCode, spanishName) ?? query.countryCode;
-          const queryName = corporateTreeApolloQueryName(query.name);
           const unitCostUsd = await apolloCreditUnitCost();
-          // Una página: pide, cuenta el crédito (1 si trajo algo; vacía no cobra) y lo registra con el lote.
-          const searchPage = async (location: string | null) => {
-            const startedAt = Date.now();
-            const result = await searchApolloOrganizationsPage({
-              q_organization_name: queryName,
-              ...(location ? { organization_locations: [location] } : {}),
-              per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
-              page: 1,
-            });
-            const page = readCorporateTreeApolloPage(result.ok ? result.payload : null);
-            const credits = page.rawCount > 0 ? 1 : 0;
-            await logProviderUsage({
-              batch_id: ctx.batchId,
-              usage_key: `corporate_tree_apollo:${params.clientRequestId}:${normalizeTreeName(query.name)}:${query.countryCode}:${location ? 'loc' : 'any'}`,
-              provider_key: 'apollo',
-              operation_key: 'mixed_companies_search',
-              credits_used: credits,
-              results_returned: page.organizations.length,
-              estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
-              status: result.ok ? 'success' : 'error',
-              error_message: result.ok ? undefined : result.errorBody ?? `http_${result.status ?? 'none'}`,
-              duration_ms: Date.now() - startedAt,
-              triggered_by: params.internalUserId,
-              metadata: {
-                flow: CORPORATE_TREE_USAGE_FLOW,
-                search_mode: 'corporate_tree',
-                country_code: query.countryCode,
-                non_empty_pages_charged: credits,
-                // Qué devolvió Apollo (sólo nombres, dominios y país, sin PII): para saber por qué no se aceptó.
-                apollo_returned: page.organizations.slice(0, CORPORATE_TREE_APOLLO_PER_PAGE).map((o) => ({
-                  name: o.name,
-                  domain: o.primary_domain ?? null,
-                  country: o.country ?? null,
-                })),
-                query_name: queryName,
-                location,
-                pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
-                [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
-              },
-            }).catch(() => undefined);
-            return result.ok ? page : null;
-          };
-          const pick = (organizations: CorporateTreeApolloOrganization[], countryNames: string[] | null) =>
-            pickApolloOrganization(organizations, { ...query, countryNames }, (website) => normalizeDomain(website));
-          // Primero en su país; si viene vacío, una vez sin país, aceptando sólo lo que diga SU país
-          // (Prod 15-10, Bimbo: «bimbo colombia» en Colombia volvió vacío).
-          const inCountry = await searchPage(country);
-          if (inCountry && inCountry.rawCount > 0) return pick(inCountry.organizations, null);
-          const anywhere = await searchPage(null);
-          return anywhere ? pick(anywhere.organizations, [country, spanishName ?? '', query.countryCode].filter(Boolean)) : null;
+          const startedAt = Date.now();
+          const result = await enrichApolloOrganization({ domain: rootDomain, name: rootName });
+          const organization = result.success ? result.data ?? null : null;
+          const subsidiaries = readApolloSubsidiaries(organization);
+          const rawSubs = (organization as Record<string, unknown> | null)?.['suborganizations'];
+          // 1 crédito por empresa encontrada; sin coincidencia, 0 (Apollo Support 01-10 y 15-10).
+          const credits = organization ? 1 : 0;
+          await logProviderUsage({
+            batch_id: ctx.batchId,
+            usage_key: `corporate_tree_apollo_family:${params.clientRequestId}`,
+            provider_key: 'apollo',
+            operation_key: 'organization_enrichment',
+            credits_used: credits,
+            results_returned: subsidiaries.length,
+            estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
+            status: result.success ? 'success' : 'error',
+            error_message: result.success ? undefined : result.error?.message,
+            duration_ms: Date.now() - startedAt,
+            triggered_by: params.internalUserId,
+            metadata: {
+              flow: CORPORATE_TREE_USAGE_FLOW,
+              search_mode: 'corporate_tree',
+              root_domain: rootDomain,
+              // Lo que trae cada filial (no está documentado): para ajustar el paso con datos reales.
+              suborganization_count: Array.isArray(rawSubs) ? rawSubs.length : 0,
+              suborganization_fields:
+                Array.isArray(rawSubs) && rawSubs[0] && typeof rawSubs[0] === 'object' ? Object.keys(rawSubs[0] as object).slice(0, 40) : [],
+              suborganizations_sample: subsidiaries.slice(0, 15),
+              ultimate_parent: (organization as Record<string, unknown> | null)?.['ultimate_parent_organization'] ?? null,
+              pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
+              [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organization_enrichment'),
+            },
+          }).catch(() => undefined);
+          return organization ? subsidiaries : null;
         }
       : undefined,
 
