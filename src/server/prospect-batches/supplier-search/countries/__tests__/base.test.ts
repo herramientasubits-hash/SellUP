@@ -179,7 +179,7 @@ describe('4. registro de países', () => {
       assert.ok(publicBuyerCountryLookups(country.countryCode, client), `${country.countryCode} sin consultas`);
     }
     assert.equal(publicBuyerCountry('cl')?.countryCode, 'CL');
-    assert.equal(publicBuyerCountry('MX'), null);
+    assert.equal(publicBuyerCountry('BO'), null);
   });
 
   it('cada fuente tiene source_key propio', () => {
