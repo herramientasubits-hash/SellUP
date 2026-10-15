@@ -267,13 +267,13 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
           {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
               sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más). */}
           <Tabs defaultValue="resumen">
-                  <TabsList variant="segmented" className="mb-2">
+                  <TabsList variant="segmented" className="mb-2 max-w-full overflow-x-auto">
                     <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
                     <TabsTrigger value="contactos"><Users className="h-4 w-4" /> Contactos</TabsTrigger>
                     <TabsTrigger value="inteligencia"><Brain className="h-4 w-4" /> Inteligencia</TabsTrigger>
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                     <TabsTrigger value="agentes"><Bot className="h-4 w-4" /> Agentes</TabsTrigger>
-                    <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Asociaciones</TabsTrigger>
+                    <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
                   </TabsList>
 
                   {/* Resumen */}
