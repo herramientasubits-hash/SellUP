@@ -94,7 +94,7 @@ describe('1. segunda ronda', () => {
       [0, 1],
     );
     assert.equal(f.calls[0].phaseMs, SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS);
-    assert.equal(result.ok && result.candidateCount, 8);
+    assert.equal(result.ok && result.candidateCount, 4);
     assert.equal(result.ok && result.status, 'success_partial');
     const legMeta = f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY] as { rounds: unknown[]; estimatedCostUsd: number };
     assert.equal(legMeta.rounds.length, 2);
@@ -155,6 +155,8 @@ describe('2. resultado honesto', () => {
     assert.equal(result.status, 'no_new_candidates');
     assert.equal(result.noNewCandidatesBreakdown?.hubspotDuplicateCount, 4);
     assert.equal(result.noNewCandidatesBreakdown?.sellupDuplicateCount, 1);
+    // Las duplicadas no son «candidatos creados» (Prod 14-10, Avianca: 7 contadas dos veces).
+    assert.equal(result.candidateCount, 0);
   });
 });
 

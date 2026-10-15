@@ -397,7 +397,10 @@ export async function executeSupplierSearchRun(
     ...(batchOutcome && reviewable === 0 ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) } : {}),
     batchId,
     batchStatus: persisted > 0 ? 'ready_for_review' : 'nothing_to_write',
-    candidateCount: persisted,
+    // AGENT1-SUPPLIER-SEARCH-5 — las que llegan a Por revisar, como «Competidores»: con
+    // las duplicadas dentro, el desglose decía «Candidatos creados 7» + «Ya existían en
+    // HubSpot 7» y las contaba dos veces (Prod 14-10, Avianca). Sin lectura, las filas.
+    candidateCount: reviewable ?? persisted,
     redirectPath: `/prospect-batches/${batchId}`,
     targetPersistibleCandidates: SUPPLIER_SEARCH_TARGET_PERSISTIBLE_CANDIDATES,
     targetReached: acceptedForTarget.targetReached,
