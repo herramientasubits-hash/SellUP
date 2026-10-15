@@ -53,6 +53,9 @@ function lastDay(year: number, month: number): string {
 
 async function download(url: string, file: string): Promise<void> {
   if (existsSync(file) && statSync(file).size > 1_000) return;
+  // Fuentes que no se pueden bajar desde un script (México: el portal firma cada descarga):
+  // la persona deja el archivo en la carpeta y el cargador sólo lo lee.
+  if (url.startsWith('manual:')) throw new Error(`descarga_manual: falta ${file} — bájalo a mano desde ${url.slice('manual:'.length)}`);
   const response = await fetch(url, { headers: { 'User-Agent': 'SellUp/0.1 public-procurement-load' } });
   if (!response.ok || !response.body) throw new Error(`download_failed:${url}:${response.status}`);
   await pipeline(Readable.fromWeb(response.body as never), createWriteStream(file));

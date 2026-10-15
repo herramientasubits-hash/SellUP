@@ -15,6 +15,7 @@ import { EC_CATALOG_SOURCE } from './ec.catalog';
 import { ES_PLACSP_AWARDS_CATALOG_SOURCE } from './es.catalog';
 import { GT_CATALOG_SOURCE } from './gt.catalog';
 import { HN_CATALOG_SOURCE } from './hn.catalog';
+import { MX_COMPRASMX_CATALOG_SOURCE } from './mx.catalog';
 import { PA_PROCUREMENT_CATALOG_SOURCE } from './pa.catalog';
 import { PE_CATALOG_SOURCE } from './pe.catalog';
 import { PY_CATALOG_SOURCE } from './py.catalog';
@@ -35,4 +36,5 @@ export const PUBLIC_PROCUREMENT_CATALOG_SOURCES: readonly CatalogSource[] = [
   ES_PLACSP_AWARDS_CATALOG_SOURCE,
   EC_CATALOG_SOURCE,
   CR_CATALOG_SOURCE,
+  MX_COMPRASMX_CATALOG_SOURCE,
 ];

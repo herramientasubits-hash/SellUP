@@ -13,6 +13,7 @@ import { EC_COUNTRY } from './ec';
 import { ES_COUNTRY } from './es';
 import { GT_COUNTRY } from './gt';
 import { HN_COUNTRY } from './hn';
+import { MX_COUNTRY } from './mx';
 import { PA_COUNTRY } from './pa';
 import { PE_COUNTRY } from './pe';
 import { PY_COUNTRY } from './py';
@@ -36,6 +37,7 @@ export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   ES_COUNTRY,
   EC_COUNTRY,
   CR_COUNTRY,
+  MX_COUNTRY,
 ];
 
 export function publicBuyerCountry(countryCode: string): PublicBuyerCountrySource | null {

@@ -10,6 +10,7 @@ import { EC_LOADER } from './ec.loader';
 import { ES_LOADER } from './es.loader';
 import { GT_LOADER } from './gt.loader';
 import { HN_LOADER } from './hn.loader';
+import { MX_LOADER } from './mx.loader';
 import { PA_LOADER } from './pa.loader';
 import { PE_LOADER } from './pe.loader';
 import { PY_LOADER } from './py.loader';
@@ -28,4 +29,5 @@ export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSourc
   ES: ES_LOADER,
   EC: EC_LOADER,
   CR: CR_LOADER,
+  MX: MX_LOADER,
 };
