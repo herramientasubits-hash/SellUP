@@ -5,11 +5,13 @@
 
 import { CL_COUNTRY } from './cl';
 import { CO_COUNTRY } from './co';
+import { AR_COUNTRY } from './ar';
 import type { PublicBuyerCountrySource } from './types';
 
 export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   CO_COUNTRY,
   CL_COUNTRY,
+  AR_COUNTRY,
 ];
 
 export function publicBuyerCountry(countryCode: string): PublicBuyerCountrySource | null {
