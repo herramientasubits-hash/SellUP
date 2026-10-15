@@ -145,6 +145,12 @@ const LEGAL_SUFFIX = new RegExp(
       'ltd',
       'plc',
       'gmbh',
+      // Prod 15-10 (Citigroup): «AG» alemana, «N.A.» de los bancos de EE. UU. y las españolas.
+      'ag',
+      'n ?a',
+      's ?a ?u',
+      's ?l ?u',
+      's ?l',
     ].join('|') +
     '))+$',
 );

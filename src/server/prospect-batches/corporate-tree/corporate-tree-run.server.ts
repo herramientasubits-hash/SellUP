@@ -90,7 +90,10 @@ export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_P
 
 /** El nombre para buscar en Apollo: sin forma societaria («CITIGROUP CHILE SPA» ⇒ «citigroup chile»). */
 export function corporateTreeApolloQueryName(name: string): string {
-  return normalizeTreeName(name) || name.trim();
+  // «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «citigroup global markets europe»:
+  // la sucursal de una extranjera está en Apollo con el nombre de su casa matriz.
+  const withoutBranch = name.replace(/[,(]?\s*\b(sucursal|branch|agencia)\b[\s\S]*$/i, '').trim();
+  return normalizeTreeName(withoutBranch) || normalizeTreeName(name) || name.trim();
 }
 
 /**
@@ -400,6 +403,13 @@ export function buildLiveCorporateTreeDeps(params: {
               search_mode: 'corporate_tree',
               country_code: query.countryCode,
               non_empty_pages_charged: credits,
+              // Qué devolvió Apollo (sólo nombres y dominios, sin PII): para saber por qué no se aceptó.
+              apollo_returned: organizations.slice(0, CORPORATE_TREE_APOLLO_PER_PAGE).map((o) => ({
+                name: o.name,
+                domain: o.primary_domain ?? null,
+              })),
+              query_name: corporateTreeApolloQueryName(query.name),
+              location: country,
               pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
               [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
             },

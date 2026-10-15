@@ -52,7 +52,12 @@ import {
   type CorporateTreeRunDeps,
 } from '../corporate-tree-run';
 import { buildCorporateTreeUsageLog, corporateTreeApolloQueryName, readCorporateTreeApolloPage } from '../corporate-tree-run.server';
-import { corporateTreePendingSummary, groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  corporateTreePendingSummary,
+  groupBatchCandidatesByTreeRelation,
+  ownDomainsWithoutCandidate,
+  readCorporateTreeBatchSummary,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   buildCorporateTreeViews,
   describeCorporateTreeItemStatus,
@@ -1146,5 +1151,62 @@ describe('O. Citigroup 3.ª corrida (Prod 15-10): la respuesta de Apollo se lee 
     const source = readFileSync('src/server/prospect-batches/corporate-tree/corporate-tree-run.server.ts', 'utf8');
     assert.match(source, /searchApolloOrganizationsPage\(/);
     assert.doesNotMatch(source, /searchApolloOrganizations\(/);
+  });
+});
+
+describe('P. Citigroup 4.ª corrida (Prod 15-10): Apollo acepta lo que es y el lote no confunde «ya en SellUp» con «web del grupo»', () => {
+  const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+  const org = (name: string, domain: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null });
+
+  it('Apollo: el nombre devuelto puede estar DENTRO del buscado (palabra propia de 5+ letras)', () => {
+    assert.equal(pickApolloOrganization([org('Banamex', 'banamex.com')], { name: 'Grupo Financiero Banamex, S.A. de C.V.', rootDomain: 'citigroup.com' }, toDomain)?.domain, 'banamex.com');
+    assert.equal(pickApolloOrganization([org('Banco', 'banco.com')], { name: 'Banco de Chile', rootDomain: null }, toDomain), null, 'una palabra genérica no basta');
+    assert.equal(pickApolloOrganization([org('Citi', 'citi.com')], { name: 'Citigroup Chile', rootDomain: null }, toDomain), null, 'por palabras completas');
+  });
+
+  it('la búsqueda en Apollo va sin sucursal ni formas societarias (AG, N.A., SAU)', () => {
+    assert.equal(corporateTreeApolloQueryName('Citigroup Global Markets Europe AG, Sucursal en España'), 'citigroup global markets europe');
+    assert.equal(corporateTreeApolloQueryName('Citibank N.A. - Sucursal Argentina'), 'citibank');
+    assert.equal(corporateTreeApolloQueryName('GENERAL ELECTRIC HEALTHCARE ESPAÑA SAU'), 'general electric healthcare espana');
+  });
+
+  it('Apollo no le asigna a una sucursal la web que ya usa otra empresa del árbol', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Noel', 'CO', { website: 'https://noel.com.co', domain: 'noel.com.co' })])
+          : outcomeFor('other_country', [NODE('Noel Chile', 'CL', { branch: 'other_country' })]),
+      findInApollo: async () => ({ website: 'https://noel.com.co', domain: 'noel.com.co', linkedinUrl: null }),
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(!calls.web.some((c) => c.names.includes('Noel Chile')), 'noel.com.co ya es de Noel');
+    assert.ok(calls.withoutWebsite.find((c) => c.country === 'CL')?.names.includes('Noel Chile'), 'sigue esperando su web');
+  });
+
+  it('el lote: web propia ya en SellUp ≠ web del grupo ≠ no entró', () => {
+    const base = { related_candidate_id: null, relation_detail: null, evidence_url: null, root_domain: 'citigroup.com' };
+    const rels = [
+      { ...base, related_name: 'CITIGROUP INC', related_country_code: 'US', relation_type: 'root', related_domain: 'citigroup.com', own_website: true, known_in_sellup: true },
+      { ...base, related_name: 'Citibank Colombia S.A.', related_country_code: 'CO', relation_type: 'group', related_domain: 'citibank.com.co', own_website: true, known_in_sellup: false },
+      { ...base, related_name: 'Citi Europe Plc', related_country_code: 'ES', relation_type: 'other_country', related_domain: 'citigroup.com' },
+    ];
+    const items = groupBatchCandidatesByTreeRelation([], rels).flatMap((g) => g.items);
+    const byName = new Map(items.map((i) => [i.name, i]));
+    assert.equal(byName.get('CITIGROUP INC')?.statusLabel, 'Ya en SellUp (otra búsqueda o cuenta)');
+    assert.equal(byName.get('CITIGROUP INC')?.groupWebsite, null);
+    assert.equal(byName.get('Citibank Colombia S.A.')?.statusLabel, 'No entró: ya existía o no pasó las revisiones');
+    assert.equal(byName.get('Citi Europe Plc')?.statusLabel, 'Referencia: usa la web del grupo');
+  });
+
+  it('qué filas tienen web propia: la partida siempre; las demás si su web no es la del grupo ni compartida', () => {
+    const base = { related_candidate_id: null, relation_detail: null, evidence_url: null, root_domain: 'citigroup.com' };
+    const rels = [
+      { ...base, related_name: 'CITIGROUP INC', related_country_code: 'US', relation_type: 'root', related_domain: 'citigroup.com' },
+      { ...base, related_name: 'Citibank Colombia', related_country_code: 'CO', relation_type: 'group', related_domain: 'citibank.com.co' },
+      { ...base, related_name: 'Citibank N.A.', related_country_code: 'US', relation_type: 'subsidiary', related_domain: 'citibank.com' },
+      { ...base, related_name: 'Citibank Argentina', related_country_code: 'AR', relation_type: 'other_country', related_domain: 'citibank.com' },
+      { ...base, related_name: 'Citi Europe', related_country_code: 'ES', relation_type: 'other_country', related_domain: 'citigroup.com' },
+    ];
+    assert.deepEqual(ownDomainsWithoutCandidate(rels).sort(), ['citibank.com.co', 'citigroup.com']);
   });
 });
