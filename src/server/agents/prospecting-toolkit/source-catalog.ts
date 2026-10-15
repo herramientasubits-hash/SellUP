@@ -416,6 +416,35 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'co_secop2_buyer_suppliers',
+    name: 'SECOP II — proveedores de una entidad pública («Proveedores de una empresa»)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_signal',
+    nextAction:
+      'Conectada en el código (AGENT1-SUPPLIER-SEARCH-PUBLIC-1) sólo para «Proveedores de una empresa» en Colombia: cuando la referencia es una entidad pública, consulta en vivo los contratos firmados de SECOP II (datos.gov.co, dataset jbjy-vk9h) antes de pagar a Claude. Falta verla en una corrida real de Producción.',
+    countryCodes: ['CO'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'pending_validation',
+    type: 'procurement',
+    url: 'https://www.datos.gov.co/Gastos-Gubernamentales/SECOP-II-Contratos-Electr-nicos/jbjy-vk9h',
+    automationLevel: 'high',
+    recommendedUse:
+      'Sólo para «Proveedores de una empresa»: si la referencia coincide de forma única con una entidad pública cargada (co_public_entities), se leen sus proveedores con NIT de los últimos dos años y del año en curso, filtrados por la industria pedida según el código UNSPSC de lo que más le venden a ESA entidad (tabla UNSPSC → macro aprobada por la dueña para Paraguay, regla del 50 %). Fuera las otras entidades públicas (salvo las mixtas que también están en el SIIS). Con web (SIIS o entidades) van al lote; sin web, a Descartadas para que el rescate de Claude busque su sitio. Cada candidato lleva «Proveedor de X» con la página del proceso en SECOP como prueba.',
+    limitations: [
+      'Sólo entidades públicas colombianas: una empresa privada de referencia sigue sólo con Claude.',
+      'La referencia tiene que coincidir con un único nombre del registro de entidades (exacto o por el comienzo, prefiriendo la cabeza de la entidad).',
+      'Industrias sin códigos UNSPSC en la tabla (Gobierno, Educación) no consultan SECOP.',
+      'La industria del proveedor es la de lo que le vende a esa entidad, no la de toda su actividad.',
+      'Chile (ChileCompra) queda para cuando haya ticket de la API de Mercado Público.',
+    ],
+    riskNotes: [
+      'Nunca se piden ni se guardan cuentas bancarias, banco ni representante legal de SECOP: la consulta nombra sólo NIT, nombre, monto, fecha, código UNSPSC y página del proceso.',
+      'Sin llave: usa el cupo anónimo de datos.gov.co (SOCRATA_APP_TOKEN opcional).',
+    ],
+  },
+  {
     key: 'co_minsalud_reps',
     name: 'MinSalud REPS',
     sellupUse: 'enrichment',
