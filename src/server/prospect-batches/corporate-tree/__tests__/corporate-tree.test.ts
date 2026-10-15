@@ -1452,3 +1452,36 @@ describe('AB. Se dice por qué el escritor no escribió cada empresa (Prod 15-10
     assert.equal(groups[0].items[0].statusLabel, 'No entró: su país no coincide');
   });
 });
+
+describe('AC. Walmart y Chevron (Prod 15-10): el motivo encuentra su empresa y Apollo pasa el tamaño', () => {
+  it('el escritor no devuelve la web: el motivo la toma de la fila del árbol', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Purina', 'CL', { website: 'https://purina.cl', domain: 'purina.cl' })])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({ written: 0, errors: [], skipped: [{ name: 'Purina', reason: 'company_ownership:reject' }] }),
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    const tree = calls.sealed[0].metadata.corporate_tree as { not_written: Array<{ domain: string | null }> };
+    assert.equal(tree.not_written[0].domain, 'purina.cl');
+  });
+
+  it('las filiales de Apollo llevan sus empleados al escritor', () => {
+    const root: CorporateTreeRoot = { name: 'Walmart', website: 'https://walmart.com', domain: 'walmart.com', countryCode: 'US', candidateId: null, accountId: null };
+    const applied = applyApolloFamily({
+      plan: planCorporateTreeWrites({ root, freeHits: [], nodes: [] }),
+      root,
+      countryCodes: ['US'],
+      subsidiaries: [{ name: "Sam's Club", domain: 'samsclub.com', website: 'https://samsclub.com', linkedinUrl: null, countryCode: 'US', employeeCount: 100000 }],
+    });
+    const item = [...applied.plan.web.values()].flat().find((i) => i.node?.name === "Sam's Club");
+    assert.equal(item.node?.employeeCount, 100000);
+  });
+
+  it('el motivo «company_ownership:reject» se dice en palabras', () => {
+    assert.equal(corporateTreeNotWrittenLabel('company_ownership:reject'), 'No entró: la web no parece ser de esa empresa');
+    assert.equal(corporateTreeNotWrittenLabel('icp_size_below_threshold'), 'No entró: por su tamaño');
+    assert.equal(corporateTreeNotWrittenLabel('qualityLabel=discard'), 'No entró: no pasó la revisión de calidad');
+  });
+});

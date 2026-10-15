@@ -79,6 +79,8 @@ export type CorporateTreeNode = {
    * de su país. Entra a «Por revisar» marcada para que una persona la mire.
    */
   websiteUnverified?: boolean;
+  /** Empleados según Apollo (filiales de Apollo): el tamaño real para el filtro de tamaño. */
+  employeeCount?: number | null;
 };
 
 /** Una web propuesta por Claude que no se aceptó, y por qué. */

@@ -245,7 +245,12 @@ async function buildWebCandidates(country: TreeCountry, items: readonly Corporat
         },
       );
       // El nombre es el que Claude leyó en la fuente, no uno inferido del título.
-      return nameQualityFiltered ? null : { ...candidate, name: item.node.name };
+      if (nameQualityFiltered) return null;
+      // El tamaño que da Apollo: sin él, el filtro de tamaño estimaba desde el texto
+      // (Prod 15-10: «Sam's Club» salió «por tamaño»).
+      return item.node.employeeCount
+        ? { ...candidate, name: item.node.name, employee_count: item.node.employeeCount }
+        : { ...candidate, name: item.node.name };
     }),
   );
   return built.filter((c): c is ProspectingPipelineCandidate => c !== null);

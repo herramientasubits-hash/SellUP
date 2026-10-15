@@ -147,6 +147,7 @@ findings AS (
     SELECT e ->> 'reason' AS reason
     FROM jsonb_array_elements(coalesce(b.t -> 'not_written', '[]')) e
     WHERE lower(e ->> 'domain') = lower(r.related_domain)
+       OR (lower(e ->> 'name') = lower(r.related_name) AND e ->> 'countryCode' = r.related_country_code)
     LIMIT 1
   ) nw ON true
   WHERE r.related_candidate_id IS NULL AND r.related_domain IS NOT NULL AND r.relation_type <> 'root'

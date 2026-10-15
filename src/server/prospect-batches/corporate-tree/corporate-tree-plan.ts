@@ -743,6 +743,7 @@ export function applyApolloFamily(params: {
       linkedinUrl: sub.linkedinUrl,
       relationDetail: `Filial de ${root.name} según Apollo`,
       evidenceUrl: website,
+      ...(sub.employeeCount ? { employeeCount: sub.employeeCount } : {}),
     };
     push(web, countryCode, { key, node, bankCandidate: null });
     newRows.push({

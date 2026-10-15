@@ -422,8 +422,13 @@ async function writePlan(
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
     // Por qué el escritor no escribió cada una (Prod 15-10: Purina, HSBC Bank USA… sin motivo).
+    // El escritor casi nunca devuelve la web (Prod 15-10: todas sin web): sale de la fila.
+    const domainByName = new Map(
+      items.map((item) => [(item.node?.name ?? item.bankCandidate?.name ?? '').trim().toLowerCase(), item.node?.domain ?? item.bankCandidate?.domain ?? null]),
+    );
     for (const skip of 'skipped' in result ? (result.skipped ?? []) : []) {
-      notWritten.push({ name: skip.name, countryCode: code, domain: skip.domain ?? null, reason: skip.reason.slice(0, 120) });
+      const domain = skip.domain ?? domainByName.get(skip.name.trim().toLowerCase()) ?? null;
+      notWritten.push({ name: skip.name, countryCode: code, domain, reason: skip.reason.slice(0, 120) });
     }
   }
   for (const [code, items] of plan.possibleDuplicates) {
