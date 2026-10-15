@@ -143,9 +143,9 @@ describe('2. lector', () => {
   });
 });
 
-describe('3. tabla de partidas (BORRADOR)', () => {
-  it('sigue en borrador y sólo usa macros del catálogo', () => {
-    assert.equal(MX_PARTIDA_MACRO_TABLE_APPROVED, false);
+describe('3. tabla de partidas (aprobada 15-10)', () => {
+  it('está aprobada y sólo usa macros del catálogo', () => {
+    assert.equal(MX_PARTIDA_MACRO_TABLE_APPROVED, true);
     const keys = new Set<string>(MACRO_INDUSTRY_KEYS);
     for (const [family, [macro, label]] of Object.entries(MX_PARTIDA_MACRO)) {
       if (macro !== null) assert.ok(keys.has(macro), `${family} ${macro}`);

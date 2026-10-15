@@ -3,9 +3,8 @@
  * Estado según LO QUE LE VENDE: la «Partida específica» del Clasificador por Objeto del
  * Gasto (COG) de sus contratos en Compras MX (datos abiertos, contratos 2025 y 2026).
  *
- * 🟡 BORRADOR — pendiente de aprobación de la dueña (AGENT1-SUPPLIER-SEARCH-MX-1, 15-10-2026).
- * No se carga nada de México en Producción con esta tabla hasta que la apruebe; cambiarla
- * después es una decisión de producto.
+ * ✅ APROBADA por la dueña el 15-10-2026 (AGENT1-SUPPLIER-SEARCH-MX-1).
+ * Cambiarla es una decisión de producto.
  *
  * Por qué partidas: el CSV de Compras MX no trae UNSPSC ni CUCOP por ítem; sólo la partida
  * del gasto (5 dígitos, a veces varias por contrato). La familia es la PARTIDA GENÉRICA
@@ -31,10 +30,10 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 import type { ProcurementClassifier } from '../procurement-links';
 
-export const MX_PARTIDA_MACRO_TABLE_VERSION = 'mx-cog-partida-macro-v0-draft' as const;
+export const MX_PARTIDA_MACRO_TABLE_VERSION = 'mx-cog-partida-macro-v1' as const;
 
-/** Sólo cuando la dueña la apruebe pasa a `true` (y la versión deja de ser «draft»). */
-export const MX_PARTIDA_MACRO_TABLE_APPROVED = false;
+/** Aprobada por la dueña el 15-10-2026. */
+export const MX_PARTIDA_MACRO_TABLE_APPROVED = true;
 
 export const MX_PARTIDA_DOMINANT_MIN_SHARE = 0.5;
 

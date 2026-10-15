@@ -3,7 +3,7 @@
  * Anticorrupción y Buen Gobierno, archivos anuales 2025 y 2026), cargados en
  * `public_procurement_supplier_links` con el cargador genérico (`--country MX`).
  * Comprador = institución (clave de Compras MX, p. ej. «050GYR» = IMSS). Industria por la
- * partida del gasto (tabla BORRADOR `mx-partida-macro-table.ts`). Sin web ni trabajadores
+ * partida del gasto (tabla aprobada 15-10 `mx-partida-macro-table.ts`). Sin web ni trabajadores
  * por RFC en SellUp: los proveedores van al rescate.
  *
  * Puro: sin env, sin I/O, sin DB, sin reloj.

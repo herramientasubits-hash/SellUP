@@ -22,5 +22,5 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'ES', // PLACSP, adjudicaciones ATOM/CODICE mensuales cargadas (tabla CPV aprobada)
   'CR', // SICOP datos abiertos (mensual), cargado; proveedor por nombre → cédula, industria por CIIU
   'EC', // SERCOP datos abiertos OCDS (anual), cargado; industria por CIIU del proveedor
-  'MX', // Compras MX, contratos anuales (descarga a mano) cargados; tabla de partidas BORRADOR
+  'MX', // Compras MX, contratos anuales (descarga a mano) cargados; tabla de partidas aprobada
 ];

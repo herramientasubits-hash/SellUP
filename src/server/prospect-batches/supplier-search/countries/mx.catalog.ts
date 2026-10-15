@@ -13,7 +13,7 @@ export const MX_COMPRASMX_CATALOG_SOURCE: CatalogSource = {
   aiFlowStatus: 'connected_free_discovery',
   connectionMode: 'read_only_snapshot',
   nextAction:
-    'Conectada en el código (AGENT1-SUPPLIER-SEARCH-MX-1) sólo para «Proveedores de una empresa» en México. Falta: (1) que la dueña apruebe la tabla partida del gasto → industria (BORRADOR, mx-partida-macro-table.ts) y (2) la carga del resumen (scripts/source-catalog/run-public-procurement-load.ts --country MX --end 2026-9 --months 12 --apply) con los CSV bajados a mano. Sin carga, el paso no reconoce ninguna entidad y sigue sólo Claude.',
+    'Conectada en el código (AGENT1-SUPPLIER-SEARCH-MX-1) sólo para «Proveedores de una empresa» en México. Tabla partida del gasto → industria aprobada por la dueña el 15-10-2026 (mx-partida-macro-table.ts). Falta la carga del resumen (scripts/source-catalog/run-public-procurement-load.ts --country MX --end 2026-9 --months 12 --apply) con los CSV bajados a mano. Sin carga, el paso no reconoce ninguna entidad y sigue sólo Claude.',
   countryCodes: ['MX'],
   sectors: [],
   priority: 'P2',
