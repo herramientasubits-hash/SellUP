@@ -1485,3 +1485,45 @@ describe('AC. Walmart y Chevron (Prod 15-10): el motivo encuentra su empresa y A
     assert.equal(corporateTreeNotWrittenLabel('qualityLabel=discard'), 'No entró: no pasó la revisión de calidad');
   });
 });
+
+describe('AD. Walmart de México (Prod 15-10): la que el control de propiedad rechaza queda en «Descartadas» para revisarla', () => {
+  it('sólo las rechazadas por propiedad y con web van a «Descartadas»; las demás no', async () => {
+    const recorded: Array<{ country: string; names: string[] }> = [];
+    const { deps } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [
+              NODE('Walmart de México y Centroamérica', 'CL', { website: 'https://walmex.mx', domain: 'walmex.mx' }),
+              NODE('Hayneedle', 'CL', { website: 'https://hayneedle.cl', domain: 'hayneedle.cl' }),
+            ])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({
+        written: 0,
+        errors: [],
+        skipped: [
+          { name: 'Walmart de México y Centroamérica', reason: 'company_ownership:reject' },
+          { name: 'Hayneedle', reason: 'qualityLabel=discard' },
+        ],
+      }),
+      recordOwnershipRejected: async (_batch, countryCode, items) => {
+        recorded.push({ country: countryCode, names: items.map((i) => i.name) });
+        return items.length;
+      },
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.deepEqual(recorded, [{ country: 'CL', names: ['Walmart de México y Centroamérica'] }]);
+  });
+
+  it('el lote la muestra como «revisa si la web es suya»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Walmart de México y Centroamérica', related_country_code: 'MX', related_domain: 'walmex.mx', relation_type: 'subsidiary', relation_detail: null, evidence_url: null, discard_reason_code: 'corporate_tree_ownership_rejected' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'En Descartadas: revisa si la web es suya');
+  });
+
+  it('esa razón no es de las que el rescate paga', () => {
+    const rescue = readFileSync('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-dispositions.ts', 'utf8');
+    assert.doesNotMatch(rescue, /corporate_tree_ownership_rejected/);
+  });
+});

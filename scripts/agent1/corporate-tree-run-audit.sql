@@ -105,7 +105,9 @@ findings AS (
   UNION ALL
   SELECT d.batch_id, 'error', 'paid_search_known_tax', d.name,
          format('Buscó su web (pagado) aunque «%s» ya tiene ese número fiscal (%s).', l.name, d.tax_id)
-  FROM disp d JOIN live l ON l.tax_identifier = d.tax_id AND l.batch_id <> d.batch_id
+  -- Sólo si la otra ya existía al registrar ésta (Prod 15-10: dos Chevron seguidas; la
+  -- segunda escribió después y no fue un gasto de más).
+  FROM disp d JOIN live l ON l.tax_identifier = d.tax_id AND l.batch_id <> d.batch_id AND l.created_at < d.created_at
   WHERE d.tax_id IS NOT NULL
     AND d.evidence -> 'claude_domain_search' ->> 'searched_at' IS NOT NULL
     AND coalesce(d.evidence -> 'claude_domain_search' ->> 'skipped', '') = ''

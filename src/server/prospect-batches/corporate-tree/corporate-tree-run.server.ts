@@ -62,7 +62,10 @@ import {
   type CorporateTreeApolloSubsidiary,
   type CorporateTreeWebItem,
 } from './corporate-tree-plan';
-import { CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  CORPORATE_TREE_OWNERSHIP_REJECTED_REASON,
+  CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
@@ -497,6 +500,29 @@ export function buildLiveCorporateTreeDeps(params: {
             : 'Posible duplicado en HubSpot (mismo país). No se buscó su web; rescátala si no es la misma empresa.',
         };
       });
+      const recorded = await persistDiscardedDispositionRows(rows);
+      return recorded.persisted;
+    },
+
+    recordOwnershipRejected: async (batchId, countryCode, items) => {
+      const rows = items
+        .filter((item) => !!item.domain)
+        .map((item) => ({
+          batchId,
+          providerIdentifier: `corporate_tree:${countryCode}:${item.domain}`,
+          sourceKey: `corporate_tree_ownership:${item.domain}`,
+          name: item.name,
+          domain: item.domain,
+          countryCode,
+          industry: null,
+          sourcePrimary: 'other',
+          roundOrigin: 'corporate_tree',
+          disposition: 'ownership_domain_rejected' as const,
+          reasonCode: CORPORATE_TREE_OWNERSHIP_REJECTED_REASON,
+          reasonDetail: 'El control de propiedad no confirmó que la web sea de esta empresa. Revísala y envíala a revisión si es suya.',
+          evidence: { writer_reason: item.reason, website: `https://${item.domain}` },
+        }));
+      if (rows.length === 0) return 0;
       const recorded = await persistDiscardedDispositionRows(rows);
       return recorded.persisted;
     },
