@@ -25,7 +25,7 @@ function getAdminClient() {
   return createAdminClient(url, key);
 }
 
-async function getHubSpotToken(): Promise<string | null> {
+export async function getHubSpotToken(): Promise<string | null> {
   try {
     const admin = getAdminClient();
     const { data, error } = await admin.rpc('get_vault_secret_decrypted', {

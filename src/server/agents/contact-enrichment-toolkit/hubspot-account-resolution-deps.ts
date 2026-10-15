@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { HubSpotAccountResolutionDeps } from '@/modules/contact-enrichment/hubspot-account-resolver';
 import { syncAccountFromHubSpotProfile } from '@/modules/accounts/hubspot-company-profile-sync.server';
 import { scheduleAccountOfficialEnrichment } from '@/modules/accounts/account-official-enrichment.server';
+import { scheduleAccountProfileCompletion } from '@/modules/accounts/account-profile-completion.server';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 export type HubSpotAccountCreatedFrom =
@@ -131,6 +132,7 @@ export function buildHubSpotAccountResolutionDeps(
         ownerIsProvisional: createdAccountIds.has(accountId),
       });
       scheduleAccountOfficialEnrichment(accountId, internalUserId);
+      scheduleAccountProfileCompletion(accountId, internalUserId);
     },
     updateAccountCountryCode: async (accountId, countryCode) => {
       await admin
