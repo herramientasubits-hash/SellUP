@@ -13,7 +13,10 @@ import {
   parseCsvCandidates,
   parseXlsxCandidates,
   buildImportPreview,
+  buildParseResultFromParsedRows,
   type ImportPreview,
+  type ParseResult,
+  type ParsedImportRow,
   type ImportMethod,
   type ImportDefaults,
   type ImportRow,
@@ -39,6 +42,7 @@ import {
   computeHasMappingConflict,
   enrichMappingsWithSamples,
   buildRevalidationBody,
+  describeImportDetection,
   getImportStepDescription,
   getStepperIndex,
   summarizeClassificationRows,
@@ -417,6 +421,15 @@ export function ImportCandidatesDrawer({
         effectiveMethod = 'csv';
       }
 
+      // IMPORT-FREE-FORMAT-1 — texto corrido: lo lee Claude en el servidor.
+      if (parseResult.detection === 'needs_ai' && parseResult.source_text) {
+        parseResult = await readImportTextWithAi(parseResult.source_text, defaults);
+      }
+      if (parseResult.rows.length === 0) {
+        toast.error('No encontramos empresas. Pega una tabla, una lista (una empresa por línea) o un texto que las mencione.');
+        return;
+      }
+
       setDetectedMethod(effectiveMethod);
       const built = buildImportPreview(parseResult);
       setPreview(built);
@@ -455,6 +468,30 @@ export function ImportCandidatesDrawer({
       toast.error(err instanceof Error ? err.message : 'Error al procesar los datos');
     } finally {
       setLoadingPreview(false);
+    }
+  }
+
+  /** Claude separa las empresas de un texto corrido; las filas pasan por la misma validación. */
+  async function readImportTextWithAi(text: string, rowDefaults: ImportDefaults): Promise<ParseResult> {
+    const toastId = toast.loading('Leyendo las empresas del texto con IA…');
+    try {
+      const res = await fetch('/api/prospect-batches/extract-import-companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success?: boolean; rows?: ParsedImportRow[]; inputTruncated?: boolean; message?: string }
+        | null;
+      if (!res.ok || !body?.success) {
+        throw new Error(body?.message ?? 'No se pudo leer el texto con IA.');
+      }
+      if (body.inputTruncated) {
+        toast.warning('El texto era muy largo: se leyó sólo la primera parte.');
+      }
+      return buildParseResultFromParsedRows(body.rows ?? [], rowDefaults, 'ai_extracted');
+    } finally {
+      toast.dismiss(toastId);
     }
   }
 
@@ -776,6 +813,9 @@ export function ImportCandidatesDrawer({
             void handleBuildClassification();
           }}
           classificationError={classificationError}
+          detectionNotice={
+            preview ? describeImportDetection(preview.detection, preview.column_guesses, preview.total) : null
+          }
           filterStatus={filterStatus}
           onFilterStatusChange={setFilterStatus}
           selectedIds={classificationSelectedIds}

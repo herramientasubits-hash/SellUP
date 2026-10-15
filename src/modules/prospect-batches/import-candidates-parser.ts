@@ -1,4 +1,14 @@
 import { resolveImportTaxIdentifier } from './import-tax-identifier';
+import {
+  parseCompanyList,
+  parseMatrixByContent,
+  type FreeFormParse,
+  type ImportColumnGuess,
+  type ImportDetectionMode,
+  type ImportFieldKey,
+} from './import-free-format';
+
+export type { ImportColumnGuess, ImportDetectionMode } from './import-free-format';
 
 // ── Tipos ─────────────────────────────────────────────────────
 
@@ -59,6 +69,9 @@ export interface ImportPreview {
   unrecognized_columns: string[];
   rows: ImportRow[];
   duplicateColumns: string[];
+  /** IMPORT-FREE-FORMAT-1 — cómo se leyó lo que entró. */
+  detection: ImportDetectionMode;
+  column_guesses: ImportColumnGuess[];
 }
 
 function normalizeHeader(raw: string): string {
@@ -358,18 +371,6 @@ function resolveCountryCode(countryValue: string): string | null {
   return COUNTRY_TO_CODE[normalized] ?? null;
 }
 
-function detectSeparator(line: string): string {
-  const tabCount = (line.match(/\t/g) ?? []).length;
-  const pipeCount = (line.match(/\|/g) ?? []).length;
-  const semicolonCount = (line.match(/;/g) ?? []).length;
-  const commaCount = (line.match(/,/g) ?? []).length;
-  
-  if (tabCount >= commaCount && tabCount >= semicolonCount && tabCount >= pipeCount) return '\t';
-  if (pipeCount > tabCount && pipeCount >= commaCount && pipeCount >= semicolonCount) return '|';
-  if (semicolonCount >= commaCount) return ';';
-  return ',';
-}
-
 function splitCsvLine(line: string, sep: string): string[] {
   let processedLine = line.trim();
   if (sep === '|' && processedLine.startsWith('|') && processedLine.endsWith('|')) {
@@ -549,82 +550,87 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
 
 // ── Parsing de texto (paste o CSV) ────────────────────────────
 
-interface ParseResult {
+export interface ParseResult {
   rows: ImportRow[];
   recognized_columns: string[];
   unrecognized_columns: string[];
   duplicate_columns: string[];
   truncated: boolean;
   truncatedAt: number;
+  /** IMPORT-FREE-FORMAT-1 — cómo se leyó lo que entró. */
+  detection: ImportDetectionMode;
+  /** Qué dato se reconoció en cada columna (vacío en el formato oficial). */
+  column_guesses: ImportColumnGuess[];
+  /** Con `needs_ai`: el texto que hay que mandar a leer con IA. */
+  source_text?: string;
 }
 
 const MAX_IMPORT_ROWS = 500;
 
-function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseResult | null {
+const EMPTY_PARSE: ParseResult = {
+  rows: [],
+  recognized_columns: [],
+  unrecognized_columns: [],
+  duplicate_columns: [],
+  truncated: false,
+  truncatedAt: 0,
+  detection: 'needs_ai',
+  column_guesses: [],
+};
+
+interface TabularBlock {
+  sep: string;
+  lineCount: number;
+  rowsOfCells: string[][];
+}
+
+/** Bloques contiguos de líneas con el mismo separador, ya partidos en celdas. */
+function findTabularBlocks(text: string): TabularBlock[] {
   const allLines = text.split(/\r?\n/);
-  const nonBlankLines = allLines.filter(line => line.trim().length > 0);
-  
-  if (nonBlankLines.length < 2) {
-    return null;
-  }
-  
-  const separators = ['\t', '|', ';', ','];
-  let bestBlock: { sep: string; headers: string[]; dataRows: string[][]; score: number } | null = null;
-  
-  for (const sep of separators) {
+  const found: TabularBlock[] = [];
+
+  for (const sep of ['\t', '|', ';', ',']) {
     // Find contiguous blocks of non-blank lines containing the separator
     const blocks: string[][] = [];
     let currentBlock: string[] = [];
-    
+
     for (const line of allLines) {
       const trimmed = line.trim();
-      if (!trimmed) {
-        if (currentBlock.length > 0) {
-          blocks.push(currentBlock);
-          currentBlock = [];
-        }
+      if (trimmed && line.split(sep).length - 1 >= 1) {
+        currentBlock.push(line);
         continue;
       }
-      
-      const sepCount = line.split(sep).length - 1;
-      if (sepCount >= 1) {
-        currentBlock.push(line);
-      } else {
-        if (currentBlock.length > 0) {
-          blocks.push(currentBlock);
-          currentBlock = [];
-        }
+      if (currentBlock.length > 0) {
+        blocks.push(currentBlock);
+        currentBlock = [];
       }
     }
     if (currentBlock.length > 0) {
       blocks.push(currentBlock);
     }
-    
-    // For each block, parse and score
+
     for (const blockLines of blocks) {
       if (blockLines.length < 2) continue;
-      
+
       // For '|', check if it's a valid Markdown table block
       if (sep === '|') {
         const hasSeparator = blockLines.some(line => {
-          const trimmed = line.trim();
-          const clean = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+          const clean = line.trim().replace(/^\|/, '').replace(/\|$/, '');
           const cells = clean.split('|').map(c => c.trim());
           return cells.length > 0 && cells.every(cell => /^[:\-\s]+$/.test(cell) && cell.length > 0);
         });
-        
+
         const allHavePipes = blockLines.every(line => {
           const trimmed = line.trim();
           const pipeCount = (trimmed.match(/\|/g) ?? []).length;
           return (trimmed.startsWith('|') || trimmed.endsWith('|') || pipeCount >= 2);
         });
-        
+
         if (!hasSeparator && !allHavePipes) {
           continue; // Not a valid Markdown table block
         }
       }
-      
-      // Parse rows of cells
+
       let rowsOfCells: string[][];
       if (sep === '|') {
         rowsOfCells = blockLines.map(line => {
@@ -636,96 +642,48 @@ function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseRes
       } else {
         rowsOfCells = blockLines.map(line => splitCsvLine(line, sep));
       }
-      
+
       if (rowsOfCells.length < 2) continue;
-      
-      const headers = rowsOfCells[0];
-      const dataRows = rowsOfCells.slice(1);
-      
-      // Calculate score based on recognized columns and line count
-      const { recognized } = normalizeImportColumns(headers);
-      const recognizedCount = recognized.length;
-      
-      if (recognizedCount > 0) {
-        const score = recognizedCount * 1000 + blockLines.length;
-        if (!bestBlock || score > bestBlock.score) {
-          bestBlock = {
-            sep,
-            headers,
-            dataRows,
-            score
-          };
-        }
-      }
+      found.push({ sep, lineCount: blockLines.length, rowsOfCells });
     }
   }
-  
-  if (bestBlock) {
-    const { headers, dataRows } = bestBlock;
-    const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
-
-    const truncated = dataRows.length > MAX_IMPORT_ROWS;
-    const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
-
-    const rows: ImportRow[] = [];
-    let rowIndex = 0;
-
-    for (const cells of limitedRows) {
-      if (isBlankRow(cells)) continue;
-
-      const rawObj: Record<string, string> = {};
-      for (let i = 0; i < fieldMap.length; i++) {
-        const { field } = fieldMap[i];
-        if (field && cells[i] !== undefined) {
-          rawObj[field] = cells[i]?.trim() ?? '';
-        }
-      }
-
-      const raw = rawObj as unknown as ParsedImportRow;
-      rows.push(validateRow(raw, rowIndex, defaults));
-      rowIndex++;
-    }
-
-    return {
-      rows,
-      recognized_columns: recognized,
-      unrecognized_columns: unrecognized,
-      duplicate_columns: duplicateFields,
-      truncated,
-      truncatedAt: MAX_IMPORT_ROWS
-    };
-  }
-  
-  return null;
+  return found;
 }
 
-function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
-  const parsed = extractAndParseTable(text, defaults);
-  if (parsed) {
-    return parsed;
+function extractAndParseTable(text: string, defaults?: ImportDefaults): ParseResult | null {
+  const nonBlankLines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (nonBlankLines.length < 2) {
+    return null;
   }
 
-  // Fallback to previous behavior
-  const allLines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (allLines.length < 2) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
+  let bestBlock: { headers: string[]; dataRows: string[][]; score: number } | null = null;
+  for (const block of findTabularBlocks(text)) {
+    const headers = block.rowsOfCells[0];
+    // Calculate score based on recognized columns and line count
+    const recognizedCount = normalizeImportColumns(headers).recognized.length;
+    if (recognizedCount === 0) continue;
+    const score = recognizedCount * 1000 + block.lineCount;
+    if (!bestBlock || score > bestBlock.score) {
+      bestBlock = { headers, dataRows: block.rowsOfCells.slice(1), score };
+    }
   }
 
-  const sep = detectSeparator(allLines[0]);
-  const headers = splitCsvLine(allLines[0], sep);
+  if (!bestBlock) return null;
+  return buildContractResult(bestBlock.headers, bestBlock.dataRows, defaults);
+}
+
+/** Filas de una tabla con los encabezados del contrato oficial. */
+function buildContractResult(headers: string[], dataRows: string[][], defaults?: ImportDefaults): ParseResult {
   const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
 
-  const dataLines = allLines.slice(1);
-  const truncated = dataLines.length > MAX_IMPORT_ROWS;
-  const limitedLines = truncated ? dataLines.slice(0, MAX_IMPORT_ROWS) : dataLines;
+  const truncated = dataRows.length > MAX_IMPORT_ROWS;
+  const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
 
   const rows: ImportRow[] = [];
   let rowIndex = 0;
 
-  for (const line of limitedLines) {
-    const cells = splitCsvLine(line, sep);
+  for (const cells of limitedRows) {
     if (isBlankRow(cells)) continue;
-    if (isMarkdownSeparatorRow(cells)) continue;
 
     const rawObj: Record<string, string> = {};
     for (let i = 0; i < fieldMap.length; i++) {
@@ -740,7 +698,88 @@ function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
     rowIndex++;
   }
 
-  return { rows, recognized_columns: recognized, unrecognized_columns: unrecognized, duplicate_columns: duplicateFields, truncated, truncatedAt: MAX_IMPORT_ROWS };
+  return {
+    rows,
+    recognized_columns: recognized,
+    unrecognized_columns: unrecognized,
+    duplicate_columns: duplicateFields,
+    truncated,
+    truncatedAt: MAX_IMPORT_ROWS,
+    detection: 'contract',
+    column_guesses: [],
+  };
+}
+
+/**
+ * IMPORT-FREE-FORMAT-1 — filas que no vienen del formato oficial (columnas
+ * reconocidas por su contenido, lista o lectura con IA) pasan por la MISMA
+ * validación que el formato oficial.
+ */
+export function buildParseResultFromParsedRows(
+  parsedRows: ParsedImportRow[],
+  defaults: ImportDefaults | undefined,
+  detection: ImportDetectionMode,
+  columnGuesses: ImportColumnGuess[] = [],
+): ParseResult {
+  if (detection === 'needs_ai' || parsedRows.length === 0) {
+    return { ...EMPTY_PARSE, detection, column_guesses: columnGuesses };
+  }
+  const truncated = parsedRows.length > MAX_IMPORT_ROWS;
+  const limited = truncated ? parsedRows.slice(0, MAX_IMPORT_ROWS) : parsedRows;
+  const recognized = [...new Set(columnGuesses.map((g) => g.field).filter((f): f is ImportFieldKey => f !== null))];
+  return {
+    rows: limited.map((raw, index) => validateRow(raw, index, defaults)),
+    recognized_columns: recognized.length > 0 ? recognized : ['company_name'],
+    unrecognized_columns: columnGuesses.filter((g) => g.field === null).map((g) => g.column),
+    duplicate_columns: [],
+    truncated,
+    truncatedAt: MAX_IMPORT_ROWS,
+    detection,
+    column_guesses: columnGuesses,
+  };
+}
+
+/** La tabla cuyas columnas se reconocen mejor por su contenido. */
+function parseBestTableByContent(text: string): FreeFormParse | null {
+  let best: { parse: FreeFormParse; score: number } | null = null;
+  for (const block of findTabularBlocks(text)) {
+    const parse = parseMatrixByContent(block.rowsOfCells);
+    if (!parse) continue;
+    const typedFields = parse.columnGuesses.filter(
+      (g) => g.field && g.field !== 'company_name' && g.field !== 'description',
+    ).length;
+    // Con comas, una lista «Acme, S.A.» parece una tabla de dos columnas: sólo
+    // vale si alguna columna tiene forma clara (web, NIT, país…).
+    if (block.sep === ',' && typedFields === 0) continue;
+    const score = typedFields * 1000 + parse.rows.length;
+    if (!best || score > best.score) best = { parse, score };
+  }
+  return best?.parse ?? null;
+}
+
+function parseTextToRows(text: string, defaults?: ImportDefaults): ParseResult {
+  if (!text.trim()) return EMPTY_PARSE;
+
+  const parsed = extractAndParseTable(text, defaults);
+  if (parsed && parsed.recognized_columns.includes('company_name')) {
+    return parsed;
+  }
+
+  // Una sola columna con su encabezado oficial («Empresa» y un nombre por línea).
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length >= 2 && normalizeImportColumns([lines[0]]).recognized[0] === 'company_name') {
+    return buildContractResult([lines[0]], lines.slice(1).map((line) => [line]), defaults);
+  }
+
+  // IMPORT-FREE-FORMAT-1 — fuera del formato oficial: tabla por contenido, lista
+  // de nombres o, si es texto corrido, lectura con IA (la pide el drawer).
+  const byContent = parseBestTableByContent(text);
+  if (byContent) {
+    return buildParseResultFromParsedRows(byContent.rows, defaults, byContent.mode, byContent.columnGuesses);
+  }
+  const list = parseCompanyList(text);
+  const result = buildParseResultFromParsedRows(list.rows, defaults, list.mode, list.columnGuesses);
+  return result.detection === 'needs_ai' ? { ...result, source_text: text } : result;
 }
 
 // ── Parsing de XLSX (async, cliente) ──────────────────────────
@@ -759,51 +798,28 @@ export async function parseXlsxCandidates(
   const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
 
   const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
-  }
+  if (!sheetName) return EMPTY_PARSE;
 
   const sheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+  const matrix = (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' }) as unknown[][])
+    .map((cells) => cells.map((c) => String(c ?? '')))
+    .filter((cells) => cells.some((c) => c.trim()));
 
-  if (matrix.length < 2) {
-    return { rows: [], recognized_columns: [], unrecognized_columns: [], duplicate_columns: [], truncated: false, truncatedAt: 0 };
+  return parseMatrixToRows(matrix, defaults);
+}
+
+/** Una hoja ya leída: formato oficial si sus encabezados lo son; si no, por contenido. */
+export function parseMatrixToRows(matrix: string[][], defaults?: ImportDefaults): ParseResult {
+  if (matrix.length === 0) return EMPTY_PARSE;
+  if (matrix.length >= 2 && normalizeImportColumns(matrix[0]).recognized.includes('company_name')) {
+    return buildContractResult(matrix[0], matrix.slice(1), defaults);
   }
-
-  const headers = (matrix[0] as unknown[]).map((h) => String(h ?? ''));
-  const { fieldMap, recognized, unrecognized, duplicateFields } = normalizeImportColumns(headers);
-
-  const dataRows = matrix.slice(1) as unknown[][];
-  const truncated = dataRows.length > MAX_IMPORT_ROWS;
-  const limitedRows = truncated ? dataRows.slice(0, MAX_IMPORT_ROWS) : dataRows;
-
-  const rows: ImportRow[] = [];
-  let rowIndex = 0;
-
-  for (const cells of limitedRows) {
-    const cellsArr = cells as unknown[];
-    if (cellsArr.every((c) => !String(c ?? '').trim())) continue;
-
-    const rawObj: Record<string, string> = {};
-    for (let i = 0; i < fieldMap.length; i++) {
-      const { field } = fieldMap[i];
-      if (field && cellsArr[i] !== undefined) {
-        rawObj[field] = String(cellsArr[i] ?? '').trim();
-      }
-    }
-
-    rows.push(validateRow(rawObj as unknown as ParsedImportRow, rowIndex, defaults));
-    rowIndex++;
+  const byContent = parseMatrixByContent(matrix);
+  if (byContent) {
+    return buildParseResultFromParsedRows(byContent.rows, defaults, byContent.mode, byContent.columnGuesses);
   }
-
-  return {
-    rows,
-    recognized_columns: recognized,
-    unrecognized_columns: unrecognized,
-    duplicate_columns: duplicateFields,
-    truncated,
-    truncatedAt: MAX_IMPORT_ROWS,
-  };
+  // Una hoja con una sola columna de texto largo: es texto corrido.
+  return parseTextToRows(matrix.map((cells) => cells.filter((c) => c.trim()).join(' · ')).join('\n'), defaults);
 }
 
 // ── API pública ────────────────────────────────────────────────
@@ -831,6 +847,8 @@ export function buildImportPreview(parseResult: ParseResult): ImportPreview {
     unrecognized_columns,
     duplicateColumns: duplicate_columns,
     rows,
+    detection: parseResult.detection,
+    column_guesses: parseResult.column_guesses,
   };
 }
 
