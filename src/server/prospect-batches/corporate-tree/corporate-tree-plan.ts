@@ -99,6 +99,28 @@ export type CorporateTreeWritePlan = {
 /** Una empresa sin web que en HubSpot tiene un nombre parecido en su mismo país. */
 export type CorporateTreePossibleDuplicate = { company: CountrySourceCompany; matchedName: string | null };
 
+/**
+ * La web y el país de la empresa de partida con todo lo que se sabe. Cada dato por separado:
+ * una rama de Claude puede traer el país sin la web y otra la web (Prod 15-10, Bimbo e32d4058:
+ * la primera respuesta traía sólo el país, la empresa quedó sin web y Apollo no se consultó).
+ * Si Claude no dio web comprobada, vale la que trae la empresa de partida desde el banco o el
+ * registro oficial de su país (bimbo.com.mx). Puro: devuelve una empresa nueva.
+ */
+export function mergeRootFindings(
+  root: CorporateTreeRoot,
+  findings: readonly ({ website: string | null; domain: string | null; countryCode: string | null } | null)[],
+  freeHits: readonly Pick<CorporateTreeFreeHit, 'relation' | 'countryCode' | 'domain'>[],
+): CorporateTreeRoot {
+  const known = findings.filter((f): f is NonNullable<typeof f> => !!f);
+  const withDomain = known.find((f) => !!f.domain) ?? null;
+  const countryCode = root.countryCode ?? known.find((f) => !!f.countryCode)?.countryCode ?? null;
+  const freeRootDomain =
+    freeHits.find((h) => h.relation === 'root' && !!h.domain && (!countryCode || h.countryCode === countryCode))?.domain ?? null;
+  const domain = root.domain ?? withDomain?.domain ?? freeRootDomain;
+  const website = root.website ?? withDomain?.website ?? (domain ? `https://${domain}` : null);
+  return { ...root, website, domain, countryCode };
+}
+
 export function corporateTreeRowKey(name: string, countryCode: string | null): string {
   return `${stripOwnCountryMarker(normalizeTreeName(stripCountryTag(stripBranchSuffix(name))), countryCode)}|${countryCode ?? ''}`;
 }

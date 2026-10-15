@@ -154,6 +154,9 @@ export function buildCorporateTreeUsageLog(
       root_name: context.rootName,
       proposed: outcome.proposed,
       rejected: outcome.rejected,
+      // Lo que esta rama supo de la empresa de partida (para saber por qué quedó sin web).
+      root_domain_found: outcome.root?.domain ?? null,
+      root_country_found: outcome.root?.countryCode ?? null,
       web_search_requests: outcome.usage.webSearchRequests,
       pricing_source: outcome.usage.pricingSource,
     },

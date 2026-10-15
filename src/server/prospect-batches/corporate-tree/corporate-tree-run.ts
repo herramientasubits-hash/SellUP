@@ -30,6 +30,7 @@ import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry 
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
 import {
   markKnownCompanies,
+  mergeRootFindings,
   planCorporateTreeWrites,
   promoteGroupCompaniesWithTaxIds,
   applyApolloFamily,
@@ -507,15 +508,11 @@ async function runAfterReservation(
   // 3. Claude, sólo por lo que falta.
   const claude = await runClaudePhase(request, root, free.hits, { runId, batchId }, deps);
   const estimatedCostUsd = roundUsd(claude.outcomes.reduce((acc, o) => acc + (o.usage?.estimatedCostUsd ?? 0), 0));
-  const rootFinding = claude.outcomes.map((o) => o.root).find((r) => r && (r.domain || r.countryCode)) ?? null;
-  if (rootFinding) {
-    root = {
-      ...root,
-      website: root.website ?? rootFinding.website,
-      domain: root.domain ?? rootFinding.domain,
-      countryCode: root.countryCode ?? rootFinding.countryCode,
-    };
-  }
+  root = mergeRootFindings(
+    root,
+    claude.outcomes.map((o) => o.root),
+    free.hits,
+  );
   const nodes = claude.outcomes.flatMap((o) => o.nodes);
 
   // 4. Escribir por las vías de siempre.
