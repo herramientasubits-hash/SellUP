@@ -170,6 +170,58 @@ export function stripBranchSuffix(name: string): string {
   return stripped || name.trim();
 }
 
+/**
+ * «BIMBO SA (AR)» ⇒ «BIMBO SA»: la etiqueta de país entre paréntesis al final no es parte del
+ * nombre (Prod 15-10, Bimbo: «BIMBO SA (AR)» repetía a «BIMBO DE ARGENTINA S.A.» y se pagó su
+ * clasificación).
+ */
+export function stripCountryTag(name: string): string {
+  const stripped = name.replace(/\s*\(\s*[A-Za-z]{2}\s*\)\s*$/, '').trim();
+  return stripped || name.trim();
+}
+
+/** Cómo se nombra cada país al final de una razón social (ya normalizado: sin tildes). */
+const OWN_COUNTRY_NAMES: Readonly<Record<string, readonly string[]>> = {
+  AR: ['argentina'],
+  BO: ['bolivia'],
+  BR: ['brasil', 'brazil'],
+  CL: ['chile'],
+  CO: ['colombia'],
+  CR: ['costa rica'],
+  DO: ['republica dominicana', 'dominicana'],
+  EC: ['ecuador'],
+  ES: ['espana', 'spain'],
+  GT: ['guatemala'],
+  HN: ['honduras'],
+  MX: ['mexico'],
+  NI: ['nicaragua'],
+  PA: ['panama'],
+  PE: ['peru'],
+  PY: ['paraguay'],
+  SV: ['el salvador', 'salvador'],
+  US: ['estados unidos', 'usa', 'us'],
+  UY: ['uruguay'],
+  VE: ['venezuela'],
+};
+
+/** Lo que queda tiene que seguir siendo un nombre («de Chile» solo no lo es). */
+const MIN_CORE_AFTER_COUNTRY = 3;
+
+/**
+ * Sobre un nombre YA normalizado: «bimbo de argentina» en Argentina ⇒ «bimbo». El país PROPIO
+ * al final no distingue a la empresa dentro de ese país (la clave ya lleva el país). Nunca
+ * quita otro país («bimbo de argentina» en Chile sigue igual).
+ */
+export function stripOwnCountryMarker(normalizedName: string, countryCode: string | null): string {
+  const names = countryCode ? OWN_COUNTRY_NAMES[countryCode.toUpperCase()] : undefined;
+  if (!names) return normalizedName;
+  for (const country of names) {
+    const match = normalizedName.match(new RegExp(`^(.+?)(?:\\s+(?:de|del|do|da|of))?\\s+${country}$`));
+    if (match && match[1].trim().length >= MIN_CORE_AFTER_COUNTRY) return match[1].trim();
+  }
+  return normalizedName;
+}
+
 /** Nombre para comparar: minúsculas, sin acentos, sin signos ni forma societaria. */
 export function normalizeTreeName(text: string): string {
   const base = text

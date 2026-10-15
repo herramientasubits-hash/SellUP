@@ -506,6 +506,27 @@ export function isOfficiallyLargeFreeLayerRow(
 }
 
 /**
+ * AGENT1-RESCUE-KNOWN-TAX-BEFORE-SEARCH-1 — con número fiscal, ¿otra candidata viva ya lo
+ * tiene? Entonces es la misma empresa: no se paga la búsqueda de su web. Sólo el número
+ * fiscal (el nombre se compara después, con la web en la mano). Fail-open: si la lectura
+ * falla, se busca como antes.
+ */
+async function knownByTaxIdBeforeSearch(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  taxId: string | null,
+  domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
+): Promise<DomainDuplicateCheck | null> {
+  if (taxId === null || !domainSearch.findKnownCompany) return null;
+  try {
+    return await domainSearch.findKnownCompany({ batchId: ctx.batchId, taxId, names: [] });
+  } catch (err) {
+    console.error('[claude-rescue] known tax id check failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
  * Descartada SIN dominio: Claude busca el sitio oficial y se revisan duplicados.
  * Sólo sigue al rescate si el sitio quedó comprobado y la empresa es NUEVA.
  */
@@ -534,6 +555,15 @@ async function resolveDispositionWebsite(
     officialTradeNameWebsite(claimedUrl, officialNames, dispositionDisplayName(row), country) ??
     (usesOfficialNames ? registryFirstWordWebsite(claimedUrl, dispositionDisplayName(row), country) : null);
   if (!found) found = officialFallback(previousClaimedUrl(row.evidence));
+  if (!found) {
+    const known = await knownByTaxIdBeforeSearch(row, ctx, taxId, domainSearch);
+    if (known) {
+      const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
+        buildDomainSearchStaysEvidence(evidence, { kind: 'known_before_search', duplicate: known }, deps.nowIso()),
+      );
+      return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost: 0 } };
+    }
+  }
   if (!found) {
     const startedMs = deps.nowMs();
     let outcome: DomainFinderOutcome;

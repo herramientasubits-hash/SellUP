@@ -26,6 +26,8 @@ export type CorporateTreeBatchRelationship = {
   discard_reason_code?: string | null;
   /** Lo que decidió el rescate con ella (p. ej. `duplicate`: le encontró la web y ya existía). */
   rescue_decision?: string | null;
+  /** El rescate NO buscó su web, y por qué (`known_tax_id`: otra candidata ya tiene su número fiscal). */
+  rescue_skipped?: string | null;
   /** La web de la empresa de partida (para distinguir la web del grupo de una propia). */
   root_domain?: string | null;
   /** Tiene web propia (no la del grupo) y aun así no entró al lote. */
@@ -47,6 +49,8 @@ export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_h
 export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
 /** El rescate le encontró su web y ya existía en SellUp o HubSpot. */
 export const CORPORATE_TREE_RESCUE_DUPLICATE_LABEL = 'Ya existía (el rescate encontró su web)';
+/** Otra candidata viva ya tiene su número fiscal: el rescate no pagó la búsqueda de su web. */
+export const CORPORATE_TREE_KNOWN_TAX_ID_LABEL = 'Ya en SellUp (mismo número fiscal)';
 /** Con web propia, no entró y no está en SellUp: HubSpot ya la tenía o no pasó las revisiones. */
 export const CORPORATE_TREE_NOT_WRITTEN_LABEL = 'No entró: ya existía o no pasó las revisiones';
 
@@ -202,7 +206,9 @@ export function groupBatchCandidatesByTreeRelation(
           ? CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL
           : rel.own_website
             ? CORPORATE_TREE_NOT_WRITTEN_LABEL
-            : rel.rescue_decision === 'duplicate'
+            : rel.rescue_decision === 'duplicate' && rel.rescue_skipped === 'known_tax_id'
+              ? CORPORATE_TREE_KNOWN_TAX_ID_LABEL
+              : rel.rescue_decision === 'duplicate'
               ? CORPORATE_TREE_RESCUE_DUPLICATE_LABEL
               : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
           ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
