@@ -325,6 +325,29 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       const batch = data as { source?: string | null; metadata?: Record<string, unknown> | null } | null;
       return !!batch?.metadata?.claude_company_search || batch?.source === 'external_import';
     },
+    // AGENT1-CORPORATE-TREE-8 — la web del grupo de un lote del árbol: la de la empresa de
+    // partida y las que comparten dos o más filiales (citibank.com). Otro lote ⇒ [].
+    loadBatchGroupDomains: async (batchId) => {
+      const admin = createSupabaseAdminClient();
+      const { data } = await admin.from('prospect_batches').select('metadata').eq('id', batchId).maybeSingle();
+      const tree = (data as { metadata?: { corporate_tree?: { root_domain?: unknown } } } | null)?.metadata?.corporate_tree;
+      if (!tree) return [];
+      const domains = new Set<string>();
+      if (typeof tree.root_domain === 'string' && tree.root_domain) domains.add(tree.root_domain);
+      const { data: rels } = await admin
+        .from('agent1_company_relationships')
+        .select('related_domain')
+        .eq('batch_id', batchId)
+        .not('related_domain', 'is', null)
+        .limit(300);
+      const uses = new Map<string, number>();
+      for (const rel of rels ?? []) {
+        const domain = String((rel as { related_domain?: unknown }).related_domain ?? '').toLowerCase();
+        if (domain) uses.set(domain, (uses.get(domain) ?? 0) + 1);
+      }
+      for (const [domain, count] of uses) if (count >= 2) domains.add(domain);
+      return [...domains];
+    },
     classify: classifyCompanyLive,
     // SOURCES-CL-RESCUE-OFFICIAL-IDENTITY-1 — número fiscal oficial de lo que se admite.
     resolveOfficialIdentity: buildLiveRescueOfficialIdentityResolver(),

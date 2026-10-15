@@ -1272,3 +1272,15 @@ describe('S. Bimbo (Prod 15-10): Apollo vacío con «bimbo de colombia» en Colo
     assert.match(source, /const credits = page\.rawCount > 0 \? 1 : 0;/);
   });
 });
+
+describe('T. La filial que admitió el rescate con la web del grupo se ve así en el lote', () => {
+  it('«Sin web propia: usa la del grupo», también si la marca la puso el rescate', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [{ id: 'ec', name: 'BIMBO ECUADOR S.A.', country_code: 'EC', status: 'needs_review', matched_hubspot_company_id: null, metadata: { parent_group_website: { website: 'https://grupobimbo.com', domain: 'grupobimbo.com' } } }],
+      [{ related_candidate_id: null, related_name: 'BIMBO ECUADOR S.A.', related_country_code: 'EC', relation_type: 'group', relation_detail: null, evidence_url: null }],
+    );
+    const item = groups[0].items[0];
+    assert.equal(item.candidateId, 'ec');
+    assert.equal(item.groupWebsite, 'https://grupobimbo.com');
+  });
+});

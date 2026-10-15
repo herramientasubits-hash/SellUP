@@ -196,3 +196,74 @@ describe('C. el rescate', () => {
     assert.equal(f.origins.length, 0);
   });
 });
+
+describe('D. Árbol de una empresa (Prod 15-10, Bimbo): la web del GRUPO no hace duplicada a la filial', () => {
+  const bimboEcuador = (overrides: Partial<RescuableDispositionRow> = {}) =>
+    amazon({
+      name: 'BIMBO ECUADOR S.A.',
+      country_code: 'EC',
+      industry: null,
+      provider_identifier: 'tax:0991234567001',
+      evidence: {
+        provider_raw_name: 'BIMBO ECUADOR S.A.',
+        tax_identifier_present: true,
+        tax_identifier_type: 'RUC',
+        official_workforce: { workers: 1154, year: 2025, source_label: 'ec_scvs_directory' },
+      },
+      ...overrides,
+    });
+  const FOUND_GROUP: DomainFinderOutcome = {
+    found: true,
+    website: 'https://grupobimbo.com',
+    domain: 'grupobimbo.com',
+    verification: 'name_match',
+    usage: { model: MODEL, ...USAGE, estimatedCostUsd: 0.04, pricingSource: 'table' },
+  } as DomainFinderOutcome;
+
+  function treeDeps(opts: { row?: RescuableDispositionRow; groupDomains?: string[]; dupByName?: string } = {}) {
+    const f = fakeDeps({ row: opts.row ?? bimboEcuador() });
+    const dupCalls: Array<{ domain: string | null }> = [];
+    f.deps.loadBatchIndustryId = async () => null;
+    f.deps.loadBatchGroupDomains = async () => opts.groupDomains ?? ['grupobimbo.com'];
+    f.deps.domainSearch = {
+      findWebsite: async () => FOUND_GROUP,
+      // Por la web del grupo es duplicada (es la de la matriz); por NOMBRE, la filial es nueva.
+      checkDuplicate: async (input) => {
+        dupCalls.push({ domain: input.domain ?? null });
+        return { status: (input.domain ? 'existing_in_hubspot' : opts.dupByName ?? 'new_candidate') as never, summary: '' };
+      },
+    };
+    return { ...f, dupCalls };
+  }
+
+  it('Bimbo Ecuador (RUC) con grupobimbo.com ⇒ a revisión SIN web, por su número fiscal', async () => {
+    const f = treeDeps();
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+    const origin = f.origins[0];
+    assert.equal(origin.columns?.domain, undefined, 'la web del grupo nunca es la de la filial');
+    assert.equal(origin.columns?.website, undefined);
+    assert.equal((origin.metadata.parent_group_website as { domain: string }).domain, 'grupobimbo.com');
+    assert.deepEqual(f.dupCalls, [{ domain: 'grupobimbo.com' }, { domain: null }], 'después se revisa por NOMBRE');
+  });
+
+  it('si por nombre también es duplicada, se queda', async () => {
+    const f = treeDeps({ dupByName: 'existing_in_hubspot' });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 0);
+  });
+
+  it('sin número fiscal, o fuera del árbol, sigue siendo duplicada como antes', async () => {
+    const sinRuc = treeDeps({ row: bimboEcuador({ evidence: { provider_raw_name: 'BIMBO ECUADOR S.A.' } }) });
+    assert.equal((await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, sinRuc.deps)).ok && sinRuc.origins.length, 0);
+    const otroLote = treeDeps({ groupDomains: [] });
+    assert.equal((await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, otroLote.deps)).ok && otroLote.origins.length, 0);
+  });
+
+  it('una web propia ya existente (bimbo.com.co) NO es la del grupo: sigue duplicada', async () => {
+    const f = treeDeps();
+    f.deps.domainSearch!.findWebsite = async () => ({ ...FOUND_GROUP, website: 'https://bimbo.com.co', domain: 'bimbo.com.co' }) as DomainFinderOutcome;
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 0);
+  });
+});

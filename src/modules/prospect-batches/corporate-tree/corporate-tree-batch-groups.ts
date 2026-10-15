@@ -175,7 +175,10 @@ export function groupBatchCandidatesByTreeRelation(
       statusTone: toneFor(statusLabel),
       relationDetail: str(tree.relation_detail) ?? rel?.relation_detail ?? null,
       evidenceUrl: str(tree.evidence_url) ?? rel?.evidence_url ?? null,
-      groupWebsite: str(tree.group_website),
+      // La del árbol, o la que dejó el rescate al admitir una filial sin web propia.
+      groupWebsite:
+        str(tree.group_website) ??
+        str(((candidate.metadata?.['parent_group_website'] ?? {}) as Record<string, unknown>).website),
       ...(tree.website_unverified === true ? { websiteUnverified: true } : {}),
       ...(tree.found_in_apollo === true ? { foundInApollo: true } : {}),
     });
