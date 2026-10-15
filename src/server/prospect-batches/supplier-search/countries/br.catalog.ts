@@ -13,7 +13,7 @@ export const BR_PUBLIC_PROCUREMENT_CATALOG_SOURCE: CatalogSource = {
   aiFlowStatus: 'connected_free_discovery',
   connectionMode: 'read_only_signal',
   nextAction:
-    'Construida (AGENT1-SUPPLIER-SEARCH-ALL-1), pendiente de validar en Producción. Cuando la referencia es una entidad pública brasileña, consulta EN VIVO sus contratos de los últimos 12 meses antes de pagar a Claude: órgãos federales por Compras.gov.br dados abertos (ítems con CATMAT/CATSER) y estados/municipios por el PNCP. Medido el 15-10-2026: Ministério da Saúde × Tecnología 10 proveedores en 6 s, × Salud 53 en 8 s; Município de Campinas (PNCP) × Tecnología 7 en 5 s, × Salud 30 en 40 s. La tabla CATMAT/CATSER → industria es BORRADOR hasta que la apruebe la dueña.',
+    'Construida (AGENT1-SUPPLIER-SEARCH-ALL-1), pendiente de validar en Producción. Cuando la referencia es una entidad pública brasileña, consulta EN VIVO sus contratos de los últimos 12 meses antes de pagar a Claude: órgãos federales por Compras.gov.br dados abertos (ítems con CATMAT/CATSER) y estados/municipios por el PNCP. Medido el 15-10-2026: Ministério da Saúde × Tecnología 10 proveedores en 6 s, × Salud 53 en 8 s; Município de Campinas (PNCP) × Tecnología 7 en 5 s, × Salud 30 en 40 s. La tabla CATMAT/CATSER → industria la aprobó la dueña el 15-10-2026.',
   countryCodes: ['BR'],
   sectors: [],
   priority: 'P1',

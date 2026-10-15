@@ -2,7 +2,7 @@
  * Tests — Brasil en «Proveedores de una empresa» por compras públicas (en vivo): lectura de
  * Compras.gov.br y del PNCP con filas REALES recortadas (Ministério da Saúde, 15-10-2026),
  * CNPJ (empresa, filial → matriz, sin personas físicas), nombre del comprador, tabla
- * BORRADOR CATMAT/CATSER, consultas con dobles y el paso de punta a punta.
+ * CATMAT/CATSER aprobada, consultas con dobles y el paso de punta a punta.
  */
 
 import { describe, it } from 'node:test';
@@ -141,7 +141,7 @@ describe('2. lectura de las fuentes', () => {
   });
 });
 
-describe('3. tabla BORRADOR CATMAT/CATSER', () => {
+describe('3. tabla CATMAT/CATSER (aprobada 15-10)', () => {
   it('familia por tipo y clase; macro por grupo (material) o división (servicio)', () => {
     assert.equal(brCatalogFamily('Material', 6550), 'M6550');
     assert.equal(brCatalogFamily('Serviço', 1821), 'S1821');
@@ -228,7 +228,7 @@ describe('4. consultas en vivo (dobles)', () => {
     const { client } = fakeClient([{ normalized_tax_id: '05439635000103', natureza: '2062', cnae: '2121101' }]);
     const r = await buildBrLookups(client, { fetchJson }).listSuppliers({ buyerTaxId: '51885242000140', macroIndustryKey: 'health_pharma', nowIso: '2026-10-15' });
     assert.equal(r.ok && r.suppliers.map((s) => s.taxId).join(), '05439635000103');
-    assert.equal(r.ok && r.tableVersion, 'br-catmat-catser-macro-v0-draft+br-cnae23-receita-macro-v1');
+    assert.equal(r.ok && r.tableVersion, 'br-catmat-catser-macro-v1+br-cnae23-receita-macro-v1');
     assert.ok(urls.some((u) => u.includes('cnpjOrgao=51885242000140') && u.includes('dataInicial=20251015')));
   });
 

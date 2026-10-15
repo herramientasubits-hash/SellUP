@@ -13,7 +13,7 @@ export const US_PUBLIC_PROCUREMENT_CATALOG_SOURCE: CatalogSource = {
   aiFlowStatus: 'connected_free_discovery',
   connectionMode: 'read_only_signal',
   nextAction:
-    'Construida (AGENT1-SUPPLIER-SEARCH-ALL-1), pendiente de validar en Producción. Cuando la referencia es una agencia federal de EE. UU., consulta EN VIVO en USAspending API v2 sus contratos (tipos A–D) de los últimos 12 meses antes de pagar a Claude. Medido el 15-10-2026: VA × Tecnología, Army × Salud, DHS × Servicios y GSA × Tecnología, 40 proveedores leídos y 30–35 en la industria en 1,4–2,5 s cada una. La tabla NAICS → industria es BORRADOR hasta que la apruebe la dueña.',
+    'Construida (AGENT1-SUPPLIER-SEARCH-ALL-1), pendiente de validar en Producción. Cuando la referencia es una agencia federal de EE. UU., consulta EN VIVO en USAspending API v2 sus contratos (tipos A–D) de los últimos 12 meses antes de pagar a Claude. Medido el 15-10-2026: VA × Tecnología, Army × Salud, DHS × Servicios y GSA × Tecnología, 40 proveedores leídos y 30–35 en la industria en 1,4–2,5 s cada una. La tabla NAICS → industria la aprobó la dueña el 15-10-2026.',
   countryCodes: ['US'],
   sectors: [],
   priority: 'P1',

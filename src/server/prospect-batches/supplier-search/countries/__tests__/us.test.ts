@@ -1,7 +1,7 @@
 /**
  * Tests — Estados Unidos en «Proveedores de una empresa» por compras públicas (en vivo):
  * USAspending con filas REALES recortadas (Department of Veterans Affairs, 15-10-2026),
- * nombre de la agencia, UEI, tabla BORRADOR NAICS, consultas con dobles, el paso de punta
+ * nombre de la agencia, UEI, tabla NAICS aprobada, consultas con dobles, el paso de punta
  * a punta y la etiqueta «Proveedor de X» con UEI.
  */
 
@@ -142,7 +142,7 @@ describe('2. consultas y lectura de USAspending', () => {
   });
 });
 
-describe('3. tabla BORRADOR NAICS', () => {
+describe('3. tabla NAICS (aprobada 15-10)', () => {
   it('sector, grupo y clase: gana el prefijo más largo', () => {
     assert.equal(resolveUsNaicsMacro('541512'), 'technology');
     assert.equal(resolveUsNaicsMacro('541611'), 'services_company');

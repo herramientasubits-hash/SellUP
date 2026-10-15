@@ -1,7 +1,6 @@
 /**
- * 🟡 BORRADOR — pendiente de aprobación de la dueña (AGENT1-SUPPLIER-SEARCH-ALL-1, 15-10-2026).
- * No se carga nada en Producción con esta tabla hasta que la apruebe; cambiarla después
- * es una decisión de producto.
+ * ✅ APROBADA por la dueña el 15-10-2026 (AGENT1-SUPPLIER-SEARCH-ALL-1).
+ * Cambiarla es una decisión de producto.
  *
  * Estados Unidos — qué macro industria corresponde a un proveedor según LO QUE LE VENDE A
  * LA AGENCIA en USAspending: el código NAICS de cada contrato (2022/2017, 6 dígitos).
@@ -19,8 +18,8 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 import type { ProcurementClassifier } from '../procurement-links';
 
-/** Versión de la tabla (borrador hasta que la dueña la apruebe). */
-export const US_NAICS_MACRO_TABLE_VERSION = 'us-naics-macro-v0-draft' as const;
+/** Versión de la tabla (aprobada por la dueña el 15-10-2026). */
+export const US_NAICS_MACRO_TABLE_VERSION = 'us-naics-macro-v1' as const;
 
 /** Peso mínimo de la macro dominante (monto) para clasificar al proveedor. */
 export const US_NAICS_DOMINANT_MIN_SHARE = 0.5;

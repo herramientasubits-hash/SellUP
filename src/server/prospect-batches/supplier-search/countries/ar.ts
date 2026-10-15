@@ -2,7 +2,7 @@
  * Argentina — adjudicaciones de COMPR.AR (Administración Pública Nacional, datos.gob.ar
  * «Sistema de Contrataciones Electrónicas»), cargadas en `public_procurement_supplier_links`
  * con el cargador genérico (`--country AR`). Comprador = Servicio Administrativo
- * Financiero (SAF). Industria por los «Rubros» de COMPR.AR (tabla BORRADOR,
+ * Financiero (SAF). Industria por los «Rubros» de COMPR.AR (tabla aprobada 15-10,
  * `ar-rubro-macro-table.ts`). Web: RNS, ATP y la lista curada; sin trabajadores.
  *
  * Puro: sin env, sin I/O, sin DB, sin reloj.

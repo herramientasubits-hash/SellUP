@@ -5,7 +5,7 @@
  *
  *  - Órgão FEDERAL ⇒ Compras.gov.br dados abertos (`modulo-contratos/2_consultarContratosItem`,
  *    ~2 s por página de 500): cada ítem trae su código CATMAT/CATSER ⇒ industria por la
- *    tabla BORRADOR `br-catmat-macro-table.ts` (lo que le vende a ESA entidad, regla del 50 %).
+ *    tabla aprobada 15-10 `br-catmat-macro-table.ts` (lo que le vende a ESA entidad, regla del 50 %).
  *  - Estados y municipios ⇒ PNCP `consulta/v1/contratos` filtrando `cnpjOrgao` (lento:
  *    10–30 s por página de 500; tope de páginas) y sin catálogo ⇒ industria por la actividad
  *    CNAE del proveedor en `br_receita_registry` (tabla aprobada `br-receita-macro-table.ts`).

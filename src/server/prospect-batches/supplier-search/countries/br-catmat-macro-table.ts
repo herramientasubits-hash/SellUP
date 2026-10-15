@@ -1,7 +1,6 @@
 /**
- * 🟡 BORRADOR — pendiente de aprobación de la dueña (AGENT1-SUPPLIER-SEARCH-ALL-1, 15-10-2026).
- * No se carga nada en Producción con esta tabla hasta que la apruebe; cambiarla después
- * es una decisión de producto.
+ * ✅ APROBADA por la dueña el 15-10-2026 (AGENT1-SUPPLIER-SEARCH-ALL-1).
+ * Cambiarla es una decisión de producto.
  *
  * Brasil — qué macro industria corresponde a un proveedor según LO QUE LE VENDE A LA
  * ENTIDAD en Compras.gov.br: el catálogo de cada ítem del contrato.
@@ -24,8 +23,8 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 import type { ProcurementClassifier } from '../procurement-links';
 
-/** Versión de la tabla (borrador hasta que la dueña la apruebe). */
-export const BR_CATMAT_MACRO_TABLE_VERSION = 'br-catmat-catser-macro-v0-draft' as const;
+/** Versión de la tabla (aprobada por la dueña el 15-10-2026). */
+export const BR_CATMAT_MACRO_TABLE_VERSION = 'br-catmat-catser-macro-v1' as const;
 
 /** Peso mínimo de la macro dominante (monto) para clasificar al proveedor. */
 export const BR_CATMAT_DOMINANT_MIN_SHARE = 0.5;

@@ -3,9 +3,8 @@
  * Estado nacional según LO QUE LE VENDE: los «Rubros» de COMPR.AR de sus adjudicaciones
  * (Adjudicaciones 2016-2026, datos.gob.ar).
  *
- * 🔴 BORRADOR — pendiente de aprobación de la dueña (AGENT1-SUPPLIER-SEARCH-ALL-1, 15-10-2026).
- * No se carga nada de Argentina en Producción hasta que la apruebe. Cambiarla después
- * de aprobada es una decisión de producto.
+ * ✅ APROBADA por la dueña el 15-10-2026 (AGENT1-SUPPLIER-SEARCH-ALL-1).
+ * Cambiarla es una decisión de producto.
  *
  * Por qué rubros y no UNSPSC: el archivo abierto de COMPR.AR no trae UNSPSC ni el
  * catálogo SIByS por ítem; sólo 49 rubros gruesos, varios por línea («FERRETERIA;
@@ -24,10 +23,10 @@
 import type { MacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industries';
 import type { ProcurementClassifier } from '../procurement-links';
 
-export const AR_RUBRO_MACRO_TABLE_VERSION = 'ar-comprar-rubro-macro-v0-draft' as const;
+export const AR_RUBRO_MACRO_TABLE_VERSION = 'ar-comprar-rubro-macro-v1' as const;
 
-/** Sólo cuando la dueña la apruebe pasa a `true` (y la versión deja de ser «draft»). */
-export const AR_RUBRO_MACRO_TABLE_APPROVED = false;
+/** Aprobada por la dueña el 15-10-2026. */
+export const AR_RUBRO_MACRO_TABLE_APPROVED = true;
 
 export const AR_RUBRO_DOMINANT_MIN_SHARE = 0.5;
 

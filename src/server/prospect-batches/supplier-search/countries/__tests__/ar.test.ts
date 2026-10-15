@@ -96,9 +96,9 @@ describe('2. lector del CSV', () => {
   });
 });
 
-describe('3. tabla de rubros (BORRADOR)', () => {
-  it('sigue en borrador y sólo usa macros del catálogo', () => {
-    assert.equal(AR_RUBRO_MACRO_TABLE_APPROVED, false);
+describe('3. tabla de rubros (aprobada 15-10)', () => {
+  it('está aprobada y sólo usa macros del catálogo', () => {
+    assert.equal(AR_RUBRO_MACRO_TABLE_APPROVED, true);
     const keys = new Set<string>(MACRO_INDUSTRY_KEYS);
     for (const macro of Object.values(AR_RUBRO_MACRO)) if (macro !== null) assert.ok(keys.has(macro), macro);
     assert.equal(Object.keys(AR_RUBRO_MACRO).length, 49);

@@ -8,7 +8,7 @@
  *     (`spending_by_category/recipient`, ~1,3 s por página de 100).
  *  2. Los contratos de esos proveedores con la agencia en TODOS los NAICS
  *     (`spending_by_award`, ~1 s por página de 100): la industria de cada uno es la de lo
- *     que más le vende a ESA agencia (tabla BORRADOR `us-naics-macro-table.ts`, regla del
+ *     que más le vende a ESA agencia (tabla aprobada 15-10 `us-naics-macro-table.ts`, regla del
  *     50 %), y su contrato más grande es la prueba.
  *
  * Proveedor = recipient con UEI (12 caracteres; el EIN no se publica). Fuera los

@@ -13,7 +13,7 @@ export const AR_COMPRAR_CATALOG_SOURCE: CatalogSource = {
   aiFlowStatus: 'connected_free_discovery',
   connectionMode: 'read_only_snapshot',
   nextAction:
-    'Conectada en el código (AGENT1-SUPPLIER-SEARCH-ALL-1) sólo para «Proveedores de una empresa» en Argentina. Falta: (1) que la dueña apruebe la tabla Rubro COMPR.AR → industria (BORRADOR, ar-rubro-macro-table.ts) y (2) la carga del resumen (scripts/source-catalog/run-public-procurement-load.ts --country AR --end 2026-7 --months 12 --apply). Sin carga, el paso no reconoce ninguna entidad y sigue sólo Claude.',
+    'Conectada en el código (AGENT1-SUPPLIER-SEARCH-ALL-1) sólo para «Proveedores de una empresa» en Argentina. Tabla Rubro COMPR.AR → industria aprobada por la dueña el 15-10-2026 (ar-rubro-macro-table.ts). Falta la carga del resumen (scripts/source-catalog/run-public-procurement-load.ts --country AR --end 2026-7 --months 12 --apply). Sin carga, el paso no reconoce ninguna entidad y sigue sólo Claude.',
   countryCodes: ['AR'],
   sectors: [],
   priority: 'P2',

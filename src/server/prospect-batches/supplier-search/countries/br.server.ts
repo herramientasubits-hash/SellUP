@@ -6,7 +6,7 @@
  *  2. ¿Es un órgão federal? `modulo-uasg/2_consultarOrgao` por su CNPJ.
  *     - Federal ⇒ ítems de contratos de Compras.gov.br de los últimos 12 meses (hasta
  *       `COMPRAS_MAX_PAGES` páginas de 500 repartidas en el año) y la clase CATMAT/CATSER
- *       de los ítems de más monto (tabla BORRADOR `br-catmat-macro-table.ts`).
+ *       de los ítems de más monto (tabla aprobada 15-10 `br-catmat-macro-table.ts`).
  *     - Si no ⇒ contratos del PNCP filtrando `cnpjOrgao` (hasta `PNCP_MAX_PAGES` páginas).
  *  3. Sin clase de catálogo ⇒ industria por la actividad CNAE del proveedor en la Receita
  *     (tabla aprobada `br-receita-macro-table.ts`).
