@@ -9,8 +9,10 @@
 import type { CatalogSource } from '@/server/agents/prospecting-toolkit/types';
 import { AR_COMPRAR_CATALOG_SOURCE } from './ar.catalog';
 import { UY_ARCE_AWARDS_CATALOG_SOURCE } from './uy.catalog';
+import { ES_PLACSP_AWARDS_CATALOG_SOURCE } from './es.catalog';
 
 export const PUBLIC_PROCUREMENT_CATALOG_SOURCES: readonly CatalogSource[] = [
   AR_COMPRAR_CATALOG_SOURCE,
   UY_ARCE_AWARDS_CATALOG_SOURCE,
+  ES_PLACSP_AWARDS_CATALOG_SOURCE,
 ];

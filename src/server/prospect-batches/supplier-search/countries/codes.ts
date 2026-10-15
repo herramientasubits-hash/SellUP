@@ -11,4 +11,5 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'CL', // ChileCompra, órdenes de compra mensuales cargadas
   'AR', // COMPR.AR, adjudicaciones cargadas (tabla de rubros BORRADOR)
   'UY', // ARCE, adjudicaciones OCDS cargadas (tabla SICE aprobada)
+  'ES', // PLACSP, adjudicaciones ATOM/CODICE mensuales cargadas (tabla CPV aprobada)
 ];
