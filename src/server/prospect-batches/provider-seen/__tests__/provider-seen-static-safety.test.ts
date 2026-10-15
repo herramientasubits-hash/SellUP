@@ -130,10 +130,10 @@ test('§ 5 · CUT-L1 — la petición a Lusha NO emite exclusión de ninguna cla
   const code = stripTsComments(read(LUSHA_PREVIEW));
 
   for (const forbidden of [
-    'exclude:',
-    'exclude.domains',
+    // AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — `exclude.domains` SÍ existe (soporte de
+    // Lusha, 15-10, probado contra la API) y sale sólo con dominios del ejecutor
+    // pagado. Exclusión por id sigue sin contrato: prohibida.
     'exclude.ids',
-    'excludeDomains',
     'excludeIds',
     'excludeCompanyIds',
   ]) {

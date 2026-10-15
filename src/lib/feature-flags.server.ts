@@ -976,6 +976,26 @@ export function isAgent1ApolloSeenDomainExclusionEnabled(): boolean {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Agente 1 · exclusión de dominios nuestros en Lusha (AGENT1-LUSHA-DOMAIN-EXCLUSION-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_LUSHA_DOMAIN_EXCLUSION_FLAG = 'ENABLE_AGENT1_LUSHA_DOMAIN_EXCLUSION';
+
+/**
+ * ¿Le pide la pierna Lusha a Lusha que NO devuelva lo que ya es nuestro
+ * (`filters.companies.exclude.domains`)?
+ *
+ * Apagada, la petición a Lusha es exactamente la de antes. Encendida, deja de
+ * pagar por empresas que ya tenemos (Lusha cobra 1 crédito por cada 25 resultados).
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ * Así, si Lusha rechazara el campo, se apaga y la pierna sigue como hoy.
+ */
+export function isAgent1LushaDomainExclusionEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_LUSHA_DOMAIN_EXCLUSION_FLAG]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Agente 1 · clasificador Claude de sector/tamaño (AGENT1-CLAUDE-CLASSIFIER-1)
 // ════════════════════════════════════════════════════════════════════════════
 

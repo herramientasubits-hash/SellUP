@@ -43,7 +43,12 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
 import { createClient } from '@/lib/supabase/server';
-import { isAgent1LushaPageCursorEnabled, isLushaPreviewEnabled } from '@/lib/feature-flags.server';
+import {
+  isAgent1LushaDomainExclusionEnabled,
+  isAgent1LushaPageCursorEnabled,
+  isLushaPreviewEnabled,
+} from '@/lib/feature-flags.server';
+import { resolveLushaDomainExclusion } from '@/server/prospect-batches/lusha-domain-exclusion';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { searchLushaCompaniesV3 } from '@/server/integrations/lusha-client';
@@ -1725,6 +1730,11 @@ async function runLushaSearchWithReservation(args: {
         },
         providerSeenLoad: prePaid.providerSeenLoad,
         providerExclusionPlan: prePaid.providerExclusionPlan,
+        // AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — detrás de su bandera (apagada ⇒ igual que antes).
+        domainExclusion: resolveLushaDomainExclusion({
+          enabled: isAgent1LushaDomainExclusionEnabled(),
+          plan: prePaid.providerExclusionPlan,
+        }),
         freeSource: prePaid.freeSource,
         // 🔴 CUT-9 §§ 6, 7 — las filas que lo gratuito dejó en ESTE lote. Es lo que
         // impide que una empresa cuente dos veces hacia el objetivo.

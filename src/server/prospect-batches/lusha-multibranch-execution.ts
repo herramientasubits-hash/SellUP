@@ -53,6 +53,10 @@ import {
   type ProviderSeenPaidSummary,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
 import {
+  toLushaDomainExclusionMetadata,
+  type LushaDomainExclusion,
+} from './lusha-domain-exclusion';
+import {
   planProviderExclusions,
   type ProviderExclusionPlan,
 } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
@@ -496,6 +500,11 @@ export type LushaRunTelemetry = {
    * AGENT1-LUSHA-PAGE-CURSOR-1 — si el cursor actuó y por qué página arrancó cada
    * rama. Opcional: un llamador anterior produce la forma de metadata previa.
    */
+  /**
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — qué se pidió excluir del lado de Lusha.
+   * Opcional: sin él, la metadata es la de antes.
+   */
+  domainExclusion?: LushaDomainExclusion;
   pageCursor?: {
     status: 'disabled' | 'history_unavailable' | 'loaded';
     reason?: string;
@@ -579,6 +588,9 @@ export function toLushaRunTelemetryMetadata(
       : {}),
     ...(telemetry.pageRequests
       ? { page_requests: toLushaPageRequestMetadata(telemetry.pageRequests) }
+      : {}),
+    ...(telemetry.domainExclusion
+      ? { domain_exclusion: toLushaDomainExclusionMetadata(telemetry.domainExclusion) }
       : {}),
     ...(telemetry.pageCursor
       ? {

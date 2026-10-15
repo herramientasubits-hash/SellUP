@@ -14,8 +14,11 @@
  *
  * Contexto validado:
  *   - Q3F-5BB.2  : search devuelve firmografía completa; 1 crédito por página.
- *   - Q3F-5BB.2B : subIndustriesIds funciona (AND con mainIndustriesIds);
- *                  searchText funciona pero es frágil (avanzado/opcional);
+ *   - Q3F-5BB.2B : subIndustriesIds funciona; searchText funciona pero es frágil
+ *                  (avanzado/opcional);
+ *   - Soporte de Lusha (Kamal, 2026-10-15, probado contra la API): con
+ *     `mainIndustriesIds` en la misma petición, `subIndustriesIds` NO se aplica;
+ *     sola, sí filtra. Y `filters.companies.exclude.domains` SÍ existe.
  *                  Lusha exige pagination.size >= 10.
  */
 
@@ -233,19 +236,19 @@ export interface BuildLushaPreviewRequestInput {
    */
   pageSize?: number | null;
   /**
-   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — NO existe un campo de
-   * exclusión en esta entrada, y su ausencia es el contrato.
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — dominios que Lusha NO debe devolver
+   * (`filters.companies.exclude.domains`).
    *
-   * El soporte HUMANO de Lusha confirmó que `POST /v3/companies/prospecting` no
-   * soporta exclusión del lado del servidor (ni `excludeDomains` ni
-   * `excludeCompanyIds`). Esta entrada tenía `excludeDomains` y esta función
-   * emitía `filters.companies.exclude.domains` sobre un contrato que nunca se
-   * verificó. Quitar el campo —en vez de dejarlo y no usarlo— es lo que impide
-   * que un llamador futuro vuelva a creer que hay dónde ponerlo.
+   * CUT-L1 lo había quitado porque el soporte de Lusha dijo (29-09) que no existía.
+   * El 15-10 el soporte (Kamal) lo probó contra la API y confirmó que SÍ existe.
+   * Sólo lo pasa el ejecutor PAGADO, con su bandera encendida, y sólo con lo que ya
+   * es NUESTRO (ver `resolveLushaDomainExclusion`). Ausente o vacío ⇒ la petición es
+   * de inclusión pura, byte a byte la de antes.
    *
-   * La supresión de empresas ya conocidas ocurre en el CLIENTE, tras la respuesta:
-   * `lusha-run-identity-registry` se siembra con los dominios conocidos.
+   * La supresión CLIENTE tras la respuesta (`lusha-run-identity-registry`) sigue
+   * igual: la exclusión ahorra créditos, no reemplaza al dedupe.
    */
+  excludeDomains?: readonly string[] | null;
 }
 
 /**
@@ -336,7 +339,10 @@ export function clampLushaPreviewPage(
  * Fuerza page=0 y size=10. NUNCA emite technologies, intentTopics ni signals.
  * subIndustriesIds y searchText solo se incluyen cuando vienen válidos.
  *
- * 🔴 CUT-L1 § 2 — y NUNCA emite `filters.companies.exclude`, en ninguna forma.
+ * 🔴 Con subindustria, la industria principal NO viaja: Lusha ignora
+ * `subIndustriesIds` cuando va junto a `mainIndustriesIds` (soporte, 15-10).
+ *
+ * `filters.companies.exclude.domains` sólo sale si el llamador pasa dominios.
  */
 export function buildLushaPreviewRequest(
   input: BuildLushaPreviewRequestInput,
@@ -347,12 +353,14 @@ export function buildLushaPreviewRequest(
     locations: [{ country: input.countryName }],
   };
 
-  if (input.mainIndustriesIds.length > 0) {
-    include.mainIndustriesIds = [...input.mainIndustriesIds];
-  }
-
+  // AGENT1-LUSHA-SUBINDUSTRY-ALONE-1 — la subindustria va SOLA. Con la industria
+  // principal al lado, Lusha no aplica el filtro de subindustria (soporte 15-10;
+  // Prod PE × Salud 701ffe78: dos ramas de subindustrias distintas devolvieron las
+  // mismas 50 empresas). La subindustria ya implica su industria madre.
   if (typeof input.subIndustryId === 'number') {
     include.subIndustriesIds = [input.subIndustryId];
+  } else if (input.mainIndustriesIds.length > 0) {
+    include.mainIndustriesIds = [...input.mainIndustriesIds];
   }
 
   if (input.sizeBand && (typeof input.sizeBand.min === 'number' || typeof input.sizeBand.max === 'number')) {
@@ -368,20 +376,13 @@ export function buildLushaPreviewRequest(
   }
 
   /**
-   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION § 2 — SÓLO filtros de inclusión.
-   *
-   * `filters.companies.exclude` NO se emite nunca, y por tanto tampoco
-   * `filters.companies.exclude.domains`. Lusha V3 no soporta exclusión
-   * server-side —contrato HUMANO— y tampoco se sustituye por otro campo adivinado:
-   * no hay exclusión por dominio, por id de empresa, por nombre, por LinkedIn ni
-   * por identificador fiscal.
-   *
-   * La supresión de lo ya conocido es CLIENTE y posterior a la respuesta. Eso
-   * significa, sin adornos, que el crédito de Prospecting de una empresa histórica
-   * puede haberse cobrado ya: este corte no lo ahorra y no pretende ahorrarlo.
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — exclusión SÓLO por dominio y sólo si el
+   * llamador la pasa. No se adivinan otros campos (id de empresa, nombre,
+   * LinkedIn, identificador fiscal): el único confirmado es `exclude.domains`.
    */
+  const excludeDomains = [...new Set((input.excludeDomains ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean))];
   const companies: NonNullable<LushaCompanyProspectingV3Request['filters']>['companies'] =
-    { include };
+    excludeDomains.length > 0 ? { include, exclude: { domains: excludeDomains } } : { include };
 
   return {
     filters: { companies },
@@ -776,14 +777,12 @@ export interface LushaPreviewInput {
    */
   pageSize?: number | null;
   /**
-   * 🔴 AGENT1-LUSHA-CUT-L1-CLIENT-SIDE-EXCLUSION §§ 1, 2 — esta entrada YA NO
-   * lleva `excludeDomains`, y la ausencia es deliberada.
-   *
-   * Lusha V3 no soporta exclusión server-side (contrato HUMANO). Los dominios que
-   * SellUp ya conoce siguen viajando por la ejecución
-   * (`execution.providerExclusionPlan.domains.dedupeAuthorityValues`) y siembran
-   * la supresión CLIENTE; lo que no hacen es entrar en el cuerpo de la petición.
+   * AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — dominios que esta petición pide no recibir
+   * (`filters.companies.exclude.domains`). Sólo el ejecutor PAGADO lo pasa, con su
+   * bandera encendida; no viaja desde el navegador. Los mismos dominios siguen
+   * sembrando la supresión CLIENTE (`execution.providerExclusionPlan`).
    */
+  excludeDomains?: readonly string[] | null;
   /**
    * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — la RAMA que esta petición
    * ejecuta.
@@ -916,6 +915,14 @@ export interface LushaPreviewResult {
     subIndustryId: number | null;
     sizeBand: { min?: number; max?: number } | null;
     hasSearchText: boolean;
+    /**
+     * AGENT1-LUSHA-SUBINDUSTRY-ALONE-1 — true si la industria principal NO viajó
+     * porque la rama lleva subindustria. `mainIndustriesIds` sigue diciendo la
+     * rama (identidad para auditoría), no lo que salió en el cuerpo.
+     */
+    mainIndustryOmittedForSubIndustry?: boolean;
+    /** AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — cuántos dominios se pidieron excluir. */
+    excludedDomainsCount?: number;
   };
   error?: string;
 }
@@ -1053,6 +1060,8 @@ export async function executeLushaPreview(
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     hasSearchText,
+    mainIndustryOmittedForSubIndustry: typeof effectiveSubId === 'number',
+    excludedDomainsCount: new Set((input.excludeDomains ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean)).size,
   };
 
   const apiKey = await deps.resolveApiKey();
@@ -1073,9 +1082,9 @@ export async function executeLushaPreview(
 
   const request = buildLushaPreviewRequest({
     countryName,
-    // Exactamente UN main y a lo sumo UNA sub por petición: `subIndustriesIds` se
-    // combina en AND, así que varios mains en una rama sería una promesa de OR que
-    // el proveedor no cumple. La unión de ramas la hace el ejecutor.
+    // Exactamente UN main y a lo sumo UNA sub por petición; con sub, el builder
+    // manda sólo la sub (Lusha ignora la sub junto a la main). La unión de ramas
+    // la hace el ejecutor.
     mainIndustriesIds: [effectiveMainIndustryId],
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
@@ -1084,7 +1093,8 @@ export async function executeLushaPreview(
     authorizedMaxPage: input.authorizedMaxPage ?? null,
     // CUT-L5 § 13 — el tamaño de la ruta que paga. Ausente ⇒ preview (10).
     pageSize: input.pageSize,
-    // 🔴 CUT-L1 § 2 — no hay nada que pasar: la petición es de INCLUSIÓN pura.
+    // AGENT1-LUSHA-DOMAIN-EXCLUSION-1 — sólo lo pasa el ejecutor pagado.
+    excludeDomains: input.excludeDomains ?? null,
   });
 
   const providerResult = await deps.searchCompanies(apiKey, request);
