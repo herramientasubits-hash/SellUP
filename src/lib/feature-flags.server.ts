@@ -1090,6 +1090,19 @@ export function isAgent1CorporateTreeSearchEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT1_CORPORATE_TREE_SEARCH_FLAG]);
 }
 
+export const AGENT1_CORPORATE_TREE_APOLLO_FLAG = 'ENABLE_AGENT1_CORPORATE_TREE_APOLLO';
+
+/**
+ * AGENT1-CORPORATE-TREE-4 — ¿El árbol busca en Apollo por nombre las empresas que siguen
+ * sin web, antes del rescate? Gasta créditos de Apollo (1 por página con resultados, como
+ * mucho 5 por corrida) y pasa por la cuota de Apollo.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1CorporateTreeApolloEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_CORPORATE_TREE_APOLLO_FLAG]);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Agente 1 · «Proveedores de una empresa» — Fase 1 (AGENT1-SUPPLIER-SEARCH-1)
 // ════════════════════════════════════════════════════════════════════════════

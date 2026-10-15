@@ -91,7 +91,15 @@ export function CorporateTreeBatchSections({
                         </p>
                         {item.relationDetail && <p className="text-xs text-muted-foreground">{item.relationDetail}</p>}
                         {item.groupWebsite && (
-                          <p className="text-xs text-muted-foreground">Web del grupo: {item.groupWebsite}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.candidateId
+                              ? `Sin web propia: usa la del grupo (${item.groupWebsite}). Entró por su número fiscal oficial.`
+                              : `Web del grupo: ${item.groupWebsite}`}
+                          </p>
+                        )}
+                        {item.foundInApollo && <p className="text-xs text-muted-foreground">Web encontrada en Apollo por el nombre.</p>}
+                        {item.websiteUnverified && (
+                          <p className="text-xs text-warning">Web no comprobada: el sitio no deja revisarla. Confírmala antes de aprobar.</p>
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-2">

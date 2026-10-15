@@ -13,7 +13,7 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     const supabase = await createClient();
     const { data, error } = await supabase
       .from('agent1_company_relationships')
-      .select('related_candidate_id, related_name, related_country_code, related_domain, relation_type, relation_detail, evidence_url')
+      .select('related_candidate_id, related_name, related_country_code, related_domain, relation_type, relation_detail, evidence_url, matched_hubspot_company_id')
       .eq('batch_id', batchId)
       .limit(MAX_ROWS);
     if (error) return [];
