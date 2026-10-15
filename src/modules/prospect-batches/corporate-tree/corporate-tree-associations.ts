@@ -15,6 +15,8 @@ export type CorporateTreeRelationshipRecord = {
   batch_id: string;
   root_name: string;
   root_candidate_id: string | null;
+  /** La cuenta desde la que se buscó el árbol, si se buscó desde una cuenta. */
+  root_account_id?: string | null;
   related_candidate_id: string | null;
   related_name: string;
   related_country_code: string | null;
@@ -93,12 +95,27 @@ export function linkTreeRecordsToCandidates<T extends CorporateTreeRelationshipR
   });
 }
 
+/**
+ * Quién es «esta empresa» en el árbol: una ficha de «Por revisar» (su id) o una cuenta
+ * (sus fichas convertidas, su HubSpot y los árboles que se buscaron desde ella).
+ */
+export type CorporateTreeSelf = {
+  candidateIds: ReadonlySet<string>;
+  hubspotCompanyId?: string | null;
+  accountId?: string | null;
+};
+
 /** Agrupa las filas por árbol (lote) y por rama, en el orden de siempre. */
 export function buildCorporateTreeViews(
   records: readonly CorporateTreeRelationshipRecord[],
-  candidateId: string,
+  selfOrCandidateId: string | CorporateTreeSelf,
   statusById: ReadonlyMap<string, string>,
 ): CorporateTreeView[] {
+  const self: CorporateTreeSelf =
+    typeof selfOrCandidateId === 'string' ? { candidateIds: new Set([selfOrCandidateId]) } : selfOrCandidateId;
+  const isSelfRow = (r: CorporateTreeRelationshipRecord) =>
+    (!!r.related_candidate_id && self.candidateIds.has(r.related_candidate_id)) ||
+    (!!self.hubspotCompanyId && r.matched_hubspot_company_id === self.hubspotCompanyId);
   const byBatch = new Map<string, CorporateTreeRelationshipRecord[]>();
   for (const record of records) {
     if (!isCorporateTreeRelation(record.relation_type)) continue;
@@ -108,8 +125,10 @@ export function buildCorporateTreeViews(
   const views: CorporateTreeView[] = [];
   for (const [batchId, rows] of byBatch) {
     const first = rows[0];
-    const isRootSelf = first.root_candidate_id === candidateId;
-    const self = rows.find((r) => r.related_candidate_id === candidateId);
+    const isRootSelf =
+      (!!first.root_candidate_id && self.candidateIds.has(first.root_candidate_id)) ||
+      (!!self.accountId && first.root_account_id === self.accountId);
+    const selfRow = rows.find(isSelfRow);
     const groups = CORPORATE_TREE_RELATION_ORDER.map((relation) => ({
       relation,
       label: CORPORATE_TREE_RELATION_LABELS[relation],
@@ -123,14 +142,14 @@ export function buildCorporateTreeViews(
           hubspotCompanyId: r.matched_hubspot_company_id,
           relationDetail: r.relation_detail,
           evidenceUrl: r.evidence_url,
-          isSelf: r.related_candidate_id === candidateId,
+          isSelf: isSelfRow(r),
         }))
         .sort((a, b) => a.name.localeCompare(b.name, 'es')),
     })).filter((g) => g.items.length > 0);
     views.push({
       batchId,
       rootName: first.root_name,
-      selfRelation: isRootSelf ? 'root' : self && isCorporateTreeRelation(self.relation_type) ? self.relation_type : null,
+      selfRelation: isRootSelf ? 'root' : selfRow && isCorporateTreeRelation(selfRow.relation_type) ? selfRow.relation_type : null,
       groups,
       createdAt: rows.reduce((latest, r) => (r.created_at > latest ? r.created_at : latest), first.created_at),
     });

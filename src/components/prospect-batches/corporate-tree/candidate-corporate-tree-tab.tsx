@@ -24,19 +24,21 @@ type LoadState =
  * (AGENT1-CORPORATE-TREE-1): con qué empresas está relacionada y en qué quedó
  * cada una. Se carga al abrir la pestaña.
  */
-export function CandidateCorporateTreeTab({ candidateId }: { candidateId: string }) {
+export function CandidateCorporateTreeTab({ candidateId, accountId }: { candidateId?: string; accountId?: string }) {
   const [state, setState] = React.useState<LoadState>({ kind: 'loading' });
+  // Una ficha de «Por revisar» o una cuenta (AGENT1-CORPORATE-TREE-4).
+  const query = candidateId ? `candidateId=${encodeURIComponent(candidateId)}` : `accountId=${encodeURIComponent(accountId ?? '')}`;
 
   React.useEffect(() => {
     let alive = true;
-    fetch(`/api/prospect-batches/corporate-tree-runs/associations?candidateId=${encodeURIComponent(candidateId)}`, { cache: 'no-store' })
+    fetch(`/api/prospect-batches/corporate-tree-runs/associations?${query}`, { cache: 'no-store' })
       .then((response) => (response.ok ? (response.json() as Promise<CorporateTreeAssociationsResponse>) : Promise.reject(new Error(String(response.status)))))
       .then((data) => alive && setState({ kind: 'ready', data }))
       .catch(() => alive && setState({ kind: 'error' }));
     return () => {
       alive = false;
     };
-  }, [candidateId]);
+  }, [query]);
 
   if (state.kind === 'loading') {
     return (

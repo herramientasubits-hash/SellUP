@@ -27,7 +27,7 @@ import {
   verifyProposedWebsite,
   type DomainFinderDeps,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/domain-finder';
-import { anySearchConfirms } from '@/server/agents/prospecting-toolkit/claude-classifier/site-match';
+import { anySearchConfirms, isRegistrableDomain, ownDomainLabel } from '@/server/agents/prospecting-toolkit/claude-classifier/site-match';
 import { WEB_SEARCH_TOOL_TYPE } from '@/server/agents/prospecting-toolkit/claude-classifier/prompt';
 import type { ClassifierUsage } from '@/server/agents/prospecting-toolkit/claude-classifier/types';
 import { normalizeTreeName, type CorporateTreeBranch } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
@@ -73,6 +73,12 @@ export type CorporateTreeNode = {
   linkedinUrl: string | null;
   relationDetail: string | null;
   evidenceUrl: string;
+  /**
+   * La web no se pudo comprobar porque el sitio bloquea la descarga (bancos, aseguradoras)
+   * y se aceptó porque su dominio lleva el nombre propio de la empresa con la terminación
+   * de su país. Entra a «Por revisar» marcada para que una persona la mire.
+   */
+  websiteUnverified?: boolean;
 };
 
 /** Lo que Claude dijo de la empresa de partida (web y país), si lo encontró. */
@@ -355,7 +361,12 @@ export async function filterCorporateTreeProposals(
     accepted.map(async ({ claimedWebsite, ...node }): Promise<CorporateTreeNode> => {
       const website = await confirmWebsite(claimedWebsite, node, searchResults, countryByCode, fetchPage);
       if (claimedWebsite && !website) websitesDropped++;
-      return { ...node, website: website?.website ?? null, domain: website?.domain ?? null };
+      return {
+        ...node,
+        website: website?.website ?? null,
+        domain: website?.domain ?? null,
+        ...(website?.unverified ? { websiteUnverified: true } : {}),
+      };
     }),
   );
   return { nodes, root, rejected, websitesDropped };
@@ -374,13 +385,42 @@ function readRoot(raw: RawRoot | null, searchDomains: readonly string[]): Corpor
   };
 }
 
+/** Palabras que no identifican a una empresa por sí solas (no cuentan como «su nombre»). */
+const GENERIC_NAME_WORDS = new Set([
+  'grupo', 'group', 'financiero', 'financial', 'banco', 'bank', 'compania', 'company', 'corporacion', 'corporation',
+  'holding', 'holdings', 'servicios', 'services', 'international', 'internacional', 'sucursal', 'branch', 'inversiones',
+  'sociedad', 'empresa', 'empresas', 'global', 'markets', 'mercados', 'seguros', 'insurance', 'capital', 'america',
+  'latinoamerica', 'colombia', 'mexico', 'chile', 'argentina', 'peru', 'ecuador', 'uruguay', 'paraguay', 'bolivia',
+  'brasil', 'brazil', 'espana', 'panama', 'guatemala', 'honduras', 'salvador', 'nicaragua', 'venezuela', 'dominicana',
+]);
+const GENERIC_TLDS = new Set(['com', 'net', 'org']);
+
+/**
+ * ¿Se puede aceptar una web que el sitio no deja comprobar? Sólo si su dominio lleva una
+ * palabra propia del nombre (5+ letras, no genérica: «citibank» en citibank.com.pe para
+ * «Citibank del Perú») y termina en el dominio del país o en uno genérico (.com).
+ */
+export function blockedSiteDomainCarriesName(name: string, domain: string, countryCode: string): boolean {
+  if (!isRegistrableDomain(domain)) return false;
+  const label = (ownDomainLabel(domain) ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (label.length < 4) return false;
+  const tld = domain.toLowerCase().split('.').pop() ?? '';
+  const cc = countryCode.toLowerCase() === 'gb' ? 'uk' : countryCode.toLowerCase();
+  if (tld !== cc && !GENERIC_TLDS.has(tld)) return false;
+  const words = normalizeTreeName(name)
+    .split(' ')
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length >= 5 && !GENERIC_NAME_WORDS.has(w));
+  return words.some((word) => label === word || label.startsWith(word) || (label.length >= 5 && word.includes(label)));
+}
+
 async function confirmWebsite(
   claimedWebsite: string | null,
   node: { name: string; countryCode: string; linkedinUrl: string | null },
   searchResults: ReturnType<typeof extractSearchResultEntries>,
   countryByCode: ReadonlyMap<string, TreeCountry>,
   fetchPage?: DomainFinderDeps['fetchPage'],
-): Promise<{ website: string; domain: string } | null> {
+): Promise<{ website: string; domain: string; unverified?: boolean } | null> {
   if (!claimedWebsite) return null;
   const domain = normalizeDomain(claimedWebsite);
   if (!domain || !evaluateExternalPlatformGate(claimedWebsite, node.name).allowed) return null;
@@ -398,7 +438,13 @@ async function confirmWebsite(
     },
     fetchPage,
   ).catch(() => null);
-  return check?.found ? { website: `https://${check.domain}`, domain: check.domain } : null;
+  if (check?.found) return { website: `https://${check.domain}`, domain: check.domain };
+  // El sitio no se deja abrir (Prod 15-10, Citigroup: citibank.com.pe, citi.com.ec):
+  // sólo con su nombre en el dominio y la terminación de su país, y marcada.
+  if (check && !check.found && check.reason === 'page_unreachable' && blockedSiteDomainCarriesName(node.name, domain, node.countryCode)) {
+    return { website: `https://${domain}`, domain, unverified: true };
+  }
+  return null;
 }
 
 export async function searchCorporateTreeBranch(

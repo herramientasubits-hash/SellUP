@@ -93,6 +93,9 @@ export function CorporateTreeBatchSections({
                         {item.groupWebsite && (
                           <p className="text-xs text-muted-foreground">Web del grupo: {item.groupWebsite}</p>
                         )}
+                        {item.websiteUnverified && (
+                          <p className="text-xs text-warning">Web no comprobada: el sitio no deja revisarla. Confírmala antes de aprobar.</p>
+                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <Badge variant={item.statusTone}>{item.statusLabel}</Badge>

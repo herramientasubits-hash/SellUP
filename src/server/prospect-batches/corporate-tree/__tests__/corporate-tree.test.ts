@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 
 import type { AnthropicConversationResult } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
+  blockedSiteDomainCarriesName,
   buildCorporateTreeRequestBody,
   searchCorporateTreeBranch,
   SUBMIT_CORPORATE_TREE_TOOL_NAME,
@@ -17,7 +18,13 @@ import {
   type CorporateTreeSearchInput,
   type CorporateTreeSearchOutcome,
 } from '../corporate-tree-search';
-import { corporateTreeRowKey, planCorporateTreeWrites, type CorporateTreeRoot } from '../corporate-tree-plan';
+import {
+  corporateTreeRowKey,
+  markKnownCompanies,
+  pickKnownCompany,
+  planCorporateTreeWrites,
+  type CorporateTreeRoot,
+} from '../corporate-tree-plan';
 import {
   corporateTreeNameCores,
   escapeLikePrefix,
@@ -871,5 +878,99 @@ describe('K. Lo que no entró a revisión se dice como es', () => {
     assert.equal(byRelation.get('subsidiary')?.statusLabel, 'Referencia: usa la web del grupo');
     assert.equal(byRelation.get('subsidiary')?.groupWebsite, 'https://ge.com');
     assert.equal(byRelation.get('other_country')?.statusLabel, 'En Descartadas: sin web');
+  });
+});
+
+describe('L. Citigroup (Prod 15-10): menos rescate pagado y webs de bancos', () => {
+  const CITI: CorporateTreeRoot = { name: 'Citigroup', website: 'https://www.citigroup.com', domain: 'citigroup.com', countryCode: 'US', candidateId: null, accountId: null };
+
+  it('la empresa de partida del registro sin web usa la web que ya conocemos', () => {
+    const plan = planCorporateTreeWrites({ root: CITI, freeHits: [FREE_HIT('CITIGROUP INC', 'US', { relation: 'root' })], nodes: [] });
+    const row = plan.rows.find((r) => r.relation === 'root');
+    assert.equal(row?.domain, 'citigroup.com');
+    assert.equal(row?.route, 'free_catalog');
+    assert.equal(plan.withoutWebsite.size, 0, 'no va a «Descartadas»');
+  });
+
+  it('las que ya están en HubSpot por su nombre no van al rescate y quedan con su ficha', () => {
+    const plan = planCorporateTreeWrites({
+      root: CITI,
+      freeHits: [],
+      nodes: [NODE('Citibank-Colombia S.A.', 'CO'), NODE('Citibank N.A. Ecuador', 'EC')],
+    });
+    const marked = markKnownCompanies(plan, new Map([[corporateTreeRowKey('Citibank-Colombia S.A.', 'CO'), { hubspotCompanyId: '123', accountId: null }]]));
+    const byName = new Map(marked.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get('Citibank-Colombia S.A.')?.route, 'already_known');
+    assert.equal(byName.get('Citibank-Colombia S.A.')?.knownHubspotCompanyId, '123');
+    assert.deepEqual([...marked.withoutWebsite.keys()], ['EC']);
+    assert.equal(plan.rows.find((r) => r.name === 'Citibank-Colombia S.A.')?.route, 'without_website', 'el plan original no cambia');
+  });
+
+  it('sólo coincidencias exactas y del mismo país cuentan como «ya conocida»', () => {
+    const exact = { source: 'hubspot' as const, status: 'existing_in_hubspot', confidence: 82, matchedId: 'hs-1', raw: { country: 'Colombia' } };
+    assert.deepEqual(pickKnownCompany({ hubspot: [exact], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), { hubspotCompanyId: 'hs-1', accountId: null });
+    assert.equal(pickKnownCompany({ hubspot: [{ ...exact, raw: { country: 'United States' } }], sellup: [], countryCode: 'UY', countryName: 'Uruguay' }), null, 'otro país');
+    assert.equal(pickKnownCompany({ hubspot: [{ ...exact, status: 'possible_duplicate', confidence: 65 }], sellup: [], countryCode: 'CO', countryName: 'Colombia' }), null, 'parecido no basta');
+    assert.deepEqual(
+      pickKnownCompany({
+        hubspot: [],
+        sellup: [{ source: 'sellup', status: 'existing_in_sellup', confidence: 88, matchedId: 'acc-1' }],
+        countryCode: 'CO',
+        countryName: 'Colombia',
+        accountHubspotId: () => 'hs-9',
+      }),
+      { hubspotCompanyId: 'hs-9', accountId: 'acc-1' },
+    );
+  });
+
+  it('la corrida pregunta antes de mandar al rescate y no lo agenda si no queda ninguna sin web', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary' ? outcomeFor('subsidiary', []) : outcomeFor('other_country', [NODE('Nutresa Chile', 'CL', { branch: 'other_country' })]),
+      findKnownCompany: async ({ name }) => (name === 'Nutresa Chile' ? { hubspotCompanyId: 'hs-cl', accountId: null } : null),
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.equal(result.alreadyKnown, 1);
+    assert.deepEqual(calls.withoutWebsite, []);
+    assert.deepEqual(calls.rescued, [], 'sin filas sin web, no hay rescate que pagar');
+    assert.equal(calls.relationships.find((r) => r.related_name === 'Nutresa Chile')?.matched_hubspot_company_id, 'hs-cl');
+  });
+
+  it('una web que el sitio no deja comprobar sólo vale con su nombre propio y la terminación de su país', () => {
+    assert.equal(blockedSiteDomainCarriesName('Citibank del Perú S.A.', 'citibank.com.pe', 'PE'), true);
+    assert.equal(blockedSiteDomainCarriesName('Grupo Financiero Citibanamex', 'banamex.com', 'MX'), true);
+    assert.equal(blockedSiteDomainCarriesName('Citibank N.A. Ecuador', 'citi.com.ec', 'EC'), false, 'el dominio no lleva el nombre');
+    assert.equal(blockedSiteDomainCarriesName('Citibank del Perú S.A.', 'citibank.com.ar', 'PE'), false, 'otro país');
+    assert.equal(blockedSiteDomainCarriesName('Banco de Chile', 'chile.cl', 'CL'), false, 'palabras genéricas no cuentan');
+  });
+
+  it('el aviso nombra también las que ya estaban en HubSpot', () => {
+    assert.equal(
+      corporateTreePendingSummary({ waitingWebsite: 3, groupReferences: 1, alreadyKnown: 7 }),
+      '3 esperan su web en «Descartadas», 1 queda como referencia (web del grupo) y 7 ya estaban en HubSpot.',
+    );
+  });
+
+  it('el lote dice «Ya en HubSpot» y marca la web no comprobada', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [{ id: 'p', name: 'Citibank del Perú', country_code: 'PE', status: 'needs_review', matched_hubspot_company_id: null, metadata: { corporate_tree: { relation: 'subsidiary', website_unverified: true } } }],
+      [{ related_candidate_id: null, related_name: 'Citibank Colombia', related_country_code: 'CO', related_domain: null, matched_hubspot_company_id: '123', relation_type: 'group', relation_detail: null, evidence_url: null }],
+    );
+    const byRelation = new Map(groups.map((g) => [g.relation, g.items[0]]));
+    assert.equal(byRelation.get('group')?.statusLabel, 'Ya en HubSpot');
+    assert.equal(byRelation.get('subsidiary')?.websiteUnverified, true);
+  });
+
+  it('la cuenta ve los árboles en que aparece: por su HubSpot o porque se buscó desde ella', () => {
+    const rec = (extra: Partial<CorporateTreeRelationshipRecord>): CorporateTreeRelationshipRecord => ({
+      batch_id: 'b1', root_name: 'Citigroup', root_candidate_id: null, root_account_id: null, related_candidate_id: null,
+      related_name: 'Citibank Colombia', related_country_code: 'CO', relation_type: 'group', relation_detail: null,
+      evidence_url: null, matched_hubspot_company_id: null, created_at: '2026-10-15T00:00:00Z', ...extra,
+    });
+    const [byHubspot] = buildCorporateTreeViews([rec({ matched_hubspot_company_id: '123' })], { candidateIds: new Set(), hubspotCompanyId: '123', accountId: 'acc' }, new Map());
+    assert.equal(byHubspot.selfRelation, 'group');
+    const [asRoot] = buildCorporateTreeViews([rec({ batch_id: 'b2', root_account_id: 'acc' })], { candidateIds: new Set(), accountId: 'acc' }, new Map());
+    assert.equal(asRoot.selfRelation, 'root');
   });
 });

@@ -38,6 +38,8 @@ import { CLAUDE_COMPANY_SEARCH_OPERATION_KEY } from '@/server/agents/prospecting
 import { withOfficialIdentity } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run.server';
 import { scheduleClaudeRescueAfterWizardRun } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/schedule-rescue.server';
 import { fetchSafePageHtml } from '@/server/agents/prospecting-toolkit/website-verifier';
+import { checkHubSpotDuplicates } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
+import { checkSellUpDuplicates } from '@/server/agents/prospecting-toolkit/sellup-duplicate-checker';
 import { buildProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/prospecting-pipeline';
 import { getCatalogContext } from '@/server/agents/prospecting-toolkit/catalog-context-retriever';
 import { writeProspectingCandidates } from '@/server/agents/prospecting-toolkit/candidate-writer';
@@ -55,7 +57,8 @@ import {
   type FreeBankRow,
   type FreeSnapshotRow,
 } from './corporate-tree-free-lookup';
-import type { CorporateTreeWebItem } from './corporate-tree-plan';
+import { pickKnownCompany, type CorporateTreeWebItem } from './corporate-tree-plan';
+import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
@@ -142,6 +145,7 @@ export function corporateTreeNodeToSearchResult(node: CorporateTreeNode, rank: n
       claude_company_search: true,
       corporate_tree_relation: node.branch,
       evidence_source_url: node.evidenceUrl,
+      ...(node.websiteUnverified ? { website_unverified: true } : {}),
       ...(node.linkedinUrl ? { linkedin_url: node.linkedinUrl } : {}),
     },
   };
@@ -326,6 +330,31 @@ export function buildLiveCorporateTreeDeps(params: {
         maxDeliveredCandidates: null,
       });
       return { written: output.status === 'failed' ? 0 : output.candidatesCreated, errors: output.errors };
+    },
+
+    findKnownCompany: async ({ name, countryCode }) => {
+      const countryName = LATAM_COUNTRIES.find((c) => c.code === countryCode)?.name ?? null;
+      const input = { name, countryCode, country: countryName };
+      const [hubspot, sellup] = await Promise.all([
+        checkHubSpotDuplicates(input).catch(() => ({ connected: false as const, skipped: true as const, matches: [] as [] })),
+        checkSellUpDuplicates(input).catch(() => []),
+      ]);
+      const sellupMatches = sellup.filter((m) => m.status === 'existing_in_sellup' && !!m.matchedId);
+      const hubspotIdByAccount = new Map<string, string | null>();
+      if (sellupMatches.length > 0) {
+        const { data } = await params.supabase
+          .from('accounts')
+          .select('id, hubspot_company_id')
+          .in('id', sellupMatches.map((m) => m.matchedId as string));
+        for (const row of data ?? []) hubspotIdByAccount.set(row.id as string, (row.hubspot_company_id as string | null) ?? null);
+      }
+      return pickKnownCompany({
+        hubspot: hubspot.matches,
+        sellup: sellupMatches,
+        countryCode,
+        countryName,
+        accountHubspotId: (id) => hubspotIdByAccount.get(id) ?? null,
+      });
     },
 
     recordWithoutWebsite: async (batchId, countryCode, companies) => {

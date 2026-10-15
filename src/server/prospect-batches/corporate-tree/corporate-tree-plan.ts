@@ -53,7 +53,15 @@ export type CorporateTreePlannedRow = {
    * el rescate pagado; queda como referencia del árbol (Prod 14-10, General Electric:
    * 9 al rescate, 0 webs propias).
    */
-  route: 'free_catalog' | 'agent1_writer' | 'without_website' | 'group_reference';
+  route: 'free_catalog' | 'agent1_writer' | 'without_website' | 'group_reference' | 'already_known';
+  /**
+   * `already_known`: sin web, pero ya está en HubSpot o en SellUp por su nombre. No va al
+   * rescate pagado (Prod 15-10, Citigroup: 7 de 14 rescates encontraron empresas ya conocidas).
+   */
+  knownHubspotCompanyId?: string | null;
+  /** La web vino de Claude sin poder comprobarse (el sitio bloquea la descarga). */
+  websiteUnverified?: boolean;
+  knownAccountId?: string | null;
 };
 
 export type CorporateTreeWebItem = { key: string; node: CorporateTreeNode | null; bankCandidate: ProspectingPipelineCandidate | null };
@@ -182,9 +190,18 @@ export function planCorporateTreeWrites(params: {
     if (isRoot) seen.add(rootKey);
     if (node) consumed.add(key);
 
-    const ownDomain = hit.domain && !(!isRoot && root.domain && hit.domain === root.domain) ? hit.domain : null;
+    // La empresa de partida usa la web que ya conocemos aunque el registro no la traiga
+    // (Prod 15-10, Citigroup: «CITIGROUP INC» del directorio de EE. UU. fue a «Descartadas»
+    // teniendo citigroup.com).
+    const ownDomain =
+      hit.domain && !(!isRoot && root.domain && hit.domain === root.domain)
+        ? hit.domain
+        : isRoot && root.domain
+          ? root.domain
+          : null;
     const claudeDomain = node?.domain && !isShared(node.domain) ? node.domain : null;
     const domain = ownDomain ?? claudeDomain;
+    const websiteUnverified = !ownDomain && !!claudeDomain && !!node?.websiteUnverified;
     const sharedDomain = !domain && !!(hit.domain || node?.domain);
     if (sharedDomain) sharedWebsites++;
     const groupWebsite = sharedDomain ? (node?.website ?? (hit.domain ? `https://${hit.domain}` : null)) : null;
@@ -210,6 +227,7 @@ export function planCorporateTreeWrites(params: {
       evidenceUrl: node?.evidenceUrl ?? null,
       groupWebsite,
       route,
+      ...(websiteUnverified ? { websiteUnverified } : {}),
     };
     entries.push({
       row,
@@ -250,6 +268,7 @@ export function planCorporateTreeWrites(params: {
         evidenceUrl: node.evidenceUrl,
         groupWebsite: shared ? node.website : null,
         route: ownWebsite ? 'agent1_writer' : shared ? 'group_reference' : 'without_website',
+        ...(ownWebsite && node.websiteUnverified ? { websiteUnverified: true } : {}),
       },
       freeCompany: null,
       webItem: ownWebsite ? { key, node: effective, bankCandidate: null } : null,
@@ -317,4 +336,72 @@ export function planCorporateTreeWrites(params: {
     if (entry.withoutWebsite) push(plan.withoutWebsite, cc, entry.withoutWebsite);
   }
   return plan;
+}
+
+/** Una empresa sin web que ya existe en HubSpot o en SellUp (por su nombre y país). */
+export type CorporateTreeKnownCompany = { hubspotCompanyId: string | null; accountId: string | null };
+
+/**
+ * Las filas sin web que ya se conocen dejan de ir a «Descartadas» (y al rescate) y quedan
+ * como referencia con su ficha de HubSpot. Puro: devuelve un plan nuevo.
+ */
+export function markKnownCompanies(
+  plan: CorporateTreeWritePlan,
+  known: ReadonlyMap<string, CorporateTreeKnownCompany>,
+): CorporateTreeWritePlan {
+  if (known.size === 0) return plan;
+  const rows = plan.rows.map((row) => {
+    const match = row.route === 'without_website' ? known.get(row.key) : undefined;
+    return match
+      ? { ...row, route: 'already_known' as const, knownHubspotCompanyId: match.hubspotCompanyId, knownAccountId: match.accountId }
+      : row;
+  });
+  const withoutWebsite = new Map<string, CountrySourceCompany[]>();
+  for (const [code, companies] of plan.withoutWebsite) {
+    const kept = companies.filter((c) => !known.has(corporateTreeRowKey(c.legalName ?? '', c.countryCode)));
+    if (kept.length > 0) withoutWebsite.set(code, kept);
+  }
+  return { ...plan, rows, withoutWebsite };
+}
+
+type KnownMatch = {
+  source: 'sellup' | 'hubspot';
+  status: string;
+  confidence: number;
+  matchedId?: string | null;
+  raw?: unknown;
+};
+
+const foldText = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+
+/**
+ * ¿Lo que devolvieron los revisores de duplicados prueba que la empresa ya existe? Sólo
+ * coincidencias EXACTAS (nombre normalizado igual, dominio o número fiscal), nunca un
+ * «parecido». En HubSpot, si la ficha dice otro país, no es la misma empresa
+ * («Citibank N.A.» de EE. UU. no es la sucursal de Uruguay).
+ */
+export function pickKnownCompany(params: {
+  hubspot: readonly KnownMatch[];
+  sellup: readonly KnownMatch[];
+  countryCode: string | null;
+  countryName: string | null;
+  /** HubSpot de la cuenta de SellUp encontrada, si lo tiene. */
+  accountHubspotId?: (accountId: string) => string | null;
+}): CorporateTreeKnownCompany | null {
+  const wanted = [params.countryCode, params.countryName].filter((v): v is string => !!v).map(foldText);
+  const sameCountry = (raw: unknown) => {
+    const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>)['country'] : null;
+    const country = typeof value === 'string' ? foldText(value) : '';
+    return !country || wanted.length === 0 || wanted.includes(country);
+  };
+  const hub = params.hubspot.find(
+    (m) => m.status === 'existing_in_hubspot' && m.confidence >= 80 && !!m.matchedId && sameCountry(m.raw),
+  );
+  const account = params.sellup.find((m) => m.status === 'existing_in_sellup' && !!m.matchedId);
+  if (!hub && !account) return null;
+  const accountId = account?.matchedId ?? null;
+  return {
+    hubspotCompanyId: hub?.matchedId ?? (accountId ? params.accountHubspotId?.(accountId) ?? null : null),
+    accountId,
+  };
 }

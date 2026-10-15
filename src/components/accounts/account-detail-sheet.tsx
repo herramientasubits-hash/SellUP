@@ -15,6 +15,7 @@ import {
   Calendar,
   User,
   Briefcase,
+  GitBranch,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -30,6 +31,7 @@ import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accou
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
 import { AccountAgentsRunHistory } from '@/components/contact-enrichment/account-agents-run-history';
+import { CandidateCorporateTreeTab } from '@/components/prospect-batches/corporate-tree/candidate-corporate-tree-tab';
 import type { AccountContactEnrichmentRun } from '@/modules/contact-enrichment/account-run-history-types';
 import {
   PIPELINE_STATUS_LABELS,
@@ -271,6 +273,7 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                     <TabsTrigger value="inteligencia"><Brain className="h-4 w-4" /> Inteligencia</TabsTrigger>
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                     <TabsTrigger value="agentes"><Bot className="h-4 w-4" /> Agentes</TabsTrigger>
+                    <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Asociaciones</TabsTrigger>
                   </TabsList>
 
                   {/* Resumen */}
@@ -440,6 +443,11 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                   {/* Agentes */}
                   <TabsContent value="agentes">
                     <AccountAgentsRunHistory runs={data.contactEnrichmentRuns} />
+                  </TabsContent>
+
+                  {/* AGENT1-CORPORATE-TREE-4 — su árbol: grupo, filiales y otros países. */}
+                  <TabsContent value="asociaciones">
+                    <CandidateCorporateTreeTab key={data.account.id} accountId={data.account.id} />
                   </TabsContent>
                 </Tabs>
           </div>

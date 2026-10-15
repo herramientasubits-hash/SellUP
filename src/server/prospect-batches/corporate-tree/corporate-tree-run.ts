@@ -29,7 +29,9 @@ import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalizati
 import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
 import {
+  markKnownCompanies,
   planCorporateTreeWrites,
+  type CorporateTreeKnownCompany,
   type CorporateTreePlannedRow,
   type CorporateTreeRoot,
   type CorporateTreeWebItem,
@@ -166,6 +168,11 @@ export type CorporateTreeRunDeps = {
   writeFreeCatalog: (batchId: string, country: TreeCountry, companies: CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   /** Escritor del Agente 1 (Claude y banco con web). */
   writeWeb: (batchId: string, country: TreeCountry, items: CorporateTreeWebItem[]) => Promise<{ written: number; errors: string[] }>;
+  /**
+   * ¿Ya está en HubSpot o en SellUp por su nombre exacto y país? Se pregunta antes de mandar
+   * al rescate (que es pagado). `null` = no se sabe (la fila sigue su camino).
+   */
+  findKnownCompany?: (query: { name: string; countryCode: string | null }) => Promise<CorporateTreeKnownCompany | null>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
   recordWithoutWebsite: (batchId: string, countryCode: string, companies: CountrySourceCompany[]) => Promise<number>;
   /** `null` si no se pudo leer (no se sella como vacío un lote que sí tiene filas). */
@@ -202,6 +209,8 @@ export type CorporateTreeRunResult =
       waitingWebsite: number;
       /** Sólo con la web del grupo: quedan en el lote como referencia. */
       groupReferences: number;
+      /** Sin web pero ya en HubSpot: no fueron al rescate. */
+      alreadyKnown: number;
       redirectPath: string;
       estimatedCostUsd: number;
     }
@@ -289,6 +298,32 @@ async function runClaudePhase(
     }),
   );
   return { outcomes, skipped: null };
+}
+
+/** Cuántas consultas a HubSpot/SellUp a la vez (y cuántas como mucho). */
+const KNOWN_CHECK_CONCURRENCY = 4;
+
+async function withKnownCompanies(
+  plan: CorporateTreeWritePlan,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeWritePlan> {
+  if (!deps.findKnownCompany) return plan;
+  const pending = plan.rows.filter((row) => row.route === 'without_website');
+  const known = new Map<string, CorporateTreeKnownCompany>();
+  for (let i = 0; i < pending.length; i += KNOWN_CHECK_CONCURRENCY) {
+    if (deps.nowMs() >= deadlineAtMs) break;
+    const slice = pending.slice(i, i + KNOWN_CHECK_CONCURRENCY);
+    const found = await Promise.all(
+      slice.map((row) => deps.findKnownCompany!({ name: row.name, countryCode: row.countryCode }).catch(() => null)),
+    );
+    slice.forEach((row, index) => {
+      const match = found[index];
+      // Con su ficha de HubSpot: así el lote y la ficha pueden decir «Ya en HubSpot».
+      if (match?.hubspotCompanyId) known.set(row.key, match);
+    });
+  }
+  return markKnownCompanies(plan, known);
 }
 
 async function writePlan(
@@ -379,7 +414,7 @@ export async function runCorporateTreeSearch(
   }
   const batchId = reservation.batchId;
   if (reservation.status === 'already_reserved') {
-    return { ok: true, batchId, alreadyStarted: true, inReview: 0, waitingWebsite: 0, groupReferences: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
+    return { ok: true, batchId, alreadyStarted: true, inReview: 0, waitingWebsite: 0, groupReferences: 0, alreadyKnown: 0, redirectPath: `/prospect-batches/${batchId}`, estimatedCostUsd: 0 };
   }
   const runId = deps.newRunId();
   try {
@@ -428,7 +463,11 @@ async function runAfterReservation(
 
   // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
-  const plan = planCorporateTreeWrites({ root, freeHits: free.hits, nodes });
+  const plan = await withKnownCompanies(
+    planCorporateTreeWrites({ root, freeHits: free.hits, nodes }),
+    deps,
+    context.writeDeadlineAtMs,
+  );
   const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
   // 5. Rama de cada fila y asociaciones.
@@ -447,6 +486,7 @@ async function runAfterReservation(
         relation_detail: row.relationDetail,
         evidence_url: row.evidenceUrl,
         group_website: row.groupWebsite,
+        ...(row.websiteUnverified ? { website_unverified: true } : {}),
       };
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
@@ -486,6 +526,7 @@ async function runAfterReservation(
       written: writes.written,
       without_website: writes.withoutWebsite,
       group_references: plan.rows.filter((r) => r.route === 'group_reference').length,
+      already_known: plan.rows.filter((r) => r.route === 'already_known').length,
       dropped_by_cap: plan.droppedByCap,
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
@@ -525,6 +566,7 @@ async function runAfterReservation(
     inReview,
     waitingWebsite: writes.withoutWebsite,
     groupReferences: plan.rows.filter((r) => r.route === 'group_reference').length,
+    alreadyKnown: plan.rows.filter((r) => r.route === 'already_known').length,
     redirectPath: `/prospect-batches/${batchId}`,
     estimatedCostUsd,
   };
@@ -559,7 +601,7 @@ export function buildRelationshipRows(params: {
       relation_type: row.relation,
       relation_detail: row.relationDetail,
       evidence_url: row.evidenceUrl,
-      matched_hubspot_company_id: candidate?.matched_hubspot_company_id ?? null,
+      matched_hubspot_company_id: candidate?.matched_hubspot_company_id ?? row.knownHubspotCompanyId ?? null,
       created_by: params.createdBy,
     };
   });
