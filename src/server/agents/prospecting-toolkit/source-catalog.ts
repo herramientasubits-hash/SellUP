@@ -422,7 +422,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     aiFlowStatus: 'connected_free_discovery',
     connectionMode: 'read_only_signal',
     nextAction:
-      'Conectada (AGENT1-SUPPLIER-SEARCH-PUBLIC-1/2) sólo para «Proveedores de una empresa» en Colombia: cuando la referencia es una entidad pública, consulta en vivo los contratos firmados de SECOP II (datos.gov.co, dataset jbjy-vk9h) antes de pagar a Claude. Verificada en Producción el 15-10-2026 (Alcaldía de Medellín × Tecnología: 59 proveedores leídos, 12 ofrecidos, 7 nuevos para revisar y no estaban en HubSpot, US$0 en SECOP). Sus filas cuentan para la meta como la capa gratuita y, con 5 o más para revisar, Claude no corre.',
+      'Conectada (AGENT1-SUPPLIER-SEARCH-PUBLIC-1/2) sólo para «Proveedores de una empresa» en Colombia: cuando la referencia es una entidad pública, consulta en vivo los contratos firmados de SECOP II (datos.gov.co, dataset jbjy-vk9h) antes de pagar a Claude. Verificada en Producción el 15-10-2026 (Alcaldía de Medellín × Tecnología: 59 proveedores leídos, 12 ofrecidos, 7 nuevos para revisar y no estaban en HubSpot, US$0 en SECOP). Sus filas cuentan para la meta como la capa gratuita y, si SECOP trae proveedores de la entidad, Claude no corre (decisión de la dueña 15-10: Claude no halló nada útil para entidades públicas).',
     countryCodes: ['CO'],
     sectors: [],
     priority: 'P1',
