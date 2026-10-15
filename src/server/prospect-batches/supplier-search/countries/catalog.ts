@@ -7,8 +7,10 @@
  */
 
 import type { CatalogSource } from '@/server/agents/prospecting-toolkit/types';
+import { DO_PROCUREMENT_CATALOG_SOURCE } from './do.catalog';
 import { PA_PROCUREMENT_CATALOG_SOURCE } from './pa.catalog';
 
 export const PUBLIC_PROCUREMENT_CATALOG_SOURCES: readonly CatalogSource[] = [
   PA_PROCUREMENT_CATALOG_SOURCE,
+  DO_PROCUREMENT_CATALOG_SOURCE,
 ];
