@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import {
   buildHubSpotFillProperties,
   cleanCountryLabel,
+  consensusCountryFromContacts,
+  countryCodeFromDescription,
   countryCodeFromDomain,
+  countryCodeFromPhone,
+  macroIndustryFromHubSpotIndustry,
   missingProfileFields,
   planCountryCompletion,
 } from '../account-profile-completion';
@@ -96,5 +100,47 @@ describe('qué se escribe en HubSpot', () => {
       buildHubSpotFillProperties({ current: { pais: 'X', country: 'X', industriaespecifica: 'Y' }, country: 'México', industry: 'Retail' }),
       {},
     );
+  });
+});
+
+describe('pistas de HubSpot', () => {
+  it('prefijo telefónico: sólo con «+» o «00»; +1 no dice país; el más largo gana', () => {
+    assert.equal(countryCodeFromPhone('+52 998 883 2373'), 'MX');
+    assert.equal(countryCodeFromPhone('0057 1 555 5555'), 'CO');
+    assert.equal(countryCodeFromPhone('+591 2 123456'), 'BO');
+    assert.equal(countryCodeFromPhone('+1 212 555 0100'), null);
+    assert.equal(countryCodeFromPhone('998 883 2373'), null);
+    assert.equal(countryCodeFromPhone(null), null);
+  });
+
+  it('descripción: un solo país mencionado; varios o ninguno, no', () => {
+    assert.equal(countryCodeFromDescription('Elifarma is a Peruvian pharmaceutical company committed to health.'), 'PE');
+    assert.equal(countryCodeFromDescription('Empresa chilena de tecnología.'), 'CL');
+    assert.equal(countryCodeFromDescription('Presente en México y Chile con clientes en toda la región.'), null);
+    assert.equal(countryCodeFromDescription('A leading entertainment company.'), null);
+    assert.equal(countryCodeFromDescription(null), null);
+  });
+
+  it('contactos: al menos dos y todos del mismo país', () => {
+    const toCode = (name: string | null) => (name === 'Chile' ? 'CL' : name === 'México' ? 'MX' : null);
+    assert.equal(consensusCountryFromContacts([{ country: 'Chile', phone: null }, { country: null, phone: '+56 2 1234' }], toCode), 'CL');
+    assert.equal(consensusCountryFromContacts([{ country: 'Chile', phone: null }], toCode), null);
+    assert.equal(consensusCountryFromContacts([{ country: 'Chile', phone: null }, { country: 'México', phone: null }], toCode), null);
+  });
+
+  it('industria estándar de HubSpot: sólo correspondencias claras', () => {
+    assert.equal(macroIndustryFromHubSpotIndustry('PHARMACEUTICALS'), 'Salud & Farmacéuticos');
+    assert.equal(macroIndustryFromHubSpotIndustry('retail'), 'Retail');
+    assert.equal(macroIndustryFromHubSpotIndustry('ENTERTAINMENT'), null);
+    assert.equal(macroIndustryFromHubSpotIndustry(null), null);
+  });
+
+  it('país con pistas: coinciden → se usa; se contradicen → no se adivina', () => {
+    assert.deepEqual(
+      planCountryCompletion({ ...ACCOUNT, domain: 'x.com' }, maps, { phone: 'MX', description: 'MX' }),
+      { country: 'México', country_code: 'MX', source: 'hubspot_phone' },
+    );
+    assert.equal(planCountryCompletion({ ...ACCOUNT, domain: 'x.com.mx' }, maps, { phone: 'CL' }), null);
+    assert.equal(planCountryCompletion({ ...ACCOUNT, country: 'Chile', country_code: 'CL' }, maps, { phone: 'MX' }), null);
   });
 });

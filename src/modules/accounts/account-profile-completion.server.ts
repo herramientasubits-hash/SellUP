@@ -25,11 +25,17 @@ import {
 } from '@/server/agents/prospecting-toolkit/claude-classifier/types';
 import { getCountryNameFromCode, readHubSpotCompanyProperties } from '@/server/integrations/hubspot-company-create';
 import { updateHubSpotCompanyProperties } from '@/server/integrations/hubspot-company-update';
+import { readHubSpotCompanyContactLocations } from '@/server/integrations/hubspot-company-contact-locations';
 import {
   buildHubSpotFillProperties,
   cleanCountryLabel,
+  consensusCountryFromContacts,
+  countryCodeFromDescription,
+  countryCodeFromPhone,
+  macroIndustryFromHubSpotIndustry,
   missingProfileFields,
   planCountryCompletion,
+  type CountryHints,
 } from './account-profile-completion';
 
 /** Una consulta a Claude por empresa cada 30 días: si no encontró nada, no se repite a diario. */
@@ -123,6 +129,24 @@ async function classifyIndustry(
   return { industry: macro?.displayName ?? null, attempted: true };
 }
 
+/** Lo que la ficha de HubSpot (y sus contactos) insinúa sobre país e industria. Sólo lectura. */
+async function loadHubSpotClues(
+  account: AccountRow,
+  missing: Array<'country' | 'industry'>,
+): Promise<{ countryHints: CountryHints; industry: string | null }> {
+  if (!account.hubspot_company_id) return { countryHints: {}, industry: null };
+  const result = await readHubSpotCompanyProperties(account.hubspot_company_id, ['phone', 'description', 'industry']);
+  const props = result.ok ? (result.properties ?? {}) : {};
+  const countryHints: CountryHints = {};
+  if (missing.includes('country')) {
+    countryHints.phone = countryCodeFromPhone(props.phone);
+    countryHints.description = countryCodeFromDescription(props.description);
+    const contacts = await readHubSpotCompanyContactLocations(account.hubspot_company_id);
+    countryHints.contacts = consensusCountryFromContacts(contacts, (name) => mapCountryToCode(name));
+  }
+  return { countryHints, industry: missing.includes('industry') ? macroIndustryFromHubSpotIndustry(props.industry) : null };
+}
+
 export async function completeAccountProfile(
   admin: SupabaseClient,
   input: { accountId: string; actorUserId: string | null; nowIso: string; useClaude?: boolean },
@@ -151,11 +175,13 @@ export async function completeAccountProfile(
   const filled: Array<'country' | 'industry'> = [];
   let countryCompletion: ReturnType<typeof planCountryCompletion> = null;
 
+  const clues = await loadHubSpotClues(account, missing);
   if (missing.includes('country')) {
-    countryCompletion = planCountryCompletion(account, {
-      nameToCode: (name) => mapCountryToCode(name),
-      codeToName: countryNameFromCode,
-    });
+    countryCompletion = planCountryCompletion(
+      account,
+      { nameToCode: (name) => mapCountryToCode(name), codeToName: countryNameFromCode },
+      clues.countryHints,
+    );
     if (countryCompletion) {
       patch.country = countryCompletion.country;
       patch.country_code = countryCompletion.country_code;
@@ -164,7 +190,12 @@ export async function completeAccountProfile(
   }
 
   let industryAttempted = false;
-  if (missing.includes('industry') && input.useClaude !== false && !recentIndustryAttempt(account.metadata, Date.now())) {
+  // Primero la industria estándar de HubSpot (gratis); Claude sólo si eso no alcanza.
+  if (missing.includes('industry') && clues.industry) {
+    patch.industry = clues.industry;
+    filled.push('industry');
+  }
+  if (missing.includes('industry') && !patch.industry && input.useClaude !== false && !recentIndustryAttempt(account.metadata, Date.now())) {
     const code = patch.country_code ?? account.country_code;
     const name = patch.country ?? cleanCountryLabel(account.country);
     const outcome = await classifyIndustry(admin, account, code, name, input.actorUserId, input.nowIso);
