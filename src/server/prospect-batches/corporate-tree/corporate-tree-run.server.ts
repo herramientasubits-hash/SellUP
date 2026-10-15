@@ -58,6 +58,8 @@ import {
   type FreeSnapshotRow,
 } from './corporate-tree-free-lookup';
 import { pickApolloOrganization, pickKnownCompany, type CorporateTreeWebItem } from './corporate-tree-plan';
+import { CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import { APOLLO_COUNTRY_LOCATION_BY_CODE, resolveApolloCountryLocation } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { searchApolloOrganizations } from '@/server/integrations/apollo-client';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
@@ -74,6 +76,14 @@ import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeSt
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
 export const CORPORATE_TREE_USAGE_FLOW = 'corporate_tree_search';
+/** Motivo en «Descartadas» de las que parecen ya estar en HubSpot (el rescate no las toma). */
+export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON;
+
+/** El nombre para buscar en Apollo: sin forma societaria («CITIGROUP CHILE SPA» ⇒ «citigroup chile»). */
+export function corporateTreeApolloQueryName(name: string): string {
+  return normalizeTreeName(name) || name.trim();
+}
+
 /** Resultados por búsqueda por nombre en Apollo: la empresa suele salir primero. */
 const CORPORATE_TREE_APOLLO_PER_PAGE = 5;
 /**
@@ -322,10 +332,14 @@ export function buildLiveCorporateTreeDeps(params: {
       ? async (query, ctx) => {
           apolloQuota ??= checkProviderQuotaAvailable('apollo').catch(() => ({ allowed: false }));
           if (!(await apolloQuota).allowed) return null;
-          const country = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? query.countryCode;
+          // Apollo entiende los países en inglés («United States», no «Estados Unidos») y el
+          // nombre sin forma societaria («Citigroup Chile», no «CITIGROUP CHILE SPA»): Prod 15-10,
+          // Citigroup, 5 búsquedas vacías.
+          const spanishName = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? null;
+          const country = resolveApolloCountryLocation(query.countryCode, spanishName) ?? query.countryCode;
           const startedAt = Date.now();
           const result = await searchApolloOrganizations({
-            q_organization_name: query.name,
+            q_organization_name: corporateTreeApolloQueryName(query.name),
             organization_locations: [country],
             per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
             page: 1,
@@ -426,8 +440,26 @@ export function buildLiveCorporateTreeDeps(params: {
         sellup: sellupMatches,
         countryCode,
         countryName,
+        countryAliases: countryCode && APOLLO_COUNTRY_LOCATION_BY_CODE[countryCode] ? [APOLLO_COUNTRY_LOCATION_BY_CODE[countryCode]] : [],
         accountHubspotId: (id) => hubspotIdByAccount.get(id) ?? null,
       });
+    },
+
+    recordPossibleDuplicates: async (batchId, countryCode, items) => {
+      const byKey = new Map(items.map((item) => [item.company.recordIdentityKey, item.matchedName]));
+      const rows = buildUnverifiedFreeDispositionRows({ batchId, countryCode, companies: items.map((i) => i.company) }).map((row) => {
+        const matchedName = byKey.get(row.providerIdentifier ?? '') ?? null;
+        return {
+          ...row,
+          disposition: 'hubspot_duplicate' as const,
+          reasonCode: CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON,
+          reasonDetail: matchedName
+            ? `Posible duplicado en HubSpot: «${matchedName}» (mismo país). No se buscó su web; rescátala si no es la misma empresa.`
+            : 'Posible duplicado en HubSpot (mismo país). No se buscó su web; rescátala si no es la misma empresa.',
+        };
+      });
+      const recorded = await persistDiscardedDispositionRows(rows);
+      return recorded.persisted;
     },
 
     recordWithoutWebsite: async (batchId, countryCode, companies) => {
