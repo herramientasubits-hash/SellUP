@@ -19,7 +19,7 @@ const COMPETITOR_JUDGE_TIMEOUT_MS = 45_000;
 const COMPETITOR_JUDGE_OPERATION_KEY = 'company_search';
 
 export type LiveCompetitorJudge = (
-  input: CompetitorJudgeInput & { batchId: string | null; source: 'free_layer' | 'company_bank' },
+  input: CompetitorJudgeInput & { batchId: string | null; source: 'free_layer' | 'company_bank' | 'apollo' },
 ) => Promise<CompetitorJudgeOutcome | null>;
 
 export function buildLiveCompetitorJudge(userId: string): LiveCompetitorJudge {

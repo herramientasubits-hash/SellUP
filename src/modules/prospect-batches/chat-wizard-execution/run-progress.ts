@@ -36,6 +36,7 @@ export const RUN_PROGRESS_STAGES = [
   'competitor_free',
   'competitor_round_1',
   'competitor_round_2',
+  'competitor_apollo',
   'reviewing',
 ] as const;
 
@@ -59,6 +60,7 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   competitor_free: 'Revisando los registros gratuitos del país y el banco: Claude elige las que compiten',
   competitor_round_1: 'Claude busca en la web empresas que compiten con la referencia',
   competitor_round_2: 'Las primeras ya estaban en HubSpot: Claude busca competidoras menos conocidas',
+  competitor_apollo: 'Faltan competidoras: buscando en Apollo y Claude elige las que compiten',
   reviewing: 'Revisando lo encontrado',
 };
 
@@ -87,6 +89,7 @@ export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 're
   competitor_free: 10,
   competitor_round_1: 25,
   competitor_round_2: 65,
+  competitor_apollo: 85,
 };
 
 /** El avance tras ver `stage`: nunca retrocede (una etapa saltada no resta). */
