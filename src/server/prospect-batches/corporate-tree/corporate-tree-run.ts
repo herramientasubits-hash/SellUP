@@ -593,6 +593,8 @@ async function runAfterReservation(
         accepted: nodes.length,
         rejected: Object.fromEntries(claude.outcomes.map((o) => [o.branch, o.rejected])),
         errors: claude.outcomes.filter((o) => o.errorCode).map((o) => ({ branch: o.branch, code: o.errorCode })),
+        // Las webs que Claude propuso y no se aceptaron, con su motivo (para diagnosticar).
+        dropped_websites: claude.outcomes.flatMap((o) => o.droppedWebsites ?? []).slice(0, 30),
         estimated_cost_usd: estimatedCostUsd,
       },
       rows: plan.rows.length,

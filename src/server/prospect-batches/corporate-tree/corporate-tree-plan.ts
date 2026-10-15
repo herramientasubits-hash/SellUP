@@ -586,8 +586,10 @@ export function pickApolloOrganization(
   for (const org of organizations) {
     const core = normalizeTreeName(org.name ?? '');
     if (!core) continue;
-    // Exacto; o uno contiene al otro por palabras completas Y lo común tiene una palabra propia.
-    const sameName = core === wanted || namedWithin(core, wanted) || namedWithin(wanted, core);
+    // Exacto, o el nombre de Apollo está DENTRO del buscado con una palabra propia («Banamex» en
+    // «Grupo Financiero Banamex»). Nunca al revés: Prod 15-10, «Citicorp» tomó «Citicorp Diners
+    // Club» (otra empresa con el mismo comienzo).
+    const sameName = core === wanted || namedWithin(core, wanted);
     if (!sameName) continue;
     const domain = org.primary_domain?.trim().toLowerCase() || (org.website_url ? toDomain(org.website_url) : null);
     if (!domain || (query.rootDomain && domain === query.rootDomain)) continue;

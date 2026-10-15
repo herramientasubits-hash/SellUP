@@ -153,6 +153,9 @@ describe('A. searchCorporateTreeBranch — sólo entra lo que tiene fuente en la
     assert.equal(outcome.nodes.length, 1);
     assert.equal(outcome.nodes[0].website, null);
     assert.equal(outcome.websitesDropped, 1);
+    assert.deepEqual(outcome.droppedWebsites, [
+      { name: 'Alquería', countryCode: 'CO', url: 'https://alqueria.com.co', reason: 'not_in_search_results' },
+    ]);
   });
 
   it('un error de Claude no lanza: devuelve el código y ningún nodo', async () => {
@@ -1229,5 +1232,14 @@ describe('Q. La sucursal de una empresa en un país es esa empresa en ese país'
       nodes: [NODE('Citigroup Global Markets Europe AG', 'ES'), NODE('Citigroup Global Markets Europe AG, Sucursal en España', 'ES')],
     });
     assert.equal(plan.rows.filter((r) => r.countryCode === 'ES').length, 1);
+  });
+});
+
+describe('R. Citigroup 5.ª corrida (Prod 15-10): Apollo nunca toma un nombre MÁS largo', () => {
+  it('«Citicorp» no es «Citicorp Diners Club»', () => {
+    const org = (name: string, domain: string) => ({ name, website_url: `https://${domain}`, primary_domain: domain, linkedin_url: null });
+    const toDomain = (w: string) => w.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+    assert.equal(pickApolloOrganization([org('Citicorp Diners Club', 'dinersclubus.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain), null);
+    assert.equal(pickApolloOrganization([org('Citicorp', 'citicorp.com')], { name: 'Citicorp LLC', rootDomain: 'citigroup.com' }, toDomain)?.domain, 'citicorp.com');
   });
 });
