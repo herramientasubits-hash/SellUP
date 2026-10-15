@@ -19,6 +19,7 @@ import type { CompetitorFreeSourcesOutcome } from '@/modules/prospect-batches/ch
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { buildLiveCompetitorJudge } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge.server';
 import { resolveProductionBankFirstDrawer } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
+import { resolveProductionHubSpotFreePoolDrawer } from '@/server/prospect-batches/hubspot-free-pool/hubspot-free-pool-draw.server';
 import { listCoCiiuCodesForMacro, normalizeCoCiiuCode } from '@/server/prospect-batches/country-source-discovery/co-siis-macro-table';
 import { CO_SIIS_SNAPSHOT_SOURCE_KEY } from '@/server/prospect-batches/country-source-discovery/co-siis-snapshot-query';
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
@@ -100,6 +101,8 @@ export async function runCompetitorFreeSourcesLive(
     };
     // Banco sin su propia revisión de Claude: el clasificador revisa el lote al final.
     const bank = resolveProductionBankFirstDrawer(input.industryName, { reviewInline: false });
+    // HUBSPOT-FREE-POOL-SOURCE-1 — las libres de HubSpot primero, filtradas por el mismo juez.
+    const hubspotFreePool = resolveProductionHubSpotFreePoolDrawer(input.industryName, { reviewInline: false });
     const outcome = await runPrePaidNoveltyDiscovery(client, {
       provider: 'apollo',
       countryCode: input.countryCode,
@@ -123,6 +126,19 @@ export async function runCompetitorFreeSourcesLive(
                 selectCandidates: (candidates) =>
                   selectCompetitorBankCandidates(candidates, context, (judgeInput) =>
                     judgeLive({ ...judgeInput, batchId: input.batchId, source: 'company_bank' }),
+                  ),
+              }),
+          }
+        : {}),
+      ...(hubspotFreePool
+        ? {
+            drawHubSpotFreePool: (drawInput) =>
+              hubspotFreePool({
+                ...drawInput,
+                drawLimit: COMPETITOR_BANK_DRAW_LIMIT,
+                selectCandidates: (candidates) =>
+                  selectCompetitorBankCandidates(candidates, context, (judgeInput) =>
+                    judgeLive({ ...judgeInput, batchId: input.batchId, source: 'hubspot_free_pool' }),
                   ),
               }),
           }

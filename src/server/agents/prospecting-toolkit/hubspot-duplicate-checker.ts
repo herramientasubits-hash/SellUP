@@ -14,6 +14,11 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { DuplicateCheckInput, DuplicateMatch } from './types';
 import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
+import { isHubSpotFreePoolEnabled } from '@/lib/feature-flags.server';
+import { assessHubSpotCompanyAvailability } from '@/server/integrations/hubspot-free-company-pool.server';
+import { isStrongHubSpotIdentityMatch, markFreeHubSpotMatchesPure } from './hubspot-free-match';
+import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
+import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
 /**
  * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 3 — tope de reloj de CADA llamada
@@ -177,6 +182,9 @@ const DESIRED_PROPERTIES = [
   'founded_year',
   'hubspot_owner_id',
   'hs_lead_status',
+  // HUBSPOT-FREE-POOL-SOURCE-1 — lo que la regla de «empresa libre» necesita.
+  'hs_num_open_deals',
+  'hs_last_sales_activity_timestamp',
   'type',
   'macro_industria',
   'pais',
@@ -257,14 +265,13 @@ async function getHubSpotCompanyProperties(
   for (const props of levels) {
     try {
       const url = `https://api.hubapi.com/crm/v3/objects/companies/${encodeURIComponent(companyId)}?properties=${props.map(encodeURIComponent).join(',')}`;
-      const res = await fetch(url, {
+      const res = await fetchHubSpotWithRetry(url, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
-      });
+      }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
       if (res.ok) {
         const data = await res.json();
         if (data && data.properties) {
@@ -302,15 +309,14 @@ async function searchByDomain(
     limit: 5,
   };
 
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+  const res = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
-  });
+  }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
   if (!res.ok) return [];
   const data = (await res.json()) as HubSpotSearchResponse;
@@ -327,15 +333,14 @@ async function searchByName(
     limit: 5,
   };
 
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+  const res = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
-  });
+  }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
   if (!res.ok) return [];
   const data = (await res.json()) as HubSpotSearchResponse;
@@ -407,30 +412,28 @@ async function searchByTaxIdentifier(
 
   const possibleProperties = [...HUBSPOT_FISCAL_PROPERTIES];
 
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+  const res = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(buildFiscalSearchBody(possibleProperties, needles)),
-    signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
-  });
+  }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
   if (res.status === 400) {
     // Fallback con propiedades confirmadas en el portal. Usa las MISMAS agujas
     // canónicas (§ 21): la identidad no puede depender de un HTTP 400.
     const fallbackProps = ['nit', 'identificacion_fiscal'];
 
-    const fallbackRes = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+    const fallbackRes = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(buildFiscalSearchBody(fallbackProps, needles)),
-      signal: AbortSignal.timeout(HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS),
-    });
+    }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
     if (!fallbackRes.ok) return [];
     const data = (await fallbackRes.json()) as HubSpotSearchResponse;
@@ -715,11 +718,36 @@ export async function checkHubSpotDuplicates(
       }
     }
 
+    // HUBSPOT-FREE-POOL-SOURCE-1 — las coincidencias con empresas LIBRES de HubSpot
+    // dejan de ser «ya existe en HubSpot». Apagada la bandera, nada cambia.
+    if (isHubSpotFreePoolEnabled()) {
+      return { connected: true, matches: await markFreeHubSpotMatches(token, matches) };
+    }
     return { connected: true, matches };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error al consultar HubSpot';
     return { connected: true, matches: [], error: msg };
   }
+}
+
+/**
+ * Marca libres las coincidencias de fichas libres (sólo identidad fuerte decide).
+ * Nunca lanza: sin veredicto, la coincidencia queda como estaba (duplicado).
+ */
+async function markFreeHubSpotMatches(token: string, matches: DuplicateMatch[]): Promise<DuplicateMatch[]> {
+  const verdicts = new Map<DuplicateMatch, { availability: HubSpotAvailability | null; ownerId: string | null }>();
+  for (const match of matches) {
+    if (!isStrongHubSpotIdentityMatch(match)) continue;
+    const props = match.raw && typeof match.raw === 'object' ? (match.raw as Record<string, unknown>) : null;
+    if (!props) continue;
+    const availability = await assessHubSpotCompanyAvailability(token, props).catch((err) => {
+      console.error('[hubspot-free-pool] regla de empresa libre no evaluada:', err);
+      return null;
+    });
+    const ownerId = typeof props.hubspot_owner_id === 'string' && props.hubspot_owner_id ? props.hubspot_owner_id : null;
+    verdicts.set(match, { availability, ownerId });
+  }
+  return markFreeHubSpotMatchesPure(matches, (match) => verdicts.get(match) ?? { availability: null, ownerId: null });
 }
 
 // ============================================================

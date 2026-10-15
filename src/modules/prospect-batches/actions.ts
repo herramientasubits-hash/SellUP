@@ -5,6 +5,8 @@ import { createClient as createAdminClient, type SupabaseClient } from '@supabas
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { validateTaxIdentifier } from './tax-identifier-rules';
+import { claimFreePoolCompanyForSeller, resolveLiveFreePoolApprovalLink } from './hubspot-free-pool-approval.server';
+import { blocksHubSpotCreate } from './hubspot-free-pool-approval';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
@@ -2202,6 +2204,20 @@ export async function approveAndConvertCandidateAction(
   const hsStatus = hsCheck.status as string | undefined;
   const matchedCompanyId = (hsCheck.matched_company_id || candidate.matched_hubspot_company_id) as string | null | undefined;
   const matchedCompanyName = hsCheck.matched_company_name as string | null | undefined;
+  // HUBSPOT-FREE-POOL-SOURCE-1 — la empresa estaba LIBRE en HubSpot: se enlaza a esa
+  // ficha (nunca se crea otra). Con la bandera apagada, `null` y todo como antes.
+  const freePoolLink = await resolveLiveFreePoolApprovalLink({
+    candidateMetadata: candidate.metadata as Record<string, unknown> | null,
+    matchedCompanyId,
+    hubspotCheckStatus: hsStatus,
+    name: candidate.name,
+    domain: candidate.domain,
+    taxIdentifier: candidate.tax_identifier,
+    countryCode: candidate.country_code,
+  });
+  // La ficha libre marcada manda (es con la que se cambia el dueño); si no, la de siempre.
+  const linkedHubSpotCompanyId =
+    freePoolLink?.kind === 'link' ? freePoolLink.hubspotCompanyId : matchedCompanyId ?? null;
 
   let isHubSpotConfigured = false;
   let hasWriteScope = false;
@@ -2227,17 +2243,21 @@ export async function approveAndConvertCandidateAction(
   let ownerMappingDetails: Record<string, unknown> | null = null;
 
   // Caso A — match HubSpot confirmado
-  if (hsStatus === 'match' || matchedCompanyId) {
+  if (hsStatus === 'match' || linkedHubSpotCompanyId) {
     hubspotAttempted = true;
     hubspotAction = 'linked_existing';
-    hubspotCompanyId = matchedCompanyId ?? null;
+    hubspotCompanyId = linkedHubSpotCompanyId ?? null;
     hubspotCompanyName = matchedCompanyName ?? null;
   }
-  // Caso B — possible_match HubSpot
-  else if (hsStatus === 'possible_match') {
+  // Caso B — possible_match HubSpot. HUBSPOT-FREE-POOL-SOURCE-1: también si HubSpot ya
+  // tiene ese dominio (dos fichas, o de otro vendedor) o no respondió: nunca se crea a ciegas.
+  else if (hsStatus === 'possible_match' || blocksHubSpotCreate(freePoolLink)) {
     hubspotAttempted = false;
     hubspotAction = 'skipped_possible_match';
     hubspotCompanyName = matchedCompanyName ?? null;
+    if (freePoolLink && freePoolLink.kind !== 'link') {
+      hubspotError = `hubspot_free_pool:${freePoolLink.kind}`;
+    }
   }
   // Caso C / D — no_match HubSpot u otros estados (e.g. unchecked, error en validación previa)
   else {
@@ -2357,8 +2377,31 @@ export async function approveAndConvertCandidateAction(
     }
   }
 
+  // HUBSPOT-FREE-POOL-SOURCE-1 — el vendedor pasa a ser el dueño en HubSpot, sólo si
+  // la empresa SIGUE libre en este momento (bandera de escritura aparte).
+  const freePoolClaim =
+    freePoolLink?.kind === 'link' && hubspotAction === 'linked_existing' && hubspotCompanyId === freePoolLink.hubspotCompanyId
+      ? await claimFreePoolCompanyForSeller({
+          link: freePoolLink,
+          nowIso: nowStr,
+          resolveSellerHubSpotOwnerId: async () => {
+            const { data: sellerRow } = await supabase
+              .from('internal_users')
+              .select('email')
+              .eq('id', searcherUserId)
+              .single();
+            return getHubSpotOwnerMapping(sellerRow?.email?.toLowerCase().trim() ?? null);
+          },
+        })
+      : null;
+
   // 5. Aplicar cambios a las tablas en Supabase
   const accountMetadataPatch: Record<string, unknown> = {};
+  if (freePoolClaim) accountMetadataPatch.hubspot_free_pool = freePoolClaim;
+  else if (freePoolLink && freePoolLink.kind !== 'link') {
+    // Por qué no se enlazó ni se creó en HubSpot (revisión humana).
+    accountMetadataPatch.hubspot_free_pool = { outcome: freePoolLink.kind, checked_at: nowStr, detail: freePoolLink };
+  }
   if (hubspotAction === 'created' || hubspotAction === 'linked_existing') {
     accountMetadataPatch.hubspot_sync_status = 'synced';
     accountMetadataPatch.hubspot_sync_method = 'auto';

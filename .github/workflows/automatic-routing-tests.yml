@@ -6286,6 +6286,14 @@ jobs:
       - name: Run Agent 1 company bank store tests
         run: npm run test:a1-company-bank
 
+      # HUBSPOT-FREE-POOL-SOURCE-1 — empresas libres de HubSpot como fuente: regla de
+      # «libre» (sólo identidad fuerte), reintento ante 429, capa «primero HubSpot»,
+      # aprobación que nunca crea duplicados y toma (dueño, estado, contactos).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 HubSpot free pool tests
+        run: npm run test:a1-hubspot-free-pool
+
       # AGENT1-COMPANY-BANK - la migracion 142 contra PostgreSQL REAL:
       # unicidad por senal, reservas con SKIP LOCKED, caducidad, grafo de estados
       # y solo service_role. Sin el arnes, FALLA: no se salta.

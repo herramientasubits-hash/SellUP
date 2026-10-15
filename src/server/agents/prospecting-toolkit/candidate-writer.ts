@@ -777,6 +777,17 @@ function buildCandidateMetadata(
     ...(candidate.llmEvaluation
       ? { llm_evaluation: candidate.llmEvaluation }
       : {}),
+    // HUBSPOT-FREE-POOL-SOURCE-1 — la empresa ya está en HubSpot pero LIBRE: al
+    // aprobar se enlaza a esa ficha (nunca se crea otra) y se le cambia el dueño.
+    ...(duplicateCheck?.hubspotFreeToTake
+      ? {
+          hubspot_free_pool: {
+            company_id: duplicateCheck.hubspotFreeToTake.hubspotCompanyId,
+            reason: duplicateCheck.hubspotFreeToTake.reason,
+            owner_id: duplicateCheck.hubspotFreeToTake.ownerId,
+          },
+        }
+      : {}),
     website_verification: websiteVerification
       ? {
           status: websiteVerification.status,
@@ -2816,7 +2827,16 @@ export async function writeProspectingCandidates(
     const hubspotMatch = candidate.duplicateCheck?.matches.find(
       (m) => m.source === "hubspot"
     );
-    const matchedHubspotId = hubspotMatch?.matchedId ?? null;
+    // HUBSPOT-FREE-POOL-SOURCE-1 — una empresa LIBRE no es «coincidencia en CRM»: la
+    // columna queda vacía (varias pantallas la leen como duplicado) y la ficha con la
+    // que se enlaza al aprobar viaja en `metadata.hubspot_free_pool`. Si no está libre,
+    // manda la primera coincidencia que NO es una ficha libre.
+    const nonFreeHubspotMatch = candidate.duplicateCheck?.matches.find(
+      (m) => m.source === "hubspot" && !m.hubspotFreeToTake
+    );
+    const matchedHubspotId = candidate.duplicateCheck?.hubspotFreeToTake
+      ? null
+      : nonFreeHubspotMatch?.matchedId ?? hubspotMatch?.matchedId ?? null;
 
     const reviewNotes =
       candidate.scoring.qualityLabel === "insufficient_data"

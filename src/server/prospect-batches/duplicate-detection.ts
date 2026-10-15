@@ -23,6 +23,7 @@ import {
   checkHubSpotDuplicates,
 } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
 import type { DuplicateCheckInput } from '@/server/agents/prospecting-toolkit/types';
+import { resolveHubSpotFreeToTake } from '@/server/agents/prospecting-toolkit/hubspot-free-match';
 
 // ============================================================
 // Tipos de entrada y salida
@@ -84,6 +85,12 @@ export interface HubSpotDuplicateCheck {
   tax_identifier_candidate_used?: string | null;
   source?: string | null;
   requires_human_review?: boolean;
+  /**
+   * HUBSPOT-FREE-POOL-SOURCE-1 — la coincidencia es una empresa LIBRE de HubSpot:
+   * `status` queda en `no_match` (no es duplicado) y `matched_company_id` es la ficha
+   * que se enlaza al aprobar.
+   */
+  free_to_take?: { company_id: string; reason: string; owner_id: string | null } | null;
 }
 
 export interface NormalizedKeys {
@@ -431,6 +438,32 @@ async function checkHubSpot(
     if (matches.length === 0) {
       return {
         check: { ...EMPTY_HS, status: outcome.error ? 'error' : 'no_match' },
+        connected: true,
+      };
+    }
+
+    // HUBSPOT-FREE-POOL-SOURCE-1 — una ficha LIBRE (y ninguna tomada) no es duplicado:
+    // la empresa entra y al aprobar se enlaza a esa ficha.
+    // `matched_company_id` queda vacío a propósito: varias pantallas lo leen como
+    // «coincidencia en CRM»; la ficha viaja en `free_to_take`.
+    const free = resolveHubSpotFreeToTake('new_candidate', matches);
+    const freeMatch = free ? matches.find((m) => m.hubspotFreeToTake?.hubspotCompanyId === free.hubspotCompanyId) : undefined;
+    if (free && freeMatch) {
+      const freeRaw = freeMatch.raw as Record<string, string | null | undefined> | undefined;
+      return {
+        check: {
+          ...EMPTY_HS,
+          status: 'no_match',
+          matched_company_id: null,
+          matched_company_name: freeMatch.matchedName ?? null,
+          matched_domain: freeMatch.matchedDomain ?? null,
+          matched_website: freeMatch.matchedWebsite ?? null,
+          matched_lead_status: freeRaw?.hs_lead_status ?? null,
+          matched_owner_id: free.ownerId,
+          confidence: freeMatch.confidence,
+          hubspot_url: freeRaw?.hubspot_url ?? null,
+          free_to_take: { company_id: free.hubspotCompanyId, reason: free.reason, owner_id: free.ownerId },
+        },
         connected: true,
       };
     }

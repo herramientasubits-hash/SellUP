@@ -2560,6 +2560,35 @@ export const CATALOG_SOURCES: CatalogSource[] = [
     ],
   },
   {
+    key: 'hubspot_free_pool',
+    name: 'Empresas libres de HubSpot (recicladas, en bolsa, sin dueño o con dueño desactivado)',
+    sellupUse: 'enrichment',
+    aiFlowStatus: 'connected_free_discovery',
+    connectionMode: 'read_only_signal',
+    nextAction:
+      'HUBSPOT-FREE-POOL-SOURCE-1 (15-10-2026; detrás de ENABLE_HUBSPOT_FREE_POOL, apagada por defecto). Medido en el portal real: un flujo de HubSpot pone «Unqualified / lost» y 120 días después «Recycled» (194/201 muestras); al 15-10 había 7.132 recicladas, 40.526 en bolsas «Sales país», 2.231 sin dueño y 12.528 con dueño desactivado (sin clientes, sin negocio abierto, sin duplicadas). Decisión de la dueña (15-10): las cuatro bolsas entran, PRIMERO en cada búsqueda del Agente 1, en todos sus modos, y también para el Agente 2. Al aprobar se enlaza a la ficha de HubSpot (nunca se crea otra) y, con ENABLE_HUBSPOT_FREE_POOL_OWNER_WRITEBACK (escritura en HubSpot, requiere autorización), el vendedor pasa a ser el dueño si la empresa sigue libre en ese momento.',
+    countryCodes: ['CO', 'MX', 'PE', 'CL', 'AR', 'EC', 'BO', 'PY', 'CR', 'PA', 'GT', 'SV', 'HN', 'NI', 'DO', 'UY', 'VE', 'BR', 'US', 'ES'],
+    sectors: [],
+    priority: 'P1',
+    operationalStatus: 'operational_verified',
+    type: 'other',
+    url: 'https://app.hubspot.com/',
+    automationLevel: 'high',
+    recommendedUse:
+      'Primera fuente de cada búsqueda: empresas que UBITS ya trabajó y que hoy nadie atiende. Traen sitio, contactos asociados y a menudo tamaño. Se piden por país (`pais`) y macro industria (`industriaespecifica`, misma taxonomía de 12); primero las más documentadas (más contactos). Una empresa libre que aparezca por cualquier otro camino (Tavily, Apollo, Claude, banco, árbol, competidores, proveedores, importar) deja de descartarse como «ya existe en HubSpot».',
+    limitations: [
+      'Sólo empresas con dominio, país y macro industria cargados en HubSpot.',
+      'La macro industria de HubSpot a veces está mal: Claude confirma sector y tamaño antes de contar para la meta.',
+      'No se vuelve a ofrecer una empresa que esta fuente ya propuso en los últimos 90 días.',
+      'Libre ⇒ no cliente, sin negocio abierto y sin actividad de venta en los últimos 30 días.',
+    ],
+    riskNotes: [
+      'Sólo lectura de HubSpot al buscar; las empresas pasan a revisión humana.',
+      'El cambio de dueño al aprobar es escritura en HubSpot de Producción y va por su propia bandera.',
+      'Dos fichas de HubSpot con el mismo dominio ⇒ ni se enlaza ni se crea: revisión humana.',
+    ],
+  },
+  {
     key: 'cr_sicop',
     name: 'SICOP Costa Rica (datos.go.cr)',
     sellupUse: 'commercial_signal',
