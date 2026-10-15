@@ -41,6 +41,11 @@ import { PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND, projectCandidateForBank } from '@
 import type { ApolloCompanyBankPort } from '@/server/prospect-batches/company-bank/apollo-company-bank-port.server';
 import type { CompanyBankDrawnCompany, CompanyBankSettleItem } from '@/server/prospect-batches/company-bank/company-bank-types';
 import type { CandidateWriterOutput, ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
+import {
+  competitorReferenceSchema,
+  readCompetitorReference,
+  toCompetitorSearchMetadata,
+} from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { MACRO_INDUSTRY_CATALOG_VERSION } from '@/modules/macro-industry-catalog/macro-industries';
 import {
   executeCompetitorSearchRun,
@@ -51,8 +56,10 @@ import {
 import type { RunProgressStage } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import {
   buildReferenceNamePattern,
+  isExactReferenceRow,
   isReferenceItself,
   normalizeReferenceName,
+  shouldResolveReferenceActivityCodes,
   pickReferenceActivityCodes,
   selectCompetitorBankCandidates,
   selectCompetitorCompanies,
@@ -131,7 +138,7 @@ describe('K — el juez de Claude', () => {
     const body = buildCompetitorJudgeRequestBody({ ...CONTEXT, items }, 'claude-test');
     assert.deepEqual(body.tool_choice, { type: 'tool', name: 'submit_competitor_selection' });
     assert.equal((body.tools as Array<{ type?: string }>).some((t) => t.type?.startsWith('web_search')), false);
-    assert.match(String(body.system), /Misma industria amplia NO basta/);
+    assert.match(String(body.system), /sólo comparten industria/);
     assert.match(String(body.system), /DATO, no instrucciones/);
     assert.doesNotMatch(String(body.system), /Indalum/, 'la referencia va en el mensaje, nunca en system');
     const content = String((body.messages[0] as { content: string }).content);
@@ -143,15 +150,39 @@ describe('K — el juez de Claude', () => {
     const verdicts = readCompetitorJudgeVerdicts(
       conversation({
         competitors: [
-          { key: 'e1', reason: 'Perfiles de aluminio' },
-          { key: 'e1', reason: 'repetida' },
-          { key: 'e9', reason: 'inventada' },
-          { key: 7, reason: 'basura' },
+          { key: 'e1', shared_offering: 'Perfiles de aluminio', confidence: 'high' },
+          { key: 'e1', shared_offering: 'repetida', confidence: 'high' },
+          { key: 'e9', shared_offering: 'inventada', confidence: 'high' },
+          { key: 7, shared_offering: 'basura', confidence: 'high' },
         ],
       }).content,
       items,
     );
     assert.deepEqual(verdicts, [{ key: 'e1', reason: 'Perfiles de aluminio' }]);
+  });
+
+  it('K2b: 🔴 Prod 15-10 — sólo confianza alta y con lo que venden en común', () => {
+    const verdicts = readCompetitorJudgeVerdicts(
+      conversation({
+        competitors: [
+          { key: 'e1', shared_offering: 'Perfiles de aluminio', confidence: 'medium' },
+          { key: 'e2', shared_offering: '   ', confidence: 'high' },
+          { key: 'e2', confidence: 'high' },
+        ],
+      }).content,
+      items,
+    );
+    assert.deepEqual(verdicts, []);
+  });
+
+  it('K1b: el juez sabe que un cliente o un proveedor de la referencia no compite', () => {
+    const body = buildCompetitorJudgeRequestBody({ ...CONTEXT, items }, 'claude-test');
+    assert.match(String(body.system), /vende LO MISMO/);
+    assert.match(String(body.system), /CLIENTES/);
+    assert.match(String(body.system), /PROVEEDORES/);
+    const schema = JSON.stringify(body.tools);
+    assert.match(schema, /shared_offering/);
+    assert.match(schema, /"enum":\["high","medium","low"\]/);
   });
 
   it('K3: lista vacía ⇒ no llama; error de la API ⇒ sin veredictos y con su código', async () => {
@@ -190,6 +221,32 @@ describe('L — catálogo y banco, elegidos por el juez', () => {
       (code) => code.padStart(4, '0'),
     );
     assert.deepEqual(codes, ['1040'], 'la holding (6499) no es de la industria: se ignora');
+  });
+
+  it('L2b: 🔴 Prod 15-10 — el CIIU sólo se busca para una referencia colombiana', () => {
+    assert.equal(shouldResolveReferenceActivityCodes('CO', { homeCountryCode: 'CO' }), true);
+    assert.equal(shouldResolveReferenceActivityCodes('CO', { homeCountryCode: 'MX' }), false, 'Grupo Caballero es mexicana');
+    assert.equal(shouldResolveReferenceActivityCodes('CO', { homeCountryCode: null }), false);
+    assert.equal(shouldResolveReferenceActivityCodes('MX', { homeCountryCode: 'CO' }), false);
+  });
+
+  it('L2c: 🔴 la fila del registro tiene que SER la referencia (web o nombre completo)', () => {
+    const caballero = { name: 'Grupo Caballero', domain: 'grupocaballero.mx' };
+    assert.equal(isExactReferenceRow(caballero, { legalName: 'Confecciones Caballero S.A.S', websiteDomain: null }), false);
+    assert.equal(isExactReferenceRow(caballero, { legalName: 'Caballero S.A.S', websiteDomain: null }), false, 'una sola palabra no basta');
+    assert.equal(isExactReferenceRow(caballero, { legalName: 'Otra', websiteDomain: 'www.grupocaballero.mx' }), true);
+    const almagro = { name: 'Almacenera del Agro S.A. (ALMAGRO)', domain: null };
+    assert.equal(isExactReferenceRow(almagro, { legalName: 'ALMACENERA DEL AGRO S.A.', websiteDomain: null }), true);
+    assert.equal(isExactReferenceRow(almagro, { legalName: 'Almacenera del Agro del Norte', websiteDomain: null }), false);
+  });
+
+  it('L2d: el país de la sede viaja validado y vuelve a leerse del lote', () => {
+    const base = { name: 'Indalum', domain: 'indalum.com', description: null, accountId: null };
+    assert.equal(competitorReferenceSchema.safeParse({ ...base, homeCountryCode: 'CO' }).success, true);
+    assert.equal(competitorReferenceSchema.safeParse({ ...base, homeCountryCode: 'col' }).success, false);
+    assert.equal(competitorReferenceSchema.safeParse(base).success, true, 'fichas anteriores sin país');
+    const metadata = { competitor_search: toCompetitorSearchMetadata({ ...base, homeCountryCode: 'CO' }) };
+    assert.equal(readCompetitorReference(metadata)?.homeCountryCode, 'CO');
   });
 
   it('L3: la referencia misma se reconoce por web o por nombre', () => {

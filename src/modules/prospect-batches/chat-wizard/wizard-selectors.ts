@@ -264,6 +264,7 @@ export function buildSearchModePayload(state: ProspectWizardState): WizardSearch
       description: reference.description,
       accountId: reference.accountId,
       ...(reference.keywords && reference.keywords.length > 0 ? { keywords: [...reference.keywords] } : {}),
+      ...(reference.countryCode ? { homeCountryCode: reference.countryCode } : {}),
     },
   };
 }

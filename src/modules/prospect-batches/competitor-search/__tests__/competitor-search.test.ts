@@ -406,10 +406,11 @@ describe('D — asistente', () => {
     assert.equal(back.industryId, OTHER_INDUSTRY_ID);
   });
 
-  it('D7: lo que viaja en la solicitud es la referencia, sin país ni industria de la ficha', () => {
+  it('D7: lo que viaja es la referencia con el país de su sede, sin la industria de la ficha', () => {
     assert.deepEqual(buildSearchModePayload(toCompetitorSummary()), {
       searchMode: 'competitors',
-      referenceCompany: REFERENCE,
+      // El país de la SEDE (decide si se busca su CIIU en Colombia), no el de la búsqueda.
+      referenceCompany: { ...REFERENCE, homeCountryCode: 'CO' },
     });
     assert.deepEqual(buildSearchModePayload(freshState()), {});
   });
