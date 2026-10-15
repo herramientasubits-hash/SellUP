@@ -11,6 +11,7 @@
 
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { buildSupplierBatchName } from '@/modules/prospect-batches/chat-wizard-execution/supplier-batch-name';
+import { buildCompetitorBatchName } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { ActiveAnthropicModel } from './classify-batch-candidates';
 import type { CompanySearchOutcome } from './company-search';
@@ -388,7 +389,9 @@ export async function runClaudeCompanySearch(
                 depositSurplusToBank: false,
                 batchName: buildSupplierBatchName(referenceCompanyName, source.country, source.industry),
               }
-            : {}),
+            : source.competitorReference
+              ? { batchName: buildCompetitorBatchName(source.competitorReference.name, source.country, source.industry) }
+              : {}),
           metadata: {
             // En el lote del asistente estas claves ya existen: no se tocan.
             ...(!intoBatchId && source.industryId ? { industry_id: source.industryId } : {}),
