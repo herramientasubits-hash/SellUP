@@ -143,7 +143,7 @@ async function loadExcludedDomains(source: SourceBatch): Promise<string[]> {
 }
 
 /** `ready_for_review` → `generating` (sólo ese estado). true = se reabrió. */
-async function reopenClosedBatch(batchId: string): Promise<boolean> {
+export async function reopenClosedBatch(batchId: string): Promise<boolean> {
   const { data, error } = await createSupabaseAdminClient()
     .from('prospect_batches')
     .update({ status: 'generating' })
@@ -155,7 +155,7 @@ async function reopenClosedBatch(batchId: string): Promise<boolean> {
 }
 
 /** Si la escritura falló, el lote vuelve al estado en que estaba. */
-async function restoreClosedBatch(batchId: string): Promise<void> {
+export async function restoreClosedBatch(batchId: string): Promise<void> {
   const { error } = await createSupabaseAdminClient()
     .from('prospect_batches')
     .update({ status: 'ready_for_review' })
