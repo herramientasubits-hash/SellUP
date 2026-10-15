@@ -8,6 +8,7 @@
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { syncAccountFromHubSpotProfile } from './hubspot-company-profile-sync.server';
 import { scheduleAccountOfficialEnrichment } from './account-official-enrichment.server';
+import { scheduleAccountProfileCompletion } from './account-profile-completion.server';
 
 export async function completeConvertedAccount(input: {
   accountId: string;
@@ -27,4 +28,5 @@ export async function completeConvertedAccount(input: {
     });
   }
   scheduleAccountOfficialEnrichment(input.accountId, input.actorUserId);
+  scheduleAccountProfileCompletion(input.accountId, input.actorUserId);
 }
