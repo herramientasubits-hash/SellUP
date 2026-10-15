@@ -128,6 +128,11 @@ export type VerifiedEmployeeRangeSuggestion = {
 export type RejectedField = {
   field: 'sector' | 'subindustry' | 'employee_range' | 'linkedin' | 'requested_industry_fit';
   reason: string;
+  /**
+   * AGENT1-CLAUDE-SECTOR-QUOTE-1 — la cita que se rechazó (recortada), para poder medir
+   * por qué no aparece en la página. Sólo diagnóstico: nunca se usa como evidencia.
+   */
+  quote?: string;
 };
 
 export type ClassifierUsage = {

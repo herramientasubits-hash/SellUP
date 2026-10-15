@@ -154,6 +154,14 @@ function verifySource(
   };
 }
 
+/** Cita rechazada para el diagnóstico, recortada (nunca evidencia). */
+export const REJECTED_QUOTE_MAX_CHARS = 200;
+
+function rejectedQuote(quote: string | null | undefined): { quote?: string } {
+  const text = typeof quote === 'string' ? quote.trim() : '';
+  return text ? { quote: text.slice(0, REJECTED_QUOTE_MAX_CHARS) } : {};
+}
+
 function clampConfidence(value: unknown): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return Math.min(1, Math.max(0, n));
@@ -192,7 +200,7 @@ export function verifySubmission(
     if (!industry) {
       rejected.push({ field: 'sector', reason: 'industry_not_in_catalog' });
     } else if (check.level === 'rejected') {
-      rejected.push({ field: 'sector', reason: check.reason ?? 'unverifiable' });
+      rejected.push({ field: 'sector', reason: check.reason ?? 'unverifiable', ...rejectedQuote(rawSector.quote) });
     } else {
       const sub = rawSector.subindustry_id
         ? industry.subindustries.find((s) => s.id === rawSector.subindustry_id) ?? null
@@ -251,7 +259,11 @@ export function verifySubmission(
   if (rawFit && typeof rawFit.answer === 'boolean') {
     const check = verifySource(rawFit.quote, rawFit.source_url, ctx, MIN_SECTOR_QUOTE_CHARS);
     if (check.level === 'rejected') {
-      rejected.push({ field: 'requested_industry_fit', reason: check.reason ?? 'unverifiable' });
+      rejected.push({
+        field: 'requested_industry_fit',
+        reason: check.reason ?? 'unverifiable',
+        ...rejectedQuote(rawFit.quote),
+      });
     } else {
       requestedIndustryFit = {
         fits: rawFit.answer,
