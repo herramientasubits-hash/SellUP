@@ -57,14 +57,23 @@ import {
   type FreeBankRow,
   type FreeSnapshotRow,
 } from './corporate-tree-free-lookup';
-import { pickApolloOrganization, pickKnownCompany, type CorporateTreeWebItem } from './corporate-tree-plan';
+import {
+  pickApolloOrganization,
+  pickKnownCompany,
+  type CorporateTreeApolloOrganization,
+  type CorporateTreeWebItem,
+} from './corporate-tree-plan';
 import { CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import { APOLLO_COUNTRY_LOCATION_BY_CODE, resolveApolloCountryLocation } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
-import { searchApolloOrganizations } from '@/server/integrations/apollo-client';
+import { searchApolloOrganizationsPage } from '@/server/integrations/apollo-client';
+import {
+  normalizeApolloOrganizationsResponse,
+  type ApolloOrganizationsRawPayload,
+} from '@/server/agents/prospecting-toolkit/apollo-organizations-response-normalizer';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
-import { normalizeTreeName } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { normalizeTreeName, stripBranchSuffix } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
 import {
   buildCountrySourceOfficialTaxIdLookup,
@@ -81,7 +90,34 @@ export const CORPORATE_TREE_POSSIBLE_HUBSPOT_DUPLICATE_REASON = CORPORATE_TREE_P
 
 /** El nombre para buscar en Apollo: sin forma societaria («CITIGROUP CHILE SPA» ⇒ «citigroup chile»). */
 export function corporateTreeApolloQueryName(name: string): string {
-  return normalizeTreeName(name) || name.trim();
+  // «Citigroup Global Markets Europe AG, Sucursal en España» ⇒ «citigroup global markets europe»:
+  // la sucursal de una extranjera está en Apollo con el nombre de su casa matriz.
+  return normalizeTreeName(stripBranchSuffix(name)) || normalizeTreeName(name) || name.trim();
+}
+
+/**
+ * Lo que devolvió Apollo, leído como lo lee el resto del Agente 1: `organizations[]` es
+ * la fuente y `accounts[]` (lo ya guardado en nuestra cuenta de Apollo) sólo completa.
+ * Prod 15-10 (Citigroup, 10 búsquedas): se leía `accounts ?? organizations`, y un
+ * `accounts: []` vacío escondía todas las organizaciones.
+ */
+export function readCorporateTreeApolloPage(payload: unknown): {
+  organizations: CorporateTreeApolloOrganization[];
+  rawCount: number;
+} {
+  const raw = (payload && typeof payload === 'object' ? payload : null) as ApolloOrganizationsRawPayload;
+  const rawCount =
+    (Array.isArray(raw?.organizations) ? raw!.organizations!.length : 0) + (Array.isArray(raw?.accounts) ? raw!.accounts!.length : 0);
+  const normalized = normalizeApolloOrganizationsResponse(raw);
+  return {
+    rawCount,
+    organizations: normalized.organizations.map((org) => ({
+      name: org.name,
+      website_url: org.websiteUrl,
+      primary_domain: org.primaryDomain,
+      linkedin_url: org.linkedinUrl,
+    })),
+  };
 }
 
 /** Resultados por búsqueda por nombre en Apollo: la empresa suele salir primero. */
@@ -338,15 +374,16 @@ export function buildLiveCorporateTreeDeps(params: {
           const spanishName = LATAM_COUNTRIES.find((c) => c.code === query.countryCode)?.name ?? null;
           const country = resolveApolloCountryLocation(query.countryCode, spanishName) ?? query.countryCode;
           const startedAt = Date.now();
-          const result = await searchApolloOrganizations({
+          const result = await searchApolloOrganizationsPage({
             q_organization_name: corporateTreeApolloQueryName(query.name),
             organization_locations: [country],
             per_page: CORPORATE_TREE_APOLLO_PER_PAGE,
             page: 1,
           });
-          const organizations = result.data ?? [];
+          const page = readCorporateTreeApolloPage(result.ok ? result.payload : null);
+          const organizations = page.organizations;
           // 1 crédito por página con resultados (Apollo Support); una vacía no cobra.
-          const credits = organizations.length > 0 ? 1 : 0;
+          const credits = page.rawCount > 0 ? 1 : 0;
           const unitCostUsd = await apolloCreditUnitCost();
           await logProviderUsage({
             batch_id: ctx.batchId,
@@ -356,8 +393,8 @@ export function buildLiveCorporateTreeDeps(params: {
             credits_used: credits,
             results_returned: organizations.length,
             estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
-            status: result.success ? 'success' : 'error',
-            error_message: result.error?.message,
+            status: result.ok ? 'success' : 'error',
+            error_message: result.ok ? undefined : result.errorBody ?? `http_${result.status ?? 'none'}`,
             duration_ms: Date.now() - startedAt,
             triggered_by: params.internalUserId,
             metadata: {
@@ -365,11 +402,18 @@ export function buildLiveCorporateTreeDeps(params: {
               search_mode: 'corporate_tree',
               country_code: query.countryCode,
               non_empty_pages_charged: credits,
+              // Qué devolvió Apollo (sólo nombres y dominios, sin PII): para saber por qué no se aceptó.
+              apollo_returned: organizations.slice(0, CORPORATE_TREE_APOLLO_PER_PAGE).map((o) => ({
+                name: o.name,
+                domain: o.primary_domain ?? null,
+              })),
+              query_name: corporateTreeApolloQueryName(query.name),
+              location: country,
               pricing_source: unitCostUsd === null ? 'missing_config' : 'provider_pricing_config',
               [APOLLO_PRICING_METADATA_KEY]: toApolloPricingMetadata('organizations_search'),
             },
           }).catch(() => undefined);
-          if (!result.success) return null;
+          if (!result.ok) return null;
           return pickApolloOrganization(organizations, query, (website) => normalizeDomain(website));
         }
       : undefined,
