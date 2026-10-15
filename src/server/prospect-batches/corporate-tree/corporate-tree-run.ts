@@ -28,6 +28,7 @@ import type { CountrySourceCompany } from '@/server/prospect-batches/country-sou
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
+import type { CorporateTreeNotWritten } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   markKnownCompanies,
   mergeRootFindings,
@@ -172,7 +173,11 @@ export type CorporateTreeRunDeps = {
   /** Capa gratuita: registros oficiales con web. */
   writeFreeCatalog: (batchId: string, country: TreeCountry, companies: CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   /** Escritor del Agente 1 (Claude y banco con web). */
-  writeWeb: (batchId: string, country: TreeCountry, items: CorporateTreeWebItem[]) => Promise<{ written: number; errors: string[] }>;
+  writeWeb: (
+    batchId: string,
+    country: TreeCountry,
+    items: CorporateTreeWebItem[],
+  ) => Promise<{ written: number; errors: string[]; skipped?: readonly { name: string; domain?: string | null; reason: string }[] }>;
   /**
    * ¿Ya está en HubSpot o en SellUp por su nombre exacto y país? Se pregunta antes de mandar
    * al rescate (que es pagado). `null` = no se sabe (la fila sigue su camino).
@@ -380,17 +385,21 @@ async function withKnownCompanies(
   return markKnownCompanies(plan, known);
 }
 
+/** Las que el escritor no escribió, con su motivo: a lo sumo esto se guarda en el lote. */
+const CORPORATE_TREE_NOT_WRITTEN_KEPT = 40;
+
 async function writePlan(
   plan: CorporateTreeWritePlan,
   batchId: string,
   countries: readonly TreeCountry[],
   deps: CorporateTreeRunDeps,
   deadlineAtMs: number,
-): Promise<{ written: number; withoutWebsite: number; errors: string[] }> {
+): Promise<{ written: number; withoutWebsite: number; errors: string[]; notWritten: CorporateTreeNotWritten[] }> {
   const countryOf = (code: string): TreeCountry => countries.find((c) => c.code === code) ?? { code, name: code };
   let written = 0;
   let withoutWebsite = 0;
   const errors: string[] = [];
+  const notWritten: CorporateTreeNotWritten[] = [];
   // Sin tiempo para otra escritura: lo que falta se anota y la corrida cierra el lote a tiempo.
   const outOfTime = (what: string) => {
     if (deps.nowMs() < deadlineAtMs) return false;
@@ -412,6 +421,10 @@ async function writePlan(
     }));
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
+    // Por qué el escritor no escribió cada una (Prod 15-10: Purina, HSBC Bank USA… sin motivo).
+    for (const skip of 'skipped' in result ? (result.skipped ?? []) : []) {
+      notWritten.push({ name: skip.name, countryCode: code, domain: skip.domain ?? null, reason: skip.reason.slice(0, 120) });
+    }
   }
   for (const [code, items] of plan.possibleDuplicates) {
     if (outOfTime(`possible_duplicate:${code}`) || !deps.recordPossibleDuplicates) continue;
@@ -421,7 +434,7 @@ async function writePlan(
     if (outOfTime(`without_website:${code}`)) continue;
     withoutWebsite += await deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0);
   }
-  return { written, withoutWebsite, errors };
+  return { written, withoutWebsite, errors, notWritten };
 }
 
 export async function runCorporateTreeSearch(
@@ -597,6 +610,7 @@ async function runAfterReservation(
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
+      not_written: writes.notWritten.slice(0, CORPORATE_TREE_NOT_WRITTEN_KEPT),
       searched_at: deps.nowIso(),
     },
   };

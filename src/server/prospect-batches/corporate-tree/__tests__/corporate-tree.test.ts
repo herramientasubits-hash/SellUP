@@ -55,6 +55,7 @@ import {
 } from '../corporate-tree-run';
 import { buildCorporateTreeUsageLog, readApolloSubsidiaries } from '../corporate-tree-run.server';
 import {
+  corporateTreeNotWrittenLabel,
   corporateTreePendingSummary,
   groupBatchCandidatesByTreeRelation,
   ownDomainsWithoutCandidate,
@@ -1415,5 +1416,39 @@ describe('AA. La web de la empresa de partida es la suya, no la de su matriz (Pr
     );
     assert.equal(merged.domain, 'grupobimbo.com');
     assert.equal(merged.countryCode, 'MX');
+  });
+});
+
+describe('AB. Se dice por qué el escritor no escribió cada empresa (Prod 15-10: Purina, HSBC Bank USA)', () => {
+  it('el motivo crudo del escritor se dice en palabras', () => {
+    assert.equal(corporateTreeNotWrittenLabel('duplicate_global_identity_claim'), 'No entró: ya está en otra búsqueda o cuenta (misma web o número fiscal)');
+    assert.equal(corporateTreeNotWrittenLabel('batch_identity_duplicate:domain'), 'No entró: ya está en otra búsqueda o cuenta (misma web o número fiscal)');
+    assert.equal(corporateTreeNotWrittenLabel('country_incompatible:tld'), 'No entró: su país no coincide');
+    assert.equal(corporateTreeNotWrittenLabel('non_official_source_domain'), 'No entró: la web no parece ser de esa empresa');
+    assert.equal(corporateTreeNotWrittenLabel('evidence_policy:weak'), 'No entró: no pasó la revisión de calidad');
+    assert.equal(corporateTreeNotWrittenLabel('algo_nuevo'), 'No entró: algo_nuevo');
+    assert.equal(corporateTreeNotWrittenLabel(null), null);
+  });
+
+  it('la corrida guarda en el lote las que el escritor frenó, con su motivo', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Purina', 'CL', { website: 'https://purina.cl', domain: 'purina.cl' })])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({ written: 0, errors: [], skipped: [{ name: 'Purina', domain: 'purina.cl', reason: 'duplicate_global_identity_claim' }] }),
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(result.ok);
+    const tree = calls.sealed[0].metadata.corporate_tree as { not_written: unknown };
+    assert.deepEqual(tree.not_written, [{ name: 'Purina', countryCode: 'CL', domain: 'purina.cl', reason: 'duplicate_global_identity_claim' }]);
+  });
+
+  it('el lote lo muestra en vez de «ya existía o no pasó las revisiones»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Purina', related_country_code: 'CL', related_domain: 'purina.cl', relation_type: 'subsidiary', relation_detail: null, evidence_url: null, own_website: true, known_in_sellup: false, not_written_reason: 'country_incompatible:tld' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'No entró: su país no coincide');
   });
 });
