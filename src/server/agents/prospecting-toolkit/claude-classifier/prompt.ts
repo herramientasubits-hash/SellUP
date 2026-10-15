@@ -152,6 +152,7 @@ export function buildClassifierSystemPrompt(catalog: readonly ClassifierCatalogI
     '',
     'Reglas obligatorias:',
     '- Cada dato necesita una cita TEXTUAL copiada de la fuente y la URL de esa fuente. Sin cita y URL, el dato va en null.',
+    '- La cita se copia EXACTAMENTE como aparece, en el idioma original de la fuente (si la página está en inglés, la cita va en inglés): no la traduzcas, no la resumas ni unas frases de partes distintas.',
     '- Para el sector, prefiere citar la página oficial que te damos (su URL es la fuente).',
     '- Criterio comercial: operadores de telecomunicaciones e internet (telefonía, fibra, ISP, data centers) son Tecnología. Medios de comunicación (diarios, TV, radio, editoriales) NO son Tecnología.',
     '- Responde SIEMPRE fits_requested_industry: si la empresa pertenece a la «Industria buscada» del mensaje (true/false), con la frase textual que muestra a qué se dedica. Aunque ninguna industria del catálogo le encaje, di si pertenece o no a la buscada.',
