@@ -141,9 +141,14 @@ describe('4. aceptadas tras el rescate de Claude dentro de la corrida', () => {
       },
       rescueBatchInline: async (input) => (rescues.push(input), true),
       listAcceptedCandidateIds: async () => ['c1', 'c2'],
-      countCompetitorBatchOutcome: async () => ({ reviewable: 10, hubspotDuplicates: 0, sellupDuplicates: 0 }),
+      countCompetitorBatchOutcome: async () => ({ reviewable: 3, hubspotDuplicates: 0, sellupDuplicates: 0 }),
       actionStartedAtMs: 0,
-      nowMs: () => 100_000,
+      nowMs: (() => {
+      // 1.ª lectura (arranque de la 1.ª ronda) a los 10 s; después ya pasaron 120 s:
+      // no cabe otra ronda pero sí el rescate en línea.
+      let reads = 0;
+      return () => (reads++ < 1 ? 10_000 : 120_000);
+    })(),
       ...overrides,
     };
     return { d, seals, rescues };
