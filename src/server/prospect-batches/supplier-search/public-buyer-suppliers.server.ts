@@ -1,6 +1,7 @@
 /**
  * AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — dependencias vivas del paso de compras públicas de
- * «Proveedores de una empresa» (Colombia, SECOP II).
+ * «Proveedores de una empresa»: Colombia (SECOP II en vivo) y Chile (órdenes de compra
+ * de ChileCompra cargadas en `public_procurement_supplier_links`, sólo service_role).
  *
  *  - `source_company_snapshots` es sólo para service_role: lecturas con el cliente de
  *    la factoría aprobada (entidad, NIT públicos, web por NIT).
@@ -15,10 +16,22 @@ import { persistCountrySourceCandidates } from '@/server/prospect-batches/countr
 import { buildUnverifiedFreeDispositionRows } from '@/server/prospect-batches/country-source-discovery/free-source-unverified';
 import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
 import { CO_SECOP_SUPPLIERS_SOURCE_KEY, fetchCoSecopSuppliers } from './co-secop-suppliers';
+import {
+  CL_CHILECOMPRA_ORDERS_SOURCE_KEY,
+  clBuyersFromLinks,
+  clSuppliersFromLinks,
+  normalizeClBuyerName,
+  type ClStoredLink,
+} from './cl-chilecompra-orders';
 import type { PublicBuyerStepDeps, PublicEntityRow, TaggableCandidate } from './public-buyer-suppliers';
 
 const SECOP_TIMEOUT_MS = 12_000;
 const ENTITY_QUERY_LIMIT = 25;
+/** Filas de compradores que se leen para reconocer la referencia en Chile. */
+const CL_BUYER_QUERY_LIMIT = 200;
+/** Proveedores de la entidad que se leen (los de más monto). */
+const CL_SUPPLIER_QUERY_LIMIT = 200;
+const CL_LINKS_TABLE = 'public_procurement_supplier_links';
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -61,8 +74,32 @@ export function buildLivePublicBuyerStepDeps(params: {
   requestedByUserId: string;
 }): PublicBuyerStepDeps {
   const snapshots = () => params.serviceClient.from('source_company_snapshots');
+  const writers: Pick<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'> = {
+    writeWithWebsite: async (companies) => {
+      const result = await persistCountrySourceCandidates(params.sessionClient, {
+        companies,
+        countryCode: params.countryCode,
+        countryName: params.countryName,
+        macroIndustryKey: params.macroIndustryKey,
+        requestedByUserId: params.requestedByUserId,
+        batchId: params.batchId,
+        runHubspotCheck: true,
+        metadata: {},
+      });
+      return { written: result.writtenCount, failed: result.failed };
+    },
+
+    recordWithoutWebsite: async (companies) => {
+      const recorded = await persistDiscardedDispositionRows(
+        buildUnverifiedFreeDispositionRows({ batchId: params.batchId, countryCode: params.countryCode, companies }),
+      );
+      return recorded.persisted;
+    },
+  };
+  if (params.countryCode === 'CL') return { ...buildClLookups(params.serviceClient), ...writers };
   return {
     sourceKey: CO_SECOP_SUPPLIERS_SOURCE_KEY,
+    taxIdentifierType: 'NIT',
 
     findPublicEntities: async (normalizedName) => {
       const { data, error } = await snapshots()
@@ -122,27 +159,107 @@ export function buildLivePublicBuyerStepDeps(params: {
       return domains;
     },
 
-    writeWithWebsite: async (companies) => {
-      const result = await persistCountrySourceCandidates(params.sessionClient, {
-        companies,
-        countryCode: params.countryCode,
-        countryName: params.countryName,
-        macroIndustryKey: params.macroIndustryKey,
-        requestedByUserId: params.requestedByUserId,
-        batchId: params.batchId,
-        runHubspotCheck: true,
-        metadata: {},
-      });
-      return { written: result.writtenCount, failed: result.failed };
+    ...writers,
+  };
+}
+
+/**
+ * Chile: comprador y proveedores salen del resumen cargado de ChileCompra. Las
+ * entidades públicas ya quedaron fuera al cargar (sólo RUT de empresa). Web: casi
+ * ninguna fuente chilena la trae (lista curada); tamaño: trabajadores del SII.
+ */
+function buildClLookups(
+  serviceClient: SupabaseClient,
+): Omit<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'> {
+  const links = () => serviceClient.from(CL_LINKS_TABLE);
+  return {
+    sourceKey: CL_CHILECOMPRA_ORDERS_SOURCE_KEY,
+    taxIdentifierType: 'RUT',
+    normalizeName: normalizeClBuyerName,
+
+    findPublicEntities: async (normalizedName) => {
+      const { data, error } = await links()
+        .select('buyer_code, buyer_name_normalized')
+        .eq('country_code', 'CL')
+        .eq('source_key', CL_CHILECOMPRA_ORDERS_SOURCE_KEY)
+        .like('buyer_name_normalized', `${normalizedName.replace(/[%_]/g, '')}%`)
+        .limit(CL_BUYER_QUERY_LIMIT);
+      if (error) {
+        logError('cl find buyers', error);
+        return [];
+      }
+      return clBuyersFromLinks((data ?? []) as Array<Pick<ClStoredLink, 'buyer_code' | 'buyer_name_normalized'>>);
     },
 
-    recordWithoutWebsite: async (companies) => {
-      const recorded = await persistDiscardedDispositionRows(
-        buildUnverifiedFreeDispositionRows({ batchId: params.batchId, countryCode: params.countryCode, companies }),
-      );
-      return recorded.persisted;
+    listSuppliers: async ({ buyerTaxId, macroIndustryKey }) => {
+      const { data, error } = await links()
+        .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start')
+        .eq('country_code', 'CL')
+        .eq('source_key', CL_CHILECOMPRA_ORDERS_SOURCE_KEY)
+        .eq('buyer_code', buyerTaxId)
+        .order('total_amount', { ascending: false })
+        .limit(CL_SUPPLIER_QUERY_LIMIT);
+      if (error) {
+        logError('cl suppliers', error);
+        return { ok: false, reason: 'source_unavailable' };
+      }
+      const listed = clSuppliersFromLinks((data ?? []) as ClStoredLink[], macroIndustryKey);
+      if (!listed.ok || listed.suppliers.length === 0) return listed;
+      const workers = await clWorkersByRut(serviceClient, listed.suppliers.map((s) => s.taxId));
+      return {
+        ...listed,
+        suppliers: listed.suppliers.map((s) => (workers.has(s.taxId) ? { ...s, officialWorkers: workers.get(s.taxId) } : s)),
+      };
+    },
+
+    listPublicOnlyTaxIds: async () => new Set<string>(),
+
+    findDomainsByTaxId: async (taxIds) => {
+      const forms = taxIds.flatMap((rut) => [rut, rut.replace('-', '')]);
+      const { data, error } = await serviceClient
+        .from('source_company_snapshots')
+        .select('normalized_tax_id, raw_data')
+        .eq('country_code', 'CL')
+        .eq('source_key', 'latam_curated_directory')
+        .in('normalized_tax_id', forms);
+      if (error) {
+        logError('cl domains', error);
+        return new Map<string, string>();
+      }
+      const domains = new Map<string, string>();
+      for (const row of (data ?? []) as Array<{ normalized_tax_id: string; raw_data: Record<string, unknown> | null }>) {
+        const rut = taxIds.find((t) => t === row.normalized_tax_id || t.replace('-', '') === row.normalized_tax_id);
+        const host = normalizeWebsiteHost(text(row.raw_data?.website_domain) ?? text(row.raw_data?.website));
+        if (rut && host && !domains.has(rut)) domains.set(rut, host);
+      }
+      return domains;
     },
   };
+}
+
+/** Trabajadores del SII (registro chileno) por RUT, para el tamaño oficial. */
+async function clWorkersByRut(
+  serviceClient: SupabaseClient,
+  ruts: readonly string[],
+): Promise<Map<string, { workers: number; year: number | null; sourceLabel: string }>> {
+  const out = new Map<string, { workers: number; year: number | null; sourceLabel: string }>();
+  const { data, error } = await serviceClient
+    .from('source_company_snapshots')
+    .select('tax_id, raw_data, source_year')
+    .eq('country_code', 'CL')
+    .in('source_key', ['cl_sii_directory', 'cl_sii_registry'])
+    .in('tax_id', [...ruts]);
+  if (error) {
+    logError('cl workers', error);
+    return out;
+  }
+  for (const row of (data ?? []) as Array<{ tax_id: string; raw_data: Record<string, unknown> | null; source_year: number | null }>) {
+    const workers = Number(row.raw_data?.workers);
+    if (!Number.isInteger(workers) || workers < 1 || out.has(row.tax_id)) continue;
+    const year = Number(row.raw_data?.metrics_year ?? row.source_year);
+    out.set(row.tax_id, { workers, year: Number.isInteger(year) ? year : null, sourceLabel: 'SII' });
+  }
+  return out;
 }
 
 /** Lectura y etiquetado de los candidatos del lote (cliente de la sesión). */

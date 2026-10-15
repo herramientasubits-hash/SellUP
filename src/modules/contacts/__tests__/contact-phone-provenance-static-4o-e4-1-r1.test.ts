@@ -410,8 +410,13 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
       // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
       // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      '149_provider_usage_search_mode_from_batch_metadata.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida, la 144 de varias ejecuciones activas por usuario en la reserva del piloto, la 145 de la asignación de prospectos a otra persona, la 146 de la ampliación de tipos fiscales con RIF, la 147 de las dimensiones de las consultas a proveedores, la 148 de las asociaciones entre empresas de la búsqueda en árbol y la 149 de la forma de búsqueda del uso de IA desde la metadata del lote, no este hito',
+      // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+      // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+      // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+      // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+      // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+      '150_public_procurement_supplier_links.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida, la 144 de varias ejecuciones activas por usuario en la reserva del piloto, la 145 de la asignación de prospectos a otra persona, la 146 de la ampliación de tipos fiscales con RIF, la 147 de las dimensiones de las consultas a proveedores, la 148 de las asociaciones entre empresas de la búsqueda en árbol, la 149 de la forma de búsqueda del uso de IA desde la metadata del lote y la 150 de quién le vende a cada entidad pública, no este hito',
     );
     for (const agent2 of [
       '129_agent2_contact_hubspot_stale_completeness.sql',
@@ -490,13 +495,16 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT1-CORPORATE-TREE-2 declara la 149 (`provider_usage_batch_dimensions` desde la metadata
       // del lote). Queda AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida sube
       // a la 150 y superiores.
-      numbered.some((f) => /^15\d/.test(f) || /^1[6-9]\d/.test(f)),
+      // AGENT1-SUPPLIER-SEARCH-CL-1 declara la 150 (`public_procurement_supplier_links`). Queda
+      // AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida sube a la 151 y
+      // superiores.
+      numbered.some((f) => /^15[1-9]/.test(f) || /^1[6-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 150 o superior',
+      'ninguna migración 151 o superior',
     );
   });
 

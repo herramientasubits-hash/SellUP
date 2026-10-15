@@ -18,11 +18,18 @@
  * Puro: dependencias inyectadas. 0 escrituras en HubSpot (su revisión es de lectura).
  */
 
-import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
+import {
+  buildCountrySourceOfficialWorkforce,
+  type CountrySourceCompany,
+} from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
 
-/** Países con compras públicas conectadas a «Proveedores». Chile: falta su ticket. */
-export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = ['CO'];
+/**
+ * Países con compras públicas conectadas a «Proveedores»: Colombia (SECOP II en vivo)
+ * y Chile (órdenes de compra mensuales de ChileCompra cargadas en
+ * `public_procurement_supplier_links`; sin carga, el paso no reconoce a nadie).
+ */
+export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = ['CO', 'CL'];
 /** Proveedores que se ofrecen como mucho (con y sin web). */
 export const PUBLIC_BUYER_MAX_SUPPLIERS = 12;
 /** Clave del bloque del lote con lo que hizo el paso. */
@@ -40,10 +47,20 @@ export type PublicBuyerSupplier = {
   /** Rubro en palabras de lo que más le vende («Servicios informáticos»). */
   rubro: string | null;
   evidenceUrl: string | null;
+  /** Trabajadores según el registro oficial del país (Chile: SII), si se conocen. */
+  officialWorkers?: { workers: number; year: number | null; sourceLabel: string } | null;
 };
 
 export type PublicBuyerSuppliersResult =
-  | { ok: true; suppliers: PublicBuyerSupplier[]; read: number; outsideIndustry: number; tableVersion: string }
+  | {
+      ok: true;
+      suppliers: PublicBuyerSupplier[];
+      read: number;
+      outsideIndustry: number;
+      tableVersion: string;
+      /** Año desde el que se miran las compras (frase de la prueba). Ausente = año en curso − 2. */
+      sinceYear?: string;
+    }
   | { ok: false; reason: 'industry_without_unspsc' | 'source_unavailable' };
 
 /** Una entidad pública candidata a ser la referencia. */
@@ -100,6 +117,10 @@ export type PublicBuyerStepInput = {
 
 export type PublicBuyerStepDeps = {
   sourceKey: string;
+  /** Tipo de número fiscal del país (Colombia NIT, Chile RUT). */
+  taxIdentifierType?: CountrySourceCompany['taxIdentifierType'];
+  /** Cómo normaliza el país el nombre del comprador (Chile quita «I»/«Ilustre»). */
+  normalizeName?: (raw: string) => string;
   /** Entidades públicas del país cuyo nombre es o empieza por el normalizado. */
   findPublicEntities: (normalizedName: string) => Promise<PublicEntityRow[]>;
   listSuppliers: (input: { buyerTaxId: string; macroIndustryKey: string; nowIso: string }) => Promise<PublicBuyerSuppliersResult>;
@@ -139,10 +160,11 @@ function pickOne(rows: readonly PublicEntityRow[]): PublicEntityRow | 'ambiguous
 export function pickPublicBuyer(
   referenceCompanyName: string,
   rows: readonly PublicEntityRow[],
+  normalize: (raw: string) => string = normalizePublicEntityName,
 ): { entity: PublicEntityRow; matchedBy: 'exact' | 'prefix' } | { entity: null; reason: 'not_public_entity' | 'ambiguous_entity' } {
-  const wanted = normalizePublicEntityName(referenceCompanyName);
+  const wanted = normalize(referenceCompanyName);
   if (wanted.length < 4) return { entity: null, reason: 'not_public_entity' };
-  const names = (row: PublicEntityRow) => [row.normalizedLegalName, row.shortName ? normalizePublicEntityName(row.shortName) : null];
+  const names = (row: PublicEntityRow) => [row.normalizedLegalName, row.shortName ? normalize(row.shortName) : null];
   const exact = pickOne(rows.filter((row) => names(row).includes(wanted)));
   if (exact === 'ambiguous') return { entity: null, reason: 'ambiguous_entity' };
   if (exact) return { entity: exact, matchedBy: 'exact' };
@@ -168,15 +190,24 @@ export function describePublicBuyerSupplier(supplier: PublicBuyerSupplier, buyer
 
 function toCompany(
   supplier: PublicBuyerSupplier,
-  input: { countryCode: string; sourceKey: string; tableVersion: string },
+  input: {
+    countryCode: string;
+    sourceKey: string;
+    tableVersion: string;
+    taxIdentifierType: CountrySourceCompany['taxIdentifierType'];
+  },
   domain: string | null,
 ): CountrySourceCompany {
+  const workforce = supplier.officialWorkers
+    ? buildCountrySourceOfficialWorkforce(supplier.officialWorkers.workers, supplier.officialWorkers.year, supplier.officialWorkers.sourceLabel)
+    : null;
   return {
     recordIdentityKey: `tax:${supplier.taxId}`,
     legalName: supplier.name,
     normalizedLegalName: null,
     taxId: supplier.taxId,
-    taxIdentifierType: 'NIT',
+    taxIdentifierType: input.taxIdentifierType,
+    ...(workforce ? { officialWorkforce: workforce } : {}),
     countryCode: input.countryCode,
     city: null,
     region: null,
@@ -197,8 +228,9 @@ export async function runPublicBuyerSupplierStep(
   if (!PUBLIC_BUYER_SUPPLIER_COUNTRIES.includes(input.countryCode)) {
     return { executed: false, reason: 'country_not_supported' };
   }
-  const normalized = normalizePublicEntityName(input.referenceCompanyName);
-  const picked = pickPublicBuyer(input.referenceCompanyName, await deps.findPublicEntities(normalized));
+  const normalize = deps.normalizeName ?? normalizePublicEntityName;
+  const normalized = normalize(input.referenceCompanyName);
+  const picked = pickPublicBuyer(input.referenceCompanyName, await deps.findPublicEntities(normalized), normalize);
   if (picked.entity === null) return { executed: false, reason: picked.reason };
   const buyer = picked.entity;
 
@@ -212,7 +244,12 @@ export async function runPublicBuyerSupplierStep(
   const publicOnly = listed.suppliers.length > 0 ? await deps.listPublicOnlyTaxIds(listed.suppliers.map((s) => s.taxId)) : new Set<string>();
   const offered = listed.suppliers.filter((s) => !publicOnly.has(s.taxId)).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
   const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
-  const companyInput = { countryCode: input.countryCode, sourceKey: deps.sourceKey, tableVersion: listed.tableVersion };
+  const companyInput = {
+    countryCode: input.countryCode,
+    sourceKey: deps.sourceKey,
+    tableVersion: listed.tableVersion,
+    taxIdentifierType: deps.taxIdentifierType ?? ('NIT' as const),
+  };
   const withWebsite = offered.filter((s) => domains.has(s.taxId)).map((s) => toCompany(s, companyInput, domains.get(s.taxId) ?? null));
   const withoutWebsite = offered.filter((s) => !domains.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
 
@@ -220,7 +257,7 @@ export async function runPublicBuyerSupplierStep(
   const recordedWithoutWebsite = withoutWebsite.length > 0 ? await deps.recordWithoutWebsite(withoutWebsite).catch(() => 0) : 0;
 
   const buyerName = input.referenceCompanyName.trim();
-  const sinceYear = String(Number(input.nowIso.slice(0, 4)) - 2);
+  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
   return {
     executed: true,
     buyer: { taxId: buyer.taxId, name: buyer.normalizedLegalName, matchedBy: picked.matchedBy },
@@ -242,6 +279,18 @@ export async function runPublicBuyerSupplierStep(
   };
 }
 
+/**
+ * Clave para cruzar el número fiscal del candidato con el del proveedor: el NIT
+ * colombiano sin dígito de verificación; si no lo es (RUT chileno «96505260-7»), sólo
+ * dígitos y K.
+ */
+export function taxIdKey(raw: string | null | undefined): string | null {
+  const nit = normalizeEntityNit(raw);
+  if (nit) return nit;
+  const generic = (raw ?? '').replace(/[^0-9kK]/g, '').toUpperCase();
+  return generic.length >= 7 ? generic : null;
+}
+
 /** Candidato del lote, lo justo para etiquetarlo. */
 export type TaggableCandidate = { id: string; taxIdentifier: string | null; metadata: Record<string, unknown> | null };
 
@@ -258,10 +307,10 @@ export async function tagPublicBuyerSuppliers(
   },
 ): Promise<number> {
   if (input.relationships.length === 0) return 0;
-  const byTaxId = new Map(input.relationships.map((r) => [r.taxId, r]));
+  const byTaxId = new Map(input.relationships.map((r) => [taxIdKey(r.taxId), r]));
   let tagged = 0;
   for (const candidate of await deps.loadCandidates(input.batchId)) {
-    const taxId = normalizeEntityNit(candidate.taxIdentifier);
+    const taxId = taxIdKey(candidate.taxIdentifier);
     const relationship = taxId ? byTaxId.get(taxId) : undefined;
     if (!relationship) continue;
     const metadata = candidate.metadata ?? {};

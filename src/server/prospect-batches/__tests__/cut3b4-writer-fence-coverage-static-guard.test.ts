@@ -498,7 +498,13 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // (`prospect_batches.metadata->>'search_mode'`: árbol, proveedores, competidores) y su relleno
     // idempotente de `provider_usage_logs.search_mode`. No es tabla ni función de la cadena de
     // teléfono 109–117, ni del catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    const CEILING = '149_provider_usage_search_mode_from_batch_metadata.sql';
+    const USAGE_SEARCH_MODE_149 = '149_provider_usage_search_mode_from_batch_metadata.sql';
+    // AGENT1-SUPPLIER-SEARCH-CL-1 mueve el techo a la 150: una tabla nueva
+    // `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+    // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+    // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
+    // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
+    const CEILING = '150_public_procurement_supplier_links.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -522,6 +528,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       TAX_IDENTIFIER_RIF_146,
       USAGE_LOG_DIMENSIONS_147,
       COMPANY_RELATIONSHIPS_148,
+      USAGE_SEARCH_MODE_149,
       CEILING,
     ]) {
       assert.equal(
@@ -545,7 +552,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AI-USAGE-FASE-2 añade la 147 y el conteo sube con ella.
     // AGENT1-CORPORATE-TREE-1 añade la 148 y el conteo sube con ella.
     // AGENT1-CORPORATE-TREE-2 añade la 149 y el conteo sube con ella.
-    assert.equal(migrations.length, 149);
+    // AGENT1-SUPPLIER-SEARCH-CL-1 añade la 150 y el conteo sube con ella.
+    assert.equal(migrations.length, 150);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

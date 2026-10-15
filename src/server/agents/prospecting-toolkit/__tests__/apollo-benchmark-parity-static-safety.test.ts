@@ -466,7 +466,9 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // empresas de la búsqueda en árbol). No es de este corte; la ventana sube a la 149.
     // AGENT1-CORPORATE-TREE-2 declara la 149 (`provider_usage_batch_dimensions` desde la metadata del
     // lote: CREATE OR REPLACE y su relleno). No es de este corte; la ventana sube a la 150.
-      migrations.filter((f) => f.startsWith('150')).length,
+    // AGENT1-SUPPLIER-SEARCH-CL-1 declara la 150 (`public_procurement_supplier_links`: quién le vende
+    // a cada entidad pública, de las compras públicas). No es de este corte; la ventana sube a la 151.
+      migrations.filter((f) => f.startsWith('151')).length,
       0,
       'este corte no añade migración',
     );
@@ -497,7 +499,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('146') ||
         f.startsWith('147') ||
         f.startsWith('148') ||
-        f.startsWith('149'),
+        f.startsWith('149') ||
+        f.startsWith('150'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

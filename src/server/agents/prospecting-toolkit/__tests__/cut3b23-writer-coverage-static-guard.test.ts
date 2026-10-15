@@ -408,7 +408,13 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no toca el registro de identidad
 // del lote ni la valla; su autoría se policía por CONTENIDO en la prueba dedicada de abajo.
 // AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '149_provider_usage_search_mode_from_batch_metadata.sql';
+// 🔴 AGENT1-SUPPLIER-SEARCH-CL-1 subió el techo a la 150: una tabla nueva
+// `public_procurement_supplier_links` (resumen entidad compradora × proveedor de las compras
+// públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
+// service_role. No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no toca el registro
+// de identidad del lote ni la valla; su autoría se policía por CONTENIDO en la prueba dedicada de
+// abajo. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '150_public_procurement_supplier_links.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -419,6 +425,7 @@ const TAX_IDENTIFIER_RIF_MIGRATION = '146_tax_identifier_type_rif.sql';
 const USAGE_LOG_DIMENSIONS_MIGRATION = '147_provider_usage_log_dimensions.sql';
 const COMPANY_RELATIONSHIPS_MIGRATION = '148_agent1_company_relationships.sql';
 const USAGE_SEARCH_MODE_MIGRATION = '149_provider_usage_search_mode_from_batch_metadata.sql';
+const PROCUREMENT_SUPPLIER_LINKS_MIGRATION = '150_public_procurement_supplier_links.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -637,6 +644,22 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     }
   });
 
+  it('la 150 existe, es de AGENT1-SUPPLIER-SEARCH-CL-1 y NO de este corte', () => {
+    // AGENT1-SUPPLIER-SEARCH-CL-1 tomó la 150 (`public_procurement_supplier_links`: quién le vende a
+    // cada entidad pública) de forma independiente. Se exige que la 150 sea EXACTAMENTE esa y que no
+    // nombre ningún símbolo de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('150')),
+      [PROCUREMENT_SUPPLIER_LINKS_MIGRATION],
+      'la 150 tiene que ser la de los proveedores de compras públicas, y sólo ella',
+    );
+    const sql = executableSql(PROCUREMENT_SUPPLIER_LINKS_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 150 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
   it('la 149 existe, es de AGENT1-CORPORATE-TREE-2 y NO de este corte', () => {
     // AGENT1-CORPORATE-TREE-2 tomó la 149 (`provider_usage_batch_dimensions` desde la metadata del
     // lote) de forma independiente. Se exige que la 149 sea EXACTAMENTE esa y que no nombre ningún
@@ -701,7 +724,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 149 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 150 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -736,7 +759,9 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // por AUTORÍA en su prueba dedicada.
     // AGENT1-CORPORATE-TREE-2 lo movió a la 149 (`provider_usage_batch_dimensions` desde la
     // metadata del lote), policiada igual por AUTORÍA en su prueba dedicada.
-    assert.ok(last.startsWith('149'), `última migración inesperada: ${last}`);
+    // AGENT1-SUPPLIER-SEARCH-CL-1 lo movió a la 150 (`public_procurement_supplier_links`), policiada
+    // igual por AUTORÍA en su prueba dedicada.
+    assert.ok(last.startsWith('150'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
@@ -748,6 +773,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.ok(migrations.includes(USAGE_LOG_DIMENSIONS_MIGRATION));
     assert.ok(migrations.includes(COMPANY_RELATIONSHIPS_MIGRATION));
     assert.ok(migrations.includes(USAGE_SEARCH_MODE_MIGRATION));
+    assert.ok(migrations.includes(PROCUREMENT_SUPPLIER_LINKS_MIGRATION));
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));
