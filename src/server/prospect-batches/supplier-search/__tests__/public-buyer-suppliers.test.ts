@@ -19,12 +19,14 @@ import {
   describePublicBuyerSupplier,
   normalizePublicEntityName,
   pickPublicBuyer,
+  prioritizeLargeSuppliers,
   runPublicBuyerSupplierStep,
   tagPublicBuyerSuppliers,
   type PublicBuyerStepDeps,
   type PublicBuyerSupplier,
   type PublicEntityRow,
 } from '../public-buyer-suppliers';
+import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 
 const MEDELLIN: PublicEntityRow = {
   taxId: '890905211',
@@ -265,5 +267,42 @@ describe('4. «Proveedor de X» en los candidatos', () => {
       evidence: 'e1',
       source: 'public_procurement',
     });
+  });
+});
+
+describe('5. tamaño oficial (AGENT1-RESCUE-SIZE-UNFILTERED-1)', () => {
+  const withWorkers = (taxId: string, workers: number | null): PublicBuyerSupplier => ({
+    ...supplier(taxId, taxId),
+    officialWorkers: workers === null ? null : { workers, year: 2024, sourceLabel: 'SII' },
+  });
+
+  it('las grandes primero; las sin dato después, por monto', () => {
+    const order = prioritizeLargeSuppliers([
+      withWorkers('a', null),
+      withWorkers('b', 150),
+      withWorkers('c', null),
+      withWorkers('d', 5000),
+    ]).map((s) => s.taxId);
+    assert.deepEqual(order, ['d', 'b', 'a', 'c']);
+  });
+
+  it('las que el registro oficial muestra chicas no se ofrecen y todas llevan la marca «sin filtro de tamaño»', async () => {
+    const recorded: CountrySourceCompany[] = [];
+    const f = stepDeps({
+      listSuppliers: async () => ({
+        ok: true,
+        suppliers: [withWorkers('901140525', 2), withWorkers('900092385', 5000), withWorkers('800035776', null)],
+        read: 3,
+        outsideIndustry: 0,
+        tableVersion: 'py-unspsc-dncp-macro-v1',
+      }),
+      listPublicOnlyTaxIds: async () => new Set(),
+      findDomainsByTaxId: async () => new Map(),
+      recordWithoutWebsite: async (companies) => (recorded.push(...companies), companies.length),
+    });
+    const outcome = await runPublicBuyerSupplierStep(STEP_INPUT, f.deps);
+    assert.equal(outcome.executed && outcome.knownSmallExcluded, 1);
+    assert.deepEqual(recorded.map((c) => c.taxId), ['900092385', '800035776']);
+    assert.ok(recorded.every((c) => c.sizeNotFilteredBySource === true));
   });
 });

@@ -127,6 +127,7 @@ function toSourceDiscoveryCandidate(
       ...(company.curatedOrigins && company.curatedOrigins.length > 0
         ? { curated_origins: [...company.curatedOrigins] }
         : {}),
+      ...(company.sizeNotFilteredBySource ? { official_size_unfiltered: true } : {}),
       // «Competidores de una empresa» — Claude la eligió como competidora: la
       // relación viaja como en lo que encuentra Claude en la web (sin página).
       ...(company.competitorRelationship

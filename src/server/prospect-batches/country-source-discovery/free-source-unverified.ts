@@ -27,6 +27,8 @@ import { FREE_SOURCE_OFFICIAL_WORKFORCE_EVIDENCE_KEY } from '@/modules/prospect-
 
 /** Clave de la evidencia con el tamaño oficial por tramo. */
 export const FREE_SOURCE_OFFICIAL_SIZE_BAND_EVIDENCE_KEY = 'official_size_band';
+/** AGENT1-RESCUE-SIZE-UNFILTERED-1 — la fuente no filtró por tamaño (misma clave que en el candidato). */
+export const FREE_SOURCE_SIZE_UNFILTERED_EVIDENCE_KEY = 'official_size_unfiltered';
 
 /** El MISMO código que el buscador de sitio de Claude recoge (`DOMAIN_SEARCH_REASON_CODE`). */
 export const FREE_SOURCE_MISSING_DOMAIN_REASON_CODE = 'missing_domain_final';
@@ -111,6 +113,8 @@ export function buildUnverifiedFreeDispositionRows(input: {
                   },
                 }
               : {}),
+            // AGENT1-RESCUE-SIZE-UNFILTERED-1 — la fuente no filtró por tamaño: el rescate lo comprueba.
+            ...(c.sizeNotFilteredBySource ? { [FREE_SOURCE_SIZE_UNFILTERED_EVIDENCE_KEY]: true } : {}),
             // AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — tamaño oficial por tramo («grande»).
             ...(c.officialSizeBand?.band === 'large' && c.officialSizeBand.sourceLabel.trim()
               ? {

@@ -44,7 +44,7 @@ import {
   type ParentGroupWebsite,
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
-import { officialSizeSignal } from './official-size-signal';
+import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
 import {
   lookUpRescueOfficialIdentity,
   withRescueOfficialIdentity,
@@ -425,6 +425,7 @@ async function rescueCandidate(
   const official = officialSizeSignal({
     countryCode: row.country_code,
     fromFreeLayer: row.source_primary === 'public_source',
+    sizeUnfiltered: isSizeUnfiltered(row.metadata),
   });
   const minEmployees = official.measured ? official.minEmployees : readIcpThreshold(row.metadata);
   const decision = decideRescue(result, {
@@ -474,11 +475,29 @@ type WebsiteStep =
  * trae los trabajadores (≥ umbral) o la marca «grande» por tramo (CR: Grandes
  * Contribuyentes de Hacienda, dueña 07-10). Sin ese dato, no entra sin web.
  */
+/** Trabajadores que la fuente oficial informa para la descartada, o `null`. */
+function officialWorkers(row: Pick<RescuableDispositionRow, 'evidence'>): number | null {
+  const workers = (row.evidence?.official_workforce as { workers?: unknown } | undefined)?.workers;
+  return typeof workers === 'number' && Number.isFinite(workers) ? workers : null;
+}
+
+/**
+ * AGENT1-RESCUE-SIZE-UNFILTERED-1 — las más grandes según la fuente oficial primero (la
+ * ventana del rescate es corta: Prod 15-10, Entel y Soaint quedaron sin revisar); las sin
+ * dato después, en el orden de siempre.
+ */
+export function byOfficialWorkforceDesc(
+  a: Pick<RescuableDispositionRow, 'evidence'>,
+  b: Pick<RescuableDispositionRow, 'evidence'>,
+): number {
+  return (officialWorkers(b) ?? -1) - (officialWorkers(a) ?? -1);
+}
+
 export function isOfficiallyLargeFreeLayerRow(
   row: Pick<RescuableDispositionRow, 'round_origin' | 'country_code' | 'evidence'>,
 ): boolean {
   if (row.round_origin !== 'free_source' || row.evidence?.tax_identifier_present !== true) return false;
-  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true });
+  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true, sizeUnfiltered: isSizeUnfiltered(row.evidence) });
   if (official.measured) return true;
   const workforce = row.evidence?.official_workforce as { workers?: unknown } | undefined;
   if (typeof workforce?.workers === 'number' && workforce.workers >= official.minEmployees) return true;
@@ -702,7 +721,7 @@ async function rescueParentGroupDisposition(
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
   const cost = step.cost + (result.usage?.estimatedCostUsd ?? 0);
 
-  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true });
+  const official = officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: true, sizeUnfiltered: isSizeUnfiltered(row.evidence) });
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? (isTree ? null : row.industry),
@@ -794,6 +813,7 @@ async function rescueDisposition(
   const official = officialSizeSignal({
     countryCode: row.country_code,
     fromFreeLayer: row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true,
+    sizeUnfiltered: isSizeUnfiltered(row.evidence),
   });
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
@@ -956,7 +976,13 @@ async function discardStoredSmallSizes(
   const decidedAt = deps.nowIso();
   for (const row of candidates) {
     // Tamaño medido por la fuente oficial: una cifra guardada de Claude no la descarta.
-    if (officialSizeSignal({ countryCode: row.country_code, fromFreeLayer: row.source_primary === 'public_source' }).measured) {
+    if (
+      officialSizeSignal({
+        countryCode: row.country_code,
+        fromFreeLayer: row.source_primary === 'public_source',
+        sizeUnfiltered: isSizeUnfiltered(row.metadata),
+      }).measured
+    ) {
       continue;
     }
     if (!storedSmallSizeDiscard(row.metadata, readIcpThreshold(row.metadata))) continue;
@@ -1059,6 +1085,7 @@ export async function rescueBatchWithClaude(
     ...dispositions
       .filter((row) => !onlyFreeSource || isFreeSourceMissingDomainDisposition(row))
       .filter((row) => needsDispositionRescue(row, startedMs, !!deps.domainSearch))
+      .sort(byOfficialWorkforceDesc)
       .map((row) => ({ kind: 'disposition' as const, row })),
   ];
   const thisRun = work.slice(0, RESCUE_MAX_COMPANIES_PER_RUN);

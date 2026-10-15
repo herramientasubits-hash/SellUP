@@ -91,6 +91,12 @@ export type CountrySourceCompany = {
   /** SOURCES-LATAM-CURATED-1 — listas en las que aparece («SNIES», «Merco Empresas 2025»…). */
   curatedOrigins?: readonly string[] | null;
   /**
+   * AGENT1-RESCUE-SIZE-UNFILTERED-1 — la fuente NO filtró por tamaño (proveedores de
+   * compras públicas). El rescate de Claude comprueba el tamaño como con cualquier
+   * empresa, aunque el país tenga capa gratuita con tamaño oficial.
+   */
+  sizeNotFilteredBySource?: boolean;
+  /**
    * «Competidores de una empresa» — Claude la eligió como competidora de la
    * referencia (motivo en una línea). Viaja a `metadata.relationship` del candidato.
    * Ausente en cualquier otra búsqueda.

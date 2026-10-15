@@ -24,7 +24,7 @@ import {
   websiteNotFoundWithOlderSearch,
 } from './domain-search';
 import type { RescueDecision } from './rescue-decision';
-import { officialSizeSignal } from './official-size-signal';
+import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
 import {
   buildLinkedInEnrichmentFromClaude,
   buildIcpSizeGatePass,
@@ -85,7 +85,7 @@ export const OFFICIAL_SIZE_RULE_MARKER = 'official_size_rule' as const;
 export function keptBeforeOfficialSizeRule(row: RescuableDispositionRow): boolean {
   if (row.domain || row.reason_code !== DOMAIN_SEARCH_REASON_CODE) return false;
   const fromFreeLayer = row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true;
-  if (!officialSizeSignal({ countryCode: row.country_code, fromFreeLayer }).measured) return false;
+  if (!officialSizeSignal({ countryCode: row.country_code, fromFreeLayer, sizeUnfiltered: isSizeUnfiltered(row.evidence) }).measured) return false;
   const rescue = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
   if (rescue?.decision !== 'unchanged' || rescue[OFFICIAL_SIZE_RULE_MARKER] === true) return false;
   return readFoundWebsite(row.evidence ?? null) !== null;
