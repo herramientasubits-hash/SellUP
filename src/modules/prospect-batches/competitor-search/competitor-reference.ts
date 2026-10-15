@@ -92,6 +92,15 @@ export function competitorSearchTitle(referenceName: string): string {
   return `Competidores de ${referenceName}`;
 }
 
+/**
+ * Nombre del lote: «Competidores de Alpina · Colombia · Consumo masivo». El mismo en la
+ * reserva y en la escritura de Claude (el escritor recalcula el nombre al adoptar el
+ * lote; sin esto quedaba «Agente 1 · Pipeline · Colombia · …», Prod 14-10).
+ */
+export function buildCompetitorBatchName(referenceName: string, country: string, industry: string): string {
+  return [competitorSearchTitle(referenceName), country, industry].filter((part) => part.trim()).join(' · ');
+}
+
 /** La forma que queda en el lote. */
 export function toCompetitorSearchMetadata(reference: CompetitorReference): Record<string, unknown> {
   return {

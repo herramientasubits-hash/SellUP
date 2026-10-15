@@ -40,6 +40,7 @@ import {
   competitorReferenceSchema,
   normalizeReferenceDomain,
   readCompetitorReference,
+  buildCompetitorBatchName,
   competitorSearchTitle,
   toCompetitorSearchMetadata,
   type CompetitorReference,
@@ -47,6 +48,9 @@ import {
 } from '../competitor-reference';
 import { buildProviderUsageLogInsertPayload } from '@/modules/usage-tracking/logging';
 import {
+  runClaudeCompanySearch,
+  type ClaudeCompanySearchDeps,
+  type CompanySearchCall,
   buildCompanySearchQueries,
   buildCompanySearchUsageLog,
   buildCompetitorSearchQueries,
@@ -613,6 +617,8 @@ describe('F — corrida de competidores', () => {
     assert.ok(recorded.seals[0].metadata?.accepted_for_target);
     assert.ok(recorded.seals[0].metadata?.claude_search_leg);
     assert.equal((recorded.seals[0].metadata?.competitor_search_rounds as unknown[]).length, 2);
+    // El escritor pisa `search_mode` al adoptar: el sellado lo vuelve a dejar.
+    assert.equal(recorded.seals[0].metadata?.search_mode, 'competitors');
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -839,6 +845,11 @@ describe('G — competidores con las reglas de la empresa de referencia', () => 
 
   it('G4: el lote y Búsquedas se titulan por la referencia', () => {
     assert.equal(competitorSearchTitle('Alpina'), 'Competidores de Alpina');
+    assert.equal(
+      buildCompetitorBatchName('Alpina', 'Colombia', 'Consumo masivo'),
+      'Competidores de Alpina · Colombia · Consumo masivo',
+    );
+    assert.equal(buildCompetitorBatchName('Alpina', 'Colombia', ''), 'Competidores de Alpina · Colombia');
   });
 });
 
@@ -956,6 +967,49 @@ describe('I — Uso de IA separa «Competidores»', () => {
     assert.equal('search_mode' in payload, false);
     const declared = buildProviderUsageLogInsertPayload({ ...log!, search_mode: 'competitors' }, { roleKey: null, groupId: null });
     assert.equal(declared.search_mode, 'competitors');
+  });
+});
+
+describe('J — la escritura de Claude conserva el nombre del lote', () => {
+  it('J1: manda «Competidores de X · país · industria» al escritor (que lo recalcula al adoptar)', async () => {
+    const writes: Array<Parameters<ClaudeCompanySearchDeps['writeCandidates']>[0]> = [];
+    const call: CompanySearchCall = {
+      results: [{ title: 'Colanta', url: 'https://colanta.com.co', rank: 1, provider: 'claude' }],
+      proposed: 1,
+      rejected: {},
+      usage: null,
+      errorCode: null,
+      query: 'q',
+      durationMs: 1,
+    } as unknown as CompanySearchCall;
+    await runClaudeCompanySearch(
+      { sourceBatchId: 'b1', triggeredBy: 'u1', writeIntoSourceBatch: true },
+      {
+        loadSourceBatch: async () => ({
+          id: 'b1',
+          country: 'Colombia',
+          countryCode: 'CO',
+          industry: 'Consumo masivo',
+          industryId: null,
+          macroIndustryKey: 'consumer_goods',
+          subindustries: [],
+          additionalCriteria: null,
+          competitorReference: REFERENCE,
+        }),
+        loadExcludedDomains: async () => [],
+        countPreviousRuns: async () => 0,
+        resolveRegions: () => [],
+        resolveActiveModel: async () => ({ model: 'm', apiKey: 'k' }),
+        checkQuota: async () => ({ allowed: true }),
+        runSearch: async () => ({ pipelineOutput: {}, calls: [call] }),
+        writeCandidates: async (params) => (writes.push(params), { batchId: 'b1', candidatesCreated: 1, errors: [] }),
+        logUsage: async () => true,
+        newRunId: () => 'r',
+        nowIso: () => '2026-10-14T00:00:00Z',
+        nowMs: () => 0,
+      },
+    );
+    assert.equal(writes[0].batchName, 'Competidores de Alpina · Colombia · Consumo masivo');
   });
 });
 
