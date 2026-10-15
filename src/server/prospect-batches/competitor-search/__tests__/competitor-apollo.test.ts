@@ -21,13 +21,19 @@ import { WIZARD_FUNCTION_LIMIT_MS } from '@/modules/prospect-batches/chat-wizard
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import type { CompetitorJudgeInput } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge';
 import type { ApolloOrganizationInput } from '@/server/agents/prospecting-toolkit/web-search-providers/apollo-organizations-search-provider';
+import { COMPETITOR_JUDGE_MAX_ITEMS } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge';
 import {
+  buildCompetitorApolloLookalikeBody,
+  buildCompetitorApolloResolveBody,
   buildCompetitorApolloSearchBody,
   COMPETITOR_APOLLO_MAX_EXCLUDED_DOMAINS,
   COMPETITOR_APOLLO_PER_PAGE,
+  COMPETITOR_APOLLO_RESOLVE_PER_PAGE,
+  pickReferenceApolloOrganizationId,
   runCompetitorApolloStep,
   toCompetitorApolloJudgeItems,
   type CompetitorApolloPage,
+  type CompetitorApolloPagePurpose,
   type CompetitorApolloPick,
   type CompetitorApolloStepDeps,
 } from '../competitor-apollo';
@@ -70,15 +76,40 @@ const PAGE: CompetitorApolloPage = {
   error: null,
 };
 
+/** La referencia en Apollo, hallada por su dominio. */
+const RESOLVE_PAGE: CompetitorApolloPage = {
+  ok: true,
+  organizations: [org('apollo-alpina', 'Alpina', 'alpina.com')],
+  rawCount: 1,
+  error: null,
+};
+
+const EMPTY_PAGE: CompetitorApolloPage = { ok: true, organizations: [], rawCount: 0, error: null };
+
+/** Qué página es, por su cuerpo. */
+function purposeOf(body: Record<string, unknown>): CompetitorApolloPagePurpose {
+  if ('q_organization_domains_list' in body) return 'resolve';
+  if ('lookalike_organization_ids' in body) return 'lookalikes';
+  return 'keywords';
+}
+
 type StepRecorded = {
   bodies: Record<string, unknown>[];
   judged: CompetitorJudgeInput[];
   written: CompetitorApolloPick[][];
-  logged: number;
+  logged: CompetitorApolloPagePurpose[];
 };
 
+function pagesBy(pages: Partial<Record<CompetitorApolloPagePurpose, CompetitorApolloPage>>) {
+  return async (body: Record<string, unknown>): Promise<CompetitorApolloPage> => {
+    const purpose = purposeOf(body);
+    return pages[purpose] ?? (purpose === 'resolve' ? RESOLVE_PAGE : PAGE);
+  };
+}
+
 function stepDeps(overrides: Partial<CompetitorApolloStepDeps> = {}): { deps: CompetitorApolloStepDeps; rec: StepRecorded } {
-  const rec: StepRecorded = { bodies: [], judged: [], written: [], logged: 0 };
+  const rec: StepRecorded = { bodies: [], judged: [], written: [], logged: [] };
+  const answer = pagesBy({});
   const deps: CompetitorApolloStepDeps = {
     isEnabled: () => true,
     checkQuota: async () => ({ allowed: true }),
@@ -86,10 +117,10 @@ function stepDeps(overrides: Partial<CompetitorApolloStepDeps> = {}): { deps: Co
     loadExcludedDomains: async () => ['yaenlote.com'],
     searchPage: async (body) => {
       rec.bodies.push(body);
-      return PAGE;
+      return answer(body);
     },
-    logUsage: async () => {
-      rec.logged += 1;
+    logUsage: async ({ purpose }) => {
+      rec.logged.push(purpose);
     },
     judge: async (input) => {
       rec.judged.push(input);
@@ -107,6 +138,13 @@ function stepDeps(overrides: Partial<CompetitorApolloStepDeps> = {}): { deps: Co
     nowMs: () => 0,
     ...overrides,
   };
+  if (overrides.searchPage) {
+    const inner = overrides.searchPage;
+    deps.searchPage = async (body) => {
+      rec.bodies.push(body);
+      return inner(body);
+    };
+  }
   return { deps, rec };
 }
 
@@ -153,20 +191,66 @@ describe('K — consulta a Apollo', () => {
   });
 });
 
+describe('K bis — parecidas (lookalikes)', () => {
+  it('K5: el ID de la referencia se pide por su dominio, con pocas filas', () => {
+    assert.deepEqual(buildCompetitorApolloResolveBody('WWW.Alpina.com '), {
+      q_organization_domains_list: ['alpina.com'],
+      per_page: COMPETITOR_APOLLO_RESOLVE_PER_PAGE,
+      page: 1,
+    });
+    assert.equal(buildCompetitorApolloResolveBody(null), null);
+    assert.equal(buildCompetitorApolloResolveBody('  '), null);
+  });
+
+  it('K6: parecidas = ID + país + exclusión, 100 por página', () => {
+    assert.deepEqual(
+      buildCompetitorApolloLookalikeBody({ organizationId: 'apollo-alpina', location: 'Colombia', excludeDomains: ['alpina.com', 'ALPINA.com'] }),
+      {
+        lookalike_organization_ids: ['apollo-alpina'],
+        organization_locations: ['Colombia'],
+        not_organization_websites_list: ['alpina.com'],
+        per_page: 100,
+        page: 1,
+      },
+    );
+    const body = buildCompetitorApolloLookalikeBody({
+      organizationId: 'x',
+      location: 'Colombia',
+      excludeDomains: Array.from({ length: 700 }, (_, i) => `d${i}.com`),
+    });
+    assert.equal((body.not_organization_websites_list as string[]).length, COMPETITOR_APOLLO_MAX_EXCLUDED_DOMAINS);
+    assert.equal('not_organization_websites_list' in buildCompetitorApolloLookalikeBody({ organizationId: 'x', location: 'Colombia', excludeDomains: [] }), false);
+  });
+
+  it('K7: el ID sólo se toma de una organización con el dominio de la referencia', () => {
+    const orgs = [org('otra', 'Alpina Sport', 'alpinasport.com'), org('real', 'Alpina SA', 'alpina.com.co', { all_domains: ['alpina.com'] })];
+    assert.equal(pickReferenceApolloOrganizationId(orgs, 'alpina.com'), 'real');
+    assert.equal(pickReferenceApolloOrganizationId([org('otra', 'Alpina Sport', 'alpinasport.com')], 'alpina.com'), null);
+    assert.equal(pickReferenceApolloOrganizationId([], 'alpina.com'), null);
+  });
+});
+
 describe('L — paso Apollo (juez + escritura)', () => {
-  it('L1: escribe SÓLO lo que eligió el juez, con su motivo', async () => {
+  it('L1: ID por dominio → parecidas → juez → escribe SÓLO lo elegido, con su motivo', async () => {
     const { deps, rec } = stepDeps();
     const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
     assert.equal(outcome.status, 'written');
     assert.equal(outcome.persistedCount, 1);
-    assert.equal(rec.bodies.length, 1);
-    // La referencia también se excluye en la consulta.
-    assert.deepEqual(rec.bodies[0].not_organization_websites_list, ['alpina.com', 'yaenlote.com']);
+    assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'lookalikes']);
+    assert.deepEqual(rec.bodies[0].q_organization_domains_list, ['alpina.com']);
+    assert.deepEqual(rec.bodies[1].lookalike_organization_ids, ['apollo-alpina']);
+    assert.deepEqual(rec.bodies[1].organization_locations, ['Colombia']);
+    assert.equal(rec.bodies[1].per_page, 100);
+    // La referencia también se excluye en la consulta de parecidas.
+    assert.deepEqual(rec.bodies[1].not_organization_websites_list, ['alpina.com', 'yaenlote.com']);
+    assert.equal(rec.judged.length, 1);
     assert.equal(rec.judged[0].items.length, 2);
     assert.equal(rec.judged[0].reference.name, 'Alpina');
     assert.deepEqual(rec.written[0].map((p) => [p.organization.name, p.reason]), [['Colanta', 'leche y yogur']]);
-    assert.equal(rec.logged, 1);
-    assert.equal(outcome.telemetry.credits_charged, 1);
+    assert.deepEqual(rec.logged, ['resolve', 'lookalikes']);
+    assert.equal(outcome.telemetry.strategy, 'lookalikes');
+    assert.equal(outcome.telemetry.reference_apollo_id, 'apollo-alpina');
+    assert.equal(outcome.telemetry.credits_charged, 2);
     assert.equal(outcome.telemetry.selected, 1);
   });
 
@@ -176,14 +260,14 @@ describe('L — paso Apollo (juez + escritura)', () => {
     assert.equal(outcome.status, 'failed');
     assert.equal(outcome.reason, 'judge_unavailable');
     assert.equal(rec.written.length, 0);
-    assert.equal(rec.logged, 1, 'la página pagada igual se registra');
+    assert.deepEqual(rec.logged, ['resolve', 'lookalikes'], 'las páginas pagadas igual se registran');
   });
 
   it('L3: kill switch, sin palabras clave, país sin ubicación o sin cuota ⇒ 0 llamadas', async () => {
     const cases: Array<[Partial<CompetitorApolloStepDeps>, typeof STEP_INPUT, string]> = [
       [{ isEnabled: () => false }, STEP_INPUT, 'apollo_disabled'],
-      [{}, { ...STEP_INPUT, reference: { ...REFERENCE, keywords: [] } }, 'no_reference_keywords'],
-      [{}, { ...STEP_INPUT, reference: { ...REFERENCE, keywords: undefined } }, 'no_reference_keywords'],
+      [{}, { ...STEP_INPUT, reference: { ...REFERENCE, domain: null, keywords: [] } }, 'no_reference_domain_or_keywords'],
+      [{}, { ...STEP_INPUT, reference: { ...REFERENCE, domain: '  ', keywords: undefined } }, 'no_reference_domain_or_keywords'],
       [{}, { ...STEP_INPUT, countryCode: 'XX' }, 'country_not_supported'],
       [{ checkQuota: async () => ({ allowed: false }) }, STEP_INPUT, 'apollo_quota_unavailable'],
       [{ checkQuota: async () => Promise.reject(new Error('down')) }, STEP_INPUT, 'apollo_quota_unavailable'],
@@ -199,12 +283,13 @@ describe('L — paso Apollo (juez + escritura)', () => {
     }
   });
 
-  it('L4: Apollo falla ⇒ se registra y no se juzga ni escribe', async () => {
+  it('L4: Apollo falla (ID y palabras clave) ⇒ se registra y no se juzga ni escribe', async () => {
     const { deps, rec } = stepDeps({ searchPage: async () => ({ ok: false, organizations: [], rawCount: 0, error: 'http_500' }) });
     const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
     assert.equal(outcome.reason, 'apollo_search_failed');
+    assert.equal(outcome.telemetry.fallback_reason, 'resolve_failed');
     assert.equal(outcome.telemetry.credits_charged, 0);
-    assert.equal(rec.logged, 1);
+    assert.deepEqual(rec.logged, ['resolve', 'keywords']);
     assert.equal(rec.judged.length, 0);
   });
 
@@ -222,6 +307,97 @@ describe('L — paso Apollo (juez + escritura)', () => {
     const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
     assert.equal(outcome.status, 'failed');
     assert.equal(outcome.persistedCount, 0);
+  });
+
+  it('L8: sin dominio ⇒ directo a palabras clave (100 por página), 1 sola página', async () => {
+    const { deps, rec } = stepDeps();
+    const outcome = await runCompetitorApolloStep({ ...STEP_INPUT, reference: { ...REFERENCE, domain: null } }, deps);
+    assert.equal(outcome.status, 'written');
+    assert.deepEqual(rec.bodies.map(purposeOf), ['keywords']);
+    assert.deepEqual(rec.bodies[0].q_organization_keyword_tags, ['dairy products', 'yogurt']);
+    assert.equal(rec.bodies[0].per_page, 100);
+    assert.equal(outcome.telemetry.strategy, 'keywords');
+    assert.equal(outcome.telemetry.fallback_reason, 'no_reference_domain');
+    assert.equal(outcome.telemetry.credits_charged, 1);
+  });
+
+  it('L9: la referencia no está en Apollo ⇒ no se piden parecidas de otra; cae a palabras clave', async () => {
+    const { deps, rec } = stepDeps({
+      searchPage: pagesBy({ resolve: { ok: true, organizations: [org('otra', 'Alpina Sport', 'alpinasport.com')], rawCount: 1, error: null } }),
+    });
+    const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
+    assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'keywords']);
+    assert.equal(outcome.telemetry.fallback_reason, 'reference_not_found_in_apollo');
+    assert.equal(outcome.telemetry.reference_apollo_id, null);
+    assert.equal(outcome.status, 'written');
+  });
+
+  it('L10: parecidas vacías (o sólo ya vistas) ⇒ palabras clave; la vacía no cobra', async () => {
+    for (const lookalikes of [EMPTY_PAGE, { ok: true, organizations: [org('9', 'Ya vista', 'yaenlote.com')], rawCount: 1, error: null }]) {
+      const { deps, rec } = stepDeps({ searchPage: pagesBy({ lookalikes }) });
+      const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
+      assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'lookalikes', 'keywords']);
+      assert.equal(outcome.telemetry.fallback_reason, 'lookalikes_nothing_new');
+      assert.equal(outcome.telemetry.strategy, 'keywords');
+      assert.equal(outcome.telemetry.credits_charged, lookalikes.rawCount > 0 ? 3 : 2);
+      assert.equal(outcome.status, 'written');
+    }
+  });
+
+  it('L11: parecidas fallan ⇒ palabras clave', async () => {
+    const { deps, rec } = stepDeps({ searchPage: pagesBy({ lookalikes: { ok: false, organizations: [], rawCount: 0, error: 'http_422' } }) });
+    const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
+    assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'lookalikes', 'keywords']);
+    assert.equal(outcome.telemetry.fallback_reason, 'lookalikes_failed');
+    assert.equal(outcome.status, 'written');
+  });
+
+  it('L12: con dominio y sin palabras clave, parecidas vacías ⇒ no hay respaldo ni gasto extra', async () => {
+    const { deps, rec } = stepDeps({ searchPage: pagesBy({ lookalikes: EMPTY_PAGE }) });
+    const outcome = await runCompetitorApolloStep({ ...STEP_INPUT, reference: { ...REFERENCE, keywords: [] } }, deps);
+    assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'lookalikes']);
+    assert.equal(outcome.status, 'nothing_selected');
+    assert.equal(outcome.reason, 'lookalikes_nothing_new_no_keywords');
+    assert.equal(rec.judged.length, 0);
+  });
+
+  it('L13: con dominio y sin palabras clave, las parecidas sí corren', async () => {
+    const { deps, rec } = stepDeps();
+    const outcome = await runCompetitorApolloStep({ ...STEP_INPUT, reference: { ...REFERENCE, keywords: undefined } }, deps);
+    assert.deepEqual(rec.bodies.map(purposeOf), ['resolve', 'lookalikes']);
+    assert.equal(outcome.status, 'written');
+  });
+
+  it('L14: 100 parecidas ⇒ el juez las ve en lotes de su tope; un lote sin respuesta no aporta ninguna', async () => {
+    const many: CompetitorApolloPage = {
+      ok: true,
+      organizations: Array.from({ length: 100 }, (_, i) => org(`m${i}`, `Láctea ${i}`, `lactea${i}.co`)),
+      rawCount: 100,
+      error: null,
+    };
+    // El juez elige la primera de cada lote; el segundo lote no responde.
+    let call = 0;
+    const { deps, rec } = stepDeps({
+      searchPage: pagesBy({ lookalikes: many }),
+      judge: async (input) => {
+        rec.judged.push(input);
+        return call++ === 0
+          ? { competitors: [{ key: input.items[0].key, reason: 'yogur' }], judged: input.items.length, usage: null, errorCode: null }
+          : null;
+      },
+    });
+    const outcome = await runCompetitorApolloStep(STEP_INPUT, deps);
+    assert.deepEqual(rec.judged.map((j) => j.items.length), [COMPETITOR_JUDGE_MAX_ITEMS, 100 - COMPETITOR_JUDGE_MAX_ITEMS]);
+    assert.equal(new Set(rec.judged.flatMap((j) => j.items.map((i) => i.key))).size, 100, 'claves únicas entre lotes');
+    assert.deepEqual(rec.written[0].map((p) => p.organization.name), ['Láctea 0']);
+    assert.equal(outcome.telemetry.judge_chunks, 2);
+    assert.equal(outcome.telemetry.judge_chunks_failed, 1);
+
+    // Ningún lote responde ⇒ no entra NINGUNA.
+    const none = stepDeps({ searchPage: pagesBy({ lookalikes: many }), judge: async () => null });
+    const failed = await runCompetitorApolloStep(STEP_INPUT, none.deps);
+    assert.equal(failed.reason, 'judge_unavailable');
+    assert.equal(none.rec.written.length, 0);
   });
 
   it('L7: la página de Apollo se lee de `organizations[]`, aunque `accounts[]` venga vacío', () => {
@@ -393,5 +569,11 @@ describe('N — guardas estáticas', () => {
     assert.match(live, /reopenClosedBatch\(input\.batchId\)/);
     assert.match(live, /kind: 'competitor_of'/);
     assert.match(live, /source: 'apollo'/);
+  });
+
+  it('N3: una fila de uso por página, con clave propia (usage_key es único)', () => {
+    assert.match(live, /'competitor_apollo_resolve'/);
+    assert.match(live, /'competitor_apollo_lookalikes'/);
+    assert.match(live, /usage_key: `\$\{flow\}:\$\{input\.clientRequestId\}`/);
   });
 });
