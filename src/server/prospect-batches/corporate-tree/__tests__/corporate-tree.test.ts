@@ -1476,7 +1476,7 @@ describe('AC. Walmart y Chevron (Prod 15-10): el motivo encuentra su empresa y A
       subsidiaries: [{ name: "Sam's Club", domain: 'samsclub.com', website: 'https://samsclub.com', linkedinUrl: null, countryCode: 'US', employeeCount: 100000 }],
     });
     const item = [...applied.plan.web.values()].flat().find((i) => i.node?.name === "Sam's Club");
-    assert.equal(item.node?.employeeCount, 100000);
+    assert.equal(item?.node?.employeeCount, 100000);
   });
 
   it('el motivo «company_ownership:reject» se dice en palabras', () => {
