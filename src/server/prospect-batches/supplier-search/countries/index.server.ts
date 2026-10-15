@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { buildBrLookups } from './br.server';
 import { buildCoLookups } from './co.server';
 import { publicBuyerCountry } from './index';
 import { buildLoadedLinksLookups, type CountryLookups, type LoadedCountryServerHooks } from './loaded-lookups.server';
@@ -11,6 +12,7 @@ import { buildLoadedLinksLookups, type CountryLookups, type LoadedCountryServerH
 /** Consultas en vivo por país (`kind: 'live'`). */
 const LIVE_LOOKUPS: Readonly<Record<string, (serviceClient: SupabaseClient) => CountryLookups>> = {
   CO: buildCoLookups,
+  BR: (serviceClient) => buildBrLookups(serviceClient),
 };
 
 /** Ganchos de servidor de los países «loaded» que los necesitan. */
