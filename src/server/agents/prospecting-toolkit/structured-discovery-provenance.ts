@@ -91,7 +91,25 @@ export type StructuredDiscoveryProvenance = {
    * confianza: el número ya va en su columna.
    */
   official_tax_id_lookup?: { source_key: string; confidence: number | null };
+  /**
+   * «Competidores de una empresa» — Claude eligió esta empresa del catálogo como
+   * competidora de la referencia. La MISMA forma que escribe el escritor de la
+   * búsqueda web (`relationship`), para que la ficha la muestre igual.
+   */
+  relationship?: {
+    kind: 'competitor_of';
+    reference_company_name: string;
+    evidence_url: null;
+    evidence: string | null;
+  };
 };
+
+/** Tope de texto de la relación (nombre y motivo); más largo ⇒ se omite. */
+const RELATIONSHIP_TEXT_MAX_CHARS = 200;
+
+function boundedText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= RELATIONSHIP_TEXT_MAX_CHARS;
+}
 
 /** ¿Es este valor una capa de discovery declarada? */
 export function isStructuredDiscoveryLayer(
@@ -132,6 +150,8 @@ function ownValue(record: Record<string, unknown>, key: string): unknown {
  *   - `website_available` sobrevive SÓLO si es `boolean` (incluido `false`);
  *   - `official_tax_id_lookup` sobrevive SÓLO con `source_key` de snake_case y
  *     `confidence` entre 0 y 1 (o `null`); copia sólo esas dos claves;
+ *   - `relationship` sobrevive SÓLO como `competitor_of` con nombre y motivo de
+ *     texto acotado; la página de evidencia siempre es `null`;
  *   - cualquier otra clave NO se copia, exista o no en la entrada;
  *   - un valor inválido se OMITE. No se coacciona, no se trunca, no se serializa.
  *
@@ -170,6 +190,20 @@ export function sanitizeStructuredDiscoveryProvenance(
       (typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1);
     if (typeof sourceKey === 'string' && /^[a-z0-9_]{1,64}$/.test(sourceKey) && validConfidence) {
       provenance.official_tax_id_lookup = { source_key: sourceKey, confidence: confidence as number | null };
+    }
+  }
+
+  const relationship = ownValue(value, 'relationship');
+  if (isPlainRecord(relationship) && ownValue(relationship, 'kind') === 'competitor_of') {
+    const referenceName = ownValue(relationship, 'reference_company_name');
+    const evidence = ownValue(relationship, 'evidence');
+    if (boundedText(referenceName) && (evidence === null || boundedText(evidence))) {
+      provenance.relationship = {
+        kind: 'competitor_of',
+        reference_company_name: referenceName,
+        evidence_url: null,
+        evidence: evidence as string | null,
+      };
     }
   }
 
