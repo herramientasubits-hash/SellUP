@@ -96,8 +96,26 @@ describe('validateImportFile — las tres reglas de siempre', () => {
 
   it('rechaza cualquier otro formato', () => {
     assert.deepEqual(helpers.validateImportFile(file('lista.pdf')), {
-      error: 'Formato no soportado. Usa CSV o XLSX.',
+      error: 'Formato no soportado. Usa CSV, XLSX o TXT.',
     });
+  });
+
+  it('IMPORT-FREE-FORMAT-1 — avisa cómo se leyó lo que no venía en el formato oficial', () => {
+    assert.equal(helpers.describeImportDetection('contract', [], 3), null);
+    const byContent = helpers.describeImportDetection(
+      'columns_by_content',
+      [{ column: 'Cliente', field: 'company_name' }, { column: 'Pág.', field: 'website' }, { column: 'X', field: null }],
+      2,
+    );
+    assert.match(byContent?.title ?? '', /2 empresas/);
+    assert.match(byContent?.description ?? '', /«Cliente» → Empresa, «Pág\.» → Sitio web\./);
+    assert.match(helpers.describeImportDetection('ai_extracted', [], 1)?.description ?? '', /nada se inventó/);
+  });
+
+  it('IMPORT-FREE-FORMAT-1 — acepta texto (.txt, .md, .tsv) con el mismo límite de 2 MB', () => {
+    assert.deepEqual(helpers.validateImportFile(file('lista.txt')), { ext: 'txt' });
+    assert.deepEqual(helpers.validateImportFile(file('notas.md')), { ext: 'txt' });
+    assert.ok('error' in helpers.validateImportFile(file('lista.txt', 2 * 1024 * 1024 + 1)));
   });
 
   it('rechaza más de 2 MB y acepta justo 2 MB', () => {
@@ -206,7 +224,7 @@ describe('paso de entrada — subir archivo', () => {
   it('ofrece la zona para arrastrar o elegir, con los límites a la vista', () => {
     inputStep();
     assert.ok(screen.getByText('Arrastra el archivo aquí o haz clic para elegirlo'));
-    assert.ok(screen.getByText('Archivos .csv o .xlsx · máx. 2 MB · 500 filas'));
+    assert.ok(screen.getByText('Archivos .csv, .xlsx o .txt · máx. 2 MB · 500 filas'));
   });
 
   it('elegir un archivo lo entrega tal cual al drawer (que es quien valida)', () => {
@@ -242,7 +260,7 @@ describe('paso de entrada — subir archivo', () => {
 
   it('con el método «pegar», el campo de texto queda enlazado a su etiqueta', () => {
     inputStep({ fileMethod: 'paste' });
-    const textarea = screen.getByLabelText('Pega el contenido copiado desde Google Sheets o Excel');
+    const textarea = screen.getByLabelText('Pega empresas en cualquier formato');
     assert.equal(textarea.tagName, 'TEXTAREA');
   });
 });

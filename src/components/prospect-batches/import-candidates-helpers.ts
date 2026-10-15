@@ -6,7 +6,10 @@
 
 import { ClipboardPaste, FileText } from '@/icons';
 import {
+  EXTERNAL_IMPORT_CONTRACT,
   getValidRows,
+  type ImportColumnGuess,
+  type ImportDetectionMode,
   type ImportMethod,
   type ImportPreview,
   type ImportRow,
@@ -104,14 +107,21 @@ export function computeHasMappingConflict(mappings: ImportColumnMapping[]): bool
  * Valida el archivo elegido (clic o arrastre) con las mismas tres reglas de
  * siempre. Devuelve la extensión si el archivo sirve, o el mensaje de error.
  */
-export function validateImportFile(file: File): { ext: 'csv' | 'xlsx' } | { error: string } {
+export function validateImportFile(file: File): { ext: 'csv' | 'xlsx' | 'txt' } | { error: string } {
   const ext = file.name.split('.').pop()?.toLowerCase();
 
   if (ext === 'xlsm') {
     return { error: 'Por seguridad, sube el archivo como .xlsx o CSV. Los archivos .xlsm no son soportados.' };
   }
+  // IMPORT-FREE-FORMAT-1 — un .txt o .md con una lista o texto libre también sirve.
+  if (ext === 'txt' || ext === 'md' || ext === 'tsv') {
+    if (file.size > IMPORT_FILE_MAX_BYTES) {
+      return { error: 'El archivo supera 2 MB. Usa un archivo más pequeño o pega el contenido.' };
+    }
+    return { ext: 'txt' };
+  }
   if (ext !== 'csv' && ext !== 'xlsx') {
-    return { error: 'Formato no soportado. Usa CSV o XLSX.' };
+    return { error: 'Formato no soportado. Usa CSV, XLSX o TXT.' };
   }
   if (file.size > IMPORT_FILE_MAX_BYTES) {
     return { error: 'El archivo supera 2 MB. Usa un archivo más pequeño o pega el contenido.' };
@@ -331,4 +341,50 @@ export function getStepperIndex(step: Step, needsMappingResolution: boolean): nu
   if (step === 'classification') return needsMappingResolution ? 1 : 2;
   if (step === 'preview') return 3;
   return IMPORT_STEPS.length;
+}
+
+// ── IMPORT-FREE-FORMAT-1 — cómo se leyó lo que entró ─────────────────────────
+
+export interface ImportDetectionNoticeContent {
+  title: string;
+  description: string;
+}
+
+const FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  EXTERNAL_IMPORT_CONTRACT.map((c) => [c.field, c.officialHeader]),
+);
+
+const COMPLETION_NOTE =
+  'Lo que falte (sitio web, identificación fiscal, sector y tamaño) se completa al importar con las mismas herramientas del Agente 1. Revisa las filas antes de confirmar.';
+
+/** Aviso para la vista previa cuando lo que entró no venía en el formato oficial. */
+export function describeImportDetection(
+  detection: ImportDetectionMode | undefined,
+  columnGuesses: ImportColumnGuess[],
+  rowCount: number,
+): ImportDetectionNoticeContent | null {
+  const companies = `${rowCount} empresa${rowCount !== 1 ? 's' : ''}`;
+  if (detection === 'columns_by_content') {
+    const mapped = columnGuesses
+      .filter((g) => g.field)
+      .map((g) => `«${g.column}» → ${FIELD_LABELS[g.field as string] ?? g.field}`)
+      .join(', ');
+    return {
+      title: `Leímos ${companies} reconociendo cada columna por su contenido`,
+      description: `${mapped}. ${COMPLETION_NOTE}`,
+    };
+  }
+  if (detection === 'company_list') {
+    return {
+      title: `Leímos ${companies} de una lista`,
+      description: `Tomamos una empresa por línea y, si venían en la misma línea, su web, identificación fiscal y país. ${COMPLETION_NOTE}`,
+    };
+  }
+  if (detection === 'ai_extracted') {
+    return {
+      title: `La IA encontró ${companies} en el texto`,
+      description: `Sólo copiamos los datos que el texto dice; nada se inventó. ${COMPLETION_NOTE}`,
+    };
+  }
+  return null;
 }
