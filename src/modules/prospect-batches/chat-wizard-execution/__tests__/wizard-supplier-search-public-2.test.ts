@@ -128,15 +128,9 @@ describe('1. las de compras públicas cuentan para la meta', () => {
     }
   });
 
-  it('las de Claude se suman aparte y no se cuentan dos veces', async () => {
-    const f = deps({ publicStep: step(2, 0), outcomes: [reviewable(2), reviewable(3)], publicAccepted: ids(2), webAccepted: ['w1'] });
-    const result = await executeSupplierSearchRun(INPUT, f.d);
-    assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, 3);
-    assert.equal(result.ok && result.acceptedForTarget?.acceptedFreeForTarget, 2);
-  });
 });
 
-describe('2. Claude no gasta cuando compras públicas ya trajo buenas', () => {
+describe('2. Claude no corre si compras públicas trajo proveedores (AGENT1-SUPPLIER-SEARCH-PUBLIC-3)', () => {
   it('5 o más para revisar ⇒ Claude no corre', async () => {
     const f = deps({ publicStep: step(7, 5), outcomes: [reviewable(7)], publicAccepted: ids(7) });
     await executeSupplierSearchRun(INPUT, f.d);
@@ -146,22 +140,32 @@ describe('2. Claude no gasta cuando compras públicas ya trajo buenas', () => {
     assert.equal(leg.public_accepted, 7);
   });
 
-  it('entre 1 y 4 ⇒ una sola ronda aunque falten', async () => {
-    const f = deps({ publicStep: step(3, 0), outcomes: [reviewable(3), reviewable(4)], publicAccepted: ids(3) });
-    await executeSupplierSearchRun(INPUT, f.d);
-    assert.deepEqual(f.claudeRounds, [0]);
+  it('el caso del Ministerio de Educación: 4 con web y 8 sin web ⇒ tampoco corre', async () => {
+    const f = deps({ publicStep: step(4, 8), outcomes: [reviewable(4), reviewable(5)], publicAccepted: ids(5) });
+    const result = await executeSupplierSearchRun(INPUT, f.d);
+    assert.deepEqual(f.claudeRounds, []);
+    assert.equal(result.ok && result.acceptedForTarget?.acceptedForTargetTotal, 5);
+    assert.equal(result.ok && result.status, 'success_partial');
   });
 
-  it('si compras públicas no dejó nada para revisar, Claude hace sus dos rondas (Fase 1)', async () => {
-    const f = deps({ publicStep: step(2, 0), outcomes: [reviewable(0), reviewable(0), reviewable(1)], publicAccepted: [] });
+  it('aunque todas salgan duplicadas, si SECOP trajo proveedores Claude no corre', async () => {
+    const f = deps({ publicStep: step(3, 0), outcomes: [{ reviewable: 0, hubspotDuplicates: 3, sellupDuplicates: 0 }], publicAccepted: [] });
+    const result = await executeSupplierSearchRun(INPUT, f.d);
+    assert.deepEqual(f.claudeRounds, []);
+    assert.equal(result.ok && result.status, 'no_new_candidates');
+  });
+
+  it('si SECOP no trajo a nadie de la industria, Claude hace sus dos rondas (Fase 1)', async () => {
+    const f = deps({ publicStep: step(0, 0), outcomes: [reviewable(0), reviewable(1)], publicAccepted: [] });
     await executeSupplierSearchRun(INPUT, f.d);
     assert.deepEqual(f.claudeRounds, [0, 1]);
   });
 
   it('la regla', () => {
-    assert.equal(resolveClaudeRoundsAfterPublic(0), 2);
-    assert.equal(resolveClaudeRoundsAfterPublic(1), 1);
-    assert.equal(resolveClaudeRoundsAfterPublic(4), 1);
-    assert.equal(resolveClaudeRoundsAfterPublic(5), 0);
+    assert.equal(resolveClaudeRoundsAfterPublic(null), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic({ executed: false, reason: 'not_public_entity' }), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 0)), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 1)), 0);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(4, 8)), 0);
   });
 });
