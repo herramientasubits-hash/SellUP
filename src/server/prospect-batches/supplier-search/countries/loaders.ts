@@ -4,6 +4,7 @@
  */
 
 import { CL_LOADER } from './cl.loader';
+import { GT_LOADER } from './gt.loader';
 import { HN_LOADER } from './hn.loader';
 import { PE_LOADER } from './pe.loader';
 import type { ProcurementLoaderSource } from './types';
@@ -12,4 +13,5 @@ export const PROCUREMENT_LOADERS: Readonly<Record<string, ProcurementLoaderSourc
   CL: CL_LOADER,
   PE: PE_LOADER,
   HN: HN_LOADER,
+  GT: GT_LOADER,
 };

@@ -11,4 +11,5 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'CL', // ChileCompra, órdenes de compra mensuales cargadas
   'PE', // OECE Contrataciones Abiertas (OCDS), cargadas
   'HN', // ONCAE/HonduCompras (OCDS), cargadas
+  'GT', // Guatecompras (OCDS), cargadas
 ];
