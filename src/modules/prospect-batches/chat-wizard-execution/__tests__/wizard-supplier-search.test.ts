@@ -16,6 +16,7 @@ import {
   resolveSupplierSearchPhaseMs,
   SUPPLIER_SEARCH_LEG_METADATA_KEY,
   SUPPLIER_SEARCH_MAX_PHASE_MS,
+  SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS,
   type SupplierSearchRunDeps,
   type SupplierSearchRunInput,
 } from '../wizard-supplier-search';
@@ -84,6 +85,8 @@ function fakeDeps(overrides: Partial<SupplierSearchRunDeps> = {}) {
     },
     actionStartedAtMs: 0,
     nowMs: () => 10_000,
+    // Ya hay 10 para revisar ⇒ una sola ronda (las dos rondas: wizard-supplier-search-4).
+    countCompetitorBatchOutcome: async () => ({ reviewable: 10, hubspotDuplicates: 0, sellupDuplicates: 0 }),
     ...overrides,
   };
   return { deps, reserved, legs, seals };
@@ -166,12 +169,13 @@ describe('B. executeSupplierSearchRun', () => {
     assert.equal(payload.targetCount, 10);
     assert.equal((payload.discoveryTaxonomy as Record<string, unknown>).macro_industry_key, 'technology');
 
-    assert.deepEqual(f.legs, [{ batchId: BATCH_ID, phaseMs: SUPPLIER_SEARCH_MAX_PHASE_MS }]);
+    assert.deepEqual(f.legs, [{ batchId: BATCH_ID, phaseMs: SUPPLIER_SEARCH_ROUND_MAX_PHASE_MS, round: 0 }]);
 
     assert.equal(f.seals.length, 1);
     assert.equal(f.seals[0].status, 'ready_for_review');
     assert.deepEqual(f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY], {
       ...EXECUTED,
+      rounds: [{ round: 0, outcome: EXECUTED }],
       inline_rescue: { reviewed: false, window_ms: null, accepted_after_rescue: null },
     });
     assert.ok(f.seals[0].metadata?.accepted_for_target);
@@ -243,6 +247,7 @@ describe('C. desvío desde la corrida del asistente', () => {
       },
       markBatchFailed: async () => undefined,
       resolveSupplierSearchEnabled: () => true,
+      countCompetitorBatchOutcome: async () => ({ reviewable: 10, hubspotDuplicates: 0, sellupDuplicates: 0 }),
       runClaudeSupplierSearch: async () => (calls.push('claude_suppliers'), EXECUTED),
       sealFreeOnlyBatchStatus: async () => undefined,
     } as unknown as WizardExecutionDeps;

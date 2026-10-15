@@ -308,7 +308,11 @@ function CompetitorReferenceStep({
 
 // ── Reference company step (AGENT1-SUPPLIER-SEARCH-1) ─────────────────────────
 
-/** «Proveedores de una empresa»: la empresa se escribe; no hay lista que elegir. */
+/**
+ * «Proveedores de una empresa»: una de las cuentas de la vendedora (opciones con
+ * filtro) o lo que escriba. AGENT1-SUPPLIER-SEARCH-4 — paridad con «Competidores»:
+ * los clientes ancla suelen estar ya en SellUp.
+ */
 function ReferenceCompanyStep({
   state,
   dispatch,
@@ -318,14 +322,41 @@ function ReferenceCompanyStep({
   dispatch: React.Dispatch<ProspectWizardAction>;
   titleRef: TitleRef;
 }) {
+  const [accounts, setAccounts] = React.useState<readonly ChatQuestionOptionDetail[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    // Sin cuentas (o si la lectura falla) queda sólo escribir, que siempre funciona.
+    getActiveAccountsForPicker()
+      .then((rows) => {
+        if (cancelled) return;
+        setAccounts(
+          rows.map((row) => ({ value: row.id, label: row.name, ...(row.domain ? { description: row.domain } : {}) })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <ChatQuestionPanel
       aria-label="Empresa de referencia"
       title="¿De qué empresa quieres encontrar proveedores?"
-      description="Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden."
+      description={
+        accounts.length > 0
+          ? 'Elige una de tus cuentas o escribe su nombre. Buscaremos empresas con evidencia pública de que le venden.'
+          : 'Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden.'
+      }
       titleRef={titleRef}
-      options={[]}
-      otherLabel="Empresa"
+      options={accounts}
+      onAnswer={(accountId) => {
+        const account = accounts.find((option) => option.value === accountId);
+        if (account) dispatch({ type: 'SET_REFERENCE_COMPANY', value: account.label });
+      }}
+      filterPlaceholder="Buscar en tus cuentas"
+      otherLabel={accounts.length > 0 ? 'Otra empresa' : 'Empresa'}
       otherPlaceholder="Nombre de la empresa"
       otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
       onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
