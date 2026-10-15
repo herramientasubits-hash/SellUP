@@ -597,11 +597,20 @@ export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsit
  * existe en SellUp/HubSpot). Un error pasajero se reintenta hasta DOMAIN_SEARCH_MAX_ATTEMPTS
  * búsquedas en total; lo demás es final.
  */
+/**
+ * `claude_domain_search.skipped`: la búsqueda de web no se hizo porque otra candidata viva ya
+ * tiene ese número fiscal (Prod 15-10, árbol de Bimbo: «BIMBO ECUADOR S.A.» pagó la búsqueda y
+ * quedó «sin web» aunque ya estaba en revisión desde la corrida anterior).
+ */
+export const KNOWN_TAX_ID_SKIP_REASON = 'known_tax_id';
+
 export function buildDomainSearchStaysEvidence(
   evidence: Evidence | null,
   params:
     | { kind: 'not_found'; outcome: Extract<DomainFinderOutcome, { found: false }> }
-    | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck },
+    | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck }
+    /** Ya conocida por su número fiscal ANTES de buscar la web: no se pagó la búsqueda. */
+    | { kind: 'known_before_search'; duplicate: DomainDuplicateCheck },
   decidedAt: string,
   /** SOURCES-EC-CLOSE-2 — la búsqueda ya usó los nombres oficiales: no se repite por ellos. */
   options: { officialNamesChecked?: boolean } = {},
@@ -611,7 +620,17 @@ export function buildDomainSearchStaysEvidence(
   const attempts = previousAttempts(evidence) + (params.kind === 'not_found' && !accountError ? 1 : 0);
   const base = params.kind === 'duplicate' ? buildFoundEvidence(evidence, params.found, decidedAt) : { ...(evidence ?? {}) };
   const search =
-    params.kind === 'not_found'
+    params.kind === 'known_before_search'
+      ? {
+          contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+          search_version: DOMAIN_SEARCH_VERSION,
+          searched_at: decidedAt,
+          found: false,
+          skipped: KNOWN_TAX_ID_SKIP_REASON,
+          duplicate_status: params.duplicate.status,
+          duplicate_summary: params.duplicate.summary,
+        }
+      : params.kind === 'not_found'
       ? {
           contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
           search_version: DOMAIN_SEARCH_VERSION,
@@ -638,7 +657,7 @@ export function buildDomainSearchStaysEvidence(
     [CLAUDE_RESCUE_METADATA_KEY]: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
       decided_at: decidedAt,
-      decision: retryable ? 'retryable' : params.kind === 'duplicate' ? 'duplicate' : 'website_not_found',
+      decision: retryable ? 'retryable' : params.kind === 'not_found' ? 'website_not_found' : 'duplicate',
     },
   };
 }

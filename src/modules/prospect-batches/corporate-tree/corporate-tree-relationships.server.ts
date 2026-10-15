@@ -25,19 +25,28 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     // Por qué está en «Descartadas» la que no entró (sin web o posible duplicado en HubSpot).
     const { data: discards } = await supabase
       .from('prospect_discarded_dispositions')
-      .select('name, reason_code, rescue_decision:evidence->claude_rescue->>decision')
+      .select('name, reason_code, rescue_decision:evidence->claude_rescue->>decision, rescue_skipped:evidence->claude_domain_search->>skipped')
       .eq('batch_id', batchId)
       .limit(MAX_ROWS);
     const discardByName = new Map(
       (discards ?? []).map((d) => [
         String(d.name).trim().toLowerCase(),
-        { reason: (d.reason_code as string | null) ?? null, rescue: ((d as { rescue_decision?: unknown }).rescue_decision as string | null) ?? null },
+        {
+          reason: (d.reason_code as string | null) ?? null,
+          rescue: ((d as { rescue_decision?: unknown }).rescue_decision as string | null) ?? null,
+          skipped: ((d as { rescue_skipped?: unknown }).rescue_skipped as string | null) ?? null,
+        },
       ]),
     );
     const withReasons = relationships.map((rel) => {
       if (rel.related_candidate_id) return rel;
       const discard = discardByName.get(rel.related_name.trim().toLowerCase());
-      return { ...rel, discard_reason_code: discard?.reason ?? null, rescue_decision: discard?.rescue ?? null };
+      return {
+        ...rel,
+        discard_reason_code: discard?.reason ?? null,
+        rescue_decision: discard?.rescue ?? null,
+        rescue_skipped: discard?.skipped ?? null,
+      };
     });
     // Las que tienen web propia y no entraron porque esa web ya está en otra búsqueda o
     // cuenta («una empresa, un vendedor»). Prod 15-10, Citigroup: aparecían como «web del grupo».
