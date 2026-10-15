@@ -14,7 +14,7 @@
 
 import {
   COMPETITOR_SEARCH_METADATA_KEY,
-  competitorSearchTitle,
+  buildCompetitorBatchName,
   readCompetitorReference,
 } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
@@ -289,7 +289,7 @@ function buildBatchName(payload: WizardExecutionReservationInput['initialBatchPa
   if (payload.corporateTree) return corporateTreeBatchName(payload.corporateTree.rootName);
   // «Competidores de una empresa»: el lote se nombra por su referencia.
   const competitorReference = readCompetitorReference({ [COMPETITOR_SEARCH_METADATA_KEY]: payload.competitorSearch });
-  if (competitorReference) return `${competitorSearchTitle(competitorReference.name)} / ${payload.countryCode}`;
+  if (competitorReference) return buildCompetitorBatchName(competitorReference.name, payload.country, payload.industry);
   return `Wizard: ${payload.industryId} / ${payload.countryCode}`;
 }
 
