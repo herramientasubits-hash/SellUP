@@ -9,4 +9,5 @@
 export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'CO', // SECOP II, en vivo
   'CL', // ChileCompra, órdenes de compra mensuales cargadas
+  'EC', // SERCOP datos abiertos OCDS (anual), cargado; industria por CIIU del proveedor
 ];
