@@ -22,6 +22,7 @@ import {
 import {
   corporateTreeRowKey,
   markKnownCompanies,
+  mergeRootFindings,
   pickKnownCompany,
   planCorporateTreeWrites,
   applyApolloFamily,
@@ -1266,5 +1267,49 @@ describe('W. Bimbo 1.ª corrida con Apollo (Prod 15-10): sin repetir empresas ni
       [{ related_candidate_id: null, related_name: 'BIMBO ECUADOR S.A.', related_country_code: 'EC', relation_type: 'group', relation_detail: null, evidence_url: null, discard_reason_code: 'missing_domain_final', rescue_decision: 'duplicate', rescue_skipped: 'known_tax_id' }],
     );
     assert.equal(groups[0].items[0].statusLabel, 'Ya en SellUp (mismo número fiscal)');
+  });
+});
+
+describe('X. La empresa de partida no se queda sin web (Prod 15-10, Bimbo e32d4058: Apollo no se consultó)', () => {
+  const ROOT: CorporateTreeRoot = { name: 'Bimbo', website: null, domain: null, countryCode: 'MX', candidateId: null, accountId: null };
+
+  it('una rama trae sólo el país y otra la web: se usan las dos', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, countryCode: null },
+      [
+        { website: null, domain: null, countryCode: 'MX' },
+        null,
+        { website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: null },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'grupobimbo.com');
+    assert.equal(merged.website, 'https://grupobimbo.com');
+    assert.equal(merged.countryCode, 'MX');
+  });
+
+  it('sin web de Claude, vale la que trae la empresa de partida desde el banco en su país', () => {
+    const merged = mergeRootFindings(ROOT, [{ website: null, domain: null, countryCode: 'MX' }], [
+      { relation: 'subsidiary', countryCode: 'CO', domain: 'bimbo.com.co' },
+      { relation: 'root', countryCode: 'AR', domain: 'bimbo.com.ar' },
+      { relation: 'root', countryCode: 'MX', domain: 'bimbo.com.mx' },
+    ]);
+    assert.equal(merged.domain, 'bimbo.com.mx');
+    assert.equal(merged.website, 'https://bimbo.com.mx');
+  });
+
+  it('la web comprobada por Claude gana a la del banco, y la conocida de antes gana a todas', () => {
+    const hits = [{ relation: 'root' as const, countryCode: 'MX', domain: 'bimbo.com.mx' }];
+    assert.equal(mergeRootFindings(ROOT, [{ website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' }], hits).domain, 'grupobimbo.com');
+    assert.equal(
+      mergeRootFindings({ ...ROOT, website: 'https://www.bimbo.com', domain: 'bimbo.com' }, [{ website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' }], hits).domain,
+      'bimbo.com',
+    );
+  });
+
+  it('sin nada, sigue sin web (no inventa)', () => {
+    const merged = mergeRootFindings(ROOT, [null], []);
+    assert.equal(merged.domain, null);
+    assert.equal(merged.website, null);
   });
 });
