@@ -250,13 +250,27 @@ export function buildAutomaticRoutingMessage(
 
   const apollo = result.providerCandidatesCreated?.apollo ?? null;
   const lusha = result.providerCandidatesCreated?.lusha ?? null;
-  if (result.attempt1AttemptId == null || (apollo === null && lusha === null)) {
+  const fromHubSpot = result.hubspotFirstCandidates ?? 0;
+  if (result.attempt1AttemptId == null || (apollo === null && lusha === null && fromHubSpot === 0)) {
     return { content: AUTOMATIC_BLOCKED, tone: 'warning' };
   }
 
   const created = (apollo ?? 0) + (lusha ?? 0);
   const reused = result.reusedExistingCandidates ?? 0;
   const failed = failedSourcesNote(result.failedProviders);
+
+  // «Primero HubSpot»: lo que ya estaba en HubSpot se ofrece antes de gastar proveedores.
+  if (result.hubspotFirstSatisfied) {
+    return {
+      content: `Encontré ${contactsLabel(fromHubSpot)} de HubSpot para revisar, así que no gasté Apollo ni Lusha. ${AUTOMATIC_APPROVAL_NOTE}`,
+    };
+  }
+  if (fromHubSpot > 0) {
+    const total = created + fromHubSpot;
+    return {
+      content: `Encontré ${contactsLabel(total)} para revisar (${fromHubSpot} ya estaban en HubSpot). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+    };
+  }
 
   if (created > 0) {
     return {

@@ -54,6 +54,13 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   providerCandidatesCreated: AutomaticRoutingCandidatesCreated;
   /** Sources that failed in this call; [] when every source that ran worked. */
   failedProviders: AutomaticRoutingProviderName[];
+  /**
+   * AGENT2-HUBSPOT-FIRST-1 — candidatos que «Primero HubSpot» dejó en la corrida (0 si la
+   * etapa no corrió). Separado de `providerCandidatesCreated`: no los creó ningún proveedor.
+   */
+  hubspotFirstCandidates?: number;
+  /** true cuando HubSpot bastó y no se llamó a ningún proveedor. */
+  hubspotFirstSatisfied?: boolean;
 }
 
 export interface AutomaticRoutingCandidatesCreated {
@@ -100,6 +107,8 @@ function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult
     reusedExistingCandidates: 0,
     providerCandidatesCreated: { apollo: null, lusha: null },
     failedProviders: [],
+    hubspotFirstCandidates: 0,
+    hubspotFirstSatisfied: false,
   };
 }
 
@@ -132,7 +141,7 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     status: result.outcome,
     automaticRoutingEnabled: result.automaticRoutingEnabled,
     fallbackExecuted: result.fallbackExecuted,
-    attempt1AttemptId: result.attempt1?.attemptId ?? null,
+    attempt1AttemptId: result.attempt1?.attemptId ?? result.hubspotFirst?.attemptId ?? null,
     attempt2AttemptId: result.attempt2?.attemptId ?? null,
     blockedReason: result.blockedReason,
     reusedExistingCandidates: result.reusedExistingCandidates,
@@ -144,5 +153,7 @@ export async function runAutomaticContactEnrichmentForRequestCore(
       lusha: result.attempt2?.result ? result.attempt2.result.candidatesCreated : null,
     },
     failedProviders: deriveFailedProviders(result),
+    hubspotFirstCandidates: result.hubspotFirst?.inserted ?? 0,
+    hubspotFirstSatisfied: result.hubspotFirst?.satisfied ?? false,
   };
 }
