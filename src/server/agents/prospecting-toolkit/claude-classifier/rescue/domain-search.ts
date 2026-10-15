@@ -103,7 +103,13 @@ export const OFFICIAL_NAME_COUNTRIES: ReadonlySet<string> = new Set(['EC', 'BO']
 
 /** Errores pasajeros (modelo, sitio caído) se reintentan hasta este número de búsquedas. */
 export const DOMAIN_SEARCH_MAX_ATTEMPTS = 3;
-const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error', 'page_unreachable']);
+/**
+ * Sólo un error del modelo se reintenta. Una web que no abre (bloqueo 403, caída, sitio
+ * hecho con JavaScript) NO: en Producción ningún reintento la encontró (0 de 8 al 15-10) y
+ * cada uno cuesta ~US$0,04. Antes quedaban «para reintentar» y la cadena del rescate no
+ * volvía a ellas (27 filas en 3 días); ahora quedan «sin web» y se pueden rescatar a mano.
+ */
+const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error']);
 
 /**
  * Errores de la CUENTA de Anthropic, no de la empresa: saldo agotado o petición

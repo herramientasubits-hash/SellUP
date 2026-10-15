@@ -8,6 +8,7 @@ import {
   isOwnWebsiteRow,
   ownDomainsWithoutCandidate,
   type CorporateTreeBatchRelationship,
+  type CorporateTreeNotWritten,
 } from './corporate-tree-batch-groups';
 
 const MAX_ROWS = 300;
@@ -52,6 +53,19 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     // cuenta («una empresa, un vendedor»). Prod 15-10, Citigroup: aparecían como «web del grupo».
     const ownDomains = ownDomainsWithoutCandidate(withReasons);
     if (ownDomains.length === 0) return withReasons;
+    // Por qué el escritor no las escribió (lo guarda la corrida en el lote).
+    const { data: batch } = await supabase
+      .from('prospect_batches')
+      .select('not_written:metadata->corporate_tree->not_written')
+      .eq('id', batchId)
+      .maybeSingle();
+    const notWritten = Array.isArray((batch as { not_written?: unknown } | null)?.not_written)
+      ? ((batch as { not_written: CorporateTreeNotWritten[] }).not_written)
+      : [];
+    const valid = notWritten.filter((n) => typeof n?.reason === 'string' && typeof n?.name === 'string');
+    const reasonByDomain = new Map(valid.filter((n) => typeof n.domain === 'string').map((n) => [n.domain!.toLowerCase(), n.reason]));
+    // Lotes del 15-10 sin la web en el motivo: por nombre y país.
+    const reasonByName = new Map(valid.map((n) => [`${n.name.trim().toLowerCase()}|${n.countryCode}`, n.reason]));
     const [candidates, accounts] = await Promise.all([
       supabase.from('prospect_candidates').select('domain').in('domain', ownDomains).neq('batch_id', batchId).limit(MAX_ROWS),
       supabase.from('accounts').select('domain').in('domain', ownDomains).is('archived_at', null).limit(MAX_ROWS),
@@ -62,7 +76,14 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     return withReasons.map((rel) => {
       const own = !rel.related_candidate_id && !!rel.related_domain && ownDomains.includes(rel.related_domain) && isOwnWebsiteRow(rel, withReasons);
       if (!own) return rel;
-      return { ...rel, own_website: true, known_in_sellup: known.has((rel.related_domain as string).toLowerCase()) };
+      const domain = (rel.related_domain as string).toLowerCase();
+      return {
+        ...rel,
+        own_website: true,
+        known_in_sellup: known.has(domain),
+        not_written_reason:
+          reasonByDomain.get(domain) ?? reasonByName.get(`${rel.related_name.trim().toLowerCase()}|${rel.related_country_code}`) ?? null,
+      };
     });
   } catch {
     return [];

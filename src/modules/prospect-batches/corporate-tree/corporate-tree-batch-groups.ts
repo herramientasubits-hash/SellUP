@@ -34,6 +34,8 @@ export type CorporateTreeBatchRelationship = {
   own_website?: boolean;
   /** Su web propia ya está en otra búsqueda o en una cuenta de SellUp. */
   known_in_sellup?: boolean;
+  /** Por qué el escritor no la escribió (motivo crudo, de `corporate_tree.not_written`). */
+  not_written_reason?: string | null;
   relation_type: string;
   relation_detail: string | null;
   evidence_url: string | null;
@@ -46,11 +48,39 @@ export const CORPORATE_TREE_GROUP_WEBSITE_LABEL = 'Referencia: usa la web del gr
 /** En «Descartadas» porque HubSpot tiene un nombre parecido en su país (sin rescate). */
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL = 'En Descartadas: posible duplicado en HubSpot';
 export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_hubspot_duplicate';
+/**
+ * El control de «¿esta web es de esta empresa?» la rechazó: queda en «Descartadas» con su
+ * web para enviarla a revisión a mano (Prod 15-10: «Walmart de México y Centroamérica»,
+ * walmex.mx). No va al rescate: no se paga nada.
+ */
+export const CORPORATE_TREE_OWNERSHIP_REJECTED_REASON = 'corporate_tree_ownership_rejected';
+export const CORPORATE_TREE_OWNERSHIP_REJECTED_LABEL = 'En Descartadas: revisa si la web es suya';
 export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
 /** El rescate le encontró su web y ya existía en SellUp o HubSpot. */
 export const CORPORATE_TREE_RESCUE_DUPLICATE_LABEL = 'Ya existía (el rescate encontró su web)';
 /** Otra candidata viva ya tiene su número fiscal: el rescate no pagó la búsqueda de su web. */
 export const CORPORATE_TREE_KNOWN_TAX_ID_LABEL = 'Ya en SellUp (mismo número fiscal)';
+/** Una empresa que el escritor común no escribió, con su motivo (metadata del lote). */
+export type CorporateTreeNotWritten = { name: string; countryCode: string; domain: string | null; reason: string };
+
+/**
+ * El motivo del escritor en palabras de la dueña. Prod 15-10: Purina (Nestlé) o HSBC Bank
+ * USA salían como «ya existía o no pasó las revisiones» sin saber cuál de las dos.
+ */
+export function corporateTreeNotWrittenLabel(reason: string | null | undefined): string | null {
+  const r = (reason ?? '').trim();
+  if (!r) return null;
+  if (/duplicate|identity|seen_identity_key/.test(r)) return 'No entró: ya está en otra búsqueda o cuenta (misma web o número fiscal)';
+  if (/country/.test(r)) return 'No entró: su país no coincide';
+  if (/non_official_source_domain|ownership|source_url|content_page|non_company_phrase|generic_service_title|external_platform/.test(r)) {
+    return 'No entró: la web no parece ser de esa empresa';
+  }
+  if (/icp|size|employee/.test(r)) return 'No entró: por su tamaño';
+  if (/evidence_policy|qualityLabel|business_fit/.test(r)) return 'No entró: no pasó la revisión de calidad';
+  if (/persistence_failed/.test(r)) return 'No entró: error al guardar';
+  return `No entró: ${r}`;
+}
+
 /** Con web propia, no entró y no está en SellUp: HubSpot ya la tenía o no pasó las revisiones. */
 export const CORPORATE_TREE_NOT_WRITTEN_LABEL = 'No entró: ya existía o no pasó las revisiones';
 
@@ -205,11 +235,13 @@ export function groupBatchCandidatesByTreeRelation(
         : rel.known_in_sellup
           ? CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL
           : rel.own_website
-            ? CORPORATE_TREE_NOT_WRITTEN_LABEL
+            ? (corporateTreeNotWrittenLabel(rel.not_written_reason) ?? CORPORATE_TREE_NOT_WRITTEN_LABEL)
             : rel.rescue_decision === 'duplicate' && rel.rescue_skipped === 'known_tax_id'
               ? CORPORATE_TREE_KNOWN_TAX_ID_LABEL
               : rel.rescue_decision === 'duplicate'
               ? CORPORATE_TREE_RESCUE_DUPLICATE_LABEL
+              : rel.discard_reason_code === CORPORATE_TREE_OWNERSHIP_REJECTED_REASON
+              ? CORPORATE_TREE_OWNERSHIP_REJECTED_LABEL
               : rel.discard_reason_code === CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON
           ? CORPORATE_TREE_POSSIBLE_HUBSPOT_LABEL
           : rel.related_domain

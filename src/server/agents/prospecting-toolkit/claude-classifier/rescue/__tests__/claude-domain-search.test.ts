@@ -530,7 +530,7 @@ describe('C. rescate de descartadas sin dominio', () => {
     assert.equal(needsDispositionRescue({ ...disposition(), evidence: ev }, NOW, true), true);
   });
 
-  it('sitio caído: se reintenta, pero como máximo 3 búsquedas en total', async () => {
+  it('sitio que no abre: no se reintenta (nunca sirvió en Producción), queda «sin web» al primer intento', async () => {
     let ev: Record<string, unknown> | null = disposition().evidence;
     const decisions: string[] = [];
     for (let run = 0; run < 3; run++) {
@@ -545,8 +545,8 @@ describe('C. rescate de descartadas sin dominio', () => {
       await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
       decisions.push((ev!.claude_rescue as { decision: string }).decision);
     }
-    assert.deepEqual(decisions, ['retryable', 'retryable', 'website_not_found']);
-    assert.equal((ev![CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts: number }).attempts, 3);
+    assert.deepEqual(decisions, ['website_not_found', 'website_not_found', 'website_not_found']);
+    assert.equal((ev![CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { attempts: number }).attempts, 1, 'un solo intento pagado');
   });
 
   it('sitio nuevo pero de OTRO sector ⇒ se queda, con el sitio guardado', async () => {
@@ -811,7 +811,7 @@ describe('d6 — PISTA sin confirmar (dueña 06-10: «si pista»)', () => {
     assert.equal(f.origins.length, 0);
   });
 
-  it('sin número fiscal oficial, una página que no abre sigue siendo reintentable (como antes)', async () => {
+  it('sin número fiscal oficial, una página que no abre queda «sin web» (ya no se reintenta, 15-10)', async () => {
     const f = fakeDeps({
       domainSearch: {
         findWebsite: async () => unreachable('https://sii-group.com'),
@@ -820,7 +820,7 @@ describe('d6 — PISTA sin confirmar (dueña 06-10: «si pista»)', () => {
     });
     await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(f.origins.length, 0);
-    assert.equal((f.evidence.get('d1')!.claude_rescue as { decision: string }).decision, 'retryable');
+    assert.equal((f.evidence.get('d1')!.claude_rescue as { decision: string }).decision, 'website_not_found');
   });
 });
 

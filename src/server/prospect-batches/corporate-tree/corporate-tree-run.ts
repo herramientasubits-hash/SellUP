@@ -28,6 +28,7 @@ import type { CountrySourceCompany } from '@/server/prospect-batches/country-sou
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
+import type { CorporateTreeNotWritten } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   markKnownCompanies,
   mergeRootFindings,
@@ -172,12 +173,21 @@ export type CorporateTreeRunDeps = {
   /** Capa gratuita: registros oficiales con web. */
   writeFreeCatalog: (batchId: string, country: TreeCountry, companies: CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   /** Escritor del Agente 1 (Claude y banco con web). */
-  writeWeb: (batchId: string, country: TreeCountry, items: CorporateTreeWebItem[]) => Promise<{ written: number; errors: string[] }>;
+  writeWeb: (
+    batchId: string,
+    country: TreeCountry,
+    items: CorporateTreeWebItem[],
+  ) => Promise<{ written: number; errors: string[]; skipped?: readonly { name: string; domain?: string | null; reason: string }[] }>;
   /**
    * ¿Ya está en HubSpot o en SellUp por su nombre exacto y país? Se pregunta antes de mandar
    * al rescate (que es pagado). `null` = no se sabe (la fila sigue su camino).
    */
   findKnownCompany?: (query: { name: string; countryCode: string | null }) => Promise<CorporateTreeKnownCompany | null>;
+  /**
+   * Las que el control de propiedad del escritor rechazó, a «Descartadas» con su web (sin
+   * rescate, sin costo): una persona decide si la web es suya. Ausente = se pierden.
+   */
+  recordOwnershipRejected?: (batchId: string, countryCode: string, items: readonly CorporateTreeNotWritten[]) => Promise<number>;
   /**
    * Número fiscal oficial por nombre (el mismo buscador de la capa gratuita). Para las
    * filiales con la web del grupo: con número entran a «Por revisar» sin web propia.
@@ -380,17 +390,21 @@ async function withKnownCompanies(
   return markKnownCompanies(plan, known);
 }
 
+/** Las que el escritor no escribió, con su motivo: a lo sumo esto se guarda en el lote. */
+const CORPORATE_TREE_NOT_WRITTEN_KEPT = 40;
+
 async function writePlan(
   plan: CorporateTreeWritePlan,
   batchId: string,
   countries: readonly TreeCountry[],
   deps: CorporateTreeRunDeps,
   deadlineAtMs: number,
-): Promise<{ written: number; withoutWebsite: number; errors: string[] }> {
+): Promise<{ written: number; withoutWebsite: number; errors: string[]; notWritten: CorporateTreeNotWritten[] }> {
   const countryOf = (code: string): TreeCountry => countries.find((c) => c.code === code) ?? { code, name: code };
   let written = 0;
   let withoutWebsite = 0;
   const errors: string[] = [];
+  const notWritten: CorporateTreeNotWritten[] = [];
   // Sin tiempo para otra escritura: lo que falta se anota y la corrida cierra el lote a tiempo.
   const outOfTime = (what: string) => {
     if (deps.nowMs() < deadlineAtMs) return false;
@@ -412,6 +426,21 @@ async function writePlan(
     }));
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
+    // Por qué el escritor no escribió cada una (Prod 15-10: Purina, HSBC Bank USA… sin motivo).
+    // El escritor casi nunca devuelve la web (Prod 15-10: todas sin web): sale de la fila.
+    const domainByName = new Map(
+      items.map((item) => [(item.node?.name ?? item.bankCandidate?.name ?? '').trim().toLowerCase(), item.node?.domain ?? item.bankCandidate?.domain ?? null]),
+    );
+    const countryNotWritten: CorporateTreeNotWritten[] = [];
+    for (const skip of 'skipped' in result ? (result.skipped ?? []) : []) {
+      const domain = skip.domain ?? domainByName.get(skip.name.trim().toLowerCase()) ?? null;
+      countryNotWritten.push({ name: skip.name, countryCode: code, domain, reason: skip.reason.slice(0, 120) });
+    }
+    notWritten.push(...countryNotWritten);
+    const ownershipRejected = countryNotWritten.filter((n) => n.domain && n.reason.startsWith('company_ownership'));
+    if (ownershipRejected.length > 0 && deps.recordOwnershipRejected && !outOfTime(`ownership_rejected:${code}`)) {
+      await deps.recordOwnershipRejected(batchId, code, ownershipRejected).catch(() => 0);
+    }
   }
   for (const [code, items] of plan.possibleDuplicates) {
     if (outOfTime(`possible_duplicate:${code}`) || !deps.recordPossibleDuplicates) continue;
@@ -421,7 +450,7 @@ async function writePlan(
     if (outOfTime(`without_website:${code}`)) continue;
     withoutWebsite += await deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0);
   }
-  return { written, withoutWebsite, errors };
+  return { written, withoutWebsite, errors, notWritten };
 }
 
 export async function runCorporateTreeSearch(
@@ -597,6 +626,7 @@ async function runAfterReservation(
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
+      not_written: writes.notWritten.slice(0, CORPORATE_TREE_NOT_WRITTEN_KEPT),
       searched_at: deps.nowIso(),
     },
   };

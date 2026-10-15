@@ -23,13 +23,14 @@ import {
   type CountrySourceCompany,
 } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
+import { PUBLIC_BUYER_COUNTRY_CODES } from './countries/codes';
 
 /**
  * Países con compras públicas conectadas a «Proveedores»: Colombia (SECOP II en vivo)
  * y Chile (órdenes de compra mensuales de ChileCompra cargadas en
  * `public_procurement_supplier_links`; sin carga, el paso no reconoce a nadie).
  */
-export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = ['CO', 'CL'];
+export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = PUBLIC_BUYER_COUNTRY_CODES;
 /** Proveedores que se ofrecen como mucho (con y sin web). */
 export const PUBLIC_BUYER_MAX_SUPPLIERS = 12;
 /**
@@ -313,6 +314,9 @@ export async function runPublicBuyerSupplierStep(
 export function taxIdKey(raw: string | null | undefined): string | null {
   const nit = normalizeEntityNit(raw);
   if (nit) return nit;
+  // UEI de EE. UU. («DT2KS3HH5FP5»): 12 caracteres alfanuméricos; sus letras son parte de él.
+  const alnum = (raw ?? '').trim().toUpperCase();
+  if (/^[A-Z0-9]{12}$/.test(alnum) && /[A-Z]/.test(alnum)) return alnum;
   const generic = (raw ?? '').replace(/[^0-9kK]/g, '').toUpperCase();
   return generic.length >= 7 ? generic : null;
 }

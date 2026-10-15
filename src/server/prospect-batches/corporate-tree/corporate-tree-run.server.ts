@@ -62,7 +62,10 @@ import {
   type CorporateTreeApolloSubsidiary,
   type CorporateTreeWebItem,
 } from './corporate-tree-plan';
-import { CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  CORPORATE_TREE_OWNERSHIP_REJECTED_REASON,
+  CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
@@ -104,7 +107,15 @@ export function readApolloSubsidiaries(organization: unknown): CorporateTreeApol
     const countryCode =
       (country && Object.entries(APOLLO_COUNTRY_LOCATION_BY_CODE).find(([, en]) => en.toLowerCase() === country.toLowerCase())?.[0]) ??
       (country && country.length === 2 ? country.toUpperCase() : null);
-    out.push({ name, domain, website, linkedinUrl: text(sub['linkedin_url']), countryCode });
+    const employees = sub['estimated_num_employees'];
+    out.push({
+      name,
+      domain,
+      website,
+      linkedinUrl: text(sub['linkedin_url']),
+      countryCode,
+      employeeCount: typeof employees === 'number' && Number.isFinite(employees) && employees > 0 ? Math.round(employees) : null,
+    });
   }
   return out;
 }
@@ -237,7 +248,12 @@ async function buildWebCandidates(country: TreeCountry, items: readonly Corporat
         },
       );
       // El nombre es el que Claude leyó en la fuente, no uno inferido del título.
-      return nameQualityFiltered ? null : { ...candidate, name: item.node.name };
+      if (nameQualityFiltered) return null;
+      // El tamaño que da Apollo: sin él, el filtro de tamaño estimaba desde el texto
+      // (Prod 15-10: «Sam's Club» salió «por tamaño»).
+      return item.node.employeeCount
+        ? { ...candidate, name: item.node.name, employee_count: item.node.employeeCount }
+        : { ...candidate, name: item.node.name };
     }),
   );
   return built.filter((c): c is ProspectingPipelineCandidate => c !== null);
@@ -438,7 +454,11 @@ export function buildLiveCorporateTreeDeps(params: {
         // El tope de 10 por vendedor es de «Empresas por criterios»: el árbol entrega su familia.
         maxDeliveredCandidates: null,
       });
-      return { written: output.status === 'failed' ? 0 : output.candidatesCreated, errors: output.errors };
+      return {
+        written: output.status === 'failed' ? 0 : output.candidatesCreated,
+        errors: output.errors,
+        skipped: output.skipped.map((skip) => ({ name: skip.name, domain: skip.domain ?? null, reason: skip.reason })),
+      };
     },
 
     findKnownCompany: async ({ name, countryCode }) => {
@@ -480,6 +500,29 @@ export function buildLiveCorporateTreeDeps(params: {
             : 'Posible duplicado en HubSpot (mismo país). No se buscó su web; rescátala si no es la misma empresa.',
         };
       });
+      const recorded = await persistDiscardedDispositionRows(rows);
+      return recorded.persisted;
+    },
+
+    recordOwnershipRejected: async (batchId, countryCode, items) => {
+      const rows = items
+        .filter((item) => !!item.domain)
+        .map((item) => ({
+          batchId,
+          providerIdentifier: `corporate_tree:${countryCode}:${item.domain}`,
+          sourceKey: `corporate_tree_ownership:${item.domain}`,
+          name: item.name,
+          domain: item.domain,
+          countryCode,
+          industry: null,
+          sourcePrimary: 'other',
+          roundOrigin: 'corporate_tree',
+          disposition: 'ownership_domain_rejected' as const,
+          reasonCode: CORPORATE_TREE_OWNERSHIP_REJECTED_REASON,
+          reasonDetail: 'El control de propiedad no confirmó que la web sea de esta empresa. Revísala y envíala a revisión si es suya.',
+          evidence: { writer_reason: item.reason, website: `https://${item.domain}` },
+        }));
+      if (rows.length === 0) return 0;
       const recorded = await persistDiscardedDispositionRows(rows);
       return recorded.persisted;
     },

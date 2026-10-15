@@ -23,6 +23,7 @@ import {
   corporateTreeRowKey,
   markKnownCompanies,
   mergeRootFindings,
+  apolloSubsidiaryUsesGlobalDomain,
   pickKnownCompany,
   planCorporateTreeWrites,
   applyApolloFamily,
@@ -54,6 +55,7 @@ import {
 } from '../corporate-tree-run';
 import { buildCorporateTreeUsageLog, readApolloSubsidiaries } from '../corporate-tree-run.server';
 import {
+  corporateTreeNotWrittenLabel,
   corporateTreePendingSummary,
   groupBatchCandidatesByTreeRelation,
   ownDomainsWithoutCandidate,
@@ -1311,5 +1313,217 @@ describe('X. La empresa de partida no se queda sin web (Prod 15-10, Bimbo e32d40
     const merged = mergeRootFindings(ROOT, [null], []);
     assert.equal(merged.domain, null);
     assert.equal(merged.website, null);
+  });
+});
+
+describe('Y. Filiales de Apollo útiles primero (Prod 15-10: Volkswagen, Shell, TotalEnergies)', () => {
+  const VW: CorporateTreeRoot = { name: 'Volkswagen Group', website: 'https://www.volkswagen-group.com', domain: 'volkswagen-group.com', countryCode: 'DE', candidateId: null, accountId: null };
+  const apolloSub = (name: string, domain: string, countryCode: string, employeeCount: number | null) => ({
+    name,
+    domain,
+    website: `https://${domain}`,
+    linkedinUrl: null,
+    countryCode,
+    employeeCount,
+  });
+
+  it('la web global del grupo no es de la filial de un país; la de su país sí, y en EE. UU. el .com es normal', () => {
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Porsche Colombia SAS', domain: 'porsche.com' }, 'CO'), true);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen do Brasil Ltda.', domain: 'volkswagen.com' }, 'BR'), true);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen do Brasil Ltda.', domain: 'vw.com.br' }, 'BR'), false);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'CUPRA', domain: 'cupra.com' }, 'ES'), false);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen Group of America', domain: 'vw.com' }, 'US'), false);
+  });
+
+  it('entran las más grandes, nunca las de menos de 200 empleados ni las de web global', () => {
+    const plan = planCorporateTreeWrites({ root: VW, freeHits: [], nodes: [] });
+    const applied = applyApolloFamily({
+      plan,
+      root: VW,
+      countryCodes: ['US', 'ES', 'CO', 'BR'],
+      // La empresa de partida ocupa una fila: quedan tres para Apollo.
+      maxRows: 4,
+      subsidiaries: [
+        apolloSub('Porsche Santa Clarita', 'porschesantaclarita.com', 'US', 45),
+        apolloSub('Porsche Colombia SAS', 'porsche.com', 'CO', 300),
+        apolloSub('Scout Motors Inc.', 'scoutmotors.com', 'US', 900),
+        apolloSub('Furrow Automotive Group', 'furrowcars.com', 'US', null),
+        apolloSub('CUPRA', 'cupra.com', 'ES', 1041),
+        apolloSub('Volkswagen Group of America', 'vw.com', 'US', 8000),
+      ],
+    });
+    assert.deepEqual(
+      applied.plan.rows.filter((r) => r.foundInApollo).map((r) => r.name),
+      ['Volkswagen Group of America', 'CUPRA', 'Scout Motors Inc.'],
+    );
+  });
+});
+
+describe('Z. Varias búsquedas del árbol a la vez (Prod 15-10: el «+» quedaba apagado)', () => {
+  it('el chat del árbol le dice al panel qué búsqueda está en vuelo, como «por criterios»', () => {
+    const flow = readFileSync('src/components/prospect-batches/corporate-tree/corporate-tree-flow.tsx', 'utf8');
+    const wizard = readFileSync('src/components/prospect-batches/chat-wizard/prospect-chat-wizard.tsx', 'utf8');
+    assert.match(flow, /const inFlightRequestId = step === 'running' && run \? run\.id : null;/);
+    assert.match(flow, /onRunningChange\?\.\(inFlightRequestId\)/);
+    assert.match(wizard, /<CorporateTreeFlow[\s\S]{0,200}onRunningChange=\{onRunningChange\}/);
+  });
+
+  it('la confirmación dice que Apollo usa 1 crédito', () => {
+    const flow = readFileSync('src/components/prospect-batches/corporate-tree/corporate-tree-flow.tsx', 'utf8');
+    assert.doesNotMatch(flow, /No usa créditos de Apollo/);
+    assert.match(flow, /Apollo da las filiales con 1 crédito/);
+  });
+});
+
+describe('AA. La web de la empresa de partida es la suya, no la de su matriz (Prod 15-10, Monsanto 2d25d55a)', () => {
+  const ROOT: CorporateTreeRoot = { name: 'Monsanto', website: null, domain: null, countryCode: null, candidateId: null, accountId: null };
+
+  it('la rama «grupo» dice bayer.com/DE y las otras monsanto.com/US: gana monsanto.com, y su país', () => {
+    const merged = mergeRootFindings(
+      ROOT,
+      [
+        { website: 'https://www.bayer.com', domain: 'bayer.com', countryCode: 'DE' },
+        { website: 'https://www.monsanto.com', domain: 'monsanto.com', countryCode: 'US' },
+        { website: 'https://www.monsanto.com', domain: 'monsanto.com', countryCode: 'US' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'monsanto.com');
+    assert.equal(merged.countryCode, 'US');
+  });
+
+  it('si ninguna lleva el nombre, gana la que más ramas repiten', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, name: 'Alphabet' },
+      [
+        { website: 'https://x.com', domain: 'x.com', countryCode: 'US' },
+        { website: 'https://abc.xyz', domain: 'abc.xyz', countryCode: 'US' },
+        { website: 'https://abc.xyz', domain: 'abc.xyz', countryCode: 'US' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'abc.xyz');
+  });
+
+  it('«Grupo» no cuenta como nombre: Grupo Bimbo reconoce grupobimbo.com por «bimbo»', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, name: 'Grupo Bimbo' },
+      [
+        { website: 'https://www.grupoexito.com.co', domain: 'grupoexito.com.co', countryCode: 'CO' },
+        { website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'grupobimbo.com');
+    assert.equal(merged.countryCode, 'MX');
+  });
+});
+
+describe('AB. Se dice por qué el escritor no escribió cada empresa (Prod 15-10: Purina, HSBC Bank USA)', () => {
+  it('el motivo crudo del escritor se dice en palabras', () => {
+    assert.equal(corporateTreeNotWrittenLabel('duplicate_global_identity_claim'), 'No entró: ya está en otra búsqueda o cuenta (misma web o número fiscal)');
+    assert.equal(corporateTreeNotWrittenLabel('batch_identity_duplicate:domain'), 'No entró: ya está en otra búsqueda o cuenta (misma web o número fiscal)');
+    assert.equal(corporateTreeNotWrittenLabel('country_incompatible:tld'), 'No entró: su país no coincide');
+    assert.equal(corporateTreeNotWrittenLabel('non_official_source_domain'), 'No entró: la web no parece ser de esa empresa');
+    assert.equal(corporateTreeNotWrittenLabel('evidence_policy:weak'), 'No entró: no pasó la revisión de calidad');
+    assert.equal(corporateTreeNotWrittenLabel('algo_nuevo'), 'No entró: algo_nuevo');
+    assert.equal(corporateTreeNotWrittenLabel(null), null);
+  });
+
+  it('la corrida guarda en el lote las que el escritor frenó, con su motivo', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Purina', 'CL', { website: 'https://purina.cl', domain: 'purina.cl' })])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({ written: 0, errors: [], skipped: [{ name: 'Purina', domain: 'purina.cl', reason: 'duplicate_global_identity_claim' }] }),
+    });
+    const result = await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.ok(result.ok);
+    const tree = calls.sealed[0].metadata.corporate_tree as { not_written: unknown };
+    assert.deepEqual(tree.not_written, [{ name: 'Purina', countryCode: 'CL', domain: 'purina.cl', reason: 'duplicate_global_identity_claim' }]);
+  });
+
+  it('el lote lo muestra en vez de «ya existía o no pasó las revisiones»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Purina', related_country_code: 'CL', related_domain: 'purina.cl', relation_type: 'subsidiary', relation_detail: null, evidence_url: null, own_website: true, known_in_sellup: false, not_written_reason: 'country_incompatible:tld' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'No entró: su país no coincide');
+  });
+});
+
+describe('AC. Walmart y Chevron (Prod 15-10): el motivo encuentra su empresa y Apollo pasa el tamaño', () => {
+  it('el escritor no devuelve la web: el motivo la toma de la fila del árbol', async () => {
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [NODE('Purina', 'CL', { website: 'https://purina.cl', domain: 'purina.cl' })])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({ written: 0, errors: [], skipped: [{ name: 'Purina', reason: 'company_ownership:reject' }] }),
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    const tree = calls.sealed[0].metadata.corporate_tree as { not_written: Array<{ domain: string | null }> };
+    assert.equal(tree.not_written[0].domain, 'purina.cl');
+  });
+
+  it('las filiales de Apollo llevan sus empleados al escritor', () => {
+    const root: CorporateTreeRoot = { name: 'Walmart', website: 'https://walmart.com', domain: 'walmart.com', countryCode: 'US', candidateId: null, accountId: null };
+    const applied = applyApolloFamily({
+      plan: planCorporateTreeWrites({ root, freeHits: [], nodes: [] }),
+      root,
+      countryCodes: ['US'],
+      subsidiaries: [{ name: "Sam's Club", domain: 'samsclub.com', website: 'https://samsclub.com', linkedinUrl: null, countryCode: 'US', employeeCount: 100000 }],
+    });
+    const item = [...applied.plan.web.values()].flat().find((i) => i.node?.name === "Sam's Club");
+    assert.equal(item?.node?.employeeCount, 100000);
+  });
+
+  it('el motivo «company_ownership:reject» se dice en palabras', () => {
+    assert.equal(corporateTreeNotWrittenLabel('company_ownership:reject'), 'No entró: la web no parece ser de esa empresa');
+    assert.equal(corporateTreeNotWrittenLabel('icp_size_below_threshold'), 'No entró: por su tamaño');
+    assert.equal(corporateTreeNotWrittenLabel('qualityLabel=discard'), 'No entró: no pasó la revisión de calidad');
+  });
+});
+
+describe('AD. Walmart de México (Prod 15-10): la que el control de propiedad rechaza queda en «Descartadas» para revisarla', () => {
+  it('sólo las rechazadas por propiedad y con web van a «Descartadas»; las demás no', async () => {
+    const recorded: Array<{ country: string; names: string[] }> = [];
+    const { deps } = fakeDeps({
+      searchBranch: async (input) =>
+        input.branch === 'subsidiary'
+          ? outcomeFor('subsidiary', [
+              NODE('Walmart de México y Centroamérica', 'CL', { website: 'https://walmex.mx', domain: 'walmex.mx' }),
+              NODE('Hayneedle', 'CL', { website: 'https://hayneedle.cl', domain: 'hayneedle.cl' }),
+            ])
+          : outcomeFor(input.branch, []),
+      writeWeb: async () => ({
+        written: 0,
+        errors: [],
+        skipped: [
+          { name: 'Walmart de México y Centroamérica', reason: 'company_ownership:reject' },
+          { name: 'Hayneedle', reason: 'qualityLabel=discard' },
+        ],
+      }),
+      recordOwnershipRejected: async (_batch, countryCode, items) => {
+        recorded.push({ country: countryCode, names: items.map((i) => i.name) });
+        return items.length;
+      },
+    });
+    await runCorporateTreeSearch(REQUEST_ALL, CONTEXT, deps);
+    assert.deepEqual(recorded, [{ country: 'CL', names: ['Walmart de México y Centroamérica'] }]);
+  });
+
+  it('el lote la muestra como «revisa si la web es suya»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [{ related_candidate_id: null, related_name: 'Walmart de México y Centroamérica', related_country_code: 'MX', related_domain: 'walmex.mx', relation_type: 'subsidiary', relation_detail: null, evidence_url: null, discard_reason_code: 'corporate_tree_ownership_rejected' }],
+    );
+    assert.equal(groups[0].items[0].statusLabel, 'En Descartadas: revisa si la web es suya');
+  });
+
+  it('esa razón no es de las que el rescate paga', () => {
+    const rescue = readFileSync('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-dispositions.ts', 'utf8');
+    assert.doesNotMatch(rescue, /corporate_tree_ownership_rejected/);
   });
 });

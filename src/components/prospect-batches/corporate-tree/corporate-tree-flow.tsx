@@ -72,6 +72,12 @@ export type CorporateTreeFlowProps = {
    * actualiza la lista y se cierra el panel. Sin él, el resultado queda en el hilo.
    */
   onClose?: () => void;
+  /**
+   * Como en «por criterios»: el id de la búsqueda en vuelo (o `null`). Con él, el «+»
+   * del panel deja empezar OTRA búsqueda mientras ésta sigue en el Centro de procesos
+   * (Prod 15-10: en el árbol no se podían correr varias a la vez).
+   */
+  onRunningChange?: (clientRequestId: string | null) => void;
 };
 
 const BRANCH_OPTIONS: readonly ChatQuestionOptionDetail[] = CORPORATE_TREE_BRANCHES.map((branch) => ({
@@ -91,7 +97,7 @@ const CONFIRM_OPTIONS: readonly ChatQuestionOptionDetail[] = [
   {
     value: 'launch',
     label: 'Buscar el árbol',
-    description: 'Claude busca cada rama en la web (unos US$0,2 por rama, estimado). No usa créditos de Apollo ni Lusha.',
+    description: 'Claude busca cada rama en la web (unos US$0,2 por rama, estimado). Apollo da las filiales con 1 crédito. No usa Lusha.',
   },
   { value: 'restart', label: 'Cambiar la empresa' },
 ];
@@ -122,7 +128,7 @@ function newClientRequestId(): string {
     : '00000000-0000-4000-8000-000000000000'.replace(/0/g, () => Math.floor(Math.random() * 16).toString(16));
 }
 
-export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onClose }: CorporateTreeFlowProps) {
+export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onClose, onRunningChange }: CorporateTreeFlowProps) {
   const router = useRouter();
   const mounted = React.useRef(true);
   React.useEffect(() => {
@@ -141,6 +147,11 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
   const [run, setRun] = React.useState<{ id: string; startedAtMs: number } | null>(null);
   const [outcome, setOutcome] = React.useState<Outcome | null>(null);
   const titleRef = React.useRef<HTMLHeadingElement>(null);
+
+  const inFlightRequestId = step === 'running' && run ? run.id : null;
+  React.useEffect(() => {
+    onRunningChange?.(inFlightRequestId);
+  }, [inFlightRequestId, onRunningChange]);
 
   React.useEffect(() => {
     titleRef.current?.focus();
