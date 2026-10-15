@@ -51,7 +51,8 @@ export function CorporateTreeBatchSections({
                 ? `Buscado en ${countryNames.join(', ')}.`
                 : null}{' '}
             Las que ya estaban en HubSpot o en SellUp quedan aquí como referencia: no entran a revisión. Las que
-            no tienen web esperan en «Descartadas» mientras el rescate se la busca.
+            no tienen web esperan en «Descartadas» mientras el rescate se la busca; las que sólo usan la web del grupo
+            quedan como referencia.
           </p>
         </div>
       </div>

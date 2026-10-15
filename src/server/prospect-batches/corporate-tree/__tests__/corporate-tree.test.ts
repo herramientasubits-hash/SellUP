@@ -41,7 +41,7 @@ import {
   type CorporateTreeRunDeps,
 } from '../corporate-tree-run';
 import { buildCorporateTreeUsageLog } from '../corporate-tree-run.server';
-import { groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import { corporateTreePendingSummary, groupBatchCandidatesByTreeRelation, readCorporateTreeBatchSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   buildCorporateTreeViews,
   describeCorporateTreeItemStatus,
@@ -227,13 +227,32 @@ describe('B. planCorporateTreeWrites — cada empresa por la vía del Agente 1',
     assert.equal(byName.get('Nutresa Peru S.A.')?.route, 'free_catalog');
     assert.equal(byName.get('Nutresa Chile')?.route, 'without_website');
     assert.equal(byName.get('Noel')?.route, 'agent1_writer');
-    assert.equal(byName.get('Zenú')?.route, 'without_website', 'misma web que la empresa de partida');
+    assert.equal(byName.get('Zenú')?.route, 'group_reference', 'misma web que la empresa de partida: referencia, sin rescate');
     assert.equal(byName.get('Zenú')?.groupWebsite, 'https://gruponutresa.com');
     assert.equal(byName.has('Nutresa Perú SA'), false, 'lo gratis ya la tenía: Claude no la repite');
     assert.equal(byName.get('Grupo Nutresa')?.relation, 'root', 'la empresa de partida entra si no estaba');
     assert.deepEqual([...plan.freeCatalog.keys()], ['PE']);
     assert.deepEqual([...plan.web.keys()].sort(), ['CO']);
-    assert.deepEqual([...plan.withoutWebsite.keys()].sort(), ['CL', 'CO']);
+    assert.deepEqual([...plan.withoutWebsite.keys()].sort(), ['CL']);
+  });
+
+  it('General Electric (Prod 14-10): la misma razón en otro país no es la raíz, y las filiales con la web del grupo no van al rescate', () => {
+    const plan = planCorporateTreeWrites({
+      root: { name: 'General Electric', website: 'https://www.ge.com', domain: 'ge.com', countryCode: 'US', candidateId: null, accountId: null },
+      freeHits: [FREE_HIT('GENERAL ELECTRIC S R L', 'AR', { relation: 'root' })],
+      nodes: [
+        NODE('General Electric México, S.A. de C.V.', 'MX', { website: 'https://www.ge.com/mx', domain: 'ge.com' }),
+        NODE('ProlecGE', 'MX', { website: 'https://prolecge.com', domain: 'prolecge.com' }),
+      ],
+    });
+    const byName = new Map(plan.rows.map((r) => [r.name, r]));
+    assert.equal(byName.get('General Electric')?.relation, 'root', 'la raíz es la de EE. UU.');
+    assert.equal(byName.get('General Electric')?.route, 'agent1_writer');
+    assert.equal(byName.get('GENERAL ELECTRIC S R L')?.relation, 'other_country');
+    assert.equal(byName.get('General Electric México, S.A. de C.V.')?.route, 'group_reference');
+    assert.equal(byName.get('General Electric México, S.A. de C.V.')?.domain, 'ge.com');
+    assert.equal(byName.get('ProlecGE')?.route, 'agent1_writer');
+    assert.deepEqual([...plan.withoutWebsite.keys()], ['AR'], 'sólo la que no tiene ninguna web va a «Descartadas»');
   });
 
   it('una empresa de partida que ya existe no se vuelve a escribir; respeta el tope de filas', () => {
@@ -827,5 +846,30 @@ describe('J. Lo gratis es preciso: familia sí, homónimos sólo si Claude los c
     assert.equal(linked[2].related_candidate_id, 'z');
     const [view] = buildCorporateTreeViews(linked, 'p', new Map([['p', 'needs_review']]));
     assert.equal(view.selfRelation, 'other_country');
+  });
+});
+
+describe('K. Lo que no entró a revisión se dice como es', () => {
+  it('el aviso cuenta las que esperan web y las que usan la del grupo, sin culpar a HubSpot', () => {
+    assert.equal(
+      corporateTreePendingSummary({ waitingWebsite: 2, groupReferences: 7 }),
+      '2 esperan su web en «Descartadas» y 7 quedan como referencia (web del grupo).',
+    );
+    assert.match(corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0 }), /HubSpot/);
+    assert.doesNotMatch(corporateTreePendingSummary({ waitingWebsite: 1, groupReferences: 0 }), /HubSpot/);
+  });
+
+  it('el lote distingue «sin web» de «usa la web del grupo»', () => {
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      [
+        { related_candidate_id: null, related_name: 'GE México', related_country_code: 'MX', related_domain: 'ge.com', relation_type: 'subsidiary', relation_detail: null, evidence_url: null },
+        { related_candidate_id: null, related_name: 'GE SRL', related_country_code: 'AR', related_domain: null, relation_type: 'other_country', relation_detail: null, evidence_url: null },
+      ],
+    );
+    const byRelation = new Map(groups.map((g) => [g.relation, g.items[0]]));
+    assert.equal(byRelation.get('subsidiary')?.statusLabel, 'Referencia: usa la web del grupo');
+    assert.equal(byRelation.get('subsidiary')?.groupWebsite, 'https://ge.com');
+    assert.equal(byRelation.get('other_country')?.statusLabel, 'En Descartadas: sin web');
   });
 });

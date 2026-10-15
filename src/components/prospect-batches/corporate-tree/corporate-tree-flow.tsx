@@ -26,6 +26,10 @@ import {
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
 import {
+  corporateTreePendingSummary,
+  type CorporateTreePending,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
   CORPORATE_TREE_BRANCHES,
   CORPORATE_TREE_BRANCH_DESCRIPTIONS,
   CORPORATE_TREE_LIMITS,
@@ -48,7 +52,13 @@ import {
 type Step = 'company' | 'branches' | 'countries' | 'confirm' | 'running' | 'done' | 'failed';
 
 /** `inReview`: las que quedaron en «Por revisar»; `null` = no se sabe (respuesta recuperada). */
-type Outcome = { redirectPath: string | null; inReview: number | null; message: string | null };
+type Outcome = {
+  redirectPath: string | null;
+  inReview: number | null;
+  message: string | null;
+  /** Lo que no entró a revisión y por qué; `null` si la respuesta no lo trajo. */
+  pending?: CorporateTreePending | null;
+};
 
 export type CorporateTreeFlowProps = {
   /** Empresa elegida desde una fila: se salta la pregunta del nombre. */
@@ -157,8 +167,8 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
           outcome.inReview === null
             ? `Listo: el árbol de ${root?.name ?? 'la empresa'} quedó guardado. Abre el lote para ver cada rama.`
             : outcome.inReview > 0
-              ? `Listo: ${outcome.inReview} ${outcome.inReview === 1 ? 'empresa relacionada quedó' : 'empresas relacionadas quedaron'} en «Por revisar». Las que ya estaban en HubSpot o en SellUp quedan en el lote como referencia.`
-              : `Terminé: las empresas relacionadas de ${root?.name ?? 'la empresa'} ya estaban en HubSpot o en SellUp, o no pasaron las revisiones. Quedan en el lote como referencia.`,
+              ? `Listo: ${outcome.inReview} ${outcome.inReview === 1 ? 'empresa relacionada quedó' : 'empresas relacionadas quedaron'} en «Por revisar». ${corporateTreePendingSummary(outcome.pending ?? null)}`
+              : `Terminé el árbol de ${root?.name ?? 'la empresa'}: nada nuevo para revisar todavía. ${corporateTreePendingSummary(outcome.pending ?? null)}`,
         ),
       );
     }
@@ -200,7 +210,12 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
         ? await store.startRun({ title: `Árbol · ${root.name}`, concurrencyKey: `tree:${root.name.toLowerCase()}`, payload })
         : await executeAgentRunViaRoute(payload);
       if (result.ok) {
-        finish({ redirectPath: result.redirectPath, inReview: result.candidateCount ?? null, message: null });
+        finish({
+          redirectPath: result.redirectPath,
+          inReview: result.candidateCount ?? null,
+          message: null,
+          pending: result.corporateTree ?? null,
+        });
       } else {
         fail(result.message ?? 'No fue posible completar la búsqueda.');
       }
@@ -232,31 +247,32 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     setStep('failed');
   }
 
-  /** Como en «por criterios»: aviso, lista actualizada y, si hay qué revisar, panel cerrado. */
+  /**
+   * Como en «por criterios»: aviso, lista de «Por revisar» actualizada y el agente se
+   * cierra SIEMPRE (dueña 14-10). El lote se abre desde el aviso, «Búsquedas» o el
+   * Centro de procesos.
+   */
   function finish(next: Outcome) {
     router.refresh();
     const name = root?.name ?? 'la empresa';
-    const openBatch = next.redirectPath
-      ? { label: 'Ver el lote', onClick: () => router.push(next.redirectPath as string) }
-      : undefined;
+    // Mismo aviso que «por criterios» (sin botón): el lote se abre desde «Búsquedas»
+    // o el Centro de procesos.
     if (next.inReview === 0) {
-      toast.info(`Árbol de ${name}: nada nuevo para revisar`, {
-        description: 'Las empresas relacionadas ya estaban en HubSpot o en SellUp; quedan en el lote como referencia.',
-        action: openBatch,
+      toast.info('No se encontraron empresas nuevas.', {
+        description: `Árbol de ${name}. ${corporateTreePendingSummary(next.pending ?? null)}`,
       });
     } else {
-      toast.success(`Árbol de ${name} listo`, {
+      toast.success('Prospectos generados correctamente.', {
         description:
           next.inReview === null
-            ? 'Ya puedes revisar sus ramas en el lote.'
-            : `${next.inReview} ${next.inReview === 1 ? 'empresa relacionada' : 'empresas relacionadas'} para revisar.`,
-        action: openBatch,
+            ? 'Ya puedes revisarlos en el listado de prospectos.'
+            : `Árbol de ${name}: ${next.inReview} ${next.inReview === 1 ? 'empresa nueva' : 'empresas nuevas'} para revisar en el listado de prospectos.`,
       });
     }
     if (!mounted.current) return;
     setOutcome(next);
     setStep('done');
-    if (next.inReview !== 0) onClose?.();
+    onClose?.();
   }
 
   function restart() {
