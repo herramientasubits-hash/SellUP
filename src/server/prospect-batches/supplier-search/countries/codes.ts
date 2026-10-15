@@ -10,4 +10,5 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'CO', // SECOP II, en vivo
   'CL', // ChileCompra, órdenes de compra mensuales cargadas
   'AR', // COMPR.AR, adjudicaciones cargadas (tabla de rubros BORRADOR)
+  'UY', // ARCE, adjudicaciones OCDS cargadas (tabla SICE aprobada)
 ];
