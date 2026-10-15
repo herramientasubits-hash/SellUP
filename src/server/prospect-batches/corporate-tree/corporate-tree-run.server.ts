@@ -104,7 +104,15 @@ export function readApolloSubsidiaries(organization: unknown): CorporateTreeApol
     const countryCode =
       (country && Object.entries(APOLLO_COUNTRY_LOCATION_BY_CODE).find(([, en]) => en.toLowerCase() === country.toLowerCase())?.[0]) ??
       (country && country.length === 2 ? country.toUpperCase() : null);
-    out.push({ name, domain, website, linkedinUrl: text(sub['linkedin_url']), countryCode });
+    const employees = sub['estimated_num_employees'];
+    out.push({
+      name,
+      domain,
+      website,
+      linkedinUrl: text(sub['linkedin_url']),
+      countryCode,
+      employeeCount: typeof employees === 'number' && Number.isFinite(employees) && employees > 0 ? Math.round(employees) : null,
+    });
   }
   return out;
 }
@@ -154,6 +162,9 @@ export function buildCorporateTreeUsageLog(
       root_name: context.rootName,
       proposed: outcome.proposed,
       rejected: outcome.rejected,
+      // Lo que esta rama supo de la empresa de partida (para saber por qué quedó sin web).
+      root_domain_found: outcome.root?.domain ?? null,
+      root_country_found: outcome.root?.countryCode ?? null,
       web_search_requests: outcome.usage.webSearchRequests,
       pricing_source: outcome.usage.pricingSource,
     },

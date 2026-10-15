@@ -22,6 +22,8 @@ import {
 import {
   corporateTreeRowKey,
   markKnownCompanies,
+  mergeRootFindings,
+  apolloSubsidiaryUsesGlobalDomain,
   pickKnownCompany,
   planCorporateTreeWrites,
   applyApolloFamily,
@@ -1266,5 +1268,108 @@ describe('W. Bimbo 1.ª corrida con Apollo (Prod 15-10): sin repetir empresas ni
       [{ related_candidate_id: null, related_name: 'BIMBO ECUADOR S.A.', related_country_code: 'EC', relation_type: 'group', relation_detail: null, evidence_url: null, discard_reason_code: 'missing_domain_final', rescue_decision: 'duplicate', rescue_skipped: 'known_tax_id' }],
     );
     assert.equal(groups[0].items[0].statusLabel, 'Ya en SellUp (mismo número fiscal)');
+  });
+});
+
+describe('X. La empresa de partida no se queda sin web (Prod 15-10, Bimbo e32d4058: Apollo no se consultó)', () => {
+  const ROOT: CorporateTreeRoot = { name: 'Bimbo', website: null, domain: null, countryCode: 'MX', candidateId: null, accountId: null };
+
+  it('una rama trae sólo el país y otra la web: se usan las dos', () => {
+    const merged = mergeRootFindings(
+      { ...ROOT, countryCode: null },
+      [
+        { website: null, domain: null, countryCode: 'MX' },
+        null,
+        { website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: null },
+      ],
+      [],
+    );
+    assert.equal(merged.domain, 'grupobimbo.com');
+    assert.equal(merged.website, 'https://grupobimbo.com');
+    assert.equal(merged.countryCode, 'MX');
+  });
+
+  it('sin web de Claude, vale la que trae la empresa de partida desde el banco en su país', () => {
+    const merged = mergeRootFindings(ROOT, [{ website: null, domain: null, countryCode: 'MX' }], [
+      { relation: 'subsidiary', countryCode: 'CO', domain: 'bimbo.com.co' },
+      { relation: 'root', countryCode: 'AR', domain: 'bimbo.com.ar' },
+      { relation: 'root', countryCode: 'MX', domain: 'bimbo.com.mx' },
+    ]);
+    assert.equal(merged.domain, 'bimbo.com.mx');
+    assert.equal(merged.website, 'https://bimbo.com.mx');
+  });
+
+  it('la web comprobada por Claude gana a la del banco, y la conocida de antes gana a todas', () => {
+    const hits = [{ relation: 'root' as const, countryCode: 'MX', domain: 'bimbo.com.mx' }];
+    assert.equal(mergeRootFindings(ROOT, [{ website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' }], hits).domain, 'grupobimbo.com');
+    assert.equal(
+      mergeRootFindings({ ...ROOT, website: 'https://www.bimbo.com', domain: 'bimbo.com' }, [{ website: 'https://grupobimbo.com', domain: 'grupobimbo.com', countryCode: 'MX' }], hits).domain,
+      'bimbo.com',
+    );
+  });
+
+  it('sin nada, sigue sin web (no inventa)', () => {
+    const merged = mergeRootFindings(ROOT, [null], []);
+    assert.equal(merged.domain, null);
+    assert.equal(merged.website, null);
+  });
+});
+
+describe('Y. Filiales de Apollo útiles primero (Prod 15-10: Volkswagen, Shell, TotalEnergies)', () => {
+  const VW: CorporateTreeRoot = { name: 'Volkswagen Group', website: 'https://www.volkswagen-group.com', domain: 'volkswagen-group.com', countryCode: 'DE', candidateId: null, accountId: null };
+  const apolloSub = (name: string, domain: string, countryCode: string, employeeCount: number | null) => ({
+    name,
+    domain,
+    website: `https://${domain}`,
+    linkedinUrl: null,
+    countryCode,
+    employeeCount,
+  });
+
+  it('la web global del grupo no es de la filial de un país; la de su país sí, y en EE. UU. el .com es normal', () => {
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Porsche Colombia SAS', domain: 'porsche.com' }, 'CO'), true);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen do Brasil Ltda.', domain: 'volkswagen.com' }, 'BR'), true);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen do Brasil Ltda.', domain: 'vw.com.br' }, 'BR'), false);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'CUPRA', domain: 'cupra.com' }, 'ES'), false);
+    assert.equal(apolloSubsidiaryUsesGlobalDomain({ name: 'Volkswagen Group of America', domain: 'vw.com' }, 'US'), false);
+  });
+
+  it('entran las más grandes, nunca las de menos de 200 empleados ni las de web global', () => {
+    const plan = planCorporateTreeWrites({ root: VW, freeHits: [], nodes: [] });
+    const applied = applyApolloFamily({
+      plan,
+      root: VW,
+      countryCodes: ['US', 'ES', 'CO', 'BR'],
+      // La empresa de partida ocupa una fila: quedan tres para Apollo.
+      maxRows: 4,
+      subsidiaries: [
+        apolloSub('Porsche Santa Clarita', 'porschesantaclarita.com', 'US', 45),
+        apolloSub('Porsche Colombia SAS', 'porsche.com', 'CO', 300),
+        apolloSub('Scout Motors Inc.', 'scoutmotors.com', 'US', 900),
+        apolloSub('Furrow Automotive Group', 'furrowcars.com', 'US', null),
+        apolloSub('CUPRA', 'cupra.com', 'ES', 1041),
+        apolloSub('Volkswagen Group of America', 'vw.com', 'US', 8000),
+      ],
+    });
+    assert.deepEqual(
+      applied.plan.rows.filter((r) => r.foundInApollo).map((r) => r.name),
+      ['Volkswagen Group of America', 'CUPRA', 'Scout Motors Inc.'],
+    );
+  });
+});
+
+describe('Z. Varias búsquedas del árbol a la vez (Prod 15-10: el «+» quedaba apagado)', () => {
+  it('el chat del árbol le dice al panel qué búsqueda está en vuelo, como «por criterios»', () => {
+    const flow = readFileSync('src/components/prospect-batches/corporate-tree/corporate-tree-flow.tsx', 'utf8');
+    const wizard = readFileSync('src/components/prospect-batches/chat-wizard/prospect-chat-wizard.tsx', 'utf8');
+    assert.match(flow, /const inFlightRequestId = step === 'running' && run \? run\.id : null;/);
+    assert.match(flow, /onRunningChange\?\.\(inFlightRequestId\)/);
+    assert.match(wizard, /<CorporateTreeFlow[\s\S]{0,200}onRunningChange=\{onRunningChange\}/);
+  });
+
+  it('la confirmación dice que Apollo usa 1 crédito', () => {
+    const flow = readFileSync('src/components/prospect-batches/corporate-tree/corporate-tree-flow.tsx', 'utf8');
+    assert.doesNotMatch(flow, /No usa créditos de Apollo/);
+    assert.match(flow, /Apollo da las filiales con 1 crédito/);
   });
 });
