@@ -84,9 +84,14 @@ function fakeDeps(overrides: Partial<SupplierSearchRunDeps> = {}) {
       seals.push(input);
     },
     actionStartedAtMs: 0,
-    nowMs: () => 10_000,
-    // Ya hay 10 para revisar ⇒ una sola ronda (las dos rondas: wizard-supplier-search-4).
-    countCompetitorBatchOutcome: async () => ({ reviewable: 10, hubspotDuplicates: 0, sellupDuplicates: 0 }),
+    nowMs: (() => {
+      // 1.ª lectura (arranque de la 1.ª ronda) a los 10 s; después ya pasaron 120 s:
+      // no cabe otra ronda pero sí el rescate en línea.
+      let reads = 0;
+      return () => (reads++ < 1 ? 10_000 : 120_000);
+    })(),
+    // Las 4 escritas quedan para revisar; la 2.ª ronda no cabe (las dos rondas: wizard-supplier-search-4).
+    countCompetitorBatchOutcome: async () => ({ reviewable: 4, hubspotDuplicates: 0, sellupDuplicates: 0 }),
     ...overrides,
   };
   return { deps, reserved, legs, seals };
@@ -175,7 +180,10 @@ describe('B. executeSupplierSearchRun', () => {
     assert.equal(f.seals[0].status, 'ready_for_review');
     assert.deepEqual(f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY], {
       ...EXECUTED,
-      rounds: [{ round: 0, outcome: EXECUTED }],
+      rounds: [
+        { round: 0, outcome: EXECUTED },
+        { round: 1, outcome: { executed: false, reason: 'not_enough_time' } },
+      ],
       inline_rescue: { reviewed: false, window_ms: null, accepted_after_rescue: null },
     });
     assert.ok(f.seals[0].metadata?.accepted_for_target);
