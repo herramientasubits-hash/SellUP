@@ -5,7 +5,10 @@
  * Las mismas piezas que ya usa el Agente 1, sin copias de su lógica:
  *  - Apollo: `searchApolloOrganizationsPage` + `normalizeApolloOrganizationsResponse`
  *    (como el árbol), detrás de `isApolloCompanySearchEnabled` y la cuota de Apollo;
- *  - registro de uso: `logProviderUsage` (1 crédito por página con resultados);
+ *    las tres páginas posibles (ID de la referencia, parecidas, palabras clave) van
+ *    por el mismo cliente;
+ *  - registro de uso: `logProviderUsage`, una fila por página (1 crédito si trajo
+ *    resultados), con `flow` distinto según la página;
  *  - juez: `buildLiveCompetitorJudge` (fuente `apollo`);
  *  - escritura: `buildProspectingPipelineCandidate` + `withOfficialIdentity` +
  *    `writeProspectingCandidates` en el lote de la corrida, reabriéndolo como la
@@ -50,9 +53,18 @@ import {
   runCompetitorApolloStep,
   type CompetitorApolloOutcome,
   type CompetitorApolloPage,
+  type CompetitorApolloPagePurpose,
   type CompetitorApolloPick,
   type CompetitorApolloWriteResult,
 } from './competitor-apollo';
+
+/** `flow` del registro de uso (y prefijo de su clave) según para qué fue la página. */
+const COMPETITOR_APOLLO_FLOW_BY_PURPOSE: Record<CompetitorApolloPagePurpose, string> = {
+  resolve: 'competitor_apollo_resolve',
+  lookalikes: 'competitor_apollo_lookalikes',
+  // La de siempre: mismo `flow` y misma clave que antes de las parecidas.
+  keywords: 'competitor_apollo',
+};
 
 /** Dominios recientes del mismo país × industria que se excluyen de la consulta. */
 const EXCLUSION_LOOKUP_LIMIT = 300;
@@ -221,13 +233,15 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
       const page = readCompetitorApolloPage(result.ok ? result.payload : null);
       return { ...page, ok: result.ok, error: result.ok ? null : (result.errorBody ?? `http_${result.status ?? 'none'}`) };
     },
-    logUsage: async ({ page, body, durationMs }) => {
+    logUsage: async ({ purpose, page, body, durationMs }) => {
       // 1 crédito por página con resultados (Apollo Support 29-09); una vacía no cobra.
       const credits = page.rawCount > 0 ? 1 : 0;
       const unitCostUsd = await apolloCreditUnitCost().catch(() => null);
+      const flow = COMPETITOR_APOLLO_FLOW_BY_PURPOSE[purpose];
       await logProviderUsage({
         batch_id: input.batchId,
-        usage_key: `competitor_apollo:${input.clientRequestId}`,
+        // Una clave por página: `usage_key` es único en provider_usage_logs.
+        usage_key: `${flow}:${input.clientRequestId}`,
         provider_key: 'apollo',
         operation_key: 'mixed_companies_search',
         credits_used: credits,
@@ -239,12 +253,14 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
         triggered_by: input.userId,
         search_mode: 'competitors',
         metadata: {
-          flow: 'competitor_apollo',
+          flow,
           country_code: input.countryCode,
           non_empty_pages_charged: credits,
-          keywords: body.q_organization_keyword_tags,
+          keywords: body.q_organization_keyword_tags ?? null,
+          lookalike_organization_ids: body.lookalike_organization_ids ?? null,
+          domains_list: body.q_organization_domains_list ?? null,
           location: Array.isArray(body.organization_locations) ? body.organization_locations[0] : null,
-          per_page: COMPETITOR_APOLLO_PER_PAGE,
+          per_page: body.per_page ?? null,
           reference_company_name: input.reference.name,
           // Qué devolvió Apollo (sólo nombres y dominios, sin PII).
           apollo_returned: page.organizations.slice(0, COMPETITOR_APOLLO_PER_PAGE).map((o) => ({
