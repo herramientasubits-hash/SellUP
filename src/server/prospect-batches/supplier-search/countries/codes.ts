@@ -15,4 +15,6 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'PY', // DNCP, adjudicaciones (ZIP masivo OCDS) cargadas
   'PA', // PanamaCompra en Cifras (OCDS mensual), adjudicaciones cargadas
   'DO', // DGCP (datos abiertos), en vivo
+  'BR', // Compras.gov.br (federal) y PNCP, en vivo
+  'US', // USAspending, en vivo
 ];

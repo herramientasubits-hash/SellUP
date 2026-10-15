@@ -3,6 +3,7 @@
  * Una línea por país; ver `types.ts` para el contrato.
  */
 
+import { BR_COUNTRY } from './br';
 import { CL_COUNTRY } from './cl';
 import { CO_COUNTRY } from './co';
 import { GT_COUNTRY } from './gt';
@@ -12,6 +13,7 @@ import { PY_COUNTRY } from './py';
 import { DO_COUNTRY } from './do';
 import { PA_COUNTRY } from './pa';
 import type { PublicBuyerCountrySource } from './types';
+import { US_COUNTRY } from './us';
 
 export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   CO_COUNTRY,
@@ -22,6 +24,8 @@ export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   PY_COUNTRY,
   PA_COUNTRY,
   DO_COUNTRY,
+  BR_COUNTRY,
+  US_COUNTRY,
 ];
 
 export function publicBuyerCountry(countryCode: string): PublicBuyerCountrySource | null {

@@ -4,15 +4,19 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { buildBrLookups } from './br.server';
 import { buildCoLookups } from './co.server';
 import { buildDoLookups } from './do.server';
 import { publicBuyerCountry } from './index';
 import { buildLoadedLinksLookups, type CountryLookups, type LoadedCountryServerHooks } from './loaded-lookups.server';
+import { buildUsLookups } from './us.server';
 
 /** Consultas en vivo por país (`kind: 'live'`). */
 const LIVE_LOOKUPS: Readonly<Record<string, (serviceClient: SupabaseClient) => CountryLookups>> = {
   CO: buildCoLookups,
   DO: buildDoLookups,
+  BR: (serviceClient) => buildBrLookups(serviceClient),
+  US: (serviceClient) => buildUsLookups(serviceClient),
 };
 
 /** Ganchos de servidor de los países «loaded» que los necesitan. */

@@ -314,6 +314,9 @@ export async function runPublicBuyerSupplierStep(
 export function taxIdKey(raw: string | null | undefined): string | null {
   const nit = normalizeEntityNit(raw);
   if (nit) return nit;
+  // UEI de EE. UU. («DT2KS3HH5FP5»): 12 caracteres alfanuméricos; sus letras son parte de él.
+  const alnum = (raw ?? '').trim().toUpperCase();
+  if (/^[A-Z0-9]{12}$/.test(alnum) && /[A-Z]/.test(alnum)) return alnum;
   const generic = (raw ?? '').replace(/[^0-9kK]/g, '').toUpperCase();
   return generic.length >= 7 ? generic : null;
 }
