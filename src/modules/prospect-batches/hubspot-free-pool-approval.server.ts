@@ -9,6 +9,7 @@
  */
 
 import { isHubSpotFreePoolEnabled, isHubSpotFreePoolOwnerWritebackEnabled } from '@/lib/feature-flags.server';
+import { findHubSpotOwnerByEmail, getHubSpotToken } from '@/server/integrations/hubspot-company-create';
 import { checkHubSpotDuplicates } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
 import { isStrongHubSpotIdentityMatch } from '@/server/agents/prospecting-toolkit/hubspot-free-match';
 import { claimHubSpotCompanyForOwner } from '@/server/integrations/hubspot-free-company-claim.server';
@@ -16,6 +17,7 @@ import { readHubSpotCompanyAvailabilityById } from '@/server/integrations/hubspo
 import {
   decideFreePoolOwnerWrite,
   resolveFreePoolApprovalLink,
+  resolveSellerHubSpotOwner,
   type FreePoolApprovalInput,
   type FreePoolApprovalLink,
   type StrongHubSpotIdentity,
@@ -105,4 +107,23 @@ export async function claimFreePoolCompanyForSeller(input: {
     ...(claim.companyError ? { owner_error: claim.companyError } : {}),
     contacts: claim.contacts,
   };
+}
+
+/**
+ * El dueño de HubSpot del vendedor: mapeo y, si no está, su correo en HubSpot. Un
+ * fallo de lectura se informa (la toma se salta con `owner_lookup_failed`).
+ */
+export async function resolveLiveSellerHubSpotOwnerId(
+  email: string | null | undefined,
+  findMappedOwnerId: (email: string) => Promise<string | null>,
+): Promise<string | null> {
+  const resolution = await resolveSellerHubSpotOwner(email, {
+    findMappedOwnerId,
+    findHubSpotOwnerIdByEmail: async (clean) => {
+      const token = await getHubSpotToken();
+      if (!token) throw new Error('hubspot_token_unavailable');
+      return (await findHubSpotOwnerByEmail(clean, token))?.id ?? null;
+    },
+  });
+  return resolution.ownerId;
 }

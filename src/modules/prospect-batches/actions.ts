@@ -5,7 +5,7 @@ import { createClient as createAdminClient, type SupabaseClient } from '@supabas
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { validateTaxIdentifier } from './tax-identifier-rules';
-import { claimFreePoolCompanyForSeller, resolveLiveFreePoolApprovalLink } from './hubspot-free-pool-approval.server';
+import { claimFreePoolCompanyForSeller, resolveLiveFreePoolApprovalLink, resolveLiveSellerHubSpotOwnerId } from './hubspot-free-pool-approval.server';
 import { blocksHubSpotCreate } from './hubspot-free-pool-approval';
 import { runProspectGenerationAgent } from '@/server/agents/prospect-generation';
 import { runAgentSourceDiscoveryPreflight, type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
@@ -2390,7 +2390,7 @@ export async function approveAndConvertCandidateAction(
               .select('email')
               .eq('id', searcherUserId)
               .single();
-            return getHubSpotOwnerMapping(sellerRow?.email?.toLowerCase().trim() ?? null);
+            return resolveLiveSellerHubSpotOwnerId(sellerRow?.email, getHubSpotOwnerMapping);
           },
         })
       : null;
