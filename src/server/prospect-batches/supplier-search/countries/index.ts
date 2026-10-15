@@ -9,6 +9,8 @@ import { GT_COUNTRY } from './gt';
 import { HN_COUNTRY } from './hn';
 import { PE_COUNTRY } from './pe';
 import { PY_COUNTRY } from './py';
+import { DO_COUNTRY } from './do';
+import { PA_COUNTRY } from './pa';
 import type { PublicBuyerCountrySource } from './types';
 
 export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
@@ -18,6 +20,8 @@ export const PUBLIC_BUYER_COUNTRIES: readonly PublicBuyerCountrySource[] = [
   HN_COUNTRY,
   GT_COUNTRY,
   PY_COUNTRY,
+  PA_COUNTRY,
+  DO_COUNTRY,
 ];
 
 export function publicBuyerCountry(countryCode: string): PublicBuyerCountrySource | null {

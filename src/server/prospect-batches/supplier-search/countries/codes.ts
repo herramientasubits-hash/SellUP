@@ -13,4 +13,6 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'HN', // ONCAE/HonduCompras (OCDS), cargadas
   'GT', // Guatecompras (OCDS), cargadas
   'PY', // DNCP, adjudicaciones (ZIP masivo OCDS) cargadas
+  'PA', // PanamaCompra en Cifras (OCDS mensual), adjudicaciones cargadas
+  'DO', // DGCP (datos abiertos), en vivo
 ];
