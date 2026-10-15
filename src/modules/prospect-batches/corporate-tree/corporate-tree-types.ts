@@ -91,6 +91,8 @@ export type CorporateTreeCandidateMetadata = {
   group_website: string | null;
   /** La web no se pudo comprobar (el sitio bloquea la descarga): revisarla a mano. */
   website_unverified?: boolean;
+  /** La web la encontró Apollo buscando por el nombre. */
+  found_in_apollo?: boolean;
 };
 
 export function isCorporateTreeBranch(value: unknown): value is CorporateTreeBranch {

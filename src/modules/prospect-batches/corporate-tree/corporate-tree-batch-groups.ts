@@ -54,6 +54,8 @@ export type CorporateTreeBatchItem = {
   groupWebsite: string | null;
   /** Web no comprobada (el sitio bloquea la descarga). */
   websiteUnverified?: boolean;
+  /** Web encontrada en Apollo por el nombre. */
+  foundInApollo?: boolean;
 };
 
 export type CorporateTreeBatchGroup = {
@@ -141,6 +143,7 @@ export function groupBatchCandidatesByTreeRelation(
       evidenceUrl: str(tree.evidence_url) ?? rel?.evidence_url ?? null,
       groupWebsite: str(tree.group_website),
       ...(tree.website_unverified === true ? { websiteUnverified: true } : {}),
+      ...(tree.found_in_apollo === true ? { foundInApollo: true } : {}),
     });
   }
 
