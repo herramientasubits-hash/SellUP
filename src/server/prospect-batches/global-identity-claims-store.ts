@@ -4,7 +4,7 @@
  *
  * Puro cableado de I/O: el llamador ya tiene la `CompanyIdentityEvidence` de
  * cada candidato (la misma que usa para el registro de lote), la convierte con
- * `deriveGlobalIdentityClaims` y esta función sólo la envía. Ningún módulo
+ * `deriveGlobalIdentityClaimEnvelope` y esta función sólo la envía. Ningún módulo
  * reconstruye la evidencia dos veces.
  *
  * Degrada CERRADO: si la migración 140 no está aplicada (`PGRST202`/`42883`) o
@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  deriveGlobalIdentityClaims,
+  deriveGlobalIdentityClaimEnvelope,
   isGlobalIdentityClaimableStatus,
   type GlobalIdentityClaim,
 } from '@/server/agents/prospecting-toolkit/global-identity-claims';
@@ -29,6 +29,13 @@ export const CLAIM_COMPANY_IDENTITIES_RPC = 'claim_company_identities';
 export type GlobalIdentityClaimCandidateInput = {
   candidateId: string;
   claims: readonly GlobalIdentityClaim[];
+  /**
+   * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — señales de CRUCE de la 152
+   * (dominio y LinkedIn de identidad), se reclamen en exclusiva o no. Opcionales:
+   * sin la 152 aplicada, la función SQL de la 140 ignora campos que no conoce.
+   */
+  identityDomain?: string | null;
+  identityLinkedIn?: string | null;
 };
 
 export type GlobalIdentityClaimOutcome = {
@@ -82,6 +89,8 @@ export async function claimGlobalCompanyIdentities(
     candidateId: c.candidateId,
     batchId,
     claims: c.claims,
+    ...(c.identityDomain ? { identityDomain: c.identityDomain } : {}),
+    ...(c.identityLinkedIn ? { identityLinkedIn: c.identityLinkedIn } : {}),
   }));
 
   try {
@@ -92,6 +101,13 @@ export async function claimGlobalCompanyIdentities(
     if (error) {
       // Ausente o cualquier otro fallo REAL de escritura: degrada cerrado. No se
       // inventa un choque desde una llamada que no se pudo completar.
+      // AGENT1-CLAIMS-DEGRADED-OBSERVABLE-1 — pero ya no en silencio: sólo el
+      // código (el mensaje puede citar los argumentos).
+      console.error('[agent1-global-claims] degraded: rpc error', {
+        batchId,
+        candidates: candidates.length,
+        code: typeof error.code === 'string' ? error.code : null,
+      });
       return { ...EMPTY_OUTCOME, attempted: false, degraded: true };
     }
 
@@ -105,8 +121,25 @@ export async function claimGlobalCompanyIdentities(
       degraded: false,
     };
   } catch {
+    console.error('[agent1-global-claims] degraded: rpc threw', {
+      batchId,
+      candidates: candidates.length,
+    });
     return { ...EMPTY_OUTCOME, attempted: false, degraded: true };
   }
+}
+
+/** Convierte la evidencia en la entrada del reclamo, con sus señales de cruce. */
+export function toGlobalIdentityClaimCandidateInput(
+  candidateId: string,
+  envelope: ReturnType<typeof deriveGlobalIdentityClaimEnvelope>,
+): GlobalIdentityClaimCandidateInput {
+  return {
+    candidateId,
+    claims: envelope.claims,
+    identityDomain: envelope.identityDomain,
+    identityLinkedIn: envelope.identityLinkedIn,
+  };
 }
 
 // ─── AGENT1-LUSHA-GLOBAL-IDENTITY-CLAIMS-1 — reclamar lo que YA se guardó ────
@@ -152,10 +185,50 @@ export type PersistedGlobalIdentityClaimOutcome = {
  *
  * Degrada CERRADO igual que `claimGlobalCompanyIdentities`.
  */
+export type PersistedGlobalIdentityClaimOptions = {
+  /**
+   * AGENT1-CLAIMS-OWN-RECLAIM-1 — para los caminos que RE-reclaman una fila que
+   * puede tener ya reclamos activos (rescate `idempotent`, NIT agregado después,
+   * reintento tras degradar). Se quitan del envío los reclamos que esa MISMA fila
+   * ya tiene: sin la 152 aplicada, volver a enviarlos chocaba con ella misma y la
+   * fila válida quedaba `duplicate`. Con la 152 es redundante, nunca dañino.
+   */
+  excludeClaimsAlreadyHeld?: boolean;
+};
+
+type HeldClaimRow = { candidate_id: string; claim_type: string; claim_key: string };
+
+/** Reclamos ACTIVOS que ya tienen estas filas, por id. `null` ⇒ no se pudo leer. */
+async function readClaimsAlreadyHeld(
+  client: SupabaseClient,
+  candidateIds: readonly string[],
+): Promise<Map<string, Set<string>> | null> {
+  try {
+    const { data, error } = await client
+      .from(GLOBAL_IDENTITY_CLAIMS_TABLE)
+      .select('candidate_id, claim_type, claim_key')
+      .in('candidate_id', [...candidateIds])
+      .is('released_at', null);
+    if (error || !Array.isArray(data)) return null;
+    const held = new Map<string, Set<string>>();
+    for (const row of data as HeldClaimRow[]) {
+      const set = held.get(row.candidate_id) ?? new Set<string>();
+      set.add(`${row.claim_type}\u0000${row.claim_key}`);
+      held.set(row.candidate_id, set);
+    }
+    return held;
+  } catch {
+    return null;
+  }
+}
+
+export const GLOBAL_IDENTITY_CLAIMS_TABLE = 'agent1_company_identity_claims';
+
 export async function claimGlobalIdentitiesForPersistedCandidates(
   client: SupabaseClient,
   batchId: string,
   candidateIds: readonly string[],
+  options: PersistedGlobalIdentityClaimOptions = {},
 ): Promise<PersistedGlobalIdentityClaimOutcome> {
   if (candidateIds.length === 0) return { claimedElsewhere: [], degraded: false };
 
@@ -180,14 +253,34 @@ export async function claimGlobalIdentitiesForPersistedCandidates(
   );
   if (claimable.length === 0) return { claimedElsewhere: [], degraded: false };
 
-  const outcome = await claimGlobalCompanyIdentities(
-    client,
-    batchId,
-    claimable.map((row) => ({
-      candidateId: row.id,
-      claims: deriveGlobalIdentityClaims(toRegisteredBatchIdentity(row).evidence),
-    })),
+  let inputs = claimable.map((row) =>
+    toGlobalIdentityClaimCandidateInput(
+      row.id,
+      deriveGlobalIdentityClaimEnvelope(toRegisteredBatchIdentity(row).evidence),
+    ),
   );
+  if (options.excludeClaimsAlreadyHeld) {
+    const held = await readClaimsAlreadyHeld(
+      client,
+      inputs.map((input) => input.candidateId),
+    );
+    // Sin poder leer lo que ya tienen no se reenvía nada: degradar CERRADO es
+    // no marcar a nadie, nunca arriesgar el choque consigo misma.
+    if (held === null) return { claimedElsewhere: [], degraded: true };
+    inputs = inputs
+      .map((input) => {
+        const own = held.get(input.candidateId);
+        if (!own) return input;
+        return {
+          ...input,
+          claims: input.claims.filter((claim) => !own.has(`${claim.type}\u0000${claim.key}`)),
+        };
+      })
+      .filter((input) => input.claims.length > 0);
+    if (inputs.length === 0) return { claimedElsewhere: [], degraded: false };
+  }
+
+  const outcome = await claimGlobalCompanyIdentities(client, batchId, inputs);
   if (outcome.degraded) return { claimedElsewhere: [], degraded: true };
 
   return {
@@ -195,5 +288,45 @@ export async function claimGlobalIdentitiesForPersistedCandidates(
       .filter((row) => outcome.claimedElsewhereCandidateIds.has(row.id))
       .map((row) => ({ candidateId: row.id, providerCompanyId: readProviderCompanyId(row) })),
     degraded: false,
+  };
+}
+
+// ─── AGENT1-CLAIMS-DEGRADED-RECONCILE-1 — reclamar lo que quedó sin reclamar ────
+
+export type UnclaimedReconciliationOutcome = {
+  /** Ids que en el segundo intento resultaron ser de OTRO vendedor (ya quedaron `duplicate`). */
+  claimedElsewhereCandidateIds: string[];
+  /** `true` ⇒ el segundo intento tampoco se pudo completar. */
+  degraded: boolean;
+};
+
+/**
+ * Segundo intento para las filas VIVAS cuyo reclamo degradó al insertarlas (RPC
+ * caída, red, plazo). Sin esto la fila quedaba admitida SIN reclamo y otro
+ * vendedor podía recibir la misma empresa.
+ *
+ * Relee las filas y reclama con la misma evidencia que el registro de lote; con
+ * la 152 un reclamo propio ya activo cuenta como reclamado, así que repetirlo es
+ * inocuo. Nunca lanza.
+ */
+export async function claimUnclaimedLiveCandidates(
+  client: SupabaseClient,
+  batchId: string,
+  candidateIds: readonly string[],
+): Promise<UnclaimedReconciliationOutcome> {
+  const unique = [...new Set(candidateIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (unique.length === 0) return { claimedElsewhereCandidateIds: [], degraded: false };
+  const outcome = await claimGlobalIdentitiesForPersistedCandidates(client, batchId, unique, {
+    excludeClaimsAlreadyHeld: true,
+  });
+  if (outcome.degraded) {
+    console.error('[agent1-global-claims] reconcile degraded: rows remain unclaimed', {
+      batchId,
+      candidateIds: unique,
+    });
+  }
+  return {
+    claimedElsewhereCandidateIds: outcome.claimedElsewhere.map((c) => c.candidateId),
+    degraded: outcome.degraded,
   };
 }

@@ -39,6 +39,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PromotionCapabilityObservation } from './promotion-capability-state';
+import { claimGlobalIdentitiesForPersistedCandidates } from './global-identity-claims-store';
 
 /** The fenced promotion of the local (still unnumbered) CUT D migration. */
 export const PROMOTE_FISCAL_IDENTITY_RPC = 'promote_candidate_fiscal_identity_fenced';
@@ -265,9 +266,41 @@ export async function promoteCandidateFiscalIdentityFenced(
       };
     }
 
-    return parseFencedIdentityPromotionPayload(data);
+    const result = parseFencedIdentityPromotionPayload(data);
+    if (result.status === 'promoted') {
+      await claimPromotedFiscalIdentity(client, args.batchId, args.candidateId);
+    }
+    return result;
   } catch (err) {
     if (isMissingPromotionCapabilityError(err)) return { status: 'capability_absent' };
     return { status: 'promotion_failed', code: 'promotion_rpc_threw' };
+  }
+}
+
+/**
+ * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — una fila VIVA que gana su NIT
+ * después de entrar también lo reclama en TODO SellUp.
+ *
+ * Antes la promoción escribía el NIT y nada más: la fila seguía ocupando sólo su
+ * dominio (o nada) y otro vendedor podía reclamar ese mismo NIT. Se relee la fila
+ * (la evidencia sale de lo que la base guardó, como en el registro de lote) y se
+ * reclama sin reenviar lo que ya tenía; si el NIT ya era de otro vendedor, la
+ * base la deja `duplicate`, igual que en la admisión.
+ *
+ * No cambia el resultado de la promoción y nunca lanza. 🔴 Este módulo no
+ * registra nada (§ 6, privacidad): la degradación la deja constancia el almacén
+ * de reclamos, que sólo registra códigos e ids.
+ */
+async function claimPromotedFiscalIdentity(
+  client: SupabaseClient,
+  batchId: string,
+  candidateId: string,
+): Promise<void> {
+  try {
+    await claimGlobalIdentitiesForPersistedCandidates(client, batchId, [candidateId], {
+      excludeClaimsAlreadyHeld: true,
+    });
+  } catch {
+    // Degrada CERRADO: un fallo del reclamo nunca cambia el resultado de la promoción.
   }
 }

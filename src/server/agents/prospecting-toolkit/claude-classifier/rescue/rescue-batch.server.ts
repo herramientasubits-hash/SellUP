@@ -386,10 +386,15 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       if (error) console.error('[claude-rescue] disposition mark failed:', error.message);
     },
     claimIdentities: async (batchId, candidateIds) => {
+      // AGENT1-CLAIMS-OWN-RECLAIM-1 — `admitDisposition` devuelve el id también en
+      // `idempotent` (ya admitida y reclamada antes) y los vivos que ganaron NIT ya
+      // tienen sus reclamos: lo que la fila ya tiene no se reenvía, para que no
+      // choque consigo misma y quede `duplicate`.
       const outcome = await claimGlobalIdentitiesForPersistedCandidates(
         createSupabaseAdminClient(),
         batchId,
         candidateIds,
+        { excludeClaimsAlreadyHeld: true },
       );
       if (outcome.degraded) console.error('[claude-rescue] identity claims degraded for batch', batchId);
     },

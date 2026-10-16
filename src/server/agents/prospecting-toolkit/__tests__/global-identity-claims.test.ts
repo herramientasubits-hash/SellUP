@@ -4,7 +4,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveGlobalIdentityClaims } from '../global-identity-claims';
+import { deriveGlobalIdentityClaimEnvelope, deriveGlobalIdentityClaims } from '../global-identity-claims';
 import type { CompanyIdentityEvidence } from '../company-identity-evidence';
 
 function evidence(overrides: Partial<CompanyIdentityEvidence> = {}): CompanyIdentityEvidence {
@@ -33,17 +33,38 @@ describe('§ 1 — precedencia fiscal > dominio', () => {
   });
 });
 
-describe('§ 2 — proveedor y LinkedIn se reclaman siempre que estén, sin conflicto con fiscal/dominio', () => {
-  it('fiscal + proveedor + linkedin ⇒ tres reclamos', () => {
+describe('§ 2 — proveedor siempre; LinkedIn exclusivo sólo sin identidad fiscal', () => {
+  // 🔴 AGENT1-CLAIMS-LINKEDIN-SUBSIDIARIES-1 — esta prueba fijaba el DEFECTO: con
+  // NIT también se reclamaba el LinkedIn en exclusiva, y una filial con NIT propio
+  // a la que la fuente daba el LinkedIn de la matriz chocaba con ella. Ahora con
+  // fiscal el LinkedIn viaja como señal de CRUCE (`identityLinkedIn`, migración
+  // 152), con la excepción de fiscal distinta.
+  it('fiscal + proveedor + linkedin ⇒ fiscal y proveedor exclusivos; LinkedIn como cruce', () => {
+    const input = evidence({
+      fiscalIdentityKey: 'CO:900123456',
+      providerEntityKey: 'lusha:99',
+      normalizedLinkedInCompany: 'linkedin.com/company/acme',
+    });
+    assert.deepEqual(deriveGlobalIdentityClaims(input), [
+      { type: 'fiscal', key: 'CO:900123456' },
+      { type: 'provider_entity', key: 'lusha:99' },
+    ]);
+    assert.equal(
+      deriveGlobalIdentityClaimEnvelope(input).identityLinkedIn,
+      'linkedin.com/company/acme',
+    );
+  });
+
+  it('sin fiscal: dominio + proveedor + linkedin ⇒ tres reclamos', () => {
     const claims = deriveGlobalIdentityClaims(
       evidence({
-        fiscalIdentityKey: 'CO:900123456',
+        normalizedDomain: 'acme.com',
         providerEntityKey: 'lusha:99',
         normalizedLinkedInCompany: 'linkedin.com/company/acme',
       }),
     );
     assert.deepEqual(claims, [
-      { type: 'fiscal', key: 'CO:900123456' },
+      { type: 'domain', key: 'acme.com' },
       { type: 'provider_entity', key: 'lusha:99' },
       { type: 'linkedin', key: 'linkedin.com/company/acme' },
     ]);
