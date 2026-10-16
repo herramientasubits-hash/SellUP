@@ -914,12 +914,12 @@ export async function executeProspectWizardGenerationAction(
     // vendedor sólo ve sus lotes (RLS filtraría en silencio).
     loadApolloExclusionSellupDomains: (input) =>
       loadApolloExclusionSellupDomains(createSupabaseAdminClient(), input),
-    // AGENT1-AUDIT-WS2 § E — `input.subindustries` / `input.additionalCriteria` ya
-    // llegan hasta aquí; el lector gratuito y el banco todavía no tienen dónde
-    // recibirlos (`PrePaidNoveltyDiscoveryInput`, `resolveProductionBankFirstDrawer`):
-    // cablearlos es de WS7 (banco/capa gratuita).
+    // AGENT1-AUDIT-WS2 § E + WS7 B — las subindustrias pedidas viajan hasta el banco
+    // (`PrePaidNoveltyDiscoveryInput.subindustries`) para que lo genérico de la macro
+    // no cierre la meta. `additionalCriteria` todavía no tiene dónde recibirse.
     runPrePaidNoveltyDiscovery: (input) =>
       runPrePaidNoveltyDiscovery(supabase, {
+        ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
         countryCode: input.countryCode,
         countryName: input.countryName,
         macroIndustryKey: input.macroIndustryKey,
