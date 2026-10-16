@@ -573,18 +573,35 @@ function statefulAdmin(batch: FakeBatch): { admin: SupabaseClient; candidateInse
             return {
               eq(col: string) {
                 if (col === 'source') return new Chain({ data: [], error: null });
-                return { single: () => Promise.resolve({ data: { ...batch }, error: null }) };
+                return {
+                  single: () => Promise.resolve({ data: { ...batch }, error: null }),
+                  // AGENT1-AUDIT-WS2 § F — la reapertura relee el estado si no tocó filas.
+                  maybeSingle: () => Promise.resolve({ data: { ...batch }, error: null }),
+                };
               },
             };
           },
           update(values: Record<string, unknown>) {
             const filters: Array<[string, unknown]> = [];
+            const inFilters: Array<[string, readonly unknown[]]> = [];
+            let touched = 0;
             const apply = () => {
-              if (filters.every(([c, v]) => (batch as Record<string, unknown>)[c] === v)) Object.assign(batch, values);
+              const matches =
+                filters.every(([c, v]) => (batch as Record<string, unknown>)[c] === v) &&
+                inFilters.every(([c, vs]) => vs.includes((batch as Record<string, unknown>)[c]));
+              if (matches) {
+                Object.assign(batch, values);
+                touched = 1;
+              }
               return { error: null };
             };
             const chain = {
               eq(col: string, val: unknown) { filters.push([col, val]); return chain; },
+              // AGENT1-AUDIT-WS2 § F — la reapertura filtra por varios estados y pide las filas tocadas.
+              in(col: string, vals: readonly unknown[]) { inFilters.push([col, vals]); return chain; },
+              select() {
+                return Promise.resolve(apply()).then(() => ({ data: touched ? [{ id: batch.id }] : [], error: null }));
+              },
               then<T>(ok: (v: unknown) => T | PromiseLike<T>) { return Promise.resolve(apply()).then(ok); },
             };
             return chain;
@@ -677,16 +694,39 @@ describe('escritor real de candidatos sobre el lote que dejó Tavily (AGENT1-TAV
     assert.equal(batch.status, 'ready_for_review');
   });
 
-  it('la reapertura no toca un lote que no está en ready_for_review', async () => {
-    const batch = { ...batchLeftByTavily(), status: 'failed' };
-    const { admin } = statefulAdmin(batch);
-    assert.equal(await reopenBatchForApolloAfterTavilyFirst(admin as unknown as ReopenBatchClient, BATCH_ID), true);
-    assert.equal(batch.status, 'failed');
+  // 🔴 AGENT1-AUDIT-WS2 § F — esta guarda fijaba el defecto: un lote `failed` (o
+  // `completed`, Tavily con 0 filas) quedaba intacto y la función devolvía `true`;
+  // Apollo pagaba y su escritor rechazaba el lote. Ahora se reabre.
+  it('la reapertura también reabre un lote completed/failed que dejó Tavily', async () => {
+    for (const status of ['failed', 'completed']) {
+      const batch = { ...batchLeftByTavily(), status };
+      const { admin } = statefulAdmin(batch);
+      assert.equal(await reopenBatchForApolloAfterTavilyFirst(admin as unknown as ReopenBatchClient, BATCH_ID), true);
+      assert.equal(batch.status, 'generating');
+    }
+  });
+
+  it('un lote ya escribible (draft) ⇒ true sin tocarlo; uno en otro estado ⇒ false', async () => {
+    const draft = { ...batchLeftByTavily(), status: 'draft' };
+    assert.equal(
+      await reopenBatchForApolloAfterTavilyFirst(statefulAdmin(draft).admin as unknown as ReopenBatchClient, BATCH_ID),
+      true,
+    );
+    assert.equal(draft.status, 'draft');
+    const archived = { ...batchLeftByTavily(), status: 'archived' };
+    assert.equal(
+      await reopenBatchForApolloAfterTavilyFirst(statefulAdmin(archived).admin as unknown as ReopenBatchClient, BATCH_ID),
+      false,
+      'Apollo no debe pagar contra un lote que su escritor rechazaría',
+    );
+    assert.equal(archived.status, 'archived');
   });
 
   it('error de la base ⇒ false', async () => {
     const client = {
-      from: () => ({ update: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: { message: 'rls' } }) }) }) }),
+      from: () => ({
+        update: () => ({ eq: () => ({ in: () => ({ select: () => Promise.resolve({ data: null, error: { message: 'rls' } }) }) }) }),
+      }),
     } as unknown as ReopenBatchClient;
     assert.equal(await reopenBatchForApolloAfterTavilyFirst(client, BATCH_ID), false);
   });

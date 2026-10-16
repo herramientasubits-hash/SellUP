@@ -172,7 +172,11 @@ export async function findPendingApolloContinuation(): Promise<PendingApolloCont
   const sweepClient = stuckRunsClient();
   if (sweepClient) await closeStuckAgentRuns(sweepClient);
 
-  const candidateBatchIds = await listOpenContinuationBatchIds();
+  // AGENT1-AUDIT-WS2 (extra de WS1) — sólo la cola de los lotes de ESTA persona:
+  // con los 10 más recientes de todos, una corrida propia quedaba tapada por ajenas.
+  const candidateBatchIds = await listOpenContinuationBatchIds(undefined, undefined, {
+    createdBy: internalUserId,
+  });
   if (candidateBatchIds.length === 0) return null;
 
   // 🔴 AGENT1-AUDIT-WS1 — sólo SUS lotes (`created_by`): la RLS deja ver los de

@@ -18,12 +18,50 @@ import {
 import type { ClassifyBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates';
 import type { RescueBatchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch';
 import type { ClaudeCompanySearchSummary } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import {
+  acquireClaudeActionLock,
+  releaseClaudeActionLock,
+  type ClaudeActionKind,
+  type ClaudeActionLockClient,
+} from './claude-action-lock';
 
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 
 export type ClaudeClassifierActionResult =
   | ClassifyBatchSummary
-  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch'; detail?: string };
+  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch' | ClaudeActionLockError; detail?: string };
+
+/**
+ * AGENT1-AUDIT-WS2 § 11 — `in_progress`: ya hay una corrida de esta acción sobre el
+ * lote; `lock_unavailable`: no se pudo tomar el candado (fail-closed, no se paga).
+ */
+type ClaudeActionLockError = 'in_progress' | 'lock_unavailable';
+
+/**
+ * AGENT1-AUDIT-WS2 § 11 — corre `run` con el candado del lote para `kind`. Dos clics
+ * ⇒ la segunda devuelve `in_progress` sin pagar nada. El candado se suelta al
+ * terminar (y caduca solo si el proceso muere).
+ */
+async function withClaudeActionLock<T>(
+  batchId: string,
+  kind: ClaudeActionKind,
+  run: () => Promise<T>,
+): Promise<T | { ok: false; error: ClaudeActionLockError; detail: string }> {
+  const client = createSupabaseAdminClient() as unknown as ClaudeActionLockClient;
+  const lock = await acquireClaudeActionLock(client, batchId, kind);
+  if (lock === 'busy') {
+    return { ok: false, error: 'in_progress', detail: 'Ya hay una corrida de Claude en curso para este lote.' };
+  }
+  if (lock === 'unavailable') {
+    return { ok: false, error: 'lock_unavailable', detail: 'No se pudo comprobar si ya hay una corrida en curso.' };
+  }
+  try {
+    return await run();
+  } finally {
+    await releaseClaudeActionLock(client, batchId, kind);
+  }
+}
 
 async function resolveAdminInternalUserId(): Promise<string | null> {
   try {
@@ -60,9 +98,8 @@ export async function classifyBatchCandidatesWithClaudeAction(
     import('@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server'),
   ]);
 
-  const summary = await classifyBatchCandidates(
-    { batchId, triggeredBy: internalUserId },
-    buildLiveClassifyBatchDeps(),
+  const summary = await withClaudeActionLock(batchId, 'classify', () =>
+    classifyBatchCandidates({ batchId, triggeredBy: internalUserId }, buildLiveClassifyBatchDeps()),
   );
   if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
   return summary;
@@ -70,7 +107,7 @@ export async function classifyBatchCandidatesWithClaudeAction(
 
 export type ClaudeRescueActionResult =
   | RescueBatchSummary
-  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch' };
+  | { ok: false; error: 'disabled' | 'unauthorized' | 'invalid_batch' | ClaudeActionLockError; detail?: string };
 
 /**
  * AGENT1-CLAUDE-RESCUE-1 — el MISMO rescate que corre solo al terminar una
@@ -93,9 +130,11 @@ export async function rescueBatchWithClaudeAction(batchId: string): Promise<Clau
   const supabase = await createClient();
   const { data: batchRow } = await supabase.from('prospect_batches').select('metadata').eq('id', batchId).maybeSingle();
   const includeUnassessed = !!(batchRow as { metadata?: Record<string, unknown> | null } | null)?.metadata?.claude_company_search;
-  const summary = await rescueBatchWithClaude(
-    { batchId, triggeredBy: internalUserId, includeUnassessed },
-    buildLiveRescueBatchDeps(internalUserId),
+  const summary = await withClaudeActionLock(batchId, 'rescue', () =>
+    rescueBatchWithClaude(
+      { batchId, triggeredBy: internalUserId, includeUnassessed },
+      buildLiveRescueBatchDeps(internalUserId),
+    ),
   );
   if (summary.ok) revalidatePath(`/prospect-batches/${batchId}`);
   return summary;

@@ -53,7 +53,9 @@ export function describeAgentRun(run: AgentRun, liveLabel: string | null): Agent
         description: liveLabel ?? (run.detached ? AGENT_RUNS_TRAY_COPY.detached : 'Preparando la búsqueda…'),
         error: undefined,
         showLink: false,
-        dismissible: false,
+        // AGENT1-AUDIT-WS2 § 8 — una desligada se puede quitar: su respuesta ya no
+        // llega a esta página y, si se trabó, era una fila «En curso» imposible de cerrar.
+        dismissible: run.detached,
       };
     case 'succeeded':
       return {
