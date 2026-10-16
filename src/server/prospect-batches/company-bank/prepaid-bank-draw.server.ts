@@ -421,21 +421,31 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     { provenance: null, candidates: withIdentity.filter((_, i) => provenanceOf[i] !== 'apollo') },
   ];
   const outputs: CandidateWriterOutput[] = [];
+  let writeError: string | null = null;
   for (const group of groups) {
     if (group.candidates.length === 0) continue;
-    outputs.push(
-      await deps.write({
-        batchId,
-        candidates: group.candidates,
-        countryCode: input.countryCode,
-        countryName: input.countryName,
-        requestedTarget: input.requestedTarget,
-        requestedByUserId: input.requestedByUserId,
-        metadata,
-        candidateProvenance: group.provenance,
-        ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
-      }),
-    );
+    // AUDIT-HARDENING-1 — si el escritor lanza, lo tomado del banco NO se queda
+    // reservado hasta vencer: se corta aquí y el cierre de abajo lo liquida contra
+    // lo que de verdad quedó en la base (lo no escrito vuelve al banco).
+    try {
+      outputs.push(
+        await deps.write({
+          batchId,
+          candidates: group.candidates,
+          countryCode: input.countryCode,
+          countryName: input.countryName,
+          requestedTarget: input.requestedTarget,
+          requestedByUserId: input.requestedByUserId,
+          metadata,
+          candidateProvenance: group.provenance,
+          ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
+        }),
+      );
+    } catch (err) {
+      writeError = err instanceof Error ? err.message.slice(0, 200) : String(err);
+      console.error('[company-bank-first] la escritura falló; se liquida lo que quedó en la base:', writeError);
+      break;
+    }
   }
   const written = combineBankWrites(outputs);
 
@@ -468,6 +478,11 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     batchId,
     drawn.map((entry) => entry.domain),
   );
+  // AUDIT-HARDENING-1 — si el escritor lanzó, lo que no quedó en la base no fue
+  // rechazado por inválido: no llegó a escribirse. Vuelve al banco (`released`),
+  // no se invalida.
+  const releaseUnwrittenOnWriteError = (item: CompanyBankSettleItem): CompanyBankSettleItem =>
+    writeError !== null && item.outcome === 'invalidated' ? { id: item.id, outcome: 'released' } : item;
   const settleItems: CompanyBankSettleItem[] = [
     ...closing,
     ...(persistedByDomain === null
@@ -481,7 +496,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
               .map((company) => (company.domain ? normalizeDomain(company.domain) : null))
               .filter((domain): domain is string => domain !== null),
           ),
-        })),
+        }).map(releaseUnwrittenOnWriteError)),
   ];
   const settled = settleItems.length > 0 ? await port.store.settle(drawId, settleItems) : null;
 
@@ -495,6 +510,9 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
       accepted_for_target: acceptedCount,
       claude_reviewed: claudeReviewed,
       accepted_after_claude: acceptedAfterClaude,
+      // El estado sigue diciendo `error` (contrato de siempre), pero ahora lo tomado
+      // ya quedó liquidado en `settle` en vez de esperar a vencer.
+      ...(writeError ? { status: 'error', write_error: writeError } : {}),
       settle: settled?.status === 'ok'
         ? { assigned: settled.assigned, released: settled.released, invalidated: settled.invalidated, ignored: settled.ignored }
         : settled === null
