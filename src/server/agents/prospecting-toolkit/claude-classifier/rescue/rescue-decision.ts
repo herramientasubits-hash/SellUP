@@ -118,9 +118,11 @@ export function quoteNamesIndustry(quote: string, industryName: string | null | 
 }
 
 function isSafeNegativeEvidence(
-  evidence: { verification: string; confidence: number; quote: string },
+  evidence: { verification: string; confidence: number; quote: string; quoteStitched?: true },
   ctx: RescueContext,
 ): boolean {
+  // AUDIT-A1-WS7 — una cita «cosida» con «…» nunca descarta.
+  if (evidence.quoteStitched) return false;
   if (quoteNamesIndustry(evidence.quote, ctx.requestedIndustryName)) return false;
   if (evidence.verification === 'quote_verified') return evidence.confidence >= MIN_DISCARD_CONFIDENCE;
   if (evidence.verification === 'source_listed') return evidence.confidence >= MIN_DISCARD_CONFIDENCE_SEARCH_SOURCE;
@@ -190,11 +192,13 @@ export function isTrustedSizeSource(sourceUrl: string | null | undefined, trust:
  * (`isTrustedSizeSource`); si no, a lo sumo queda como aviso (nunca descarta).
  */
 export function rangeProvesBelowThreshold(
-  range: { max: number | null; verification: string; confidence: number; sourceUrl?: string | null },
+  range: { max: number | null; verification: string; confidence: number; sourceUrl?: string | null; quoteStitched?: boolean },
   threshold: number,
   trust?: SizeSourceTrust | null,
 ): boolean {
   if (range.max === null || range.max <= 0 || range.max >= threshold) return false;
+  // AUDIT-A1-WS7 — una cita «cosida» con «…» nunca descarta.
+  if (range.quoteStitched) return false;
   if (range.verification === 'quote_verified') return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_QUOTE;
   if (range.verification === 'source_listed') {
     return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE && isTrustedSizeSource(range.sourceUrl, trust);
@@ -252,6 +256,7 @@ export function storedSmallSizeDiscard(
     verification: typeof range.verification === 'string' ? range.verification : 'rejected',
     confidence: typeof range.confidence === 'number' ? range.confidence : 0,
     sourceUrl: range.source_url,
+    quoteStitched: (range as { quote_stitched?: unknown }).quote_stitched === true,
   };
   const trust: SizeSourceTrust = {
     verifiedLinkedInUrl: typeof stored?.linkedin_company?.url === 'string' ? stored.linkedin_company.url : null,

@@ -11,7 +11,7 @@
 
 import { normalizeDomain } from '../normalization';
 import type { AnthropicContentBlock } from './anthropic-messages-client';
-import { MIN_QUOTE_CHARS, normalizeForQuoteMatch, quoteAppearsInText } from './page-text';
+import { MIN_QUOTE_CHARS, normalizeForQuoteMatch, quoteMatchKind } from './page-text';
 import { SUBMIT_TOOL_NAME } from './prompt';
 import type {
   ClassifierCatalogIndustry,
@@ -129,7 +129,7 @@ function verifySource(
   sourceUrl: string | null,
   ctx: SourceContext,
   minQuoteChars: number = MIN_QUOTE_CHARS,
-): { level: EvidenceVerificationLevel; reason: string | null } {
+): { level: EvidenceVerificationLevel; reason: string | null; stitched?: true } {
   if (!quote || normalizeForQuoteMatch(quote).length < minQuoteChars) {
     return { level: 'rejected', reason: 'missing_quote' };
   }
@@ -137,16 +137,22 @@ function verifySource(
   const source = canonicalUrl(sourceUrl);
   if (!source) return { level: 'rejected', reason: 'invalid_source_url' };
 
+  // AUDIT-A1-WS7 — una cita que sólo aparece «cosida» con «…» se marca: completa
+  // datos, pero la decisión nunca descarta con ella.
+  const kinds: Array<'exact' | 'stitched' | null> = [];
   const isOfficial = isOfficialPageSource(sourceUrl, ctx);
-  if (isOfficial && quoteAppearsInText(quote, ctx.pageText)) {
-    return { level: 'quote_verified', reason: null };
+  const officialKind = isOfficial ? quoteMatchKind(quote, ctx.pageText) : null;
+  if (officialKind) {
+    return { level: 'quote_verified', reason: null, ...(officialKind === 'stitched' ? { stitched: true as const } : {}) };
   }
   if (ctx.searchResultUrls.some((u) => canonicalUrl(u) === source)) {
     const cited = ctx.citedTextsByUrl?.get(source) ?? [];
     const fetched = ctx.fetchedSourceTexts?.get(source);
-    const verified =
-      cited.some((text) => quoteAppearsInText(quote, text)) || (!!fetched && quoteAppearsInText(quote, fetched));
-    return { level: verified ? 'quote_verified' : 'source_listed', reason: null };
+    for (const text of cited) kinds.push(quoteMatchKind(quote, text));
+    if (fetched) kinds.push(quoteMatchKind(quote, fetched));
+    if (kinds.includes('exact')) return { level: 'quote_verified', reason: null };
+    if (kinds.includes('stitched')) return { level: 'quote_verified', reason: null, stitched: true };
+    return { level: 'source_listed', reason: null };
   }
   return {
     level: 'rejected',
@@ -218,6 +224,7 @@ export function verifySubmission(
         sourceUrl: rawSector.source_url!.trim(),
         confidence: clampConfidence(rawSector.confidence),
         verification: check.level,
+        ...(check.stitched ? { quoteStitched: true as const } : {}),
       };
     }
   }
@@ -249,6 +256,7 @@ export function verifySubmission(
         confidence: clampConfidence(rawSize.confidence),
         verification: check.level,
         status: 'estimated',
+        ...(check.stitched ? { quoteStitched: true as const } : {}),
       };
     }
   }
@@ -271,6 +279,7 @@ export function verifySubmission(
         sourceUrl: rawFit.source_url!.trim(),
         confidence: clampConfidence(rawFit.confidence),
         verification: check.level,
+        ...(check.stitched ? { quoteStitched: true as const } : {}),
       };
     }
   }
