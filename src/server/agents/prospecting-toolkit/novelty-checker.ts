@@ -13,6 +13,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain } from './normalization';
 import { buildIdentityKey } from './canonical-company-identity';
+import { chunk, selectAllRows, type PageableQuery } from './paginated-select';
 
 // ─── Cooldown defaults ────────────────────────────────────────────────────────
 
@@ -99,7 +100,37 @@ type PreviousCandidateRow = {
    */
   source_primary?: string | null;
   review_notes?: string | null;
+  /**
+   * AGENT1-CLAIM-CONFLICT-NOVELTY-1 — sólo en memoria, lo calcula
+   * `buildNoveltyIndex`: la fila perdió una carrera de reclamo global
+   * (`metadata.global_identity_claim_conflict`) y el candidato que la ganó YA NO
+   * tiene reclamos activos (la descartó, quedó duplicado o su lote se archivó).
+   */
+  global_claim_conflict_released?: boolean;
 };
+
+/**
+ * AGENT1-NOVELTY-INDEX-DEGRADED-1 — el índice de novedad no se pudo leer
+ * completo.
+ *
+ * 🔴 Antes `buildNoveltyIndex` devolvía un índice VACÍO ante cualquier error, y
+ * un índice vacío dice «ninguna de estas empresas se vio antes»: todas pasaban
+ * como nuevas. Ahora lanza; los llamadores que ya tenían `catch` (pre-pago de
+ * Apollo, prefetch de admisión, estimación de ronda 2, paginación) lo marcan
+ * degradado, y el writer no entrega nada como nuevo sobre un índice que no leyó.
+ */
+export class NoveltyIndexUnavailableError extends Error {
+  readonly code: string | null;
+  constructor(stage: string, error: unknown) {
+    const code = (error as { code?: unknown } | null)?.code;
+    const safeCode = typeof code === 'string' && code.length > 0 ? code : null;
+    super(`Índice de novedad no disponible (${stage})${safeCode ? ` [${safeCode}]` : ''}`);
+    this.name = 'NoveltyIndexUnavailableError';
+    this.code = safeCode;
+  }
+}
+
+type SupabaseBase = ReturnType<typeof import('@supabase/supabase-js').createClient>;
 
 // ─── NoveltyIndex ─────────────────────────────────────────────────────────────
 
@@ -172,7 +203,13 @@ function buildEmptyMetadata(): NoveltyCheckMetadata {
 
 /**
  * Carga candidatos históricos de prospect_candidates para los dominios dados.
- * Hace un solo SELECT — no uno por candidato.
+ *
+ * AGENT1-SELECT-NO-SILENT-CAP-1 — los dominios van en trozos (una URL con cientos
+ * de valores puede fallar) y cada trozo se lee ENTERO (`selectAllRows`): antes la
+ * lectura se cortaba en 1.000 filas sin avisar.
+ *
+ * Lanza `NoveltyIndexUnavailableError` si cualquier lectura falla: un índice
+ * parcial o vacío no puede pasar por completo.
  *
  * @param supabase - Admin client con service role
  * @param domains  - Dominios a consultar (pueden ser raw o normalizados)
@@ -195,29 +232,90 @@ export async function buildNoveltyIndex(
 
   if (normalizedDomains.length === 0) return index;
 
-  let query = (supabase as ReturnType<typeof import('@supabase/supabase-js').createClient>)
-    .from('prospect_candidates')
-    .select(
-      'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata, tax_id, tax_identifier, country_code, source_primary, review_notes',
-    )
-    .in('domain', normalizedDomains);
+  const client = supabase as unknown as SupabaseBase;
 
-  if (currentBatchId) {
-    query = query.neq('batch_id', currentBatchId);
+  const rows: PreviousCandidateRow[] = [];
+  for (const domainChunk of chunk(normalizedDomains)) {
+    const result = await selectAllRows<PreviousCandidateRow>(() => {
+      let query = client
+        .from('prospect_candidates')
+        .select(
+          'id, batch_id, name, domain, website, status, duplicate_status, reviewed_at, updated_at, created_at, metadata, tax_id, tax_identifier, country_code, source_primary, review_notes',
+        )
+        .in('domain', domainChunk);
+      if (currentBatchId) {
+        query = query.neq('batch_id', currentBatchId);
+      }
+      return query as unknown as PageableQuery<PreviousCandidateRow>;
+    });
+    if (result.error) {
+      console.error('[novelty-index] lectura fallida: índice degradado', {
+        domains: domainChunk.length,
+      });
+      throw new NoveltyIndexUnavailableError('prospect_candidates', result.error);
+    }
+    rows.push(...result.rows);
   }
 
-  const { data, error } = await query;
-  if (error || !data) return index;
+  const releasedHolders = await loadReleasedClaimConflictHolders(client, rows);
 
-  for (const row of data as PreviousCandidateRow[]) {
+  for (const row of rows) {
     const key = row.domain ? normalizeDomain(row.domain) : null;
     if (!key) continue;
+    const holder = readClaimConflictHolder(row);
+    const annotated =
+      holder && releasedHolders.has(holder) ? { ...row, global_claim_conflict_released: true } : row;
     const existing = index.get(key) ?? [];
-    existing.push(row);
+    existing.push(annotated);
     index.set(key, existing);
   }
 
   return index;
+}
+
+/** Id del candidato que ganó la carrera de reclamo, si la fila la perdió. */
+function readClaimConflictHolder(row: PreviousCandidateRow): string | null {
+  const conflict = (row.metadata as Record<string, unknown> | null | undefined)?.[
+    'global_identity_claim_conflict'
+  ];
+  if (!conflict || typeof conflict !== 'object') return null;
+  const holder = (conflict as Record<string, unknown>)['held_by_candidate_id'];
+  return typeof holder === 'string' && holder.length > 0 ? holder : null;
+}
+
+/**
+ * AGENT1-CLAIM-CONFLICT-NOVELTY-1 — de los ganadores de carreras perdidas por
+ * estas filas, ¿cuáles ya NO tienen reclamos activos?
+ *
+ * Si la lectura falla se devuelve vacío: todas las perdedoras siguen contando
+ * como duplicado exacto, que es exactamente el comportamiento anterior (nunca se
+ * libera una empresa por un fallo de lectura).
+ */
+async function loadReleasedClaimConflictHolders(
+  client: SupabaseBase,
+  rows: readonly PreviousCandidateRow[],
+): Promise<Set<string>> {
+  const holders = [
+    ...new Set(rows.map(readClaimConflictHolder).filter((h): h is string => h !== null)),
+  ];
+  if (holders.length === 0) return new Set();
+  const stillHolding = new Set<string>();
+  for (const holderChunk of chunk(holders)) {
+    const result = await selectAllRows<{ candidate_id: string }>(
+      () =>
+        client
+          .from('agent1_company_identity_claims')
+          .select('candidate_id')
+          .in('candidate_id', holderChunk)
+          .is('released_at', null) as unknown as PageableQuery<{ candidate_id: string }>,
+    );
+    if (result.error) {
+      console.error('[novelty-index] no se pudo leer el estado de los reclamos ganadores');
+      return new Set();
+    }
+    for (const row of result.rows) stillHolding.add(row.candidate_id);
+  }
+  return new Set(holders.filter((holder) => !stillHolding.has(holder)));
 }
 
 // ─── evaluateCandidateNovelty ─────────────────────────────────────────────────
@@ -284,8 +382,16 @@ export function evaluateCandidateNovelty(
   };
 
   // Regla 3: duplicate exacto previo → skip (máxima prioridad)
+  //
+  // AGENT1-CLAIM-CONFLICT-NOVELTY-1 — salvo la fila que sólo PERDIÓ una carrera de
+  // reclamo global cuyo ganador ya soltó la empresa: no es «ya existe en
+  // SellUp/HubSpot», es «otro vendedor la tenía». Antes bloqueaba para siempre
+  // aunque el ganador la hubiera descartado. Si el ganador SIGUE vivo, la fila
+  // sigue bloqueando aquí y, además, su reclamo activo la bloquea al escribir.
   const exactDup = previous.find(
-    (r) => r.status === 'duplicate' || r.duplicate_status === 'exact_duplicate',
+    (r) =>
+      (r.status === 'duplicate' || r.duplicate_status === 'exact_duplicate') &&
+      r.global_claim_conflict_released !== true,
   );
   if (exactDup) {
     return {
@@ -455,51 +561,63 @@ export function evaluateCandidateNovelty(
  *   1. IDs de batches agent_1 recientes.
  *   2. Nombres de candidatos en esos batches.
  *
- * Graceful fallback: devuelve Set vacío ante cualquier error de Supabase.
+ * AGENT1-NOVELTY-INDEX-DEGRADED-1 — ya NO devuelve un Set vacío ante un error
+ * (eso decía «ninguna empresa sugerida»): lanza `NoveltyIndexUnavailableError`.
+ * AGENT1-SELECT-NO-SILENT-CAP-1 — los ids de lote van en trozos y cada lectura
+ * se completa entera (antes se cortaba en 1.000 filas sin avisar).
  * No hace writes. Solo SELECTs.
  */
 export async function buildRecentIdentityKeySet(
   supabase: SupabaseClient,
   lookbackDays: number = DEFAULT_COOLDOWN_DAYS,
 ): Promise<Set<string>> {
-  const empty = new Set<string>();
-
   const lookbackDate = new Date();
   lookbackDate.setDate(lookbackDate.getDate() - lookbackDays);
   const lookbackIso = lookbackDate.toISOString();
 
-  type SupabaseBase = ReturnType<typeof import('@supabase/supabase-js').createClient>;
   const client = supabase as unknown as SupabaseBase;
 
   // Paso 1: IDs de batches agent_1 recientes
-  const { data: batchRows, error: batchError } = await client
-    .from('prospect_batches')
-    .select('id')
-    .eq('source', 'agent_1')
-    .gte('created_at', lookbackIso);
+  const batches = await selectAllRows<{ id: string }>(
+    () =>
+      client
+        .from('prospect_batches')
+        .select('id')
+        .eq('source', 'agent_1')
+        .gte('created_at', lookbackIso) as unknown as PageableQuery<{ id: string }>,
+  );
+  if (batches.error) {
+    console.error('[novelty-index] lectura de lotes recientes fallida');
+    throw new NoveltyIndexUnavailableError('prospect_batches', batches.error);
+  }
+  if (batches.rows.length === 0) return new Set<string>();
 
-  if (batchError || !batchRows || batchRows.length === 0) return empty;
-
-  const batchIds = batchRows.map((r: { id: string }) => r.id);
+  const batchIds = batches.rows.map((r) => r.id);
 
   // Paso 2: nombres de candidatos en esos batches
   // v1.10: Excluir candidatos con status='discarded' del identity key set.
   // Los descartados ya son manejados por el domain-level novelty check (buildNoveltyIndex).
   // Solo candidatos activos (needs_review, approved, converted) deben bloquear por identidad semántica.
-  const { data: candidateRows, error: candidateError } = await client
-    .from('prospect_candidates')
-    .select('name')
-    .in('batch_id', batchIds)
-    .not('name', 'is', null)
-    .neq('status', 'discarded');
-
-  if (candidateError || !candidateRows) return empty;
-
   const keys = new Set<string>();
-  for (const row of candidateRows as { name: string | null }[]) {
-    if (row.name) {
-      const key = buildIdentityKey(row.name);
-      if (key) keys.add(key);
+  for (const batchChunk of chunk(batchIds)) {
+    const candidates = await selectAllRows<{ name: string | null }>(
+      () =>
+        client
+          .from('prospect_candidates')
+          .select('name')
+          .in('batch_id', batchChunk)
+          .not('name', 'is', null)
+          .neq('status', 'discarded') as unknown as PageableQuery<{ name: string | null }>,
+    );
+    if (candidates.error) {
+      console.error('[novelty-index] lectura de nombres recientes fallida');
+      throw new NoveltyIndexUnavailableError('prospect_candidates.name', candidates.error);
+    }
+    for (const row of candidates.rows) {
+      if (row.name) {
+        const key = buildIdentityKey(row.name);
+        if (key) keys.add(key);
+      }
     }
   }
 

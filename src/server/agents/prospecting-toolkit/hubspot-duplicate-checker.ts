@@ -289,6 +289,30 @@ async function getHubSpotCompanyProperties(
 // Búsquedas HubSpot — Solo lectura
 // ============================================================
 
+/**
+ * AGENT1-HUBSPOT-NON-OK-IS-UNCHECKED-1 — una respuesta no-OK de HubSpot NO es
+ * «no hay coincidencias».
+ *
+ * 🔴 El defecto que cierra: las tres búsquedas hacían `if (!res.ok) return [];`.
+ * Un 429 (cuota), un 5xx o un 401 (token vencido) se leían como «miré y no hay
+ * nada» ⇒ `new_candidate` con confianza 85, y una empresa que HubSpot SÍ tiene
+ * podía entregarse como nueva. El contrato del orquestador
+ * (`duplicate-checker.ts`) ya decía lo contrario: si HubSpot falla, nunca
+ * `new_candidate`.
+ *
+ * Ahora se lanza con el código HTTP; `checkHubSpotDuplicates` lo captura y
+ * devuelve `error`, que `resolveHubSpotStatus` traduce a `error` (no nuevo) y el
+ * corredor de Apollo lee como comprobación degradada.
+ */
+export class HubSpotDuplicateSearchError extends Error {
+  readonly httpStatus: number;
+  constructor(search: 'domain' | 'name' | 'tax_identifier', httpStatus: number) {
+    super(`HubSpot respondió HTTP ${httpStatus} en la búsqueda por ${search}`);
+    this.name = 'HubSpotDuplicateSearchError';
+    this.httpStatus = httpStatus;
+  }
+}
+
 async function searchByDomain(
   token: string,
   domain: string
@@ -318,7 +342,7 @@ async function searchByDomain(
     body: JSON.stringify(body),
   }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
-  if (!res.ok) return [];
+  if (!res.ok) throw new HubSpotDuplicateSearchError('domain', res.status);
   const data = (await res.json()) as HubSpotSearchResponse;
   return data.results ?? [];
 }
@@ -342,7 +366,7 @@ async function searchByName(
     body: JSON.stringify(body),
   }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
-  if (!res.ok) return [];
+  if (!res.ok) throw new HubSpotDuplicateSearchError('name', res.status);
   const data = (await res.json()) as HubSpotSearchResponse;
   return data.results ?? [];
 }
@@ -435,12 +459,12 @@ async function searchByTaxIdentifier(
       body: JSON.stringify(buildFiscalSearchBody(fallbackProps, needles)),
     }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
-    if (!fallbackRes.ok) return [];
+    if (!fallbackRes.ok) throw new HubSpotDuplicateSearchError('tax_identifier', fallbackRes.status);
     const data = (await fallbackRes.json()) as HubSpotSearchResponse;
     return data.results ?? [];
   }
 
-  if (!res.ok) return [];
+  if (!res.ok) throw new HubSpotDuplicateSearchError('tax_identifier', res.status);
   const data = (await res.json()) as HubSpotSearchResponse;
   return data.results ?? [];
 }
