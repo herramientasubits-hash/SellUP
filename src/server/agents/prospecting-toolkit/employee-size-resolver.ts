@@ -9,7 +9,14 @@
  *   2. candidate.company_size              — campo plano disponible
  *   3. HubSpot numberofemployees           — conteo exacto del CRM
  *   4. registro oficial (trabajadores)     — sólo aprueba, estimado (ver abajo)
- *   5. unknown                             — sin datos, no inventa
+ *   5. texto del snippet (`source_snippet`) — ÚLTIMA fuente; nunca bloquea sola
+ *   6. unknown                             — sin datos, no inventa
+ *
+ * AUDIT-A1-WS7 (16-10) — un rango que el perfil sacó con una regex del título +
+ * snippet de la búsqueda (`rich_profile.size.source = 'source_snippet'`) ya no es
+ * «Fuente 1»: pasaba por encima de HubSpot y del registro oficial («despidió a 50
+ * empleados» ⇒ 11-50 ⇒ omitida aunque HubSpot dijera 3000). Ahora sólo decide si
+ * nada más habló, y por debajo del umbral NO bloquea: deja la fila para revisión.
  *
  * Principios:
  *   - Sin llamadas externas, sin LLM, sin Supabase, sin efectos secundarios.
@@ -17,7 +24,7 @@
  *   - No bloquea por omisión: unknown → needs_validation.
  */
 
-import { ICP_SIZE_GATE_DEFAULT_THRESHOLD } from './icp-size-gate';
+import { evaluateIcpSizeGate, ICP_SIZE_GATE_DEFAULT_THRESHOLD } from './icp-size-gate';
 import type { IcpSizeGateInput } from './icp-size-gate';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
@@ -27,6 +34,7 @@ export type EmployeeSizeSource =
   | 'candidate_company_size'
   | 'hubspot_number_of_employees'
   | 'official_registry_workers'
+  | 'source_snippet'
   | 'unknown';
 
 export type EmployeeSizeConfidence = 'high' | 'medium' | 'low' | 'unknown';
@@ -111,6 +119,16 @@ const UNKNOWN_SIZE_STRINGS = new Set([
 ]);
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
+
+/**
+ * AUDIT-A1-WS7 — `rich_profile.size.source` de un rango que salió de una regex
+ * sobre el título + snippet de la búsqueda (`buildCandidateRichProfileV1`).
+ */
+const SNIPPET_DERIVED_SIZE_SOURCES = new Set(['source_snippet']);
+
+export function isSnippetDerivedSizeSource(source: string | null | undefined): boolean {
+  return typeof source === 'string' && SNIPPET_DERIVED_SIZE_SOURCES.has(source.trim().toLowerCase());
+}
 
 function isUsableSizeString(val: string | null | undefined): val is string {
   if (!val) return false;
@@ -289,8 +307,18 @@ export function resolveEmployeeSizeForIcpGate(
   const richRange = input.richProfileSize?.estimated_range ?? null;
   const richStatus = input.richProfileSize?.status ?? null;
   const richSource = input.richProfileSize?.source ?? null;
+  // AUDIT-A1-WS7 — el rango leído del snippet se aparta y se consulta al final.
+  const snippetRange =
+    isSnippetDerivedSizeSource(richSource) && isUsableSizeString(richRange) ? richRange : null;
 
-  if (isUsableSizeString(richRange)) {
+  if (snippetRange !== null) {
+    attemptedSources.push({
+      source: 'rich_profile_size',
+      value: richRange,
+      usable: false,
+      reason: 'estimated_range salió del snippet de búsqueda: se consulta al final',
+    });
+  } else if (isUsableSizeString(richRange)) {
     attemptedSources.push({
       source: 'rich_profile_size',
       value: richRange,
@@ -312,14 +340,16 @@ export function resolveEmployeeSizeForIcpGate(
     };
   }
 
-  attemptedSources.push({
-    source: 'rich_profile_size',
-    value: richRange,
-    usable: false,
-    reason: richRange == null
-      ? 'estimated_range is null'
-      : `estimated_range "${richRange}" is an unknown/empty value`,
-  });
+  if (snippetRange === null) {
+    attemptedSources.push({
+      source: 'rich_profile_size',
+      value: richRange,
+      usable: false,
+      reason: richRange == null
+        ? 'estimated_range is null'
+        : `estimated_range "${richRange}" is an unknown/empty value`,
+    });
+  }
 
   // ── Fuente 2: candidate.company_size ──────────────────────────────────────
   const companySizeRaw = normalizeCompanySize(input.candidateCompanySize);
@@ -488,7 +518,42 @@ export function resolveEmployeeSizeForIcpGate(
     });
   }
 
-  // ── Fuente 5: unknown ─────────────────────────────────────────────────────
+  // ── Fuente 5: texto del snippet (AUDIT-A1-WS7) ────────────────────────────
+  // Una regex sobre texto libre: puede APROBAR como estimado (sigue habiendo una
+  // persona que revisa), pero por debajo del umbral no descarta sola — sin otra
+  // fuente, el tamaño queda desconocido y la fila va a revisión.
+  if (snippetRange !== null) {
+    const projected = evaluateIcpSizeGate({ sizeRange: snippetRange, sizeStatus: 'estimated', threshold });
+    if (projected.decision === 'pass') {
+      attemptedSources.push({
+        source: 'source_snippet',
+        value: snippetRange,
+        usable: true,
+        reason: 'rango leído del snippet de búsqueda, por encima del umbral (estimado)',
+      });
+      return {
+        icpInput: {
+          sizeRange: snippetRange,
+          sizeStatus: 'estimated',
+          source: 'source_snippet',
+          threshold,
+        },
+        selectedSource: 'source_snippet',
+        selectedValue: snippetRange,
+        confidence: 'low',
+        reason: `Used search snippet range="${snippetRange}" as last resort (estimated)`,
+        attemptedSources,
+      };
+    }
+    attemptedSources.push({
+      source: 'source_snippet',
+      value: snippetRange,
+      usable: false,
+      reason: 'rango del snippet bajo el umbral: un snippet solo no descarta, queda para revisión',
+    });
+  }
+
+  // ── Fuente 6: unknown ─────────────────────────────────────────────────────
   return {
     icpInput: {
       threshold,

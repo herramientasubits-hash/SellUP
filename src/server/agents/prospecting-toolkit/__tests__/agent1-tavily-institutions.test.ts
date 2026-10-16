@@ -106,9 +106,11 @@ describe('cableado', () => {
   const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
   const code = strip(readFileSync(join(process.cwd(), 'src/server/agents/prospecting-toolkit/prospecting-pipeline.ts'), 'utf8'));
 
-  it('los dos constructores de candidatos web usan el subportal y reparan el nombre tras verificar la portada', () => {
+  it('el constructor de candidatos web usa el subportal y repara el nombre tras verificar la portada', () => {
+    // AUDIT-A1-WS7 — la rama «evaluador LLM» (segundo constructor, sin llamadores) se
+    // eliminó: queda un único constructor web.
     assert.equal((code.match(/institutionParentHost\(/g) ?? []).length >= 2, true);
-    assert.equal((code.match(/repairInstitutionName\(\{/g) ?? []).length, 2);
+    assert.equal((code.match(/repairInstitutionName\(\{/g) ?? []).length, 1);
     assert.match(code, /if \(!isApolloResult && !nameQualityFiltered\) \{\s*const repairedName = repairInstitutionName/);
   });
 

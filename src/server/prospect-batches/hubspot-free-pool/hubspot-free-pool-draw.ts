@@ -31,6 +31,10 @@ import type { BankFirstContribution } from '@/server/prospect-batches/company-ba
 
 /** Clave de la metadata del lote donde esta capa deja constancia. */
 export const HUBSPOT_FREE_POOL_METADATA_KEY = 'hubspot_free_pool_first';
+/** AUDIT-A1-WS7 — clave, dentro de esa metadata, con los ids leídos y rechazados. */
+export const HUBSPOT_FREE_POOL_REJECTED_IDS_KEY = 'rejected_company_ids';
+/** Tope de ids rechazados por lote (la metadata del lote no es un almacén masivo). */
+export const HUBSPOT_FREE_POOL_REJECTED_TELEMETRY_MAX = 300;
 
 /** Cuántas libres se leen por cada lugar a llenar (algunas caen por sitio, sector o tamaño). */
 export const HUBSPOT_FREE_POOL_READ_FACTOR = 2;
@@ -164,6 +168,18 @@ async function drawHubSpotFreePool(
       entry.candidate !== null && isConfirmedFreeCandidate(entry.candidate, entry.company.hubspotCompanyId),
   );
   const notConfirmed = found.companies.length - usable.length - buildFailed;
+  // AUDIT-A1-WS7 — lo leído y rechazado (tomada según la regla, sin dominio, no
+  // confirmada libre por el chequeo de duplicados, o candidato que no se pudo armar)
+  // se recuerda en la metadata del lote para no volver a leerlo y armarlo en cada
+  // corrida (`rejected_company_ids`, ver `listHubSpotFreePoolAlreadyOffered`).
+  const rejectedCompanyIds = [
+    ...new Set([
+      ...(found.rejectedHubSpotCompanyIds ?? []),
+      ...built
+        .filter((entry) => entry.candidate === null || !isConfirmedFreeCandidate(entry.candidate, entry.company.hubspotCompanyId))
+        .map((entry) => entry.company.hubspotCompanyId),
+    ]),
+  ].slice(0, HUBSPOT_FREE_POOL_REJECTED_TELEMETRY_MAX);
 
   let selectionTelemetry: Record<string, unknown> = {};
   if (input.selectCandidates && usable.length > 0) {
@@ -184,6 +200,7 @@ async function drawHubSpotFreePool(
     ...baseTelemetry,
     confirmed_free: usable.length,
     not_confirmed: notConfirmed,
+    ...(rejectedCompanyIds.length > 0 ? { [HUBSPOT_FREE_POOL_REJECTED_IDS_KEY]: rejectedCompanyIds } : {}),
     ...(buildFailed > 0 ? { build_failed: buildFailed, build_error: firstBuildError } : {}),
     ...selectionTelemetry,
   };

@@ -13,6 +13,8 @@
  * Sin IA. Sin llamadas externas. Completamente determinístico.
  */
 
+import { isDirectoryBrandDomain } from './noise-filter';
+
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
 export type SourceUrlQuality =
@@ -131,6 +133,12 @@ const DIRECTORY_LISTING_DOMAINS = new Set([
   'manta.com',
   'buzzfile.com',
   'bizmatch.net',
+  // AUDIT-A1-WS7 — directorios de la región que no estaban (las variantes por país
+  // van por marca en `isDirectoryBrandDomain` del filtro de ruido).
+  'rues.org.co',
+  'bnamericas.com',
+  'cybo.com',
+  'informacolombia.com',
 ]);
 
 // ─── Paths de repositorios/archivos de documentos ───────────────────────────
@@ -416,7 +424,8 @@ export function classifySourceUrlQuality(
   // Subdominios de estos directorios también quedan bloqueados (co.kompass.com, etc.)
   if (
     DIRECTORY_LISTING_DOMAINS.has(domain) ||
-    [...DIRECTORY_LISTING_DOMAINS].some((d) => domain.endsWith(`.${d}`))
+    [...DIRECTORY_LISTING_DOMAINS].some((d) => domain.endsWith(`.${d}`)) ||
+    isDirectoryBrandDomain(domain)
   ) {
     return {
       quality: 'directory_or_listing_page',

@@ -86,7 +86,10 @@ function isPrivateOrLocalHost(hostname: string): boolean {
  * Construye y valida la URL segura para hacer fetch.
  * Retorna null si el input es inseguro o inválido.
  */
-function buildSafeUrl(rawInput: string): { url: URL; reason?: string } | { url: null; reason: string } {
+function buildSafeUrl(
+  rawInput: string,
+  options: { upgradeHttp?: boolean } = {},
+): { url: URL; reason?: string } | { url: null; reason: string } {
   const trimmed = rawInput.trim();
   if (!trimmed) return { url: null, reason: 'empty_input' };
 
@@ -118,8 +121,11 @@ function buildSafeUrl(rawInput: string): { url: URL; reason?: string } | { url: 
     return { url: null, reason: 'blocked_private_or_local_host' };
   }
 
-  // Preferir https sobre http cuando sea posible
-  if (parsed.protocol === 'http:') {
+  // Preferir https sobre http cuando sea posible. AUDIT-A1-WS7 — sólo en la
+  // entrada: un redirect que manda EXPLÍCITAMENTE a http se respeta (antes se
+  // volvía a subir a https en cada salto y un sitio sólo-http entraba en bucle
+  // hasta agotar los redirects).
+  if (parsed.protocol === 'http:' && options.upgradeHttp !== false) {
     const httpsUrl = new URL(withProtocol.replace(/^http:\/\//, 'https://'));
     return { url: httpsUrl };
   }
@@ -279,6 +285,88 @@ function classifyStatus(params: {
   return { status: 'inferred', confidence: 40 };
 }
 
+// ─── Lectura acotada y decodificación (AUDIT-A1-WS7) ─────────────────────────
+
+/**
+ * Lee el cuerpo de a trozos y CORTA al llegar a `maxBytes` (antes se bajaba la
+ * página entera con `arrayBuffer()` y luego se recortaba: una página de 30 MB se
+ * descargaba completa para usar 50 KB).
+ */
+export async function readBodyLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const limit = Math.max(0, Math.trunc(maxBytes));
+  if (!response.body) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      const take = Math.min(value.byteLength, limit - total);
+      chunks.push(take === value.byteLength ? value : value.subarray(0, take));
+      total += take;
+    }
+  } finally {
+    // Lo que queda no se descarga.
+    await reader.cancel().catch(() => undefined);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function charsetFromContentType(contentType: string | null): string | null {
+  const match = /charset\s*=\s*["']?([\w.:-]+)/i.exec(contentType ?? '');
+  return match ? match[1].toLowerCase() : null;
+}
+
+function charsetFromMeta(bytes: Uint8Array): string | null {
+  // El <meta charset> va en el <head>: basta con los primeros KB leídos como ASCII.
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 4096));
+  const match = /<meta[^>]+charset\s*=\s*["']?([\w.:-]+)/i.exec(head);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function decodeWith(label: string, bytes: Uint8Array, fatal: boolean): string | null {
+  try {
+    // `stream: true` ⇒ un carácter multibyte cortado al final por el tope no es un error.
+    return new TextDecoder(label, { fatal }).decode(bytes, { stream: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decodifica el HTML con el charset del `Content-Type` o del `<meta charset>`; sin
+ * declaración, UTF-8, y si los bytes no son UTF-8 válido, windows-1252 (los sitios
+ * viejos de la región en latin-1 salían con «Ã±» en vez de «ñ»).
+ */
+export function decodeHtmlBytes(bytes: Uint8Array, contentType: string | null): string {
+  const declared = charsetFromContentType(contentType) ?? charsetFromMeta(bytes);
+  if (declared && declared !== 'utf-8' && declared !== 'utf8') {
+    const decoded = decodeWith(declared, bytes, false);
+    if (decoded !== null) return decoded;
+  }
+  return decodeWith('utf-8', bytes, true) ?? decodeWith('windows-1252', bytes, false) ?? decodeWith('utf-8', bytes, false) ?? '';
+}
+
+/**
+ * ¿El fallo es de CONEXIÓN o TLS (y no un timeout ni una respuesta HTTP)? Sólo
+ * entonces vale la pena reintentar por http.
+ */
+function isConnectionOrTlsError(err: unknown): boolean {
+  if (!(err instanceof Error) || err.name === 'AbortError') return false;
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } }).cause;
+  const text = `${err.message} ${typeof cause?.code === 'string' ? cause.code : ''} ${typeof cause?.message === 'string' ? cause.message : ''}`;
+  // DNS (ENOTFOUND / EAI_AGAIN) no: el host no existe tampoco por http.
+  if (/ENOTFOUND|EAI_AGAIN/.test(text)) return false;
+  return /ECONNREFUSED|ECONNRESET|EPROTO|UND_ERR_SOCKET|CERT|SSL|TLS|UNABLE_TO_VERIFY|SELF[_ -]SIGNED|HANDSHAKE/i.test(text);
+}
+
 // ─── Fetch con límite de redirects ────────────────────────────────────────────
 
 type FetchResult = {
@@ -302,10 +390,24 @@ async function fetchWithRedirectTracking(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const doFetch = (url: string) =>
+    fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es,en;q=0.5',
+      },
+    });
+
   try {
     // Seguimos manualmente hasta MAX_REDIRECTS para controlar la cadena
     for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt++) {
-      const safeResult = buildSafeUrl(currentUrl);
+      // AUDIT-A1-WS7 — en los saltos se respeta el protocolo del redirect (mismas
+      // comprobaciones anti-SSRF en cada salto).
+      const safeResult = buildSafeUrl(currentUrl, { upgradeHttp: attempt === 0 });
       if (!safeResult.url) {
         return {
           httpStatus: null,
@@ -316,16 +418,22 @@ async function fetchWithRedirectTracking(
         };
       }
 
-      const response = await fetch(safeResult.url.toString(), {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': USER_AGENT,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'es,en;q=0.5',
-        },
-      });
+      let response: Response;
+      try {
+        response = await doFetch(safeResult.url.toString());
+      } catch (err) {
+        // AUDIT-A1-WS7 — https forzado sin vuelta atrás: un sitio sólo-http o con
+        // certificado roto (frecuente en gobierno de la región) quedaba como error.
+        // Un fallo de conexión/TLS en https se reintenta UNA vez por http, con la
+        // misma validación anti-SSRF; un timeout no se reintenta.
+        if (safeResult.url.protocol !== 'https:' || !isConnectionOrTlsError(err)) throw err;
+        const httpUrl = new URL(safeResult.url.toString());
+        httpUrl.protocol = 'http:';
+        const httpSafe = buildSafeUrl(httpUrl.toString(), { upgradeHttp: false });
+        if (!httpSafe.url) throw err;
+        response = await doFetch(httpSafe.url.toString());
+        currentUrl = httpSafe.url.toString();
+      }
 
       httpStatus = response.status;
 
@@ -350,10 +458,9 @@ async function fetchWithRedirectTracking(
       if (response.status < 400) {
         const contentType = response.headers.get('content-type') ?? '';
         if (contentType.includes('text/html') || contentType.includes('text/plain')) {
-          // Leer solo los primeros MAX_HTML_BYTES para no guardar todo el HTML
-          const buffer = await response.arrayBuffer();
-          const decoder = new TextDecoder('utf-8', { fatal: false });
-          html = decoder.decode(buffer.slice(0, maxHtmlBytes));
+          // Sólo los primeros `maxHtmlBytes`: se deja de leer al llegar al tope.
+          const bytes = await readBodyLimited(response, maxHtmlBytes);
+          html = decodeHtmlBytes(bytes, contentType);
         }
       }
       break;

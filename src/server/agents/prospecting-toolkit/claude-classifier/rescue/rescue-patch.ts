@@ -19,6 +19,24 @@ const LINKEDIN_CONDITION = 'linkedin_status';
 /** Un sitio caído o un error del modelo no es un veredicto: se vuelve a intentar. */
 export const RETRYABLE_OUTCOMES: ReadonlySet<string> = new Set(['website_unreachable', 'model_error']);
 
+/**
+ * AUDIT-A1-WS7 — los reintentos tienen tope. Antes un sitio siempre caído o un
+ * error del modelo repetido volvía a gastar en cada vuelta y en cada botón, sin fin.
+ * El contador vive FUERA de `claude_rescue` (que la marca «en proceso» reescribe).
+ */
+export const RESCUE_RETRY_ATTEMPTS_KEY = 'claude_rescue_retry_attempts';
+export const RESCUE_MAX_RETRY_ATTEMPTS = 3;
+
+export function retryAttemptsOf(container: Record<string, unknown> | null | undefined): number {
+  const value = container?.[RESCUE_RETRY_ATTEMPTS_KEY];
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+/** El contenedor (metadata o evidencia) con un intento reintentable más. */
+export function withRetryAttempt<T extends Record<string, unknown>>(container: T): T {
+  return { ...container, [RESCUE_RETRY_ATTEMPTS_KEY]: retryAttemptsOf(container) + 1 };
+}
+
 /** Una marca «en proceso» más vieja que esto se considera abandonada. */
 export const RESCUE_STALE_AFTER_MS = 15 * 60 * 1000;
 
@@ -35,14 +53,20 @@ const NO_VERDICT_DECISIONS = new Set(['unchanged', 'data_completed']);
  * un «admit» cuyo sector NUNCA se confirmó (antes de existir `data_completed`, Prod
  * 30-09: KFC, mineras, Diario Gestión) tampoco es un veredicto y se reintenta.
  */
-export function rescueStillPending(rescue: unknown, nowMs: number, classification?: unknown): boolean {
+export function rescueStillPending(
+  rescue: unknown,
+  nowMs: number,
+  classification?: unknown,
+  /** AUDIT-A1-WS7 — intentos reintentables ya hechos (`retryAttemptsOf`). */
+  retryAttempts: number = 0,
+): boolean {
   if (!rescue || typeof rescue !== 'object') return true;
   const r = rescue as { decision?: unknown; started_at?: unknown; contract_version?: unknown };
   if (r.decision === 'in_progress') {
     const startedAt = typeof r.started_at === 'string' ? Date.parse(r.started_at) : NaN;
     return !(Number.isFinite(startedAt) && nowMs - startedAt < RESCUE_STALE_AFTER_MS);
   }
-  if (r.decision === 'retryable') return true;
+  if (r.decision === 'retryable') return retryAttempts < RESCUE_MAX_RETRY_ATTEMPTS;
   // Un clasificador nuevo puede dar el veredicto que el anterior no pudo; lo decidido
   // (descartes, admisiones) NUNCA se reabre.
   if (r.contract_version === CLAUDE_CLASSIFIER_CONTRACT_VERSION) return false;
@@ -65,6 +89,11 @@ export type ClaudeRescueMetadata = {
   decision: RescueDecision['kind'] | 'data_completed';
   /** Claude vio otro sector sin evidencia suficiente para descartar. */
   sector_warning: 'claude_sector_mismatch_unconfirmed' | null;
+  /**
+   * AUDIT-A1-WS7 — Claude vio un tamaño bajo el umbral con una fuente que no es de
+   * esta empresa (o sin confianza suficiente): aviso, nunca descarte.
+   */
+  size_warning?: 'claude_size_below_min_unconfirmed';
   discard_reason: string | null;
   discard_detail: string | null;
   discard_source_url: string | null;
@@ -97,6 +126,9 @@ export function buildRescueMetadata(
     decision: decision.kind === 'admit' && !decision.sectorConfirmed ? 'data_completed' : decision.kind,
     sector_warning:
       (decision.kind === 'admit' || decision.kind === 'unchanged') && decision.sectorMismatchUnconfirmed ? 'claude_sector_mismatch_unconfirmed' : null,
+    ...((decision.kind === 'admit' || decision.kind === 'unchanged') && decision.sizeBelowMinUnconfirmed
+      ? { size_warning: 'claude_size_below_min_unconfirmed' as const }
+      : {}),
     discard_reason: decision.kind === 'discard' ? decision.reason : null,
     discard_detail: decision.kind === 'discard' ? decision.detail : null,
     discard_source_url: decision.kind === 'discard' ? decision.sourceUrl : null,
@@ -342,10 +374,12 @@ export function buildCandidateRescuePatch(params: {
   }
   if (decision.kind === 'reassign') return buildReassignPatch(base, result, decision, minEmployees, decidedAt);
   if (decision.kind === 'unchanged') {
-    const rescue = RETRYABLE_OUTCOMES.has(result.outcome)
+    const retryable = RETRYABLE_OUTCOMES.has(result.outcome);
+    const rescue = retryable
       ? { ...buildRescueMetadata(decision, [], decidedAt), decision: 'retryable' }
       : buildRescueMetadata(decision, [], decidedAt);
-    return { metadata: { ...base, [CLAUDE_RESCUE_METADATA_KEY]: rescue } };
+    const metadata = { ...base, [CLAUDE_RESCUE_METADATA_KEY]: rescue };
+    return { metadata: retryable ? withRetryAttempt(metadata) : metadata };
   }
 
   const { completeness, resolved } = resolveCompletenessConditions(asObject(base.target_completeness), decision);

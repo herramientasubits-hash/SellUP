@@ -35,6 +35,7 @@ import {
 } from './web-search-providers/apollo-organizations-search-provider';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { filterNoiseResults } from './noise-filter';
+import { readNationalPortalEntity } from './national-portal-entity';
 import { findForeignCctld } from './tavily-foreign-cctld-guard';
 // NULL-DOMAIN-IDENTITY § 2/§ 3 — lectores canónicos de identidad Apollo.
 import {
@@ -176,6 +177,10 @@ async function dispatchToProvider(
 // ─── Helpers para multi-query ─────────────────────────────────────────────────
 
 function extractDomainForDedup(url: string): string | null {
+  // AUDIT-A1-WS7 — en el portal nacional (gob.pe, gob.mx, argentina.gob.ar, gub.uy,
+  // gob.ec) cada ministerio es una ruta: la clave es portal + entidad, no el hostname.
+  const portalEntity = readNationalPortalEntity(url);
+  if (portalEntity) return portalEntity.key;
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {

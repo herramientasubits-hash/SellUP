@@ -118,6 +118,7 @@ export function buildClassificationMetadata(
           source_url: result.employeeRange.sourceUrl,
           confidence: result.employeeRange.confidence,
           verification: result.employeeRange.verification,
+          ...(result.employeeRange.quoteStitched ? { quote_stitched: true } : {}),
         }
       : null,
     rejected: result.rejected,

@@ -56,6 +56,8 @@ import {
   buildStoredSmallSizeDiscardPatch,
   CLAUDE_RESCUE_METADATA_KEY,
   rescueStillPending,
+  retryAttemptsOf,
+  withRetryAttempt,
   type CandidateRescuePatch,
 } from './rescue-patch';
 import {
@@ -87,6 +89,16 @@ export const RESCUE_CONCURRENCY = 6;
 export const RESCUE_MAX_COMPANIES_PER_RUN = 60;
 /** Después de esto no se empieza ninguna empresa nueva (cabe en 300 s de Vercel). */
 export const RESCUE_RUN_DEADLINE_MS = 200_000;
+/**
+ * AUDIT-A1-WS7 — margen sobre el plazo para empezar: ninguna empresa en curso pasa
+ * de `deadlineMs + RESCUE_COMPANY_GRACE_MS` (con el plazo por defecto, 260 s).
+ */
+export const RESCUE_COMPANY_GRACE_MS = 60_000;
+/**
+ * AUDIT-A1-WS7 — tope de gasto del rescate de UN lote, acumulado entre corridas
+ * (el mismo US$3 que decidió la dueña para la cadena, ahora sin reiniciarse).
+ */
+export const RESCUE_BATCH_MAX_COST_USD = 3;
 
 export type RescueBatchDeps = {
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
@@ -106,10 +118,19 @@ export type RescueBatchDeps = {
    * partida y las que comparten varias filiales). `[]` = no es un lote del árbol.
    */
   loadBatchGroupDomains?: (batchId: string) => Promise<string[]>;
+  /**
+   * AUDIT-A1-WS7 — lo ya gastado en Claude por el rescate de ESTE lote, sumando
+   * todas las corridas (botón, vueltas encadenadas, revisión en línea). `null` = no se
+   * pudo leer (fail-open: se usa sólo el gasto de esta corrida). Antes el tope de
+   * US$3 se reiniciaba en cada cadena.
+   */
+  loadBatchRescueSpentUsd?: (batchId: string) => Promise<number | null>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
     active: ActiveAnthropicModel,
+    /** AUDIT-A1-WS7 — `deadlineAtMs`: instante en que la empresa tiene que haber terminado. */
+    options?: { deadlineAtMs?: number },
   ) => Promise<CompanyClassificationResult>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   /**
@@ -204,6 +225,8 @@ export type RescueBatchSummary =
        * estaba en el tope de entrega (sin gasto; se quedan en Descartadas).
        */
       dispositionsCapped?: number;
+      /** AUDIT-A1-WS7 — el gasto acumulado del lote llegó al tope: no se empezaron más empresas. */
+      batchBudgetReached?: boolean;
     }
   | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
 
@@ -337,7 +360,14 @@ export function needsCandidateRescue(
 ): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
-  if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.metadata?.claude_classification)) {
+  if (
+    !rescueStillPending(
+      row.metadata?.[CLAUDE_RESCUE_METADATA_KEY],
+      nowMs,
+      row.metadata?.claude_classification,
+      retryAttemptsOf(row.metadata),
+    )
+  ) {
     return false;
   }
   if (isLushaSectorReview(row)) return true;
@@ -362,6 +392,12 @@ type RescueRunContext = {
    * no se empieza ninguna empresa más en esta corrida.
    */
   halt: { accountError: boolean };
+  /**
+   * AUDIT-A1-WS7 — tope DURO por empresa (ms epoch): el plazo para EMPEZAR empresas
+   * más un margen. Antes una empresa empezada al final del plazo podía seguir varios
+   * minutos (continuaciones, turno forzado, descargas).
+   */
+  companyDeadlineAtMs?: number;
   /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
   slots: DeliverySlots;
   /**
@@ -390,9 +426,10 @@ async function safeClassify(
   catalog: readonly ClassifierCatalogIndustry[],
   active: ActiveAnthropicModel,
   deps: RescueBatchDeps,
+  deadlineAtMs?: number,
 ): Promise<CompanyClassificationResult | null> {
   try {
-    return await deps.classify(company, catalog, active);
+    return await deps.classify(company, catalog, active, deadlineAtMs !== undefined ? { deadlineAtMs } : undefined);
   } catch (err) {
     console.error('[claude-rescue] classify failed:', err instanceof Error ? err.message : err);
     return null;
@@ -411,13 +448,13 @@ async function rescueCandidate(
 ): Promise<ItemOutcome> {
   if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
-    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification)
+    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification, retryAttemptsOf(metadata))
       ? { metadata: { ...(metadata ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: buildRescueInProgress(deps.nowIso()) } }
       : null,
   );
   if (!claimed) return { tag: 'skipped', cost: 0 };
 
-  const result = await safeClassify(candidateToCompany(row, ctx), ctx.catalog, ctx.active, deps);
+  const result = await safeClassify(candidateToCompany(row, ctx), ctx.catalog, ctx.active, deps, ctx.companyDeadlineAtMs);
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
@@ -628,10 +665,12 @@ async function resolveDispositionWebsite(
     console.error('[claude-rescue] duplicate check failed:', err instanceof Error ? err.message : err);
     const at = deps.nowIso();
     const kept = found;
-    await deps.patchDispositionEvidence(row.id, (evidence) => ({
-      ...buildFoundEvidence(evidence, kept, at),
-      [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
-    }));
+    await deps.patchDispositionEvidence(row.id, (evidence) =>
+      withRetryAttempt({
+        ...buildFoundEvidence(evidence, kept, at),
+        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
+      }),
+    );
     return { kind: 'done', outcome: { tag: 'failed', cost } };
   }
   if (duplicate.status === 'new_candidate' && domainSearch.findKnownCompany) {
@@ -746,6 +785,7 @@ async function rescueParentGroupDisposition(
     ctx.catalog,
     ctx.active,
     deps,
+    ctx.companyDeadlineAtMs,
   );
   if (!result) return stays({ decision: 'classification_failed' }, step.cost);
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
@@ -823,16 +863,19 @@ async function rescueDisposition(
     ctx.catalog,
     ctx.active,
     deps,
+    ctx.companyDeadlineAtMs,
   );
   // Sitio ya pagado y comprobado: se guarda aunque la clasificación falle.
   const withFound = (evidence: Record<string, unknown> | null) =>
     found ? buildFoundEvidence(evidence, found, deps.nowIso()) : evidence;
   if (!result) {
     if (found) {
-      await deps.patchDispositionEvidence(row.id, (evidence) => ({
-        ...withFound(evidence),
-        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
-      }));
+      await deps.patchDispositionEvidence(row.id, (evidence) =>
+        withRetryAttempt({
+          ...withFound(evidence),
+          [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
+        }),
+      );
     }
     return { tag: 'failed', cost: searchCost };
   }
@@ -1132,6 +1175,7 @@ export async function rescueBatchWithClaude(
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
     halt: { accountError: false },
+    companyDeadlineAtMs: startedMs + deadlineMs + RESCUE_COMPANY_GRACE_MS,
     slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
     groupDomains: new Set(
       (deps.loadBatchGroupDomains ? await deps.loadBatchGroupDomains(params.batchId).catch(() => []) : []).map((d) =>
@@ -1140,6 +1184,12 @@ export async function rescueBatchWithClaude(
     ),
   };
   const admittedIds: string[] = [];
+  // AUDIT-A1-WS7 — tope acumulado por lote (todas las corridas del rescate).
+  const spentBefore = deps.loadBatchRescueSpentUsd
+    ? await deps.loadBatchRescueSpentUsd(params.batchId).catch(() => null)
+    : null;
+  let spentThisRun = 0;
+  const batchBudgetReached = () => spentBefore !== null && spentBefore + spentThisRun >= RESCUE_BATCH_MAX_COST_USD;
   const storedReassigned = onlyFreeSource
     ? 0
     : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
@@ -1147,11 +1197,14 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
-    (item) =>
-      item.kind === 'candidate'
+    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs || batchBudgetReached(),
+    async (item) => {
+      const outcome = await (item.kind === 'candidate'
         ? rescueCandidateFreeingSlot(item.row, ctx, deps)
-        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds),
+        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds));
+      spentThisRun += outcome.cost;
+      return outcome;
+    },
   );
 
   // «Una empresa, un vendedor»: si otro vendedor ya la tiene, el reclamo la marca duplicada.
@@ -1170,5 +1223,6 @@ export async function rescueBatchWithClaude(
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
     dispositionsCapped: count('capped'),
+    ...(batchBudgetReached() ? { batchBudgetReached: true } : {}),
   };
 }

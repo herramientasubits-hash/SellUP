@@ -36,6 +36,8 @@ import {
   CLAUDE_RESCUE_METADATA_KEY,
   reassignedIndustryColumns,
   RETRYABLE_OUTCOMES,
+  retryAttemptsOf,
+  withRetryAttempt,
   rescueStillPending,
 } from './rescue-patch';
 
@@ -107,7 +109,12 @@ export function needsDispositionRescue(
   if (!row.domain && websiteNotFoundBeforeOfficialNames(row)) return true;
   if (!row.domain && websiteRejectedByOlderInstitutionRule(row)) return true;
   if (keptBeforeOfficialSizeRule(row)) return true;
-  return rescueStillPending(row.evidence?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.evidence?.claude_classification);
+  return rescueStillPending(
+    row.evidence?.[CLAUDE_RESCUE_METADATA_KEY],
+    nowMs,
+    row.evidence?.claude_classification,
+    retryAttemptsOf(row.evidence),
+  );
 }
 
 export function dispositionToCompanyInput(row: RescuableDispositionRow): ClassifierCompanyInput {
@@ -134,14 +141,16 @@ export function buildDispositionStaysEvidence(
   decision: RescueDecision,
   decidedAt: string,
 ): Evidence {
-  const rescue = RETRYABLE_OUTCOMES.has(result.outcome)
+  const retryable = RETRYABLE_OUTCOMES.has(result.outcome);
+  const rescue = retryable
     ? { ...buildRescueMetadata(decision, [], decidedAt), decision: 'retryable' }
     : buildRescueMetadata(decision, [], decidedAt);
-  return {
+  const stays = {
     ...(evidence ?? {}),
     claude_classification: buildClassificationMetadata(result, decidedAt),
     [CLAUDE_RESCUE_METADATA_KEY]: rescue,
   };
+  return retryable ? withRetryAttempt(stays) : stays;
 }
 
 /** Origen para `sendDispositionToReviewCore` cuando la empresa pasó los filtros. */

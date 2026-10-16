@@ -697,6 +697,15 @@ const LINKEDIN_SMALL = {
   verification: 'source_listed' as const,
   status: 'estimated' as const,
 };
+/**
+ * AUDIT-A1-WS7 — un tamaño `source_listed` sólo descarta si su LinkedIn es el de
+ * ESTA empresa, ya verificado (`verifyLinkedInCompany`), o su sitio oficial.
+ */
+const LINKEDIN_SMALL_VERIFIED = {
+  url: 'https://www.linkedin.com/company/pequena',
+  slug: 'pequena',
+  source: 'provided_search_result' as const,
+};
 
 function storedSmall(overrides: Record<string, unknown> = {}, gate: Record<string, unknown> = { threshold: 200, size_status: 'unknown' }) {
   return {
@@ -711,13 +720,15 @@ function storedSmall(overrides: Record<string, unknown> = {}, gate: Record<strin
         verification: 'source_listed',
         ...overrides,
       },
+      // AUDIT-A1-WS7 — el LinkedIn verificado de la empresa es la fuente del tamaño.
+      linkedin_company: LINKEDIN_SMALL_VERIFIED,
     },
   };
 }
 
 describe('J. descarte por tamaño bajo el umbral', () => {
   it('tamaño de LinkedIn (fuente listada) con confianza ≥ 0,85 → descartar por tamaño', () => {
-    const d = decideRescue(result({ employeeRange: LINKEDIN_SMALL }), CTX);
+    const d = decideRescue(result({ employeeRange: LINKEDIN_SMALL, linkedin: LINKEDIN_SMALL_VERIFIED }), CTX);
     assert.equal(d.kind === 'discard' && d.reason, 'claude_size_below_min');
     assert.equal(d.kind === 'discard' && d.sourceUrl, LINKEDIN_SMALL.sourceUrl);
     assert.match(d.kind === 'discard' ? d.detail : '', /menos de 200 empleados.*De 11 a 50/);
@@ -725,7 +736,36 @@ describe('J. descarte por tamaño bajo el umbral', () => {
 
   it('fuente listada con confianza baja → NO se descarta', () => {
     const d = decideRescue(result({ employeeRange: { ...LINKEDIN_SMALL, confidence: 0.8 } }), CTX);
-    assert.deepEqual(d, { kind: 'admit', sectorConfirmed: true, sizeConfirmed: false, linkedinConfirmed: false });
+    // AUDIT-A1-WS7 — queda el aviso de tamaño bajo sin confirmar para la revisora.
+    assert.deepEqual(d, {
+      kind: 'admit',
+      sectorConfirmed: true,
+      sizeConfirmed: false,
+      linkedinConfirmed: false,
+      sizeBelowMinUnconfirmed: true,
+    });
+  });
+
+  it('AUDIT-A1-WS7 — fuente listada de OTRA página (LinkedIn no verificado o ajeno) → aviso, nunca descarte', () => {
+    const unverified = decideRescue(result({ employeeRange: LINKEDIN_SMALL }), CTX);
+    assert.equal(unverified.kind, 'admit');
+    assert.equal(unverified.kind === 'admit' && unverified.sizeBelowMinUnconfirmed, true);
+    const otherCompany = decideRescue(
+      result({ employeeRange: LINKEDIN_SMALL, linkedin: { ...LINKEDIN_SMALL_VERIFIED, url: 'https://www.linkedin.com/company/otra', slug: 'otra' } }),
+      CTX,
+    );
+    assert.equal(otherCompany.kind, 'admit');
+    const directory = decideRescue(
+      result({ employeeRange: { ...LINKEDIN_SMALL, sourceUrl: 'https://www.directorio.example/pequena' }, pageFinalUrl: 'https://clinica.pe/' }),
+      CTX,
+    );
+    assert.equal(directory.kind, 'admit');
+    // Desde el sitio oficial de la empresa sí descarta.
+    const official = decideRescue(
+      result({ employeeRange: { ...LINKEDIN_SMALL, sourceUrl: 'https://clinica.pe/nosotros' }, pageFinalUrl: 'https://www.clinica.pe/' }),
+      CTX,
+    );
+    assert.equal(official.kind, 'discard');
   });
 
   it('sólo se descarta si el MÁXIMO está bajo el umbral: 150–300, 51–200 y sin máximo se quedan', () => {
@@ -748,7 +788,7 @@ describe('J. descarte por tamaño bajo el umbral', () => {
   });
 
   it('el descarte por tamaño deja icp_size_gate bloqueado con la cita', () => {
-    const r = result({ employeeRange: LINKEDIN_SMALL });
+    const r = result({ employeeRange: LINKEDIN_SMALL, linkedin: LINKEDIN_SMALL_VERIFIED });
     const p = buildCandidateRescuePatch({ metadata: REVIEW_METADATA, result: r, decision: decideRescue(r, CTX), minEmployees: 200, decidedAt: AT })!;
     assert.equal(p.status, 'discarded');
     const gate = p.metadata.icp_size_gate as Record<string, unknown>;
@@ -760,6 +800,10 @@ describe('J. descarte por tamaño bajo el umbral', () => {
 
   it('clasificación guardada: descarta sólo con máximo < umbral, fuente y sin tamaño de otro proveedor', () => {
     assert.equal(storedSmallSizeDiscard(storedSmall(), 200)?.reason, 'claude_size_below_min');
+    // AUDIT-A1-WS7 — sin el LinkedIn verificado de la empresa, la fuente listada no descarta.
+    const unverified = storedSmall();
+    delete (unverified.claude_classification as Record<string, unknown>).linkedin_company;
+    assert.equal(storedSmallSizeDiscard(unverified, 200), null);
     assert.equal(storedSmallSizeDiscard(storedSmall({ max: 300 }), 200), null);
     assert.equal(storedSmallSizeDiscard(storedSmall({ max: null }), 200), null);
     assert.equal(storedSmallSizeDiscard(storedSmall({ confidence: 0.7 }), 200), null);

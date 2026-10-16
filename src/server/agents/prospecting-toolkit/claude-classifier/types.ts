@@ -82,6 +82,8 @@ export type VerifiedRequestedIndustryFit = {
   sourceUrl: string;
   confidence: number;
   verification: Exclude<EvidenceVerificationLevel, 'rejected'>;
+  /** AUDIT-A1-WS7 — la cita sólo apareció uniendo trozos con «…»: completa datos, nunca descarta. */
+  quoteStitched?: true;
 };
 
 export type VerifiedLinkedInCompany = {
@@ -112,6 +114,8 @@ export type VerifiedSectorSuggestion = {
   sourceUrl: string;
   confidence: number;
   verification: Exclude<EvidenceVerificationLevel, 'rejected'>;
+  /** AUDIT-A1-WS7 — la cita sólo apareció uniendo trozos con «…»: completa datos, nunca descarta. */
+  quoteStitched?: true;
 };
 
 export type VerifiedEmployeeRangeSuggestion = {
@@ -123,6 +127,8 @@ export type VerifiedEmployeeRangeSuggestion = {
   verification: Exclude<EvidenceVerificationLevel, 'rejected'>;
   /** Siempre estimado: Claude no tiene base de empleados. */
   status: 'estimated';
+  /** AUDIT-A1-WS7 — la cita sólo apareció uniendo trozos con «…»: completa datos, nunca descarta. */
+  quoteStitched?: true;
 };
 
 export type RejectedField = {

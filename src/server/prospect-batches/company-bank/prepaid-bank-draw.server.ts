@@ -72,6 +72,13 @@ export type BankFirstDrawInput = {
   /** El lote de la búsqueda, resuelto perezosamente (sólo si hay algo que escribir). */
   resolveBatchId: () => Promise<string>;
   /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda. Viajan a la entrada del
+   * escritor para que una empresa genérica del banco NO cuente para la meta sin
+   * confirmar la subindustria (antes iba `subindustries: []` y el banco cerraba la
+   * meta con empresas de la macro). Ausente ⇒ búsqueda sectorial de siempre.
+   */
+  subindustries?: readonly string[];
+  /**
    * «Competidores de una empresa» — cuántas sacar del banco para elegir (en vez
    * del tope de entrega): se saca más porque sólo unas pocas le compiten a la
    * referencia; las no elegidas vuelven al banco.
@@ -107,6 +114,8 @@ export type BankFirstWriteInput = {
   requestedTarget: number;
   requestedByUserId: string;
   metadata: Record<string, unknown>;
+  /** AUDIT-A1-WS7 — subindustrias pedidas por la búsqueda (ver `BankFirstDrawInput`). */
+  subindustries?: readonly string[];
   /**
    * AGENT1-DELIVERY-CAP-HARD-1 — origen de estas filas: `'apollo'` (escritas como
    * de Apollo, como siempre) o `null` (sobrante de una búsqueda web: Tavily o Claude).
@@ -235,6 +244,12 @@ export function buildBankPipelineOutput(input: {
    * Ausente ⇒ Apollo, como siempre.
    */
   provider?: 'apollo_organizations' | 'tavily';
+  /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda: el escritor las lee de aquí
+   * (`requestedSubindustriesForTarget`) para no contar hacia la meta lo que no la
+   * confirma. Ausente ⇒ `[]` (búsqueda sectorial), como antes.
+   */
+  subindustries?: readonly string[];
 }): ProspectingPipelineOutput {
   const provider = input.provider ?? 'apollo_organizations';
   return {
@@ -245,7 +260,7 @@ export function buildBankPipelineOutput(input: {
       webSearchProvider: provider,
       mode: 'multi_query',
       targetCount: input.requestedTarget,
-      subindustries: [],
+      subindustries: [...(input.subindustries ?? [])],
     },
     catalogContext: getCatalogContext({
       country: input.countryName,
@@ -418,6 +433,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
         requestedByUserId: input.requestedByUserId,
         metadata,
         candidateProvenance: group.provenance,
+        ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
       }),
     );
   }
@@ -538,6 +554,7 @@ export function resolveProductionBankFirstDrawer(
           requestedTarget: writeInput.requestedTarget,
           candidates: writeInput.candidates,
           provider: writeInput.candidateProvenance === 'apollo' ? 'apollo_organizations' : 'tavily',
+          ...(writeInput.subindustries ? { subindustries: writeInput.subindustries } : {}),
         }),
         triggeredByUserId: writeInput.requestedByUserId,
         ownerId: writeInput.requestedByUserId,

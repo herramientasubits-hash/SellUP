@@ -322,13 +322,15 @@ describe('§ D · orden — la captura del proveedor precede al scoring', () => 
     );
   });
 
-  it('los DOS call sites del scorer reciben linkedinCompanyUrl', () => {
+  it('el call site del scorer recibe linkedinCompanyUrl', () => {
+    // AUDIT-A1-WS7 — eran DOS; el segundo vivía en la rama «evaluador LLM», que se
+    // eliminó (sin llamadores, confiaba en datos del modelo sin validar).
     const callSites = PIPELINE_SOURCE.split('scoreCandidate({').length - 1;
-    assert.equal(callSites, 2, 'cambió el número de call sites del scorer');
+    assert.equal(callSites, 1, 'cambió el número de call sites del scorer');
 
     const withLinkedin = PIPELINE_SOURCE.split('linkedinCompanyUrl:').length - 1;
     assert.ok(
-      withLinkedin >= 2,
+      withLinkedin >= 1,
       'algún call site de scoreCandidate dejó de recibir linkedinCompanyUrl',
     );
   });

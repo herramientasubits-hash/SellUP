@@ -73,6 +73,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { COMPETITOR_JUDGE_MAX_ITEMS } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge';
 import {
   notAttemptedFreeSourceOutcome,
   withFreeSourcePersistenceOutcome,
@@ -178,6 +179,11 @@ export type PrePaidNoveltyDiscoveryInput = {
    * en vez de todos los de la macro. Ausente ⇒ como siempre.
    */
   activityCodes?: readonly string[];
+  /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda (las pasa el asistente).
+   * Viajan al banco de empresas para que lo genérico de la macro no cierre la meta.
+   */
+  subindustries?: readonly string[];
   /**
    * «Competidores de una empresa» — elige, de lo que la capa gratuita aceptó,
    * cuáles le compiten a la referencia (devuelve las elegidas, con su relación).
@@ -464,6 +470,7 @@ async function runFreeLayerThenBank(
       requestedTarget: remaining,
       requestedByUserId: input.requestedByUserId,
       resolveBatchId: async () => free.batchId ?? (await resolveCanonical()),
+      ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
     })
     .catch(() => null);
   if (!bank || bank.persistedCount <= 0) {
@@ -476,14 +483,17 @@ async function runFreeLayerThenBank(
   const bankAccepted = Math.min(Math.max(0, bank.acceptedCount), remaining);
   const acceptedBeforeProvider = Math.min(input.requestedTarget, freeAccepted + bankAccepted);
   const residualGap = Math.max(0, input.requestedTarget - acceptedBeforeProvider);
+  // AUDIT-A1-WS7 — la base es `freeWithRescue`, no `free`: las rescatadas ya son
+  // filas del lote y, con banco, se perdían de `persistedCount` (se atribuían a la
+  // ruta de pago).
   return {
-    ...free,
+    ...freeWithRescue,
     requestedTarget: input.requestedTarget,
     acceptedBeforeProvider,
     residualGap,
     providerRequired: residualGap > 0,
-    batchId: free.batchId ?? bank.batchId,
-    persistedCount: free.persistedCount + bank.persistedCount,
+    batchId: freeWithRescue.batchId ?? bank.batchId,
+    persistedCount: freeWithRescue.persistedCount + bank.persistedCount,
     telemetry: { ...freeTelemetry, company_bank_first: bank.telemetry },
   };
 }
@@ -594,11 +604,22 @@ async function runFreeCatalogLayer(
   }
 
   // «Competidores» — sólo las que el juez elige; si no pudo elegir, ninguna.
-  const selectedCompanies = input.selectFreeCompanies
-    ? (await input.selectFreeCompanies(gate.acceptedCompanies).catch(() => null)) ?? []
-    : gate.acceptedCompanies;
+  const picked = input.selectFreeCompanies
+    ? await input.selectFreeCompanies(gate.acceptedCompanies).catch(() => null)
+    : null;
+  const selectedCompanies = input.selectFreeCompanies ? picked ?? [] : gate.acceptedCompanies;
+  // AUDIT-A1-WS7 — «juzgadas» = lo que el juez vio de verdad: nada si falló (o no
+  // había nada que juzgar) y como mucho su tope de ítems. Antes se contaban todas
+  // las aceptadas por la puerta y la telemetría de Competidores salía inflada.
   const selectionTelemetry = input.selectFreeCompanies
-    ? { competitor_selection: { judged: gate.acceptedCompanies.length, selected: selectedCompanies.length } }
+    ? {
+        competitor_selection: {
+          gate_accepted: gate.acceptedCompanies.length,
+          judged: picked === null ? 0 : Math.min(gate.acceptedCompanies.length, COMPETITOR_JUDGE_MAX_ITEMS),
+          selected: selectedCompanies.length,
+          selection_failed: picked === null && gate.acceptedCompanies.length > 0,
+        },
+      }
     : {};
 
   if (selectedCompanies.length === 0) {
