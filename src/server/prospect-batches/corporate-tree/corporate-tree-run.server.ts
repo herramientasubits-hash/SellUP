@@ -16,6 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import { persistDiscardedDispositionRows } from '@/modules/prospect-discards/pipeline-writer.server';
 import {
   reserveWizardExecutionSlot,
@@ -237,7 +238,7 @@ export function corporateTreeApolloFamilyBilling(
     organization,
     usage: {
       credits_used: credits,
-      estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
+      estimated_cost_usd: creditCostUsd(credits, unitCostUsd),
       status: result.success ? 'success' : 'error',
       error_message: result.success ? undefined : result.error?.message,
     },

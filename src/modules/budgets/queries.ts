@@ -7,6 +7,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { BudgetRule } from '@/modules/usage-tracking/types';
+import { fetchAllPages, type PageFetcher } from '@/lib/supabase/paginated-read';
 import type { OrgGroupLike } from '@/modules/access/group-tree';
 import type { UserBudgetContext } from './types';
 import {
@@ -183,6 +184,26 @@ export function buildGroupAncestorChain(
   return chain;
 }
 
+/**
+ * Lee TODAS las filas de consumo de un periodo, página a página. La API REST de
+ * Supabase devuelve como máximo 1.000 filas por petición: sin paginar, en cuanto
+ * un proveedor pasaba de 1.000 consultas en el periodo el consumo se quedaba
+ * corto en silencio y la regla de presupuesto autorizaba de más (fail-open).
+ * Orden estable (created_at, id) para que las páginas no se pisen. Un error o
+ * el tope de seguridad LANZAN: igual que antes, nunca «0 consumido».
+ */
+async function readAllConsumptionRows(
+  label: string,
+  fetchPage: PageFetcher<unknown>,
+): Promise<UsageConsumptionRow[]> {
+  const result = await fetchAllPages(fetchPage);
+  if (result.error) throw new Error(`usage consumption read failed (${label}): ${result.error}`);
+  if (result.truncated) {
+    throw new Error(`usage consumption read failed (${label}): more rows than the safety cap`);
+  }
+  return toUsageConsumptionRows(result.rows);
+}
+
 // ─── Consumption ──────────────────────────────────────────────────────────────
 //
 // These readers return RAW ROWS, not a summed total. Summing moved into the pure core
@@ -209,16 +230,18 @@ export async function getConsumptionForUser(
   periodStart: string,
   periodEnd: string,
 ): Promise<UsageConsumptionRow[]> {
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select(USAGE_CONSUMPTION_SELECT)
-    .eq('provider_key', providerKey)
-    .eq('triggered_by', userId)
-    .gte('created_at', periodStart)
-    .lt('created_at', periodEnd);
-
-  if (error) throw new Error(`usage consumption read failed (user): ${error.message}`);
-  return toUsageConsumptionRows(data ?? []);
+  return readAllConsumptionRows('user', (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select(USAGE_CONSUMPTION_SELECT)
+      .eq('provider_key', providerKey)
+      .eq('triggered_by', userId)
+      .gte('created_at', periodStart)
+      .lt('created_at', periodEnd)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 }
 
 /**
@@ -238,16 +261,18 @@ export async function getConsumptionForGroups(
 ): Promise<UsageConsumptionRow[]> {
   if (groupIds.length === 0) return [];
 
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select(USAGE_CONSUMPTION_SELECT)
-    .eq('provider_key', providerKey)
-    .in('triggered_by_group_id', groupIds)
-    .gte('created_at', periodStart)
-    .lt('created_at', periodEnd);
-
-  if (error) throw new Error(`usage consumption read failed (groups): ${error.message}`);
-  return toUsageConsumptionRows(data ?? []);
+  return readAllConsumptionRows('groups', (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select(USAGE_CONSUMPTION_SELECT)
+      .eq('provider_key', providerKey)
+      .in('triggered_by_group_id', groupIds)
+      .gte('created_at', periodStart)
+      .lt('created_at', periodEnd)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 }
 
 /**
@@ -262,16 +287,18 @@ export async function getConsumptionForRole(
   periodStart: string,
   periodEnd: string,
 ): Promise<UsageConsumptionRow[]> {
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select(USAGE_CONSUMPTION_SELECT)
-    .eq('provider_key', providerKey)
-    .eq('triggered_by_role_key', roleKey)
-    .gte('created_at', periodStart)
-    .lt('created_at', periodEnd);
-
-  if (error) throw new Error(`usage consumption read failed (role): ${error.message}`);
-  return toUsageConsumptionRows(data ?? []);
+  return readAllConsumptionRows('role', (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select(USAGE_CONSUMPTION_SELECT)
+      .eq('provider_key', providerKey)
+      .eq('triggered_by_role_key', roleKey)
+      .gte('created_at', periodStart)
+      .lt('created_at', periodEnd)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 }
 
 /**
@@ -284,15 +311,17 @@ export async function getConsumptionGlobal(
   periodStart: string,
   periodEnd: string,
 ): Promise<UsageConsumptionRow[]> {
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select(USAGE_CONSUMPTION_SELECT)
-    .eq('provider_key', providerKey)
-    .gte('created_at', periodStart)
-    .lt('created_at', periodEnd);
-
-  if (error) throw new Error(`usage consumption read failed (global): ${error.message}`);
-  return toUsageConsumptionRows(data ?? []);
+  return readAllConsumptionRows('global', (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select(USAGE_CONSUMPTION_SELECT)
+      .eq('provider_key', providerKey)
+      .gte('created_at', periodStart)
+      .lt('created_at', periodEnd)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 }
 
 /**
@@ -304,14 +333,16 @@ export async function getConsumptionByProvider(
   periodStart: string,
   periodEnd: string,
 ): Promise<UsageConsumptionRow[]> {
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select(USAGE_CONSUMPTION_SELECT)
-    .gte('created_at', periodStart)
-    .lt('created_at', periodEnd);
-
-  if (error) throw new Error(`usage consumption read failed (all providers): ${error.message}`);
-  return toUsageConsumptionRows(data ?? []);
+  return readAllConsumptionRows('all providers', (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select(USAGE_CONSUMPTION_SELECT)
+      .gte('created_at', periodStart)
+      .lt('created_at', periodEnd)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 }
 
 // ─── Phone reveal credit reservations (AGENT2A-PHONE-REVEAL-4N) ────────────────
@@ -556,11 +587,16 @@ export async function getProviderConnectionStatuses(
 export async function getProvidersWithTrackedConsumption(
   admin: AdminClient,
 ): Promise<Set<string>> {
-  const { data } = await admin
-    .from('provider_usage_logs')
-    .select('provider_key')
-    .or('credits_used.gt.0,estimated_cost_usd.gt.0')
-    .limit(500);
+  // Paginado: con `.limit(500)` sin orden, un proveedor con pocas consultas
+  // podía no salir entre las 500 filas devueltas.
+  const { rows } = await fetchAllPages<{ provider_key: string }>((from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select('provider_key')
+      .or('credits_used.gt.0,estimated_cost_usd.gt.0')
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
 
-  return new Set((data ?? []).map((r) => r.provider_key as string));
+  return new Set(rows.map((r) => r.provider_key));
 }

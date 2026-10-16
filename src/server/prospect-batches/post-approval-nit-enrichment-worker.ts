@@ -29,6 +29,9 @@ import { mergePeruSunatMetadataIntoAccountMetadata } from './peru-sunat-metadata
 import { enrichPeruCandidateWithMigoLegalLookup } from './peru-migo-legal-enrichment';
 import { mergePeruMigoMetadataIntoAccountMetadata } from './peru-migo-metadata-merge';
 import { lookupPeruMigoByRuc } from '../services/peru-migo-legal-lookup';
+import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
+import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { PeruSunatLegalLookupResult } from '../services/peru-sunat-legal-lookup';
 import type { PeMigoApiLookupResult } from './peru-migo-legal-enrichment';
 import { enrichChileCandidateWithChileCompraOcds } from './chilecompra-ocds-post-approval-enrichment';
@@ -555,6 +558,44 @@ async function runPeruSunatEnrichmentForCandidate(
   }
 }
 
+/** Errores de Migo que salen ANTES de llamar a la API: no gastan cupo ni dejan fila. */
+const MIGO_ERRORS_WITHOUT_CALL = new Set(['invalid_ruc_format', 'migo_credential_not_configured']);
+
+/**
+ * Fila de provider_usage_logs de una consulta a Migo, o null si no hubo llamada.
+ * Migo es un plan de cuota con tarifa fija: 1 consulta = 1 unidad de cupo y
+ * US$0 marginal (costo desconocido si no sabemos si contó).
+ */
+export function buildMigoUsageLogInput(
+  candidate: Pick<CandidateRow, 'id' | 'batch_id'>,
+  result: PeMigoApiLookupResult,
+  durationMs: number,
+): LogProviderUsageInput | null {
+  if (result.error && MIGO_ERRORS_WITHOUT_CALL.has(result.error)) return null;
+  const answered = result.status === 'found' || result.status === 'not_found';
+  const rateLimited = result.error === 'migo_rate_limited';
+  const refused = result.error === 'migo_auth_failed' || rateLimited;
+  const credits = answered ? 1 : refused ? 0 : null;
+  return {
+    batch_id: candidate.batch_id ?? undefined,
+    provider_key: 'migo',
+    operation_key: 'ruc_lookup',
+    agent_key: 'agent1',
+    agent_step: 'numero_fiscal_migo',
+    credits_used: credits ?? undefined,
+    estimated_cost_usd: creditCostUsd(credits, 0),
+    results_returned: result.status === 'found' ? 1 : 0,
+    status: answered ? 'success' : rateLimited ? 'rate_limited' : 'error',
+    error_code: answered ? undefined : result.error,
+    duration_ms: durationMs,
+    metadata: {
+      candidate_id: candidate.id,
+      lookup_status: result.status,
+      pricing_basis: 'plan_quota_fixed_fee',
+    },
+  };
+}
+
 /**
  * Runs Migo API point-query for PE candidates when SUNAT is not verified.
  * Saves pe_migo_api block to candidate and propagates to account.
@@ -574,7 +615,15 @@ async function runPeruMigoEnrichmentForCandidate(
   if (!isMigoFallbackRequired(sunatStatus)) return;
 
   try {
-    const lookupFn = migoLookupFnOverride ?? lookupPeruMigoByRuc;
+    // Cada consulta real gasta cupo del plan de Migo: queda en provider_usage_logs
+    // (antes no dejaba rastro en Uso de IA). El override es sólo de pruebas.
+    const lookupFn = migoLookupFnOverride ?? (async (ruc: string) => {
+      const startedAt = Date.now();
+      const result = await lookupPeruMigoByRuc(ruc);
+      const usage = buildMigoUsageLogInput(candidate, result, Date.now() - startedAt);
+      if (usage) await logProviderUsage(usage);
+      return result;
+    });
 
     const migoResult = await enrichPeruCandidateWithMigoLegalLookup(
       {

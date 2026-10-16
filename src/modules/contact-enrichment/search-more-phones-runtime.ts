@@ -83,6 +83,7 @@ import {
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
 import { logProviderUsageReturningId } from '@/modules/usage-tracking/logging';
+import { estimateProviderCreditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
 import { reservePhoneRevealCreditsAndCreateRun } from './phone-reveal-credit-reservation-deps';
 import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
@@ -714,6 +715,7 @@ async function logSearchMoreUsage(args: {
       provider_key: 'lusha',
       operation_key: SEARCH_MORE_LUSHA_OPERATION_KEY,
       credits_used: args.creditsCharged ?? undefined,
+      estimated_cost_usd: await estimateProviderCreditCostUsd('lusha', args.creditsCharged),
       status: args.usageStatus,
       error_code: args.errorCode ?? undefined,
       triggered_by: args.actor.internalUserId,

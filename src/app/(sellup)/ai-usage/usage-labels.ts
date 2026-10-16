@@ -20,6 +20,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   lusha: 'Lusha',
   hubspot: 'HubSpot',
   samu_ia: 'Samu IA',
+  migo: 'Migo (Perú)',
 };
 
 // Claves de agent_runs.agent_key que crean ejecuciones hoy, más las previstas.

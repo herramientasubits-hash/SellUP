@@ -27,6 +27,7 @@ import {
   isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { estimateProviderCreditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import { writePhoneCacheEntry } from './phone-cache-store';
 import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { persistCandidatePhoneCollection } from './candidate-phone-collection-persistence';
@@ -151,6 +152,55 @@ export async function findStaleApolloPhoneRevealCandidateIds(
     .filter((id): id is string => id !== null);
 }
 
+// ── Cobro de la recuperación (sin doble conteo) ────────────────
+
+export interface RecoveryCharge {
+  /** Créditos que esta fila debe sumar: 0 si el aviso ya los registró. */
+  creditsUsed: number | null;
+  alreadyLoggedByWebhook: boolean;
+  /** Quien pidió el revelado (phone_revealed_by). */
+  requestedBy: string | null;
+}
+
+/**
+ * Decide cuántos créditos suma la fila de la recuperación. Si desde que se pidió
+ * este revelado el aviso de Apollo ya dejó una fila con créditos para el mismo
+ * candidato, la recuperación registra 0 (el cobro ya está contado). Un fallo de
+ * lectura conserva los créditos reportados: preferimos contar de más a perderlos.
+ */
+export async function resolveRecoveryCharge(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  candidateId: string,
+  reportedCredits: number | null,
+): Promise<RecoveryCharge> {
+  const { data: candidate } = await admin
+    .from('contact_enrichment_candidates')
+    .select('phone_revealed_by, phone_reveal_requested_at')
+    .eq('id', candidateId)
+    .maybeSingle();
+  const row = candidate as { phone_revealed_by: string | null; phone_reveal_requested_at: string | null } | null;
+  const requestedBy = row?.phone_revealed_by ?? null;
+  if (!reportedCredits || !row?.phone_reveal_requested_at) {
+    return { creditsUsed: reportedCredits, alreadyLoggedByWebhook: false, requestedBy };
+  }
+  const { data: webhookRows, error } = await admin
+    .from('provider_usage_logs')
+    .select('id')
+    .eq('provider_key', 'apollo')
+    .eq('operation_key', PHONE_REVEAL_OPERATION_KEY)
+    .eq('metadata->>candidate_id', candidateId)
+    .eq('metadata->>reveal_phase', 'webhook')
+    .gt('credits_used', 0)
+    .gte('created_at', row.phone_reveal_requested_at)
+    .limit(1);
+  const alreadyLoggedByWebhook = !error && (webhookRows?.length ?? 0) > 0;
+  return {
+    creditsUsed: alreadyLoggedByWebhook ? 0 : reportedCredits,
+    alreadyLoggedByWebhook,
+    requestedBy,
+  };
+}
+
 // ── Deps reales del recovery core (server-only) ────────────────
 
 /**
@@ -250,15 +300,23 @@ export function buildRecoveryCoreDeps(
     },
 
     logUsage: async (entry: RecoveryUsageLogEntry): Promise<void> => {
+      // El aviso de Apollo pudo registrar ya los créditos de este mismo revelado
+      // y dejar el candidato en curso (colección o supresión no disponibles); la
+      // recuperación lo cierra después. Sin esto el mismo cobro contaba dos veces.
+      const charge = await resolveRecoveryCharge(admin, entry.metadata.candidate_id, entry.creditsUsed);
       await logProviderUsage({
         provider_key: entry.provider,
         operation_key: entry.operationKey,
-        credits_used: entry.creditsUsed ?? undefined,
+        credits_used: charge.creditsUsed ?? undefined,
+        estimated_cost_usd: await estimateProviderCreditCostUsd(entry.provider, charge.creditsUsed),
         status: entry.status,
         error_code: entry.errorCode ?? undefined,
-        triggered_by: entry.triggeredBy ?? actorUserId ?? undefined,
+        // El gasto es de quien pidió el revelado, no de quien corre la recuperación.
+        triggered_by: charge.requestedBy ?? entry.triggeredBy ?? actorUserId ?? undefined,
         results_returned: entry.metadata.phone_present ? 1 : 0,
-        metadata: entry.metadata,
+        metadata: charge.alreadyLoggedByWebhook
+          ? { ...entry.metadata, credits_already_logged_by: 'webhook', reported_credits: entry.creditsUsed }
+          : entry.metadata,
       });
     },
 

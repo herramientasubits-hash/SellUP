@@ -303,27 +303,46 @@ export async function forceSubmission(
   toolName: string = SUBMIT_TOOL_NAME,
   instruction: string = `Entrega ahora tu resultado con ${SUBMIT_TOOL_NAME}. Sin fuente, deja el dato en null.`,
 ): Promise<AnthropicConversationResult> {
-  const second = await deps.runConversation({
-    ...body,
-    tool_choice: { type: 'tool', name: toolName },
-    messages: [
-      ...body.messages,
-      { role: 'assistant', content: first.content },
-      { role: 'user', content: instruction },
-    ],
-  });
+  let second: AnthropicConversationResult;
+  try {
+    second = await deps.runConversation({
+      ...body,
+      tool_choice: { type: 'tool', name: toolName },
+      messages: [
+        ...body.messages,
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: instruction },
+      ],
+    });
+  } catch (err) {
+    // El primer turno ya se cobró (tokens y búsquedas web): si el turno forzado
+    // falla, el error lleva la suma para que la fila del gasto no quede en ~US$0.
+    if (err instanceof AnthropicApiError) {
+      throw new AnthropicApiError(err.status, err.code, err.message, sumUsage(first.usage, err.partialUsage));
+    }
+    throw new AnthropicApiError(
+      null,
+      'unexpected_error',
+      err instanceof Error ? err.message : String(err),
+      first.usage,
+    );
+  }
   return {
     content: [...first.content, ...second.content],
     stopReason: second.stopReason,
-    usage: {
-      inputTokens: first.usage.inputTokens + second.usage.inputTokens,
-      outputTokens: first.usage.outputTokens + second.usage.outputTokens,
-      cacheReadInputTokens: first.usage.cacheReadInputTokens + second.usage.cacheReadInputTokens,
-      cacheCreationInputTokens: first.usage.cacheCreationInputTokens + second.usage.cacheCreationInputTokens,
-      webSearchRequests: first.usage.webSearchRequests + second.usage.webSearchRequests,
-      webFetchRequests: first.usage.webFetchRequests + second.usage.webFetchRequests,
-    },
+    usage: sumUsage(first.usage, second.usage),
     requests: first.requests + second.requests,
+  };
+}
+
+function sumUsage(a: AnthropicUsageTotals, b: AnthropicUsageTotals): AnthropicUsageTotals {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
+    webSearchRequests: a.webSearchRequests + b.webSearchRequests,
+    webFetchRequests: a.webFetchRequests + b.webFetchRequests,
   };
 }
 

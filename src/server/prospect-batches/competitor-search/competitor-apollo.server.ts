@@ -25,6 +25,7 @@ import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution
 import { buildCompetitorBatchName } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import type { CompetitorApolloRequest } from '@/modules/prospect-batches/chat-wizard-execution/wizard-competitor-run';
 import { resolveApolloCountryLocation } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { APOLLO_OPERATION_INDETERMINATE_ERROR_CODE } from '@/server/agents/prospecting-toolkit/apollo-organization-enrichment-usage-log';
@@ -349,7 +350,7 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
         operation_key: 'mixed_companies_search',
         credits_used: credits,
         results_returned: page.organizations.length,
-        estimated_cost_usd: credits === undefined ? null : unitCostUsd === null ? 0 : credits * unitCostUsd,
+        estimated_cost_usd: creditCostUsd(credits, unitCostUsd),
         status: page.ok ? 'success' : 'error',
         ...(page.billingUnknown ? { error_code: APOLLO_OPERATION_INDETERMINATE_ERROR_CODE } : {}),
         error_message: page.error ?? undefined,

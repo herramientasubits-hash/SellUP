@@ -283,6 +283,44 @@ function resolveProviderModelId(config: AIActiveConfig, canonicalProvider: strin
 }
 
 /**
+ * Dólares de una llamada de enriquecimiento. La tabla `provider_pricing_config`
+ * manda sólo si tiene tarifa de verdad (> 0): la migración 036 sembró
+ * anthropic/openai en 0 «a configurar» y nadie las llenó, así que cada
+ * enriquecimiento salía a US$0. Sin tarifa real, precio público por modelo.
+ */
+async function estimateEnrichmentCostUsd(
+  supabase: SupabaseClient,
+  providerKey: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): Promise<number> {
+  try {
+    const { data: pricing } = await supabase
+      .from('provider_pricing_config')
+      .select('operation_key, unit, unit_cost_usd')
+      .eq('provider_key', providerKey)
+      .eq('is_active', true);
+    type PricingRow = { operation_key: string; unit: string; unit_cost_usd: number };
+    const rows = (pricing ?? []) as PricingRow[];
+    const perToken = (key: string): number | null => {
+      const rule = rows.find((p) => p.operation_key === key);
+      const unitCost = Number(rule?.unit_cost_usd);
+      if (!rule || !Number.isFinite(unitCost) || unitCost <= 0) return null;
+      return rule.unit === 'per_1k_tokens' ? unitCost / 1000 : unitCost;
+    };
+    const inputRate = perToken('input_token');
+    const outputRate = perToken('output_token');
+    if (inputRate !== null && outputRate !== null) {
+      return inputTokens * inputRate + outputTokens * outputRate;
+    }
+  } catch (priceErr) {
+    console.warn('[enrichProspectCandidate] Error calculating pricing:', priceErr);
+  }
+  return estimateLLMCost(inputTokens, outputTokens, model);
+}
+
+/**
  * Llama a la API correspondiente según el proveedor configurado de forma segura.
  */
 async function callAiProviderAPI(
@@ -1247,6 +1285,9 @@ export async function enrichProspectCandidate({
         continue;
       }
 
+      // Respuesta ya cobrada por el proveedor: si luego falla la lectura del JSON,
+      // la consulta igual se registra (antes sólo quedaba el intento exitoso).
+      let billedResponse: { inputTokens: number; outputTokens: number; durationMs: number } | null = null;
       try {
         const callStart = Date.now();
         const response = await callAiProviderAPI(
@@ -1256,6 +1297,7 @@ export async function enrichProspectCandidate({
           prompt
         );
         const duration = Date.now() - callStart;
+        billedResponse = { inputTokens: response.inputTokens, outputTokens: response.outputTokens, durationMs: duration };
 
         const cleanedText = response.text
           .trim()
@@ -1286,32 +1328,32 @@ export async function enrichProspectCandidate({
           status: 'completed',
         });
 
-        let estimatedCostUsd = 0;
-        try {
-          const { data: pricing } = await supabase
-            .from('provider_pricing_config')
-            .select('provider_key, operation_key, unit, unit_cost_usd')
-            .eq('provider_key', execCand.provider_key)
-            .eq('is_active', true);
+        const estimatedCostUsd = await estimateEnrichmentCostUsd(
+          supabase,
+          execCand.provider_key,
+          execCand.model_key,
+          response.inputTokens,
+          response.outputTokens,
+        );
 
-          if (pricing && pricing.length > 0) {
-            const inputRule = pricing.find((p: { operation_key: string }) => p.operation_key === 'input_token');
-            const outputRule = pricing.find((p: { operation_key: string }) => p.operation_key === 'output_token');
-
-            if (inputRule) {
-              const costPerToken = inputRule.unit === 'per_1k_tokens' ? inputRule.unit_cost_usd / 1000 : inputRule.unit_cost_usd;
-              estimatedCostUsd += response.inputTokens * costPerToken;
-            }
-            if (outputRule) {
-              const costPerToken = outputRule.unit === 'per_1k_tokens' ? outputRule.unit_cost_usd / 1000 : outputRule.unit_cost_usd;
-              estimatedCostUsd += response.outputTokens * costPerToken;
-            }
-          } else {
-            estimatedCostUsd = estimateLLMCost(response.inputTokens, response.outputTokens, execCand.model_key);
-          }
-        } catch (priceErr) {
-          console.warn('[enrichProspectCandidate] Error calculating pricing:', priceErr);
-          estimatedCostUsd = estimateLLMCost(response.inputTokens, response.outputTokens, execCand.model_key);
+        // La consulta se registra aunque no se haya podido abrir la ejecución:
+        // el gasto ocurrió igual.
+        if (!agentRunId || !stepId) {
+          await logProviderUsage({
+            batch_id: candidate.batch_id ?? undefined,
+            provider_key: execCand.provider_key,
+            operation_key: 'enrich_candidate',
+            agent_key: 'agent1',
+            agent_step: 'enriquecer_candidato',
+            model: execCand.model_key,
+            input_tokens: response.inputTokens,
+            output_tokens: response.outputTokens,
+            estimated_cost_usd: estimatedCostUsd,
+            status: 'success',
+            duration_ms: duration,
+            triggered_by: userId,
+            metadata: { candidateId, execution_type: executionType },
+          });
         }
 
         if (agentRunId && stepId) {
@@ -1319,6 +1361,9 @@ export async function enrichProspectCandidate({
             await logProviderUsage({
               agent_run_id: agentRunId,
               agent_run_step_id: stepId,
+              batch_id: candidate.batch_id ?? undefined,
+              agent_key: 'agent1',
+              agent_step: 'enriquecer_candidato',
               provider_key: execCand.provider_key,
               operation_key: 'enrich_candidate',
               model: execCand.model_key,
@@ -1370,6 +1415,34 @@ export async function enrichProspectCandidate({
           error_code: errorCode,
           error_message: errMsg,
         });
+
+        if (billedResponse) {
+          await logProviderUsage({
+            agent_run_id: agentRunId,
+            agent_run_step_id: stepId,
+            batch_id: candidate.batch_id ?? undefined,
+            provider_key: execCand.provider_key,
+            operation_key: 'enrich_candidate',
+            agent_key: 'agent1',
+            agent_step: 'enriquecer_candidato',
+            model: execCand.model_key,
+            input_tokens: billedResponse.inputTokens,
+            output_tokens: billedResponse.outputTokens,
+            estimated_cost_usd: await estimateEnrichmentCostUsd(
+              supabase,
+              execCand.provider_key,
+              execCand.model_key,
+              billedResponse.inputTokens,
+              billedResponse.outputTokens,
+            ),
+            status: 'error',
+            error_code: errorCode,
+            error_message: errMsg,
+            duration_ms: billedResponse.durationMs,
+            triggered_by: userId,
+            metadata: { candidateId, execution_type: executionType },
+          });
+        }
 
         if (agentRunId && stepId) {
           try {

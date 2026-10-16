@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import type { UsageSummary, RecentUsageActivity } from './types';
+import { fetchAllPages } from '@/lib/supabase/paginated-read';
 
 // ============================================================
 // Admin client (service_role for reads across RLS)
@@ -78,17 +79,25 @@ export async function getUsageSummary(): Promise<UsageSummary> {
   await requireAdmin();
   const admin = createSupabaseAdminClient();
 
+  // Paginado: sin `.range()` la API REST devuelve como mucho 1.000 filas y
+  // «Llamadas API» y «Costo est.» se quedaban cortos sin avisar.
   const [runsResult, providerResult] = await Promise.all([
-    admin
-      .from('agent_runs')
-      .select('status, estimated_cost_usd'),
-    admin
-      .from('provider_usage_logs')
-      .select('status, estimated_cost_usd'),
+    fetchAllPages<{ status: string; estimated_cost_usd: number | null }>((from, to) =>
+      admin.from('agent_runs').select('status, estimated_cost_usd').order('id', { ascending: true }).range(from, to),
+    ),
+    fetchAllPages<{ status: string; estimated_cost_usd: number | null }>((from, to) =>
+      admin
+        .from('provider_usage_logs')
+        .select('status, estimated_cost_usd')
+        .order('id', { ascending: true })
+        .range(from, to),
+    ),
   ]);
+  const readError = runsResult.error ?? providerResult.error;
+  if (readError) throw new Error(`usage summary read failed: ${readError}`);
 
-  const runs = runsResult.data ?? [];
-  const providerLogs = providerResult.data ?? [];
+  const runs = runsResult.rows;
+  const providerLogs = providerResult.rows;
 
   const total_agent_runs = runs.length;
   const running_agent_runs = runs.filter((r) => r.status === 'running').length;

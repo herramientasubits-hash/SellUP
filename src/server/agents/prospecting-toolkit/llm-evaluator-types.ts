@@ -124,10 +124,12 @@ export type LLMModelPricing = {
  * Tech debt: should be read from ai_model_pricing table. Hardcoded as fallback.
  */
 export const KNOWN_MODEL_PRICING: Record<string, LLMModelPricing> = {
-  'claude-haiku-4-5-20251001': { inputCostPerMillion: 0.80, outputCostPerMillion: 4.00 },
-  'claude-haiku-4-5':          { inputCostPerMillion: 0.80, outputCostPerMillion: 4.00 },
+  // Precio público vigente (Haiku 4.5 $1/$5; Opus 4.5+ $5/$25). estimateLLMCost
+  // usa para Claude la tabla por familia de claude-classifier/cost.ts.
+  'claude-haiku-4-5-20251001': { inputCostPerMillion: 1.00, outputCostPerMillion: 5.00 },
+  'claude-haiku-4-5':          { inputCostPerMillion: 1.00, outputCostPerMillion: 5.00 },
   'claude-sonnet-4-5':         { inputCostPerMillion: 3.00, outputCostPerMillion: 15.00 },
   'claude-sonnet-4-6':         { inputCostPerMillion: 3.00, outputCostPerMillion: 15.00 },
-  'claude-opus-4-5':           { inputCostPerMillion: 15.00, outputCostPerMillion: 75.00 },
-  'claude-opus-4-7':           { inputCostPerMillion: 15.00, outputCostPerMillion: 75.00 },
+  'claude-opus-4-5':           { inputCostPerMillion: 5.00, outputCostPerMillion: 25.00 },
+  'claude-opus-4-7':           { inputCostPerMillion: 5.00, outputCostPerMillion: 25.00 },
 };
