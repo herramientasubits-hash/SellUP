@@ -466,7 +466,9 @@ describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migra
     assert.equal(enrichLogs.length, 1, 'Failed enrichment still generates a log (real API call was made)');
     const log = enrichLogs[0]!;
     assert.equal(log.credits_used, undefined, 'cobro desconocido ⇒ columna NULL, nunca 1 fabricado');
-    assert.equal(log.estimated_cost_usd, 0.00875, 'exposición unitaria, igual que la modalidad de dos rondas');
+    // AI-USAGE-AUDIT-2: cobro desconocido ⇒ costo desconocido (NULL), como el árbol
+    // y los competidores; antes se escribía la tarifa entera como si fuera seguro.
+    assert.equal(log.estimated_cost_usd, null, 'créditos desconocidos ⇒ dólares desconocidos, nunca la tarifa fabricada');
     assert.equal(log.status, 'error');
   });
 

@@ -489,7 +489,8 @@ describe('L — Apollo con tope de espera: cobro desconocido, sin repetir', () =
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
     assert.match(live, /const credits = page\.billingUnknown \? undefined :/);
-    assert.match(live, /estimated_cost_usd: credits === undefined \? null :/);
+    // creditCostUsd: créditos desconocidos (o tarifa desconocida) ⇒ NULL, 0 créditos ⇒ 0.
+    assert.match(live, /estimated_cost_usd: creditCostUsd\(credits, unitCostUsd\)/);
     assert.match(live, /APOLLO_OPERATION_INDETERMINATE_ERROR_CODE/);
     assert.match(live, /export const COMPETITOR_APOLLO_PAGE_TIMEOUT_MS = \d/);
     assert.match(live, /searchPage: async \(body\) => toCompetitorApolloPage\(await searchCompetitorApolloPageWithTimeout\(body\)\)/);
