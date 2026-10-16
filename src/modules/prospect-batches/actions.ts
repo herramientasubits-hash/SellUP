@@ -2866,6 +2866,13 @@ async function convertClaimedCandidate(ctx: {
     // ALWAYS-OWNER-ON-CREATE-1 — la empresa recién creada nace con responsable
     // provisional (quien buscó): el dueño de HubSpot, si es usuario de SellUp, manda.
     ownerIsProvisional: accountCreated,
+    // AUDIT-HARDENING-1 — la ficha enlazada estaba LIBRE en HubSpot y la toma no se
+    // escribió (bandera apagada, sin mapeo, error, la tomó otro): su dueño en HubSpot
+    // es el vendedor anterior y no debe quitarle la empresa a quien la aprobó.
+    ignoreHubSpotOwner:
+      freePoolLink?.kind === 'link' &&
+      hubspotCompanyId === freePoolLink.hubspotCompanyId &&
+      freePoolClaim?.owner_written !== true,
     actorUserId: internalUserId,
     nowIso: nowStr,
   });
