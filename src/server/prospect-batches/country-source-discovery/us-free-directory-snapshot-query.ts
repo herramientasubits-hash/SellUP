@@ -16,6 +16,11 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 import { US_FREE_DIRECTORY_SOURCE_KEY } from '@/server/source-catalog/connectors/us-ein/us-free-directory-rows';
 import { US_PUBLIC_ENTITIES_SOURCE_KEY } from '@/server/source-catalog/connectors/us-ein/us-public-entities';
 import type {
@@ -75,18 +80,30 @@ export function buildUsFreeDirectoryDiscoveryReads(client: SupabaseClient): UsFr
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
       try {
-        const { data, error } = await client
-          .from('source_company_snapshots')
-          .select(SELECTED_COLUMNS)
-          .in('source_key', [US_FREE_DIRECTORY_SOURCE_KEY, US_PUBLIC_ENTITIES_SOURCE_KEY])
-          .eq('country_code', 'US')
-          .eq('raw_data->>macro_industry_key', macroIndustryKey)
-          .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .order('legal_name', { ascending: true })
-          .limit(limit);
-        if (error || !Array.isArray(data)) return [];
-        return (data as unknown as SnapshotSelectRow[]).map(toRow);
+        // AUDIT-A1-WS7 — por páginas y saltando lo que SellUp ya conoce: la ventana
+        // fija de siempre se agotaba tras la primera corrida (ver country-source-fresh-window.ts).
+        const rows = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: limit,
+          countryCode: 'US',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+          readRange: async (from, to) => {
+            const query = client
+              .from('source_company_snapshots')
+              .select(SELECTED_COLUMNS)
+              .in('source_key', [US_FREE_DIRECTORY_SOURCE_KEY, US_PUBLIC_ENTITIES_SOURCE_KEY])
+              .eq('country_code', 'US')
+              .eq('raw_data->>macro_industry_key', macroIndustryKey)
+              .order('priority_score', { ascending: false })
+              .order('normalized_tax_id', { ascending: true })
+              .order('legal_name', { ascending: true });
+            const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('snapshot_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        return rows.map(toRow);
       } catch {
         return [];
       }

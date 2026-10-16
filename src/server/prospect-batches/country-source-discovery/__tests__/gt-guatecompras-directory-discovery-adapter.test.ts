@@ -289,7 +289,9 @@ describe('lectura de producción (buildGtGuatecomprasDirectoryDiscoveryReads)', 
       ['priority_score', { ascending: false }],
       ['normalized_tax_id', { ascending: true }],
     ]);
-    assert.deepEqual(calls.at(-1), { method: 'limit', args: [50] });
+    // AUDIT-A1-WS7 — después de leer, la ventana pregunta qué ya conoce SellUp (este
+    // doble no lo soporta: fail-open). El tope de la PRIMERA página sigue igual.
+    assert.deepEqual(calls.find((c) => c.method === 'limit'), { method: 'limit', args: [50] });
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {

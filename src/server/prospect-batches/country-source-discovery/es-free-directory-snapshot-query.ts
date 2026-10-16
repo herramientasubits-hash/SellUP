@@ -18,6 +18,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
+import {
   ES_FREE_DIRECTORY_SOURCE_KEY,
   ES_PUBLIC_ENTITIES_SOURCE_KEY,
 } from '@/server/source-catalog/connectors/placsp-spain/es-sources-rows';
@@ -80,17 +85,29 @@ export function buildEsFreeDirectoryDiscoveryReads(client: SupabaseClient): EsFr
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
       try {
-        const { data, error } = await client
-          .from('source_company_snapshots')
-          .select(SELECTED_COLUMNS)
-          .in('source_key', [ES_FREE_DIRECTORY_SOURCE_KEY, ES_PUBLIC_ENTITIES_SOURCE_KEY])
-          .eq('country_code', 'ES')
-          .eq('raw_data->>macro_industry_key', macroIndustryKey)
-          .order('priority_score', { ascending: false })
-          .order('record_identity_key', { ascending: true })
-          .limit(limit);
-        if (error || !Array.isArray(data)) return [];
-        return (data as unknown as SnapshotSelectRow[]).map(toRow);
+        // AUDIT-A1-WS7 — por páginas y saltando lo que SellUp ya conoce: la ventana
+        // fija de siempre se agotaba tras la primera corrida (ver country-source-fresh-window.ts).
+        const rows = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: limit,
+          countryCode: 'ES',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+          readRange: async (from, to) => {
+            const query = client
+              .from('source_company_snapshots')
+              .select(SELECTED_COLUMNS)
+              .in('source_key', [ES_FREE_DIRECTORY_SOURCE_KEY, ES_PUBLIC_ENTITIES_SOURCE_KEY])
+              .eq('country_code', 'ES')
+              .eq('raw_data->>macro_industry_key', macroIndustryKey)
+              .order('priority_score', { ascending: false })
+              .order('record_identity_key', { ascending: true });
+            const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('snapshot_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        return rows.map(toRow);
       } catch {
         return [];
       }
