@@ -159,7 +159,7 @@ export type PendingApolloContinuationResult = {
  * lista de la cola antes de filtrar revelaría lotes ajenos.
  */
 export async function findPendingApolloContinuation(): Promise<PendingApolloContinuationResult> {
-  await requireActiveUser();
+  const { internalUserId } = await requireActiveUser();
 
   // AGENT1-STUCK-RUNS-CLOSE-1 — antes de mostrar nada, se cierra lo que ya no
   // va a avanzar (intentos agotados, abandonado, lote quieto). Así el Centro de
@@ -167,7 +167,11 @@ export async function findPendingApolloContinuation(): Promise<PendingApolloCont
   const sweepClient = stuckRunsClient();
   if (sweepClient) await closeStuckAgentRuns(sweepClient);
 
-  const candidateBatchIds = await listOpenContinuationBatchIds();
+  // AGENT1-AUDIT-WS2 (extra de WS1) — sólo la cola de los lotes de ESTA persona:
+  // con los 10 más recientes de todos, una corrida propia quedaba tapada por ajenas.
+  const candidateBatchIds = await listOpenContinuationBatchIds(undefined, undefined, {
+    createdBy: internalUserId,
+  });
   if (candidateBatchIds.length === 0) return null;
 
   const supabase = await createClient();

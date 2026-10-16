@@ -427,11 +427,40 @@ export type WizardExecutionActionResult =
        * alguien tiene que retomar.
        */
       apolloContinuation?: {
-        /** `true` ⇒ el trabajo quedó en la cola durable. */
+        /**
+         * `true` ⇒ el trabajo quedó en la cola durable.
+         *
+         * 🔴 AGENT1-AUDIT-WS2 § 5 — desde este corte el bloque SÓLO viaja con
+         * `enqueued: true` (también cuando ya había una continuación viva): una
+         * pausa que no se pudo encolar no es «en pausa», nadie la va a retomar.
+         * Ésa viaja en `apolloContinuationFailure`.
+         */
         enqueued: boolean;
         /** Organizaciones YA PAGADAS que quedaron sin evaluar. */
         pendingOrganizationCount: number;
       };
+      /**
+       * AGENT1-AUDIT-WS2 § 5 — Apollo se quedó sin tiempo y la continuación NO se
+       * pudo encolar. La corrida escribió lo evaluado; las pendientes no se
+       * retomarán solas. Requiere atención, no espera.
+       */
+      apolloContinuationFailure?: {
+        pendingOrganizationCount: number;
+        reason: string;
+      };
+      /**
+       * AGENT1-AUDIT-WS2 §§ 2, D — Apollo NO arrancó en esta corrida: sin cuota del
+       * proveedor (`quota_exhausted`) o sin tiempo en los 300 s (`no_time`). Lo
+       * demás (Tavily, Lusha, Claude) sí pudo correr. Ausente ⇒ Apollo corrió o no
+       * le tocaba.
+       */
+      apolloNotStarted?: { reason: 'quota_exhausted' | 'no_time' };
+      /**
+       * AGENT1-AUDIT-WS2 § F — filas del lote que el vendedor puede revisar (ni
+       * `duplicate` ni `discarded`), contadas al final. `candidateCount` es el
+       * universo DURABLE y las incluye. Ausente ⇒ no se pudo contar.
+       */
+      reviewableCandidateCount?: number;
     }
   | {
       ok: false;

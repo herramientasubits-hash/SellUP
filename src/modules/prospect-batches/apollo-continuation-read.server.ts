@@ -63,7 +63,10 @@ type OrderedRows = {
 export type ApolloContinuationReadClient = {
   from(table: string): {
     select(columns: string): {
-      eq(column: string, value: string): OrderedRows;
+      /** `in` tras `eq`: sólo lo usa el filtro por dueño de la recuperación. */
+      eq(column: string, value: string): OrderedRows & {
+        in?(column: string, values: readonly string[]): OrderedRows;
+      };
       in(column: string, values: readonly string[]): OrderedRows;
     };
   };
@@ -192,14 +195,37 @@ export async function readApolloContinuationSnapshot(
 export async function listOpenContinuationBatchIds(
   limit: number = APOLLO_CONTINUATION_RECOVERY_SCAN_LIMIT,
   clientOverride?: ApolloContinuationReadClient | null,
+  /**
+   * AGENT1-AUDIT-WS2 (extra de WS1) — sólo los trabajos de lotes de ESTA persona
+   * (`prospect_batches.created_by`, usuario interno). Sin esto la consulta miraba
+   * los `limit` trabajos abiertos más recientes de TODOS los usuarios y, con el
+   * filtro por dueño posterior, una persona no veía su corrida si había más de
+   * `limit` ajenas más nuevas. Ausente ⇒ toda la cola (comportamiento previo).
+   */
+  options: { createdBy?: string | null } = {},
 ): Promise<string[]> {
   const client = resolveClient(clientOverride);
   if (!client) return [];
   try {
-    const { data, error } = await client
-      .from(CONTINUATION_JOBS_TABLE)
-      .select('batch_id, status, created_at')
-      .in('status', [...OPEN_JOB_STATUSES])
+    const createdBy = options.createdBy ?? null;
+    // El filtro va EN la consulta (join interno por la FK `batch_id`), antes del
+    // `limit`: filtrar después volvería a dejar fuera a la persona.
+    let ordered: OrderedRows;
+    if (createdBy === null) {
+      ordered = client
+        .from(CONTINUATION_JOBS_TABLE)
+        .select('batch_id, status, created_at')
+        .in('status', [...OPEN_JOB_STATUSES]);
+    } else {
+      const owned = client
+        .from(CONTINUATION_JOBS_TABLE)
+        .select('batch_id, status, created_at, prospect_batches!inner(created_by)')
+        .eq('prospect_batches.created_by', createdBy);
+      // Fail-closed: un cliente que no sabe encadenar el filtro no devuelve la cola ajena.
+      if (typeof owned.in !== 'function') return [];
+      ordered = owned.in('status', [...OPEN_JOB_STATUSES]);
+    }
+    const { data, error } = await ordered
       .order('created_at', { ascending: false })
       .limit(Math.max(1, Math.trunc(limit)));
     if (error || !Array.isArray(data)) return [];

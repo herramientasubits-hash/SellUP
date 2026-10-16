@@ -1,6 +1,6 @@
 'use server';
 
-import { readApolloAssessmentDeadlineReached } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
+import { readApolloContinuationPending } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker';
 import {
   isAgent1LushaFallbackEffective,
   isAgent1ApolloSeenDomainExclusionEnabled,
@@ -85,6 +85,7 @@ import {
   isLotAtDeliveryCap,
   isTavilyFirstClosing,
   shouldReviewTavilyFirstInline,
+  tavilyOwnAcceptedIds,
   resolveInlineRescueWindowMs,
   resolveFreeLayerRescueWindowMs,
   reopenBatchForApolloAfterTavilyFirst,
@@ -96,6 +97,14 @@ import {
   type WriterTruthLike,
 } from './wizard-tavily-first';
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
+import { markWizardBatchGenerating, type MarkBatchGeneratingClient } from './wizard-batch-generating';
+import { decideApolloProviderQuotaGate } from './wizard-provider-quota-gate';
+import {
+  ACTIVE_RUN_WINDOW_MS,
+  ACTIVE_RUNS_CONFLICT_MESSAGES,
+  decideActiveRunsConflict,
+  type ActiveRunBatch,
+} from './wizard-active-runs-guard';
 // A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
 // sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
 // provider devolvía `skipped`; como la reconciliación es conservadora, eso
@@ -294,6 +303,24 @@ export type ApolloProviderQuotaGateResult =
 
 export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
+  /**
+   * AGENT1-AUDIT-WS2 § 9 — corridas activas de la persona (otras pestañas, otros
+   * equipos), para aplicar en el SERVIDOR las reglas que antes sólo aplicaba el
+   * navegador. Ver `wizard-active-runs-guard.ts`. `null` = no se pudo leer. Sin dep
+   * ⇒ no se comprueba (comportamiento previo).
+   */
+  loadActiveRuns?: (input: {
+    userId: string;
+  }) => Promise<{ activeRunIds: string[]; activeBatches: ActiveRunBatch[] } | null>;
+  /**
+   * AGENT1-AUDIT-WS2 § C — el lote que YA existe para `(persona, clientRequestId)`,
+   * leído antes de la capa gratuita. `null` = no hay (o no se pudo leer: el paso 10
+   * sigue siendo la autoridad). Sin dep ⇒ comportamiento previo.
+   */
+  findExistingRunBatch?: (input: {
+    userId: string;
+    clientRequestId: string;
+  }) => Promise<{ batchId: string } | null>;
   resolveCatalog: (input: CatalogResolutionInput) => Promise<CatalogResolutionOutput>;
   checkTavilyAvailability: () => Promise<boolean>;
   /**
@@ -327,11 +354,24 @@ export type WizardExecutionDeps = {
    */
   listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
   /**
+   * AGENT1-AUDIT-WS2 § B — ids de TODAS las filas del lote (cualquier fuente y
+   * estado), leídos justo ANTES de Tavily-primero. Sirven para que las aceptadas de
+   * Tavily no incluyan las del banco/HubSpot (que también son `web_ai`). `null` = no
+   * se pudo. Sin dep ⇒ el comportamiento previo.
+   */
+  listBatchCandidateIds?: (batchId: string) => Promise<string[] | null>;
+  /**
    * AGENT1-TAVILY-FIRST-4 — devuelve el lote a `generating` antes de que Apollo
    * complete (el escritor de Tavily lo dejó en `ready_for_review`). `false` = no
    * se pudo y Apollo no corre. Sin dep ⇒ no se reabre (comportamiento previo).
    */
   reopenBatchForApollo?: (batchId: string) => Promise<boolean>;
+  /**
+   * AGENT1-AUDIT-WS2 § 7 — `draft` → `generating` cuando empieza la parte de pago
+   * (Apollo). Sólo desde `draft`: cualquier otro estado queda intacto. Sin dep ⇒ el
+   * lote se queda como esté (comportamiento previo).
+   */
+  markBatchGenerating?: (batchId: string) => Promise<boolean>;
   /**
    * AGENT1-TAVILY-FIRST-6 — filas del lote (cualquier fuente) que cuentan para la
    * meta, leídas DESPUÉS de la revisión de Claude. `null` = no se pudo.
@@ -411,6 +451,14 @@ export type WizardExecutionDeps = {
     resolveBatchId: () => Promise<string>;
     /** AGENT1-COMPANY-BANK-FIRST-1 — nombre visible de la industria (entrada del escritor del banco). */
     industryName?: string;
+    /**
+     * AGENT1-AUDIT-WS2 § E — los criterios que la persona eligió (nombres de
+     * subindustria del catálogo y texto libre). Antes la capa gratuita y el banco
+     * no los recibían y entregaban empresas de cualquier subindustria. Viajan hasta
+     * aquí; consumirlos en el banco/HubSpot es de WS7.
+     */
+    subindustries?: readonly string[];
+    additionalCriteria?: string | null;
   }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
   /**
    * AGENT1-LOCAL-CUT5-SINGLE-BATCH-PLUMBING § 11 — sella el lote canónico cuando
@@ -689,6 +737,49 @@ export async function executeProspectWizardGenerationAction(
       return auth.internalUserId;
     },
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
+    // AGENT1-AUDIT-WS2 § 9 — con la SESIÓN: la RLS de la 143 sólo deja ver las
+    // filas de progreso propias, y la de `prospect_batches`, los lotes propios.
+    loadActiveRuns: async ({ userId }) => {
+      const cutoffIso = new Date(Date.now() - ACTIVE_RUN_WINDOW_MS).toISOString();
+      const { data: progressRows, error: progressError } = await supabase
+        .from('agent1_run_progress')
+        .select('client_request_id')
+        .gte('updated_at', cutoffIso);
+      if (progressError || !progressRows) return null;
+      const activeRunIds = [
+        ...new Set((progressRows as Array<{ client_request_id: string }>).map((row) => row.client_request_id)),
+      ];
+      if (activeRunIds.length === 0) return { activeRunIds, activeBatches: [] };
+      const { data: batchRows, error: batchError } = await supabase
+        .from('prospect_batches')
+        .select('client_request_id, country_code, metadata')
+        .eq('created_by', userId)
+        .in('client_request_id', activeRunIds);
+      if (batchError || !batchRows) return null;
+      const activeBatches = (
+        batchRows as Array<{ client_request_id: string; country_code: string | null; metadata: unknown }>
+      ).map((row) => {
+        const metadata = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>;
+        return {
+          clientRequestId: row.client_request_id,
+          countryCode: row.country_code,
+          industryId: typeof metadata.industry_id === 'string' ? metadata.industry_id : null,
+          searchMode: typeof metadata.search_mode === 'string' ? metadata.search_mode : null,
+        };
+      });
+      return { activeRunIds, activeBatches };
+    },
+    // AGENT1-AUDIT-WS2 § C — misma clave que la reserva del paso 10.
+    findExistingRunBatch: async ({ userId, clientRequestId }) => {
+      const { data, error } = await supabase
+        .from('prospect_batches')
+        .select('id')
+        .eq('created_by', userId)
+        .eq('client_request_id', clientRequestId)
+        .maybeSingle();
+      if (error || !data) return null;
+      return { batchId: (data as { id: string }).id };
+    },
     checkTavilyAvailability: isTavilyConfiguredForWizard,
     // AGENT1-TAVILY-FIRST-1 — bandera propia, sólo dentro del modo automático.
     resolveTavilyFirst: isAgent1TavilyFirstEffective,
@@ -720,6 +811,13 @@ export async function executeProspectWizardGenerationAction(
         .eq('metadata->target_completeness->>counts_toward_target', 'true');
       return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
     },
+    listBatchCandidateIds: async (batchId) => {
+      const { data, error } = await budgetClient
+        .from('prospect_candidates')
+        .select('id')
+        .eq('batch_id', batchId);
+      return error || !data ? null : (data as Array<{ id: string }>).map((row) => row.id);
+    },
     countAcceptedInBatch: async (batchId) => {
       const { count, error } = await budgetClient
         .from('prospect_candidates')
@@ -732,6 +830,9 @@ export async function executeProspectWizardGenerationAction(
     // Mismo cliente de sesión que `markBatchFailed`: la RLS acota la fila.
     reopenBatchForApollo: (batchId) =>
       reopenBatchForApolloAfterTavilyFirst(supabase as unknown as ReopenBatchClient, batchId),
+    // AGENT1-AUDIT-WS2 § 7 — mismo cliente de sesión; sólo desde `draft`.
+    markBatchGenerating: (batchId) =>
+      markWizardBatchGenerating(supabase as unknown as MarkBatchGeneratingClient, batchId),
     countReviewableCandidates: async (batchId) => {
       const { count, error } = await budgetClient
         .from('prospect_candidates')
@@ -813,6 +914,10 @@ export async function executeProspectWizardGenerationAction(
     // vendedor sólo ve sus lotes (RLS filtraría en silencio).
     loadApolloExclusionSellupDomains: (input) =>
       loadApolloExclusionSellupDomains(createSupabaseAdminClient(), input),
+    // AGENT1-AUDIT-WS2 § E — `input.subindustries` / `input.additionalCriteria` ya
+    // llegan hasta aquí; el lector gratuito y el banco todavía no tienen dónde
+    // recibirlos (`PrePaidNoveltyDiscoveryInput`, `resolveProductionBankFirstDrawer`):
+    // cablearlos es de WS7 (banco/capa gratuita).
     runPrePaidNoveltyDiscovery: (input) =>
       runPrePaidNoveltyDiscovery(supabase, {
         countryCode: input.countryCode,
@@ -910,19 +1015,15 @@ export async function executeProspectWizardGenerationAction(
     },
 
     // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — cuota PROPIA de Apollo, no el
-    // pool del piloto. `estimatedCredits` no participa en la decisión: la regla
-    // es la simple del hito («si hay créditos, sigue; si llega a 0, bloquea»),
-    // no una proyección de sobregasto que esta puerta no fue pedida a hacer.
-    checkApolloProviderQuota: async () => {
-      const quota = await checkProviderQuotaAvailable('apollo');
-      if (!quota.allowed) {
-        return {
-          status: 'blocked',
-          providerCreditsAvailable: quota.providerCreditsAvailable ?? 0,
-        };
-      }
-      return { status: 'available', providerCreditsAvailable: quota.providerCreditsAvailable };
-    },
+    // pool del piloto.
+    //
+    // 🔴 AGENT1-AUDIT-WS2 § 10 — antes `estimatedCredits` no participaba: con 1
+    // crédito disponible y una corrida que puede gastar 12, la puerta dejaba pasar
+    // y el gasto se comía la cuota de otro. Ahora bloquea cuando lo disponible no
+    // alcanza para el PEOR caso de esta corrida (`insufficient_for_run`, el mismo
+    // resultado y el mismo copy de siempre). Ver `decideApolloProviderQuotaGate`.
+    checkApolloProviderQuota: async ({ estimatedCredits }) =>
+      decideApolloProviderQuotaGate(await checkProviderQuotaAvailable('apollo'), estimatedCredits),
 
     confirmBudget: (input) =>
       confirmWizardPilotCredits(input, budgetClient as unknown as BudgetReservationsRpcClient),
@@ -1340,6 +1441,36 @@ export async function executeProspectWizardGeneration(
     };
   }
 
+  // 4a. AGENT1-AUDIT-WS2 § 9 — máximo 3 corridas a la vez y una sola por país ×
+  // industria, ahora también en el servidor (antes sólo el navegador lo aplicaba).
+  // ANTES de cualquier capa que escriba o gaste. Una lectura fallida NO bloquea:
+  // es una regla de coordinación, no de gasto, y el navegador la sigue aplicando.
+  if (deps.loadActiveRuns) {
+    const activeRuns = await deps.loadActiveRuns({ userId }).catch(() => null);
+    if (activeRuns === null) {
+      console.warn('[wizard-execution] no se pudieron leer las corridas activas; se sigue sin la regla');
+    } else {
+      const conflict = decideActiveRunsConflict({
+        currentClientRequestId: req.clientRequestId,
+        activeRunIds: activeRuns.activeRunIds,
+        activeBatches: activeRuns.activeBatches,
+        current: {
+          countryCode: req.countryCode,
+          industryId: catalogResolution.industry.id,
+          isCriteriaSearch: req.searchMode !== 'suppliers' && req.searchMode !== 'competitors',
+        },
+      });
+      if (conflict !== null) {
+        return {
+          ok: false,
+          code: 'CONCURRENT_EXECUTION_ACTIVE',
+          message: ACTIVE_RUNS_CONFLICT_MESSAGES[conflict],
+          retryable: true,
+        };
+      }
+    }
+  }
+
   // 4b. AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa» tiene su propio camino
   // corto (sólo Claude): no resuelve proveedor, no corre capa gratuita, banco, Tavily,
   // Apollo ni Lusha, y no reserva del presupuesto del piloto. Ver wizard-supplier-search.
@@ -1627,6 +1758,28 @@ export async function executeProspectWizardGeneration(
   //
   // 🔴 Es la MISMA capa que corre la ruta Lusha (§ 25). Sin ella —dep ausente— el
   // hueco es el objetivo entero y todo lo de abajo se comporta como antes.
+  // 5c-bis. AGENT1-AUDIT-WS2 § C — ¿esta corrida (persona + clientRequestId) YA
+  // tiene lote? Entonces otra ejecución es su dueña: se responde `already_started`
+  // AQUÍ, antes de la capa gratuita. Antes la capa gratuita corría contra el lote
+  // viejo (escribía y reclamaba empresas en él) y sólo en el paso 10 se descubría
+  // que la corrida ya existía. Una lectura fallida no bloquea: el paso 10 sigue
+  // siendo la autoridad atómica.
+  if (deps.findExistingRunBatch) {
+    const existing = await deps
+      .findExistingRunBatch({ userId, clientRequestId: req.clientRequestId })
+      .catch(() => null);
+    if (existing !== null) {
+      return {
+        ok: true,
+        status: 'already_started',
+        batchId: existing.batchId,
+        batchStatus: 'draft',
+        redirectPath: `/prospect-batches/${existing.batchId}`,
+        runProvider: runProviderOutcome,
+      };
+    }
+  }
+
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
   const countryName = countryEntry?.name ?? req.countryCode;
 
@@ -1726,6 +1879,10 @@ export async function executeProspectWizardGeneration(
           requestedByUserId: userId,
           countryName,
           industryName: catalogResolution.industry.name,
+          // AGENT1-AUDIT-WS2 § E — los criterios de la corrida llegan a la capa
+          // gratuita (antes sólo país e industria).
+          subindustries: catalogResolution.subindustries.map((s) => s.name),
+          additionalCriteria: req.additionalCriteriaRaw,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
         // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
@@ -2140,6 +2297,17 @@ export async function executeProspectWizardGeneration(
   // TS2367 rompería la build sin que el comportamiento de #380-#384 cambiara
   // en absoluto.
   const isApolloBudgetGate = discoveryProvider === 'apollo_organizations';
+  /** AGENT1-TAVILY-FIRST-1 — ¿Tavily corre antes de Apollo en esta corrida? Se lee UNA vez. */
+  const tavilyFirstRequested = isApolloBudgetGate && deps.resolveTavilyFirst?.() === true;
+  /**
+   * AGENT1-AUDIT-WS2 § D — sin cuota de Apollo, ¿hay algo más que pueda correr?
+   * Tavily-primero o «Claude busca empresas». Si no hay ninguno, el bloqueo sigue
+   * terminando la corrida como siempre.
+   */
+  const apolloQuotaBlockContinues =
+    tavilyFirstRequested || deps.resolveClaudeSearchLeg?.() === true;
+  let apolloQuotaBlocked: Extract<ApolloProviderQuotaGateResult, { status: 'blocked' }> | null =
+    null;
   let reservationId: string | null;
   let creditsReserved: number;
   let budgetWasNew = false;
@@ -2186,7 +2354,13 @@ export async function executeProspectWizardGeneration(
     }
 
     const quotaResult = await checkApolloQuota({ estimatedCredits: requestedCredits });
-    if (quotaResult.status === 'blocked') {
+    if (quotaResult.status === 'blocked' && apolloQuotaBlockContinues) {
+      // 🔴 AGENT1-AUDIT-WS2 § D — sin cuota de Apollo la corrida YA NO muere aquí:
+      // sólo Apollo se salta. Tavily-primero (cuota propia) y «Claude busca
+      // empresas» siguen, y Lusha (reserva propia) también. El bloqueo se recuerda
+      // y se declara al final; si nada aporta, el resultado es el de siempre.
+      apolloQuotaBlocked = quotaResult;
+    } else if (quotaResult.status === 'blocked') {
       // 🔴 CUT-6 §§ 5, 7, 13 — el presupuesto bloquea la parte PAGADA. Lo que la
       // capa gratuita ya guardó no se toca, no se revierte y no se calla: se
       // sella el lote a su estado verdadero y el fallo lo declara.
@@ -2433,12 +2607,14 @@ export async function executeProspectWizardGeneration(
   let tavilyFirstResult: IncrementalSearchOutput | null = null;
   /** AGENT1-TAVILY-FIRST-3 — aceptadas de Tavily recontadas tras Claude (`null` = sin recuento). */
   let tavilyFirstAcceptedIds: string[] | null = null;
+  /** AGENT1-AUDIT-WS2 § B — filas del lote antes de Tavily (`undefined` = no se tomó la foto). */
+  let preTavilyCandidateIds: string[] | null | undefined;
   /** Tiempo desde el inicio de la acción (0 si no se sabe: nunca bloquea por error). */
   const elapsedSinceActionStartMs = (): number =>
     deps.actionStartedAtMs === undefined
       ? 0
       : (deps.nowMs ? deps.nowMs() : Date.now()) - deps.actionStartedAtMs;
-  if (discoveryProvider === 'apollo_organizations' && deps.resolveTavilyFirst?.() === true) {
+  if (tavilyFirstRequested) {
     const tavilyMaxCredits = estimateCreditsForProvider('tavily');
     const quota = deps.checkTavilyProviderQuota
       ? await deps.checkTavilyProviderQuota({ estimatedCredits: tavilyMaxCredits }).catch(() => null)
@@ -2448,6 +2624,11 @@ export async function executeProspectWizardGeneration(
     if (skipReason) {
       tavilyFirstOutcome = { outcome: 'skipped', skipReason };
     } else {
+      // AGENT1-AUDIT-WS2 § B — foto de las filas que el lote ya tiene ANTES de
+      // Tavily (capa gratuita, HubSpot, banco), para no contarlas como de Tavily.
+      preTavilyCandidateIds = deps.listBatchCandidateIds
+        ? await deps.listBatchCandidateIds(reservedBatchId).catch(() => null)
+        : undefined;
       // AGENT1-TAVILY-PROVIDER-CONFIG-1 — sin reserva del piloto: Tavily se rige
       // por su configuración en Proveedores, como Apollo.
       try {
@@ -2500,9 +2681,13 @@ export async function executeProspectWizardGeneration(
               acceptedInLot = deps.countAcceptedInBatch
                 ? await deps.countAcceptedInBatch(reservedBatchId).catch(() => null)
                 : null;
-              tavilyFirstAcceptedIds = deps.listAcceptedCandidateIds
-                ? await deps.listAcceptedCandidateIds(reservedBatchId).catch(() => null)
-                : null;
+              // AGENT1-AUDIT-WS2 § B — sólo las de Tavily: se compara con el HUECO.
+              tavilyFirstAcceptedIds = tavilyOwnAcceptedIds(
+                deps.listAcceptedCandidateIds
+                  ? await deps.listAcceptedCandidateIds(reservedBatchId).catch(() => null)
+                  : null,
+                preTavilyCandidateIds,
+              );
             }
           }
         }
@@ -2527,18 +2712,30 @@ export async function executeProspectWizardGeneration(
             acceptedAfterClaude,
             acceptedInLot,
           };
-        } else if (
-          claudeReviewed &&
-          before !== null &&
-          after !== null &&
-          !canStartApolloAfterTavilyFirst(elapsedSinceActionStartMs())
-        ) {
-          // Claude dejó pocas y ya no cabe Apollo en los 300 s: se entrega lo que hay.
+        } else if (apolloQuotaBlocked !== null) {
+          // AGENT1-AUDIT-WS2 § D — Apollo no puede correr (cuota agotada): se entrega
+          // lo de Tavily y siguen Lusha y Claude.
+          tavilyFirstOutcome = {
+            outcome: 'apollo_unavailable',
+            reason: 'quota_exhausted',
+            reviewable: after,
+            reviewableBeforeClaude: before,
+            claudeReviewed,
+            target,
+            acceptedAfterClaude,
+            acceptedInLot,
+          };
+        } else if (!canStartApolloAfterTavilyFirst(elapsedSinceActionStartMs())) {
+          // Quedaron pocas y ya no cabe Apollo en los 300 s: se entrega lo que hay.
+          //
+          // 🔴 AGENT1-AUDIT-WS2 § 2 — antes sólo si Claude había revisado: sin
+          // revisión (pocas para revisar, o sin ventana) Apollo arrancaba pasados
+          // los 140 s, pagaba la búsqueda y Vercel lo cortaba antes de escribir.
           tavilyFirstOutcome = {
             outcome: 'short_no_time',
             reviewable: after,
             reviewableBeforeClaude: before,
-            claudeReviewed: true,
+            claudeReviewed,
             target,
             acceptedAfterClaude,
             acceptedInLot,
@@ -2594,6 +2791,34 @@ export async function executeProspectWizardGeneration(
       tavilyFirstOutcome?.outcome === 'batch_reopen_failed' ||
       tavilyFirstOutcome?.outcome === 'lot_at_delivery_cap') &&
     tavilyFirstResult !== null;
+  /**
+   * AGENT1-AUDIT-WS2 § D — lo de Tavily es el resultado del tramo de pago: bastó, o
+   * Apollo no puede correr. A diferencia de `tavilyFirstSatisfied`, con
+   * `apollo_unavailable` Lusha y Claude SÍ siguen (no dependen de la cuota de Apollo).
+   */
+  const tavilyFirstClosesPipeline =
+    tavilyFirstSatisfied ||
+    (tavilyFirstOutcome?.outcome === 'apollo_unavailable' && tavilyFirstResult !== null);
+  /**
+   * AGENT1-AUDIT-WS2 §§ 2, D — Apollo NO arranca y no hay resultado de Tavily que
+   * entregar (Tavily-primero apagado, saltado o caído):
+   *
+   *   · `quota_exhausted` — la cuota del proveedor no alcanza, pero hay otra pierna
+   *     (Claude) que sí puede correr;
+   *   · `no_time` — pasaron más de 140 s: Apollo pagaría la búsqueda y la función
+   *     moriría antes de escribirla. Antes arrancaba igual.
+   *
+   * El tramo se declara vacío (sin gasto) y la corrida sigue con Lusha y Claude,
+   * cada uno con su propia guarda de tiempo.
+   */
+  const apolloNotStarted: { reason: 'quota_exhausted' | 'no_time' } | null =
+    discoveryProvider !== 'apollo_organizations' || tavilyFirstClosesPipeline
+      ? null
+      : apolloQuotaBlocked !== null
+        ? { reason: 'quota_exhausted' }
+        : !canStartApolloAfterTavilyFirst(elapsedSinceActionStartMs())
+          ? { reason: 'no_time' }
+          : null;
   /** Verdad del escritor del tramo de Tavily cuando Apollo completó después. */
   const tavilyFirstTruth: WriterTruthLike | null =
     tavilyFirstOutcome?.outcome === 'apollo_completed' && tavilyFirstResult
@@ -2612,13 +2837,23 @@ export async function executeProspectWizardGeneration(
 
   let pipelineResult: IncrementalSearchOutput;
   try {
-    if (tavilyFirstSatisfied && tavilyFirstResult) {
-      // Tavily ya dejó suficientes para revisar: Apollo no se paga.
+    if (tavilyFirstClosesPipeline && tavilyFirstResult) {
+      // Tavily ya dejó suficientes para revisar (o Apollo no puede correr): Apollo no se paga.
       pipelineResult = tavilyFirstResult;
+    } else if (apolloNotStarted !== null) {
+      // AGENT1-AUDIT-WS2 §§ 2, D — tramo de pago vacío y sin gasto.
+      pipelineResult = buildApolloNotStartedPipelineResult(reservedBatchId, apolloNotStarted.reason);
     } else if (discoveryProvider === 'apollo_organizations') {
       const apolloRunner = deps.runApolloPipeline;
       if (!apolloRunner) {
         throw new Error('apollo_pipeline_not_configured');
+      }
+      // 🔴 AGENT1-AUDIT-WS2 § 7 — el lote del asistente nace en `draft` y la ruta de
+      // Apollo nunca lo movía (sólo Tavily-primero y «Claude busca» lo hacían): la
+      // bandeja y el historial no lo veían «generando». Best-effort: el escritor de
+      // Apollo acepta `draft` y `generating`, así que un fallo aquí no cambia nada.
+      if (deps.markBatchGenerating) {
+        await deps.markBatchGenerating(reservedBatchId).catch(() => false);
       }
       pipelineResult = await apolloRunner({
         resolved,
@@ -2680,6 +2915,12 @@ export async function executeProspectWizardGeneration(
         priorProviderSeen: apolloPriorProviderSeen,
         ...(apolloDomainExclusion.domains.length > 0
           ? { excludedDomains: apolloDomainExclusion.domains }
+          : {}),
+        // AGENT1-AUDIT-WS2 § 1 — Apollo descuenta lo que la acción ya gastó de los
+        // 300 s (capa gratuita, banco, Tavily, Claude). Sin esto creía tenerlos
+        // enteros y Vercel cortaba la función antes de escribir lo pagado.
+        ...(deps.actionStartedAtMs !== undefined
+          ? { invocationStartedAtMs: deps.actionStartedAtMs }
           : {}),
       });
     } else {
@@ -2850,7 +3091,7 @@ export async function executeProspectWizardGeneration(
    * verdad de pago son las aceptadas recontadas tras la revisión de Claude.
    */
   const recountIfTavilyClosed = (truth: WriterTruthLike): WriterTruthLike =>
-    tavilyFirstSatisfied ? withRecountedAcceptance(truth, tavilyFirstAcceptedIds) : truth;
+    tavilyFirstClosesPipeline ? withRecountedAcceptance(truth, tavilyFirstAcceptedIds) : truth;
 
   const acceptedAfterApollo = resolveRunAcceptance(
     combineWriterTruths(
@@ -2898,6 +3139,11 @@ export async function executeProspectWizardGeneration(
     : tavilyFirstOutcome?.outcome === 'apollo_completed' &&
       !canStartLushaAfterTavilyFirst(elapsedSinceActionStartMs())
     ? { executed: false, reason: 'tavily_first_time_budget' }
+    // 🔴 AGENT1-AUDIT-WS2 § 3 — la guarda de tiempo vale en TODO camino, no sólo
+    // tras Tavily + Apollo: sin margen no se empieza (ni se reserva) Lusha. La
+    // caducidad de reservas NO se toca aquí: simplemente no se reserva sin tiempo.
+    : !canStartLushaAfterTavilyFirst(elapsedSinceActionStartMs())
+    ? { executed: false, reason: 'lusha_no_time' }
     : deps.runLushaWaterfallLeg
     ? await deps.runLushaWaterfallLeg({
         wizardClientRequestId: req.clientRequestId,
@@ -2930,7 +3176,9 @@ export async function executeProspectWizardGeneration(
         // ya pagadas esperando evaluación gratuita, su cuenta de útiles puede
         // subir sola, y comprar en Lusha contra ese hueco sería pagar por un
         // hueco que quizá se cierra sin gastar nada.
-        apolloPendingContinuation: readApolloAssessmentDeadlineReached(pipelineResult),
+        // AGENT1-AUDIT-WS2 § 5 — salvo que la pausa NO se pudiera encolar: nadie
+        // la retomará y lo evaluado ya se escribió.
+        apolloPendingContinuation: readApolloContinuationPending(pipelineResult),
       })
     : { executed: false, reason: 'waterfall_flag_disabled' };
 
@@ -3007,8 +3255,17 @@ export async function executeProspectWizardGeneration(
     ),
     lushaWriterTruth,
   ).acceptedForTargetTotal;
+  const claudeLegEnabled = deps.resolveClaudeSearchLeg?.() === true;
+  // AGENT1-AUDIT-WS2 § F — el tope de entrega también vale para Claude: si el lote
+  // ya está lleno, lo que Claude encontrara no cabría y se pagaría igual. Sólo se
+  // cuenta si el paso podría correr y hay tope configurado.
+  const claudeDeliveryCap = claudeLegEnabled ? resolveMaxDeliveredCandidates() : null;
+  const claudeLotReviewable =
+    claudeDeliveryCap !== null && deps.countReviewableCandidates
+      ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+      : null;
   const claudeLegDecision = decideClaudeSearchLeg({
-    enabled: deps.resolveClaudeSearchLeg?.() === true,
+    enabled: claudeLegEnabled,
     tavilyFirstSatisfied,
     target: acceptedAfterApollo.requestedTarget,
     acceptedSoFar: acceptedBeforeClaude,
@@ -3016,6 +3273,7 @@ export async function executeProspectWizardGeneration(
       deps.actionStartedAtMs === undefined
         ? null
         : (deps.nowMs ? deps.nowMs() : Date.now()) - deps.actionStartedAtMs,
+    lotAtDeliveryCap: isLotAtDeliveryCap(claudeLotReviewable, claudeDeliveryCap),
   });
   let claudeLeg: ClaudeSearchLegOutcome = claudeLegDecision.run
     ? { executed: false, reason: 'not_configured' }
@@ -3077,6 +3335,64 @@ export async function executeProspectWizardGeneration(
   );
 
   const hasNewCandidatesAfterAllLegs = finalDurableTotals.totalDurableCandidates > 0;
+
+  /**
+   * 🔴 AGENT1-AUDIT-WS2 § F — «Se generaron N candidatos disponibles para revisión»
+   * usa `candidateCount`, que es el universo DURABLE (CUT-6/7: incluye las filas
+   * `duplicate`/`discarded` que las piernas escriben). No se redefine aquí —lo fijan
+   * las guardas de CUT-6—: se publica APARTE lo que el vendedor puede revisar, para
+   * que la bandeja y el panel digan ese número. `null` = no se pudo contar.
+   */
+  const lotReviewableAtEnd = deps.countReviewableCandidates
+    ? await deps.countReviewableCandidates(reservedBatchId).catch(() => null)
+    : null;
+  const reviewableCandidateCount =
+    lotReviewableAtEnd === null
+      ? null
+      : Math.min(lotReviewableAtEnd, finalDurableTotals.totalDurableCandidates);
+
+  // ── AGENT1-AUDIT-WS2 §§ 2, D — Apollo no arrancó: nadie selló el lote ────────
+  //
+  // Ningún escritor de proveedor pasó por aquí, así que el lote sigue en `draft`
+  // (o `generating` si se reabrió). Se sella con la misma máquina de CUT-1 que usan
+  // los escritores, contando lo que el lote ya tiene (capa gratuita, Lusha, Claude).
+  if (apolloNotStarted !== null && deps.sealFreeOnlyBatchStatus) {
+    const sealDecision = resolveBatchTerminalStatusDecision({
+      preExisting: durableCandidatesFromCount(finalDurableTotals.totalDurableCandidates),
+      persistedCandidates: 0,
+      persistenceFailureCount: 0,
+    });
+    if (sealDecision.action === 'write') {
+      await deps
+        .sealFreeOnlyBatchStatus({
+          batchId: reservedBatchId,
+          status: sealDecision.status,
+          // Con Lusha o Claude escritos, la aceptación combinada la publica la traza
+          // de abajo; sólo con lo gratuito, la publica este sellado (CUT-8B).
+          metadata:
+            lushaWaterfall.executed || claudeLeg.executed ? null : freeOnlyAcceptedForTargetMetadata(),
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  // AGENT1-AUDIT-WS2 § D — sin cuota de Apollo y sin que nada más aportara, el
+  // resultado es el de siempre: el bloqueo de cuota, con su copy.
+  if (apolloQuotaBlocked !== null && finalDurableTotals.totalDurableCandidates === 0) {
+    return {
+      ok: false,
+      code: 'BUDGET_EXCEEDED',
+      message: 'La cuota disponible del proveedor de búsqueda (Apollo) se agotó.',
+      retryable: false,
+      runProvider: runProviderOutcome,
+      budgetExceeded: {
+        reason: apolloQuotaBlocked.providerCreditsAvailable <= 0 ? 'exhausted' : 'insufficient_for_run',
+        availableCredits: apolloQuotaBlocked.providerCreditsAvailable,
+        requiredCredits: requestedCredits,
+      },
+      ...describeFreeContribution(),
+    };
+  }
 
   // 🔴 CUT-7 §§ 1, 9 — el objetivo se decide con la autoridad de ACEPTACIÓN, y
   // con ninguna otra.
@@ -3235,6 +3551,8 @@ export async function executeProspectWizardGeneration(
         published: {
           [LUSHA_WATERFALL_LEG_METADATA_KEY]: waterfallLegTrace.lushaWaterfallLeg,
           ...(tavilyFirstOutcome ? { tavily_first_leg: tavilyFirstOutcome } : {}),
+          // AGENT1-AUDIT-WS2 §§ 2, D — por qué Apollo no arrancó, si no arrancó.
+          ...(apolloNotStarted !== null ? { apollo_not_started: apolloNotStarted } : {}),
           // AGENT1-FREE-LAYER-RESCUE-FIRST-1 — cuántas sin web del buscador gratuito
           // volvieron con web antes de Tavily (para medir si saltarse Tavily conviene).
           ...(freeLayerRescueFirst ? { free_layer_rescue_first: freeLayerRescueFirst } : {}),
@@ -3281,6 +3599,8 @@ export async function executeProspectWizardGeneration(
     // 🔴 CUT-6 § 14 — el conteo COMBINADO. Sin aporte gratuito es idéntico a
     // `pipelineResult.candidatesCreated`.
     candidateCount: finalDurableTotals.totalDurableCandidates,
+    // AGENT1-AUDIT-WS2 § F — lo revisable (sin duplicadas ni descartadas).
+    ...(reviewableCandidateCount !== null ? { reviewableCandidateCount } : {}),
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
     targetReached,
@@ -3310,6 +3630,12 @@ export async function executeProspectWizardGeneration(
     // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
     runProvider: runProviderOutcome,
     ...(tavilyFirstOutcome ? { tavilyFirst: tavilyFirstOutcome } : {}),
+    // AGENT1-AUDIT-WS2 §§ 2, D — Apollo no arrancó (sin cuota o sin tiempo).
+    ...(apolloNotStarted !== null
+      ? { apolloNotStarted }
+      : tavilyFirstOutcome?.outcome === 'apollo_unavailable'
+        ? { apolloNotStarted: { reason: 'quota_exhausted' as const } }
+        : {}),
     claudeSearchLeg: claudeLeg,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
@@ -3319,6 +3645,29 @@ export async function executeProspectWizardGeneration(
     // también cuando todo fue bien: la UI resuelve la causa de mayor prioridad a
     // partir de estas cifras en vez de inferirla de un conteo.
     ...(persistenceOutcome !== null ? { persistenceOutcome } : {}),
+  };
+}
+
+/**
+ * AGENT1-AUDIT-WS2 §§ 2, D — el resultado de un tramo de Apollo que NO arrancó
+ * (sin cuota o sin tiempo): cero filas, cero gasto, mismo lote. Existe para que el
+ * resto de la corrida (Lusha, Claude, la autoridad final) siga por el camino de
+ * siempre en vez de abortar. La causa viaja en la metadata y en `warnings`.
+ */
+function buildApolloNotStartedPipelineResult(
+  batchId: string,
+  reason: 'quota_exhausted' | 'no_time',
+): IncrementalSearchOutput {
+  return {
+    input: {} as IncrementalSearchOutput['input'],
+    candidates: [],
+    candidatesCount: 0,
+    usefulCandidatesCount: 0,
+    candidatesCreated: 0,
+    metadata: { apollo_not_started: reason } as unknown as IncrementalSearchOutput['metadata'],
+    warnings: [`apollo_not_started:${reason}`],
+    batchId,
+    targetReached: false,
   };
 }
 
@@ -3368,12 +3717,14 @@ function buildApolloContinuationOutcome(
   pipelineResult: IncrementalSearchOutput | null | undefined,
 ): {
   apolloContinuation?: { enqueued: boolean; pendingOrganizationCount: number };
+  apolloContinuationFailure?: { pendingOrganizationCount: number; reason: string };
 } {
   const outcome = pipelineResult as
     | {
         assessmentDeadlineReached?: unknown;
         pendingOrganizationCount?: unknown;
         continuationEnqueued?: unknown;
+        continuationEnqueueFailure?: unknown;
       }
     | null
     | undefined;
@@ -3389,9 +3740,25 @@ function buildApolloContinuationOutcome(
   // pausa. Declararla con otra regla aquí sería tener dos definiciones de pausa.
   if (!paused || pending === 0) return {};
 
+  // 🔴 AGENT1-AUDIT-WS2 § 5 — «en pausa» SÓLO si de verdad quedó encolada. Antes
+  // el bloque viajaba con `enqueued: false` y la bandeja y el chat (que miran si
+  // el bloque existe) pintaban «en pausa» para siempre una corrida que nadie iba
+  // a retomar.
+  if (outcome.continuationEnqueued !== true) {
+    return {
+      apolloContinuationFailure: {
+        pendingOrganizationCount: pending,
+        reason:
+          typeof outcome.continuationEnqueueFailure === 'string'
+            ? outcome.continuationEnqueueFailure
+            : 'continuation_not_enqueued',
+      },
+    };
+  }
+
   return {
     apolloContinuation: {
-      enqueued: outcome.continuationEnqueued === true,
+      enqueued: true,
       pendingOrganizationCount: pending,
     },
   };
