@@ -86,6 +86,10 @@ import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 // `organizations[]`, taxonomía de errores y lectura de cuota real.
 import { searchApolloOrganizationsPage } from '@/server/integrations/apollo-client';
 import {
+  APOLLO_PAGE_REQUEST_TIMEOUT_MS,
+  raceApolloOperationTimeout,
+} from '../apollo-organizations-operation-timeout';
+import {
   runApolloOrganizationsPaginatedSearch,
   type ApolloPageFetchResult,
   type ApolloPageLogEntry,
@@ -758,6 +762,13 @@ export type ApolloOrgsSearchOptions = {
   durablePageFence?: ApolloPaginatedSearchDeps['durableFence'];
   /** Estado durable conocido de esta ronda/plan de búsqueda. Ver el módulo de paginación. */
   durableResume?: ApolloDurableResumeState;
+  /**
+   * WS6 · F — tope de tiempo de CADA petición de página del transporte real.
+   * La modalidad de dos rondas lo deriva del plazo de la invocación
+   * (`runDeadline.operationTimeoutMs`). Ausente ⇒
+   * `APOLLO_PAGE_REQUEST_TIMEOUT_MS`. Un tope vencido es cobro indeterminado.
+   */
+  pageRequestTimeoutMs?: number;
 };
 
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
@@ -1102,7 +1113,14 @@ export async function runApolloOrganizationsSearch(
     deps?.fetchPage
       ?? (deps?.searchOrgs
         ? async (body) => adaptSearchOrgsToPage(await deps.searchOrgs!(body as never))
-        : (body) => searchApolloOrganizationsPage(body));
+        // WS6 · F — el transporte real lleva tope de tiempo. Vencido, la carrera
+        // rechaza con `TimeoutError` y la búsqueda paginada lo trata como
+        // petición enviada sin respuesta: cobro indeterminado, sin reintento.
+        : (body) =>
+            raceApolloOperationTimeout(
+              searchApolloOrganizationsPage(body),
+              options?.pageRequestTimeoutMs ?? APOLLO_PAGE_REQUEST_TIMEOUT_MS,
+            ));
 
   const paginated = await runApolloOrganizationsPaginatedSearch(
     {

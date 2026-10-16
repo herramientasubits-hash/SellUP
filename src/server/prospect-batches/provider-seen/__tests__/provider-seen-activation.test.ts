@@ -99,6 +99,13 @@ function createClientDouble(options: {
           if (options.throwOn === 'select') throw new Error('conexión caída');
           return { data: options.rows ?? null, error: options.selectError ?? null };
         },
+        // WS6 · A — la carga con alcance de país (la que usa el gate) pagina con
+        // `range`: el tamaño de la página es el tope de la carga.
+        async range(from: number, to: number) {
+          call.limit = to - from + 1;
+          if (options.throwOn === 'select') throw new Error('conexión caída');
+          return { data: options.rows ?? null, error: options.selectError ?? null };
+        },
       };
       return builder;
     },

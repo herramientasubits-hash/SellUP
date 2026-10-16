@@ -61,6 +61,13 @@ export type PaidBranchStopReason =
   /** La página pagada no devolvió ni una fila. Pedir otra relee el mismo vacío. */
   | 'page_empty'
   /**
+   * WS6 · E — la página pagada vino CORTA (menos filas que el tamaño pedido): el
+   * proveedor ya entregó todo lo que tenía para esta consulta y la siguiente
+   * vendría vacía. En Lusha una petición vacía cuesta 1 crédito igual, así que
+   * pedirla era pagar por nada.
+   */
+  | 'page_short'
+  /**
    * El PROVEEDOR declaró que no queda más que paginar, con una señal FIABLE.
    *
    * 🔴 Hoy ningún llamador la alimenta, y es deliberado. La única candidata en la
@@ -105,6 +112,12 @@ export type PaidPageNoveltyState = {
    * y no saberlo nunca para. Ver `provider_reported_exhaustion`.
    */
   providerReportedExhaustion?: boolean;
+  /**
+   * WS6 · E — tamaño de página PEDIDO. Presente ⇒ una página con menos filas
+   * crudas que éste cierra la rama (`page_short`). Ausente ⇒ comportamiento
+   * previo (sólo el vacío cierra).
+   */
+  requestedPageSize?: number;
 };
 
 /**
@@ -125,6 +138,13 @@ export function decidePaidPageContinuation(
   const raw = Number.isFinite(state.rawFromPage) ? Math.trunc(state.rawFromPage) : 0;
 
   if (raw <= 0) return { continueBranch: false, stopReason: 'page_empty' };
+  if (
+    typeof state.requestedPageSize === 'number' &&
+    Number.isFinite(state.requestedPageSize) &&
+    raw < Math.trunc(state.requestedPageSize)
+  ) {
+    return { continueBranch: false, stopReason: 'page_short' };
+  }
   if (state.providerReportedExhaustion === true) {
     return { continueBranch: false, stopReason: 'provider_reported_exhaustion' };
   }

@@ -67,6 +67,8 @@ export type RecordLushaProviderUsageInput = {
   run: {
     status: 'success' | 'empty' | 'error';
     creditsChargedTotal: number | null;
+    /** WS6 · F6 — importe de liquidación; ausente ⇒ `creditsChargedTotal`. */
+    settlementCreditsTotal?: number | null;
     resultsReturned: number | null;
     rawResultsTotal: number | null;
     pagesRequested: number | null;
@@ -140,6 +142,9 @@ export async function recordLushaRunProviderUsage(
     const credits = decideLushaUsageCredits({
       creditsReserved: input.creditsReserved,
       creditsChargedTotal: input.run.creditsChargedTotal,
+      ...(input.run.settlementCreditsTotal !== undefined
+        ? { creditsForSettlement: input.run.settlementCreditsTotal }
+        : {}),
       settlement: input.settlement,
       decideCreditsToConfirm: decideLushaCreditsToConfirm,
     });

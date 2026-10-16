@@ -104,7 +104,21 @@ export type LushaProspectingSearchCriteria = {
   subIndustryId?: number | null;
   sizeBandKey?: string | null;
   searchText?: string | null;
+  /**
+   * WS6 · F10 — versión de la exclusión de dominios con la que corre la
+   * búsqueda (`LUSHA_DOMAIN_EXCLUSION_SIGNATURE_VERSION`), o `null`/ausente sin
+   * exclusión. La firma alimenta el CURSOR de páginas: sin esto, el historial de
+   * páginas de una consulta SIN filtro se aplicaba a la misma consulta CON
+   * `exclude.domains`, cuyas páginas son otras. Es una VERSIÓN, no un hash de la
+   * lista: la lista cambia en cada corrida y un hash reiniciaría el cursor (y la
+   * identidad de operación) siempre. Sin exclusión la carga canónica no cambia
+   * byte a byte, así que las firmas existentes siguen valiendo.
+   */
+  domainExclusionVersion?: string | null;
 };
+
+/** WS6 · F10 — versión de la exclusión de dominios que entra en la firma. */
+export const LUSHA_DOMAIN_EXCLUSION_SIGNATURE_VERSION = 'exclude_domains_v1' as const;
 
 /** Texto libre → forma estable. Sin esto «Bogotá  SAS» y «bogotá sas» divergirían. */
 function normalizeFreeText(value: string | null | undefined): string | null {
@@ -167,6 +181,10 @@ export function buildLushaOperationSignaturePayload(
         : null,
     sizeBandKey: normalizeFreeText(criteria.sizeBandKey),
     searchText: normalizeFreeText(criteria.searchText),
+    // WS6 · F10 — sólo cuando hay exclusión: sin ella, la carga es la de siempre.
+    ...(normalizeKey(criteria.domainExclusionVersion) !== null
+      ? { domainExclusionVersion: normalizeKey(criteria.domainExclusionVersion) }
+      : {}),
   };
 }
 
@@ -253,7 +271,31 @@ export type LushaProspectingOperationStore = {
     identity: LushaProspectingOperationIdentity,
   ) => Promise<LushaOperationClaimResult>;
   complete: (operationId: string) => Promise<LushaOperationCompleteResult>;
+  /**
+   * WS6 · D — cierra una operación SIN RESOLVER que nació antes de
+   * `createdBefore` (ver `LUSHA_OPERATION_STALE_AFTER_MS`). Opcional: ausente ⇒
+   * comportamiento previo (la operación bloquea para siempre).
+   */
+  expireStaleUnresolved?: (input: {
+    operationId: string;
+    createdBefore: string;
+  }) => Promise<{ status: 'expired' | 'not_stale' | 'failed' }>;
 };
+
+/**
+ * WS6 · D — antigüedad a partir de la cual una operación `open` /
+ * `reconciliation_required` se considera MUERTA.
+ *
+ * El defecto que cierra: el índice único parcial de la migración 135 deja como
+ * máximo UNA operación sin resolver por (vendedor, firma) y nada la concilia, así
+ * que un timeout de página bloqueaba PARA SIEMPRE a ese vendedor en ese país ×
+ * macro. Ningún proceso vive 24 h (Vercel corta en minutos): pasado ese plazo
+ * no hay corrida viva que duplicar. Las peticiones sin liquidar de la operación
+ * muerta SIGUEN en la valla de peticiones y el cursor de páginas las trata como
+ * consumidas, así que reabrir la búsqueda no vuelve a pedir esas páginas. No
+ * toca reservas ni presupuesto.
+ */
+export const LUSHA_OPERATION_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 // ─── Resolución ───────────────────────────────────────────────────────────────
 
@@ -300,6 +342,8 @@ export async function resolveLushaProspectingOperation(args: {
   criteria: LushaProspectingSearchCriteria;
   /** TRAZA de correlación. No participa en la identidad. */
   clientRequestId: string | null;
+  /** Reloj inyectable (ms). Ausente ⇒ `Date.now`. */
+  now?: () => number;
 }): Promise<LushaOperationResolution> {
   let actorScope: string;
   let signatureHash: string;
@@ -339,6 +383,33 @@ export async function resolveLushaProspectingOperation(args: {
         code: LUSHA_OPERATION_UNAVAILABLE_CODE,
       },
     };
+  }
+
+  // WS6 · D — una operación sin resolver MUERTA (más vieja que el plazo seguro)
+  // se cierra y se vuelve a reclamar UNA vez. Cualquier fallo ⇒ se bloquea como
+  // antes (fail-closed).
+  if (
+    claim.status === 'resumed_unresolved' &&
+    claim.operationId !== '' &&
+    args.store.expireStaleUnresolved
+  ) {
+    const nowMs = (args.now ?? Date.now)();
+    try {
+      const expired = await args.store.expireStaleUnresolved({
+        operationId: claim.operationId,
+        createdBefore: new Date(nowMs - LUSHA_OPERATION_STALE_AFTER_MS).toISOString(),
+      });
+      if (expired.status === 'expired') {
+        claim = await args.store.claimOrResume({
+          actorScope,
+          signatureVersion: LUSHA_OPERATION_SIGNATURE_VERSION,
+          signatureHash,
+          clientRequestId: args.clientRequestId,
+        });
+      }
+    } catch {
+      // Se conserva el `resumed_unresolved` original: bloquea.
+    }
   }
 
   if (claim.status === 'created') {

@@ -64,6 +64,11 @@ import {
   ENRICHMENT_WORST_CASE_MS,
   PERSISTENCE_WORST_CASE_MS,
 } from './run-deadline';
+// WS6 · F — tope de tiempo por operación de red de Apollo (página y enrichment).
+import {
+  APOLLO_PAGE_REQUEST_TIMEOUT_MS,
+  raceApolloOperationTimeout,
+} from '../apollo-organizations-operation-timeout';
 import {
   buildProspectingPipelineCandidate,
   buildSummary,
@@ -2207,6 +2212,9 @@ export async function runApolloTwoRoundWizardDiscovery(
 
       const searchOptionsWithFence: ApolloOrgsSearchOptions = {
         ...searchOptions,
+        // WS6 · F — cada página espera como mucho lo que la invocación todavía
+        // puede darle sin comerse el margen de salida.
+        pageRequestTimeoutMs: runDeadline.operationTimeoutMs(APOLLO_PAGE_REQUEST_TIMEOUT_MS),
         durableResume,
         durablePageFence: {
           beforeRequest: async ({ page, requestFingerprint }) => {
@@ -2689,7 +2697,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       let observedOutcome: ApolloEnrichmentBillingOutcome | null = null;
       const instrumentedEnrichOrg: typeof enrichApolloOrganization = async (params) => {
         try {
-          const enrichResult = await deps.enrichOrganization(params);
+          // WS6 · F — tope de tiempo derivado del plazo de la invocación. Vencido,
+          // `raceApolloOperationTimeout` rechaza con `TimeoutError` y el `catch`
+          // de abajo lo clasifica como cobro INDETERMINADO (pudo cobrarse).
+          const enrichResult = await raceApolloOperationTimeout(
+            deps.enrichOrganization(params),
+            runDeadline.operationTimeoutMs(ENRICHMENT_WORST_CASE_MS),
+          );
           observedOutcome = classifyApolloEnrichmentBillingOutcome({
             success: enrichResult.success === true,
             matched: enrichResult.success === true && enrichResult.data !== undefined,
@@ -2697,7 +2711,10 @@ export async function runApolloTwoRoundWizardDiscovery(
           });
           return enrichResult;
         } catch (err) {
-          observedOutcome = classifyApolloEnrichmentBillingOutcome({ threw: true });
+          observedOutcome = classifyApolloEnrichmentBillingOutcome({
+            threw: true,
+            timedOut: err instanceof Error && err.name === 'TimeoutError',
+          });
           throw err;
         }
       };
