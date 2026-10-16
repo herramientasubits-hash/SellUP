@@ -85,6 +85,10 @@ async function replaceSource(client: SupabaseClient, rows: readonly (CoPublicEnt
 function printNitCollisions(collisions: readonly NitCollisionReport[]): void {
   console.log(`  NIT compartidos por entidades distintas en el SIGEP: ${collisions.length}`);
   for (const c of collisions) {
+    if (c.resolution === 'correccion_manual') {
+      console.log(`    ${c.nit} CORRECCIÓN MANUAL: ${c.name} (${c.workers})${c.movedTo ? ` → ${c.movedTo}` : ' se descarta'} · ${c.reason}`);
+      continue;
+    }
     if (c.resolution === 'sin_resolver') {
       console.log(`    ${c.nit} SIN RESOLVER (${c.reason}) · CHIP «${c.chipName ?? '—'}» · ${c.names.join(' | ')}`);
       continue;

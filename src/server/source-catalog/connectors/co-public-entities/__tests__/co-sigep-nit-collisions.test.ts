@@ -105,3 +105,34 @@ describe('resolveSigepNitCollisions', () => {
     assert.deepEqual(collisions, []);
   });
 });
+
+describe('correcciones manuales (errores de captura verificados)', () => {
+  it('el Ejército capturado con el NIT de Superservicios sale de esa fila', () => {
+    const facts = [
+      fact('800250984', 'SUPERINTENDENCIA DE SERVICIOS PUBLICOS DOMICILIARIOS', 824),
+      fact('800250984', 'EJERCITO NACIONAL DE COLOMBIA', 4497, false),
+    ];
+    const { assignment, collisions } = resolveSigepNitCollisions({
+      facts,
+      ...chipMaps([['800250984', 'SUPERINTENDENCIA DE SERVICIOS PUBLICOS DOMICILIARIOS']]),
+    });
+    assert.deepEqual(assignment, ['800250984', null]);
+    assert.equal(collisions.length, 1);
+    const [report] = collisions;
+    assert.equal(report.resolution, 'correccion_manual');
+    if (report.resolution === 'correccion_manual') {
+      assert.equal(report.workers, 4497);
+      assert.equal(report.movedTo, null);
+    }
+  });
+
+  it('con otro NIT, o sin esa entidad, no se toca nada', () => {
+    const other = resolveSigepNitCollisions({
+      facts: [fact('899999003', 'EJERCITO NACIONAL DE COLOMBIA', 10, false)],
+      ...chipMaps([['899999003', 'MINISTERIO DE DEFENSA NACIONAL']]),
+    });
+    assert.deepEqual(other.assignment, ['899999003']);
+    assert.deepEqual(other.collisions, []);
+  });
+});
+
