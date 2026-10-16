@@ -11,6 +11,13 @@
  * 🔴 No compra páginas, no crea presupuesto y no autoriza gasto: sólo termina de
  * evaluar —gratis— organizaciones que una búsqueda ya pagada dejó pendientes.
  *
+ * 🔴 AGENT1-AUDIT-WS1 — pero la cascada que corre al terminar SÍ puede llamar a
+ * Lusha, y hasta este corte el cron nunca había corrido en Producción (el proxy
+ * lo mandaba a /login). Por eso reanudar exige `ENABLE_AGENT1_APOLLO_CRON_CONTINUATION`
+ * con el token exacto `true`; apagada (por defecto) responde `skipped: 'flag_off'`
+ * sin tocar la base. Además procesa UN trabajo por invocación y el barrido de
+ * corridas trabadas corre siempre, aunque la continuación falle.
+ *
  * ── 🔴 Frecuencia: la impone el PLAN, no el diseño ───────────────────────────
  *
  * El proyecto vive en un plan de Vercel que sólo admite crons DIARIOS (y dos por
@@ -37,8 +44,16 @@ import {
 import { runApolloRoundContinuationWorkerFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { closeStuckAgentRuns } from '@/modules/prospect-batches/stuck-runs/stuck-runs.server';
+import {
+  isAgent1ApolloCronContinuationEnabled,
+  pickNextClaimableContinuationBatchId,
+  type ContinuationPickClient,
+} from '@/modules/prospect-batches/apollo-continuation-cron';
 
 export const dynamic = 'force-dynamic';
+// AGENT1-AUDIT-WS1 — el conductor se da 240 s de presupuesto; sin esto la función
+// moría antes con el límite por defecto y el trabajo quedaba «en proceso».
+export const maxDuration = 300;
 
 async function handleCronRequest(request: NextRequest) {
   try {
@@ -52,9 +67,38 @@ async function handleCronRequest(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const stats = await runApolloRoundContinuationWorkerFromEnv();
-    // AGENT1-STUCK-RUNS-CLOSE-1 — después de retomar, cerrar lo que quedó trabado.
-    const stuck = await closeStuckAgentRuns(createSupabaseAdminClient());
+    // AGENT1-AUDIT-WS1 — bandera fail-closed: abrir el proxy no enciende el gasto.
+    // Apagada, se responde sin tocar la base.
+    if (!isAgent1ApolloCronContinuationEnabled()) {
+      return NextResponse.json({ success: true, skipped: 'flag_off' });
+    }
+
+    const client = createSupabaseAdminClient();
+    let stats: Awaited<ReturnType<typeof runApolloRoundContinuationWorkerFromEnv>> | null = null;
+    let workerFailed = false;
+    let stuck: Awaited<ReturnType<typeof closeStuckAgentRuns>> | null = null;
+    try {
+      // UN trabajo por invocación: el reclamo suma un intento a todo lo que toma,
+      // así que tomar tres y morir en el segundo le quitaba un intento al tercero.
+      const batchId = await pickNextClaimableContinuationBatchId(client as unknown as ContinuationPickClient);
+      if (batchId) {
+        stats = await runApolloRoundContinuationWorkerFromEnv({ batchId, limit: 1, client });
+      }
+    } catch (err) {
+      workerFailed = true;
+      console.error('[CronApolloContinuation] Exception during worker execution:', err);
+    } finally {
+      // AGENT1-STUCK-RUNS-CLOSE-1 — el barrido corre SIEMPRE, también si la
+      // continuación falló: es justo cuando más falta cerrar lo trabado. Nunca lanza.
+      stuck = await closeStuckAgentRuns(client);
+    }
+
+    if (workerFailed) {
+      return NextResponse.json(
+        { error: 'Error interno durante la continuación de rondas', stuck },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({ success: true, stats, stuck });
   } catch (err) {
     console.error('[CronApolloContinuation] Exception during worker execution:', err);

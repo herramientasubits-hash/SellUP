@@ -46,6 +46,14 @@ export async function proxy(request: NextRequest) {
 //   api/cron/enrich                                  → job programado (CRON_SECRET)
 //   api/cron/phone-reveal-recovery                   → job programado (CRON_SECRET)
 //   api/cron/claude-rescue-continuation              → vuelta del rescate con Claude (CRON_SECRET)
+//   api/cron/apollo-round-continuation               → continuación de rondas de Apollo (CRON_SECRET;
+//                                                      además la bandera ENABLE_AGENT1_APOLLO_CRON_CONTINUATION)
+//   api/cron/post-approval-nit-enrich                → enriquecimiento oficial post-aprobación (CRON_SECRET)
+//
+// AGENT1-AUDIT-WS1 — los dos últimos faltaban: `apollo-round-continuation` está en
+// `vercel.json` y cada disparo diario recibía 307 → /login sin llegar al handler.
+// `src/__tests__/proxy-cron-matcher-coverage.test.ts` falla si un cron de
+// `vercel.json` o una carpeta de `src/app/api/cron/` queda fuera de esta lista.
 //
 // Cada exclusión termina en `(?:$|/)`, así que abre EXACTAMENTE ese endpoint (y sus
 // subrutas) y no sus vecinos por prefijo: excluir `…/phone-reveal/webhook` no
@@ -53,6 +61,6 @@ export async function proxy(request: NextRequest) {
 // expone un cron nuevo de nombre parecido.
 export const config = {
   matcher: [
-    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|api/cron/apollo-round-continuation(?:$|/)|api/cron/post-approval-nit-enrich(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
