@@ -183,7 +183,13 @@ export function storedSmallSizeDiscard(
 ): Extract<RescueDecision, { kind: 'discard' }> | null {
   const gate = metadata?.icp_size_gate as { size_status?: unknown; decision?: unknown } | undefined;
   const status = typeof gate?.size_status === 'string' ? gate.size_status : 'unknown';
-  if (status.startsWith('confirmed') || status.startsWith('estimated') || gate?.decision === 'pass') return null;
+  // AUDIT-A1-WS7 — un tamaño que sólo salió del snippet de búsqueda no es «de otro proveedor».
+  const richSize = (metadata?.rich_profile as { size?: { employee_size_resolution?: { selected_source?: unknown } } } | undefined)
+    ?.size;
+  const fromSnippetOnly = richSize?.employee_size_resolution?.selected_source === 'source_snippet';
+  if (!fromSnippetOnly && (status.startsWith('confirmed') || status.startsWith('estimated') || gate?.decision === 'pass')) {
+    return null;
+  }
   const range = (metadata?.claude_classification as { employee_range?: unknown } | undefined)?.employee_range as
     | { min?: unknown; max?: unknown; verification?: unknown; confidence?: unknown; quote?: unknown; source_url?: unknown }
     | null

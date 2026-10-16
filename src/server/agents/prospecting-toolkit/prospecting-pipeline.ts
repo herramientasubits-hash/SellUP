@@ -53,6 +53,7 @@ import {
   type PreLLMFilterSummary,
 } from './pre-llm-result-filter';
 import { isSentenceOrPhraseName } from './noise-filter';
+import { stripEmployeeCountClaims } from './employee-size-text-parser';
 import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
 import { evaluateCountryEvidence } from './country-evidence-gate';
 import { captureApolloCompanyFields } from './apollo-company-fields-mapping';
@@ -1015,7 +1016,13 @@ export async function buildProspectingPipelineCandidate(
       // `agent1-apollo-null-domain-identity.test.ts` vigila esa frontera.
       sourceUrl: result.url,
       sourceTitle: result.title,
-      sourceSnippet: result.snippet ?? null,
+      // AUDIT-A1-WS7 — el «snippet» de Claude busca empresas es texto que escribió
+      // el modelo: sus cifras de empleados no son fuente de tamaño (el perfil las
+      // leía con regex y decidían el gate ICP). Se quitan sólo esas frases.
+      sourceSnippet:
+        result.source === 'claude_web_search'
+          ? stripEmployeeCountClaims(result.snippet ?? null)
+          : (result.snippet ?? null),
       // AGENT1-SUPPLIER-SEARCH-1 — la URL de Claude es la portada; la página que
       // prueba la relación viaja en la metadata del resultado y se conserva aquí.
       relationshipEvidence: readRelationshipEvidence(result),
