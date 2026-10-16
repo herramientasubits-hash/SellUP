@@ -18,6 +18,11 @@
  *   · con más de 7 días abierto se cierra (`stale_abandoned`): nadie lo espera;
  *   · un lote «generando» sin movimiento por 30 minutos y sin continuación
  *     abierta se cierra: a revisión si tiene empresas, fallido si no.
+ *   · AGENT1-AUDIT-WS1 — lo mismo para un lote del Agente 1 que sigue en
+ *     «borrador»: el asistente reserva el lote en `draft` y el camino de Apollo
+ *     no lo mueve hasta escribir, así que una corrida que murió antes de
+ *     escribir dejaba el lote en borrador para siempre. Sólo `source = agent_1`:
+ *     los borradores manuales no son corridas y no se tocan.
  */
 
 /** Minutos sin movimiento tras los que un lote «generando» se da por detenido. */
@@ -73,6 +78,33 @@ export function stuckBatchFinalStatus(candidateCount: number): 'ready_for_review
 /** ¿Este lote «generando» lleva demasiado sin moverse? */
 export function isBatchIdle(input: { status: string; updatedAt: string | null; nowMs: number }): boolean {
   if (input.status !== 'generating' || input.updatedAt === null) return false;
+  const updated = Date.parse(input.updatedAt);
+  return Number.isFinite(updated) && input.nowMs - updated >= STUCK_BATCH_IDLE_MINUTES * 60_000;
+}
+
+/** Origen de los lotes del Agente 1: los únicos cuyos borradores son corridas. */
+export const AGENT1_BATCH_SOURCE = 'agent_1';
+
+/** Estados de lote que una corrida trabada puede dejar abiertos. */
+export const STUCK_BATCH_OPEN_STATUSES = ['generating', 'draft'] as const;
+
+/**
+ * ¿Puede el cierre de corridas trabadas tocar un lote en este estado? «Generando»
+ * siempre; «borrador» sólo si es del Agente 1 (un borrador manual no es una corrida).
+ */
+export function isClosableStuckBatchStatus(input: { status: string; source: string | null | undefined }): boolean {
+  if (input.status === 'generating') return true;
+  return input.status === 'draft' && input.source === AGENT1_BATCH_SOURCE;
+}
+
+/** ¿Este borrador del Agente 1 lleva demasiado sin moverse? Mismo umbral que «generando». */
+export function isDraftAgentBatchIdle(input: {
+  status: string;
+  source: string | null | undefined;
+  updatedAt: string | null;
+  nowMs: number;
+}): boolean {
+  if (input.status !== 'draft' || input.source !== AGENT1_BATCH_SOURCE || input.updatedAt === null) return false;
   const updated = Date.parse(input.updatedAt);
   return Number.isFinite(updated) && input.nowMs - updated >= STUCK_BATCH_IDLE_MINUTES * 60_000;
 }

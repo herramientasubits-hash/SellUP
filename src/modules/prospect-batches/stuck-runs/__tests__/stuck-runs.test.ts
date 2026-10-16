@@ -120,6 +120,7 @@ function fakeClient(tables: Tables) {
       eq: (col: string, value: unknown) => (filters.push((r) => r[col] === value), api),
       in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(r[col])), api),
       lt: (col: string, value: string) => (filters.push((r) => String(r[col]) < value), api),
+      is: (col: string, value: unknown) => (filters.push((r) => (r[col] ?? null) === value), api),
       order: () => api,
       limit: (n: number) => ((limit = n), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
@@ -147,7 +148,11 @@ function world() {
     ],
     prospect_batches: [
       { id: 'b-ar', status: 'generating', updated_at: iso(60 * MIN), metadata: { keep: 1 } },
-      { id: 'b-mx', status: 'draft', updated_at: iso(8 * DAY), metadata: {} },
+      { id: 'b-mx', status: 'draft', source: 'agent_1', updated_at: iso(8 * DAY), metadata: {} },
+      // Borrador manual viejo: no es una corrida, nunca se toca.
+      { id: 'b-manual', status: 'draft', source: 'manual', updated_at: iso(8 * DAY), metadata: {} },
+      // Borrador del Agente 1 recién reservado: la corrida puede estar en marcha.
+      { id: 'b-draft-fresh', status: 'draft', source: 'agent_1', updated_at: iso(2 * MIN), metadata: {} },
       { id: 'b-live', status: 'generating', updated_at: iso(60 * MIN), metadata: {} },
       { id: 'b-idle-empty', status: 'generating', updated_at: iso(45 * MIN), metadata: {} },
       { id: 'b-fresh', status: 'generating', updated_at: iso(2 * MIN), metadata: {} },
@@ -176,11 +181,17 @@ describe('barrido automático (closeStuckAgentRuns)', () => {
     assert.equal(batches['b-ar'].status, 'ready_for_review', 'lo encontrado pasa a revisión');
     assert.deepEqual((batches['b-ar'].metadata as Row).keep, 1, 'la metadata previa se conserva');
     assert.equal(((batches['b-ar'].metadata as Row).stuck_run_close as Row).reason, 'max_attempts_exceeded');
-    assert.equal(batches['b-mx'].status, 'draft', 'sólo se cierran lotes «generando»');
+    // AGENT1-AUDIT-WS1 — antes este caso fijaba el DEFECTO («sólo se cierran lotes
+    // generando»): el asistente reserva en borrador y el camino de Apollo no lo
+    // mueve hasta escribir, así que el lote de MX quedaba en borrador para siempre.
+    assert.equal(batches['b-mx'].status, 'failed', 'borrador del Agente 1 quieto y sin empresas: se cierra');
+    assert.equal(((batches['b-mx'].metadata as Row).stuck_run_close as Row).reason, 'stale_abandoned');
+    assert.equal(batches['b-manual'].status, 'draft', 'un borrador manual no es una corrida');
+    assert.equal(batches['b-draft-fresh'].status, 'draft', 'recién reservado: no se toca');
     assert.equal(batches['b-live'].status, 'generating', 'su continuación sigue viva');
     assert.equal(batches['b-idle-empty'].status, 'failed', 'quieto y sin empresas');
     assert.equal(batches['b-fresh'].status, 'generating', 'se mueve: no se toca');
-    assert.deepEqual(result, { closedJobs: 2, closedBatches: 2 });
+    assert.deepEqual(result, { closedJobs: 2, closedBatches: 3 });
   });
 
   it('nunca lanza aunque la base falle', async () => {
