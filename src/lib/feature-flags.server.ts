@@ -1175,9 +1175,9 @@ export const HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG = 'ENABLE_HUBSPOT_FREE_POOL_
 /**
  * Al APROBAR una empresa que estaba libre en HubSpot, ¿la toma el vendedor de SellUp
  * en HubSpot? Decisión de la dueña (15-10): dueño = vendedor, estado de lead «New»
- * (deja de verse libre y el ciclo de 120 días vuelve a empezar), Fecha Asignación =
- * hoy, y los contactos de la empresa pasan al vendedor (salvo los de otro vendedor
- * activo). Antes de escribir se vuelve a comprobar que siga libre; si alguien la tomó
+ * (deja de verse libre y el ciclo de 120 días vuelve a empezar) y los contactos de
+ * la empresa pasan al vendedor (salvo los de otro vendedor activo). HubSpot pone solo
+ * la Fecha Asignación al cambiar el dueño. Antes de escribir se vuelve a comprobar que siga libre; si alguien la tomó
  * por HubSpot, no se toca.
  *
  * Es ESCRITURA en HubSpot de Producción: requiere autorización explícita de la dueña

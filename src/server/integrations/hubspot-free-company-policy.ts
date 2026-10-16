@@ -201,13 +201,16 @@ export function hubSpotMacroIndustryValue(macroIndustryKey: string | null | unde
  */
 export const HUBSPOT_CLAIMED_LEAD_STATUS = 'New';
 
-/** Propiedades de la empresa al tomarla: dueño, estado de lead y Fecha Asignación. */
-export function buildHubSpotClaimProperties(newOwnerId: string, now: Date): Record<string, string> {
+/**
+ * Propiedades de la empresa al tomarla: dueño y estado de lead.
+ *
+ * 🔴 «Fecha Asignación» NO se escribe: un flujo de HubSpot la pone en la fecha de hoy
+ * cada vez que cambia el dueño (medido el 15-10: AUTOMATION_PLATFORM, 3 s después).
+ */
+export function buildHubSpotClaimProperties(newOwnerId: string): Record<string, string> {
   return {
     hubspot_owner_id: newOwnerId,
     hs_lead_status: HUBSPOT_CLAIMED_LEAD_STATUS,
-    // «Fecha Asignación»: la última asignación del owner cuando no es Cliente.
-    fecha_asignacion: now.toISOString().slice(0, 10),
   };
 }
 
