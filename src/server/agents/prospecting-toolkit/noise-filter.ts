@@ -61,6 +61,7 @@
 
 import { stripWebHostPrefix } from './normalization';
 import type { WebSearchResult } from './types';
+import { readNationalPortalEntity } from './national-portal-entity';
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -513,8 +514,10 @@ type InstitutionalContentVerdict =
   | { kind: 'public_portal'; reason: string }
   | null;
 
-function classifyInstitutionalContent(domain: string): InstitutionalContentVerdict {
-  if (NATIONAL_GOVERNMENT_PORTAL_DOMAINS.has(domain.replace(/^www\./, ''))) {
+function classifyInstitutionalContent(domain: string, url: string): InstitutionalContentVerdict {
+  // AUDIT-A1-WS7 — `gob.pe/minsa`, `gob.mx/sep`, `argentina.gob.ar/salud`… son una
+  // entidad (ruta del portal), no el portal: no se descartan aquí.
+  if (NATIONAL_GOVERNMENT_PORTAL_DOMAINS.has(domain.replace(/^www\./, '')) && !readNationalPortalEntity(url)) {
     return { kind: 'public_portal', reason: `Portal nacional del Estado (${domain}) — agrupa entidades, no es una` };
   }
   if (domainMatchesSet(domain, PUBLIC_PROCUREMENT_DOMAINS)) {
@@ -900,7 +903,7 @@ export function isProspectableCompanyResult(result: {
 
   // 3b. AGENT1-TAVILY-V2-1 § 2 — el dominio de gobierno o de educación YA NO
   // descarta: la institución es cliente. Sólo sale el documento o el portal.
-  const institutionalContent = classifyInstitutionalContent(domain);
+  const institutionalContent = classifyInstitutionalContent(domain, result.url);
   if (institutionalContent) {
     return {
       isProspectable: false,
@@ -1259,7 +1262,7 @@ export function classifySearchResult(result: {
   // 9b. AGENT1-TAVILY-V2-1 § 2 — antes: `.gov.co`/`.gob.co` ⇒ descarte. Las
   // entidades del Estado SÍ son clientes de UBITS; sólo sale el documento o el
   // portal de datos/contratación.
-  const institutionalContent = classifyInstitutionalContent(domain);
+  const institutionalContent = classifyInstitutionalContent(domain, result.url);
   if (institutionalContent) {
     return {
       resultType: institutionalContent.kind === 'academic_document' ? 'academic_source' : 'non_prospectable_source',

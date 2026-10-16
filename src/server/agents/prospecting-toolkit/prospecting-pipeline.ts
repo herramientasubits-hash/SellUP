@@ -54,6 +54,7 @@ import {
 } from './pre-llm-result-filter';
 import { isSentenceOrPhraseName } from './noise-filter';
 import { stripEmployeeCountClaims } from './employee-size-text-parser';
+import { readNationalPortalEntity } from './national-portal-entity';
 import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
 import { evaluateCountryEvidence } from './country-evidence-gate';
 import { captureApolloCompanyFields } from './apollo-company-fields-mapping';
@@ -836,11 +837,16 @@ export async function buildProspectingPipelineCandidate(
   // AGENT1-TAVILY-INSTITUTIONS-1 — un subportal de gobierno/educación es de su
   // institución: se usan su portada y su dominio.
   const institutionHost = isApolloResult || declaredWebsite === null ? null : institutionParentHost(normalizeDomain(declaredWebsite));
+  // AUDIT-A1-WS7 — un ministerio que vive como ruta del portal nacional
+  // (`gob.pe/minsa`) conserva esa ruta como sitio: la portada del portal no es él.
+  const portalEntity = isApolloResult ? null : readNationalPortalEntity(declaredWebsite);
   const website = isApolloResult
     ? declaredWebsite
-    : institutionHost
-      ? `https://${institutionHost}/`
-      : toHomepageUrl(declaredWebsite);
+    : portalEntity
+      ? portalEntity.website
+      : institutionHost
+        ? `https://${institutionHost}/`
+        : toHomepageUrl(declaredWebsite);
   const domain = declaredWebsite === null ? null : (institutionHost ?? normalizeDomain(declaredWebsite));
   // Sin sitio declarado no hay URL de la que inferir un nombre: inferirlo del
   // perfil de Apollo produciría «Apollo» para cualquier organización sin dominio.
@@ -1113,12 +1119,41 @@ export function toHomepageUrl(url: string | null): string | null {
 //     es del Ministerio de Educación).
 // Sólo para resultados web (no Apollo) y sólo en dominios de gobierno o educación.
 
-/** `x.gob.ec`, `x.gov.co`, `x.edu.ec`, `x.mil.ec` (3 etiquetas) o `x.gov`, `x.edu` (2). */
+/**
+ * `x.gob.ec`, `x.gov.co`, `x.gub.uy`, `x.go.cr`, `x.edu.ec`, `x.ac.cr`, `x.mil.ec`
+ * (3 etiquetas) o `x.gov`, `x.edu` (2).
+ *
+ * AUDIT-A1-WS7 — `gub` (Uruguay) y `go` (Costa Rica) faltaban: sus sitios de
+ * gobierno no se reconocían como institución. `ac` = académico (ucr.ac.cr), igual
+ * que `edu`.
+ */
 function institutionHostLabels(host: string): number {
-  if (/\.(gob|gov|edu|mil)\.[a-z]{2}$/.test(host)) return 3;
+  if (/\.(gob|gov|gub|go|edu|ac|mil)\.[a-z]{2}$/.test(host)) return 3;
   if (/\.(gov|edu|mil)$/.test(host)) return 2;
   return 0;
 }
+
+/** ¿Es un sitio académico (`edu` / `ac`)? Sus subdominios son facultades o portales de la misma institución. */
+function isAcademicHost(host: string): boolean {
+  return /\.(edu|ac)\.[a-z]{2}$/.test(host) || /\.edu$/.test(host);
+}
+
+/**
+ * AUDIT-A1-WS7 — primeras etiquetas que nombran un SUBPORTAL (un servicio de la
+ * institución), no otra institución. En gobierno sólo éstas se colapsan: «dmv.ca.gov»
+ * y «cdph.ca.gov» son agencias distintas (no «ca.gov»), «metro.cdmx.gob.mx» no es
+ * «cdmx.gob.mx». Así los portales estatales (`<estado>.gov`, `<estado>.gob.mx`) se
+ * comportan como sufijo público sin tener que listarlos.
+ */
+const INSTITUTION_SUBPORTAL_LABELS = new Set([
+  'www', 'www1', 'www2', 'www3', 'web', 'web2', 'portal', 'portales', 'sitio', 'sitioweb', 'm', 'mobile',
+  'admision', 'admisiones', 'inscripciones', 'tramites', 'tramite', 'tramitesenlinea', 'sede', 'sedeelectronica',
+  'servicios', 'servicio', 'serviciosenlinea', 'enlinea', 'ventanilla', 'ventanillaunica', 'ventanillavirtual',
+  'citas', 'turnos', 'consultas', 'pagos', 'pqrs', 'pqrsd', 'transparencia', 'contratacion', 'contrataciones',
+  'convocatorias', 'empleo', 'empleos', 'intranet', 'extranet', 'campus', 'campusvirtual', 'aulavirtual',
+  'virtual', 'moodle', 'biblioteca', 'blog', 'noticias', 'prensa', 'app', 'apps', 'login', 'sso', 'correo',
+  'mail', 'webmail', 'static', 'cdn', 'files', 'archivos', 'repositorio', 'datos', 'estadisticas',
+]);
 
 /** ¿Es un sitio de gobierno o educación? */
 export function isInstitutionHost(domain: string | null | undefined): boolean {
@@ -1129,6 +1164,11 @@ export function isInstitutionHost(domain: string | null | undefined): boolean {
  * La institución dueña de un SUBPORTAL de gobierno o educación:
  * «admision.educacion.gob.ec» → «educacion.gob.ec». `null` si ya es la institución
  * o no es un sitio de gobierno/educación.
+ *
+ * AUDIT-A1-WS7 — en GOBIERNO sólo se quitan las primeras etiquetas que son un
+ * subportal conocido (`INSTITUTION_SUBPORTAL_LABELS`); cualquier otra etiqueta es
+ * otra entidad y se conserva («dmv.ca.gov» se queda). En EDUCACIÓN se sigue
+ * colapsando a la institución (facultades y portales de la misma universidad).
  */
 export function institutionParentHost(domain: string | null | undefined): string | null {
   if (!domain) return null;
@@ -1136,7 +1176,11 @@ export function institutionParentHost(domain: string | null | undefined): string
   const keep = institutionHostLabels(host);
   if (keep === 0) return null;
   const labels = host.split('.');
-  return labels.length > keep ? labels.slice(-keep).join('.') : null;
+  if (labels.length <= keep) return null;
+  if (isAcademicHost(host)) return labels.slice(-keep).join('.');
+  let start = 0;
+  while (labels.length - start > keep && INSTITUTION_SUBPORTAL_LABELS.has(labels[start])) start++;
+  return start === 0 ? null : labels.slice(start).join('.');
 }
 
 /** ¿El «nombre» es en realidad una dirección («www.supercias.gob.ec», «ibarra.gob.»)? */
