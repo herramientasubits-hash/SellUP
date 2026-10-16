@@ -29,12 +29,12 @@
  * Verificado contra el registro de Producción el 16-10-2026 (consulta SQL equivalente
  * a `scripts/agent1/verify-co-entity-aliases.ts`): 85 de 87 resolvieron a su NIT.
  * Quedaron fuera las dos que no:
- *   · Ministerio de Salud (MinSalud): su NIT choca en el SIGEP con el del Ministerio
- *     del Trabajo («8301152263» = 830115226 + un dígito) y en el registro cargado el
- *     nombre resuelve a OTRA entidad (900474727). Una sigla que lleva a la entidad
- *     equivocada es lo único realmente dañino.
+ *   · Ministerio de Salud (MinSalud): la tabla traía el NIT del SIGEP (830115226), que el
+ *     SIGEP capturó por error con el del Ministerio del Trabajo; el registro cargado y
+ *     SECOP II usan 900474727. Ya corregida (17-10-2026): vuelve con 900474727 y la
+ *     carga del registro separa ahora esos NIT repetidos (co-sigep-nit-collisions.ts).
  *   · INPEC: el registro tiene dos candidatas con ese nombre y ninguna cabeza, así
- *     que el paso no correría igual.
+ *     que el paso no correría igual. Sigue fuera.
  *
  * Para agregar una: la sigla debe ser de USO COMÚN y apuntar a UNA sola entidad;
  * correr `scripts/agent1/verify-co-entity-aliases.ts` (sólo lectura) y comprobar que resuelve a
@@ -54,6 +54,7 @@ export type CoEntityAlias = {
 
 export const CO_PUBLIC_ENTITY_ALIASES: readonly CoEntityAlias[] = [
   { aliases: ['MINHACIENDA', 'MHCP'], officialName: 'MINISTERIO DE HACIENDA Y CREDITO PUBLICO', nit: '899999090' },
+  { aliases: ['MINSALUD'], officialName: 'MINISTERIO DE SALUD Y PROTECCION SOCIAL', nit: '900474727' },
   { aliases: ['MINEDUCACION'], officialName: 'MINISTERIO DE EDUCACION NACIONAL', nit: '899999001' },
   { aliases: ['MINTIC'], officialName: 'MINISTERIO DE TECNOLOGIAS DE LA INFORMACION Y LAS COMUNICACIONES', nit: '899999053' },
   { aliases: ['MININTERIOR'], officialName: 'MINISTERIO DEL INTERIOR', nit: '830114475' },

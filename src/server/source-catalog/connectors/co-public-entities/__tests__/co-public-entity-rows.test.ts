@@ -230,5 +230,17 @@ describe('NIT compartido por entidades distintas en el SIGEP (MinSalud / MinTrab
     const rows = buildCoPublicEntityRows([chip({})], [sigep({})]);
     assert.deepEqual(buildCoPublicEntityRowsWithReport([chip({})], [sigep({})]).rows, rows);
   });
+
+  it('Superservicios no suma los servidores del Ejército capturado con su NIT', () => {
+    const rows = buildCoPublicEntityRows(
+      [chip({ nit: '800250984:6', razon_social: 'Superintendencia de Servicios Públicos Domiciliarios', ciudad: 'BOGOTA' })],
+      [
+        sigep({ nit: '800250984', nombre_de_la_entidad: 'SUPERINTENDENCIA DE SERVICIOS PUBLICOS DOMICILIARIOS', naturaleza_jur_dica: 'SUPERINTENDENCIA', genero_hombre: '386', genero_mujer: '438' }),
+        sigep({ nit: '8002509846', nombre_de_la_entidad: 'EJERCITO NACIONAL DE COLOMBIA 1', naturaleza_jur_dica: 'ESPECIAL', genero_hombre: '1807', genero_mujer: '2690' }),
+      ],
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].raw_data.workers, 824);
+  });
 });
 

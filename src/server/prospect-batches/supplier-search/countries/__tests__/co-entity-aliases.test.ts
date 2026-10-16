@@ -49,6 +49,9 @@ describe('resolveCoEntityAlias', () => {
       'UNIDAD ADMINISTRATIVA ESPECIAL DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES',
     );
     assert.equal(resolveCoEntityAlias('MinHacienda'), 'MINISTERIO DE HACIENDA Y CREDITO PUBLICO');
+    // El NIT del SIGEP (830115226) era el del Ministerio del Trabajo: el correcto es el de SECOP II.
+    assert.equal(resolveCoEntityAlias('MinSalud'), 'MINISTERIO DE SALUD Y PROTECCION SOCIAL');
+    assert.equal(CO_PUBLIC_ENTITY_ALIASES.find((e) => e.aliases.includes('MINSALUD'))?.nit, '900474727');
     assert.equal(resolveCoEntityAlias('Supersociedades'), 'SUPERINTENDENCIA DE SOCIEDADES');
   });
 
@@ -121,7 +124,7 @@ describe('integridad de la tabla curada', () => {
   });
 
   it('las entidades con NIT sucio, o que no resolvieron bien en Producción, quedaron fuera a propósito', () => {
-    for (const alias of ['MINTRABAJO', 'MINSALUD', 'INPEC', 'MINVIVIENDA', 'MINDEFENSA', 'DPS', 'EJERCITO', 'ARMADA', 'UPTC']) {
+    for (const alias of ['MINTRABAJO', 'INPEC', 'MINVIVIENDA', 'MINDEFENSA', 'DPS', 'EJERCITO', 'ARMADA', 'UPTC']) {
       assert.equal(findCoEntityAlias(alias), null, alias);
     }
   });

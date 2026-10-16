@@ -20,7 +20,10 @@
  * antes y se informa.
  *
  * Fuera de alcance a propósito: entidades que no son «cabeza» (concejo, personería,
- * fuerzas militares bajo el NIT del Ministerio de Defensa…) conviven con su NIT.
+ * fuerzas militares bajo el NIT del Ministerio de Defensa…) conviven con su NIT. La única
+ * excepción es una lista corta de errores de captura verificados a mano
+ * (`MISCAPTURED_SIGEP_ENTITIES`): el Ejército figura con el NIT de la Superintendencia de
+ * Servicios Públicos y le sumaba ~4.500 servidores.
  *
  * Puro: sin env, sin I/O, sin DB, sin reloj.
  */
@@ -44,6 +47,14 @@ export type NitCollisionDropped = {
 export type NitCollisionReport =
   | {
       nit: string;
+      resolution: 'correccion_manual';
+      name: string;
+      workers: number;
+      movedTo: string | null;
+      reason: string;
+    }
+  | {
+      nit: string;
       resolution: 'resuelto';
       chipName: string;
       kept: string;
@@ -57,6 +68,19 @@ export type NitCollisionReport =
       reason: 'sin_nombre_chip' | 'ninguna_concuerda' | 'varias_concuerdan';
       names: string[];
     };
+
+/**
+ * Entidades que el SIGEP captura con el NIT de OTRA, verificadas a mano contra el CHIP y la
+ * entidad real. No son «cabeza contra cabeza», así que la regla general no las ve. Agregar
+ * una exige evidencia (qué dice el CHIP para ese NIT) y se informa en cada carga.
+ */
+export const MISCAPTURED_SIGEP_ENTITIES: ReadonlyArray<{ nit: string; nameKey: string; reason: string }> = [
+  {
+    nit: '800250984',
+    nameKey: 'EJERCITO NACIONAL DE COLOMBIA',
+    reason: 'el SIGEP lo captura como «8002509846» (NIT de la Superintendencia de Servicios Públicos + su dígito); el CHIP dice que 800250984 es de la Superintendencia',
+  },
+];
 
 /** Palabras que no identifican a la entidad: clase de entidad, artículos y preposiciones. */
 const NON_IDENTIFYING = new Set([
@@ -102,16 +126,35 @@ export type NitCollisionResult = {
 export function resolveSigepNitCollisions(input: NitCollisionInput): NitCollisionResult {
   const { facts, chipNameByNit, chipNitsByName } = input;
   const assignment: (string | null)[] = facts.map((f) => f.nit);
+  const collisions: NitCollisionReport[] = [];
+  const allNits = new Set(facts.map((f) => f.nit));
+  const isManual = (fact: SigepNitFact) => MISCAPTURED_SIGEP_ENTITIES.some((m) => m.nit === fact.nit && m.nameKey === fact.nameKey);
+  for (const manual of MISCAPTURED_SIGEP_ENTITIES) {
+    const indexes = facts.flatMap((f, i) => (f.nit === manual.nit && f.nameKey === manual.nameKey ? [i] : []));
+    if (indexes.length === 0) continue;
+    const homes = chipNitsByName.get(manual.nameKey);
+    const home = homes !== undefined && homes.size === 1 ? [...homes][0] : null;
+    const target = home !== null && home !== manual.nit && !allNits.has(home) ? home : null;
+    for (const i of indexes) assignment[i] = target;
+    collisions.push({
+      nit: manual.nit,
+      resolution: 'correccion_manual',
+      name: manual.nameKey,
+      workers: indexes.reduce((sum, i) => sum + facts[i].workers, 0),
+      movedTo: target,
+      reason: manual.reason,
+    });
+  }
   const byNit = new Map<string, Map<string, number[]>>();
   facts.forEach((fact, index) => {
+    if (isManual(fact)) return;
     const names = byNit.get(fact.nit) ?? new Map<string, number[]>();
     names.set(fact.nameKey, [...(names.get(fact.nameKey) ?? []), index]);
     byNit.set(fact.nit, names);
   });
-  const sigepNits = new Set(byNit.keys());
+  const sigepNits = allNits;
   const workersOf = (indexes: readonly number[]) => indexes.reduce((sum, i) => sum + facts[i].workers, 0);
 
-  const collisions: NitCollisionReport[] = [];
   for (const [nit, names] of [...byNit].sort(([a], [b]) => a.localeCompare(b))) {
     const heads = [...names].filter(([, indexes]) => indexes.some((i) => facts[i].head));
     if (heads.length < 2) continue;
