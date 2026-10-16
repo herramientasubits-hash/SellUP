@@ -98,6 +98,17 @@ export async function claimFreePoolCompanyForSeller(input: {
     hubspotCompanyId: input.link.hubspotCompanyId,
     newOwnerId: decision.hubspotOwnerId,
   });
+  if (claim.abortedReason) {
+    // AGENT1-AUDIT-WS4 — comprobada justo antes de escribir, ya no estaba libre
+    // (o no se pudo saber): no se cambió el dueño ni los contactos.
+    return {
+      ...base,
+      owner_written: false,
+      owner_skip_reason: claim.abortedReason,
+      taken_reason_now: claim.takenReasonNow,
+      previous_owner_id: claim.previousOwnerId,
+    };
+  }
   return {
     ...base,
     owner_written: claim.companyWritten,

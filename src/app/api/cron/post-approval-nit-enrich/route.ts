@@ -9,6 +9,9 @@ import {
 import { runPostApprovalNitEnrichmentWorker } from '@/server/prospect-batches/post-approval-nit-enrichment-worker';
 
 export const dynamic = 'force-dynamic';
+// AGENT1-AUDIT-WS1 — cada candidato consulta varias fuentes oficiales en serie;
+// con el límite por defecto la función podía morir a mitad de un lote.
+export const maxDuration = 300;
 
 const DEFAULT_LIMIT = 5;
 const MAX_ALLOWED_LIMIT = 20;

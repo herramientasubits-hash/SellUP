@@ -4,7 +4,7 @@
  * Industria por UNSPSC (tabla aprobada); trabajadores y web de SUNAT.
  */
 
-import { normalizePublicEntityName } from '../public-buyer-suppliers';
+import { isConsortiumSupplierName, normalizePublicEntityName } from '../public-buyer-suppliers';
 import { UNSPSC_CLASSIFIER } from '../unspsc-classifier';
 import type { LoadedCountrySource } from './types';
 
@@ -22,9 +22,6 @@ const COMPANY_RUC = /^20\d{9}$/;
 const PUBLIC_ENTITY_NAME =
   /^(MUNICIPALIDAD|MINISTERIO|GOBIERNO REGIONAL|HOSPITAL|RED DE SALUD|RED ASISTENCIAL|DIRECCION|UNIDAD EJECUTORA|INSTITUTO NACIONAL|INSTITUTO REGIONAL|UNIVERSIDAD NACIONAL|SUPERINTENDENCIA|PROGRAMA NACIONAL|PROGRAMA DE|PROYECTO ESPECIAL|SEGURO SOCIAL|ORGANISMO|AUTORIDAD|SERVICIO NACIONAL|CENTRO NACIONAL|CORTE SUPERIOR|PODER JUDICIAL|MINISTERIO PUBLICO|CONTRALORIA|DEFENSORIA|JURADO NACIONAL|OFICINA NACIONAL|REGISTRO NACIONAL|FONDO NACIONAL|COMISION NACIONAL|CONGRESO|PRESIDENCIA|EJERCITO|MARINA DE GUERRA|FUERZA AEREA|POLICIA NACIONAL|BENEFICENCIA|SOCIEDAD DE BENEFICENCIA|CAJA DE PENSIONES|ZONA REGISTRAL|GERENCIA REGIONAL|ARCHIVO GENERAL|BIBLIOTECA NACIONAL|INSTITUTO GEOLOGICO|INSTITUTO DEL MAR|INSTITUTO PERUANO)\b/;
 
-/** Consorcios: unión temporal, no la empresa a prospectar (muchos sin RUC propio). */
-const CONSORTIUM_NAME = /^\s*["'«]?\s*CONSORCIO\b/;
-
 /** «PE-RUC-20512831983» / «20512831983» → RUC de 11 dígitos, o `null`. */
 export function parsePeRuc(raw: unknown): string | null {
   const text = typeof raw === 'string' ? raw.trim().toUpperCase().replace(/^PE-RUC-/, '') : '';
@@ -35,7 +32,8 @@ export function parsePeRuc(raw: unknown): string | null {
 export function isPeCompanySupplier(ruc: string, name: string): boolean {
   if (!COMPANY_RUC.test(ruc)) return false;
   const upper = normalizePublicEntityName(name);
-  return !CONSORTIUM_NAME.test(upper) && !PUBLIC_ENTITY_NAME.test(upper);
+  // Consorcios: unión temporal, no la empresa a prospectar (regla común del paso).
+  return !isConsortiumSupplierName(name) && !PUBLIC_ENTITY_NAME.test(upper);
 }
 
 export const PE_COUNTRY: LoadedCountrySource = {

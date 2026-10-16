@@ -210,6 +210,12 @@ export type WizardApolloInput = {
    * A diferencia de `priorProviderSeen`, ÉSTOS sí viajan en la petición.
    */
   excludedDomains?: readonly string[] | null;
+  /**
+   * AGENT1-AUDIT-WS2 § 1 — inicio de la ACCIÓN del asistente (`Date.now()`), para
+   * que el plazo de Apollo descuente lo que ya corrió antes (capa gratuita, banco,
+   * Tavily, Claude). Ausente ⇒ Apollo cuenta desde que arranca, como antes.
+   */
+  invocationStartedAtMs?: number | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -314,7 +320,12 @@ export async function runWizardApolloSearch(
       resultDemand: input.resultDemand ?? null,
       priorProviderSeen: input.priorProviderSeen ?? null,
       excludedDomains: input.excludedDomains ?? null,
-    });
+    },
+    // AGENT1-AUDIT-WS2 § 1 — el plazo es de la invocación, no de esta etapa. Va
+    // FUERA del input (que se encola como `run_input`) para que una continuación
+    // no herede este instante.
+    undefined,
+    { startedAtMs: input.invocationStartedAtMs ?? null });
   }
 
   return runner({

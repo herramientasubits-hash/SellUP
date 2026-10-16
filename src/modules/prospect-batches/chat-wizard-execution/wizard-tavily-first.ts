@@ -80,8 +80,20 @@ export type TavilyFirstOutcome =
   | { outcome: 'satisfied'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily dejó pocas: Apollo completó en la misma corrida. */
   | { outcome: 'apollo_completed'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
-  /** Tras Claude quedaron pocas y ya no había tiempo para Apollo: se entrega lo que hay. */
-  | { outcome: 'short_no_time'; reviewable: number; reviewableBeforeClaude: number; claudeReviewed: true; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
+  /**
+   * Quedaron pocas y ya no había tiempo para Apollo: se entrega lo que hay.
+   *
+   * AGENT1-AUDIT-WS2 § 2 — antes sólo se miraba el reloj si Claude había revisado;
+   * sin revisión Apollo arrancaba aunque hubieran pasado 200 s. Ahora vale en todo
+   * camino, así que `claudeReviewed` puede ser `false` y los conteos `null`.
+   */
+  | { outcome: 'short_no_time'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
+  /**
+   * AGENT1-AUDIT-WS2 § D — Tavily dejó pocas y Apollo NO puede correr (cuota del
+   * proveedor agotada): se entrega lo de Tavily y siguen Lusha y Claude, que no
+   * dependen de la cuota de Apollo. Antes la corrida moría antes de Tavily.
+   */
+  | { outcome: 'apollo_unavailable'; reason: 'quota_exhausted'; reviewable: number | null; reviewableBeforeClaude: number | null; claudeReviewed: boolean; target: number; acceptedAfterClaude?: number | null; acceptedInLot?: number | null }
   /** Tavily no corrió; la corrida fue Apollo como siempre. */
   | { outcome: 'skipped'; skipReason: TavilyFirstSkipReason }
   /**
@@ -127,6 +139,31 @@ export function resolveTavilyFirstPrecheck(input: {
 export function tavilyOwnReviewable(lotReviewable: number | null, preExisting: number): number | null {
   if (lotReviewable === null) return null;
   return Math.max(0, lotReviewable - Math.max(0, preExisting));
+}
+
+/**
+ * AGENT1-AUDIT-WS2 § B — las aceptadas que aportó TAVILY, no las del lote.
+ *
+ * `listAcceptedCandidateIds` lee las filas `web_ai` del lote que cuentan, y el
+ * banco y la bolsa de HubSpot también escriben `web_ai`. Comparar ese conteo con el
+ * HUECO (lo que falta tras lo gratuito) contaba dos veces lo del banco: pedir 5,
+ * banco 2, Tavily 3 + 1 de Claude ⇒ «satisfecha» con 3/5 y Apollo, Lusha y Claude
+ * no corrían. Se descuentan las filas que el lote ya tenía ANTES de Tavily.
+ *
+ *   · `preExistingIds === undefined` ⇒ no se tomó la foto (dep ausente): lo de antes;
+ *   · `preExistingIds === null` ⇒ la foto falló: no se puede separar ⇒ `null`
+ *     (fail-closed: sin recuento, decide lo revisable de Tavily);
+ *   · `lotAcceptedIds === null` ⇒ `null`.
+ */
+export function tavilyOwnAcceptedIds(
+  lotAcceptedIds: readonly string[] | null,
+  preExistingIds: readonly string[] | null | undefined,
+): string[] | null {
+  if (lotAcceptedIds === null) return null;
+  if (preExistingIds === undefined) return [...lotAcceptedIds];
+  if (preExistingIds === null) return null;
+  const before = new Set(preExistingIds);
+  return lotAcceptedIds.filter((id) => !before.has(id));
 }
 
 export function isTavilyFirstSatisfied(reviewable: number | null, target: number): boolean {
@@ -236,33 +273,66 @@ export function withRecountedAcceptance(truth: WriterTruthLike, ids: readonly st
 // después de pagar Apollo. Antes de que Apollo complete, el lote vuelve a
 // `generating`; el escritor de Apollo lo deja otra vez en `ready_for_review`.
 
+/**
+ * AGENT1-AUDIT-WS2 § F — estados terminales que el escritor de Tavily puede dejar y
+ * que hay que reabrir para Apollo: `ready_for_review` (escribió filas), `completed`
+ * (0 filas) y `failed` (falló la escritura).
+ */
+export const REOPENABLE_FOR_APOLLO_STATUSES = ['ready_for_review', 'completed', 'failed'] as const;
+/** Estados en los que el escritor de Apollo YA acepta escribir (`candidate-writer.ts`). */
+export const APOLLO_WRITABLE_BATCH_STATUSES: readonly string[] = ['draft', 'generating'];
+
 /** Lo mínimo del cliente Supabase que usa la reapertura (inyectable en pruebas). */
 export type ReopenBatchClient = {
   from(table: 'prospect_batches'): {
     update(values: { status: 'generating' }): {
       eq(column: 'id', value: string): {
-        eq(column: 'status', value: 'ready_for_review'): PromiseLike<{ error: unknown }>;
+        in(
+          column: 'status',
+          values: readonly string[],
+        ): {
+          select(columns: 'id'): PromiseLike<{ data: unknown[] | null; error: unknown }>;
+        };
+      };
+    };
+    select(columns: 'status'): {
+      eq(column: 'id', value: string): {
+        maybeSingle(): PromiseLike<{ data: { status: string } | null; error: unknown }>;
       };
     };
   };
 };
 
 /**
- * Devuelve el lote a `generating` SÓLO si Tavily lo dejó en `ready_for_review`
- * (cualquier otro estado queda intacto: 0 filas no es error). `false` = la
- * escritura falló y Apollo no debe correr.
+ * Devuelve el lote a `generating` antes de Apollo. `true` SÓLO si el escritor de
+ * Apollo va a poder escribir: se reabrió, o ya estaba en `draft`/`generating`.
+ *
+ * 🔴 AGENT1-AUDIT-WS2 § F — antes sólo reabría desde `ready_for_review` y devolvía
+ * `true` aunque no tocara nada: con Tavily en 0 filas el lote quedaba `completed`,
+ * Apollo pagaba y su escritor rechazaba el lote (`BATCH_INCOMPATIBLE_STATUS`).
+ * `false` = no se pudo dejar escribible y Apollo no debe correr.
  */
 export async function reopenBatchForApolloAfterTavilyFirst(
   client: ReopenBatchClient,
   batchId: string,
 ): Promise<boolean> {
   try {
-    const { error } = await client
+    const { data, error } = await client
       .from('prospect_batches')
       .update({ status: 'generating' })
       .eq('id', batchId)
-      .eq('status', 'ready_for_review');
-    return !error;
+      .in('status', REOPENABLE_FOR_APOLLO_STATUSES)
+      .select('id');
+    if (error) return false;
+    if (Array.isArray(data) && data.length > 0) return true;
+    // No se tocó ninguna fila: sólo vale si el lote YA es escribible.
+    const { data: row, error: readError } = await client
+      .from('prospect_batches')
+      .select('status')
+      .eq('id', batchId)
+      .maybeSingle();
+    if (readError || !row) return false;
+    return APOLLO_WRITABLE_BATCH_STATUSES.includes(row.status);
   } catch {
     return false;
   }

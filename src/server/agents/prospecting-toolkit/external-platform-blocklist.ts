@@ -11,6 +11,8 @@
  * Se ejecuta ANTES del business-fit gate y ANTES del target cap.
  */
 
+import { isSharedPlatformHost } from './shared-hosts';
+
 export type ExternalPlatformType =
   | 'editorial_media'
   | 'forum_or_community'
@@ -311,6 +313,19 @@ export function evaluateExternalPlatformGate(
       allowed: false,
       platformType: 'unknown_external_platform',
       reason: `Non-candidate platform domain: ${domain}`,
+      matchedDomain: domain,
+    };
+  }
+
+  // ── 4. Hosts compartidos (AGENT1-SHARED-HOSTS-1) ──────────────────────────
+  // Google Sites, enlaces en bio, acortadores, constructores gratuitos y correo
+  // gratuito: la lista ÚNICA de `shared-hosts.ts`. Antes `sites.google.com`,
+  // `linktr.ee`, `business.site`, `wa.me` o `bit.ly` pasaban como «web propia».
+  if (isSharedPlatformHost(domain)) {
+    return {
+      allowed: false,
+      platformType: 'unknown_external_platform',
+      reason: `Shared platform host: ${domain}`,
       matchedDomain: domain,
     };
   }

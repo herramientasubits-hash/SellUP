@@ -108,6 +108,12 @@ export type ApolloContinuationWorkerDeps = {
   resumeRun: (input: {
     job: ApolloContinuationJob;
     checkpoint: ApolloContinuationCheckpointView;
+    /**
+     * AGENT1-AUDIT-WS2 § 1 — inicio del CONDUCTOR (reloj de `now`). El plazo de la
+     * corrida reanudada cuenta desde aquí: el segundo trabajo de una invocación no
+     * tiene 300 s, tiene lo que dejó el primero.
+     */
+    invocationStartedAtMs: number;
   }) => Promise<ApolloContinuationRunOutcome>;
   /** Cierra el trabajo. `resolution` viaja para que la cola sea auditable. */
   settleJob: (input: {
@@ -139,6 +145,13 @@ export type ApolloContinuationWorkerOptions = {
   workerId?: string;
   /** § 5 — acota el reclamo a un lote. Lo usa la continuación en sesión. */
   batchId?: string | null;
+  /**
+   * AGENT1-AUDIT-WS2 § 1 — límite duro de la invocación y hueco mínimo que un
+   * trabajo necesita para valer la pena. Un trabajo sólo EMPIEZA si al límite le
+   * quedan al menos `minJobRoomMs`; si no, vuelve a la cola intacto.
+   */
+  invocationLimitMs?: number;
+  minJobRoomMs?: number;
 };
 
 export type ApolloContinuationWorkerStats = {
@@ -164,6 +177,35 @@ export const APOLLO_CONTINUATION_DEFAULT_LOCK_MINUTES = 5;
  * su propio plazo. Ver § 6 para la aritmética completa.
  */
 export const APOLLO_CONTINUATION_TIME_BUDGET_MS = 240_000;
+
+/** Límite real de una invocación (el mismo que `RUNTIME_INVOCATION_LIMIT_MS`). */
+export const APOLLO_CONTINUATION_INVOCATION_LIMIT_MS = 300_000;
+
+/**
+ * AGENT1-AUDIT-WS2 § 1 — hueco mínimo para EMPEZAR un trabajo: una tanda de
+ * evaluación (18 s) + la escritura del lote (45 s) + el margen de salida (20 s),
+ * redondeado hacia arriba. Con menos, la corrida reanudada se pausaría al instante
+ * o, peor, Vercel la cortaría escribiendo. Antes el conductor sólo miraba sus
+ * 240 s, así que un segundo trabajo podía empezar a falta de 60 s del límite.
+ */
+export const APOLLO_CONTINUATION_MIN_JOB_ROOM_MS = 120_000;
+
+/**
+ * ¿Puede EMPEZAR otro trabajo? Puro. Exige las dos cosas: que el conductor no haya
+ * agotado su propio plazo y que al límite de la invocación le quede el hueco
+ * mínimo de un trabajo.
+ */
+export function canStartContinuationJob(input: {
+  elapsedMs: number;
+  timeBudgetMs: number;
+  invocationLimitMs?: number;
+  minJobRoomMs?: number;
+}): boolean {
+  if (input.elapsedMs >= input.timeBudgetMs) return false;
+  const limit = input.invocationLimitMs ?? APOLLO_CONTINUATION_INVOCATION_LIMIT_MS;
+  const room = input.minJobRoomMs ?? APOLLO_CONTINUATION_MIN_JOB_ROOM_MS;
+  return limit - input.elapsedMs >= room;
+}
 
 /**
  * ¿La identidad del trabajo es la del checkpoint?
@@ -193,6 +235,7 @@ export const APOLLO_CONTINUATION_MAX_ATTEMPTS_EXCEEDED = 'max_attempts_exceeded'
 async function resolveJob(
   job: ApolloContinuationJob,
   deps: ApolloContinuationWorkerDeps,
+  invocationStartedAtMs: number,
 ): Promise<{ resolution: ApolloContinuationJobResolution; errorCode?: string }> {
   // 🔴 AGENT1-STUCK-RUNS-CLOSE-1 — el reclamo suma un intento ANTES de que el
   // conductor lo vea y no mira el máximo. Una ejecución que Vercel corta por
@@ -252,7 +295,7 @@ async function resolveJob(
 
   let outcome: ApolloContinuationRunOutcome;
   try {
-    outcome = await deps.resumeRun({ job, checkpoint });
+    outcome = await deps.resumeRun({ job, checkpoint, invocationStartedAtMs });
   } catch (error) {
     return {
       resolution: job.attempts >= job.maxAttempts ? 'exhausted' : 'failed',
@@ -314,7 +357,17 @@ export async function runApolloRoundContinuationWorker(
   for (const job of jobs) {
     // Invariante 5 — el plazo se mira ANTES de empezar un trabajo. Uno ya
     // empezado se termina; uno no empezado vuelve a la cola intacto.
-    if (deps.now() - startedAt >= timeBudgetMs) {
+    // AGENT1-AUDIT-WS2 § 1 — y además tiene que caber: no basta con que el
+    // conductor no haya agotado sus 240 s, al límite de la invocación le tiene
+    // que quedar el hueco mínimo de un trabajo.
+    if (
+      !canStartContinuationJob({
+        elapsedMs: deps.now() - startedAt,
+        timeBudgetMs,
+        invocationLimitMs: options.invocationLimitMs,
+        minJobRoomMs: options.minJobRoomMs,
+      })
+    ) {
       stats.deferredForTime++;
       await deps.settleJob({
         jobId: job.id,
@@ -326,7 +379,7 @@ export async function runApolloRoundContinuationWorker(
       continue;
     }
 
-    const { resolution, errorCode } = await resolveJob(job, deps);
+    const { resolution, errorCode } = await resolveJob(job, deps, startedAt);
     const status = STATUS_BY_RESOLUTION[resolution];
     await deps.settleJob({
       jobId: job.id,
@@ -360,6 +413,19 @@ export async function runApolloRoundContinuationWorker(
 export function readApolloAssessmentDeadlineReached(output: unknown): boolean {
   if (typeof output !== 'object' || output === null) return false;
   return (output as { assessmentDeadlineReached?: unknown }).assessmentDeadlineReached === true;
+}
+
+/**
+ * AGENT1-AUDIT-WS2 § 5 — ¿queda trabajo de Apollo que ALGUIEN va a retomar?
+ *
+ * Igual que `readApolloAssessmentDeadlineReached`, salvo cuando el runner declara
+ * que la continuación NO se pudo encolar (`continuationEnqueued: false`): entonces
+ * nadie la retoma, la corrida ya escribió lo evaluado y Apollo es, de hecho,
+ * terminal. Tratarla como provisional bloqueaba a Lusha para siempre.
+ */
+export function readApolloContinuationPending(output: unknown): boolean {
+  if (!readApolloAssessmentDeadlineReached(output)) return false;
+  return (output as { continuationEnqueued?: unknown }).continuationEnqueued !== false;
 }
 
 /**
@@ -496,6 +562,39 @@ export function resolveContinuationCascadeInputs(
  * la del writer de ESTE intento. Sin ninguna de las dos ⇒ `null`: la cascada NO
  * corre, porque sin saber qué falta no se autoriza gasto.
  */
+/**
+ * AGENT1-AUDIT-WS2 §§ 3, 4 — Lusha tras una continuación sólo EMPIEZA si no han
+ * pasado más de esto desde el inicio del conductor (el mismo margen que la corrida
+ * en sesión deja a Lusha: `TAVILY_FIRST_LUSHA_START_LIMIT_MS`).
+ */
+export const APOLLO_CONTINUATION_LUSHA_START_LIMIT_MS = 200_000;
+
+export type ContinuationLushaSkipReason = 'skipped_no_time' | 'skipped_no_session';
+
+/**
+ * AGENT1-AUDIT-WS2 §§ 3, 4 — las dos condiciones que la cascada tras una
+ * continuación exige ANTES de llamar a Lusha. Puro.
+ *
+ *   · tiempo: la cascada corría hasta a los ~280 s, sin guarda; Vercel la cortaba
+ *     con la reserva de Lusha recién hecha;
+ *   · sesión: la acción de Lusha exige un usuario (`requireActiveUser`) y desde el
+ *     cron NO hay sesión: redirigía, la pierna salía `leg_failed` y nadie lo veía.
+ *     Sin sesión se salta A PROPÓSITO, con motivo, sin saltarse la autenticación.
+ *
+ * `null` ⇒ puede seguir hacia la decisión normal de la pierna.
+ */
+export function decideContinuationLushaPrecondition(input: {
+  elapsedMs: number;
+  hasUserSession: boolean;
+  startLimitMs?: number;
+}): ContinuationLushaSkipReason | null {
+  if (input.elapsedMs > (input.startLimitMs ?? APOLLO_CONTINUATION_LUSHA_START_LIMIT_MS)) {
+    return 'skipped_no_time';
+  }
+  if (!input.hasUserSession) return 'skipped_no_session';
+  return null;
+}
+
 export function resolveCascadeAcceptedForTarget(input: {
   durableAcceptedTotal: number | null | undefined;
   completeValidCandidates: number | null | undefined;

@@ -355,8 +355,14 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
       // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
       // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      '150_public_procurement_supplier_links.sql',
-      'el techo conocido es la 150: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF), la 147 (las dimensiones de las consultas a proveedores), la 148 (las asociaciones entre empresas de la búsqueda en árbol), la 149 (la forma de búsqueda del uso de IA desde la metadata del lote) y la 150 (quién le vende a cada entidad pública, de las compras públicas) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
+      // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+      // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+      // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+      // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+      // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
+      // de CUT3B4. AUTORADAS y NO APLICADAS.
+      '152_agent1_identity_claims_crosscheck.sql',
+      'el techo conocido es la 152: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF), la 147 (las dimensiones de las consultas a proveedores), la 148 (las asociaciones entre empresas de la búsqueda en árbol), la 149 (la forma de búsqueda del uso de IA desde la metadata del lote), la 150 (quién le vende a cada entidad pública, de las compras públicas), la 151 (el endurecimiento de claim_enrichment_jobs) y la 152 (el cruce NIT/dominio/LinkedIn de los reclamos de identidad) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
@@ -422,13 +428,16 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT1-SUPPLIER-SEARCH-CL-1 declara la 150 (`public_procurement_supplier_links`). Queda
       // AUTORIZADA y NOMBRADA como las anteriores, así que la ventana prohibida sube a la 151 y
       // superiores.
-      files.some((file) => /^15[1-9]/.test(file) || /^1[6-9]\d/.test(file)),
+      // AGENT1-AUDIT-HARDENING-1 declara la 151 (`claim_enrichment_jobs` sólo service_role) y la
+      // 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad). Quedan AUTORIZADAS y
+      // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 153 y superiores.
+      files.some((file) => /^15[3-9]/.test(file) || /^1[6-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 151 o superior',
+      'ninguna migración 153 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

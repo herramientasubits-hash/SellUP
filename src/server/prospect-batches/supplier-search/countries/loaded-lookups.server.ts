@@ -7,14 +7,29 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
 import { buyersFromLinks, suppliersFromLinks, type StoredProcurementLink } from '../procurement-links';
-import type { PublicBuyerStepDeps } from '../public-buyer-suppliers';
+import { PUBLIC_BUYER_MAX_SUPPLIERS, type PublicBuyerStepDeps, type PublicEntityLookup } from '../public-buyer-suppliers';
 import type { LoadedCountrySource } from './types';
 
 export const PROCUREMENT_LINKS_TABLE = 'public_procurement_supplier_links';
-/** Filas de compradores que se leen para reconocer la referencia. */
-const BUYER_QUERY_LIMIT = 200;
-/** Proveedores de la entidad que se leen (los de más monto). */
-const SUPPLIER_QUERY_LIMIT = 200;
+/**
+ * Filas por página al buscar la entidad. Cada entidad tiene MUCHAS filas (una por
+ * proveedor): se pagina por código de comprador saltando la entidad ya vista.
+ */
+export const BUYER_PAGE_SIZE = 200;
+/** Entidades distintas que se aceptan como candidatas; más ⇒ lista cortada ⇒ ambigua. */
+export const BUYER_CANDIDATE_LIMIT = 25;
+/** Páginas como mucho al buscar la entidad (sin terminar ⇒ lista cortada ⇒ ambigua). */
+export const BUYER_MAX_PAGES = 5;
+/** Proveedores de la entidad por página (de más a menos monto). */
+export const SUPPLIER_PAGE_SIZE = 200;
+/** Páginas como mucho de proveedores: 1.000 filas por entidad. */
+export const SUPPLIER_MAX_PAGES = 5;
+/**
+ * La industria se decide en JS (regla del 50 % o actividad oficial), DESPUÉS de leer: la
+ * tabla no tiene columna de industria. Se sigue leyendo hasta tener estos proveedores en
+ * la industria pedida (el paso ofrece 12; holgura para chicas y consorcios que saca).
+ */
+export const SUPPLIER_TARGET_IN_INDUSTRY = PUBLIC_BUYER_MAX_SUPPLIERS * 5;
 
 export type CountryLookups = Omit<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'>;
 
@@ -76,43 +91,85 @@ export function buildLoadedLinksLookups(
     return out;
   };
 
+  /**
+   * Entidades DISTINTAS cuyo nombre cumple el filtro, en orden fijo por código. Se pagina
+   * saltando la última entidad vista (`buyer_code > última`), así una entidad con miles de
+   * proveedores no tapa a las demás. Más de `BUYER_CANDIDATE_LIMIT` o páginas sin terminar
+   * ⇒ `truncated` (el paso no elige de una lista cortada). Error ⇒ `null`.
+   */
+  const distinctBuyers = async (filter: { op: 'eq' | 'like'; value: string }): Promise<PublicEntityLookup | null> => {
+    const seen: Array<Pick<StoredProcurementLink, 'buyer_code' | 'buyer_name_normalized'>> = [];
+    const codes = new Set<string>();
+    let after: string | null = null;
+    for (let page = 0; page < BUYER_MAX_PAGES; page++) {
+      let query = links().select('buyer_code, buyer_name_normalized').eq('country_code', country.countryCode).eq('source_key', country.sourceKey);
+      query = filter.op === 'eq' ? query.eq('buyer_name_normalized', filter.value) : query.like('buyer_name_normalized', filter.value);
+      if (after !== null) query = query.gt('buyer_code', after);
+      const { data, error } = await query.order('buyer_code', { ascending: true }).limit(BUYER_PAGE_SIZE);
+      if (error) {
+        logError(country.countryCode, 'find buyers', error);
+        return null;
+      }
+      const rows = (data ?? []) as Array<Pick<StoredProcurementLink, 'buyer_code' | 'buyer_name_normalized'>>;
+      for (const row of rows) {
+        if (codes.has(row.buyer_code)) continue;
+        codes.add(row.buyer_code);
+        seen.push(row);
+      }
+      if (codes.size > BUYER_CANDIDATE_LIMIT) return { rows: buyersFromLinks(seen).slice(0, BUYER_CANDIDATE_LIMIT), truncated: true };
+      if (rows.length < BUYER_PAGE_SIZE) return { rows: buyersFromLinks(seen), truncated: false };
+      after = rows[rows.length - 1].buyer_code;
+    }
+    return { rows: buyersFromLinks(seen), truncated: true };
+  };
+
   return {
     sourceKey: country.sourceKey,
     taxIdentifierType: country.taxIdentifierType,
     normalizeName: country.normalizeBuyerName,
 
     findPublicEntities: async (normalizedName) => {
-      const { data, error } = await links()
-        .select('buyer_code, buyer_name_normalized')
-        .eq('country_code', country.countryCode)
-        .eq('source_key', country.sourceKey)
-        .like('buyer_name_normalized', `${normalizedName.replace(/[%_]/g, '')}%`)
-        .limit(BUYER_QUERY_LIMIT);
-      if (error) {
-        logError(country.countryCode, 'find buyers', error);
-        return [];
-      }
-      return buyersFromLinks((data ?? []) as Array<Pick<StoredProcurementLink, 'buyer_code' | 'buyer_name_normalized'>>);
+      // Primero el nombre exacto: si existe, decide (como en `pickPublicBuyer`) y las que sólo
+      // empiezan igual no importan. Si no, las que empiezan por el nombre seguido de espacio.
+      const exact = await distinctBuyers({ op: 'eq', value: normalizedName });
+      if (exact === null) return [];
+      if (exact.truncated || exact.rows.length > 0) return exact;
+      return (await distinctBuyers({ op: 'like', value: `${normalizedName.replace(/[%_]/g, '')} %` })) ?? [];
     },
 
     listSuppliers: async ({ buyerTaxId, macroIndustryKey }) => {
-      const { data, error } = await links()
-        .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start')
-        .eq('country_code', country.countryCode)
-        .eq('source_key', country.sourceKey)
-        .eq('buyer_code', buyerTaxId)
-        .order('total_amount', { ascending: false })
-        .limit(SUPPLIER_QUERY_LIMIT);
-      if (error) {
-        logError(country.countryCode, 'suppliers', error);
-        return { ok: false, reason: 'source_unavailable' };
+      const rows: StoredProcurementLink[] = [];
+      const macroByTaxId = new Map<string, string>();
+      const useActivity = Boolean(country.industryByActivity && hooks.activityMacroByTaxId);
+      let inIndustry = 0;
+      for (let page = 0; page < SUPPLIER_MAX_PAGES; page++) {
+        const from = page * SUPPLIER_PAGE_SIZE;
+        const { data, error } = await links()
+          .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start')
+          .eq('country_code', country.countryCode)
+          .eq('source_key', country.sourceKey)
+          .eq('buyer_code', buyerTaxId)
+          .order('total_amount', { ascending: false })
+          // Desempate fijo (proveedor único por entidad) para que las páginas no se pisen.
+          .order('supplier_tax_id', { ascending: true })
+          .range(from, from + SUPPLIER_PAGE_SIZE - 1);
+        if (error) {
+          logError(country.countryCode, 'suppliers', error);
+          // Sin la primera página no hay nada; después, lo leído es correcto (los de más monto).
+          if (page === 0) return { ok: false, reason: 'source_unavailable' };
+          break;
+        }
+        const pageRows = (data ?? []) as StoredProcurementLink[];
+        if (useActivity && pageRows.length > 0) {
+          const macros = await hooks.activityMacroByTaxId!(serviceClient, pageRows.map((r) => r.supplier_tax_id)).catch(() => new Map<string, string>());
+          for (const [taxId, macro] of macros) macroByTaxId.set(taxId, macro);
+        }
+        rows.push(...pageRows);
+        const pageListed = suppliersFromLinks(pageRows, macroIndustryKey, country.classifier, useActivity ? macroByTaxId : undefined);
+        inIndustry += pageListed.ok ? pageListed.suppliers.length : 0;
+        if (pageRows.length < SUPPLIER_PAGE_SIZE || inIndustry >= SUPPLIER_TARGET_IN_INDUSTRY) break;
       }
-      const rows = (data ?? []) as StoredProcurementLink[];
-      const macroByTaxId =
-        country.industryByActivity && hooks.activityMacroByTaxId
-          ? await hooks.activityMacroByTaxId(serviceClient, rows.map((r) => r.supplier_tax_id)).catch(() => new Map<string, string>())
-          : undefined;
-      const listed = suppliersFromLinks(rows, macroIndustryKey, country.classifier, macroByTaxId);
+      const listed = suppliersFromLinks(rows, macroIndustryKey, country.classifier, useActivity ? macroByTaxId : undefined);
       if (!listed.ok || listed.suppliers.length === 0) return listed;
       const workers = await workersByTaxId(listed.suppliers.map((s) => s.taxId));
       return {

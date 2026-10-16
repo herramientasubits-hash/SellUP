@@ -200,9 +200,11 @@ describe('el segundo constructor de candidatas también guarda la portada (AGENT
   it('fuera de Apollo el sitio es la portada; Apollo conserva lo declarado', () => {
     // AGENT1-TAVILY-INSTITUTIONS-1 — Apollo conserva lo declarado; fuera de Apollo, la
     // portada (o la de la institución dueña de un subportal de gobierno/educación).
+    // AUDIT-A1-WS7 — y un ministerio que es ruta del portal nacional (gob.pe/minsa)
+    // conserva esa ruta: la portada del portal no es él.
     assert.match(
       body,
-      /const website = isApolloResult\s*\?\s*declaredWebsite\s*:\s*institutionHost\s*\?\s*`https:\/\/\$\{institutionHost\}\/`\s*:\s*toHomepageUrl\(declaredWebsite\);/,
+      /const website = isApolloResult\s*\?\s*declaredWebsite\s*:\s*portalEntity\s*\?\s*portalEntity\.website\s*:\s*institutionHost\s*\?\s*`https:\/\/\$\{institutionHost\}\/`\s*:\s*toHomepageUrl\(declaredWebsite\);/,
     );
   });
   it('la página encontrada sigue como fuente', () => {

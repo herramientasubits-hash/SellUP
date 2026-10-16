@@ -53,7 +53,12 @@ export type LushaWaterfallSkipReason =
   /** AGENT1-TAVILY-FIRST-4 — el lote no se pudo reabrir para Apollo: se entregó lo de Tavily. */
   | 'tavily_first_batch_reopen_failed'
   /** AGENT1-DELIVERY-CAP-HARD-1 — el lote ya llegó al tope de entrega (10): nada cabría. */
-  | 'tavily_first_lot_at_delivery_cap';
+  | 'tavily_first_lot_at_delivery_cap'
+  /**
+   * AGENT1-AUDIT-WS2 § 3 — no queda margen en los 300 s para EMPEZAR Lusha. Antes
+   * sólo se miraba tras Tavily + Apollo; ahora en todo camino, ANTES de reservar.
+   */
+  | 'lusha_no_time';
 
 export type LushaWaterfallDecision =
   | { readonly run: false; readonly reason: LushaWaterfallSkipReason }

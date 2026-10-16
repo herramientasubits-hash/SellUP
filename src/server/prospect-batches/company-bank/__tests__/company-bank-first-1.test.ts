@@ -506,6 +506,13 @@ describe('§ 4 — sacar del banco antes que todo', () => {
     const out = await h.drawer(h.input);
     assert.equal(out.persistedCount, 0);
     assert.equal(out.telemetry.status, 'error');
+    // AUDIT-HARDENING-1 — lo tomado del banco se liquida en el acto (vuelve al
+    // banco porque no quedó en la base), en vez de quedar reservado hasta vencer.
+    assert.equal(h.rec.settles.length, 1);
+    assert.deepEqual(
+      h.rec.settles[0].outcomes.map((o) => o.outcome),
+      ['released'],
+    );
   });
 });
 

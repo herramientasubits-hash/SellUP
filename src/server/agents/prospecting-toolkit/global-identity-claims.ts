@@ -47,16 +47,40 @@ export type GlobalIdentityClaim = {
 };
 
 /**
+ * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — lo que viaja a la 152 por candidato.
+ *
+ * 🔴 El defecto que cierra: el vendedor A (Apollo, sin NIT) reclamaba
+ * `domain:acme.com.co`; el vendedor B (Tavily/Claude/banco, CON NIT) reclamaba
+ * `fiscal:CO:…` y NO el dominio. Dos claves distintas ⇒ el índice único no veía
+ * nada y la MISMA empresa quedaba para los dos.
+ *
+ * Ahora el dominio y el LinkedIn de identidad viajan SIEMPRE (con o sin fiscal)
+ * como señales de CRUCE: la 152 los guarda en cada reclamo y, bajo un cerrojo por
+ * señal, trata como choque un reclamo ACTIVO de otro candidato con el mismo
+ * dominio/LinkedIn — SALVO que los dos tengan identidad fiscal y sea DISTINTA
+ * (filiales del mismo grupo, TIER 0). La exclusividad por índice único sigue
+ * siendo la de antes para lo que se reclama en `claims`.
+ */
+export type GlobalIdentityClaimEnvelope = {
+  claims: GlobalIdentityClaim[];
+  /** Dominio de identidad (`normalizeIdentityDomain`); nunca un host compartido. */
+  identityDomain: string | null;
+  /** LinkedIn de empresa normalizado. */
+  identityLinkedIn: string | null;
+};
+
+/**
  * Deriva los reclamos globales de un candidato a partir de su evidencia YA
  * calculada (`buildCompanyIdentityEvidence` / `toRegisteredBatchIdentity`).
  *
- * Devuelve `[]` cuando no hay ninguna señal fuerte: un candidato así no puede
- * chocar con nadie y se admite exactamente como hoy.
+ * Devuelve `claims: []` cuando no hay ninguna señal fuerte: un candidato así no
+ * puede chocar con nadie y se admite exactamente como hoy.
  */
-export function deriveGlobalIdentityClaims(
+export function deriveGlobalIdentityClaimEnvelope(
   evidence: CompanyIdentityEvidence,
-): GlobalIdentityClaim[] {
+): GlobalIdentityClaimEnvelope {
   const claims: GlobalIdentityClaim[] = [];
+  const hasFiscal = Boolean(evidence.fiscalIdentityKey);
 
   // Fiscal manda; sin ella, el dominio es la mejor señal disponible.
   if (evidence.fiscalIdentityKey) {
@@ -65,17 +89,32 @@ export function deriveGlobalIdentityClaims(
     claims.push({ type: 'domain', key: evidence.normalizedDomain });
   }
 
-  // Éstas nunca chocan con el caso de subsidiarias compartiendo dominio: el id
-  // de proveedor y el LinkedIn de empresa identifican una entidad concreta,
-  // no un grupo.
+  // El id de proveedor identifica una entidad concreta, no un grupo.
   if (evidence.providerEntityKey) {
     claims.push({ type: 'provider_entity', key: evidence.providerEntityKey });
   }
-  if (evidence.normalizedLinkedInCompany) {
+
+  // 🔴 AGENT1-CLAIMS-LINKEDIN-SUBSIDIARIES-1 — con identidad fiscal el LinkedIn NO
+  // se reclama en exclusiva: las fuentes suelen dar a una filial (NIT propio) el
+  // LinkedIn de la matriz, y el índice único las hacía chocar aunque fueran dos
+  // personas jurídicas distintas. Sigue viajando como señal de CRUCE
+  // (`identityLinkedIn`), con la misma excepción de fiscal distinta que el dominio.
+  if (evidence.normalizedLinkedInCompany && !hasFiscal) {
     claims.push({ type: 'linkedin', key: evidence.normalizedLinkedInCompany });
   }
 
-  return claims;
+  return {
+    claims,
+    identityDomain: evidence.normalizedDomain ?? null,
+    identityLinkedIn: evidence.normalizedLinkedInCompany ?? null,
+  };
+}
+
+/** Sólo los reclamos exclusivos (el banco y los llamadores previos a la 152). */
+export function deriveGlobalIdentityClaims(
+  evidence: CompanyIdentityEvidence,
+): GlobalIdentityClaim[] {
+  return deriveGlobalIdentityClaimEnvelope(evidence).claims;
 }
 
 /**

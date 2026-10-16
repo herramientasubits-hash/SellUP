@@ -51,7 +51,9 @@ export type TaxIdNoveltyStatus =
   | 'blocked_customer'
   | 'blocked_duplicate'
   | 'existing_account'
-  | 'invalid_tax_id';
+  | 'invalid_tax_id'
+  /** AUDIT-HARDENING-1 — no se pudo leer el índice: no se escribe a ciegas. */
+  | 'novelty_check_unavailable';
 
 /**
  * CUT-3B1 — identidad fiscal del candidato EVALUADO, expuesta como metadata
@@ -138,6 +140,13 @@ export type TaxIdNoveltyIndex = {
   countryNamespace: string | null;
   /** Filas excluidas de la igualdad automática por conflicto de columnas. */
   columnConflicts: FiscalColumnConflict[];
+  /**
+   * AUDIT-HARDENING-1 — alguna consulta del índice falló. Un índice incompleto no
+   * puede decir «no visto»: antes un error de Supabase dejaba pasar como nueva una
+   * empresa que ya era cuenta o candidata.
+   */
+  degraded?: boolean;
+  degradedReasons?: string[];
 };
 
 // ─── normalizeTaxId (delegación a la autoridad canónica) ──────────────────────
@@ -250,7 +259,10 @@ export async function buildTaxIdNoveltyIndex(params: {
     }
 
     const { data, error } = await query;
-    if (error || !data) continue;
+    if (error || !data) {
+      markDegraded(index, `prospect_candidates.${column}: ${error?.message ?? 'sin datos'}`);
+      continue;
+    }
 
     for (const row of data as CandidateRow[]) {
       if (!candidateRowsById.has(row.id)) candidateRowsById.set(row.id, row);
@@ -305,7 +317,9 @@ export async function buildTaxIdNoveltyIndex(params: {
 
   const { data: accountRows, error: accountError } = await accountsQuery;
 
-  if (!accountError && accountRows) {
+  if (accountError || !accountRows) {
+    markDegraded(index, `accounts.tax_identifier: ${accountError?.message ?? 'sin datos'}`);
+  } else {
     for (const row of accountRows as AccountRow[]) {
       const canon = canonicalizeFiscalIdentifier(row.tax_identifier, scope.queryValue);
       if (!canon) continue;
@@ -329,6 +343,12 @@ export async function buildTaxIdNoveltyIndex(params: {
 }
 
 // ─── Helpers internos ─────────────────────────────────────────
+
+function markDegraded(index: TaxIdNoveltyIndex, reason: string): void {
+  console.error('[tax-id-novelty] índice incompleto:', reason);
+  index.degraded = true;
+  index.degradedReasons = [...(index.degradedReasons ?? []), reason.slice(0, 200)];
+}
 
 function daysSince(isoDate: string, now: Date): number {
   return (now.getTime() - new Date(isoDate).getTime()) / (1000 * 60 * 60 * 24);
@@ -435,6 +455,21 @@ export function evaluateTaxIdNovelty(params: {
   }
 
   const slot = index.byFiscalKey.get(fiscalKey);
+
+  // Regla 1.5 (AUDIT-HARDENING-1): con el índice incompleto, «no está» no prueba
+  // nada. Se salta en vez de escribir una empresa que quizá ya existe.
+  if (index.degraded && (!slot || (slot.candidates.length === 0 && slot.accounts.length === 0))) {
+    return {
+      status: 'novelty_check_unavailable',
+      shouldSkip: true,
+      reason: 'No se pudo verificar si el número fiscal ya existe (consulta fallida); no se escribe a ciegas',
+      matchedCandidateIds: [],
+      matchedAccountIds: [],
+      cooldownDays: null,
+      lastSeenAt: null,
+      fiscalIdentity,
+    };
+  }
 
   // Regla 2: no está en el índice
   if (!slot || (slot.candidates.length === 0 && slot.accounts.length === 0)) {

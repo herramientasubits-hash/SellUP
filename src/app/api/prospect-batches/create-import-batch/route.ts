@@ -44,49 +44,34 @@ import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
   evaluateImportQualityGates,
 } from '@/server/prospect-batches/import-quality-gates';
+import {
+  validateImportBatchInput,
+  type ImportBatchInput,
+  type ImportCandidateInput,
+} from '@/modules/prospect-batches/import-batch-schema';
+import {
+  applyManualClassificationOverrides,
+  type ManualIndustryOverride,
+} from '@/modules/prospect-batches/import-classification-overrides';
+import {
+  insertImportCandidateRows,
+  type ImportCandidateInsertRow,
+} from '@/server/prospect-batches/import-candidate-bulk-insert';
 
-interface ImportCandidate {
-  company_name: string;
-  country?: string;
-  country_code?: string;
-  website?: string;
-  industry?: string;
-  subindustry?: string;
-  city?: string;
-  region?: string;
-  tax_identifier?: string;
-  tax_identifier_type?: string;
-  linkedin_url?: string;
-  company_size?: string;
-  description?: string;
-  notes?: string;
-  source_url?: string;
-  contact_name?: string;
-  contact_role?: string;
-  contact_email?: string;
-  owner_email?: string;
-  source_evidence?: string;
-  confidence?: string;
-  industryOriginalValue?: string | null;
-  subindustryOriginalValue?: string | null;
-}
+// AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — 500 filas (inserción + validación con
+// búsqueda de NIT y HubSpot + rescate en `after()`) no caben en el límite por
+// defecto. Mismo techo que las demás rutas largas del Agente 1.
+export const maxDuration = 300;
 
-interface ImportBatchInput {
-  import_type: 'paste' | 'csv' | 'xlsx';
-  candidates: ImportCandidate[];
-  recognized_columns: string[];
-  unrecognized_columns: string[];
-  duplicate_columns?: string[];
-  total_rows: number;
-  valid_rows: number;
-  invalid_rows: number;
-  warning_rows: number;
-  defaults?: {
-    country?: string;
-    country_code?: string;
-    industry?: string;
-  };
-}
+/**
+ * Hasta cuándo la validación post-import puede EMPEZAR filas, contado desde
+ * que llegó la petición. Deja margen para que terminen las filas en curso,
+ * para el resumen del lote y para la ventana mínima del rescate en `after()`
+ * (que comparte los mismos 300 s: ver `rescue-time-budget.ts`).
+ */
+const IMPORT_VALIDATION_WINDOW_MS = 170_000;
+
+type ImportCandidate = ImportCandidateInput;
 
 function normalizeName(text: string): string {
   return text
@@ -180,7 +165,20 @@ export async function POST(request: NextRequest) {
     }
 
     const internalUserId = internalUser.id;
-    const input = await request.json() as ImportBatchInput;
+
+    // AGENT1-AUDIT-WS5-IMPORT-SCHEMA-1 — el cuerpo se valida ANTES de crear
+    // nada: tope de filas, largos, nombre obligatorio y país soportado.
+    const rawBody: unknown = await request.json().catch(() => null);
+    const inputValidation = validateImportBatchInput(rawBody);
+    if (!inputValidation.ok) {
+      return NextResponse.json({
+        success: false,
+        code: 'invalid_import_input',
+        message: inputValidation.message,
+        issues: inputValidation.issues,
+      }, { status: 400 });
+    }
+    const input: ImportBatchInput = inputValidation.data;
 
     // ── Duplicate columns check ────────────────────────────────────────────
     if (input.duplicate_columns && input.duplicate_columns.length > 0) {
@@ -207,17 +205,40 @@ export async function POST(request: NextRequest) {
     // ── Classify all rows ──────────────────────────────────────────────────
     const classifiableRows = input.candidates.map((c, i) => candidateToClassifiableRow(c, i));
 
-    const classificationResult = classifyImportRows({
+    const automaticClassification = classifyImportRows({
       rows: classifiableRows,
       catalog,
       catalogVersionId,
     });
 
+    // ── AGENT1-AUDIT-WS5-IMPORT-OVERRIDES-1 — correcciones manuales ─────────
+    // El drawer envía el id de catálogo que el vendedor eligió en la revisión;
+    // se valida contra el catálogo vivo y reemplaza la clasificación automática.
+    const manualOverrides = new Map<number, ManualIndustryOverride>();
+    input.candidates.forEach((c, i) => {
+      if (c.industry_id) {
+        manualOverrides.set(i + 1, { industryId: c.industry_id, subindustryId: c.subindustry_id ?? null });
+      }
+    });
+    const overrideOutcome = applyManualClassificationOverrides(automaticClassification, catalog, manualOverrides);
+    if (!overrideOutcome.ok) {
+      const [first] = overrideOutcome.errors;
+      return NextResponse.json({
+        success: false,
+        code: 'invalid_classification_override',
+        message: `Fila ${first.rowNumber}: ${first.message} Vuelve a clasificar el archivo.`,
+        errors: overrideOutcome.errors,
+      }, { status: 422 });
+    }
+    const classificationResult = overrideOutcome.result;
+
     // ── Block if any row requires review ───────────────────────────────────
     if (!classificationResult.valid) {
+      const reviewRowCount = new Set(classificationResult.blockingIssues.map((b) => b.rowNumber)).size;
       return NextResponse.json({
         success: false,
         code: 'classification_review_required',
+        message: `${reviewRowCount} fila${reviewRowCount !== 1 ? 's' : ''} todavía requiere${reviewRowCount !== 1 ? 'n' : ''} revisión de industria. Corrígela${reviewRowCount !== 1 ? 's' : ''} o quíta${reviewRowCount !== 1 ? 'las' : 'la'} de la selección.`,
         catalogVersion: classificationResult.catalogVersion,
         classificationSummary: classificationResult.summary,
         rows: classificationResult.rows.map((r) => ({
@@ -242,12 +263,20 @@ export async function POST(request: NextRequest) {
     // ── Build persistence payload ──────────────────────────────────────────
     const persistencePayload = buildImportPersistencePayload(classificationResult);
 
+    // La industria en texto que se persiste: con corrección manual, el nombre
+    // del catálogo elegido (no el texto crudo del archivo que se corrigió).
+    const effectiveIndustries: Array<string | undefined> = input.candidates.map((c, i) =>
+      manualOverrides.has(i + 1)
+        ? (classificationResult.rows[i]?.classification.industryName ?? undefined)
+        : (c.industry?.trim() || undefined),
+    );
+
     // ── Existing batch metadata logic ──────────────────────────────────────
     const now = new Date();
     const dateLabel = now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 
     const countryCodes = [...new Set(input.candidates.map((c) => c.country_code).filter(Boolean))];
-    const industries = [...new Set(input.candidates.map((c) => c.industry).filter(Boolean))];
+    const industries = [...new Set(effectiveIndustries.filter(Boolean))];
 
     const batchCountryCode = countryCodes.length === 1
       ? (countryCodes[0] as string)
@@ -263,7 +292,7 @@ export async function POST(request: NextRequest) {
       (c) => !c.country_code && !c.country && !!input.defaults?.country_code
     ).length;
     const rowsUsingDefaultIndustry = input.candidates.filter(
-      (c) => !c.industry && !!input.defaults?.industry
+      (c, i) => !effectiveIndustries[i] && !!input.defaults?.industry
     ).length;
 
     // ── Verify catalog version hasn't changed (pre-persist check) ──────────
@@ -411,8 +440,10 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Insert candidates with classification fields ───────────────────────
-    let candidatesCreated = 0;
-    const createdCandidateIds: string[] = [];
+    // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — se arman todas las filas y se
+    // insertan en bloque (antes: un viaje a la base por fila).
+    const insertRows: ImportCandidateInsertRow[] = [];
+    const statusByRowNumber = new Map<number, string>();
 
     for (let i = 0; i < input.candidates.length; i++) {
       const candidate = input.candidates[i];
@@ -521,7 +552,7 @@ export async function POST(request: NextRequest) {
         country_code: candidate.country_code?.trim().toUpperCase() || null,
         city: candidate.city?.trim() || null,
         region: candidate.region?.trim() || null,
-        industry: candidate.industry?.trim() || null,
+        industry: effectiveIndustries[i] ?? null,
         company_size: candidate.company_size?.trim() || null,
         tax_identifier: taxResolutions[i].value,
         tax_identifier_type: taxResolutions[i].type ?? (candidate.tax_identifier_type?.trim() || null),
@@ -560,46 +591,50 @@ export async function POST(request: NextRequest) {
         insertData.catalog_version_id = catalogVersionId;
       }
 
-      const { data: createdRow, error: candidateError } = await supabase
-        .from('prospect_candidates')
-        .insert(insertData)
-        .select('id')
-        .single();
-
-      if (!candidateError) {
-        candidatesCreated++;
-        if (createdRow?.id && candidateStatus === 'needs_review') createdCandidateIds.push(createdRow.id as string);
-      }
+      insertRows.push({ rowNumber, insertData });
+      statusByRowNumber.set(rowNumber, candidateStatus);
     }
 
-    // Ejecutar validación post-importación automáticamente
-    await validateImportedCandidatesBatch(batch.id, internalUserId);
+    const insertOutcome = await insertImportCandidateRows(supabase, insertRows);
+    const candidatesCreated = insertOutcome.inserted.length;
+    const createdCandidateIds = insertOutcome.inserted
+      .filter((r) => statusByRowNumber.get(r.rowNumber) === 'needs_review')
+      .map((r) => r.id);
 
     // ── AGENT1-IMPORT-PARITY-1 — reclamo global (migración 140) ────────────
     //
-    // Después de la validación, que ya dejó `duplicate` lo que existe en SellUp
-    // o HubSpot (y el disparador liberó lo que hubiera). Se reclama lo que siga
-    // vivo; si otro vendedor ya tiene la empresa, la RPC la deja `duplicate`.
+    // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — JUSTO después de insertar (antes:
+    // al final, después de validar fila por fila). Si Vercel cortaba la
+    // función durante la validación, las filas quedaban vivas SIN reclamo y
+    // otro vendedor podía tomar la misma empresa. Lo que la validación deje
+    // luego `duplicate` (ya existe en SellUp o HubSpot) libera su reclamo por
+    // el disparador de la 140. Se reclama UNA sola vez: reclamar dos veces el
+    // mismo candidato chocaría consigo mismo. La relectura de estados vive en
+    // el store (sólo filas vivas) y, si falla, degrada CERRADO (`degraded`):
+    // un fallo de infraestructura nunca marca duplicado a nadie ni se reporta
+    // como «sin reclamos».
     // Cliente ADMINISTRATIVO por la misma razón que Lusha: la tabla de reclamos
-    // sólo tiene política para `service_role`. Degrada CERRADO: un fallo de
-    // infraestructura nunca marca duplicado a nadie.
+    // sólo tiene política para `service_role`.
     let claimsDegraded = !adminClient;
     let claimedElsewhereCount = 0;
     if (adminClient && createdCandidateIds.length > 0) {
-      const { data: stillActive } = await supabase
-        .from('prospect_candidates')
-        .select('id')
-        .eq('batch_id', batch.id)
-        .in('id', createdCandidateIds)
-        .neq('status', 'duplicate');
-      const activeIds = (stillActive ?? []).map((r) => r.id as string);
       const claimOutcome = await claimGlobalIdentitiesForPersistedCandidates(
         adminClient,
         batch.id,
-        activeIds,
+        createdCandidateIds,
       );
       claimsDegraded = claimOutcome.degraded;
       claimedElsewhereCount = claimOutcome.claimedElsewhere.length;
+    }
+
+    // Ejecutar validación post-importación automáticamente, con concurrencia
+    // acotada y plazo: lo que no alcance queda `pending_revalidation`.
+    const validationOutcome = await validateImportedCandidatesBatch(batch.id, internalUserId, undefined, {
+      deadlineAtMs: requestStartedAtMs + IMPORT_VALIDATION_WINDOW_MS,
+      candidateOrder: insertOutcome.inserted.map((r) => r.id),
+    });
+    if (!validationOutcome.success) {
+      console.error('[create-import-batch] post-import validation failed:', validationOutcome.error);
     }
 
     const duplicatesOnImport = admissionPlan.filter((a) => a.kind === 'duplicate');
@@ -690,9 +725,12 @@ export async function POST(request: NextRequest) {
       possibleDuplicateCount,
     };
 
-    return NextResponse.json({ 
-      batchId: batch.id, 
+    return NextResponse.json({
+      success: true,
+      batchId: batch.id,
       candidatesCreated,
+      failedRowNumbers: insertOutcome.failedRowNumbers,
+      pendingRevalidationCount: validationOutcome.pendingRevalidationCount ?? 0,
       stats,
       classification: {
         catalogVersion: classificationResult.catalogVersion,
@@ -701,6 +739,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('[create-import-batch] Error:', err);
-    return NextResponse.json({ error: 'Error interno' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Error interno', message: 'Error interno al importar.' }, { status: 500 });
   }
 }

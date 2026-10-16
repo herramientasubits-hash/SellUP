@@ -63,7 +63,13 @@ import {
   ASSESSMENT_WAVE_WORST_CASE_MS,
   ENRICHMENT_WORST_CASE_MS,
   PERSISTENCE_WORST_CASE_MS,
+  resolveInvocationStartedAtMs,
 } from './run-deadline';
+// WS6 · F — tope de tiempo por operación de red de Apollo (página y enrichment).
+import {
+  APOLLO_PAGE_REQUEST_TIMEOUT_MS,
+  raceApolloOperationTimeout,
+} from '../apollo-organizations-operation-timeout';
 import {
   buildProspectingPipelineCandidate,
   buildSummary,
@@ -363,6 +369,8 @@ import { hasStrongIdentityDuplicateMatch } from '../strong-identity-duplicate-ma
 import {
   readApolloPageFenceEntries,
   upsertApolloPageFenceEntry,
+  releaseApolloPageFenceEntryNotCharged,
+  clearApolloPageFenceRoundDurable,
   type ApolloPageFenceIdentity,
   type ApolloPageFenceReadOutcome,
   type ApolloPageFenceWriteOutcome,
@@ -665,6 +673,26 @@ export type ApolloTwoRoundProductionDeps = {
     batchId: string,
     identity: ApolloPageFenceIdentity,
     entry: ApolloPageFenceEntry,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
+  /**
+   * WS6 · F2 — cierra como «sin cobro» la valla `request_started` de una página
+   * que Apollo rechazó sin cobrar. Opcional: ausente ⇒ la valla queda en
+   * `request_started` (lectura conservadora previa).
+   */
+  releasePageFenceEntry?: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    target: Pick<ApolloPageFenceEntry, 'round_number' | 'search_plan_fingerprint' | 'page'>,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
+  /**
+   * WS6 · F3 — limpia las entradas de UNA ronda cuya búsqueda ya quedó en el
+   * checkpoint durable (`search_round_completed`). Opcional: ausente ⇒ no se
+   * limpia (comportamiento previo; el documento sólo crece).
+   */
+  clearPageFenceRound?: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    roundNumber: number,
   ) => Promise<ApolloPageFenceWriteOutcome>;
   /**
    * AGENT1-COMPANY-BANK — el banco de empresas. `null` ⇒ sin banco (interruptor
@@ -983,6 +1011,11 @@ export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
   pendingOrganizationCount?: number;
   /** `true` ⇒ la continuación quedó encolada en la cola durable. */
   continuationEnqueued?: boolean;
+  /**
+   * AGENT1-AUDIT-WS2 § 5 — la pausa NO se pudo encolar (motivo). Presente sólo en
+   * ese caso: la corrida escribió lo evaluado y nadie retomará las pendientes.
+   */
+  continuationEnqueueFailure?: string;
 };
 
 /**
@@ -996,6 +1029,13 @@ export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
 export async function runApolloTwoRoundWizardDiscovery(
   input: ApolloTwoRoundWizardRunInput,
   depsOverride?: Partial<ApolloTwoRoundProductionDeps>,
+  /**
+   * AGENT1-AUDIT-WS2 § 1 — inicio REAL de la invocación (la acción del asistente
+   * o el conductor del cron), en el reloj de `deps.now`. Va aparte de `input` a
+   * propósito: `input` se encola entero como `run_input` y una continuación horas
+   * después heredaría un instante viejo. Ausente ⇒ «ahora», como antes.
+   */
+  invocation?: { startedAtMs?: number | null },
 ): Promise<ApolloTwoRoundWizardRunOutcome> {
   const deps: ApolloTwoRoundProductionDeps = {
     searchApollo: runApolloOrganizationsSearch,
@@ -1116,6 +1156,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     readPageFenceEntries: (batchId, identity) => readApolloPageFenceEntries(batchId, identity),
     writePageFenceEntry: (batchId, identity, entry) =>
       upsertApolloPageFenceEntry(batchId, identity, entry),
+    releasePageFenceEntry: (batchId, identity, target) =>
+      releaseApolloPageFenceEntryNotCharged(batchId, identity, target),
+    clearPageFenceRound: (batchId, identity, roundNumber) =>
+      clearApolloPageFenceRoundDurable(batchId, identity, roundNumber),
     // Las suites pasan `depsOverride` y nunca tocan el banco real salvo que lo inyecten.
     companyBank: depsOverride ? null : resolveApolloCompanyBankPort(),
     ...depsOverride,
@@ -1127,7 +1171,13 @@ export async function runApolloTwoRoundWizardDiscovery(
    * resolver las dependencias, para que el presupuesto cubra exactamente el
    * trabajo de esta invocación.
    */
-  const runStartedAtMs = deps.now();
+  //
+  // 🔴 AGENT1-AUDIT-WS2 § 1 — antes era SIEMPRE `deps.now()`: la capa gratuita,
+  // HubSpot, el banco, Tavily y Claude corren ANTES (60-150 s) y Apollo creía
+  // tener 300 s enteros; Vercel cortaba la función y lo pagado no se escribía. El
+  // plazo cuenta desde el inicio de la INVOCACIÓN. Un instante en el futuro (reloj
+  // desalineado) no puede dar más tiempo del que hay: se recorta a «ahora».
+  const runStartedAtMs = resolveInvocationStartedAtMs(invocation?.startedAtMs, deps.now());
   /**
    * § 2 — el plazo COMPARTIDO de esta invocación. Lo consultan la evaluación y
    * el enrichment; las dos cuentan su peor caso y respetan el margen de salida.
@@ -1921,6 +1971,22 @@ export async function runApolloTwoRoundWizardDiscovery(
     if (outcome.kind === 'written') {
       checkpointVersion = outcome.checkpointVersion;
       durableFloor = { ...checkpoint, checkpoint_version: outcome.checkpointVersion };
+      // WS6 · F3 — la búsqueda de esta ronda YA es durable en el checkpoint:
+      // sus entradas de valla dejan de ser la fuente de verdad y sólo ocupan el
+      // techo de tamaño que la ronda siguiente necesita. Best-effort: si la
+      // limpieza falla, las entradas siguen ahí (lectura conservadora).
+      if (snapshot.reason === 'search_round_completed' && snapshot.operationContext) {
+        await deps
+          .clearPageFenceRound?.(
+            input.reservedBatchId,
+            {
+              idempotencyKey: input.correlation.idempotencyKey,
+              requestFingerprint: input.correlation.requestFingerprint,
+            },
+            snapshot.operationContext.roundNumber,
+          )
+          .catch(() => undefined);
+      }
       return true;
     }
     if (outcome.kind === 'stale_rejected') return resolveStaleRejection(checkpoint, snapshot);
@@ -2007,8 +2073,9 @@ export async function runApolloTwoRoundWizardDiscovery(
     // completa A/B/C/D vive documentada en ese módulo.
     //
     // 🔴 Esto NO descarta filas: la página YA PAGADA entra completa al pipeline
-    // (el motor recoge la organización ANTES de preguntar). Lo único que se
-    // decide aquí es si se COMPRA la página siguiente.
+    // (el motor recoge la organización ANTES de preguntar). WS6 · F8 — y desde
+    // X6.13 tampoco decide si se COMPRA la página siguiente: es sólo
+    // observabilidad, evaluada en lote al cerrar cada página.
     //
     // La lectura histórica sigue siendo la que ya se hacía
     // (`loadPrepaidHistoricalIndex`), con caché por dominio y ámbito de ESTA
@@ -2164,6 +2231,9 @@ export async function runApolloTwoRoundWizardDiscovery(
 
       const searchOptionsWithFence: ApolloOrgsSearchOptions = {
         ...searchOptions,
+        // WS6 · F — cada página espera como mucho lo que la invocación todavía
+        // puede darle sin comerse el margen de salida.
+        pageRequestTimeoutMs: runDeadline.operationTimeoutMs(APOLLO_PAGE_REQUEST_TIMEOUT_MS),
         durableResume,
         durablePageFence: {
           beforeRequest: async ({ page, requestFingerprint }) => {
@@ -2210,6 +2280,13 @@ export async function runApolloTwoRoundWizardDiscovery(
             // sobre un fallo dejaría la petición a Apollo salir sin registro,
             // exactamente el defecto que este corte cierra.
             if (outcome.kind === 'failed') {
+              // WS6 · F2 — la petición NO sale: lo reservado arriba se liquida
+              // en 0 en vez de quedar comprometido para siempre.
+              await deps.settleSpend({
+                operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+                credits: 0,
+                billingUnknown: false,
+              });
               throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
             }
           },
@@ -2281,6 +2358,23 @@ export async function runApolloTwoRoundWizardDiscovery(
             // escritura tuvo éxito. La verdad conservadora que protege el
             // reintento es el `request_started` que `beforeRequest` ya dejó
             // durable.
+          },
+          onNotCharged: async ({ page, requestFingerprint }) => {
+            // WS6 · F2 — Apollo rechazó la página SIN cobrar (401/403/422, 429 o
+            // 5xx reintentables agotados). Se liquida en 0 —antes la reserva
+            // quedaba comprometida sin liquidar— y se libera la valla
+            // `request_started`, que si no bloqueaba el plan para siempre con
+            // `indeterminate_prior_page_pending_reconciliation`.
+            await deps.settleSpend({
+              operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+              credits: 0,
+              billingUnknown: false,
+            });
+            await deps.releasePageFenceEntry?.(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+            });
           },
         },
       };
@@ -2622,7 +2716,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       let observedOutcome: ApolloEnrichmentBillingOutcome | null = null;
       const instrumentedEnrichOrg: typeof enrichApolloOrganization = async (params) => {
         try {
-          const enrichResult = await deps.enrichOrganization(params);
+          // WS6 · F — tope de tiempo derivado del plazo de la invocación. Vencido,
+          // `raceApolloOperationTimeout` rechaza con `TimeoutError` y el `catch`
+          // de abajo lo clasifica como cobro INDETERMINADO (pudo cobrarse).
+          const enrichResult = await raceApolloOperationTimeout(
+            deps.enrichOrganization(params),
+            runDeadline.operationTimeoutMs(ENRICHMENT_WORST_CASE_MS),
+          );
           observedOutcome = classifyApolloEnrichmentBillingOutcome({
             success: enrichResult.success === true,
             matched: enrichResult.success === true && enrichResult.data !== undefined,
@@ -2630,7 +2730,10 @@ export async function runApolloTwoRoundWizardDiscovery(
           });
           return enrichResult;
         } catch (err) {
-          observedOutcome = classifyApolloEnrichmentBillingOutcome({ threw: true });
+          observedOutcome = classifyApolloEnrichmentBillingOutcome({
+            threw: true,
+            timedOut: err instanceof Error && err.name === 'TimeoutError',
+          });
           throw err;
         }
       };
@@ -3147,17 +3250,42 @@ export async function runApolloTwoRoundWizardDiscovery(
    */
   const runPaused = runResult.assessmentDeadlineReached && pendingOrganizationCount > 0;
   let continuationEnqueued: boolean | null = null;
+  let continuationEnqueueFailure: string | null = null;
   if (runPaused) {
-    const enqueueOutcome = await deps.enqueueContinuation({
-      batchId: input.reservedBatchId,
-      wizardRunId: input.correlation.wizardRunId,
-      idempotencyKey: runIdentity.idempotencyKey,
-      requestFingerprint: runIdentity.requestFingerprint,
-      runInput: input,
-      runPolicy: input.continuationRunPolicy ?? null,
-    });
-    continuationEnqueued = enqueueOutcome.enqueued;
+    const enqueueOutcome = await deps
+      .enqueueContinuation({
+        batchId: input.reservedBatchId,
+        wizardRunId: input.correlation.wizardRunId,
+        idempotencyKey: runIdentity.idempotencyKey,
+        requestFingerprint: runIdentity.requestFingerprint,
+        runInput: input,
+        runPolicy: input.continuationRunPolicy ?? null,
+      })
+      .catch((error: unknown) => ({
+        enqueued: false,
+        reason: error instanceof Error ? error.message : 'enqueue_failed',
+      }));
+    // 🔴 AGENT1-AUDIT-WS2 § 5 — `already_queued` (el índice único de la 139) NO es
+    // un fallo: el lote YA tiene su continuación viva, así que la pausa está a
+    // salvo. Antes salía `continuationEnqueued: false` y el resto lo leía como
+    // pausa sin cola; y un fallo real se tragaba en silencio.
+    continuationEnqueued =
+      enqueueOutcome.enqueued || enqueueOutcome.reason === 'already_queued';
+    if (!continuationEnqueued) {
+      continuationEnqueueFailure = enqueueOutcome.reason ?? 'enqueue_failed';
+      console.error(
+        `[apollo-two-round] la pausa del lote ${input.reservedBatchId} NO se pudo encolar: ${continuationEnqueueFailure}`,
+      );
+    }
   }
+  /**
+   * 🔴 AGENT1-AUDIT-WS2 § 5 — una pausa SIN continuación no es una pausa: nadie la
+   * va a retomar. Antes no escribía nada y el lote se quedaba «en pausa» para
+   * siempre con lo evaluado y pagado sin guardar. Ahora se escribe lo que ya está
+   * evaluado (las pendientes se pierden igual, pero no lo demás) y la salida lo
+   * declara con `continuationEnqueueFailure`.
+   */
+  const pauseWithoutContinuation = runPaused && continuationEnqueued === false;
 
   // ── Persistencia ────────────────────────────────────────────────────────────
   //
@@ -3462,7 +3590,7 @@ export async function runApolloTwoRoundWizardDiscovery(
   // `candidates_persisted`. La finalización es trabajo de la continuación, que
   // la hará cuando la evaluación esté completa. Escribir aquí certificaría un
   // recuento parcial y, peor, cortocircuitaría a la propia continuación.
-  if (!candidatesPersisted && !runPaused) {
+  if (!candidatesPersisted && (!runPaused || pauseWithoutContinuation)) {
     const pipelineOutput: ProspectingPipelineOutput = {
       input: {
         country: input.country,
@@ -3788,6 +3916,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     runBudgetStopped,
     pendingOrganizationCount: pendingOrganizationCount,
     ...(continuationEnqueued !== null ? { continuationEnqueued } : {}),
+    ...(continuationEnqueueFailure !== null ? { continuationEnqueueFailure } : {}),
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),
     ...(persistenceOutcome ? { persistenceOutcome } : {}),
   };

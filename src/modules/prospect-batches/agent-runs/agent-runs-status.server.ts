@@ -21,6 +21,26 @@ export type AgentRunStatusSnapshot = {
   batch: { id: string; status: string; candidateCount: number | null } | null;
 };
 
+/** Usuario interno ACTIVO de la sesión, o `null`. Nunca lanza. */
+async function resolveInternalUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data, error } = await supabase
+      .from('internal_users')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .eq('access_status', 'active')
+      .maybeSingle();
+    if (error || !data) return null;
+    return typeof (data as { id?: unknown }).id === 'string' ? (data as { id: string }).id : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function readAgentRunsStatus(rawIds: readonly string[]): Promise<AgentRunStatusSnapshot[]> {
   const ids = [...new Set(rawIds.map((id) => readClientRequestId({ clientRequestId: id.trim() })).filter((id): id is string => id !== null))].slice(
     0,
@@ -30,9 +50,20 @@ export async function readAgentRunsStatus(rawIds: readonly string[]): Promise<Ag
 
   try {
     const supabase = await createClient();
+    // AGENT1-AUDIT-WS2 (extra de WS1) — los lotes se leen SÓLO de esta persona
+    // (`created_by` = usuario interno). Antes bastaba con conocer un
+    // `client_request_id` para ver estado y conteo de un lote que la RLS dejara ver.
+    // Sin usuario interno legible, ningún lote (fail-closed).
+    const internalUserId = await resolveInternalUserId(supabase);
     const [progressRes, batchRes] = await Promise.all([
       supabase.from('agent1_run_progress').select('client_request_id, stage, label').in('client_request_id', ids),
-      supabase.from('prospect_batches').select('id, status, client_request_id').in('client_request_id', ids),
+      internalUserId === null
+        ? Promise.resolve({ data: [] as unknown[], error: null })
+        : supabase
+            .from('prospect_batches')
+            .select('id, status, client_request_id')
+            .eq('created_by', internalUserId)
+            .in('client_request_id', ids),
     ]);
 
     const progressById = new Map<string, AgentRunStatusSnapshot['progress']>();

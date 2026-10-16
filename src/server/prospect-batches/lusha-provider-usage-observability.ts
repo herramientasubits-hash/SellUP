@@ -206,6 +206,13 @@ export type LushaUsageCreditsDecision = {
 export function decideLushaUsageCredits(input: {
   creditsReserved: number;
   creditsChargedTotal: number | null | undefined;
+  /**
+   * WS6 · F6 — el importe con el que se liquidó (ver
+   * `PersistLushaPendingReviewResult.settlementCreditsTotal`). Ausente ⇒
+   * `creditsChargedTotal`, como antes. Sólo alimenta la decisión de liquidación;
+   * `providerReportedCredits` sigue siendo lo que Lusha reportó.
+   */
+  creditsForSettlement?: number | null;
   settlement: LushaBudgetSettlementOutcome;
   /** La MISMA función que usó la liquidación. Inyectada, nunca reimplementada. */
   decideCreditsToConfirm: (args: {
@@ -229,7 +236,10 @@ export function decideLushaUsageCredits(input: {
   return {
     creditsUsed: input.decideCreditsToConfirm({
       creditsReserved: input.creditsReserved,
-      creditsChargedTotal: input.creditsChargedTotal,
+      creditsChargedTotal:
+        input.creditsForSettlement !== undefined
+          ? input.creditsForSettlement
+          : input.creditsChargedTotal,
     }),
     creditsSource:
       providerReportedCredits === null ? 'conservative_fallback' : 'provider_reported',

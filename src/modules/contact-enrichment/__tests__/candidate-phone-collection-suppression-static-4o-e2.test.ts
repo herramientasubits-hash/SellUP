@@ -311,6 +311,14 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
       // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '150_public_procurement_supplier_links.sql',
+      // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+      // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+      // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+      // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+      // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no nombra ninguna tabla,
+      // columna ni función de las cadenas que esta guarda vigila. AUTORADAS y NO APLICADAS.
+      '151_claim_enrichment_jobs_hardening.sql',
+      '152_agent1_identity_claims_crosscheck.sql',
     ]);
   });
 

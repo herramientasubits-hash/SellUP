@@ -8,7 +8,8 @@
  *    las tres páginas posibles (ID de la referencia, parecidas, palabras clave) van
  *    por el mismo cliente;
  *  - registro de uso: `logProviderUsage`, una fila por página (1 crédito si trajo
- *    resultados), con `flow` distinto según la página;
+ *    resultados; NULL si el cobro es desconocido: tiempo agotado o respuesta
+ *    ilegible), con `flow` distinto según la página;
  *  - juez: `buildLiveCompetitorJudge` (fuente `apollo`);
  *  - escritura: `buildProspectingPipelineCandidate` + `withOfficialIdentity` +
  *    `writeProspectingCandidates` en el lote de la corrida, reabriéndolo como la
@@ -26,6 +27,8 @@ import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delive
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import type { CompetitorApolloRequest } from '@/modules/prospect-batches/chat-wizard-execution/wizard-competitor-run';
 import { resolveApolloCountryLocation } from '@/server/agents/prospecting-toolkit/apollo-country-location';
+import { APOLLO_OPERATION_INDETERMINATE_ERROR_CODE } from '@/server/agents/prospecting-toolkit/apollo-organization-enrichment-usage-log';
+import { classifyApolloOrganizationsError } from '@/server/agents/prospecting-toolkit/apollo-organizations-error-taxonomy';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import {
   normalizeApolloOrganizationsResponse,
@@ -46,8 +49,10 @@ import {
   mapApolloOrganizationToSearchResult,
   type ApolloOrganizationInput,
 } from '@/server/agents/prospecting-toolkit/web-search-providers/apollo-organizations-search-provider';
-import { searchApolloOrganizationsPage } from '@/server/integrations/apollo-client';
+import { searchApolloOrganizationsPage, type ApolloOrganizationsPageResponse } from '@/server/integrations/apollo-client';
 import { buildBankPipelineOutput } from '@/server/prospect-batches/company-bank/prepaid-bank-draw.server';
+import { loadCompetitorReferenceExclusion } from './competitor-free-sources';
+import { buildCompetitorReferenceExclusionReader } from './competitor-free-sources.server';
 import {
   COMPETITOR_APOLLO_PER_PAGE,
   runCompetitorApolloStep,
@@ -92,15 +97,112 @@ export function toCompetitorApolloOrganization(org: NormalizedApolloOrganization
   };
 }
 
-/** `organizations[]` es la fuente y `accounts[]` sólo completa (ver el árbol, Prod 15-10). */
-export function readCompetitorApolloPage(payload: unknown): Pick<CompetitorApolloPage, 'organizations' | 'rawCount'> {
+/**
+ * `organizations[]` es la fuente y `accounts[]` sólo completa (ver el árbol, Prod 15-10).
+ *
+ * Auditoría 16-10 (J): una empresa ya guardada en el workspace de Apollo puede
+ * venir SÓLO en `accounts[]` (RUN 1 Salud, 12-08: las 20 en `accounts[]`), y el
+ * normalizador la descarta para descubrimiento. Para hallar el ID de la referencia
+ * sí sirve: se devuelve aparte (`accountOrganizations`) con su `organization_id`
+ * —nunca `accounts[*].id`, que es el id de la cuenta del workspace— y no llega al
+ * juez. Sin esto la referencia «no estaba en Apollo» y se pagaba la consulta por
+ * palabras clave.
+ */
+export function readCompetitorApolloPage(
+  payload: unknown,
+): Pick<CompetitorApolloPage, 'organizations' | 'rawCount' | 'accountOrganizations'> {
   const raw = (payload && typeof payload === 'object' ? payload : null) as ApolloOrganizationsRawPayload;
   const rawCount =
     (Array.isArray(raw?.organizations) ? raw!.organizations!.length : 0) + (Array.isArray(raw?.accounts) ? raw!.accounts!.length : 0);
   const organizations = normalizeApolloOrganizationsResponse(raw)
     .organizations.map(toCompetitorApolloOrganization)
     .filter((org): org is ApolloOrganizationInput => org !== null);
-  return { organizations, rawCount };
+  const seen = new Set(organizations.map((org) => org.id));
+  const accountsWithOrganizationId = (Array.isArray(raw?.accounts) ? raw!.accounts! : []).flatMap((account) =>
+    typeof account?.organization_id === 'string' && account.organization_id.trim()
+      ? [{ ...account, id: account.organization_id }]
+      : [],
+  );
+  const accountOrganizations = normalizeApolloOrganizationsResponse({ organizations: accountsWithOrganizationId })
+    .organizations.map(toCompetitorApolloOrganization)
+    .filter((org): org is ApolloOrganizationInput => org !== null && !seen.has(org.id));
+  return { organizations, rawCount, ...(accountOrganizations.length > 0 ? { accountOrganizations } : {}) };
+}
+
+/**
+ * Tope de espera de una página de Apollo. Con 3 páginas como mucho (30 s) más el
+ * juez (45 s) cabe en `COMPETITOR_APOLLO_MIN_REMAINING_MS` (80 s).
+ */
+export const COMPETITOR_APOLLO_PAGE_TIMEOUT_MS = 10_000;
+
+/**
+ * La página con tope de espera. `searchApolloOrganizationsPage` (cliente compartido
+ * con el Agente 2) no acepta `signal`, así que se deja de esperar en vez de
+ * abortar: la petición puede seguir viva y cobrarse. Por eso un tiempo agotado es
+ * `timedOut` con `requestSent` ⇒ cobro DESCONOCIDO, nunca 0, y no se repite.
+ */
+export async function searchCompetitorApolloPageWithTimeout(
+  body: Record<string, unknown>,
+  search: (body: Record<string, unknown>) => Promise<ApolloOrganizationsPageResponse> = searchApolloOrganizationsPage,
+  timeoutMs: number = COMPETITOR_APOLLO_PAGE_TIMEOUT_MS,
+): Promise<ApolloOrganizationsPageResponse> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<ApolloOrganizationsPageResponse>((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve({
+          ok: false,
+          status: null,
+          requestSent: true,
+          malformedBody: false,
+          timedOut: true,
+          payload: undefined,
+          headers: null,
+          errorBody: `competitor_apollo_timeout_${timeoutMs}ms`,
+        }),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([
+      search(body).catch(
+        (err: unknown): ApolloOrganizationsPageResponse => ({
+          // Lanzó después de salir: mismo trato que un tiempo agotado.
+          ok: false,
+          status: null,
+          requestSent: true,
+          malformedBody: false,
+          timedOut: true,
+          payload: undefined,
+          headers: null,
+          errorBody: err instanceof Error ? err.message.slice(0, 200) : 'unknown error',
+        }),
+      ),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** La respuesta del cliente en la forma del paso, con el cobro desconocido marcado. */
+export function toCompetitorApolloPage(result: ApolloOrganizationsPageResponse): CompetitorApolloPage {
+  if (result.ok && !result.malformedBody) {
+    return { ...readCompetitorApolloPage(result.payload), ok: true, error: null };
+  }
+  const classification = classifyApolloOrganizationsError({
+    httpStatus: result.status,
+    requestSent: result.requestSent,
+    timedOut: result.timedOut,
+    malformedBody: result.malformedBody,
+  });
+  return {
+    ok: false,
+    organizations: [],
+    rawCount: 0,
+    error: result.errorBody ?? classification.code,
+    ...(classification.billingState === 'unknown' ? { billingUnknown: true } : {}),
+  };
 }
 
 async function apolloCreditUnitCost(): Promise<number | null> {
@@ -228,14 +330,15 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
     checkQuota: () => checkProviderQuotaAvailable('apollo'),
     resolveLocation: resolveApolloCountryLocation,
     loadExcludedDomains: () => loadCompetitorExcludedDomains(input),
-    searchPage: async (body) => {
-      const result = await searchApolloOrganizationsPage(body);
-      const page = readCompetitorApolloPage(result.ok ? result.payload : null);
-      return { ...page, ok: result.ok, error: result.ok ? null : (result.errorBody ?? `http_${result.status ?? 'none'}`) };
-    },
+    // Sólo el grupo (árbol): Apollo no trae número fiscal con qué comparar.
+    loadReferenceExclusion: () =>
+      loadCompetitorReferenceExclusion(input.reference, buildCompetitorReferenceExclusionReader()),
+    searchPage: async (body) => toCompetitorApolloPage(await searchCompetitorApolloPageWithTimeout(body)),
     logUsage: async ({ purpose, page, body, durationMs }) => {
       // 1 crédito por página con resultados (Apollo Support 29-09); una vacía no cobra.
-      const credits = page.rawCount > 0 ? 1 : 0;
+      // Cobro desconocido (tiempo agotado, corte, 2xx ilegible) ⇒ `credits_used` NULL
+      // y costo NULL, como el enriquecimiento: la conciliación lo lee como «sin saber».
+      const credits = page.billingUnknown ? undefined : page.rawCount > 0 ? 1 : 0;
       const unitCostUsd = await apolloCreditUnitCost().catch(() => null);
       const flow = COMPETITOR_APOLLO_FLOW_BY_PURPOSE[purpose];
       await logProviderUsage({
@@ -246,8 +349,9 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
         operation_key: 'mixed_companies_search',
         credits_used: credits,
         results_returned: page.organizations.length,
-        estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
+        estimated_cost_usd: credits === undefined ? null : unitCostUsd === null ? 0 : credits * unitCostUsd,
         status: page.ok ? 'success' : 'error',
+        ...(page.billingUnknown ? { error_code: APOLLO_OPERATION_INDETERMINATE_ERROR_CODE } : {}),
         error_message: page.error ?? undefined,
         duration_ms: durationMs,
         triggered_by: input.userId,
@@ -255,7 +359,8 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
         metadata: {
           flow,
           country_code: input.countryCode,
-          non_empty_pages_charged: credits,
+          ...(page.billingUnknown ? { billing_state: 'unknown' } : {}),
+          non_empty_pages_charged: credits ?? null,
           keywords: body.q_organization_keyword_tags ?? null,
           lookalike_organization_ids: body.lookalike_organization_ids ?? null,
           domains_list: body.q_organization_domains_list ?? null,

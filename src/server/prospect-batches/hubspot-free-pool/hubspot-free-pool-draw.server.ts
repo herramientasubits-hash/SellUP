@@ -18,13 +18,48 @@ import {
   searchHubSpotFreeCompanies,
   type HubSpotFreeCompany,
 } from '@/server/integrations/hubspot-free-company-pool.server';
-import { createHubSpotFreePoolDrawer, type HubSpotFreePoolDrawer } from './hubspot-free-pool-draw';
+import {
+  createHubSpotFreePoolDrawer,
+  HUBSPOT_FREE_POOL_METADATA_KEY,
+  HUBSPOT_FREE_POOL_REJECTED_IDS_KEY,
+  type HubSpotFreePoolDrawer,
+} from './hubspot-free-pool-draw';
 
 /** Una empresa ofrecida por esta fuente no se vuelve a ofrecer en este plazo. */
 export const HUBSPOT_FREE_POOL_REOFFER_DAYS = 90;
 
 /** Filas que se leen como máximo; si se llena, la telemetría lo dice. */
 export const HUBSPOT_FREE_POOL_ALREADY_OFFERED_MAX = 10_000;
+
+/**
+ * AUDIT-A1-WS7 — una ficha leída y rechazada (tomada, sin dominio, no confirmada
+ * libre) no se vuelve a leer en este plazo: la regla de actividad reciente es de 30
+ * días, así que después puede haber cambiado.
+ */
+export const HUBSPOT_FREE_POOL_REJECTED_RETRY_DAYS = 30;
+/** Lotes recientes que se leen como máximo para recuperar los rechazados. */
+export const HUBSPOT_FREE_POOL_REJECTED_BATCHES_MAX = 500;
+
+/** Ids rechazados por la capa en lotes recientes (metadata del lote). Sólo lectura. */
+export async function listHubSpotFreePoolRecentlyRejected(
+  client: Pick<ReturnType<typeof createSupabaseAdminClient>, 'from'> = createSupabaseAdminClient(),
+  nowMs: number = Date.now(),
+): Promise<ReadonlySet<string>> {
+  const since = new Date(nowMs - HUBSPOT_FREE_POOL_REJECTED_RETRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await client
+    .from('prospect_batches')
+    .select(`rejected:metadata->${HUBSPOT_FREE_POOL_METADATA_KEY}->${HUBSPOT_FREE_POOL_REJECTED_IDS_KEY}`)
+    .not(`metadata->${HUBSPOT_FREE_POOL_METADATA_KEY}->${HUBSPOT_FREE_POOL_REJECTED_IDS_KEY}`, 'is', null)
+    .gte('created_at', since)
+    .limit(HUBSPOT_FREE_POOL_REJECTED_BATCHES_MAX);
+  if (error || !data) throw new Error(error?.message ?? 'sin datos');
+  const out = new Set<string>();
+  for (const row of data as Array<{ rejected: unknown }>) {
+    if (!Array.isArray(row.rejected)) continue;
+    for (const id of row.rejected) if (typeof id === 'string' && id !== '') out.add(id);
+  }
+  return out;
+}
 
 export async function listHubSpotFreePoolAlreadyOffered(): Promise<ReadonlySet<string> | null> {
   try {
@@ -42,11 +77,19 @@ export async function listHubSpotFreePoolAlreadyOffered(): Promise<ReadonlySet<s
     if (data.length >= HUBSPOT_FREE_POOL_ALREADY_OFFERED_MAX) {
       console.warn('[hubspot-free-pool] lo ya ofrecido llegó al tope de lectura; puede repetirse alguna empresa');
     }
-    return new Set(
+    const offered = new Set(
       (data as Array<{ company_id: string | null }>)
         .map((row) => row.company_id)
         .filter((id): id is string => typeof id === 'string' && id !== ''),
     );
+    // AUDIT-A1-WS7 — y lo leído y rechazado hace poco. Fail-open: si esa lectura
+    // falla, se excluye sólo lo ya ofrecido (como antes).
+    try {
+      for (const id of await listHubSpotFreePoolRecentlyRejected()) offered.add(id);
+    } catch (err) {
+      console.error('[hubspot-free-pool] no se pudo leer lo rechazado hace poco:', err);
+    }
+    return offered;
   } catch (err) {
     console.error('[hubspot-free-pool] no se pudo leer lo ya ofrecido:', err);
     return null;

@@ -197,6 +197,21 @@ export function classifyApolloOrganizationsError(
   }
 
   if (status === 429) {
+    // WS6 · F4 — una ventana de cuota HORARIA o DIARIA agotada no se recupera
+    // dentro del presupuesto temporal de una búsqueda (60 s). Reintentar sólo
+    // dormía `Retry-After` (hasta horas) para volver a recibir 429. No se
+    // reintenta: se detiene la paginación y la cuota queda visible en
+    // `exhaustedWindow`. La ventana por minuto sigue siendo reintentable.
+    if (base.exhaustedWindow === 'hourly' || base.exhaustedWindow === 'daily') {
+      return {
+        ...base,
+        category: 'rate_limited',
+        code: 'apollo_http_429_rate_limited',
+        retryable: false,
+        billingState: 'not_charged',
+        terminatesPagination: true,
+      };
+    }
     const headerRetryAfter = rateLimit?.retryAfterSeconds ?? null;
     const usedHeader = headerRetryAfter !== null;
     return {
@@ -212,6 +227,23 @@ export function classifyApolloOrganizationsError(
       retryAfterSource: usedHeader
         ? 'retry_after_header'
         : 'exponential_backoff_with_jitter',
+    };
+  }
+
+  // WS6 · F9 — 502/504 son errores de PASARELA: la pasarela dejó de esperar,
+  // pero Apollo pudo haber procesado (y cobrado) la búsqueda detrás. Es el
+  // mismo caso que un timeout después del envío: cobro desconocido y SIN
+  // reintento automático, que podría duplicar el cargo. El resto de 5xx
+  // (500, 503…) los emite el propio servicio antes de procesar y siguen como
+  // no cobrados y reintentables.
+  if (status === 502 || status === 504) {
+    return {
+      ...base,
+      category: 'provider_failure',
+      code: `apollo_http_${status}_gateway_billing_unknown`,
+      retryable: false,
+      billingState: 'unknown',
+      terminatesPagination: true,
     };
   }
 

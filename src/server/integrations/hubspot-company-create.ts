@@ -15,6 +15,29 @@
 import { resolveMacroIndustryByDisplayName } from '@/modules/macro-industry-catalog/macro-industries';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { ensureHubSpotSellUpCreatedPropertyCached } from './hubspot-property-ensure-cache';
+import { fetchHubSpotWithRetry } from './hubspot-rate-limit';
+import { normalizeCompanyName } from '@/server/agents/prospecting-toolkit/normalization';
+
+const HUBSPOT_API = 'https://api.hubapi.com';
+// AGENT1-AUDIT-WS4 — topes de espera por intento. Antes: `fetch` sin tope ni
+// reintento ante 429, y la metadata de propiedades se leía en CADA aprobación.
+const READ_TIMEOUT_MS = 10_000;
+/**
+ * La creación espera más, y SÓLO se reintenta ante 429 (HubSpot rechazó la
+ * petición sin procesarla). Un tope vencido NO se reintenta: la empresa pudo
+ * haberse creado y reintentar la duplicaría.
+ */
+const CREATE_TIMEOUT_MS = 20_000;
+/** La metadata de propiedades del portal casi nunca cambia: se guarda 10 min. */
+export const HUBSPOT_PROPERTIES_METADATA_TTL_MS = 10 * 60 * 1000;
+
+/** Dependencias inyectables (pruebas sin red). En Producción, todo por defecto. */
+export type HubSpotCreateOptions = {
+  fetchFn?: typeof fetch;
+  resolveToken?: () => Promise<string | null>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
 
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
 
@@ -37,6 +60,12 @@ export async function getHubSpotToken(): Promise<string | null> {
     return null;
   }
 }
+
+/** Dónde guarda el portal la identificación fiscal (mismo criterio al crear y al buscar). */
+const HUBSPOT_TAX_ID_PROPERTY_CANDIDATES = {
+  names: ['identificaci_n_fiscal', 'identificacion_fiscal', 'nit', 'rfc', 'ruc', 'tax_id'],
+  labels: ['Identificación Fiscal (NIT - RFC - RUC)', 'Identificación Fiscal', 'nit', 'rfc', 'ruc', 'tax id', 'tax_id'],
+};
 
 // NIT Colombia: "900123456-7" → "900123456", "800236140" → "800236140"
 function cleanNitForHubSpot(taxIdentifier: string): string {
@@ -184,17 +213,23 @@ export function getCountryNameFromCode(code: string | null | undefined): string 
 
 export async function findHubSpotOwnerByEmail(
   email: string,
-  token: string
+  token: string,
+  options: HubSpotCreateOptions = {},
 ): Promise<HubSpotOwner | null> {
-  const url = `https://api.hubapi.com/crm/v3/owners?email=${encodeURIComponent(email)}&archived=false`;
+  const url = `${HUBSPOT_API}/crm/v3/owners?email=${encodeURIComponent(email)}&archived=false`;
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    const res = await fetchHubSpotWithRetry(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       },
-    });
+      READ_TIMEOUT_MS,
+      { fetchFn: options.fetchFn ?? fetch, sleep: options.sleep },
+    );
     if (!res.ok) return null;
     const data = (await res.json()) as { results?: HubSpotOwner[] };
     if (data.results && data.results.length > 0) {
@@ -206,20 +241,44 @@ export async function findHubSpotOwnerByEmail(
   }
 }
 
+let propertiesMetadataCache: { properties: HubSpotProperty[]; loadedAt: number } | null = null;
+
+/** Sólo para pruebas: vacía la caché de metadata de propiedades. */
+export function resetHubSpotCompanyPropertiesMetadataCache(): void {
+  propertiesMetadataCache = null;
+}
+
+/**
+ * Metadata de las propiedades de empresa del portal. Se guarda en memoria
+ * `HUBSPOT_PROPERTIES_METADATA_TTL_MS`; una lectura fallida o vacía NUNCA se
+ * guarda (podría ser pasajera). `[]` si HubSpot no responde.
+ */
 export async function getHubSpotCompanyPropertiesMetadata(
-  token: string
+  token: string,
+  options: HubSpotCreateOptions = {},
 ): Promise<HubSpotProperty[]> {
+  const now = options.now?.() ?? Date.now();
+  if (propertiesMetadataCache && now - propertiesMetadataCache.loadedAt < HUBSPOT_PROPERTIES_METADATA_TTL_MS) {
+    return propertiesMetadataCache.properties;
+  }
   try {
-    const response = await fetch('https://api.hubapi.com/crm/v3/properties/companies', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    const response = await fetchHubSpotWithRetry(
+      `${HUBSPOT_API}/crm/v3/properties/companies`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       },
-    });
+      READ_TIMEOUT_MS,
+      { fetchFn: options.fetchFn ?? fetch, sleep: options.sleep },
+    );
     if (!response.ok) return [];
     const data = (await response.json()) as { results?: HubSpotProperty[] };
-    return data.results ?? [];
+    const properties = data.results ?? [];
+    if (properties.length > 0) propertiesMetadataCache = { properties, loadedAt: now };
+    return properties;
   } catch {
     return [];
   }
@@ -272,23 +331,25 @@ const SAFE_STANDARD_PROPERTIES = [
 ];
 
 export async function createHubSpotCompany(
-  input: CreateHubSpotCompanyInput
+  input: CreateHubSpotCompanyInput,
+  options: HubSpotCreateOptions = {},
 ): Promise<CreateHubSpotCompanyResult> {
-  const token = await getHubSpotToken();
+  const fetchFn = options.fetchFn ?? fetch;
+  const token = await (options.resolveToken ?? getHubSpotToken)();
   if (!token) {
     return { ok: false, success: false, error: 'TOKEN_UNAVAILABLE', owner_assigned: false, account_executive_assigned: false, warnings: [] };
   }
 
   const propertyEnsure = await ensureHubSpotSellUpCreatedPropertyCached('companies', {
     token,
-    fetchImpl: fetch,
+    fetchImpl: fetchFn,
   });
 
   const warnings: string[] = [];
   const skippedProperties: string[] = [];
 
   // 1. Fetch HubSpot Properties metadata to resolve custom property names dynamically
-  const hubspotProps = await getHubSpotCompanyPropertiesMetadata(token);
+  const hubspotProps = await getHubSpotCompanyPropertiesMetadata(token, options);
 
   // 2. Resolve owner dynamically
   let finalOwnerId: string | null = null;
@@ -298,7 +359,7 @@ export async function createHubSpotCompany(
   let ownerMappingStatus: 'mapped' | 'skipped_missing_mapping' | 'skipped' = 'skipped';
 
   if (input.approvedByEmail) {
-    const owner = await findHubSpotOwnerByEmail(input.approvedByEmail, token);
+    const owner = await findHubSpotOwnerByEmail(input.approvedByEmail, token, options);
     if (owner) {
       finalOwnerId = owner.id;
       owner_assigned = true;
@@ -521,10 +582,7 @@ export async function createHubSpotCompany(
     const taxIdVal = isCO ? cleanNitForHubSpot(input.taxIdentifier) : input.taxIdentifier;
     
     if (!isCO || taxIdVal.length >= 5) {
-      const customTaxIdName = findPropertyInternalName(hubspotProps, {
-        names: ['identificaci_n_fiscal', 'identificacion_fiscal', 'nit', 'rfc', 'ruc', 'tax_id'],
-        labels: ['Identificación Fiscal (NIT - RFC - RUC)', 'Identificación Fiscal', 'nit', 'rfc', 'ruc', 'tax id', 'tax_id']
-      });
+      const customTaxIdName = findPropertyInternalName(hubspotProps, HUBSPOT_TAX_ID_PROPERTY_CANDIDATES);
       if (customTaxIdName) {
         properties[customTaxIdName] = taxIdVal;
         cleanNit = taxIdVal;
@@ -563,15 +621,22 @@ export async function createHubSpotCompany(
     properties[customSourceName] = sourceVal;
   }
 
+  // AGENT1-AUDIT-WS4 — con tope de espera y reintento SÓLO ante 429 (ver
+  // CREATE_TIMEOUT_MS): un tope vencido lanza y cae en el `catch` de abajo.
   const sendRequest = async (propsToSend: Record<string, string>) => {
-    return await fetch('https://api.hubapi.com/crm/v3/objects/companies', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    return await fetchHubSpotWithRetry(
+      `${HUBSPOT_API}/crm/v3/objects/companies`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ properties: propsToSend }),
       },
-      body: JSON.stringify({ properties: propsToSend }),
-    });
+      CREATE_TIMEOUT_MS,
+      { fetchFn, sleep: options.sleep },
+    );
   };
 
   try {
@@ -778,5 +843,118 @@ export async function readHubSpotCompanyProperties(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : 'Network error';
     return { ok: false, error: msg };
+  }
+}
+
+// ── AGENT1-AUDIT-WS4 — Búsqueda EN VIVO justo antes de crear ────────────────
+//
+// La aprobación creaba la empresa en HubSpot fiándose del chequeo guardado al
+// validar (minutos u horas antes). Esta búsqueda se hace justo antes del POST y
+// es estricta en lo que cuenta como «la misma empresa»: dominio exacto,
+// identificación fiscal exacta en la propiedad fiscal del portal, o nombre igual
+// tras normalizar (sin sufijos legales). Cualquier respuesta no-OK, tope vencido
+// o error ⇒ `lookup_failed`: quien llama NO crea (nunca se lee un fallo como
+// «no existe»).
+
+export type HubSpotPreCreateLiveCheck =
+  | { status: 'no_match' }
+  | { status: 'match'; companyIds: string[]; matchedBy: Array<'domain' | 'tax_identifier' | 'name'> }
+  | { status: 'lookup_failed'; error: string };
+
+type PreCreateSearchHit = { id: string; properties?: { name?: string | null; domain?: string | null } };
+
+function normalizeDomainForSearch(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const host = value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split(/[/?#]/)[0];
+  return host.length > 3 && host.includes('.') ? host : null;
+}
+
+export async function searchHubSpotCompaniesBeforeCreate(
+  input: { name: string; domain: string | null; taxIdentifier: string | null; countryCode: string | null },
+  options: HubSpotCreateOptions = {},
+): Promise<HubSpotPreCreateLiveCheck> {
+  const fetchFn = options.fetchFn ?? fetch;
+  try {
+    const token = await (options.resolveToken ?? getHubSpotToken)();
+    if (!token) return { status: 'lookup_failed', error: 'token_unavailable' };
+
+    const search = async (body: Record<string, unknown>): Promise<PreCreateSearchHit[] | { error: string }> => {
+      const res = await fetchHubSpotWithRetry(
+        `${HUBSPOT_API}/crm/v3/objects/companies/search`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        READ_TIMEOUT_MS,
+        { fetchFn, sleep: options.sleep },
+      );
+      if (!res.ok) return { error: `search_http_${res.status}` };
+      const data = (await res.json()) as { results?: PreCreateSearchHit[] };
+      return data.results ?? [];
+    };
+
+    const ids = new Set<string>();
+    const matchedBy = new Set<'domain' | 'tax_identifier' | 'name'>();
+
+    // 1. Dominio exacto.
+    const domain = normalizeDomainForSearch(input.domain);
+    if (domain) {
+      const hits = await search({
+        filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: domain }] }],
+        properties: ['name', 'domain'],
+        limit: 5,
+      });
+      if (!Array.isArray(hits)) return { status: 'lookup_failed', error: hits.error };
+      for (const hit of hits) {
+        ids.add(String(hit.id));
+        matchedBy.add('domain');
+      }
+    }
+
+    // 2. Identificación fiscal exacta, en la propiedad fiscal del portal.
+    const rawTaxId = input.taxIdentifier?.replace(/\s/g, '').trim() ?? '';
+    if (rawTaxId.length >= 5) {
+      const props = await getHubSpotCompanyPropertiesMetadata(token, options);
+      if (props.length === 0) return { status: 'lookup_failed', error: 'property_metadata_unavailable' };
+      const taxProp = findPropertyInternalName(props, HUBSPOT_TAX_ID_PROPERTY_CANDIDATES);
+      if (taxProp) {
+        const needles = [...new Set([rawTaxId, input.countryCode === 'CO' ? cleanNitForHubSpot(rawTaxId) : rawTaxId])];
+        const hits = await search({
+          filterGroups: needles.map((value) => ({ filters: [{ propertyName: taxProp, operator: 'EQ', value }] })),
+          properties: ['name', 'domain'],
+          limit: 5,
+        });
+        if (!Array.isArray(hits)) return { status: 'lookup_failed', error: hits.error };
+        for (const hit of hits) {
+          ids.add(String(hit.id));
+          matchedBy.add('tax_identifier');
+        }
+      }
+    }
+
+    // 3. Nombre igual tras normalizar (la búsqueda de texto de HubSpot es difusa:
+    //    sólo cuenta la igualdad, no cualquier palabra en común).
+    const normalizedName = normalizeCompanyName(input.name ?? '');
+    if (normalizedName.length >= 3) {
+      const hits = await search({ query: input.name.trim(), properties: ['name', 'domain'], limit: 20 });
+      if (!Array.isArray(hits)) return { status: 'lookup_failed', error: hits.error };
+      for (const hit of hits) {
+        if (normalizeCompanyName(hit.properties?.name ?? '') === normalizedName) {
+          ids.add(String(hit.id));
+          matchedBy.add('name');
+        }
+      }
+    }
+
+    if (ids.size === 0) return { status: 'no_match' };
+    return { status: 'match', companyIds: [...ids], matchedBy: [...matchedBy] };
+  } catch (err: unknown) {
+    return { status: 'lookup_failed', error: err instanceof Error ? err.message.slice(0, 200) : 'network_error' };
   }
 }

@@ -35,6 +35,7 @@ import {
   readApolloPageFenceDocument,
   mergeApolloPageFenceEntries,
   clearApolloPageFenceRound,
+  releaseApolloPageFenceNotChargedEntry,
   type ApolloPageFenceDocumentV1,
   type ApolloPageFenceEntry,
 } from './page-fence';
@@ -236,6 +237,26 @@ export async function clearApolloPageFenceRoundDurable(
     batchId,
     identity,
     (existing) => clearApolloPageFenceRound(existing, roundNumber),
+    clientOverride,
+  );
+}
+
+/**
+ * WS6 · F2 — cierra como «sin cobro» la valla `request_started` de UNA página
+ * (401/403/422, 429 o 5xx reintentable agotados: Apollo no cobró). Ver
+ * `releaseApolloPageFenceNotChargedEntry`: nunca toca `succeeded` ni
+ * `indeterminate`.
+ */
+export async function releaseApolloPageFenceEntryNotCharged(
+  batchId: string,
+  identity: ApolloPageFenceIdentity,
+  target: Pick<ApolloPageFenceEntry, 'round_number' | 'search_plan_fingerprint' | 'page'>,
+  clientOverride?: CheckpointStoreClient | null,
+): Promise<ApolloPageFenceWriteOutcome> {
+  return writeApolloPageFence(
+    batchId,
+    identity,
+    (existing) => releaseApolloPageFenceNotChargedEntry(existing, target),
     clientOverride,
   );
 }

@@ -56,6 +56,39 @@ type ClaimedRow = {
 };
 
 
+/** AGENT1-AUDIT-WS2 § 6 — código de cierre de una fila reclamada sin `run_input`. */
+export const APOLLO_CONTINUATION_RUN_INPUT_MISSING = 'continuation_run_input_missing';
+
+/**
+ * AGENT1-AUDIT-WS2 § 6 — cierra como `failed` una fila reclamada cuyo `run_input`
+ * no se puede restaurar. Vallada por `lease_token`: si el lease ya no es nuestro,
+ * no pisa nada. Nunca lanza: un cierre fallido se registra y la fila caduca sola.
+ */
+async function closeUnrestorableContinuationRow(
+  client: SupabaseClient,
+  row: Pick<ClaimedRow, 'id' | 'batch_id' | 'lease_token'>,
+): Promise<void> {
+  console.error(
+    `[ApolloContinuation] trabajo ${row.id} (lote ${row.batch_id}) sin run_input: se cierra como fallido`,
+  );
+  try {
+    const { error } = await client
+      .from(CONTINUATION_JOBS_TABLE)
+      .update({
+        status: 'failed',
+        error_code: APOLLO_CONTINUATION_RUN_INPUT_MISSING,
+        lease_token: null,
+        lease_expires_at: null,
+        locked_by: null,
+      })
+      .eq('id', row.id)
+      .eq('lease_token', row.lease_token);
+    if (error) throw error;
+  } catch (error) {
+    console.error(`[ApolloContinuation] no se pudo cerrar el trabajo ${row.id}:`, error);
+  }
+}
+
 /**
  * Encola la continuación de un lote que se quedó sin tiempo.
  *
@@ -139,25 +172,110 @@ async function readDurableAcceptedForTargetTotal(
   }
 }
 
+/**
+ * AGENT1-AUDIT-WS2 § 4 — ¿hay una persona con sesión en ESTA invocación?
+ *
+ * El cron no trae cookies: `getUser()` devuelve `null` y la acción de Lusha
+ * (`requireActiveUser`) redirigiría. La continuación en sesión sí la trae. Es una
+ * LECTURA de la sesión, no un atajo: nada aquí autentica a nadie. Cualquier error ⇒
+ * «sin sesión» (fail-closed: Lusha no corre).
+ */
+async function hasActiveUserSession(): Promise<boolean> {
+  try {
+    const { createClient: createSessionClient } = await import('@/lib/supabase/server');
+    const supabase = await createSessionClient();
+    const { data } = await supabase.auth.getUser();
+    return Boolean(data?.user);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * AGENT1-AUDIT-WS2 §§ 3, 4 — deja en el lote POR QUÉ la pierna Lusha no corrió (o
+ * falló) tras la continuación. Antes el lote seguía diciendo lo que dijo la pausa
+ * («Apollo pendiente») y nadie podía saber que Lusha nunca llegó a correr.
+ *
+ * Observacional y best-effort: tras la escritura del runner no hay otro escritor
+ * del lote, y un fallo aquí no cambia nada de la corrida.
+ */
+async function recordContinuationLushaLeg(
+  client: SupabaseClient,
+  batchId: string,
+  trace: { skipReason: string | null; failureReason?: string | null },
+): Promise<void> {
+  try {
+    const { LUSHA_WATERFALL_LEG_METADATA_KEY } = await import(
+      '@/modules/prospect-batches/chat-wizard-execution/wizard-lusha-waterfall'
+    );
+    const { data, error } = await client
+      .from('prospect_batches')
+      .select('metadata')
+      .eq('id', batchId)
+      .maybeSingle();
+    if (error || !data) return;
+    const current = (data as { metadata?: Record<string, unknown> | null }).metadata ?? {};
+    await client
+      .from('prospect_batches')
+      .update({
+        metadata: {
+          ...current,
+          [LUSHA_WATERFALL_LEG_METADATA_KEY]: {
+            executed: false,
+            skipReason: trace.skipReason,
+            gap: null,
+            clientRequestId: null,
+            persistedCandidates: null,
+            acceptedForTarget: null,
+            failureCode: null,
+            failureReason: trace.failureReason ?? null,
+            decidedBy: 'apollo_continuation',
+          },
+        },
+      })
+      .eq('id', batchId);
+  } catch (error) {
+    console.warn('[ApolloContinuation] no se pudo anotar la pierna Lusha en el lote:', error);
+  }
+}
+
 async function runContinuationCascade(
   policy: ApolloContinuationRunPolicy,
   outcome: { persistenceOutcome?: { completeValidCandidates?: number | null } },
   client: SupabaseClient,
+  timing: { elapsedMs: number },
 ): Promise<void> {
   const [{ runLushaWaterfallLeg }, { isAgent1LushaFallbackEffective, isLushaPreviewEnabled }] =
     await Promise.all([
       import('@/modules/prospect-batches/chat-wizard-execution/wizard-lusha-waterfall.server'),
       import('@/lib/feature-flags.server'),
     ]);
-  const { resolveContinuationCascadeInputs, resolveCascadeAcceptedForTarget } = await import(
-    './continuation-worker'
-  );
+  const {
+    resolveContinuationCascadeInputs,
+    resolveCascadeAcceptedForTarget,
+    decideContinuationLushaPrecondition,
+  } = await import('./continuation-worker');
 
   const effective = resolveContinuationCascadeInputs(policy, {
     waterfallEnabled: isAgent1LushaFallbackEffective(),
     lushaAvailable: isLushaPreviewEnabled(),
   });
   if (!effective.waterfallEnabled || !effective.lushaAvailable) return;
+
+  // 🔴 AGENT1-AUDIT-WS2 §§ 3, 4 — tiempo y sesión ANTES de reservar nada. Sin
+  // tiempo no se reserva (Vercel cortaría con la reserva hecha); sin sesión (cron)
+  // la acción de Lusha redirigiría. Las dos se saltan con motivo, nunca en silencio.
+  const precondition = decideContinuationLushaPrecondition({
+    elapsedMs: timing.elapsedMs,
+    hasUserSession: await hasActiveUserSession(),
+  });
+  if (precondition !== null) {
+    console.warn(
+      `[ApolloContinuation] pierna Lusha omitida (${precondition}) en el lote ${policy.batchId}`,
+    );
+    await recordContinuationLushaLeg(client, policy.batchId, { skipReason: precondition });
+    return;
+  }
 
   // 🔴 AGENT1-CONTINUATION-LUSHA-CASCADE-1 — lo ACEPTADO, no lo escrito.
   const acceptedForTarget = resolveCascadeAcceptedForTarget({
@@ -171,7 +289,7 @@ async function runContinuationCascade(
     return;
   }
 
-  await runLushaWaterfallLeg(
+  const leg = await runLushaWaterfallLeg(
     {
       wizardClientRequestId: policy.wizardClientRequestId,
       canonicalBatchId: policy.batchId,
@@ -190,6 +308,15 @@ async function runContinuationCascade(
       lushaAvailable: () => effective.lushaAvailable,
     },
   );
+  // AGENT1-AUDIT-WS2 § 4 — antes el desenlace se descartaba: una pierna que lanzó
+  // (`leg_failed`) era indistinguible de una que no hizo falta.
+  if (!leg.executed && leg.reason === 'leg_failed') {
+    console.error(`[ApolloContinuation] la pierna Lusha falló en el lote ${policy.batchId}`);
+    await recordContinuationLushaLeg(client, policy.batchId, {
+      skipReason: 'leg_failed',
+      failureReason: 'lusha_action_threw',
+    });
+  }
 }
 
 export async function runApolloRoundContinuationWorkerFromEnv(
@@ -238,7 +365,14 @@ export async function runApolloRoundContinuationWorkerFromEnv(
         // `accepted_for_target`. `restoreContinuationRunInput` la vuelve a atar
         // desde los hechos de la corrida, con la misma aritmética que el mago.
         const restored = restoreContinuationRunInput(row.metadata);
-        if (!restored) continue;
+        if (!restored) {
+          // 🔴 AGENT1-AUDIT-WS2 § 6 — antes `continue` a secas: la fila quedaba
+          // reclamada (lease, intento sumado) y nadie la cerraba nunca. Reintentar
+          // no va a crear el `run_input`, así que se cierra como fallida con un
+          // código propio, vallada por el mismo token del reclamo.
+          await closeUnrestorableContinuationRow(client, row);
+          continue;
+        }
         runInputByJobId.set(row.id, restored.runInput);
         if (row.metadata?.run_policy) runPolicyByJobId.set(row.id, row.metadata.run_policy);
         identityByBatchId.set(row.batch_id, {
@@ -274,13 +408,18 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       };
     },
 
-    resumeRun: async ({ job }) => {
+    resumeRun: async ({ job, invocationStartedAtMs }) => {
       const runInput = runInputByJobId.get(job.id);
       if (!runInput) throw new Error('continuation_run_input_missing');
       // El runner restaura identidades, gasto y operaciones completadas desde el
       // checkpoint: una búsqueda ya pagada NO se vuelve a pedir porque su
       // operación está en `completed_operation_keys`.
-      const outcome = await runApolloTwoRoundWizardDiscovery(runInput);
+      //
+      // AGENT1-AUDIT-WS2 § 1 — el plazo cuenta desde el inicio del CONDUCTOR, no
+      // desde este trabajo: el segundo trabajo de la invocación no tiene 300 s.
+      const outcome = await runApolloTwoRoundWizardDiscovery(runInput, undefined, {
+        startedAtMs: invocationStartedAtMs,
+      });
       const paused = outcome.assessmentDeadlineReached === true;
       const pending = outcome.pendingOrganizationCount ?? 0;
 
@@ -296,7 +435,9 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       if (pending === 0 && (!paused || wroteThisAttempt)) {
         const policy = runPolicyByJobId.get(job.id);
         if (policy) {
-          await runContinuationCascade(policy, outcome, client).catch((error) => {
+          await runContinuationCascade(policy, outcome, client, {
+            elapsedMs: Date.now() - invocationStartedAtMs,
+          }).catch((error) => {
             // La cascada no puede tumbar una continuación que YA terminó su
             // trabajo: lo de Apollo está escrito y es válido con o sin Lusha.
             console.error('[ApolloContinuation] cascada tras continuación falló:', error);

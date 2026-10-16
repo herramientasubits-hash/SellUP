@@ -441,7 +441,13 @@ describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migra
     );
   });
 
-  it('failed enrichment (success=false) → credits_used=1, estimated_cost_usd=0.00875 (API call was made)', async () => {
+  // WS6 · F9 — este caso fijaba el defecto: todo enrichment fallido se
+  // registraba como 1 crédito «confirmado». Apollo confirmó que sin coincidencia
+  // cuesta 0, y un fallo cuyo status no se conserva no tiene cobro conocido: se
+  // registra como INDETERMINADO (créditos NULL, jamás un número fabricado), con
+  // el mismo veredicto y el mismo constructor de fila que ya usa la modalidad de
+  // dos rondas (el costo unitario se conserva como exposición, como allí).
+  it('failed enrichment (success=false) → cobro indeterminado: credits_used NULL', async () => {
     const { logs, logFn } = makeLogCapture();
     const deps: ApolloOrgsSearchDeps = {
       searchOrgs: makeSearchSuccess([ORG_GENERIC]),
@@ -459,8 +465,8 @@ describe('L2.15-B-G-pricing: organization_enrichment logs correct pricing (migra
     const enrichLogs = logs.filter(l => l.operation_key === 'organization_enrichment');
     assert.equal(enrichLogs.length, 1, 'Failed enrichment still generates a log (real API call was made)');
     const log = enrichLogs[0]!;
-    assert.equal(log.credits_used, 1, 'credits_used=1 even on failure (Apollo charges the call)');
-    assert.equal(log.estimated_cost_usd, 0.00875, 'estimated_cost_usd=0.00875 even on failure');
+    assert.equal(log.credits_used, undefined, 'cobro desconocido ⇒ columna NULL, nunca 1 fabricado');
+    assert.equal(log.estimated_cost_usd, 0.00875, 'exposición unitaria, igual que la modalidad de dos rondas');
     assert.equal(log.status, 'error');
   });
 
@@ -546,7 +552,9 @@ describe('L2.15-B-G: Enrichment failure → organization_enrichment log with sta
     assert.equal(enrichLogs.length, 1, 'Failed enrichment still generates a log (real API call was made)');
     assert.equal(enrichLogs[0]!.status, 'error');
     assert.equal(enrichLogs[0]!.results_returned, 0);
-    assert.equal(enrichLogs[0]!.error_code, 'enrichment_failed');
+    // WS6 · F9 — el código ya no es el genérico `enrichment_failed` (que iba con
+    // 1 crédito): es el de operación indeterminada.
+    assert.equal(enrichLogs[0]!.error_code, 'apollo_operation_indeterminate');
   });
 
   it('thrown enrichment error → log with status=error', async () => {

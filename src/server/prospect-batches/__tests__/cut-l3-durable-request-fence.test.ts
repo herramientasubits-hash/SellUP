@@ -574,10 +574,12 @@ describe('CUT-L3 · L3-K — `already_reserved` ya NO puede replayar (§ 15)', (
     let runInvoked = false;
     await withFetch(replay.fn, () =>
       guardLushaRunBudget<{ blocked: boolean }>(
+        // WS6 · E — la reserva del replay sigue ABIERTA: sólo así `run()` procede.
         async () => ({
           status: 'already_reserved' as const,
           reservationId: RESERVATION_ID,
           creditsReserved: 2,
+          reservationState: 'reserved',
         }),
         () => ({ blocked: true }),
         async () => {

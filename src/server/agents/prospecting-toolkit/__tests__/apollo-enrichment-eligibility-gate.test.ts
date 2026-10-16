@@ -297,10 +297,37 @@ describe('F. Helpers', () => {
     assert.equal(resolveCountryFromDomainTld('acme.io'), null);
   });
 
+  // AGENT1-COUNTRY-IDENTITY-1 — `.co` desnudo lo usan empresas de todo el mundo
+  // (rappi.co, angel.co). Sólo `.com.co`, `.gov.co`… son colombianos, igual que
+  // en `country-compatibility.ts`.
+  it('treats a bare .co as generic and only Colombian second levels as CO', () => {
+    assert.equal(resolveCountryFromDomainTld('rappi.co'), null);
+    assert.equal(resolveCountryFromDomainTld('www.angel.co'), null);
+    assert.equal(resolveCountryFromDomainTld('mintic.gov.co'), 'CO');
+    assert.equal(resolveCountryFromDomainTld('unal.edu.co'), 'CO');
+    assert.equal(resolveCountryFromDomainTld('ccb.org.co'), 'CO');
+  });
+
+  it('does not reject a bare .co domain in a search outside Colombia', () => {
+    const result = evaluateApolloEnrichmentEligibility(
+      candidate({ title: 'Rappi Supermercados', domain: 'rappi.co', url: 'https://rappi.co' }),
+      { ...SUPERMARKET_SEARCH, targetCountryCode: 'MX' },
+    );
+    assert.notEqual(result.eligible === false && result.skipReason, 'tld_country_mismatch');
+  });
+
   it('computes registrable domains including second-level suffixes', () => {
     assert.equal(toRegistrableDomain('www.acme.com'), 'acme.com');
     assert.equal(toRegistrableDomain('shop.grupoexito.com.co'), 'grupoexito.com.co');
     assert.equal(toRegistrableDomain('a.example.com'), 'example.com');
+  });
+
+  it('keeps the second level of Uruguay, Costa Rica and Peru public domains', () => {
+    assert.equal(toRegistrableDomain('www.presidencia.gub.uy'), 'presidencia.gub.uy');
+    assert.equal(toRegistrableDomain('www.mep.go.cr'), 'mep.go.cr');
+    assert.equal(toRegistrableDomain('www.ucr.ac.cr'), 'ucr.ac.cr');
+    assert.equal(toRegistrableDomain('sitio.bcr.fi.cr'), 'bcr.fi.cr');
+    assert.equal(toRegistrableDomain('www.pucp.edu.pe'), 'pucp.edu.pe');
   });
 
   it('validates domain shape', () => {

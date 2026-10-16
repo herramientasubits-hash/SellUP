@@ -16,6 +16,7 @@ import type {
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { isLushaRouteHonored } from '@/modules/prospect-batches/prospect-discovery-provider';
+import { isWizardLushaFinalRouteInEffect } from './wizard-lusha-final-route';
 // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — bajo el catálogo v2 (macro industria) la
 // selección de subindustria no existe: el resumen no puede seguir preguntando
 // por ella con la señal equivocada (`subindustryIds.length === 0`, que también es
@@ -305,11 +306,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // AGENT1-AUTO-PROVIDER-CASCADE-1 — en modo automático Lusha deja de ser una
   // ruta aparte: corre como respaldo DESPUÉS de Apollo, dentro de la misma
   // ejecución. Sin ruta Lusha, esta pantalla ofrece «Generar prospectos».
-  const lushaRouteInEffect =
-    !autoProviderCascade &&
-    lushaPreviewEnabled &&
-    isLushaRouteHonored(lushaCriteria.provider) &&
-    lushaCriteria.input !== null;
+  // AGENT1-SEARCH-AUDIT-1 — la regla vive en un predicado puro que además
+  // excluye «Competidores de una empresa» (nunca usa Lusha).
+  const isCompetitorSearch = state.searchMode === 'competitors';
+  const lushaRouteInEffect = isWizardLushaFinalRouteInEffect({
+    searchMode: state.searchMode,
+    autoProviderCascade,
+    lushaPreviewEnabled,
+    lushaRouteHonored: isLushaRouteHonored(lushaCriteria.provider),
+    hasLushaInput: lushaCriteria.input !== null,
+  });
 
   const overridingLushaWithApollo =
     requestedProvider === 'apollo_organizations' &&
@@ -399,9 +405,9 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // propio bloqueo previo, y la autoridad económica real sigue siendo la reserva
   // atómica del servidor (`try_reserve_wizard_credits`), que no depende de nada
   // de esta pantalla. Apollo/Tavily conservan su preflight intacto.
-  // «Competidores de una empresa» busca con Claude: no gasta créditos de Apollo,
-  // Tavily ni Lusha, así que ni su preflight ni su selector aplican.
-  const isCompetitorSearch = state.searchMode === 'competitors';
+  // «Competidores de una empresa» busca con Claude y usa Apollo sólo como último
+  // recurso, con su propia puerta (la cuota del proveedor); no pasa por la ruta
+  // Apollo/Tavily del asistente, así que ni su preflight ni su selector aplican.
   const budgetProvider = isCompetitorSearch ? null : (requestedProvider ?? defaultDiscoveryProvider);
   const preExecutionBudgetBlock =
     !useLushaFinalSearch && budgetProvider
@@ -604,8 +610,9 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
             <AlertDescription className="text-xs leading-relaxed">
               Claude buscará en la web empresas que compiten con la referencia y SellUp revisará cada una
               (sitio, duplicados y tamaño) antes de entregarla. Si las primeras ya están en HubSpot, hace una
-              segunda ronda con empresas menos conocidas. No usa créditos de Apollo; cuesta entre US$0,25 y
-              US$0,50 por país.
+              segunda ronda con empresas menos conocidas. Claude cuesta entre US$0,25 y US$0,50 por país. Si
+              aun así faltan empresas, busca en Apollo empresas parecidas a la referencia: hasta 3 créditos de
+              Apollo por país.
               {getSearchCountryCodes(state).length > 1
                 ? ` Se lanzará una búsqueda por país (${getSearchCountryCodes(state).length}); las verás en el Centro de procesos.`
                 : ''}

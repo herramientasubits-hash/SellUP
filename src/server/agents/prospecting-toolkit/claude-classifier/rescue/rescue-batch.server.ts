@@ -234,6 +234,33 @@ const KNOWN_COMPANY_BATCH_ROWS = 500;
 export const NOT_REASSIGNED_FILTER =
   'metadata->claude_rescue->>decision.is.null,metadata->claude_rescue->>decision.neq.reassign';
 
+/** Filas de uso que se suman como mucho (un lote con más ya pasó el tope de sobra). */
+const RESCUE_SPENT_MAX_ROWS = 5_000;
+
+/**
+ * AUDIT-A1-WS7 — lo gastado por el rescate de un lote en TODAS sus corridas: suma de
+ * `provider_usage_logs` (Anthropic, `metadata.flow = 'claude_rescue'`). Sólo lectura;
+ * `null` si no se puede leer.
+ */
+export async function readBatchRescueSpentUsd(
+  client: Pick<ReturnType<typeof createSupabaseAdminClient>, 'from'>,
+  batchId: string,
+): Promise<number | null> {
+  const { data, error } = await client
+    .from('provider_usage_logs')
+    .select('estimated_cost_usd')
+    .eq('batch_id', batchId)
+    .eq('provider_key', CLAUDE_CLASSIFIER_PROVIDER_KEY)
+    .eq('metadata->>flow', 'claude_rescue')
+    .limit(RESCUE_SPENT_MAX_ROWS);
+  if (error || !Array.isArray(data)) return null;
+  const total = (data as Array<{ estimated_cost_usd: number | string | null }>).reduce((acc, row) => {
+    const n = Number(row.estimated_cost_usd ?? 0);
+    return acc + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  return Math.round(total * 1_000_000) / 1_000_000;
+}
+
 export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatchDeps {
   const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
   const reasonCodes = domainSearchEnabled
@@ -243,6 +270,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     ...(domainSearchEnabled ? { domainSearch: liveDomainSearch } : {}),
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
+    loadBatchRescueSpentUsd: (batchId) => readBatchRescueSpentUsd(createSupabaseAdminClient(), batchId),
     // El rescate también corre SIN sesión (vueltas en cadena desde la ruta del cron):
     // el catálogo se lee con el cliente de servicio, sólo lectura.
     loadCatalog: () => loadClassifierCatalog(createSupabaseAdminClient()),
@@ -386,10 +414,15 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       if (error) console.error('[claude-rescue] disposition mark failed:', error.message);
     },
     claimIdentities: async (batchId, candidateIds) => {
+      // AGENT1-CLAIMS-OWN-RECLAIM-1 — `admitDisposition` devuelve el id también en
+      // `idempotent` (ya admitida y reclamada antes) y los vivos que ganaron NIT ya
+      // tienen sus reclamos: lo que la fila ya tiene no se reenvía, para que no
+      // choque consigo misma y quede `duplicate`.
       const outcome = await claimGlobalIdentitiesForPersistedCandidates(
         createSupabaseAdminClient(),
         batchId,
         candidateIds,
+        { excludeClaimsAlreadyHeld: true },
       );
       if (outcome.degraded) console.error('[claude-rescue] identity claims degraded for batch', batchId);
     },

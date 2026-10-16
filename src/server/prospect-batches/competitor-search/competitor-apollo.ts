@@ -11,7 +11,9 @@
  * dominios ya vistos. Si no hay dominio, no se resuelve el ID o las parecidas no
  * traen nada nuevo, se cae a la consulta por las palabras clave en inglés de la
  * ficha. Cada página con resultados cuesta 1 crédito (una vacía no cobra): a lo
- * sumo 3 páginas por corrida (ID + parecidas + palabras clave).
+ * sumo 3 páginas por corrida (ID + parecidas + palabras clave). Una página sin
+ * respuesta interpretable (tiempo agotado, corte, 2xx ilegible) tiene cobro
+ * DESCONOCIDO: no se repite y el paso se detiene sin gastar más (auditoría 16-10).
  *
  * Lo devuelto pasa por el MISMO juez de Claude que lo gratuito: sólo se escribe lo
  * que compite con la referencia; si el juez no responde, no entra NINGUNA (nunca
@@ -28,7 +30,15 @@ import {
   type CompetitorJudgeItem,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge';
 import type { ApolloOrganizationInput } from '@/server/agents/prospecting-toolkit/web-search-providers/apollo-organizations-search-provider';
-import { isReferenceItself, type CompetitorJudgeFn } from './competitor-free-sources';
+import {
+  EMPTY_COMPETITOR_REFERENCE_EXCLUSION,
+  passesCompetitorPrefilter,
+  type CompetitorJudgeFn,
+  type CompetitorPrefilterOptions,
+  type CompetitorPrefilterReason,
+  type CompetitorReferenceExclusion,
+  type CompetitorReferenceExclusionLoad,
+} from './competitor-free-sources';
 
 /** Resultados por página de búsqueda: 100 cuesta lo mismo que 25 (1 crédito, soporte 15-10). */
 export const COMPETITOR_APOLLO_PER_PAGE = 100;
@@ -50,6 +60,18 @@ export type CompetitorApolloPage = {
   /** Filas crudas de la respuesta: > 0 ⇒ Apollo cobró la página. */
   rawCount: number;
   error: string | null;
+  /**
+   * La petición salió y no hubo respuesta interpretable (tiempo agotado, corte de
+   * red, 2xx ilegible): Apollo pudo cobrarla. El cobro es DESCONOCIDO —ni 0 ni 1—
+   * y la página no se repite. Ausente ⇒ el cobro se lee de `rawCount`.
+   */
+  billingUnknown?: boolean;
+  /**
+   * Sólo para hallar el ID de la referencia: organizaciones que Apollo devolvió
+   * únicamente en `accounts[]` (ya guardadas en el workspace), con su
+   * `organization_id`. Nunca entran a lo que se ofrece al juez.
+   */
+  accountOrganizations?: ApolloOrganizationInput[];
 };
 
 /** Una organización que el juez eligió, con el motivo en una línea. */
@@ -82,6 +104,11 @@ export type CompetitorApolloStepDeps = {
   }) => Promise<void>;
   judge: CompetitorJudgeFn;
   writeCandidates: (picks: readonly CompetitorApolloPick[]) => Promise<CompetitorApolloWriteResult>;
+  /**
+   * El grupo de la referencia (búsqueda en árbol), una vez por corrida. Ausente o
+   * fallido ⇒ sólo las reglas de nombre y dominio (nunca tumba el paso).
+   */
+  loadReferenceExclusion?: () => Promise<CompetitorReferenceExclusionLoad>;
   nowMs?: () => number;
 };
 
@@ -166,13 +193,15 @@ function orgActivity(org: ApolloOrganizationInput): string | null {
 }
 
 /**
- * Lo que se le ofrece al juez: sin la referencia misma, sin dominios ya vistos
- * (por si Apollo no aplicó la exclusión) y sin repetidas. Claves `a1`, `a2`…
+ * Lo que se le ofrece al juez: sin la referencia misma (ni su grupo), sin
+ * competidores de UBITS, sin dominios ya vistos (por si Apollo no aplicó la
+ * exclusión) y sin repetidas. Claves `a1`, `a2`…
  */
 export function toCompetitorApolloJudgeItems(
   organizations: readonly ApolloOrganizationInput[],
   reference: Pick<CompetitorReference, 'name' | 'domain'>,
   excludeDomains: readonly string[],
+  options?: CompetitorPrefilterOptions,
 ): { items: CompetitorJudgeItem[]; byKey: Map<string, ApolloOrganizationInput> } {
   const excluded = new Set(excludeDomains.map(cleanDomain).filter((d): d is string => d !== null));
   const seen = new Set<string>();
@@ -183,7 +212,7 @@ export function toCompetitorApolloJudgeItems(
     if (!name) continue;
     const domain = orgDomain(org);
     if (domain && excluded.has(domain)) continue;
-    if (isReferenceItself(reference, { name, domain })) continue;
+    if (!passesCompetitorPrefilter(reference, { name, domain }, options)) continue;
     const identity = domain ?? `id:${org.id}`;
     if (seen.has(identity)) continue;
     seen.add(identity);
@@ -243,24 +272,32 @@ export async function runCompetitorApolloStep(
   deps: CompetitorApolloStepDeps,
 ): Promise<CompetitorApolloOutcome> {
   const keywords = [...(input.reference.keywords ?? [])];
-  const pages: Array<{ purpose: CompetitorApolloPagePurpose; ok: boolean; returned: number; charged: number }> = [];
-  const telemetry: Record<string, unknown> = { keywords, pages };
+  // `charged: null` ⇒ cobro desconocido (la petición salió y no volvió).
+  const pages: Array<{ purpose: CompetitorApolloPagePurpose; ok: boolean; returned: number; charged: number | null }> = [];
+  const prefiltered: Partial<Record<CompetitorPrefilterReason, number>> = {};
+  const telemetry: Record<string, unknown> = { keywords, pages, prefiltered };
   const done = (
     status: CompetitorApolloOutcome['status'],
     reason: string | null,
     write: CompetitorApolloWriteResult | null = null,
-  ): CompetitorApolloOutcome => ({
-    status,
-    reason,
-    persistedCount: write?.persistedCount ?? 0,
-    completeValidCandidates: write ? write.completeValidCandidates : null,
-    telemetry: {
-      ...telemetry,
-      credits_charged: pages.reduce((sum, p) => sum + p.charged, 0),
+  ): CompetitorApolloOutcome => {
+    const knownCredits = pages.reduce((sum, p) => sum + (p.charged ?? 0), 0);
+    const unknownPages = pages.filter((p) => p.charged === null).length;
+    return {
       status,
       reason,
-    },
-  });
+      persistedCount: write?.persistedCount ?? 0,
+      completeValidCandidates: write ? write.completeValidCandidates : null,
+      telemetry: {
+        ...telemetry,
+        // Con una página de cobro desconocido no se afirma un total (null, no 0).
+        credits_charged: unknownPages > 0 ? null : knownCredits,
+        ...(unknownPages > 0 ? { credits_charged_known: knownCredits, credits_unknown_pages: unknownPages } : {}),
+        status,
+        reason,
+      },
+    };
+  };
 
   try {
     if (!deps.isEnabled()) return done('skipped', 'apollo_disabled');
@@ -277,7 +314,30 @@ export async function runCompetitorApolloStep(
     } catch {
       return done('skipped', 'exclusion_read_failed');
     }
-    const exclusion = referenceDomain ? [referenceDomain, ...excludeDomains] : excludeDomains;
+    // El grupo de la referencia (árbol): sale del juez y también de la consulta.
+    let referenceExclusion: CompetitorReferenceExclusion = EMPTY_COMPETITOR_REFERENCE_EXCLUSION;
+    if (deps.loadReferenceExclusion) {
+      try {
+        const loaded = await deps.loadReferenceExclusion();
+        referenceExclusion = loaded.exclusion;
+        telemetry.reference_exclusion = loaded.telemetry;
+      } catch {
+        telemetry.reference_exclusion = { status: 'load_failed' };
+      }
+    }
+    const prefilterOptions: CompetitorPrefilterOptions = {
+      exclusion: referenceExclusion,
+      onPrefiltered: (reason) => {
+        prefiltered[reason] = (prefiltered[reason] ?? 0) + 1;
+      },
+    };
+    // El grupo va al final: si se pasa del tope de Apollo, lo recortado igual sale
+    // en el filtro previo al juez.
+    const exclusion = [
+      ...(referenceDomain ? [referenceDomain] : []),
+      ...excludeDomains,
+      ...referenceExclusion.relatedDomains,
+    ];
     telemetry.location = location;
     telemetry.excluded_domains_count = cleanExclusion(exclusion).length;
 
@@ -286,7 +346,12 @@ export async function runCompetitorApolloStep(
       const startedAt = now();
       const page = await deps.searchPage(body);
       await deps.logUsage({ purpose, page, body, durationMs: now() - startedAt }).catch(() => undefined);
-      pages.push({ purpose, ok: page.ok, returned: page.organizations.length, charged: page.rawCount > 0 ? 1 : 0 });
+      pages.push({
+        purpose,
+        ok: page.ok,
+        returned: page.organizations.length,
+        charged: page.billingUnknown ? null : page.rawCount > 0 ? 1 : 0,
+      });
       return page;
     };
 
@@ -298,8 +363,19 @@ export async function runCompetitorApolloStep(
       fallbackReason = 'no_reference_domain';
     } else {
       const resolved = await fetchPage('resolve', resolveBody);
-      const organizationId = resolved.ok ? pickReferenceApolloOrganizationId(resolved.organizations, referenceDomain!) : null;
+      // Cobro desconocido ⇒ no se gasta más sin saber lo gastado (ni se repite la página).
+      if (resolved.billingUnknown) return done('failed', 'apollo_billing_indeterminate');
+      const organizationId = resolved.ok
+        ? pickReferenceApolloOrganizationId(
+            // La referencia puede venir sólo en `accounts[]` (ya guardada en el workspace).
+            [...resolved.organizations, ...(resolved.accountOrganizations ?? [])],
+            referenceDomain!,
+          )
+        : null;
       telemetry.reference_apollo_id = organizationId;
+      if (organizationId && !resolved.organizations.some((org) => org.id === organizationId)) {
+        telemetry.reference_apollo_id_source = 'accounts';
+      }
       if (!organizationId) {
         fallbackReason = resolved.ok ? 'reference_not_found_in_apollo' : 'resolve_failed';
       } else {
@@ -307,7 +383,10 @@ export async function runCompetitorApolloStep(
           'lookalikes',
           buildCompetitorApolloLookalikeBody({ organizationId, location, excludeDomains: exclusion }),
         );
-        const items = lookalikes.ok ? toCompetitorApolloJudgeItems(lookalikes.organizations, input.reference, exclusion) : null;
+        if (lookalikes.billingUnknown) return done('failed', 'apollo_billing_indeterminate');
+        const items = lookalikes.ok
+          ? toCompetitorApolloJudgeItems(lookalikes.organizations, input.reference, exclusion, prefilterOptions)
+          : null;
         if (items && items.items.length > 0) offered = items;
         else fallbackReason = lookalikes.ok ? 'lookalikes_nothing_new' : 'lookalikes_failed';
       }
@@ -321,8 +400,9 @@ export async function runCompetitorApolloStep(
       if (!body) return done('nothing_selected', `${fallbackReason}_no_keywords`);
       strategy = 'keywords';
       const page = await fetchPage('keywords', body);
+      if (page.billingUnknown) return done('failed', 'apollo_billing_indeterminate');
       if (!page.ok) return done('failed', 'apollo_search_failed');
-      offered = toCompetitorApolloJudgeItems(page.organizations, input.reference, exclusion);
+      offered = toCompetitorApolloJudgeItems(page.organizations, input.reference, exclusion, prefilterOptions);
     }
     telemetry.strategy = strategy;
     const { items, byKey } = offered;

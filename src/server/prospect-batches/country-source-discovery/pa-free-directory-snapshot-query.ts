@@ -17,6 +17,11 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 import type {
   PaFreeDirectoryDiscoveryReads,
   PaFreeDirectorySnapshotReadRow,
@@ -68,17 +73,29 @@ export function buildPaFreeDirectoryDiscoveryReads(client: SupabaseClient): PaFr
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
       try {
-        const { data, error } = await client
-          .from('source_company_snapshots')
-          .select(SELECTED_COLUMNS)
-          .eq('source_key', 'pa_free_directory')
-          .eq('country_code', 'PA')
-          .eq('raw_data->>macro_industry_key', macroIndustryKey)
-          .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .limit(limit);
-        if (error || !Array.isArray(data)) return [];
-        return (data as unknown as SnapshotSelectRow[]).map(toRow);
+        // AUDIT-A1-WS7 — por páginas y saltando lo que SellUp ya conoce: la ventana
+        // fija de siempre se agotaba tras la primera corrida (ver country-source-fresh-window.ts).
+        const rows = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: limit,
+          countryCode: 'PA',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+          readRange: async (from, to) => {
+            const query = client
+              .from('source_company_snapshots')
+              .select(SELECTED_COLUMNS)
+              .eq('source_key', 'pa_free_directory')
+              .eq('country_code', 'PA')
+              .eq('raw_data->>macro_industry_key', macroIndustryKey)
+              .order('priority_score', { ascending: false })
+              .order('normalized_tax_id', { ascending: true });
+            const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('snapshot_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        return rows.map(toRow);
       } catch {
         return [];
       }

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   TAVILY_EXCLUDE_DOMAINS_MAX,
   TAVILY_STATIC_EXCLUDE_DOMAINS,
+  countryDirectoryDomains,
   buildTavilyExcludeDomains,
 } from '../tavily-exclude-domains';
 import { classifySearchResult } from '../noise-filter';
@@ -135,8 +136,11 @@ describe('AGENT1-TAVILY-FIRST-4 — portales de empleo del país de la corrida',
     const extra = out.domains.slice(TAVILY_STATIC_EXCLUDE_DOMAINS.length, TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6);
     assert.ok(extra.includes('opcionempleo.com.pe'));
     assert.ok(extra.includes('bumeran.com.pe'));
-    assert.equal(out.domains[TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6], 'claro.com.pe');
-    assert.equal(out.staticCount, TAVILY_STATIC_EXCLUDE_DOMAINS.length + 6);
+    // AUDIT-A1-WS7 — después de los portales de empleo van los directorios del país.
+    const countryExtra = 6 + countryDirectoryDomains('PE').length;
+    assert.ok(out.domains.includes('doctoralia.com.pe'));
+    assert.equal(out.domains[TAVILY_STATIC_EXCLUDE_DOMAINS.length + countryExtra], 'claro.com.pe');
+    assert.equal(out.staticCount, TAVILY_STATIC_EXCLUDE_DOMAINS.length + countryExtra);
   });
   it('sin país: nada extra', () => {
     const out = buildTavilyExcludeDomains({ seenThisRun: [], negativeMemory: [], countryCode: null });

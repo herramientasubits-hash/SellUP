@@ -31,7 +31,11 @@ import {
   APOLLO_MAX_RESULTS_HARD_CAP,
 } from '../wizard-budget-estimate';
 // AGENT1-APOLLO-BILLING-MODE-V2 — el techo de páginas de una invocación legacy.
-import { APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION } from '@/server/agents/prospecting-toolkit/apollo-organizations-pagination-budget';
+// WS6 · F1 — la ruta del wizard (dos rondas apagada) pagina con la rama net-new:
+// 5 páginas por invocación, no 1. Los números de este fichero se reautorizan:
+// 1 × 5 = 5 en defaults y 3 × 5 = 15 con los topes duros. Los anteriores (1 y 3)
+// fijaban el defecto: la corrida podía gastar 5× lo estimado.
+import { APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION } from '@/server/agents/prospecting-toolkit/apollo-organizations-pagination-budget';
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
 
@@ -68,15 +72,15 @@ function withApolloEnv(
 // ── Section A: Apollo defaults pass ──────────────────────────────────────────
 
 describe('Section A — Apollo defaults pass (available=12, max=25)', () => {
-  it('A1: estimateCreditsForProvider returns 1 with default env', () => {
+  it('A1: estimateCreditsForProvider returns 5 with default env', () => {
     withApolloEnv({}, () => {
       const credits = estimateCreditsForProvider('apollo_organizations');
-      // default: 1 invocación × 1 página no vacía = 1 crédito de búsqueda
+      // default: 1 invocación × 5 páginas no vacías = 5 créditos de búsqueda
       assert.equal(
         credits,
-        APOLLO_MAX_QUERIES_DEFAULT * APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION,
+        APOLLO_MAX_QUERIES_DEFAULT * APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION,
       );
-      assert.equal(credits, 1);
+      assert.equal(credits, 5);
     });
   });
 
@@ -102,7 +106,7 @@ describe('Section A — Apollo defaults pass (available=12, max=25)', () => {
       });
       assert.equal(result.passed, true);
       assert.equal(result.blockReason, null);
-      assert.equal(result.estimatedCredits, 1);
+      assert.equal(result.estimatedCredits, 5);
       assert.equal(result.estimateSource, 'apollo_cost_guardrails');
       assert.equal(result.apolloMaxQueriesPerRun, 1);
       // `per_page` se sigue publicando como eco informativo: no multiplica.
@@ -118,7 +122,7 @@ describe('Section A — Apollo defaults pass (available=12, max=25)', () => {
         maxCreditsPerExecution: 25,
       });
       assert.equal(result.passed, true);
-      assert.equal(result.estimatedCredits, 1);
+      assert.equal(result.estimatedCredits, 5);
     });
   });
 });
@@ -126,7 +130,7 @@ describe('Section A — Apollo defaults pass (available=12, max=25)', () => {
 // ── Section B: Apollo blocks on insufficient available budget ────────────────
 
 describe('Section B — Apollo blocks when available budget is insufficient', () => {
-  it('B1: available=0, max=25, estimate=1 → blocks with insufficient_available_budget', () => {
+  it('B1: available=0, max=25, estimate=5 → blocks with insufficient_available_budget', () => {
     withApolloEnv({}, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
@@ -135,11 +139,11 @@ describe('Section B — Apollo blocks when available budget is insufficient', ()
       });
       assert.equal(result.passed, false);
       assert.equal(result.blockReason, 'insufficient_available_budget');
-      assert.equal(result.estimatedCredits, 1);
+      assert.equal(result.estimatedCredits, 5);
     });
   });
 
-  it('B2: available=0, max=25, estimate=1 → blocks', () => {
+  it('B2: available=0, max=25, estimate=5 → blocks', () => {
     withApolloEnv({}, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
@@ -155,7 +159,7 @@ describe('Section B — Apollo blocks when available budget is insufficient', ()
     withApolloEnv({}, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
-        availableCredits: 1,
+        availableCredits: 5,
         maxCreditsPerExecution: 25,
       });
       assert.equal(result.passed, true);
@@ -199,20 +203,20 @@ describe('Section C — Apollo blocks when estimate exceeds max_credits_per_exec
 // ── Section D: Apollo applies hard caps ──────────────────────────────────────
 
 describe('Section D — Apollo hard caps prevent extreme env values', () => {
-  it('D1: env queries=99, results=99 → capped at hard caps (3 invocaciones × 1 página)', () => {
+  it('D1: env queries=99, results=99 → capped at hard caps (3 invocaciones × 5 páginas)', () => {
     withApolloEnv({ queries: '99', results: '99' }, () => {
       const credits = estimateCreditsForProvider('apollo_organizations');
-      // Hard cap de invocaciones: queries ≤ 3. `results` ya no multiplica, así
-      // que el techo legacy es 3 créditos, no 15.
+      // Hard cap de invocaciones: queries ≤ 3. `results` ya no multiplica; las
+      // páginas sí: 3 × 5 = 15.
       assert.equal(
         credits,
-        APOLLO_MAX_QUERIES_HARD_CAP * APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION,
+        APOLLO_MAX_QUERIES_HARD_CAP * APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION,
       );
-      assert.equal(credits, 3);
+      assert.equal(credits, 15);
     });
   });
 
-  it('D2: capped estimate 3 > available 2 → blocks by budget', () => {
+  it('D2: capped estimate 15 > available 2 → blocks by budget', () => {
     withApolloEnv({ queries: '99', results: '99' }, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
@@ -221,32 +225,38 @@ describe('Section D — Apollo hard caps prevent extreme env values', () => {
       });
       assert.equal(result.passed, false);
       assert.equal(result.blockReason, 'insufficient_available_budget');
-      assert.equal(result.estimatedCredits, 3);
+      assert.equal(result.estimatedCredits, 15);
     });
   });
 
+  // WS6 · F1 — con 5 páginas por invocación, 3 × 5 coincide numéricamente con
+  // queries × results (techo duro de resultados = 5), así que comparar contra ese
+  // producto ya no prueba nada. La invariante real se expresa directamente:
+  // cambiar `results` no mueve la estimación.
   it('D2b: el techo duro de resultados no puede volver a inflar la reserva', () => {
-    withApolloEnv({ queries: '99', results: '99' }, () => {
-      const credits = estimateCreditsForProvider('apollo_organizations');
-      assert.notEqual(
-        credits,
-        APOLLO_MAX_QUERIES_HARD_CAP * APOLLO_MAX_RESULTS_HARD_CAP,
-        'el producto queries × results es el modelo por resultado, ya desmentido',
-      );
+    withApolloEnv({ queries: '99', results: '1' }, () => {
+      const lean = estimateCreditsForProvider('apollo_organizations');
+      withApolloEnv({ queries: '99', results: '99' }, () => {
+        assert.equal(
+          estimateCreditsForProvider('apollo_organizations'),
+          lean,
+          'el producto queries × results es el modelo por resultado, ya desmentido',
+        );
+      });
     });
   });
 
-  it('D3: invalid env (non-numeric) → falls back to defaults (1 invocación × 1 página)', () => {
+  it('D3: invalid env (non-numeric) → falls back to defaults (1 invocación × 5 páginas)', () => {
     withApolloEnv({ queries: 'not_a_number', results: 'bad' }, () => {
       const credits = estimateCreditsForProvider('apollo_organizations');
-      assert.equal(credits, 1);
+      assert.equal(credits, 5);
     });
   });
 
   it('D4: env value 0 → falls back to defaults', () => {
     withApolloEnv({ queries: '0', results: '0' }, () => {
       const credits = estimateCreditsForProvider('apollo_organizations');
-      assert.equal(credits, 1);
+      assert.equal(credits, 5);
     });
   });
 });
@@ -355,7 +365,7 @@ describe('Section F — Metadata contains no secrets', () => {
       });
       const meta = toWizardBudgetValidationMetadata(result);
       assert.equal(meta.provider, 'apollo_organizations');
-      assert.equal(meta.estimated_credits, 1);
+      assert.equal(meta.estimated_credits, 5);
       assert.equal(meta.estimate_source, 'apollo_cost_guardrails');
       assert.equal(meta.apollo_max_queries_per_run, 1);
       assert.equal(meta.apollo_max_results_per_query, 3);

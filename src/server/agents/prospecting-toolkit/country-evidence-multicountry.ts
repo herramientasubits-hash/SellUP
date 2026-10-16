@@ -117,7 +117,7 @@ export const COUNTRY_EVIDENCE_SIGNALS: Readonly<Record<string, CountryEvidenceSi
     },
     GT: {
       names: ['guatemala'],
-      textSignals: ['guatemalteco', 'guatemalteca'],
+      textSignals: ['guatemalteco', 'guatemalteca', 'quetzaltenango', 'mixco'],
       urlFragments: fragments(['/es-gt', '/gt-es'], ['guatemala']),
     },
     HN: {
@@ -137,7 +137,7 @@ export const COUNTRY_EVIDENCE_SIGNALS: Readonly<Record<string, CountryEvidenceSi
     },
     CR: {
       names: ['costa rica'],
-      textSignals: ['costarricense'],
+      textSignals: ['costarricense', 'heredia', 'alajuela'],
       urlFragments: fragments(['/es-cr', '/cr-es'], ['costa-rica', 'costarica']),
     },
     PA: {
@@ -147,9 +147,13 @@ export const COUNTRY_EVIDENCE_SIGNALS: Readonly<Record<string, CountryEvidenceSi
       excludedPhrases: ['panama city beach', 'panama city, florida', 'panama city, fl'],
     },
     DO: {
-      names: ['republica dominicana', 'dominican republic'],
+      // AGENT1-COUNTRY-IDENTITY-1 — «Rep. Dominicana» es la etiqueta del asistente
+      // (`LATAM_COUNTRIES`) y es lo que viaja en la consulta.
+      names: ['republica dominicana', 'dominican republic', 'rep. dominicana', 'rep dominicana'],
       textSignals: ['dominicana', 'dominicano', 'santo domingo'],
       urlFragments: fragments(['/es-do', '/do-es'], ['republica-dominicana', 'dominicana']),
+      // Santo Domingo de los Tsáchilas es una provincia de Ecuador.
+      excludedPhrases: ['santo domingo de los tsachilas'],
     },
     US: {
       names: ['estados unidos', 'united states', 'eeuu', 'ee.uu'],

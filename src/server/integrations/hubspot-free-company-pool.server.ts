@@ -18,8 +18,10 @@ import { fetchHubSpotWithRetry } from './hubspot-rate-limit';
 import {
   buildHubSpotOwnerDirectory,
   classifyHubSpotCompanyAvailability,
+  HUBSPOT_CUSTOMER_LIFECYCLE_VALUES,
   HUBSPOT_FREE_POLICY_PROPERTIES,
   HUBSPOT_RECYCLED_LEAD_STATUS,
+  RECENT_SALES_ACTIVITY_DAYS,
   hubSpotMacroIndustryValue,
   hubSpotPaisForCountryCode,
   type HubSpotAvailability,
@@ -34,6 +36,15 @@ const OWNER_DIRECTORY_TTL_MS = 10 * 60 * 1000;
 /** Valores por filtro `IN` que HubSpot acepta en una búsqueda. */
 const SEARCH_IN_MAX_VALUES = 100;
 const SEARCH_PAGE_SIZE = 100;
+/**
+ * AUDIT-A1-WS7 — páginas por bolsa. Con la regla empujada a HubSpot casi todo lo
+ * leído es libre y la primera página suele bastar; las siguientes sólo se piden
+ * cuando lo ya ofrecido/rechazado ocupa el principio del orden (antes 3 fijas: tras
+ * unas corridas, 0 nuevas para siempre).
+ */
+export const HUBSPOT_FREE_POOL_MAX_PAGES_PER_SEGMENT = 6;
+/** Ids rechazados que se devuelven para no reprocesarlos (acotado: viajan en metadata). */
+export const HUBSPOT_FREE_POOL_REJECTED_IDS_MAX = 200;
 
 export type HubSpotFetch = typeof fetch;
 
@@ -201,6 +212,11 @@ export type HubSpotFreeSearchResult = {
   failure?: HubSpotPoolFailure;
   /** Leídas que no entraron, por causa: tomadas, sin dominio o nombre, ya ofrecidas. */
   droppedBy?: { not_free: number; no_domain_or_name: number; excluded: number };
+  /**
+   * AUDIT-A1-WS7 — ids leídos que la regla completa rechazó (tomadas, sin dominio o
+   * nombre). Quien llama los recuerda para no volver a leerlos en cada corrida.
+   */
+  rejectedHubSpotCompanyIds?: string[];
 };
 
 function cleanDomain(value: string | null | undefined): string | null {
@@ -247,9 +263,45 @@ export function buildFreePoolSearchSegments(
   ];
 }
 
+/** Etapas de ciclo de vida que nunca son libres (cliente / pronóstico). */
+const CUSTOMER_LIFECYCLE_VALUES = [...HUBSPOT_CUSTOMER_LIFECYCLE_VALUES];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * AUDIT-A1-WS7 — la regla de «libre» empujada a la búsqueda de HubSpot, dentro de
+ * sus límites (grupos OR, filtros AND dentro de cada grupo; máx. 5 grupos, 6
+ * filtros por grupo y 18 en total):
+ *
+ *   · `lifecyclestage NOT_IN` cliente/pronóstico (NOT_IN también devuelve las fichas
+ *     sin etapa);
+ *   · sin actividad de ventas en 30 días: `hs_last_sales_activity_timestamp LT
+ *     hace-30-días` O `NOT_HAS_PROPERTY` ⇒ DOS grupos, idénticos salvo ese filtro.
+ *
+ * Cada grupo = país, industria, dominio, bolsa, etapa, actividad = 6 filtros; 2
+ * grupos = 12. `hs_num_open_deals` y los estados de lead «Customer»/«Open Deal» NO
+ * caben (serían 7 por grupo) y siguen sólo del lado cliente: la regla completa
+ * (`classifyHubSpotCompanyAvailability`) sigue siendo la autoridad final.
+ */
+export function buildFreePoolFilterGroups(
+  common: readonly SearchFilter[],
+  segmentFilters: readonly SearchFilter[],
+  now: Date,
+): Array<{ filters: SearchFilter[] }> {
+  const base: SearchFilter[] = [
+    ...common,
+    ...segmentFilters,
+    { propertyName: 'lifecyclestage', operator: 'NOT_IN', values: CUSTOMER_LIFECYCLE_VALUES },
+  ];
+  const cutoff = String(now.getTime() - RECENT_SALES_ACTIVITY_DAYS * DAY_MS);
+  return [
+    { filters: [...base, { propertyName: 'hs_last_sales_activity_timestamp', operator: 'LT', value: cutoff }] },
+    { filters: [...base, { propertyName: 'hs_last_sales_activity_timestamp', operator: 'NOT_HAS_PROPERTY' }] },
+  ];
+}
+
 async function searchPage(
   token: string,
-  filters: SearchFilter[],
+  filterGroups: Array<{ filters: SearchFilter[] }>,
   after: string | undefined,
   fetchFn: HubSpotFetch,
 ): Promise<SearchResponse | HubSpotPoolFailure> {
@@ -259,7 +311,7 @@ async function searchPage(
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filterGroups: [{ filters }],
+        filterGroups,
         properties: HUBSPOT_FREE_POOL_SEARCH_PROPERTIES,
         // Las mejor documentadas primero: más contactos ⇒ menos que pagar después.
         sorts: [{ propertyName: 'num_associated_contacts', direction: 'DESCENDING' }],
@@ -318,7 +370,11 @@ export async function searchHubSpotFreeCompanies(
       { propertyName: 'industriaespecifica', operator: 'EQ', value: macro },
       { propertyName: 'domain', operator: 'HAS_PROPERTY' },
     ];
-    const maxPages = options.maxPagesPerSegment ?? 3;
+    const maxPages = options.maxPagesPerSegment ?? HUBSPOT_FREE_POOL_MAX_PAGES_PER_SEGMENT;
+    const rejected: string[] = [];
+    const reject = (id: string) => {
+      if (rejected.length < HUBSPOT_FREE_POOL_REJECTED_IDS_MAX) rejected.push(id);
+    };
     const seen = new Set<string>();
     const companies: HubSpotFreeCompany[] = [];
     const byReason: Partial<Record<HubSpotFreeReason, number>> = {};
@@ -328,11 +384,11 @@ export async function searchHubSpotFreeCompanies(
     for (const segment of buildFreePoolSearchSegments(owners)) {
       let after: string | undefined;
       for (let page = 0; page < maxPages && companies.length < limit; page += 1) {
-        const body = await searchPage(token, [...common, ...segment.filters], after, fetchFn);
+        const body = await searchPage(token, buildFreePoolFilterGroups(common, segment.filters, now), after, fetchFn);
         if (isFailure(body)) {
           if (companies.length === 0) return empty('unavailable', body);
           console.error('[hubspot-free-pool] búsqueda cortada a mitad:', body);
-          return { status: 'ok', companies, recordsRead, byReason, droppedBy, failure: body };
+          return { status: 'ok', companies, recordsRead, byReason, droppedBy, failure: body, rejectedHubSpotCompanyIds: rejected };
         }
         for (const row of body.results ?? []) {
           recordsRead += 1;
@@ -345,12 +401,14 @@ export async function searchHubSpotFreeCompanies(
           const verdict = classifyHubSpotCompanyAvailability(row.properties, owners, now);
           if (!verdict.free) {
             droppedBy.not_free += 1;
+            reject(row.id);
             continue;
           }
           const domain = cleanDomain(row.properties.domain) ?? cleanDomain(row.properties.website);
           const name = nonEmpty(row.properties.name);
           if (!domain || !name) {
             droppedBy.no_domain_or_name += 1;
+            reject(row.id);
             continue;
           }
           companies.push({
@@ -377,7 +435,7 @@ export async function searchHubSpotFreeCompanies(
       }
       if (companies.length >= limit) break;
     }
-    return { status: 'ok', companies, recordsRead, byReason, droppedBy };
+    return { status: 'ok', companies, recordsRead, byReason, droppedBy, rejectedHubSpotCompanyIds: rejected };
   } catch (err) {
     return empty('unavailable', { stage: 'exception', httpStatus: null, message: err instanceof Error ? err.message : String(err) });
   }

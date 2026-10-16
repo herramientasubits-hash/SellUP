@@ -352,6 +352,9 @@ describe('§ 5 — el almacén relee por id y reclama lo guardado', () => {
             { type: 'domain', key: 'clinicanueve.com.co' },
             { type: 'provider_entity', key: 'lusha:L9' },
           ],
+          // AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — el dominio de identidad viaja
+          // también como señal de cruce de la 152 (opcional para la 140).
+          identityDomain: 'clinicanueve.com.co',
         },
       ],
     });

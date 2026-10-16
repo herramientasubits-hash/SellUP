@@ -152,12 +152,24 @@ const CCTLD_TO_COUNTRY: Readonly<Record<string, string>> = {
   es: 'ES', us: 'US', pt: 'PT',
 };
 
+/**
+ * AGENT1-COUNTRY-IDENTITY-1 — second levels that make a `.co` domain Colombian.
+ * A bare `.co` (rappi.co, angel.co) is used worldwide and carries no country,
+ * the same rule `country-compatibility.ts` applies.
+ */
+const COLOMBIAN_SECOND_LEVELS: ReadonlySet<string> = new Set([
+  'com', 'gov', 'edu', 'org', 'net', 'mil', 'nom',
+]);
+
 /** Returns the ISO country a domain's ccTLD implies, or null for generic TLDs. */
 export function resolveCountryFromDomainTld(domain: string): string | null {
-  const normalized = domain.trim().toLowerCase();
-  const lastDot = normalized.lastIndexOf('.');
-  if (lastDot < 0) return null;
-  return CCTLD_TO_COUNTRY[normalized.slice(lastDot + 1)] ?? null;
+  const labels = domain.trim().toLowerCase().split('.').filter(Boolean);
+  if (labels.length < 2) return null;
+  const tld = labels[labels.length - 1];
+  if (tld === 'co') {
+    return labels.length >= 3 && COLOMBIAN_SECOND_LEVELS.has(labels[labels.length - 2]) ? 'CO' : null;
+  }
+  return CCTLD_TO_COUNTRY[tld] ?? null;
 }
 
 /**
@@ -184,6 +196,14 @@ function stripWww(domain: string): string {
 const SECOND_LEVEL_LABELS = new Set(['com', 'co', 'net', 'org', 'gob', 'gov', 'edu', 'ind']);
 
 /**
+ * AGENT1-COUNTRY-IDENTITY-1 — second levels that only exist under a country
+ * TLD: Uruguay `gub.uy`, Costa Rica `go.cr` / `ac.cr` / `fi.cr` / `or.cr` /
+ * `ed.cr`, `mil.*`, `nom.*`. Only applied when the TLD has two letters, so
+ * `a.go.com` keeps reading as `go.com`.
+ */
+const COUNTRY_ONLY_SECOND_LEVEL_LABELS = new Set(['gub', 'go', 'ac', 'fi', 'or', 'ed', 'mil', 'nom']);
+
+/**
  * Registrable-domain approximation: the last two labels, or the last three when
  * the second-to-last is a well-known second level (`com.co`, `com.pe`).
  */
@@ -191,7 +211,11 @@ export function toRegistrableDomain(domain: string): string {
   const parts = stripWww(domain).split('.').filter(Boolean);
   if (parts.length <= 2) return parts.join('.');
   const secondLevel = parts[parts.length - 2];
+  const tld = parts[parts.length - 1];
   if (secondLevel && SECOND_LEVEL_LABELS.has(secondLevel)) return parts.slice(-3).join('.');
+  if (secondLevel && tld?.length === 2 && COUNTRY_ONLY_SECOND_LEVEL_LABELS.has(secondLevel)) {
+    return parts.slice(-3).join('.');
+  }
   return parts.slice(-2).join('.');
 }
 

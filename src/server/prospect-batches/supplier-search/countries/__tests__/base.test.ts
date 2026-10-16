@@ -119,7 +119,8 @@ function fakeClient(dataByTable: Record<string, unknown[]>) {
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       calls.push(call);
       const builder: Record<string, unknown> = {};
-      for (const op of ['select', 'eq', 'in', 'like', 'or', 'order', 'limit']) {
+      // `gt` y `range`: las consultas «loaded» paginan (entidades distintas, proveedores por páginas).
+      for (const op of ['select', 'eq', 'in', 'like', 'gt', 'or', 'order', 'limit', 'range']) {
         builder[op] = (...args: unknown[]) => (call.ops.push([op, args]), builder);
       }
       builder.then = (resolve: (v: unknown) => unknown) => resolve({ data: dataByTable[table] ?? [], error: null });

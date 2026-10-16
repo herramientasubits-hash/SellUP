@@ -37,6 +37,15 @@ export const CLASSIFIER_CONCURRENCY = 4;
 export const CLASSIFIER_MAX_COMPANIES_PER_RUN = 20;
 /** Después de esto no se empieza ninguna empresa nueva (las que están en curso terminan). */
 export const CLASSIFIER_RUN_DEADLINE_MS = 180_000;
+/**
+ * AUDIT-A1-WS7 — tope DURO: una empresa en curso no puede pasar de aquí (contado
+ * desde el inicio de la corrida). Deja margen para registrar uso y guardar antes de
+ * los 300 s de Vercel; antes «las que están en curso terminan» podía ser 6+ minutos.
+ */
+export const CLASSIFIER_RUN_HARD_DEADLINE_MS = 260_000;
+
+/** Opciones por empresa que el clasificador puede respetar. */
+export type ClassifyCompanyOptions = { deadlineAtMs?: number };
 
 export type ActiveAnthropicModel = { model: string; apiKey: string };
 
@@ -49,6 +58,7 @@ export type ClassifyBatchDeps = {
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
     active: ActiveAnthropicModel,
+    options?: ClassifyCompanyOptions,
   ) => Promise<CompanyClassificationResult>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   /**
@@ -160,9 +170,10 @@ async function classifyOneSafely(
   catalog: readonly ClassifierCatalogIndustry[],
   active: ActiveAnthropicModel,
   deps: ClassifyBatchDeps,
+  options: ClassifyCompanyOptions = {},
 ): Promise<CompanyClassificationResult> {
   try {
-    return await deps.classify(toCompanyInput(row), catalog, active);
+    return await deps.classify(toCompanyInput(row), catalog, active, options);
   } catch (err) {
     console.error('[claude-classifier] unexpected classify error:', err instanceof Error ? err.message : err);
     return {
@@ -215,7 +226,9 @@ export async function classifyBatchCandidates(
     // Se reclama ANTES de gastar: si otra corrida lo tomó, no se paga dos veces.
     const claimed = await deps.saveClassification(row.id, buildInProgressMarker(deps.nowIso()));
     if (!claimed) return { claimed: false as const };
-    const result = await classifyOneSafely(row, catalog, active, deps);
+    const result = await classifyOneSafely(row, catalog, active, deps, {
+      deadlineAtMs: startedMs + CLASSIFIER_RUN_HARD_DEADLINE_MS,
+    });
     const classifiedAt = deps.nowIso();
     const usageLog = buildClassifierUsageLog(result, {
       batchId: params.batchId,

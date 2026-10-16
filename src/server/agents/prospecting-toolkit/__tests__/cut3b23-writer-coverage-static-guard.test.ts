@@ -414,7 +414,14 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // service_role. No es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no toca el registro
 // de identidad del lote ni la valla; su autoría se policía por CONTENIDO en la prueba dedicada de
 // abajo. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '150_public_procurement_supplier_links.sql';
+// 🔴 AGENT1-AUDIT-HARDENING-1 subió el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+// (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`, EXECUTE
+// sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de identidad
+// (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado. Ninguna es de
+// teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no tocan el registro de identidad del lote
+// ni la valla; su autoría se policía por CONTENIDO en las pruebas dedicadas de abajo. AUTORADAS y
+// NO APLICADAS.
+const REPOSITORY_CEILING = '152_agent1_identity_claims_crosscheck.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -426,6 +433,8 @@ const USAGE_LOG_DIMENSIONS_MIGRATION = '147_provider_usage_log_dimensions.sql';
 const COMPANY_RELATIONSHIPS_MIGRATION = '148_agent1_company_relationships.sql';
 const USAGE_SEARCH_MODE_MIGRATION = '149_provider_usage_search_mode_from_batch_metadata.sql';
 const PROCUREMENT_SUPPLIER_LINKS_MIGRATION = '150_public_procurement_supplier_links.sql';
+const ENRICHMENT_JOBS_HARDENING_MIGRATION = '151_claim_enrichment_jobs_hardening.sql';
+const IDENTITY_CLAIMS_CROSSCHECK_MIGRATION = '152_agent1_identity_claims_crosscheck.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -660,6 +669,38 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     }
   });
 
+  it('la 151 existe, es de AGENT1-AUDIT-HARDENING-1 y NO de este corte', () => {
+    // AGENT1-AUDIT-HARDENING-1 tomó la 151 (`claim_enrichment_jobs` sólo service_role, con
+    // search_path fijo y recuperación de trabajos muertos) de forma independiente. Se exige que la
+    // 151 sea EXACTAMENTE esa y que no nombre ningún símbolo de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('151')),
+      [ENRICHMENT_JOBS_HARDENING_MIGRATION],
+      'la 151 tiene que ser la del endurecimiento de claim_enrichment_jobs, y sólo ella',
+    );
+    const sql = executableSql(ENRICHMENT_JOBS_HARDENING_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 151 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
+  it('la 152 existe, es de AGENT1-AUDIT-HARDENING-1 y NO de este corte', () => {
+    // AGENT1-AUDIT-HARDENING-1 tomó la 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad
+    // de la 140 y liberación al archivar un lote) de forma independiente. Se exige que la 152 sea
+    // EXACTAMENTE esa y que no nombre ningún símbolo de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('152')),
+      [IDENTITY_CLAIMS_CROSSCHECK_MIGRATION],
+      'la 152 tiene que ser la del cruce de los reclamos de identidad, y sólo ella',
+    );
+    const sql = executableSql(IDENTITY_CLAIMS_CROSSCHECK_MIGRATION);
+    for (const forbidden of ['batch_identity_registry', 'identity_epoch', 'read_batch_identity_snapshot']) {
+      assert.equal(sql.includes(forbidden), false, `la 152 nombra ${forbidden}: dejaría de ser ajena a B23/B4`);
+    }
+  });
+
   it('la 149 existe, es de AGENT1-CORPORATE-TREE-2 y NO de este corte', () => {
     // AGENT1-CORPORATE-TREE-2 tomó la 149 (`provider_usage_batch_dimensions` desde la metadata del
     // lote) de forma independiente. Se exige que la 149 sea EXACTAMENTE esa y que no nombre ningún
@@ -724,7 +765,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 150 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
+  it('la 152 es la última, y ni ella ni la 125 ni la 126 ni la 127 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
@@ -761,7 +802,10 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // metadata del lote), policiada igual por AUTORÍA en su prueba dedicada.
     // AGENT1-SUPPLIER-SEARCH-CL-1 lo movió a la 150 (`public_procurement_supplier_links`), policiada
     // igual por AUTORÍA en su prueba dedicada.
-    assert.ok(last.startsWith('150'), `última migración inesperada: ${last}`);
+    // AGENT1-AUDIT-HARDENING-1 lo movió a la 152 (la 151 endurece `claim_enrichment_jobs` y la 152
+    // cruza NIT/dominio/LinkedIn en los reclamos de identidad), policiadas igual por AUTORÍA en sus
+    // pruebas dedicadas.
+    assert.ok(last.startsWith('152'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
@@ -774,6 +818,8 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.ok(migrations.includes(COMPANY_RELATIONSHIPS_MIGRATION));
     assert.ok(migrations.includes(USAGE_SEARCH_MODE_MIGRATION));
     assert.ok(migrations.includes(PROCUREMENT_SUPPLIER_LINKS_MIGRATION));
+    assert.ok(migrations.includes(ENRICHMENT_JOBS_HARDENING_MIGRATION));
+    assert.ok(migrations.includes(IDENTITY_CLAIMS_CROSSCHECK_MIGRATION));
     assert.ok(migrations.includes(POST_APPROVAL_REVEAL_MIGRATION));
     const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
     assert.ok(migrations.includes(lastSnapshotMigration));

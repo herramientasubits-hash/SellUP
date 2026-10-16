@@ -117,7 +117,10 @@ function stripComments(source: string): string {
 }
 
 describe('§ 4 — Apollo reclama sólo si la fila se inserta viva', () => {
-  it('`globalClaims` se condiciona a isGlobalIdentityClaimableStatus(completenessAdjustedStatus)', () => {
+  // AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — el writer ahora deriva el SOBRE
+  // completo (reclamos + señales de cruce de la 152); la condición de status viva
+  // es la misma, sobre el mismo `completenessAdjustedStatus`.
+  it('`globalClaimEnvelope` se condiciona a isGlobalIdentityClaimableStatus(completenessAdjustedStatus)', () => {
     const writer = stripComments(
       readFileSync(
         path.join(REPO_ROOT, 'src', 'server', 'agents', 'prospecting-toolkit', 'candidate-writer.ts'),
@@ -126,7 +129,7 @@ describe('§ 4 — Apollo reclama sólo si la fila se inserta viva', () => {
     );
     assert.match(
       writer,
-      /const globalClaims\s*=\s*isGlobalIdentityClaimableStatus\(completenessAdjustedStatus\)\s*\?\s*deriveGlobalIdentityClaims\(identityEvidence\)\s*:\s*\[\]/,
+      /const globalClaimEnvelope\s*=\s*isGlobalIdentityClaimableStatus\(completenessAdjustedStatus\)\s*\?\s*deriveGlobalIdentityClaimEnvelope\(identityEvidence\)\s*:\s*null/,
     );
     // Y el status es el MISMO con el que se inserta la fila.
     assert.match(writer, /status:\s*completenessAdjustedStatus,/);

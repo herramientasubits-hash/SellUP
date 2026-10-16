@@ -6375,3 +6375,14 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 corporate tree tests
         run: npm run test:a1-corporate-tree
+
+      # AGENT1-AUDIT-HARDENING-1 - auditoría completa del Agente 1 (un solo PR):
+      # crons detrás del proxy, plazo único de la corrida, reclamos de identidad
+      # que cruzan NIT/dominio (migración 152), deduplicación que falla cerrado,
+      # aprobación con candado y guarda única antes de crear en HubSpot,
+      # importación, árbol, competidores, proveedores, gasto de Apollo/Lusha y
+      # calidad de las fuentes gratuitas.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 1 audit hardening tests
+        run: npm run test:a1-audit-hardening

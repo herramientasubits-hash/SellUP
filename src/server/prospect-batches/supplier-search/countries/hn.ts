@@ -13,14 +13,13 @@ import {
   cleanHondurasSupplierName,
   normalizeHondurasJuridicalRtn,
 } from '@/server/source-catalog/connectors/hn-contrataciones-abiertas/hn-ocds-rtn-registry-rows';
+import { isConsortiumSupplierName } from '../public-buyer-suppliers';
 import { UNSPSC_CLASSIFIER } from '../unspsc-classifier';
 import type { LoadedCountrySource } from './types';
 
 export const HN_ONCAE_SOURCE_KEY = 'hn_oncae_awards';
 /** ~US$10 mil a HNL 26. */
 export const HN_MIN_PAIR_AMOUNT_HNL = 260_000;
-
-const CONSORTIUM_NAME = /^\s*["'«]?\s*CONSORCIO\b/;
 
 /**
  * Nombre de la institución compradora: la clave pública del registro de entidades
@@ -41,7 +40,7 @@ export function hnCompanySupplier(rawId: unknown, rawName: unknown): { rtn: stri
   const name = cleanHondurasSupplierName(typeof rawName === 'string' ? rawName : '');
   if (!rtn || !name) return null;
   const core = hondurasNameCore(name);
-  if (CONSORTIUM_NAME.test(core) || isHondurasPublicEntityCore(core)) return null;
+  if (isConsortiumSupplierName(name) || isHondurasPublicEntityCore(core)) return null;
   return { rtn, name };
 }
 

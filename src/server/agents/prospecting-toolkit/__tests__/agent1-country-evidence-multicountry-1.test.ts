@@ -292,3 +292,46 @@ describe('§ 6 — la política lee el resultado como siempre', () => {
     assert.equal(absent.primaryReason, 'country_evidence_absent_survives_incomplete');
   });
 });
+
+// ─── § 7 · AGENT1-COUNTRY-IDENTITY-1 ──────────────────────────────────────────
+
+describe('§ 7 — huecos de identidad por país (auditoría 16-10)', () => {
+  it('AR: `.gob.ar` (dominio del Estado nacional y provincial) es evidencia fuerte', () => {
+    const result = evidence('AR', { website: 'https://www.argentina.gob.ar', domain: 'argentina.gob.ar' });
+    assert.equal(result.evidenceLevel, 'strong');
+    assert.deepEqual(result.evidenceSources, ['argentina_domain_com_ar']);
+  });
+
+  it('US: una universidad `.edu` es evidencia fuerte de Estados Unidos', () => {
+    const result = evidence('US', { website: 'https://www.harvard.edu', domain: 'harvard.edu' });
+    assert.equal(result.evidenceLevel, 'strong');
+    assert.deepEqual(result.evidenceSources, ['url:.edu']);
+  });
+
+  it('US: `.edu.pe` sigue siendo de Perú, no de Estados Unidos', () => {
+    assert.equal(evidence('US', { website: 'https://www.pucp.edu.pe', domain: 'pucp.edu.pe' }).evidenceLevel, 'weak');
+  });
+
+  it('DO: la consulta con «Rep. Dominicana» (etiqueta del asistente) cuenta como consulta', () => {
+    const result = evidence('DO', {
+      website: 'https://acme.com',
+      domain: 'acme.com',
+      queryText: 'empresas de tecnología en Rep. Dominicana',
+    });
+    assert.equal(result.evidenceLevel, 'query_only');
+  });
+
+  it('DO: «Santo Domingo de los Tsáchilas» es Ecuador, no República Dominicana', () => {
+    const result = evidence('DO', {
+      website: 'https://acme.com',
+      domain: 'acme.com',
+      sourceSnippet: 'Distribuidora con sede en Santo Domingo de los Tsáchilas',
+    });
+    assert.equal(result.evidenceLevel, 'weak');
+  });
+
+  it('GT y CR: ciudades sin homónimas en el mago cuentan como texto', () => {
+    assert.equal(evidence('GT', { sourceSnippet: 'Planta en Quetzaltenango' }).evidenceLevel, 'strong');
+    assert.equal(evidence('CR', { sourceSnippet: 'Oficinas en Heredia y Alajuela' }).evidenceLevel, 'strong');
+  });
+});

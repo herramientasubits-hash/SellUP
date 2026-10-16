@@ -60,6 +60,9 @@ export function useLiveProgress(runs: readonly AgentRun[]): Record<string, LiveP
     const ids = key.split(',');
 
     const tick = async () => {
+      // AGENT1-AUDIT-WS2 § 8 — las desligadas que ya no pueden estar corriendo
+      // (más de 10 min) se cierran, haya red o no: antes ocupaban un lugar para siempre.
+      getAgentRunsStore()?.expireStaleDetached();
       try {
         const statuses = await fetchAgentRunsStatus(ids);
         if (cancelled) return;

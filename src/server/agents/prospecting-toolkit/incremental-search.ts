@@ -102,6 +102,7 @@ import type { ApolloOrgsSearchOptions } from './web-search-providers/apollo-orga
 import {
   readApolloPageFenceEntries,
   upsertApolloPageFenceEntry,
+  releaseApolloPageFenceEntryNotCharged,
   type ApolloPageFenceIdentity,
 } from './apollo-two-round/page-fence.server';
 import {
@@ -465,10 +466,14 @@ export async function runIncrementalProspectingSearch(
   pageFenceDepsOverride?: {
     readEntries: typeof readApolloPageFenceEntries;
     writeEntry: typeof upsertApolloPageFenceEntry;
+    /** WS6 · F2 — opcional; ausente ⇒ la función real. */
+    releaseEntry?: typeof releaseApolloPageFenceEntryNotCharged;
   },
 ): Promise<IncrementalSearchOutput> {
   const readPageFenceEntriesFn = pageFenceDepsOverride?.readEntries ?? readApolloPageFenceEntries;
   const writePageFenceEntryFn = pageFenceDepsOverride?.writeEntry ?? upsertApolloPageFenceEntry;
+  const releasePageFenceEntryFn =
+    pageFenceDepsOverride?.releaseEntry ?? releaseApolloPageFenceEntryNotCharged;
   const minUsefulCandidates = input.minUsefulCandidates ?? DEFAULT_MIN_USEFUL;
   const targetInternal = input.targetInternal ?? DEFAULT_TARGET_INTERNAL;
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -889,7 +894,10 @@ export async function runIncrementalProspectingSearch(
     // compartida. La clasificación completa A/B/C/D vive en ese módulo.
     //
     // 🔴 Esto NO descarta filas: la página YA PAGADA entra completa al pipeline.
-    // Lo único que se decide es si se COMPRA la página siguiente.
+    // WS6 · F8 — y desde X6.13 tampoco decide si se COMPRA la página siguiente
+    // (`evaluateApolloPaginationDecision` retiró esa parada): el conteo es sólo
+    // observabilidad, y la búsqueda paginada lo evalúa en lote al cerrar cada
+    // página, fuera del bucle de recogida.
     //
     // Fail-open — sin `adminSupabase` (dry run) o con una lectura degradada, el
     // eje histórico no afirma nada; nunca se declara duplicidad sin evidencia.
@@ -1048,6 +1056,16 @@ export async function runIncrementalProspectingSearch(
               // YA se detiene para esta página sin importar si esta escritura
               // tuvo éxito. El `request_started` que `beforeRequest` ya dejó
               // durable es la verdad conservadora que protege el reintento.
+            },
+            // WS6 · F2 — rechazo SIN cobro (401/403/422, 429 o 5xx agotados):
+            // se libera el `request_started`, que si no bloqueaba este plan para
+            // siempre. Nunca toca `succeeded` ni `indeterminate`.
+            onNotCharged: async ({ page, requestFingerprint }) => {
+              await releasePageFenceEntryFn(fenceBatchId, fenceIdentity, {
+                round_number: round,
+                search_plan_fingerprint: requestFingerprint,
+                page,
+              });
             },
           };
         }
