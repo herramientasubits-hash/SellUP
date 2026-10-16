@@ -11,6 +11,7 @@
 import type { SafePageFetchResult } from '../website-verifier';
 import {
   AnthropicApiError,
+  EMPTY_USAGE,
   runAnthropicConversation,
   type AnthropicConversationResult,
   type AnthropicRequestBody,
@@ -56,7 +57,21 @@ export type ClassifyCompanyDeps = {
   fetchPage: (websiteOrDomain: string) => Promise<SafePageFetchResult>;
   runConversation: (body: AnthropicRequestBody) => Promise<AnthropicConversationResult>;
   now: () => number;
+  /**
+   * AUDIT-A1-WS7 — instante (ms epoch) en que esta empresa tiene que haber
+   * terminado: derivado del tope de la corrida. Pasado, no se empieza ningún paso
+   * más (turno forzado, descargas de fuentes) y la conversación se corta.
+   */
+  deadlineAtMs?: number;
 };
+
+/** ¿Queda tiempo para empezar otro paso de esta empresa? */
+function hasTimeLeft(deps: Pick<ClassifyCompanyDeps, 'now' | 'deadlineAtMs'>, reserveMs = 0): boolean {
+  return deps.deadlineAtMs === undefined || deps.deadlineAtMs - deps.now() > reserveMs;
+}
+
+/** Margen mínimo para que valga la pena un paso extra (turno forzado o una descarga). */
+const STEP_MIN_TIME_MS = 5_000;
 
 export type ClassifyCompanyParams = {
   company: ClassifierCompanyInput;
@@ -150,8 +165,15 @@ export async function classifyCompany(
   const body = buildClassifierRequestBody(params, officialUrl, ownPageUsable ? ownText : null);
   let conversation: AnthropicConversationResult;
   try {
+    if (!hasTimeLeft(deps, STEP_MIN_TIME_MS)) {
+      throw new AnthropicApiError(null, 'deadline_exceeded', 'company deadline reached before the model call', EMPTY_USAGE);
+    }
     conversation = await deps.runConversation(body);
-    if (!extractSubmission(conversation.content) && conversation.stopReason === 'end_turn') {
+    if (
+      !extractSubmission(conversation.content) &&
+      conversation.stopReason === 'end_turn' &&
+      hasTimeLeft(deps, STEP_MIN_TIME_MS)
+    ) {
       conversation = await forceSubmission(body, conversation, deps);
     }
   } catch (err) {
@@ -314,6 +336,8 @@ async function fetchUnverifiedSources(
     .map((f) => f!.sourceUrl);
   const texts = new Map<string, string>();
   for (const url of [...new Set(urls)]) {
+    // AUDIT-A1-WS7 — sin tiempo, la fuente queda como `source_listed`.
+    if (!hasTimeLeft(deps, STEP_MIN_TIME_MS)) break;
     const key = canonicalUrl(url);
     if (!key) continue;
     try {
@@ -330,10 +354,18 @@ async function fetchUnverifiedSources(
 export function buildLiveClassifyCompanyDeps(
   apiKey: string,
   fetchPage: ClassifyCompanyDeps['fetchPage'],
+  options: { deadlineAtMs?: number } = {},
 ): ClassifyCompanyDeps {
   return {
     fetchPage,
-    runConversation: (body) => runAnthropicConversation({ apiKey, body, timeoutMs: ANTHROPIC_REQUEST_TIMEOUT_MS }),
+    runConversation: (body) =>
+      runAnthropicConversation({
+        apiKey,
+        body,
+        timeoutMs: ANTHROPIC_REQUEST_TIMEOUT_MS,
+        ...(options.deadlineAtMs !== undefined ? { deadlineAtMs: options.deadlineAtMs } : {}),
+      }),
     now: () => Date.now(),
+    ...(options.deadlineAtMs !== undefined ? { deadlineAtMs: options.deadlineAtMs } : {}),
   };
 }

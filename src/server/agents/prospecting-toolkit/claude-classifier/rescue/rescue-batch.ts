@@ -87,6 +87,11 @@ export const RESCUE_CONCURRENCY = 6;
 export const RESCUE_MAX_COMPANIES_PER_RUN = 60;
 /** Después de esto no se empieza ninguna empresa nueva (cabe en 300 s de Vercel). */
 export const RESCUE_RUN_DEADLINE_MS = 200_000;
+/**
+ * AUDIT-A1-WS7 — margen sobre el plazo para empezar: ninguna empresa en curso pasa
+ * de `deadlineMs + RESCUE_COMPANY_GRACE_MS` (con el plazo por defecto, 260 s).
+ */
+export const RESCUE_COMPANY_GRACE_MS = 60_000;
 
 export type RescueBatchDeps = {
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
@@ -110,6 +115,8 @@ export type RescueBatchDeps = {
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
     active: ActiveAnthropicModel,
+    /** AUDIT-A1-WS7 — `deadlineAtMs`: instante en que la empresa tiene que haber terminado. */
+    options?: { deadlineAtMs?: number },
   ) => Promise<CompanyClassificationResult>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   /**
@@ -362,6 +369,12 @@ type RescueRunContext = {
    * no se empieza ninguna empresa más en esta corrida.
    */
   halt: { accountError: boolean };
+  /**
+   * AUDIT-A1-WS7 — tope DURO por empresa (ms epoch): el plazo para EMPEZAR empresas
+   * más un margen. Antes una empresa empezada al final del plazo podía seguir varios
+   * minutos (continuaciones, turno forzado, descargas).
+   */
+  companyDeadlineAtMs?: number;
   /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
   slots: DeliverySlots;
   /**
@@ -390,9 +403,10 @@ async function safeClassify(
   catalog: readonly ClassifierCatalogIndustry[],
   active: ActiveAnthropicModel,
   deps: RescueBatchDeps,
+  deadlineAtMs?: number,
 ): Promise<CompanyClassificationResult | null> {
   try {
-    return await deps.classify(company, catalog, active);
+    return await deps.classify(company, catalog, active, deadlineAtMs !== undefined ? { deadlineAtMs } : undefined);
   } catch (err) {
     console.error('[claude-rescue] classify failed:', err instanceof Error ? err.message : err);
     return null;
@@ -417,7 +431,7 @@ async function rescueCandidate(
   );
   if (!claimed) return { tag: 'skipped', cost: 0 };
 
-  const result = await safeClassify(candidateToCompany(row, ctx), ctx.catalog, ctx.active, deps);
+  const result = await safeClassify(candidateToCompany(row, ctx), ctx.catalog, ctx.active, deps, ctx.companyDeadlineAtMs);
   if (!result) return { tag: 'failed', cost: 0 };
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
@@ -746,6 +760,7 @@ async function rescueParentGroupDisposition(
     ctx.catalog,
     ctx.active,
     deps,
+    ctx.companyDeadlineAtMs,
   );
   if (!result) return stays({ decision: 'classification_failed' }, step.cost);
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
@@ -823,6 +838,7 @@ async function rescueDisposition(
     ctx.catalog,
     ctx.active,
     deps,
+    ctx.companyDeadlineAtMs,
   );
   // Sitio ya pagado y comprobado: se guarda aunque la clasificación falle.
   const withFound = (evidence: Record<string, unknown> | null) =>
@@ -1132,6 +1148,7 @@ export async function rescueBatchWithClaude(
       ? { id: requestedCatalogIndustry.industryId, name: requestedCatalogIndustry.industryName }
       : null,
     halt: { accountError: false },
+    companyDeadlineAtMs: startedMs + deadlineMs + RESCUE_COMPANY_GRACE_MS,
     slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
     groupDomains: new Set(
       (deps.loadBatchGroupDomains ? await deps.loadBatchGroupDomains(params.batchId).catch(() => []) : []).map((d) =>
