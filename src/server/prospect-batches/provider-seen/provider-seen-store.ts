@@ -102,6 +102,15 @@ export type ProviderSeenLoadQuery = {
    * capa gratuita en la parte cara de la corrida.
    */
   limit: number;
+  /**
+   * WS6 · A — alcance de la corrida. La tabla no guarda país: antes se cargaban
+   * las últimas `limit` filas de TODOS los países y una o dos corridas de otro
+   * país desplazaban por completo la memoria de éste. Con alcance, el store
+   * aparta las filas cuya corrida (`last_seen_correlation` = lote) es de OTRO
+   * país —prueba positiva— y sigue leyendo hasta llenar el tope. Ausente ⇒
+   * comportamiento previo.
+   */
+  scope?: { countryCode: string | null };
 };
 
 export type ProviderSeenWriteInput = {

@@ -902,6 +902,17 @@ export interface PersistLushaPendingReviewResult {
   /** Sum of credits charged across every page requested (null if none reported). */
   creditsChargedTotal: number | null;
   /**
+   * WS6 · F6 — importe con el que se LIQUIDA la reserva. Igual a
+   * `creditsChargedTotal` salvo cuando alguna página despachada no reportó
+   * importe y no está probadamente sin cobro (`definitely_not_charged`): a esa
+   * página se le suma su importe contractual (`expectedMaxCredits`). Antes la
+   * suma ignoraba el `null` y la reserva se confirmaba por debajo de lo que
+   * pudo cobrarse (página 0 = 1 crédito, página 1 indeterminada ⇒ se confirmaba
+   * 1). `null` cuando ninguna página reportó nada: se confirma la reserva
+   * ENTERA, como antes. Ausente ⇒ los llamadores usan `creditsChargedTotal`.
+   */
+  settlementCreditsTotal?: number | null;
+  /**
    * AGENT1-LUSHA-CUT-L5 §§ 7, 8 — el resumen de facturación de la corrida.
    *
    * 🔴 Los tres números viven aparte a propósito. `creditsChargedTotal` (arriba)
@@ -2985,6 +2996,9 @@ export async function persistLushaPendingReviewBatch(
     known_domain_seed: 0,
   };
   let creditsChargedTotal: number | null = null;
+  // WS6 · F6 — créditos contractuales de páginas despachadas sin importe
+  // reportado que pudieron cobrarse. Sólo entran en la LIQUIDACIÓN.
+  let unreportedPossiblyChargedCredits = 0;
   let resultsReturnedTotal: number | null = null;
   // ── CUT-L5 §§ 7, 8 — las TRES cifras, separadas a propósito ────────────────
   //
@@ -3233,6 +3247,16 @@ export async function persistLushaPendingReviewBatch(
         expectedCreditsTotal = (expectedCreditsTotal ?? 0) + billingContrast.expectedCredits;
       }
       if (billingContrast.matchesContract === false) billingContractMismatchPages++;
+      // WS6 · F6 — página despachada, sin importe y NO probadamente gratis: se
+      // liquida con su importe contractual (nunca se infla un importe reportado).
+      if (
+        pageCredits === null &&
+        search.providerOutcome?.providerRequestDispatched !== false &&
+        search.providerOutcome?.billingCertainty !== 'definitely_not_charged'
+      ) {
+        unreportedPossiblyChargedCredits +=
+          billingContrast.expectedCredits ?? search.billing?.expectedMaxCredits ?? 1;
+      }
       const billingAnomaly = shouldStopPaidPaginationOnBillingContrast(billingContrast);
       if (billingAnomaly && billingAnomalyContrast === null) {
         billingAnomalyContrast = billingContrast;
@@ -3643,6 +3667,10 @@ export async function persistLushaPendingReviewBatch(
       const continuation = decidePaidPageContinuation({
         rawFromPage: pageRaw,
         novelUsefulFromPage,
+        // WS6 · E — `requestedPageSize` (parada por página corta) NO se pasa
+        // todavía: falta confirmar que con `exclude.domains` Lusha no devuelve
+        // páginas intermedias de menos de 25 filas, y las suites del ejecutor
+        // usan páginas cortas como fixture. Decisión pendiente de la dueña.
       });
       // ADDENDUM PROVIDER-SEEN § 10 — rendimiento de ESTA página, ya pagada.
       providerSeenPageYields.push({
@@ -3795,9 +3823,21 @@ export async function persistLushaPendingReviewBatch(
   // (el tope de aceptación dentro de una página, retirado por X6.13 y que sigue
   // en cero por contrato).
   // Nunca por debajo del objetivo (misma regla que el escritor de Apollo).
+  //
+  // WS6 · C — sin valor explícito (`undefined`), el tope configurado es por
+  // LOTE, no por invocación: antes se aplicaba entero a cada invocación y un
+  // lote que ya tenía filas escritas (otra rama, otra página, una recarga) podía
+  // llegar hasta el doble del tope. Se descuenta lo que el lote ya tiene
+  // (`batchIdentitySeed.seededCount`: filas que OCUPAN el lote). Sin semilla o
+  // con lectura degradada cuenta 0 —el comportamiento previo—, nunca más.
+  const alreadyWrittenInBatch = Math.max(0, execution?.batchIdentitySeed?.seededCount ?? 0);
+  const configuredDeliveryCap =
+    execution?.maxDeliveredCandidates === undefined ? resolveMaxDeliveredCandidates() : null;
   const deliveryCap =
     execution?.maxDeliveredCandidates === undefined
-      ? resolveMaxDeliveredCandidates(undefined, targetGap)
+      ? configuredDeliveryCap === null
+        ? null
+        : Math.max(configuredDeliveryCap - alreadyWrittenInBatch, targetGap)
       : execution.maxDeliveredCandidates === null
         ? null
         : Math.max(Math.trunc(execution.maxDeliveredCandidates), targetGap);
@@ -4020,6 +4060,8 @@ export async function persistLushaPendingReviewBatch(
     // Es el mismo producto del que sale la reserva, no una segunda cuenta.
     expectedMaxCredits,
     creditsChargedTotal,
+    settlementCreditsTotal:
+      creditsChargedTotal === null ? null : creditsChargedTotal + unreportedPossiblyChargedCredits,
     excludedExactDuplicatesCount,
     skippedActiveDuplicatesCount,
     possibleDuplicatesCount,

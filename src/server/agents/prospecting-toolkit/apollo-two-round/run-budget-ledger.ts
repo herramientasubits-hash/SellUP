@@ -112,7 +112,15 @@ export function reserveOperation(
   },
 ): RunBudgetReservation {
   const existing = findEntry(ledger, input.operationId);
-  if (existing) return { ok: true, ledger, alreadyReserved: true };
+  // WS6 · F2 — una operación LIQUIDADA EN 0 (la página no se cobró: 401/403/
+  // 422, 429 o 5xx agotados) ya no tiene presupuesto comprometido. Si la misma
+  // operación vuelve a pedirse —un reintento posterior de esa página, cuya valla
+  // se liberó—, tratarla como «ya reservada» la dejaría salir SIN reserva aunque
+  // el presupuesto esté agotado. Se vuelve a reservar, con la misma
+  // comprobación de saldo que una operación nueva (fail-closed).
+  const isSettledFree =
+    existing !== undefined && existing.state === 'settled' && existing.settledCredits === 0;
+  if (existing && !isSettledFree) return { ok: true, ledger, alreadyReserved: true };
 
   const cost = Math.trunc(input.estimatedCredits);
   if (!Number.isFinite(cost) || cost < 0) {
@@ -140,7 +148,8 @@ export function reserveOperation(
     ledger: {
       maxCredits: ledger.maxCredits,
       entries: [
-        ...ledger.entries,
+        // WS6 · F2 — la entrada liquidada en 0 se sustituye, nunca se duplica.
+        ...ledger.entries.filter((entry) => entry.operationId !== input.operationId),
         {
           operationId: input.operationId,
           operationKey: input.operationKey,

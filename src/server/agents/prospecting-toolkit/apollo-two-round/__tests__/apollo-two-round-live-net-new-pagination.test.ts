@@ -962,3 +962,63 @@ describe('H2 · LIVE — fallo de lectura de la valla ⇒ 0 páginas HTTP, vía 
     assert.equal(pageFetchLog.length, 0, 'una lectura fallida detiene la ronda ANTES de tocar Apollo');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// WS6 · F2 — un rechazo SIN cobro libera la valla y liquida la reserva en 0
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Antes: página 2 → 401 dejaba la valla en `request_started` para siempre (el
+// siguiente intento leía `indeterminate_prior_page_pending_reconciliation` con
+// 0 páginas) y la reserva durable de esa página nunca se liquidaba.
+
+describe('WS6 · F2 · LIVE — 401 en la página 2 vía runApolloTwoRoundWizardDiscovery real', () => {
+  it('libera el request_started de la página 2 y la liquida en 0; la página 1 queda succeeded', async () => {
+    const budget = inMemoryRunBudgetDeps(1_000);
+    const unauthorized: ApolloPageFetchResult = {
+      ok: false,
+      status: 401,
+      requestSent: true,
+      malformedBody: false,
+      timedOut: false,
+      payload: undefined,
+      headers: null,
+    };
+    const built = buildDeps({
+      pagesByRound: [[pagePayload(1, [confirmedRawOrg('ws6-1')], 10), unauthorized]],
+      config: liveConfig(),
+    });
+    const released: number[] = [];
+    const store = built.pageFenceStore;
+    const deps: Partial<ApolloTwoRoundProductionDeps> = {
+      ...built.deps,
+      authorizeSpend: budget.authorizeSpend,
+      settleSpend: budget.settleSpend,
+      releasePageFenceEntry: async (_batchId, _identity, target) => {
+        released.push(target.page);
+        store.entries = store.entries.filter(
+          (entry) =>
+            !(
+              entry.round_number === target.round_number &&
+              entry.search_plan_fingerprint === target.search_plan_fingerprint &&
+              entry.page === target.page &&
+              entry.status === 'request_started'
+            ),
+        );
+        return { kind: 'written' };
+      },
+      // La limpieza de ronda no participa de esta prueba.
+      clearPageFenceRound: async () => ({ kind: 'written' }),
+    };
+
+    await runApolloTwoRoundWizardDiscovery(runInput(), deps);
+
+    assert.deepEqual(released, [2], 'sólo la página rechazada se libera');
+    assert.deepEqual(
+      store.entries.map((entry) => [entry.page, entry.status]),
+      [[1, 'succeeded']],
+      'ningún request_started huérfano queda bloqueando el plan',
+    );
+    // 1 crédito por la página 1; la página 2 se liquidó en 0.
+    assert.equal(budget.remaining(), 999);
+  });
+});

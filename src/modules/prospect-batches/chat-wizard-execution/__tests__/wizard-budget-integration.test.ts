@@ -691,16 +691,20 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
 
   // AGENT1-APOLLO-BILLING-MODE-V2 — la reserva de Apollo cuenta invocaciones ×
   // PÁGINAS (1 crédito por página no vacía, confirmado por Apollo Support), no
-  // invocaciones × resultados pedidos. Los números de este bloque se
-  // reautorizaron: 1 × 1 = 1 en defaults, y 3 × 1 = 3 con los topes duros.
-  it('AG-1: Apollo provider → requestedCredits = 1 (1 invocación × 1 página, defaults)', async () => {
+  // invocaciones × resultados pedidos.
+  //
+  // WS6 · F1 — los números anteriores (1 × 1 = 1, 3 × 1 = 3) fijaban el
+  // defecto: esta ruta pagina hasta 5 páginas por invocación (paginación net-new
+  // de `incremental-search`), así que la estimación es 1 × 5 = 5 en defaults y
+  // 3 × 5 = 15 con los topes duros.
+  it('AG-1: Apollo provider → requestedCredits = 5 (1 invocación × 5 páginas, defaults)', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({}, async () => {
         const deps = makeApolloDeps();
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
         assert.equal(deps.budgetCalls.length, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
         assert.equal(deps.apolloQuotaCalls.length, 1);
-        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 1);
+        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 5);
       });
     });
   });
@@ -714,7 +718,7 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
     });
   });
 
-  it('AG-3: Apollo con cuota propia disponible, estimate=1 → checkApolloProviderQuota llamado con 1, no bloqueado', async () => {
+  it('AG-3: Apollo con cuota propia disponible, estimate=5 → checkApolloProviderQuota llamado con 5, no bloqueado', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({}, async () => {
         let receivedCredits: number | undefined;
@@ -729,20 +733,20 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
         });
         const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
         assert.equal(result.ok, true);
-        assert.equal(receivedCredits, 1);
+        assert.equal(receivedCredits, 5);
         assert.equal(deps.budgetCalls.length, 0, 'Apollo no debe tocar wizard_monthly_budget_periods');
       });
     });
   });
 
-  it('AG-4: Apollo with env 99/99 → hard caps apply → requestedCredits = 3', async () => {
+  it('AG-4: Apollo with env 99/99 → hard caps apply → requestedCredits = 15', async () => {
     await withFlagAsync(true, async () => {
       await withApolloProviderEnv({ queries: '99', results: '99' }, async () => {
         const deps = makeApolloDeps();
         await executeProspectWizardGeneration(VALID_REQUEST, deps);
-        // Hard cap de invocaciones: queries ≤ 3, × 1 página cada una = 3.
+        // Hard cap de invocaciones: queries ≤ 3, × 5 páginas cada una = 15.
         // `results` ya no multiplica: subirlo a 99 no compra más créditos.
-        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 3);
+        assert.equal(deps.apolloQuotaCalls[0]!.estimatedCredits, 15);
       });
     });
   });

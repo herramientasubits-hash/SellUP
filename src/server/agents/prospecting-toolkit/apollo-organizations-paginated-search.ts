@@ -163,14 +163,16 @@ export type ApolloPaginatedSearchDeps = {
    * recogido (deduplicado dentro de la página y entre páginas) cuenta para el
    * objetivo NET-NEW, o si es un duplicado histórico que no lo consume.
    *
-   * Se invoca UNA vez por candidato nuevo, en el mismo orden en que Apollo lo
-   * devolvió. Ausente ⇒ el motor no distingue net-new de duplicado histórico y
-   * el tope de paginación sigue siendo `maxCandidates` (comportamiento previo,
-   * byte a byte).
+   * WS6 · F8 — 🔴 desde X6.13 este conteo es SÓLO OBSERVABILIDAD
+   * (`acceptedForTargetCount`, `accepted_count` de la valla): ya no decide si
+   * se compra la página siguiente (`evaluateApolloPaginationDecision` retiró
+   * esa parada). Por eso ya no corre DENTRO del bucle de recogida, candidato a
+   * candidato y en serie —una lectura de base por candidato que quemaba el
+   * presupuesto de 60 s—, sino UNA vez por página, después de recogerla, con
+   * concurrencia acotada (`APOLLO_ACCEPTANCE_EVALUATION_CONCURRENCY`). Las
+   * evaluaciones se lanzan en el orden en que Apollo devolvió las filas.
    *
-   * Fail-closed: si lanza, el candidato se cuenta como NO aceptado — nunca
-   * detiene la paginación antes de tiempo por un fallo del evaluador, pero
-   * tampoco infla el objetivo con un candidato que no se pudo evaluar.
+   * Fail-closed: si lanza, el candidato se cuenta como NO aceptado.
    */
   evaluateAcceptance?: (
     organization: NormalizedApolloOrganization,
@@ -212,6 +214,27 @@ export type ApolloPaginatedSearchDeps = {
     onIndeterminate: (input: {
       page: number;
       requestFingerprint: string;
+    }) => Promise<void>;
+    /**
+     * WS6 · F2 — desenlace terminal SIN COBRO de una página cuyo
+     * `beforeRequest` sí quedó durable.
+     *
+     * El defecto que cierra: 429 agotado, 401/403/422 y los 5xx reintentables
+     * agotados se clasifican `billingState: 'not_charged'`, pero hasta este
+     * corte no se invocaba ni `onSucceeded` ni `onIndeterminate`. La valla se
+     * quedaba en `request_started` para siempre: el siguiente intento leía
+     * `indeterminate_prior_page_pending_reconciliation` con 0 páginas, y la
+     * reserva durable de la página nunca se liquidaba.
+     *
+     * Opcional: ausente ⇒ comportamiento previo (la valla queda en
+     * `request_started`, que es la lectura conservadora). Un fallo aquí se
+     * traga por la misma razón: dejar `request_started` nunca abre un doble
+     * cobro, sólo bloquea un reintento.
+     */
+    onNotCharged?: (input: {
+      page: number;
+      requestFingerprint: string;
+      errorCode: string;
     }) => Promise<void>;
   };
 };
@@ -289,6 +312,15 @@ export type ApolloPaginatedSearchInput = {
 
 export type ApolloPageOutcome = {
   page: number;
+  /**
+   * WS6 · F3 — `true` cuando la página NO se pidió en esta invocación sino que
+   * se adoptó de la valla durable (`durableResume.succeededPages`). La pagó un
+   * intento anterior; se publica aquí para que su gasto entre en el volumen
+   * pagado de la fila de uso (cuya `usage_key` es idempotente: si el intento
+   * anterior alcanzó a registrar su fila, ésta queda como `already_logged`).
+   * Ausente ⇒ página pedida por esta invocación.
+   */
+  adoptedFromDurableResume?: true;
   status: 'success' | 'error' | 'rate_limited' | 'indeterminate';
   resultsReturned: number;
   estimatedCredits: number;
@@ -370,6 +402,37 @@ export type ApolloPaginatedSearchResult = {
 };
 
 const APOLLO_ENDPOINT = '/api/v1/mixed_companies/search';
+
+/**
+ * WS6 · F8 — evaluaciones de aceptación simultáneas por página. Acotado para no
+ * abrir 100 lecturas de base a la vez con una página llena.
+ */
+export const APOLLO_ACCEPTANCE_EVALUATION_CONCURRENCY = 8;
+
+/**
+ * WS6 · F8 — cuenta cuántas organizaciones de UNA página acepta el evaluador.
+ * Fail-closed por organización: un evaluador que lanza no la cuenta.
+ */
+async function countAcceptedOrganizations(
+  evaluate: NonNullable<ApolloPaginatedSearchDeps['evaluateAcceptance']>,
+  organizations: readonly NormalizedApolloOrganization[],
+): Promise<number> {
+  let accepted = 0;
+  for (let start = 0; start < organizations.length; start += APOLLO_ACCEPTANCE_EVALUATION_CONCURRENCY) {
+    const chunk = organizations.slice(start, start + APOLLO_ACCEPTANCE_EVALUATION_CONCURRENCY);
+    const verdicts = await Promise.all(
+      chunk.map(async (organization) => {
+        try {
+          return (await evaluate(organization)) === true;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    accepted += verdicts.filter(Boolean).length;
+  }
+  return accepted;
+}
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -494,6 +557,25 @@ export async function runApolloOrganizationsPaginatedSearch(
       ? input.durableResume.indeterminatePage
       : null;
 
+  // WS6 · F3 — las páginas adoptadas entran a `pageOutcomes` (marcadas) para
+  // que su gasto llegue al volumen pagado y a la fila de uso. Antes se sumaban
+  // a `estimatedCredits` pero quedaban fuera de `pageOutcomes`, así que
+  // `resolveApolloPaidResultsVolume` —que es lo que se registra— no las veía.
+  const toAdoptedOutcome = (record: ApolloDurablePageRecord): ApolloPageOutcome => ({
+    page: record.page,
+    adoptedFromDurableResume: true,
+    status: 'success',
+    resultsReturned: record.resultsReturned,
+    estimatedCredits: record.credits,
+    attempt: 0,
+    errorCode: null,
+    billingState: record.credits > 0 ? 'charged' : 'not_charged',
+    // La normalización de esa página la vio el intento anterior; aquí no hay
+    // respuesta que normalizar. Ausencia, no ceros.
+    normalization: null,
+    emptyPageReason: null,
+  });
+
   // § B8 — una página con valla `request_started` sin desenlace terminal
   // bloquea CUALQUIER página nueva de este plan de búsqueda. Apollo pudo
   // haberla cobrado; fail-closed, sin reintento automático, cero peticiones
@@ -509,6 +591,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       }
       estimatedCredits += record.credits;
       pagesFetched++;
+      pageOutcomes.push(toAdoptedOutcome(record));
       if (typeof record.acceptedCount === 'number') {
         acceptedForTargetCount = (acceptedForTargetCount ?? 0) + record.acceptedCount;
       }
@@ -521,7 +604,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       stopReason: 'indeterminate_prior_page_pending_reconciliation',
       terminalError: null,
       indeterminatePages: [relevantIndeterminatePage.page],
-      pageOutcomes: [],
+      pageOutcomes,
       requestFingerprint,
       // Ninguna petición salió EN ESTA invocación: la que dejó la página
       // indeterminada fue un intento anterior.
@@ -562,6 +645,7 @@ export async function runApolloOrganizationsPaginatedSearch(
     }
     estimatedCredits += record.credits;
     pagesFetched++;
+    pageOutcomes.push(toAdoptedOutcome(record));
     lastPage = lastPage === null ? record.page : Math.max(lastPage, record.page);
     lastPageResultCount = record.resultsReturned;
     totalPages = record.totalPages ?? totalPages;
@@ -616,6 +700,18 @@ export async function runApolloOrganizationsPaginatedSearch(
 
     let attempt = 1;
     let pageSettled = false;
+    // WS6 · F2 — si `beforeRequest` dejó un `request_started` durable para ESTA
+    // página. Sólo entonces hay una valla que cerrar como «sin cobro».
+    let fenceStartedForPage = false;
+    const settleNotChargedFence = async (errorCode: string): Promise<void> => {
+      if (!fenceStartedForPage || !deps.durableFence?.onNotCharged) return;
+      try {
+        await deps.durableFence.onNotCharged({ page, requestFingerprint, errorCode });
+      } catch {
+        // Intencionalmente silencioso: la valla queda en `request_started`, la
+        // lectura conservadora. Bloquea un reintento; nunca abre un doble cobro.
+      }
+    };
 
     // ── Intentos de una misma página ─────────────────────────────────────────
     while (!pageSettled) {
@@ -646,6 +742,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       if (deps.durableFence) {
         try {
           await deps.durableFence.beforeRequest({ page, requestFingerprint });
+          fenceStartedForPage = true;
         } catch (fenceErr: unknown) {
           const fenceOutcome: ApolloPageOutcome = {
             page,
@@ -774,23 +871,18 @@ export async function runApolloOrganizationsPaginatedSearch(
           collected.push(organization);
           newOrganizationsThisPage.push(organization);
           newInThisPage++;
+        }
 
-          // § 11 — sólo el candidato NUEVO de esta página se evalúa: uno ya visto
-          // en una página anterior no puede volver a contar para el objetivo.
-          if (deps.evaluateAcceptance) {
-            let accepted = false;
-            try {
-              accepted = await deps.evaluateAcceptance(organization);
-            } catch {
-              // Fail-closed: un evaluador que lanza no cuenta el candidato, pero
-              // tampoco detiene la búsqueda — sólo se lo trata como no aceptado.
-              accepted = false;
-            }
-            if (accepted) {
-              acceptedForTargetCount = (acceptedForTargetCount ?? 0) + 1;
-              acceptedInThisPage++;
-            }
-          }
+        // § 11 — sólo los candidatos NUEVOS de esta página se evalúan: uno ya
+        // visto en una página anterior no puede volver a contar.
+        // WS6 · F8 — fuera del bucle de recogida y en lote (ver el contrato de
+        // `evaluateAcceptance`): sólo observabilidad, no decide paginación.
+        if (deps.evaluateAcceptance && newOrganizationsThisPage.length > 0) {
+          acceptedInThisPage = await countAcceptedOrganizations(
+            deps.evaluateAcceptance,
+            newOrganizationsThisPage,
+          );
+          acceptedForTargetCount = (acceptedForTargetCount ?? 0) + acceptedInThisPage;
         }
 
         const resultsReturned = normalized.organizations.length;
@@ -995,14 +1087,32 @@ export async function runApolloOrganizationsPaginatedSearch(
         classification.retryable && attempt < APOLLO_MAX_RETRY_ATTEMPTS;
 
       if (canRetry) {
-        if (classification.retryAfterMs !== null && classification.retryAfterMs > 0) {
-          await sleep(classification.retryAfterMs);
+        // WS6 · F4 — la espera nunca puede exceder lo que queda del presupuesto
+        // temporal. Antes se dormía `Retry-After` completo (p. ej. 3600 s) y
+        // SÓLO DESPUÉS se comprobaba el presupuesto de 60 s: la invocación se
+        // colgaba una hora para terminar igual en `time_budget_exhausted`. Si
+        // la espera no cabe, se termina YA, sin dormir.
+        const remainingBudgetMs = budget.timeoutBudgetMs - (deps.now() - startedAt);
+        const waitMs =
+          classification.retryAfterMs !== null && classification.retryAfterMs > 0
+            ? classification.retryAfterMs
+            : 0;
+        if (waitMs >= remainingBudgetMs) {
+          terminalError = classification;
+          stopReason = 'time_budget_exhausted';
+          pageSettled = true;
+          await settleNotChargedFence(classification.code);
+          break;
+        }
+        if (waitMs > 0) {
+          await sleep(waitMs);
         }
         // El presupuesto temporal manda sobre el presupuesto de reintentos.
         if (deps.now() - startedAt >= budget.timeoutBudgetMs) {
           terminalError = classification;
           stopReason = 'time_budget_exhausted';
           pageSettled = true;
+          await settleNotChargedFence(classification.code);
           break;
         }
         attempt++;
@@ -1011,6 +1121,11 @@ export async function runApolloOrganizationsPaginatedSearch(
 
       terminalError = classification;
       pageSettled = true;
+      // WS6 · F2 — desenlace terminal sin cobro: se cierra la valla en vez de
+      // dejarla en `request_started` para siempre.
+      if (classification.billingState === 'not_charged') {
+        await settleNotChargedFence(classification.code);
+      }
 
       if (classification.terminatesPagination || !classification.retryable) {
         stopReason = 'error_terminated';

@@ -270,10 +270,18 @@ describe('§7 — con presupuesto denegado NO se crea cliente de proveedor', () 
     assert.equal(out.budgetExceeded, null);
   });
 
+  // WS6 · E — `already_reserved` sólo procede si la reserva SIGUE abierta
+  // (`reservationState: 'reserved'`). Antes procedía sin mirar, también sobre una
+  // reserva ya liquidada; ese caso se cubre en ws6-lusha-exclusion-provider-seen.
   it('`already_reserved` es una reserva válida: la corrida procede sobre ella', async () => {
     const spy = newProviderSpy();
     const out = await guardLushaRunBudget<GateOutcome>(
-      async () => ({ status: 'already_reserved', reservationId: 'res-1', creditsReserved: 2 }),
+      async () => ({
+        status: 'already_reserved',
+        reservationId: 'res-1',
+        creditsReserved: 2,
+        reservationState: 'reserved',
+      }),
       () => ({ ok: false, creditsChargedTotal: null, pagesRequested: 0 }),
       () => runLushaWork(spy),
       2,

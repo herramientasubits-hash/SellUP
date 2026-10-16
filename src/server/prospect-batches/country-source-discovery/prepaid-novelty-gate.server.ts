@@ -69,6 +69,7 @@ import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
 import { isUnsearchedFreeLayerDiscard } from './country-source-prior-sightings';
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 
 /**
  * Lector acotado de dominios conocidos de SellUp.
@@ -77,26 +78,52 @@ import { isUnsearchedFreeLayerDiscard } from './country-source-prior-sightings';
  * es suya. El límite es duro y el orden estable, para que dos corridas idénticas
  * construyan la misma lista y la petición al proveedor sea reproducible.
  */
-function buildKnownExclusionDomainsReader(
-  client: ReturnType<typeof createSupabaseAdminClient>,
+export function buildKnownExclusionDomainsReader(
+  client: Pick<ReturnType<typeof createSupabaseAdminClient>, 'from'>,
 ): ListKnownExclusionDomains {
-  return async ({ countryCode, limit }) => {
+  return async ({ countryCode, limit, macroIndustryKey }) => {
     const safeLimit = Math.max(0, Math.min(Math.trunc(limit), PREPAID_EXCLUSION_DOMAIN_CAP * 2));
     if (safeLimit === 0) return [];
     try {
       const { data, error } = await client
         .from('accounts')
-        .select('domain')
+        .select('domain, industry')
         .eq('country_code', countryCode)
         .not('domain', 'is', null)
         .order('domain', { ascending: true })
         .limit(safeLimit);
       if (error || !data) return [];
-      return (data as Array<{ domain: string | null }>).map((row) => row.domain);
+      const rows = data as Array<{ domain: string | null; industry?: string | null }>;
+      return filterAccountsToRunMacro(rows, macroIndustryKey ?? null);
     } catch {
       return [];
     }
   };
+}
+
+/**
+ * WS6 · F5 — mismo criterio que SAME-INDUSTRY-1 para los candidatos vivos,
+ * aplicado a las cuentas: con macro conocida, se aparta una cuenta SÓLO cuando
+ * su industria resuelve a una macro DISTINTA (prueba positiva). Sin industria o
+ * con una que no resuelve ⇒ se queda (fail-closed hacia la exclusión). Las de
+ * la MISMA macro van primero; dentro de cada grupo, el orden de lectura
+ * (alfabético) se conserva.
+ */
+export function filterAccountsToRunMacro(
+  rows: ReadonlyArray<{ domain: string | null; industry?: string | null }>,
+  macroIndustryKey: string | null,
+): (string | null)[] {
+  if (macroIndustryKey === null) return rows.map((row) => row.domain);
+  const same: (string | null)[] = [];
+  const unknown: (string | null)[] = [];
+  for (const row of rows) {
+    const rowMacro = row.industry
+      ? resolveMacroIndustryKey({ slug: row.industry, displayName: row.industry })
+      : null;
+    if (rowMacro === null) unknown.push(row.domain);
+    else if (rowMacro === macroIndustryKey) same.push(row.domain);
+  }
+  return [...same, ...unknown];
 }
 
 /** Estados de candidata que NO bloquean volver a proponerla (§ 9: reconsideración). */

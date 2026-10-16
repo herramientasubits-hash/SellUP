@@ -30,6 +30,8 @@ import { createLushaRequestFenceServiceClient } from './lusha-request-fence-stor
 /** Las dos funciones de operación de la migración 135. */
 export const LUSHA_OPERATION_CLAIM_RPC = 'claim_or_resume_lusha_prospecting_operation';
 export const LUSHA_OPERATION_COMPLETE_RPC = 'complete_lusha_prospecting_operation';
+/** WS6 · D — la tabla de la 135, sólo para cerrar operaciones muertas. */
+export const LUSHA_OPERATIONS_TABLE = 'lusha_prospecting_operations';
 
 function isMissingOperationCapabilityError(error: unknown): boolean {
   if (error === null || typeof error !== 'object') return false;
@@ -148,6 +150,30 @@ export function createSupabaseLushaProspectingOperationStore(
       } catch (err: unknown) {
         if (isMissingOperationCapabilityError(err)) return { status: 'capability_absent' };
         return { status: 'failed', code: 'operation_complete_rpc_threw' };
+      }
+    },
+
+    /**
+     * WS6 · D — cierre de una operación sin resolver MUERTA. UPDATE condicional
+     * (sigue sin resolver Y nació antes del corte): si otra entrada la cerró o
+     * es reciente, no toca nada. Se cierra como `completed` porque es el único
+     * estado terminal que admite la 135 (sin migración nueva); las peticiones
+     * sin liquidar quedan intactas en la valla de peticiones como evidencia.
+     */
+    async expireStaleUnresolved({ operationId, createdBefore }) {
+      try {
+        const nowIso = new Date().toISOString();
+        const { data, error } = await client
+          .from(LUSHA_OPERATIONS_TABLE)
+          .update({ state: 'completed', completed_at: nowIso, updated_at: nowIso })
+          .eq('operation_id', operationId)
+          .in('state', ['open', 'reconciliation_required'])
+          .lt('created_at', createdBefore)
+          .select('operation_id');
+        if (error) return { status: 'failed' };
+        return { status: Array.isArray(data) && data.length > 0 ? 'expired' : 'not_stale' };
+      } catch {
+        return { status: 'failed' };
       }
     },
   };
