@@ -20,6 +20,7 @@ import type {
   RecyclableStatus,
 } from './structured-candidate-types';
 import { normalizeCompanyName } from './normalization';
+import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -183,6 +184,29 @@ async function isHubSpotConnected(): Promise<boolean> {
 
 // ─── HubSpot search functions (read-only) ───────────────────────────────────
 
+const HUBSPOT_SEARCH_TIMEOUT_MS = 10_000;
+
+/**
+ * AUDIT-HARDENING-1 — búsqueda con plazo y reintento ante 429. Un no-OK LANZA: antes
+ * devolvía `[]` y «HubSpot falló» se leía como «la empresa no está en HubSpot» (la
+ * capa estructurada la escribía como nueva). Lanzar la lleva al `catch` de
+ * `checkHubSpotCompanyCommercialStatus`, que la marca `hubspot_lookup_failed`.
+ */
+async function postCompanySearch(token: string, body: unknown): Promise<HubSpotSearchHit[]> {
+  const res = await fetchHubSpotWithRetry(
+    'https://api.hubapi.com/crm/v3/objects/companies/search',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    HUBSPOT_SEARCH_TIMEOUT_MS,
+  );
+  if (!res.ok) throw new Error(`HubSpot respondió ${res.status} a la búsqueda de empresas`);
+  const data = (await res.json()) as HubSpotSearchResponse;
+  return data.results ?? [];
+}
+
 async function searchByNit(token: string, nit: string): Promise<HubSpotSearchHit[]> {
   const body = {
     filterGroups: [
@@ -191,14 +215,7 @@ async function searchByNit(token: string, nit: string): Promise<HubSpotSearchHit
     properties: HS_COMMERCIAL_PROPERTIES,
     limit: 3,
   };
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as HubSpotSearchResponse;
-  return data.results ?? [];
+  return postCompanySearch(token, body);
 }
 
 async function searchByDomainCommercial(
@@ -212,14 +229,7 @@ async function searchByDomainCommercial(
     properties: HS_COMMERCIAL_PROPERTIES,
     limit: 3,
   };
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as HubSpotSearchResponse;
-  return data.results ?? [];
+  return postCompanySearch(token, body);
 }
 
 async function searchByNameCommercial(
@@ -231,14 +241,7 @@ async function searchByNameCommercial(
     properties: HS_COMMERCIAL_PROPERTIES,
     limit: 5,
   };
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as HubSpotSearchResponse;
-  return data.results ?? [];
+  return postCompanySearch(token, body);
 }
 
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
