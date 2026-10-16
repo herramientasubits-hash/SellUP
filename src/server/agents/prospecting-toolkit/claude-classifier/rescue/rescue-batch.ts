@@ -56,6 +56,8 @@ import {
   buildStoredSmallSizeDiscardPatch,
   CLAUDE_RESCUE_METADATA_KEY,
   rescueStillPending,
+  retryAttemptsOf,
+  withRetryAttempt,
   type CandidateRescuePatch,
 } from './rescue-patch';
 import {
@@ -92,6 +94,11 @@ export const RESCUE_RUN_DEADLINE_MS = 200_000;
  * de `deadlineMs + RESCUE_COMPANY_GRACE_MS` (con el plazo por defecto, 260 s).
  */
 export const RESCUE_COMPANY_GRACE_MS = 60_000;
+/**
+ * AUDIT-A1-WS7 — tope de gasto del rescate de UN lote, acumulado entre corridas
+ * (el mismo US$3 que decidió la dueña para la cadena, ahora sin reiniciarse).
+ */
+export const RESCUE_BATCH_MAX_COST_USD = 3;
 
 export type RescueBatchDeps = {
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
@@ -111,6 +118,13 @@ export type RescueBatchDeps = {
    * partida y las que comparten varias filiales). `[]` = no es un lote del árbol.
    */
   loadBatchGroupDomains?: (batchId: string) => Promise<string[]>;
+  /**
+   * AUDIT-A1-WS7 — lo ya gastado en Claude por el rescate de ESTE lote, sumando
+   * todas las corridas (botón, vueltas encadenadas, revisión en línea). `null` = no se
+   * pudo leer (fail-open: se usa sólo el gasto de esta corrida). Antes el tope de
+   * US$3 se reiniciaba en cada cadena.
+   */
+  loadBatchRescueSpentUsd?: (batchId: string) => Promise<number | null>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
@@ -211,6 +225,8 @@ export type RescueBatchSummary =
        * estaba en el tope de entrega (sin gasto; se quedan en Descartadas).
        */
       dispositionsCapped?: number;
+      /** AUDIT-A1-WS7 — el gasto acumulado del lote llegó al tope: no se empezaron más empresas. */
+      batchBudgetReached?: boolean;
     }
   | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
 
@@ -344,7 +360,14 @@ export function needsCandidateRescue(
 ): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
-  if (!rescueStillPending(row.metadata?.[CLAUDE_RESCUE_METADATA_KEY], nowMs, row.metadata?.claude_classification)) {
+  if (
+    !rescueStillPending(
+      row.metadata?.[CLAUDE_RESCUE_METADATA_KEY],
+      nowMs,
+      row.metadata?.claude_classification,
+      retryAttemptsOf(row.metadata),
+    )
+  ) {
     return false;
   }
   if (isLushaSectorReview(row)) return true;
@@ -425,7 +448,7 @@ async function rescueCandidate(
 ): Promise<ItemOutcome> {
   if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
   const claimed = await deps.patchCandidate(row.id, (metadata) =>
-    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification)
+    rescueStillPending(metadata?.[CLAUDE_RESCUE_METADATA_KEY], deps.nowMs(), metadata?.claude_classification, retryAttemptsOf(metadata))
       ? { metadata: { ...(metadata ?? {}), [CLAUDE_RESCUE_METADATA_KEY]: buildRescueInProgress(deps.nowIso()) } }
       : null,
   );
@@ -642,10 +665,12 @@ async function resolveDispositionWebsite(
     console.error('[claude-rescue] duplicate check failed:', err instanceof Error ? err.message : err);
     const at = deps.nowIso();
     const kept = found;
-    await deps.patchDispositionEvidence(row.id, (evidence) => ({
-      ...buildFoundEvidence(evidence, kept, at),
-      [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
-    }));
+    await deps.patchDispositionEvidence(row.id, (evidence) =>
+      withRetryAttempt({
+        ...buildFoundEvidence(evidence, kept, at),
+        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(at), decision: 'retryable' },
+      }),
+    );
     return { kind: 'done', outcome: { tag: 'failed', cost } };
   }
   if (duplicate.status === 'new_candidate' && domainSearch.findKnownCompany) {
@@ -845,10 +870,12 @@ async function rescueDisposition(
     found ? buildFoundEvidence(evidence, found, deps.nowIso()) : evidence;
   if (!result) {
     if (found) {
-      await deps.patchDispositionEvidence(row.id, (evidence) => ({
-        ...withFound(evidence),
-        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
-      }));
+      await deps.patchDispositionEvidence(row.id, (evidence) =>
+        withRetryAttempt({
+          ...withFound(evidence),
+          [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
+        }),
+      );
     }
     return { tag: 'failed', cost: searchCost };
   }
@@ -1157,6 +1184,12 @@ export async function rescueBatchWithClaude(
     ),
   };
   const admittedIds: string[] = [];
+  // AUDIT-A1-WS7 — tope acumulado por lote (todas las corridas del rescate).
+  const spentBefore = deps.loadBatchRescueSpentUsd
+    ? await deps.loadBatchRescueSpentUsd(params.batchId).catch(() => null)
+    : null;
+  let spentThisRun = 0;
+  const batchBudgetReached = () => spentBefore !== null && spentBefore + spentThisRun >= RESCUE_BATCH_MAX_COST_USD;
   const storedReassigned = onlyFreeSource
     ? 0
     : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
@@ -1164,11 +1197,14 @@ export async function rescueBatchWithClaude(
   const outcomes = await mapUntil(
     thisRun,
     RESCUE_CONCURRENCY,
-    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs,
-    (item) =>
-      item.kind === 'candidate'
+    () => ctx.halt.accountError || deps.nowMs() - startedMs >= deadlineMs || batchBudgetReached(),
+    async (item) => {
+      const outcome = await (item.kind === 'candidate'
         ? rescueCandidateFreeingSlot(item.row, ctx, deps)
-        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds),
+        : rescueDispositionWithinCap(item.row, ctx, deps, admittedIds));
+      spentThisRun += outcome.cost;
+      return outcome;
+    },
   );
 
   // «Una empresa, un vendedor»: si otro vendedor ya la tiene, el reclamo la marca duplicada.
@@ -1187,5 +1223,6 @@ export async function rescueBatchWithClaude(
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
     dispositionsCapped: count('capped'),
+    ...(batchBudgetReached() ? { batchBudgetReached: true } : {}),
   };
 }
