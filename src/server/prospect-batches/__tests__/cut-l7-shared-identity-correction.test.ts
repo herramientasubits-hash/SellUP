@@ -1115,9 +1115,41 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 150 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 151 o superior, se llame como se llame.
+    // 🔴 AGENT1-AUDIT-HARDENING-1 reclamó después la 151 y la 152: la 151 endurece
+    // `claim_enrichment_jobs` (search_path fijo, recupera trabajos `processing` vencidos de
+    // `prospect_enrichment_jobs`, EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en
+    // los reclamos de identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote
+    // archivado. No son de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. Misma exigencia por
+    // AUTORÍA que con la 137–150. AUTORADAS y NO APLICADAS.
+    assert.deepEqual(
+      migrations.filter((f) => /^151_/.test(f)),
+      ['151_claim_enrichment_jobs_hardening.sql'],
+      'la 151 tiene que ser la del endurecimiento de claim_enrichment_jobs, y sólo ella',
+    );
+    const enrichmentJobsHardening = read('supabase/migrations/151_claim_enrichment_jobs_hardening.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        enrichmentJobsHardening.includes(foreign),
+        false,
+        `la 151 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    assert.deepEqual(
+      migrations.filter((f) => /^152_/.test(f)),
+      ['152_agent1_identity_claims_crosscheck.sql'],
+      'la 152 tiene que ser la del cruce de los reclamos de identidad, y sólo ella',
+    );
+    const identityClaimsCrosscheck = read('supabase/migrations/152_agent1_identity_claims_crosscheck.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(
+        identityClaimsCrosscheck.includes(foreign),
+        false,
+        `la 152 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
+      );
+    }
+    // Ninguna 153 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15[1-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[3-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

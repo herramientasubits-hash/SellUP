@@ -597,7 +597,13 @@ describe('4O-G — alcance', () => {
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 150);
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
+    // de CUT3B4. AUTORADAS y NO APLICADAS.
+    assert.equal(numbered[numbered.length - 1], 152);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -631,7 +637,8 @@ describe('4O-G — alcance', () => {
     // 148 archivos para los números 001-148: la 148 tampoco deja hueco.
     // 149 archivos para los números 001-149: la 149 tampoco deja hueco.
     // 150 archivos para los números 001-150: la 150 tampoco deja hueco.
-    assert.equal(numbered.length, 150);
+    // 152 archivos para los números 001-152: la 151 y la 152 tampoco dejan hueco.
+    assert.equal(numbered.length, 152);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

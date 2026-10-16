@@ -211,7 +211,13 @@ describe('modelo de datos — sin migración nueva', () => {
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 150, 'el techo conocido es la 150');
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
+    // de CUT3B4. AUTORADAS y NO APLICADAS.
+    assert.equal(Math.max(...numbers), 152, 'el techo conocido es la 152');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,
