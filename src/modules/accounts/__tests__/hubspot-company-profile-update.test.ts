@@ -97,4 +97,24 @@ describe('buildAccountProfileUpdate', () => {
     assert.equal(update.patch.owner_id, undefined);
     assert.equal(update.ownerSource, null);
   });
+  // AUDIT-HARDENING-1 — empresa libre en HubSpot (Recycled con el vendedor anterior)
+  // cuya toma no se escribió: el dueño viejo de HubSpot no le quita la empresa a
+  // quien la aprobó.
+  it('empresa libre sin toma escrita: el dueño anterior de HubSpot no manda', () => {
+    const update = buildAccountProfileUpdate(
+      { ...EMPTY_ACCOUNT, owner_id: 'u-busca' },
+      profile('u-anterior'),
+      'u-busca',
+      { ownerIsProvisional: true, ignoreHubSpotOwner: true },
+    );
+    assert.equal(update.patch.owner_id, undefined);
+    assert.equal(update.ownerSource, null);
+  });
+
+  it('empresa libre sin responsable: queda quien buscó, no el dueño anterior', () => {
+    const update = buildAccountProfileUpdate(EMPTY_ACCOUNT, profile('u-anterior'), 'u-busca', {
+      ignoreHubSpotOwner: true,
+    });
+    assert.equal(update.patch.owner_id, 'u-busca');
+  });
 });
