@@ -14,11 +14,17 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  buildNormalizedNameLookupVariants,
   normalizeCompanyName,
   normalizeDomain,
   normalizeTaxIdentifier,
   normalizeLinkedinUrl,
 } from '@/server/agents/prospecting-toolkit/normalization';
+import {
+  buildFiscalLookupNeedles,
+  canonicalizeFiscalIdentifier,
+} from '@/server/agents/prospecting-toolkit/fiscal-identity';
+import { classifyFiscalDuplicateIdentity } from '@/server/agents/prospecting-toolkit/fiscal-duplicate-classification';
 import {
   checkHubSpotDuplicates,
 } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
@@ -105,8 +111,18 @@ export interface CandidateDuplicateResult {
   sellup_duplicate_check: SellUpDuplicateCheck;
   hubspot_duplicate_check: HubSpotDuplicateCheck;
   normalized_keys: NormalizedKeys;
-  /** Campo derivado para almacenar en duplicate_status de BD */
-  db_duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
+  /**
+   * Campo derivado para almacenar en duplicate_status de BD.
+   * AGENT1-DUPLICATE-DETECTION-FAIL-CLOSED-1 — `unchecked` cuando SellUp o HubSpot
+   * no se pudieron leer y nada coincidió: ya no se escribe `no_match` sobre una
+   * comprobación que falló.
+   */
+  db_duplicate_status:
+    | 'no_match'
+    | 'possible_duplicate'
+    | 'exact_duplicate'
+    | 'insufficient_data'
+    | 'unchecked';
   /** Campo derivado para matched_account_id en BD */
   db_matched_account_id: string | null;
   /** Campo derivado para matched_hubspot_company_id en BD */
@@ -132,12 +148,80 @@ interface SellUpRow {
   source_primary?: string | null;
 }
 
+/**
+ * AGENT1-DUPLICATE-DETECTION-FAIL-CLOSED-1 — un `error` de Supabase no es «sin
+ * coincidencia». Antes cada consulta leía sólo `data`; ahora se lanza y el `catch`
+ * de `checkSellUp` deja el resultado en `error`.
+ */
+function assertReadOk(error: unknown): void {
+  if (error) throw new Error('sellup_read_failed');
+}
+
+type FiscalRowMatch = { row: SellUpRow; proven: boolean };
+
+/**
+ * AGENT1-DUPLICATE-DETECTION-FISCAL-AUTHORITY-1 — la identidad fiscal con la
+ * MISMA autoridad que el resto de Agente 1 (CUT-3B1).
+ *
+ * Antes: `.eq('tax_identifier', crudo)` SIN país. `900.123.456-7` no encontraba
+ * `900123456`, y un `123456789` colombiano igualaba a uno mexicano. Ahora el
+ * filtro es un PREFILTRO con las agujas canónicas (`buildFiscalLookupNeedles`, que
+ * incluye el valor crudo: alcanza todo lo que alcanzaba antes) y la igualdad la
+ * decide `classifyFiscalDuplicateIdentity`:
+ *   · país + canónico iguales               → coincidencia probada;
+ *   · canónico igual pero algún lado sin país → coincidencia NO probada (el
+ *     llamador la baja a posible duplicado, nunca la descarta);
+ *   · país distinto o canónico distinto      → no es la misma empresa.
+ */
+async function findFiscalRowMatch(
+  supabase: SupabaseClient,
+  table: 'accounts' | 'prospect_candidates',
+  select: string,
+  rawTaxId: string,
+  countryCode: string | null,
+  candidateId: string,
+): Promise<FiscalRowMatch | null> {
+  const needles = buildFiscalLookupNeedles([rawTaxId], countryCode);
+  const lookupValues = needles.lookupValues.length > 0 ? needles.lookupValues : [rawTaxId];
+  let query = supabase.from(table).select(select).in('tax_identifier', lookupValues);
+  query =
+    table === 'accounts'
+      ? query.is('archived_at', null)
+      : query.neq('id', candidateId).neq('status', 'discarded');
+  const { data, error } = await query.limit(5);
+  assertReadOk(error);
+
+  let unproven: SellUpRow | null = null;
+  for (const row of (data ?? []) as unknown as SellUpRow[]) {
+    const verdict = classifyFiscalDuplicateIdentity({
+      candidateCountryCode: countryCode,
+      candidateTaxId: rawTaxId,
+      matchedCountryCode: row.country_code ?? null,
+      matchedTaxId: row.tax_identifier ?? null,
+    });
+    if (verdict.proven) return { row, proven: true };
+    const countryUnknown =
+      verdict.rejection === 'candidate_country_unresolved' ||
+      verdict.rejection === 'matched_country_unresolved';
+    if (
+      countryUnknown &&
+      unproven === null &&
+      canonicalizeFiscalIdentifier(rawTaxId, countryCode ?? row.country_code ?? null) ===
+        canonicalizeFiscalIdentifier(row.tax_identifier ?? null, row.country_code ?? countryCode ?? null)
+    ) {
+      unproven = row;
+    }
+  }
+  return unproven ? { row: unproven, proven: false } : null;
+}
+
 async function checkSellUp(
   supabase: SupabaseClient,
   candidateId: string,
   keys: NormalizedKeys,
   taxIdentifierRaw: string | null,
-  taxIdentifierCandidateRaw: string | null
+  taxIdentifierCandidateRaw: string | null,
+  candidateName: string
 ): Promise<SellUpDuplicateCheck> {
   const NO_MATCH: SellUpDuplicateCheck = {
     status: 'no_match',
@@ -162,54 +246,31 @@ async function checkSellUp(
   try {
     // ── 1. Tax identifier exacto ──────────────────────────────
     if (taxIdentifierRaw && taxIdentifierRaw.trim().length >= 4) {
-      const { data: accMatch } = await supabase
-        .from('accounts')
-        .select(ACC_SELECT)
-        .eq('tax_identifier', taxIdentifierRaw.trim())
-        .is('archived_at', null)
-        .limit(1);
-
-      if (accMatch && accMatch.length > 0) {
-        const r = accMatch[0] as SellUpRow;
+      const cleanedTaxId = taxIdentifierRaw.trim();
+      for (const table of ['accounts', 'prospect_candidates'] as const) {
+        const match = await findFiscalRowMatch(
+          supabase,
+          table,
+          table === 'accounts' ? ACC_SELECT : CAND_SELECT,
+          cleanedTaxId,
+          keys.country_code,
+          candidateId,
+        );
+        if (!match) continue;
+        const r = match.row;
         return {
-          status: 'duplicate',
-          matched_account_id: r.id,
-          matched_candidate_id: null,
+          status: match.proven ? 'duplicate' : 'possible_duplicate',
+          matched_account_id: table === 'accounts' ? r.id : null,
+          matched_candidate_id: table === 'prospect_candidates' ? r.id : null,
           matched_name: r.name ?? null,
           matched_domain: r.domain ?? null,
           matched_website: r.website ?? null,
           matched_country_code: r.country_code ?? null,
           matched_tax_identifier: r.tax_identifier ?? null,
-          matched_source: 'account',
-          matched_status: null,
-          matched_by: 'tax_identifier',
-          confidence: 100,
-        };
-      }
-
-      const { data: candMatch } = await supabase
-        .from('prospect_candidates')
-        .select(CAND_SELECT)
-        .eq('tax_identifier', taxIdentifierRaw.trim())
-        .neq('id', candidateId)
-        .neq('status', 'discarded')
-        .limit(1);
-
-      if (candMatch && candMatch.length > 0) {
-        const r = candMatch[0] as SellUpRow;
-        return {
-          status: 'duplicate',
-          matched_account_id: null,
-          matched_candidate_id: r.id,
-          matched_name: r.name ?? null,
-          matched_domain: r.domain ?? null,
-          matched_website: r.website ?? null,
-          matched_country_code: r.country_code ?? null,
-          matched_tax_identifier: r.tax_identifier ?? null,
-          matched_source: 'prospect_candidate',
-          matched_status: r.status ?? null,
-          matched_by: 'tax_identifier',
-          confidence: 100,
+          matched_source: table === 'accounts' ? 'account' : 'prospect_candidate',
+          matched_status: table === 'accounts' ? null : r.status ?? null,
+          matched_by: match.proven ? 'tax_identifier' : 'tax_identifier_unproven_country',
+          confidence: match.proven ? 100 : 85,
         };
       }
     }
@@ -217,52 +278,28 @@ async function checkSellUp(
     // ── 1B. Tax identifier candidato (señal de duplicidad) ───
     if (taxIdentifierCandidateRaw && taxIdentifierCandidateRaw.trim().length >= 4) {
       const cleanedCandidateTaxId = taxIdentifierCandidateRaw.trim();
-      const { data: accMatch } = await supabase
-        .from('accounts')
-        .select(ACC_SELECT)
-        .eq('tax_identifier', cleanedCandidateTaxId)
-        .is('archived_at', null)
-        .limit(1);
-
-      if (accMatch && accMatch.length > 0) {
-        const r = accMatch[0] as SellUpRow;
+      for (const table of ['accounts', 'prospect_candidates'] as const) {
+        const match = await findFiscalRowMatch(
+          supabase,
+          table,
+          table === 'accounts' ? ACC_SELECT : CAND_SELECT,
+          cleanedCandidateTaxId,
+          keys.country_code,
+          candidateId,
+        );
+        if (!match) continue;
+        const r = match.row;
         return {
           status: 'possible_duplicate',
-          matched_account_id: r.id,
-          matched_candidate_id: null,
+          matched_account_id: table === 'accounts' ? r.id : null,
+          matched_candidate_id: table === 'prospect_candidates' ? r.id : null,
           matched_name: r.name ?? null,
           matched_domain: r.domain ?? null,
           matched_website: r.website ?? null,
           matched_country_code: r.country_code ?? null,
           matched_tax_identifier: r.tax_identifier ?? null,
-          matched_source: 'account',
-          matched_status: null,
-          matched_by: 'tax_identifier_candidate',
-          confidence: 85,
-        };
-      }
-
-      const { data: candMatch } = await supabase
-        .from('prospect_candidates')
-        .select(CAND_SELECT)
-        .eq('tax_identifier', cleanedCandidateTaxId)
-        .neq('id', candidateId)
-        .neq('status', 'discarded')
-        .limit(1);
-
-      if (candMatch && candMatch.length > 0) {
-        const r = candMatch[0] as SellUpRow;
-        return {
-          status: 'possible_duplicate',
-          matched_account_id: null,
-          matched_candidate_id: r.id,
-          matched_name: r.name ?? null,
-          matched_domain: r.domain ?? null,
-          matched_website: r.website ?? null,
-          matched_country_code: r.country_code ?? null,
-          matched_tax_identifier: r.tax_identifier ?? null,
-          matched_source: 'prospect_candidate',
-          matched_status: r.status ?? null,
+          matched_source: table === 'accounts' ? 'account' : 'prospect_candidate',
+          matched_status: table === 'accounts' ? null : r.status ?? null,
           matched_by: 'tax_identifier_candidate',
           confidence: 85,
         };
@@ -271,12 +308,13 @@ async function checkSellUp(
 
     // ── 2. Domain exacto ─────────────────────────────────────
     if (keys.normalized_domain) {
-      const { data: accMatch } = await supabase
+      const { data: accMatch, error: accError } = await supabase
         .from('accounts')
         .select(ACC_SELECT)
         .eq('domain', keys.normalized_domain)
         .is('archived_at', null)
         .limit(1);
+      assertReadOk(accError);
 
       if (accMatch && accMatch.length > 0) {
         const r = accMatch[0] as SellUpRow;
@@ -296,13 +334,14 @@ async function checkSellUp(
         };
       }
 
-      const { data: candMatch } = await supabase
+      const { data: candMatch, error: candError } = await supabase
         .from('prospect_candidates')
         .select(CAND_SELECT)
         .eq('domain', keys.normalized_domain)
         .neq('id', candidateId)
         .neq('status', 'discarded')
         .limit(1);
+      assertReadOk(candError);
 
       if (candMatch && candMatch.length > 0) {
         const r = candMatch[0] as SellUpRow;
@@ -324,14 +363,24 @@ async function checkSellUp(
     }
 
     // ── 3. Nombre normalizado + país ─────────────────────────
+    //
+    // AGENT1-NORMALIZED-NAME-LOOKUP-1 — `normalized_name` se GUARDA sin quitar el
+    // sufijo legal («acme s a s», `normalizeName`/`normalizeText`) y aquí se
+    // buscaba con `normalizeCompanyName` («acme»): una empresa con sufijo nunca
+    // coincidía. Se buscan las dos formas.
+    const nameVariants = buildNormalizedNameLookupVariants(candidateName).filter(
+      (variant) => variant.length >= 3,
+    );
     if (keys.normalized_name && keys.normalized_name.length >= 3 && keys.country_code) {
-      const { data: accMatch } = await supabase
+      const lookupNames = nameVariants.length > 0 ? nameVariants : [keys.normalized_name];
+      const { data: accMatch, error: accNameError } = await supabase
         .from('accounts')
         .select(ACC_SELECT)
-        .eq('normalized_name', keys.normalized_name)
+        .in('normalized_name', lookupNames)
         .eq('country_code', keys.country_code)
         .is('archived_at', null)
         .limit(1);
+      assertReadOk(accNameError);
 
       if (accMatch && accMatch.length > 0) {
         const r = accMatch[0] as SellUpRow;
@@ -346,14 +395,15 @@ async function checkSellUp(
         result.matched_by = 'normalized_name_country';
         result.confidence = 85;
       } else {
-        const { data: candMatch } = await supabase
+        const { data: candMatch, error: candNameError } = await supabase
           .from('prospect_candidates')
           .select(CAND_SELECT)
-          .eq('normalized_name', keys.normalized_name)
+          .in('normalized_name', lookupNames)
           .eq('country_code', keys.country_code)
           .neq('id', candidateId)
           .neq('status', 'discarded')
           .limit(1);
+        assertReadOk(candNameError);
 
         if (candMatch && candMatch.length > 0) {
           const r = candMatch[0] as SellUpRow;
@@ -585,7 +635,8 @@ export async function detectCandidateDuplicates({
       candidate.id,
       normalizedKeys,
       candidate.tax_identifier ?? null,
-      candidate.tax_identifier_candidate ?? null
+      candidate.tax_identifier_candidate ?? null,
+      candidate.name ?? ''
     ),
     includeHubSpot
       ? checkHubSpot(hubspotInput)
@@ -634,6 +685,10 @@ export async function detectCandidateDuplicates({
     dbDuplicateStatus = 'possible_duplicate';
   } else if (hubspotCheck.status === 'possible_match') {
     dbDuplicateStatus = 'possible_duplicate';
+  } else if (sellupCheck.status === 'error' || hubspotCheck.status === 'error') {
+    // AGENT1-DUPLICATE-DETECTION-FAIL-CLOSED-1 — una fuente que no se pudo leer y
+    // nada coincidente: no se sabe, no «sin coincidencia».
+    dbDuplicateStatus = 'unchecked';
   } else if (!normalizedName && !normalizedDomain && !normalizedTaxId) {
     dbDuplicateStatus = 'insufficient_data';
   }

@@ -10,6 +10,11 @@
  *
  * Si HubSpot falla, el status es "unchecked" — nunca "new_candidate"
  * cuando no se pudo verificar una fuente.
+ *
+ * AGENT1-SELLUP-CHECK-ERRORS-PROPAGATE-1 — lo mismo para SellUp: si su lectura
+ * falla, el resultado es `error` (lo que el corredor de Apollo ya lee como
+ * comprobación degradada), nunca `new_candidate` ni `unchecked` («HubSpot no
+ * conectado», que es una configuración, no un fallo).
  */
 
 import { resolveHubSpotFreeToTake } from './hubspot-free-match';
@@ -146,8 +151,10 @@ export async function checkCompanyDuplicate(
   }
 
   // ── Ejecutar ambos checkers en paralelo ───────────────────
+  let sellupFailed = false;
   const [sellupMatches, hubspotOutcome] = await Promise.all([
     checkSellUpDuplicates(enrichedInput).catch((err: unknown) => {
+      sellupFailed = true;
       errors.push(`SellUp checker error: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }),
@@ -164,11 +171,21 @@ export async function checkCompanyDuplicate(
   ]);
 
   // ── Resolver status individuales ──────────────────────────
-  const { status: sellupStatus } = resolveSellUpStatus(sellupMatches);
+  // 🔴 Un SellUp que no se pudo leer no aporta «0 coincidencias» (que se leía como
+  // `new_candidate`, 85): aporta `error`.
+  const sellupStatus: DuplicateStatus = sellupFailed
+    ? 'error'
+    : resolveSellUpStatus(sellupMatches).status;
   const { status: hubspotStatus } = resolveHubSpotStatus(hubspotOutcome);
 
   // ── Consolidar ────────────────────────────────────────────
-  const finalStatus = consolidateStatus(sellupStatus, hubspotStatus);
+  // Con SellUp caído, ni `new_candidate` ni `unchecked` (que el corredor NO lee
+  // como degradado) pueden ganar: sólo una coincidencia real de HubSpot.
+  const consolidated = consolidateStatus(sellupStatus, hubspotStatus);
+  const finalStatus: DuplicateStatus =
+    sellupFailed && (consolidated === 'new_candidate' || consolidated === 'unchecked')
+      ? 'error'
+      : consolidated;
 
   // Confianza: máxima entre todos los matches relevantes
   const allMatches = [

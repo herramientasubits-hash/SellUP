@@ -406,6 +406,12 @@ type RescueRunContext = {
    * (Prod 15-10, Bimbo: Bimbo Ecuador, RUC y 1.154 trabajadores, quedó duplicada por grupobimbo.com).
    */
   groupDomains?: ReadonlySet<string>;
+  /**
+   * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — candidatos VIVOS a los que el
+   * rescate les agregó su número fiscal oficial: se reclaman al final junto con
+   * lo admitido, para que el NIT también quede ocupado en todo SellUp.
+   */
+  fiscalIdentityCandidateIds?: string[];
 };
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
@@ -488,6 +494,7 @@ async function rescueCandidate(
   );
   const cost = result.usage?.estimatedCostUsd ?? 0;
   if (!saved) return { tag: 'failed', cost };
+  if (decision.kind === 'admit' && identity) ctx.fiscalIdentityCandidateIds?.push(row.id);
   if (decision.kind === 'discard') return { tag: 'discarded', cost };
   if (decision.kind === 'reassign') return { tag: 'reassigned', cost };
   if (decision.kind === 'admit') return { tag: 'completed', cost };
@@ -1167,6 +1174,7 @@ export async function rescueBatchWithClaude(
   const freeSlots = deps.deliverySlots ? await deps.deliverySlots(params.batchId).catch(() => null) : null;
   const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
   const ctx: RescueRunContext = {
+    fiscalIdentityCandidateIds: [],
     batchId: params.batchId,
     triggeredBy: params.triggeredBy,
     catalog,
@@ -1208,7 +1216,10 @@ export async function rescueBatchWithClaude(
   );
 
   // «Una empresa, un vendedor»: si otro vendedor ya la tiene, el reclamo la marca duplicada.
-  if (admittedIds.length > 0) await deps.claimIdentities(params.batchId, admittedIds);
+  // AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — también los vivos que ganaron NIT:
+  // lo que ya tenían reclamado cuenta como suyo y sólo se agrega el fiscal.
+  const toClaim = [...new Set([...admittedIds, ...(ctx.fiscalIdentityCandidateIds ?? [])])];
+  if (toClaim.length > 0) await deps.claimIdentities(params.batchId, toClaim);
 
   const count = (tag: ItemOutcome['tag']) => outcomes.filter((o) => o.tag === tag).length;
   return {

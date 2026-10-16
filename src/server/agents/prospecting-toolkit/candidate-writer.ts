@@ -94,10 +94,15 @@ import {
 // vendedores. Complementario, no sustituto: una fila puede sobrevivir al
 // registro de lote y aun así perder la carrera aquí.
 import {
+  deriveGlobalIdentityClaimEnvelope,
   deriveGlobalIdentityClaims,
   isGlobalIdentityClaimableStatus,
 } from "./global-identity-claims";
-import { claimGlobalCompanyIdentities } from "@/server/prospect-batches/global-identity-claims-store";
+import {
+  claimGlobalCompanyIdentities,
+  claimUnclaimedLiveCandidates,
+  toGlobalIdentityClaimCandidateInput,
+} from "@/server/prospect-batches/global-identity-claims-store";
 // AGENT1-CUT3B4 §§ 10/20 — el vallado optimista y su bucle de reintento, los
 // MISMOS que usan los otros dos escritores. Aquí no vive ninguna política de
 // concurrencia propia.
@@ -1043,6 +1048,8 @@ export async function writeProspectingCandidates(
    * no hay dos decisiones, hay una decisión guardada de dos formas.
    */
   const persistedCandidateAcceptances: PersistedCandidateAcceptance[] = [];
+  /** AGENT1-CLAIMS-DEGRADED-RECONCILE-1 — filas admitidas cuyo reclamo global degradó. */
+  const globalClaimDegradedCandidateIds: string[] = [];
   /** Inserts que tuvieron que reintentarse porque la columna `linkedin_url` no existe. */
   let linkedInColumnFallbackCount = 0;
 
@@ -3863,12 +3870,15 @@ export async function writeProspectingCandidates(
     // 🔴 AGENT1-CLAIMS-ONLY-LIVE-CANDIDATES-1 — sólo una fila VIVA reclama. Una
     // insertada ya como `duplicate`/`discarded` no pasa nunca por el UPDATE que
     // libera (disparador de 140): su reclamo apartaría la empresa para siempre.
-    const globalClaims = isGlobalIdentityClaimableStatus(completenessAdjustedStatus)
-      ? deriveGlobalIdentityClaims(identityEvidence)
-      : [];
-    if (globalClaims.length > 0) {
+    //
+    // AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — viajan también el dominio y el
+    // LinkedIn de identidad (señales de cruce de la 152), con o sin fiscal.
+    const globalClaimEnvelope = isGlobalIdentityClaimableStatus(completenessAdjustedStatus)
+      ? deriveGlobalIdentityClaimEnvelope(identityEvidence)
+      : null;
+    if (globalClaimEnvelope && globalClaimEnvelope.claims.length > 0) {
       const globalClaimOutcome = await claimGlobalCompanyIdentities(admin, batchId, [
-        { candidateId: createdCandidateId, claims: globalClaims },
+        toGlobalIdentityClaimCandidateInput(createdCandidateId, globalClaimEnvelope),
       ]);
       if (globalClaimOutcome.claimedElsewhereCandidateIds.has(createdCandidateId)) {
         lateDuplicateCount += 1;
@@ -3878,6 +3888,17 @@ export async function writeProspectingCandidates(
           searchTrace: candidate.searchTrace ?? undefined,
         });
         continue;
+      }
+      // AGENT1-CLAIMS-DEGRADED-OBSERVABLE-1 — antes un `degraded` se ignoraba en
+      // silencio y la fila contaba como admitida SIN reclamo: otro vendedor podía
+      // recibir la misma empresa. Sigue admitida (degradar nunca inventa un
+      // duplicado), pero queda registrada y se reintenta al terminar el lote.
+      if (globalClaimOutcome.degraded) {
+        console.error('[agent1-global-claims] writer: candidate admitted without global claim', {
+          batchId,
+          candidateId: createdCandidateId,
+        });
+        globalClaimDegradedCandidateIds.push(createdCandidateId);
       }
     }
 
@@ -3957,6 +3978,23 @@ export async function writeProspectingCandidates(
         domain: domain ?? null,
         identityKey: candidateIdentityKey,
         countryCode: candidate.countryCode ?? null,
+      });
+    }
+  }
+
+  // AGENT1-CLAIMS-DEGRADED-RECONCILE-1 — segundo intento para las filas que
+  // quedaron sin reclamo global. Si ahora resultan de OTRO vendedor, la base ya
+  // las dejó `duplicate`; aquí sólo se deja constancia (este lote ya las contó).
+  if (globalClaimDegradedCandidateIds.length > 0) {
+    const reconciled = await claimUnclaimedLiveCandidates(
+      admin,
+      batchId,
+      globalClaimDegradedCandidateIds,
+    );
+    if (reconciled.claimedElsewhereCandidateIds.length > 0) {
+      console.error('[agent1-global-claims] writer: late global conflict after reconcile', {
+        batchId,
+        candidateIds: reconciled.claimedElsewhereCandidateIds,
       });
     }
   }
