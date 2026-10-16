@@ -118,7 +118,12 @@ export function ActionButtons({ groups, open: controlledOpen, onOpenChange }: Ac
 
           <div className="space-y-1.5">
             <FieldLabel className="block leading-none">Grupo padre <span className="text-xs text-muted-foreground">(opcional)</span></FieldLabel>
-            <Select value={parentId || undefined} onValueChange={v => setParentId(v ?? '')}>
+            <Select
+              value={parentId || null}
+              onValueChange={v => setParentId(v ?? '')}
+              // Sin `items`, Base UI muestra el id (UUID) en vez del nombre.
+              items={{ [NO_PARENT]: 'Ninguno (grupo raíz)', ...Object.fromEntries(validParents.map(g => [g.id, g.name])) }}
+            >
               <SelectTrigger className="w-full" aria-label="Grupo padre">
                 <SelectValue placeholder="Ninguno (grupo raíz)" />
               </SelectTrigger>
