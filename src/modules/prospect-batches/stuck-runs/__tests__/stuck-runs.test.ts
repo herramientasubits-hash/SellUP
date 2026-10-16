@@ -81,6 +81,15 @@ describe('reglas (stuck-runs-policy)', () => {
       'stalled',
     );
   });
+
+  // AUDIT-HARDENING-1 — un borrador del Agente 1 quieto también se ofrece para terminar;
+  // un borrador manual no es una corrida.
+  it('aviso en el lote: borrador trabado del Agente 1 = detenido; borrador manual = nada', () => {
+    const draft = { status: 'draft', updatedAt: iso(40 * MIN), nowMs: NOW, hasOpenContinuation: false };
+    assert.equal(batchRunAttention({ ...draft, source: 'agent_1' }), 'stalled');
+    assert.equal(batchRunAttention({ ...draft, source: 'manual' }), 'none');
+    assert.equal(batchRunAttention(draft), 'none');
+  });
 });
 
 // ── Base en memoria ─────────────────────────────────────────────────────────

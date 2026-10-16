@@ -33,6 +33,7 @@ import { countClaudeClassificationEligible } from '@/server/agents/prospecting-t
 import {
   getProspectBatchById,
   getCandidatesByBatch,
+  requireActiveUser,
 } from '@/modules/prospect-batches/actions';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
@@ -76,11 +77,12 @@ export const maxDuration = 300;
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates, isAdmin, latestContinuation] = await Promise.all([
+  const [batch, candidates, isAdmin, latestContinuation, viewer] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
     isCurrentUserAdmin(),
     readLatestContinuationJob(batchId),
+    requireActiveUser(),
   ]);
 
   if (!batch) notFound();
@@ -91,7 +93,11 @@ export default async function BatchDetailPage({ params }: Props) {
     updatedAt: batch.updated_at ?? null,
     nowMs: new Date().getTime(),
     hasOpenContinuation: latestContinuation?.status === 'pending' || latestContinuation?.status === 'processing',
+    source: batch.source ?? null,
   });
+  // AUDIT-HARDENING-1 — sólo quien creó la corrida puede continuarla o terminarla
+  // (el servidor responde 403 a cualquier otro): a los demás no se les ofrece.
+  const isRunOwner = batch.created_by !== null && batch.created_by === viewer.internalUserId;
 
   const claudeEligibleCount = isAgent1ClaudeClassifierEnabled()
     ? countClaudeClassificationEligible(candidates)
@@ -265,7 +271,7 @@ export default async function BatchDetailPage({ params }: Props) {
         }
       />
 
-      {runAttention !== 'none' && <StalledRunBanner batchId={batch.id} attention={runAttention} />}
+      {runAttention !== 'none' && isRunOwner && <StalledRunBanner batchId={batch.id} attention={runAttention} />}
 
       {/* Banner importación externa */}
       {(batch.source as string) === 'external_import' && (() => {

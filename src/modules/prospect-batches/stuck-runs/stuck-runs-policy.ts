@@ -120,7 +120,9 @@ export function batchRunAttention(input: {
   updatedAt: string | null;
   nowMs: number;
   hasOpenContinuation: boolean;
+  /** AUDIT-HARDENING-1 — un borrador trabado del Agente 1 también es una corrida detenida. */
+  source?: string | null;
 }): 'paused' | 'stalled' | 'none' {
   if (input.hasOpenContinuation) return 'paused';
-  return isBatchIdle(input) ? 'stalled' : 'none';
+  return isBatchIdle(input) || isDraftAgentBatchIdle({ ...input, source: input.source ?? null }) ? 'stalled' : 'none';
 }
