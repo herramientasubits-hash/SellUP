@@ -363,6 +363,8 @@ import { hasStrongIdentityDuplicateMatch } from '../strong-identity-duplicate-ma
 import {
   readApolloPageFenceEntries,
   upsertApolloPageFenceEntry,
+  releaseApolloPageFenceEntryNotCharged,
+  clearApolloPageFenceRoundDurable,
   type ApolloPageFenceIdentity,
   type ApolloPageFenceReadOutcome,
   type ApolloPageFenceWriteOutcome,
@@ -665,6 +667,26 @@ export type ApolloTwoRoundProductionDeps = {
     batchId: string,
     identity: ApolloPageFenceIdentity,
     entry: ApolloPageFenceEntry,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
+  /**
+   * WS6 · F2 — cierra como «sin cobro» la valla `request_started` de una página
+   * que Apollo rechazó sin cobrar. Opcional: ausente ⇒ la valla queda en
+   * `request_started` (lectura conservadora previa).
+   */
+  releasePageFenceEntry?: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    target: Pick<ApolloPageFenceEntry, 'round_number' | 'search_plan_fingerprint' | 'page'>,
+  ) => Promise<ApolloPageFenceWriteOutcome>;
+  /**
+   * WS6 · F3 — limpia las entradas de UNA ronda cuya búsqueda ya quedó en el
+   * checkpoint durable (`search_round_completed`). Opcional: ausente ⇒ no se
+   * limpia (comportamiento previo; el documento sólo crece).
+   */
+  clearPageFenceRound?: (
+    batchId: string,
+    identity: ApolloPageFenceIdentity,
+    roundNumber: number,
   ) => Promise<ApolloPageFenceWriteOutcome>;
   /**
    * AGENT1-COMPANY-BANK — el banco de empresas. `null` ⇒ sin banco (interruptor
@@ -1116,6 +1138,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     readPageFenceEntries: (batchId, identity) => readApolloPageFenceEntries(batchId, identity),
     writePageFenceEntry: (batchId, identity, entry) =>
       upsertApolloPageFenceEntry(batchId, identity, entry),
+    releasePageFenceEntry: (batchId, identity, target) =>
+      releaseApolloPageFenceEntryNotCharged(batchId, identity, target),
+    clearPageFenceRound: (batchId, identity, roundNumber) =>
+      clearApolloPageFenceRoundDurable(batchId, identity, roundNumber),
     // Las suites pasan `depsOverride` y nunca tocan el banco real salvo que lo inyecten.
     companyBank: depsOverride ? null : resolveApolloCompanyBankPort(),
     ...depsOverride,
@@ -1921,6 +1947,22 @@ export async function runApolloTwoRoundWizardDiscovery(
     if (outcome.kind === 'written') {
       checkpointVersion = outcome.checkpointVersion;
       durableFloor = { ...checkpoint, checkpoint_version: outcome.checkpointVersion };
+      // WS6 · F3 — la búsqueda de esta ronda YA es durable en el checkpoint:
+      // sus entradas de valla dejan de ser la fuente de verdad y sólo ocupan el
+      // techo de tamaño que la ronda siguiente necesita. Best-effort: si la
+      // limpieza falla, las entradas siguen ahí (lectura conservadora).
+      if (snapshot.reason === 'search_round_completed' && snapshot.operationContext) {
+        await deps
+          .clearPageFenceRound?.(
+            input.reservedBatchId,
+            {
+              idempotencyKey: input.correlation.idempotencyKey,
+              requestFingerprint: input.correlation.requestFingerprint,
+            },
+            snapshot.operationContext.roundNumber,
+          )
+          .catch(() => undefined);
+      }
       return true;
     }
     if (outcome.kind === 'stale_rejected') return resolveStaleRejection(checkpoint, snapshot);
@@ -2007,8 +2049,9 @@ export async function runApolloTwoRoundWizardDiscovery(
     // completa A/B/C/D vive documentada en ese módulo.
     //
     // 🔴 Esto NO descarta filas: la página YA PAGADA entra completa al pipeline
-    // (el motor recoge la organización ANTES de preguntar). Lo único que se
-    // decide aquí es si se COMPRA la página siguiente.
+    // (el motor recoge la organización ANTES de preguntar). WS6 · F8 — y desde
+    // X6.13 tampoco decide si se COMPRA la página siguiente: es sólo
+    // observabilidad, evaluada en lote al cerrar cada página.
     //
     // La lectura histórica sigue siendo la que ya se hacía
     // (`loadPrepaidHistoricalIndex`), con caché por dominio y ámbito de ESTA
@@ -2210,6 +2253,13 @@ export async function runApolloTwoRoundWizardDiscovery(
             // sobre un fallo dejaría la petición a Apollo salir sin registro,
             // exactamente el defecto que este corte cierra.
             if (outcome.kind === 'failed') {
+              // WS6 · F2 — la petición NO sale: lo reservado arriba se liquida
+              // en 0 en vez de quedar comprometido para siempre.
+              await deps.settleSpend({
+                operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+                credits: 0,
+                billingUnknown: false,
+              });
               throw new Error(`durable_page_fence_write_failed: ${outcome.reason}`);
             }
           },
@@ -2281,6 +2331,23 @@ export async function runApolloTwoRoundWizardDiscovery(
             // escritura tuvo éxito. La verdad conservadora que protege el
             // reintento es el `request_started` que `beforeRequest` ya dejó
             // durable.
+          },
+          onNotCharged: async ({ page, requestFingerprint }) => {
+            // WS6 · F2 — Apollo rechazó la página SIN cobrar (401/403/422, 429 o
+            // 5xx reintentables agotados). Se liquida en 0 —antes la reserva
+            // quedaba comprometida sin liquidar— y se libera la valla
+            // `request_started`, que si no bloqueaba el plan para siempre con
+            // `indeterminate_prior_page_pending_reconciliation`.
+            await deps.settleSpend({
+              operationId: `${fenceIdentity.idempotencyKey}:search:${roundNumber}:${page}`,
+              credits: 0,
+              billingUnknown: false,
+            });
+            await deps.releasePageFenceEntry?.(input.reservedBatchId, fenceIdentity, {
+              round_number: roundNumber,
+              search_plan_fingerprint: requestFingerprint,
+              page,
+            });
           },
         },
       };

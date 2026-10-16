@@ -577,6 +577,10 @@ describe('F. Trinquetes: ninguna superficie vuelve a facturar Search por resulta
     );
   });
 
+  // WS6 · F1 — la reserva ya no usa el techo de 1 página: el camino del wizard
+  // con dos rondas apagada pagina con la rama net-new (5 páginas). Reserva y
+  // runtime comparten AHORA la constante net-new; el techo legacy de 1 sigue
+  // gobernando sólo las invocaciones sin evaluador.
   it('el techo de páginas de la ruta legacy es una constante compartida, no un literal', () => {
     const provider = readCode(
       'server/agents/prospecting-toolkit/web-search-providers/apollo-organizations-search-provider.ts',
@@ -586,7 +590,8 @@ describe('F. Trinquetes: ninguna superficie vuelve a facturar Search por resulta
     );
 
     assert.match(provider, /maxPages: APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION/);
-    assert.match(reservation, /maxPagesPerQuery: APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION/);
+    assert.match(provider, /maxPages: APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION/);
+    assert.match(reservation, /maxPagesPerQuery: APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION/);
     assert.doesNotMatch(
       provider,
       /maxPages: 1\b/,

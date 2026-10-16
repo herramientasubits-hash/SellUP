@@ -59,6 +59,7 @@ import {
   buildApolloEnrichmentUsageKey,
   buildApolloEnrichmentUsageLogInput,
   resolveApolloEnrichmentUsageAccounting,
+  classifyApolloEnrichmentOutcomeFromCascadeEntry,
 } from '../apollo-organization-enrichment-usage-log';
 import {
   APOLLO_LEGACY_BILLING_CONTRACT,
@@ -95,6 +96,7 @@ import {
   createApolloPaginationBudget,
   WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
   APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION,
+  APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION,
 } from '../apollo-organizations-pagination-budget';
 // AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — P0-2/P0-4/P1-3: memoria provider-seen,
 // volumen pagado ANTES del recorte local, y el embudo comparable con Lusha.
@@ -1082,7 +1084,10 @@ export async function runApolloOrganizationsSearch(
   // dejaría de predecir el body que la página realmente envía.
   const paginationBudget = createApolloPaginationBudget(
     netNewPaginationEnabled
-      ? { perPage: effective.perPage }
+      // WS6 · F1 — techo explícito y compartido con la RESERVA
+      // (`resolveApolloRunCreditBreakdown`): antes caía al default implícito
+      // del presupuesto (5) mientras la reserva contaba 1.
+      ? { perPage: effective.perPage, maxPages: APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION }
       // AGENT1-APOLLO-BILLING-MODE-V2 — el `1` sale de la constante compartida
       // con la RESERVA (`estimateApolloRunCreditBreakdown`), no de un literal:
       // las dos cifras tienen que moverse juntas o la corrida gastaría más
@@ -1254,11 +1259,16 @@ export async function runApolloOrganizationsSearch(
       ? 'quota_exceeded'
       : 'error';
 
+    // WS6 · F7 — un fallo terminal puede llegar DESPUÉS de páginas cobradas
+    // (página 1 cobrada, página 2 → 401) o con páginas adoptadas de la valla
+    // durable cuyo tope de candidatos dejó `organizations` vacío. Antes esta
+    // rama fijaba 0 créditos a mano y ese gasto real no llegaba a ninguna fila.
+    // La cifra sale del MISMO ledger por página que la ruta exitosa.
     const usageMeta: ApolloOrganizationsUsageMetadata = {
       operation_key: 'organizations_search',
       provider_key: 'apollo',
-      credits_used: 0,
-      estimated_cost_usd: 0,
+      credits_used: paidCreditsUsed,
+      estimated_cost_usd: paidEstimatedCostUsd,
       status: usageStatus,
     };
 
@@ -1268,9 +1278,9 @@ export async function runApolloOrganizationsSearch(
       operation_key: 'organizations_search',
       batch_id: usageContext?.batchId ?? undefined,
       agent_run_id: usageContext?.agentRunId ?? undefined,
-      credits_used: 0,
+      credits_used: paidCreditsUsed,
       results_returned: 0,
-      estimated_cost_usd: 0,
+      estimated_cost_usd: paidEstimatedCostUsd,
       status: isQuota ? 'quota_exceeded' : 'error',
       error_code: classification.code,
       error_message: `${classification.category} (billing=${classification.billingState})`.slice(0, 200),
@@ -1303,7 +1313,8 @@ export async function runApolloOrganizationsSearch(
           historicalKnown: null,
           acceptedForTarget: null,
         }),
-        [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(0, 0),
+        // WS6 · F7 — lo registrado es lo cobrado por página, no un 0 fijo.
+        [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(0, paidCreditsUsed),
         ...(usageContext?.runCorrelation
           ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
           : {}),
@@ -1318,7 +1329,7 @@ export async function runApolloOrganizationsSearch(
       resultsCount: 0,
       skipped: true,
       skipReason: mapClassificationToLegacySkipReason(classification),
-      estimatedCostUsd: 0,
+      estimatedCostUsd: paidEstimatedCostUsd,
       metadata: {
         dry_run: false,
         provider_mode: 'real_limited',
@@ -1608,11 +1619,19 @@ export async function runApolloOrganizationsSearch(
     if (!wasRealCall) continue;
 
     // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 1 — misma fila, un solo
-    // constructor. La ruta legacy conserva su lectura histórica del cobro: un
-    // enrichment intentado registra un crédito, tanto si devolvió datos como si
-    // falló después de haber salido a la red. Ese criterio no cambia aquí; lo que
-    // cambia es que ahora vive en un helper que la modalidad de dos rondas
-    // también usa, en vez de en un bucle que sólo esta ruta atravesaba.
+    // constructor, compartido con la modalidad de dos rondas.
+    //
+    // WS6 · F9 — la ruta legacy ya NO registra 1 crédito por todo enrichment
+    // fallido. Apollo confirmó que un enrichment SIN coincidencia cuesta 0, y un
+    // fallo que salió a la red y no volvió no tiene cobro conocido. Se usa el
+    // MISMO veredicto que ya aplica la modalidad de dos rondas sobre la entrada
+    // del cascade (`classifyApolloEnrichmentOutcomeFromCascadeEntry`):
+    //   · con datos                        ⇒ charged (1 crédito);
+    //   · 200 sin organización (no match)  ⇒ 0 créditos, estimated;
+    //   · cualquier otro fallo             ⇒ indeterminate (créditos NULL,
+    //     billing unknown) — el cascade no conserva el status HTTP, así que no
+    //     se puede afirmar ni 0 ni 1; jamás se fabrica un número.
+    const enrichmentOutcome = classifyApolloEnrichmentOutcomeFromCascadeEntry(entry);
     trackLogResult(await logFn(buildApolloEnrichmentUsageLogInput({
       usageKey: buildApolloEnrichmentUsageKey({
         batchId: usageContext?.batchId,
@@ -1630,12 +1649,7 @@ export async function runApolloOrganizationsSearch(
       // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
       // search, para que ambos se aten a la MISMA reserva.
       runCorrelation: usageContext?.runCorrelation ?? null,
-      accounting: {
-        ...resolveApolloEnrichmentUsageAccounting('charged'),
-        resultsReturned: entry.enriched ? 1 : 0,
-        status: entry.enriched ? 'success' : 'error',
-        errorCode: entry.enriched ? undefined : 'enrichment_failed',
-      },
+      accounting: resolveApolloEnrichmentUsageAccounting(enrichmentOutcome),
     })));
   }
 

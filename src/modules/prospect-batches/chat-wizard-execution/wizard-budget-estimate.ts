@@ -50,9 +50,9 @@ import {
   APOLLO_MAX_QUERIES_HARD_CAP,
   APOLLO_MAX_RESULTS_HARD_CAP,
 } from '@/server/agents/prospecting-toolkit/apollo-cost-guardrails';
-// AGENT1-APOLLO-BILLING-MODE-V2 — el mismo techo de páginas que el provider
-// aplica en runtime cuando la paginación net-new no está disponible.
-import { APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION } from '@/server/agents/prospecting-toolkit/apollo-organizations-pagination-budget';
+// WS6 · F1 — el mismo techo de páginas que el provider aplica en runtime en la
+// rama net-new, que es la que este camino ejecuta (ver abajo).
+import { APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION } from '@/server/agents/prospecting-toolkit/apollo-organizations-pagination-budget';
 
 /**
  * Resolves the full Apollo credit breakdown for the current environment.
@@ -63,18 +63,22 @@ import { APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION } from '@/server/agents/prospect
  * exactly what the QA batch was missing.
  *
  * AGENT1-APOLLO-BILLING-MODE-V2 — la búsqueda se reserva POR PÁGINA, no por
- * resultado pedido. Esta ruta (modalidad de dos rondas APAGADA) ejecuta con el
- * presupuesto legacy del provider —`{ maxPages:
- * APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION }`, porque sin `netNewTarget` no hay
- * paginación net-new— así que cada invocación paga como máximo esa cantidad de
- * páginas. `maxResultsPerQuery` sigue viajando en el desglose, pero ya no
- * multiplica: reservaba 1 × 3 = 3 créditos por una invocación que como mucho
- * cuesta 1.
+ * resultado pedido. `maxResultsPerQuery` sigue viajando en el desglose, pero ya
+ * no multiplica.
+ *
+ * WS6 · F1 — 🔴 el supuesto anterior era falso. Esta ruta (modalidad de dos
+ * rondas APAGADA) pasa por `incremental-search.ts`, que SIEMPRE inyecta
+ * `netNewTarget` + evaluador de aceptación para Apollo: el provider pagina con
+ * `APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION` (5) páginas por invocación, no con
+ * `APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION` (1). Reservar 1 dejaba gastar hasta
+ * 5× lo reservado sin ningún tope durable por corrida. Se reserva el peor caso
+ * real, igual que la modalidad de dos rondas: una corrida que no puede cubrir
+ * su máximo autorizado no debe empezar.
  */
 export function resolveApolloRunCreditBreakdown(): ApolloRunCreditBreakdown {
   return estimateApolloRunCreditBreakdown({
     maxQueriesPerRun: resolveApolloMaxQueriesPerRun(),
-    maxPagesPerQuery: APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION,
+    maxPagesPerQuery: APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION,
     maxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
     maxEnrichmentsPerRun: resolveApolloMaxEnrichmentsPerRun(),
     enrichmentEnabled: isApolloOrganizationEnrichmentCascadeEnabled(),
@@ -142,8 +146,9 @@ export type WizardBudgetEstimateInput = {
  * For Apollo (AGENT1-APOLLO-BILLING-MODE-V2): estimate = resolvedMaxQueries ×
  *   maxPagesPerQuery × 1 credit per NON-EMPTY PAGE. `resolvedMaxResults`
  *   (`per_page`) no participa: una página de 100 cuesta lo mismo que una de 3.
- *   Hard cap de invocaciones: queries ≤ 3. Defaults: 1 query × 1 página = 1
- *   crédito de búsqueda (antes 1 × 3 resultados = 3).
+ *   Hard cap de invocaciones: queries ≤ 3. WS6 · F1 — maxPagesPerQuery es el
+ *   techo net-new real (5): defaults 1 query × 5 páginas = 5 créditos de
+ *   búsqueda (antes 1, por debajo de lo que el runtime podía gastar).
  *
  * For Tavily: estimate = estimateWizardTavilyRunMaxCredits() = 20, or 25 with
  * ENABLE_LINKEDIN_COMPANY_SEARCH on (AGENT1-TAVILY-V2-1 § 3).
