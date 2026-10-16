@@ -5,6 +5,7 @@ import type { StatusType } from '@/components/data-display';
 import { UNATTRIBUTED_AGENT_KEY } from '@/modules/ai-usage/usage-aggregators';
 import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
 import { countryName } from '@/components/shared/table-cells';
+import { AGENT_DIMENSION_LABELS } from '@/modules/usage-tracking/usage-dimensions';
 
 // Claves que el código escribe en provider_usage_logs.provider_key (o en
 // pantallas de proveedor). Una clave sin traducción se muestra cruda.
@@ -63,7 +64,7 @@ export function providerLabel(providerKey: string): string {
 }
 
 export function agentLabel(agentKey: string, agentName?: string | null): string {
-  return AGENT_NAMES[agentKey] ?? agentName ?? agentKey;
+  return AGENT_NAMES[agentKey] ?? AGENT_DIMENSION_LABELS[agentKey] ?? agentName ?? agentKey;
 }
 
 export function statusPresentation(status: string): StatusPresentation {

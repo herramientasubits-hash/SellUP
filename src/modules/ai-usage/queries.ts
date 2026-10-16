@@ -6,8 +6,10 @@ import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
 import {
+  AGENT_DIMENSION_LABELS,
   AGENT_STEP_LABELS,
-  SEARCH_MODE_BY_BATCH_SOURCE,
+  SEARCH_MODE_LABELS,
+  agentKeyFromRunKey,
 } from '@/modules/usage-tracking/usage-dimensions';
 import type {
   AgentStat,
@@ -463,9 +465,15 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     ...new Set([...logs.map((l) => l.status), ...runs.map((r) => r.status)].map(canonicalStatusKey)),
   ].sort();
 
-  const agentMap = new Map<string, string | null>();
+  // Mismo vocabulario que la tabla «Por agente» (agent1, agent2a…): el Agente 1
+  // actual no crea ejecuciones, así que ofrecer las claves de agent_runs dejaba
+  // fuera casi todo su gasto al filtrar.
+  const agentMap = new Map<string, string | null>(
+    Object.entries(AGENT_DIMENSION_LABELS).map(([key, label]) => [key, label]),
+  );
   for (const r of runs) {
-    if (!agentMap.has(r.agent_key)) agentMap.set(r.agent_key, r.agent_name ?? null);
+    const key = agentKeyFromRunKey(r.agent_key) ?? r.agent_key;
+    if (!agentMap.has(key)) agentMap.set(key, r.agent_name ?? null);
   }
   const agents = [...agentMap.entries()].map(([key, name]) => ({ key, name })).sort((a, b) =>
     a.key.localeCompare(b.key),
@@ -532,7 +540,8 @@ export async function getDistinctFilterOptions(): Promise<FilterOptions | null> 
     countries: distinctCountries(batchesRead.rows),
     industries: [...MACRO_INDUSTRY_KEYS],
     steps: Object.keys(AGENT_STEP_LABELS),
-    modes: [...new Set(Object.values(SEARCH_MODE_BY_BATCH_SOURCE))],
+    // Todas las formas que escribe la 149 (competidores, proveedores, árbol…).
+    modes: Object.keys(SEARCH_MODE_LABELS),
   };
 }
 

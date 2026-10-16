@@ -12,6 +12,7 @@
 // ============================================================
 
 import { knownCost } from './usage-aggregators';
+import type { AgentStat } from '@/modules/usage-tracking/types';
 import type { DimensionedLogRow } from './usage-dimension-scope';
 import {
   COMPANY_TOOLS,
@@ -287,6 +288,27 @@ export function aggregateCountryTools(
     if (country !== 0) return country;
     return TOOL_ORDER.indexOf(a.tool) - TOOL_ORDER.indexOf(b.tool);
   });
+}
+
+/**
+ * Resumen por agente: el Agente 1 no escribe agent_runs.results_approved (nadie
+ * lo escribe), así que «Generados / Aprobados / Costo por aprobado» salían en 0.
+ * Sus empresas reales salen de la tabla por país (fila «total» de cada país):
+ * generadas = llegaron a revisión; aprobadas = aprobadas o convertidas.
+ */
+export function withAgent1CompanyOutcomes(
+  agents: readonly AgentStat[],
+  countryTools: readonly CountryToolRow[] | null,
+): AgentStat[] {
+  if (!countryTools) return [...agents];
+  const totals = countryTools.filter((r) => r.tool === 'total');
+  const generated = totals.reduce((sum, r) => sum + r.reachedReview, 0);
+  const approved = totals.reduce((sum, r) => sum + r.approved, 0);
+  return agents.map((a) =>
+    a.agent_key === 'agent1'
+      ? { ...a, total_results_generated: generated, total_results_approved: approved }
+      : a,
+  );
 }
 
 // ============================================================
