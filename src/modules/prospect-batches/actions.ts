@@ -4,6 +4,15 @@ import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
+import { randomUUID } from 'node:crypto';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { evaluateConvertApproveEligibility, type ConvertApproveRejectReason } from '@/modules/prospect-review/approve-and-convert-eligibility';
+import { evaluateApproveEligibility } from '@/modules/prospect-review/approve-eligibility';
+import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
+import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
+import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
+import { runHubSpotPreCreateGuard, type HubSpotPreCreateGuardResult } from './hubspot-precreate-guard';
 import { validateTaxIdentifier } from './tax-identifier-rules';
 import { claimFreePoolCompanyForSeller, resolveLiveFreePoolApprovalLink, resolveLiveSellerHubSpotOwnerId } from './hubspot-free-pool-approval.server';
 import { blocksHubSpotCreate } from './hubspot-free-pool-approval';
@@ -37,7 +46,6 @@ import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { triggerPostApprovalEnrichment } from '@/server/prospect-batches/post-approval-enrichment-trigger';
 import { mergePeruSunatMetadataIntoAccountMetadata } from '@/server/prospect-batches/peru-sunat-metadata-merge';
 import { testHubSpotConnection } from '@/server/services/hubspot-connection';
-import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { detectCandidateDuplicates } from '@/server/prospect-batches/duplicate-detection';
 import { lookupTaxIdentifierForCandidate, type TaxIdentifierLookupMetadata } from '@/server/prospect-batches/tax-identifier-lookup';
 import {
@@ -45,6 +53,14 @@ import {
   sanitizeHubSpotErrorMessage,
   isCandidateAlreadyConverted,
   applyOptimisticCandidateConversionUpdate,
+  claimCandidateApprovalLock,
+  releaseCandidateApprovalLock,
+  buildApprovalOrphanRecord,
+  stripApprovalLock,
+  resolveApprovalHubSpotLinkTarget,
+  resolveExistingAccountOwnerConflict,
+  isDuplicateCheckStale,
+  withoutStaleDuplicateEvidence,
   type ExistingAccountMatchBy,
 } from './approval-idempotency';
 import {
@@ -84,7 +100,12 @@ import {
   IMPORT_ADMISSION_METADATA_KEY,
   resolveImportExistingCompanyDuplicate,
 } from '@/server/prospect-batches/import-identity-admission';
-import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
+import {
+  createHubSpotCompany,
+  searchHubSpotCompaniesBeforeCreate,
+  type CreateHubSpotCompanySentAudit,
+  type CreateHubSpotCompanyResult,
+} from '@/server/integrations/hubspot-company-create';
 import { completeConvertedAccount } from '@/modules/accounts/complete-converted-account.server';
 import {
   buildCandidateOwnershipOrClause,
@@ -251,6 +272,55 @@ async function resolveIsAdminForLegacyGate(): Promise<boolean> {
     // Fail-closed: an unreadable role is not an admin.
     return false;
   }
+}
+
+/**
+ * AGENT1-AUDIT-WS4 — puerta admin DENTRO de las acciones canónicas de revisión
+ * (aprobar, descartar, marcar duplicado). Antes sólo pedían `requireActiveUser`
+ * y, al ser server actions importadas desde un componente cliente, cualquier
+ * usuario activo podía invocarlas saltándose los envoltorios seguros de
+ * Prospectos. Misma comprobación que esos envoltorios (`isCurrentUserAdmin`).
+ * Un admin ve todo el alcance comercial, así que esto también cubre el alcance.
+ */
+async function requireReviewAdmin(): Promise<void> {
+  const isAdmin = await isCurrentUserAdmin().catch(() => false);
+  if (!isAdmin) throw new Error('Acceso restringido: se requiere rol admin');
+}
+
+/**
+ * AGENT1-AUDIT-WS4 — ¿quiénes de estas personas siguen activas? Para no crear la
+ * empresa a nombre de alguien dado de baja. `undefined` si no se pudo leer: en
+ * ese caso se aplica la regla de siempre (una caída de lectura no debe cambiar
+ * el responsable ni frenar la aprobación).
+ */
+async function loadActiveUserPredicate(
+  ids: Array<string | null | undefined>,
+): Promise<((userId: string) => boolean) | undefined> {
+  const unique = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  if (unique.length === 0) return undefined;
+  try {
+    const { data, error } = await getHubSpotAdminClient()
+      .from('internal_users')
+      .select('id')
+      .in('id', unique)
+      .eq('access_status', 'active');
+    if (error || !Array.isArray(data)) {
+      console.error('[approval] no se pudo leer quién está activo:', error?.message ?? 'sin datos');
+      return undefined;
+    }
+    const active = new Set(data.map((row) => String((row as { id: string }).id)));
+    return (userId) => active.has(userId);
+  } catch (err) {
+    console.error('[approval] no se pudo leer quién está activo:', err);
+    return undefined;
+  }
+}
+
+/** AGENT1-AUDIT-WS4 — la guarda única antes de crear en HubSpot, con la búsqueda real. */
+function runApprovalHubSpotPreCreateGuard(input: Parameters<typeof runHubSpotPreCreateGuard>[0]) {
+  return runHubSpotPreCreateGuard(input, {
+    liveDuplicateCheck: (query) => searchHubSpotCompaniesBeforeCreate(query),
+  });
 }
 
 // ── Utilidades ────────────────────────────────────────────────
@@ -987,7 +1057,11 @@ export async function updateProspectCandidate(
     .select()
     .single();
 
-  if (error || !data) throw new Error(`Error al actualizar candidato: ${error?.message}`);
+  if (error || !data) {
+    // AGENT1-AUDIT-WS4 — el detalle de PostgREST se queda en el log del servidor.
+    console.error('[updateProspectCandidate] update falló:', error?.message ?? 'sin datos');
+    throw new Error('No se pudo actualizar el candidato.');
+  }
 
   if (existing) {
     await logProspectCandidateAudit({
@@ -1003,16 +1077,35 @@ export async function updateProspectCandidate(
   return data as ProspectCandidate;
 }
 
-export async function approveCandidate(id: string): Promise<ProspectCandidate> {
+export async function approveCandidate(
+  id: string,
+  options: { confirmPossibleDuplicate?: boolean } = {},
+): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
+  await requireReviewAdmin();
   const supabase = await createClient();
 
   // ── Guardia server-side: rechaza si duplicate_status bloquea la aprobación ──
   const { data: current } = await supabase
     .from('prospect_candidates')
-    .select('duplicate_status, review_status')
+    .select('status, record_origin, duplicate_status, review_status')
     .eq('id', id)
     .single();
+
+  // AGENT1-AUDIT-WS4 — la MISMA política que el envoltorio de Prospectos, aquí
+  // dentro: sólo `needs_review`, origen revisable y confirmación explícita de
+  // posible duplicado. Antes cualquier status pasaba.
+  const approveDecision = evaluateApproveEligibility(
+    {
+      status: (current?.status as string | null | undefined) ?? null,
+      recordOrigin: (current?.record_origin as string | null | undefined) ?? null,
+      duplicateStatus: (current?.duplicate_status as string | null | undefined) ?? null,
+    },
+    options,
+  );
+  if (approveDecision.decision !== 'approve') {
+    throw new Error('Este candidato no se puede aprobar en su estado actual.');
+  }
 
   if (current?.duplicate_status) {
     const blockMsg = APPROVE_BLOCK_MESSAGES[current.duplicate_status as DuplicateStatus];
@@ -1046,10 +1139,14 @@ export async function approveCandidate(id: string): Promise<ProspectCandidate> {
     .from('prospect_candidates')
     .update(approveUpdates)
     .eq('id', id)
+    .eq('status', 'needs_review')
     .select()
     .single();
 
-  if (error || !data) throw new Error(`Error al aprobar candidato: ${error?.message}`);
+  if (error || !data) {
+    console.error('[approveCandidate] update falló:', error?.message ?? 'sin datos');
+    throw new Error('No se pudo aprobar el candidato.');
+  }
 
   await logProspectCandidateAudit({
     batchId: data.batch_id,
@@ -1066,13 +1163,23 @@ export async function approveCandidate(id: string): Promise<ProspectCandidate> {
 
 export async function discardCandidate(id: string, reason?: string): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
+  await requireReviewAdmin();
   const supabase = await createClient();
 
   const { data: currentForDiscard } = await supabase
     .from('prospect_candidates')
-    .select('review_status')
+    .select('status, record_origin, review_status')
     .eq('id', id)
     .single();
+  // AGENT1-AUDIT-WS4 — nunca se descarta lo ya convertido en empresa (ni lo que
+  // no está pendiente): misma política que el envoltorio, aquí dentro.
+  const discardDecision = evaluateDiscardEligibility({
+    status: (currentForDiscard?.status as string | null | undefined) ?? null,
+    recordOrigin: (currentForDiscard?.record_origin as string | null | undefined) ?? null,
+  });
+  if (discardDecision.decision !== 'discard') {
+    throw new Error('Este candidato no se puede descartar en su estado actual.');
+  }
   const currentDiscardReviewStatus = (currentForDiscard as Record<string, unknown> | null)?.review_status as string | null | undefined;
 
   const discardUpdates: Record<string, unknown> = {
@@ -1089,10 +1196,14 @@ export async function discardCandidate(id: string, reason?: string): Promise<Pro
     .from('prospect_candidates')
     .update(discardUpdates)
     .eq('id', id)
+    .eq('status', currentForDiscard?.status as string)
     .select()
     .single();
 
-  if (error || !data) throw new Error(`Error al descartar candidato: ${error?.message}`);
+  if (error || !data) {
+    console.error('[discardCandidate] update falló:', error?.message ?? 'sin datos');
+    throw new Error('No se pudo descartar el candidato.');
+  }
 
   await logProspectCandidateAudit({
     batchId: data.batch_id,
@@ -1168,7 +1279,8 @@ export async function markCandidateReadyForApprovalAction(
       .single();
 
     if (error || !data) {
-      return { ok: false, error: `Error al marcar candidato como listo: ${error?.message ?? 'sin datos'}` };
+      console.error('[markCandidateReadyForApprovalAction] update falló:', error?.message ?? 'sin datos');
+      return { ok: false, error: 'No se pudo marcar el candidato como listo.' };
     }
 
     // Audit — acción no crítica; usa 'candidate_updated' porque 'candidate_marked_ready_for_approval'
@@ -1250,7 +1362,8 @@ export async function markCandidateDuplicateReviewedAction(
       .single();
 
     if (error || !data) {
-      return { ok: false, error: `Error al marcar duplicidad revisada: ${error?.message ?? 'sin datos'}` };
+      console.error('[markCandidateDuplicateReviewedAction] update falló:', error?.message ?? 'sin datos');
+      return { ok: false, error: 'No se pudo marcar la duplicidad como revisada.' };
     }
 
     try {
@@ -1286,13 +1399,23 @@ export async function markCandidateDuplicate(
   matchData: MarkDuplicateInput
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
+  await requireReviewAdmin();
   const supabase = await createClient();
 
   const { data: currentForDup } = await supabase
     .from('prospect_candidates')
-    .select('review_status')
+    .select('status, record_origin, review_status')
     .eq('id', id)
     .single();
+  // AGENT1-AUDIT-WS4 — nunca se marca como duplicado lo ya convertido en empresa
+  // (ni lo que no está pendiente): misma política que el envoltorio.
+  const duplicateDecision = evaluateDuplicateEligibility({
+    status: (currentForDup?.status as string | null | undefined) ?? null,
+    recordOrigin: (currentForDup?.record_origin as string | null | undefined) ?? null,
+  });
+  if (duplicateDecision.decision !== 'mark_duplicate') {
+    throw new Error('Este candidato no se puede marcar como duplicado en su estado actual.');
+  }
   const currentDupReviewStatus = (currentForDup as Record<string, unknown> | null)?.review_status as string | null | undefined;
 
   const dupUpdates: Record<string, unknown> = {
@@ -1314,10 +1437,14 @@ export async function markCandidateDuplicate(
     .from('prospect_candidates')
     .update(dupUpdates)
     .eq('id', id)
+    .eq('status', currentForDup?.status as string)
     .select()
     .single();
 
-  if (error || !data) throw new Error(`Error al marcar duplicado: ${error?.message}`);
+  if (error || !data) {
+    console.error('[markCandidateDuplicate] update falló:', error?.message ?? 'sin datos');
+    throw new Error('No se pudo marcar el candidato como duplicado.');
+  }
 
   await logProspectCandidateAudit({
     batchId: data.batch_id,
@@ -1337,33 +1464,8 @@ export async function markCandidateDuplicate(
 }
 
 // ── HubSpot liquidation / inactive guardrails ─────────────────
-
-const LIQUIDATION_NAME_SIGNALS = [
-  'EN LIQUIDACION',
-  'EN LIQUIDACIÓN',
-  ' LIQUIDACION',
-  ' LIQUIDACIÓN',
-  'LIQUIDADA',
-  'DISUELTA',
-  'EN DISOLUCION',
-  'EN DISOLUCIÓN',
-];
-
-const INACTIVE_REVIEW_FLAGS = ['inactive_company', 'possible_inactive'];
-
-function hasLiquidationOrInactiveSignal(
-  name: string,
-  reviewFlagsAtConversion?: string[] | null,
-  candidateReviewFlags?: string[] | null,
-): boolean {
-  const upper = name.toUpperCase();
-  if (LIQUIDATION_NAME_SIGNALS.some((s) => upper.includes(s))) return true;
-  const allFlags = [
-    ...(Array.isArray(reviewFlagsAtConversion) ? reviewFlagsAtConversion : []),
-    ...(Array.isArray(candidateReviewFlags) ? candidateReviewFlags : []),
-  ];
-  return INACTIVE_REVIEW_FLAGS.some((f) => allFlags.includes(f));
-}
+// AGENT1-AUDIT-WS4 — viven en `hubspot-precreate-guard.ts` (una sola guarda
+// para la conversión antigua y para la aprobación actual).
 
 // ── HubSpot sync helper ───────────────────────────────────────
 
@@ -1486,19 +1588,11 @@ async function attemptHubSpotSync(params: {
     return { attempted: false, status: 'skipped_rollback' };
   }
 
-  // 3. Liquidation / inactive guard — blocks before any API call
+  // 3. (AGENT1-AUDIT-WS4) La señal de liquidación/inactividad y la búsqueda en
+  //    vivo viven ahora en la guarda única, justo antes de crear (paso 6).
   const reviewFlagsAtConversion = Array.isArray(accountMeta.review_flags_at_conversion)
     ? (accountMeta.review_flags_at_conversion as string[])
     : null;
-  if (hasLiquidationOrInactiveSignal(accountName, reviewFlagsAtConversion, candidateReviewFlags ?? null)) {
-    await updateAccountHubSpotMeta(accountId, {
-      hubspot_sync_status: 'blocked_inactive_or_liquidation',
-      hubspot_sync_blocked_reason: 'inactive_or_liquidation_signal',
-      hubspot_sync_method: 'auto',
-      hubspot_sync_attempted_at: nowStr,
-    }, accountMeta);
-    return { attempted: false, status: 'blocked_inactive_or_liquidation', message: 'Empresa con señal de liquidación o inactividad' };
-  }
 
   // 4. Validate HubSpot connection + write scope
   let connectionResult;
@@ -1541,7 +1635,8 @@ async function attemptHubSpotSync(params: {
     return { attempted: false, status: 'blocked_duplicate', message: 'Colombia requires tax_identifier' };
   }
 
-  // 6. Final HubSpot duplicate check (read-only)
+  // 6. Guarda única antes de crear (AGENT1-AUDIT-WS4): liquidación/inactividad
+  //    + búsqueda EN VIVO; un error o una coincidencia ⇒ no se crea.
   const domain = accountDomain ?? (accountWebsite ? (() => {
     try {
       const url = accountWebsite.startsWith('http') ? accountWebsite : `https://${accountWebsite}`;
@@ -1549,34 +1644,43 @@ async function attemptHubSpotSync(params: {
     } catch { return null; }
   })() : null);
 
-  let finalCheck;
-  try {
-    finalCheck = await checkHubSpotCompanyCommercialStatus({
-      name: accountName,
-      domain: domain ?? null,
-      taxId: accountTaxIdentifier ?? null,
-      countryCode: accountCountryCode ?? null,
-    });
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message.slice(0, 200) : 'Error desconocido';
-    await updateAccountHubSpotMeta(accountId, {
-      hubspot_sync_status: 'failed_lookup',
-      hubspot_sync_error: errMsg,
-      hubspot_sync_method: 'auto',
-      hubspot_sync_attempted_at: nowStr,
-    }, accountMeta);
-    return { attempted: true, status: 'failed_lookup' };
-  }
-
-  if (finalCheck.hubspotMatchStatus !== 'no_match') {
+  const preCreate = await runApprovalHubSpotPreCreateGuard({
+    name: accountName,
+    legalName: accountLegalName ?? null,
+    domain: domain ?? null,
+    taxIdentifier: accountTaxIdentifier ?? null,
+    countryCode: accountCountryCode ?? null,
+    reviewFlagsAtConversion,
+    candidateReviewFlags: candidateReviewFlags ?? null,
+  });
+  if (!preCreate.allowed) {
+    if (preCreate.syncStatus === 'blocked_inactive_or_liquidation') {
+      await updateAccountHubSpotMeta(accountId, {
+        hubspot_sync_status: 'blocked_inactive_or_liquidation',
+        hubspot_sync_blocked_reason: 'inactive_or_liquidation_signal',
+        hubspot_sync_method: 'auto',
+        hubspot_sync_attempted_at: nowStr,
+      }, accountMeta);
+      return { attempted: false, status: 'blocked_inactive_or_liquidation', message: 'Empresa con señal de liquidación o inactividad' };
+    }
+    if (preCreate.syncStatus === 'failed_lookup') {
+      await updateAccountHubSpotMeta(accountId, {
+        hubspot_sync_status: 'failed_lookup',
+        hubspot_sync_error: sanitizeHubSpotErrorMessage(preCreate.error),
+        hubspot_sync_method: 'auto',
+        hubspot_sync_attempted_at: nowStr,
+      }, accountMeta);
+      return { attempted: true, status: 'failed_lookup' };
+    }
     await updateAccountHubSpotMeta(accountId, {
       hubspot_sync_status: 'blocked_duplicate',
-      hubspot_sync_blocked_reason: finalCheck.hubspotMatchStatus,
-      hubspot_match_status_at_sync: finalCheck.hubspotMatchStatus,
+      hubspot_sync_blocked_reason: 'hubspot_live_match',
+      hubspot_match_status_at_sync: 'hubspot_live_match',
+      hubspot_live_match_company_ids: preCreate.companyIds,
       hubspot_sync_method: 'auto',
       hubspot_sync_attempted_at: nowStr,
     }, accountMeta);
-    return { attempted: true, status: 'blocked_duplicate', message: `HubSpot match: ${finalCheck.hubspotMatchStatus}` };
+    return { attempted: true, status: 'blocked_duplicate', message: 'HubSpot match: hubspot_live_match' };
   }
 
   // 7. Create company in HubSpot with enriched mapping
@@ -1695,6 +1799,9 @@ async function attemptHubSpotSync(params: {
 
 export async function convertCandidateToAccount(id: string): Promise<{ accountId: string; hubspotSync: HubSpotSyncResult }> {
   const { internalUserId } = await requireActiveUser();
+  // AGENT1-AUDIT-WS4 — server action sin llamadores en la UI que crea cuentas:
+  // sólo admin (antes, cualquier usuario activo).
+  await requireReviewAdmin();
   const supabase = await createClient();
 
   const { data: candidate } = await supabase
@@ -1749,12 +1856,14 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     | { created_by?: string | null }
     | null
     | undefined;
+  const convertAssignedTo = (candidate as Record<string, unknown>).assigned_to as string | null | undefined;
   const convertedAccountOwnerId = requireOwnerForCreate(
     {
       chosenOwnerId: resolveConversionOwnerUserId({
-        assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
+        assignedTo: convertAssignedTo,
         batchCreatedBy: convertBatchRow?.created_by,
         approverUserId: internalUserId,
+        isActiveUser: await loadActiveUserPredicate([convertAssignedTo, convertBatchRow?.created_by]),
       }),
       actorUserId: internalUserId,
     },
@@ -1790,7 +1899,8 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   );
 
   if (accountError || !account) {
-    throw new Error(`Error al crear cuenta: ${accountError?.message}`);
+    console.error('[convertCandidateToAccount] insert de cuenta falló:', accountError?.message ?? 'sin datos');
+    throw new Error('No se pudo crear la cuenta en SellUp.');
   }
 
   const { error: updateError } = await supabase
@@ -1803,7 +1913,10 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     })
     .eq('id', id);
 
-  if (updateError) throw new Error(`Error al actualizar candidato: ${updateError.message}`);
+  if (updateError) {
+    console.error('[convertCandidateToAccount] update del candidato falló:', updateError.message);
+    throw new Error('No se pudo actualizar el candidato.');
+  }
 
   // ── Resolver mapeo de owner antes del audit ──
   const { data: userRow } = await supabase
@@ -1974,6 +2087,12 @@ export interface CandidateApprovalResult {
     account_created: boolean;
     account_id?: string;
     status: 'approved' | 'failed';
+    /**
+     * AGENT1-AUDIT-WS4 — la aprobación enlazó una cuenta de SellUp que ya era
+     * de OTRA persona (antes era silencioso). No se cambia su responsable.
+     */
+    linked_to_other_owner?: boolean;
+    existing_owner_id?: string | null;
   };
   hubspot: {
     attempted: boolean;
@@ -1985,14 +2104,59 @@ export interface CandidateApprovalResult {
   message: string;
 }
 
+/** AGENT1-AUDIT-WS4 — opciones de confirmación humana (las mismas del envoltorio). */
+export interface ApproveAndConvertCandidateOptions {
+  confirmPossibleDuplicate?: boolean;
+  confirmHubSpotMatch?: boolean;
+}
+
+function buildApprovalFailure(message: string, hubspotError?: string): CandidateApprovalResult {
+  return {
+    success: false,
+    sellup: { approved: false, account_created: false, status: 'failed' },
+    hubspot: { attempted: false, action: 'failed', error: hubspotError ?? message },
+    message,
+  };
+}
+
+/** Mensajes para los rechazos de la política de elegibilidad (sin detalles internos). */
+const CONVERT_REJECT_MESSAGES: Record<ConvertApproveRejectReason, string> = {
+  not_clean_production: 'Este prospecto no está en la cola de revisión.',
+  status_conflict: 'Este prospecto ya no está pendiente de revisión.',
+  approved_only_requires_remediation: 'Este prospecto quedó aprobado sin empresa; requiere revisión manual.',
+  duplicate_blocked: 'Este prospecto está bloqueado por duplicidad.',
+  needs_duplicate_confirmation: 'Confirma que no es un duplicado antes de aprobar.',
+  needs_hubspot_match_confirmation: 'Confirma el enlace con la empresa existente en HubSpot antes de aprobar.',
+};
+
+/**
+ * Lo que la aprobación ya CREÓ (cuenta en SellUp, empresa en HubSpot). Si la
+ * aprobación no termina, se anota como huérfano en el candidato para revisión.
+ */
+type ApprovalEffects = {
+  accountId: string | null;
+  accountCreated: boolean;
+  hubspotCompanyId: string | null;
+  hubspotCompanyCreated: boolean;
+};
+
 /**
  * Aprueba un candidato y lo convierte a cuenta SellUp en un solo paso.
  * Sincroniza o vincula con HubSpot de forma segura sin crear duplicados.
  */
 export async function approveAndConvertCandidateAction(
-  id: string
+  id: string,
+  options: ApproveAndConvertCandidateOptions = {},
 ): Promise<CandidateApprovalResult> {
   const { internalUserId } = await requireActiveUser();
+
+  // AGENT1-AUDIT-WS4 — puerta admin AQUÍ, no sólo en el envoltorio: esta server
+  // action se publicaba al cliente y cualquier usuario activo podía llamarla.
+  const isAdmin = await isCurrentUserAdmin().catch(() => false);
+  if (!isAdmin) {
+    return buildApprovalFailure('No tienes permiso para aprobar prospectos.', 'not_allowed');
+  }
+
   const supabase = await createClient();
 
   // 1. Cargar candidato
@@ -2029,6 +2193,23 @@ export async function approveAndConvertCandidateAction(
     };
   }
 
+  // AGENT1-AUDIT-WS4 — la MISMA política de elegibilidad que el envoltorio de
+  // Prospectos (origen revisable, sólo `needs_review`, duplicados y confirmación
+  // del enlace con HubSpot), aplicada aquí dentro.
+  const eligibility = evaluateConvertApproveEligibility(
+    {
+      status: (candidate.status as string | null | undefined) ?? null,
+      recordOrigin: (candidate.record_origin as string | null | undefined) ?? null,
+      duplicateStatus: (candidate.duplicate_status as string | null | undefined) ?? null,
+      convertedAccountId: (candidate.converted_account_id as string | null | undefined) ?? null,
+      matchedHubspotCompanyId: (candidate.matched_hubspot_company_id as string | null | undefined) ?? null,
+    },
+    options,
+  );
+  if (eligibility.decision === 'reject') {
+    return buildApprovalFailure(CONVERT_REJECT_MESSAGES[eligibility.reason], eligibility.reason);
+  }
+
   // Q3F-5AW.2 (Phase 1) — status original para el UPDATE condicional optimista.
   const originalCandidateStatus = (candidate.status as string | null | undefined) ?? null;
 
@@ -2060,27 +2241,155 @@ export async function approveAndConvertCandidateAction(
 
   const nowStr = new Date().toISOString();
 
+  // AGENT1-AUDIT-WS4 — TOMAR el candidato antes de cualquier efecto externo.
+  // Antes el corte idempotente sólo miraba al principio y el UPDATE condicional
+  // iba al final, DESPUÉS de crear la cuenta y la empresa en HubSpot: dos clics
+  // simultáneos creaban dos de cada una y el perdedor respondía «éxito».
+  const lockToken = randomUUID();
+  const claim = await claimCandidateApprovalLock(supabase, {
+    candidateId: id,
+    expectedStatus: originalCandidateStatus as string,
+    metadata: candidate.metadata as Record<string, unknown> | null,
+    token: lockToken,
+    actorUserId: internalUserId,
+    nowIso: nowStr,
+  });
+  if (claim.outcome === 'error') {
+    return buildApprovalFailure('No se pudo iniciar la aprobación. Inténtalo de nuevo.', 'approval_lock_error');
+  }
+  if (claim.outcome === 'busy') {
+    // ¿Otra operación ya terminó la conversión? Esta no hizo NADA, así que
+    // devolver el resultado idempotente es verdad.
+    const { data: reread } = await supabase
+      .from('prospect_candidates')
+      .select('status, converted_account_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (isCandidateAlreadyConverted(reread as { status?: string | null; converted_account_id?: string | null } | null)) {
+      return {
+        success: true,
+        sellup: {
+          approved: true,
+          account_created: false,
+          account_id: (reread as { converted_account_id: string }).converted_account_id,
+          status: 'approved',
+        },
+        hubspot: { attempted: false, action: 'not_required' },
+        message: 'Este candidato ya había sido convertido por otra operación.',
+      };
+    }
+    return buildApprovalFailure(
+      'Este prospecto se está aprobando en otra operación. Espera unos segundos y recarga.',
+      'approval_in_progress',
+    );
+  }
+
+  const effects: ApprovalEffects = {
+    accountId: null,
+    accountCreated: false,
+    hubspotCompanyId: null,
+    hubspotCompanyCreated: false,
+  };
+  const releaseWithOrphans = (reason: string) =>
+    releaseCandidateApprovalLock(supabase, {
+      candidateId: id,
+      token: lockToken,
+      orphan: buildApprovalOrphanRecord({ nowIso: new Date().toISOString(), reason, ...effects }),
+    });
+
+  try {
+    const result = await convertClaimedCandidate({
+      supabase,
+      id,
+      candidate,
+      internalUserId,
+      originalCandidateStatus,
+      reviewStatus,
+      nowStr,
+      lockToken,
+      effects,
+    });
+    if (!result.success) {
+      if (effects.accountCreated || effects.hubspotCompanyCreated) {
+        console.error('[approveAndConvertCandidateAction] la aprobación no terminó y dejó efectos huérfanos:', {
+          candidateId: id,
+          ...effects,
+        });
+      }
+      await releaseWithOrphans('approval_not_completed');
+    }
+    return result;
+  } catch (err) {
+    console.error('[approveAndConvertCandidateAction] error inesperado tras tomar el candidato:', {
+      candidateId: id,
+      ...effects,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await releaseWithOrphans('approval_threw');
+    return buildApprovalFailure('No se pudo completar la aprobación. Inténtalo de nuevo.', 'unexpected_error');
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fila sin tipar del cliente Supabase (como en el resto del módulo)
+type ApprovalCandidateRow = any;
+
+/**
+ * AGENT1-AUDIT-WS4 — el cuerpo de la aprobación, ya con el candidato TOMADO
+ * (candado `metadata.approval_lock`). Registra en `effects` lo que crea, para
+ * que quien llama pueda anotar huérfanos si algo falla.
+ */
+async function convertClaimedCandidate(ctx: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  id: string;
+  candidate: ApprovalCandidateRow;
+  internalUserId: string;
+  originalCandidateStatus: string | null;
+  reviewStatus: string | null;
+  nowStr: string;
+  lockToken: string;
+  effects: ApprovalEffects;
+}): Promise<CandidateApprovalResult> {
+  const { supabase, id, candidate, internalUserId, originalCandidateStatus, reviewStatus, nowStr, lockToken, effects } = ctx;
+
+  // AGENT1-AUDIT-WS4 — si cambió el NIT, las comprobaciones de duplicados
+  // guardadas están desactualizadas (`metadata.duplicate_check_stale`): no se usa
+  // ninguna coincidencia guardada; SellUp se re-deriva en vivo y en HubSpot
+  // deciden la búsqueda de ficha libre y la guarda previa a crear, en vivo.
+  const duplicateCheckStale = isDuplicateCheckStale(candidate.metadata as Record<string, unknown> | null);
+  const trustedCandidateMetadata: Record<string, unknown> = duplicateCheckStale
+    ? withoutStaleDuplicateEvidence(candidate.metadata as Record<string, unknown> | null)
+    : ((candidate.metadata ?? {}) as Record<string, unknown>);
+  const trustedValidation = (trustedCandidateMetadata.validation || {}) as Record<string, unknown>;
+  const trustedSellUpCheck = (trustedValidation.sellup_duplicate_check || {}) as Record<string, unknown>;
+
   // 3. Resolver/Vincular cuenta en SellUp
-  let accountId = candidate.matched_account_id;
-  if (!accountId && candidate.metadata?.validation?.sellup_duplicate_check?.matched_account_id) {
-    accountId = (candidate.metadata.validation.sellup_duplicate_check as Record<string, unknown>).matched_account_id as string | null;
+  let accountId: string | null = duplicateCheckStale ? null : candidate.matched_account_id;
+  if (!accountId && trustedSellUpCheck.matched_account_id) {
+    accountId = trustedSellUpCheck.matched_account_id as string | null;
   }
 
   let accountCreated = false;
   let accountMeta = (candidate.metadata || {}) as Record<string, unknown>;
   // 16K-O FIX 1 — cómo se resolvió la cuenta (para audit/metadata)
   let accountMatchedBy: ExistingAccountMatchBy | null = null;
+  // AGENT1-AUDIT-WS4 — la cuenta existente YA enlazada a HubSpot manda: se enlaza
+  // a esa ficha y NUNCA se crea otra ni se pisa su `hubspot_company_id`.
+  let existingAccountHubSpotCompanyId: string | null = null;
+  // AGENT1-AUDIT-WS4 — responsable de la cuenta existente (para avisar si es otro).
+  let existingAccountOwnerId: string | null = null;
 
   if (accountId) {
     const { data: existingAccount } = await supabase
       .from('accounts')
-      .select('id, name, metadata, hubspot_company_id')
+      .select('id, name, metadata, hubspot_company_id, owner_id')
       .eq('id', accountId)
       .single();
 
     if (existingAccount) {
       accountId = existingAccount.id;
       accountMeta = (existingAccount.metadata || {}) as Record<string, unknown>;
+      existingAccountHubSpotCompanyId = (existingAccount.hubspot_company_id as string | null) ?? null;
+      existingAccountOwnerId = (existingAccount.owner_id as string | null) ?? null;
     } else {
       accountId = null;
     }
@@ -2100,7 +2409,7 @@ export async function approveAndConvertCandidateAction(
     if (existingMatch) {
       const { data: existingAccount } = await supabase
         .from('accounts')
-        .select('id, name, metadata, hubspot_company_id')
+        .select('id, name, metadata, hubspot_company_id, owner_id')
         .eq('id', existingMatch.accountId)
         .single();
 
@@ -2108,6 +2417,8 @@ export async function approveAndConvertCandidateAction(
         accountId = existingAccount.id;
         accountMeta = (existingAccount.metadata || {}) as Record<string, unknown>;
         accountMatchedBy = existingMatch.matchedBy;
+        existingAccountHubSpotCompanyId = (existingAccount.hubspot_company_id as string | null) ?? null;
+        existingAccountOwnerId = (existingAccount.owner_id as string | null) ?? null;
       }
     }
   }
@@ -2123,10 +2434,13 @@ export async function approveAndConvertCandidateAction(
     | { created_by?: string | null }
     | null
     | undefined;
+  const candidateAssignedTo = (candidate as Record<string, unknown>).assigned_to as string | null | undefined;
   const searcherUserId: string = resolveConversionOwnerUserId({
-    assignedTo: (candidate as Record<string, unknown>).assigned_to as string | null | undefined,
+    assignedTo: candidateAssignedTo,
     batchCreatedBy: batchRow?.created_by,
     approverUserId: internalUserId,
+    // AGENT1-AUDIT-WS4 — una persona inactiva se salta (pasa a la siguiente opción).
+    isActiveUser: await loadActiveUserPredicate([candidateAssignedTo, batchRow?.created_by]),
   });
 
   if (!accountId) {
@@ -2185,29 +2499,38 @@ export async function approveAndConvertCandidateAction(
     );
 
     if (accountError || !newAccount) {
-      return {
-        success: false,
-        sellup: { approved: false, account_created: false, status: 'failed' },
-        hubspot: { attempted: false, action: 'failed', error: accountError?.message || 'Error al crear cuenta' },
-        message: `Error al crear cuenta en SellUp: ${accountError?.message || 'error desconocido'}`
-      };
+      // AGENT1-AUDIT-WS4 — el detalle de PostgREST se queda en el log del servidor.
+      console.error('[approveAndConvertCandidateAction] insert de cuenta falló:', {
+        candidateId: id,
+        message: accountError?.message ?? 'sin datos',
+      });
+      return buildApprovalFailure('No se pudo crear la empresa en SellUp. Inténtalo de nuevo.', 'account_insert_failed');
     }
 
     accountId = newAccount.id;
     accountCreated = true;
     accountMeta = newAccountMeta;
+    effects.accountId = newAccount.id;
+    effects.accountCreated = true;
   }
 
+  // AGENT1-AUDIT-WS4 — ¿se enlazó una cuenta que ya era de otra persona?
+  const accountOwnerConflict = resolveExistingAccountOwnerConflict({
+    accountCreated,
+    existingOwnerId: existingAccountOwnerId,
+    searcherUserId,
+  });
+
   // 4. Resolver sincronización / vinculación a HubSpot
-  const validation = (candidate.metadata?.validation || {}) as Record<string, unknown>;
-  const hsCheck = (validation.hubspot_duplicate_check || {}) as Record<string, unknown>;
+  const hsCheck = (trustedValidation.hubspot_duplicate_check || {}) as Record<string, unknown>;
   const hsStatus = hsCheck.status as string | undefined;
-  const matchedCompanyId = (hsCheck.matched_company_id || candidate.matched_hubspot_company_id) as string | null | undefined;
+  const matchedCompanyId = (hsCheck.matched_company_id ||
+    (duplicateCheckStale ? null : candidate.matched_hubspot_company_id)) as string | null | undefined;
   const matchedCompanyName = hsCheck.matched_company_name as string | null | undefined;
   // HUBSPOT-FREE-POOL-SOURCE-1 — la empresa estaba LIBRE en HubSpot: se enlaza a esa
   // ficha (nunca se crea otra). Con la bandera apagada, `null` y todo como antes.
   const freePoolLink = await resolveLiveFreePoolApprovalLink({
-    candidateMetadata: candidate.metadata as Record<string, unknown> | null,
+    candidateMetadata: trustedCandidateMetadata,
     matchedCompanyId,
     hubspotCheckStatus: hsStatus,
     name: candidate.name,
@@ -2215,9 +2538,14 @@ export async function approveAndConvertCandidateAction(
     taxIdentifier: candidate.tax_identifier,
     countryCode: candidate.country_code,
   });
-  // La ficha libre marcada manda (es con la que se cambia el dueño); si no, la de siempre.
-  const linkedHubSpotCompanyId =
-    freePoolLink?.kind === 'link' ? freePoolLink.hubspotCompanyId : matchedCompanyId ?? null;
+  // AGENT1-AUDIT-WS4 — la ficha que YA tiene la cuenta de SellUp manda; si no, la
+  // ficha libre marcada (con la que se cambia el dueño); si no, la de siempre.
+  const linkTarget = resolveApprovalHubSpotLinkTarget({
+    existingAccountHubSpotCompanyId,
+    freePoolLinkCompanyId: freePoolLink?.kind === 'link' ? freePoolLink.hubspotCompanyId : null,
+    matchedCompanyId,
+  });
+  const linkedHubSpotCompanyId = linkTarget.companyId;
 
   let isHubSpotConfigured = false;
   let hasWriteScope = false;
@@ -2241,13 +2569,17 @@ export async function approveAndConvertCandidateAction(
   let hubspotError: string | null = null;
   let createResult: CreateHubSpotCompanyResult | null = null;
   let ownerMappingDetails: Record<string, unknown> | null = null;
+  // AGENT1-AUDIT-WS4 — por qué la guarda previa a crear no dejó crear (si aplica).
+  let preCreateBlock: Exclude<HubSpotPreCreateGuardResult, { allowed: true }> | null = null;
 
   // Caso A — match HubSpot confirmado
   if (hsStatus === 'match' || linkedHubSpotCompanyId) {
     hubspotAttempted = true;
     hubspotAction = 'linked_existing';
     hubspotCompanyId = linkedHubSpotCompanyId ?? null;
-    hubspotCompanyName = matchedCompanyName ?? null;
+    hubspotCompanyName = linkTarget.source === 'sellup_account' && linkedHubSpotCompanyId !== matchedCompanyId
+      ? null
+      : matchedCompanyName ?? null;
   }
   // Caso B — possible_match HubSpot. HUBSPOT-FREE-POOL-SOURCE-1: también si HubSpot ya
   // tiene ese dominio (dos fichas, o de otro vendedor) o no respondió: nunca se crea a ciegas.
@@ -2266,6 +2598,39 @@ export async function approveAndConvertCandidateAction(
       hubspotAction = 'skipped_not_configured';
       hubspotError = connectionError ?? 'HubSpot no configurado o sin permisos de escritura';
     } else {
+      // AGENT1-AUDIT-WS4 — guarda única antes de crear (la misma que la conversión
+      // antigua): liquidación/inactividad + búsqueda EN VIVO en HubSpot, siempre.
+      // Coincidencia ⇒ revisión humana; error o duda ⇒ no se crea (HubSpot queda
+      // pendiente con el motivo a la vista en la ficha).
+      const preCreate = await runApprovalHubSpotPreCreateGuard({
+        name: candidate.name,
+        legalName: candidate.legal_name ?? null,
+        domain: candidate.domain ?? null,
+        taxIdentifier: candidate.tax_identifier ?? null,
+        countryCode: candidate.country_code ?? null,
+        reviewFlagsAtConversion: Array.isArray(accountMeta.review_flags_at_conversion)
+          ? (accountMeta.review_flags_at_conversion as string[])
+          : null,
+        candidateReviewFlags: (candidate.review_flags as string[] | null) ?? null,
+      });
+      if (!preCreate.allowed) preCreateBlock = preCreate;
+    }
+    if (preCreateBlock) {
+      hubspotAttempted = preCreateBlock.syncStatus !== 'blocked_inactive_or_liquidation';
+      if (preCreateBlock.syncStatus === 'failed_lookup') {
+        hubspotAction = 'failed';
+        hubspotError = 'hubspot_precreate_lookup_failed';
+        console.error('[approveAndConvertCandidateAction] búsqueda en vivo antes de crear falló; no se crea:', {
+          candidateId: id,
+          error: sanitizeHubSpotErrorMessage(preCreateBlock.error),
+        });
+      } else {
+        hubspotAction = 'skipped_possible_match';
+        hubspotError = preCreateBlock.syncStatus === 'blocked_duplicate'
+          ? 'hubspot_precreate_live_match'
+          : 'hubspot_precreate_inactive_or_liquidation';
+      }
+    } else if (isHubSpotConfigured && hasWriteScope) {
       hubspotAttempted = true;
 
       // Enriquecimiento y fallbacks para campos adicionales
@@ -2364,9 +2729,11 @@ export async function approveAndConvertCandidateAction(
           hubspotAction = 'created';
           hubspotCompanyId = createResult.hubspotCompanyId;
           hubspotCompanyName = candidate.name;
+          effects.hubspotCompanyId = createResult.hubspotCompanyId;
+          effects.hubspotCompanyCreated = true;
         } else {
           hubspotAction = 'failed';
-          hubspotError = createResult.error || 'Error al crear en HubSpot';
+          hubspotError = sanitizeHubSpotErrorMessage(createResult.error || 'Error al crear en HubSpot');
         }
       } catch (hubspotErr) {
         createResult = null;
@@ -2426,6 +2793,18 @@ export async function approveAndConvertCandidateAction(
       properties_skipped: createResult?.properties_skipped ?? null,
       warnings: createResult?.warnings ?? [],
     };
+  } else if (preCreateBlock) {
+    // AGENT1-AUDIT-WS4 — la guarda previa a crear frenó la creación.
+    accountMetadataPatch.hubspot_sync_status = preCreateBlock.syncStatus;
+    accountMetadataPatch.hubspot_sync_blocked_reason = preCreateBlock.reason;
+    accountMetadataPatch.hubspot_sync_method = 'auto';
+    accountMetadataPatch.hubspot_sync_attempted_at = nowStr;
+    if (preCreateBlock.syncStatus === 'blocked_duplicate') {
+      accountMetadataPatch.hubspot_live_match_company_ids = preCreateBlock.companyIds;
+      accountMetadataPatch.hubspot_live_match_by = preCreateBlock.matchedBy;
+    } else if (preCreateBlock.syncStatus === 'failed_lookup') {
+      accountMetadataPatch.hubspot_sync_error = sanitizeHubSpotErrorMessage(preCreateBlock.error);
+    }
   } else if (hubspotAction === 'skipped_possible_match') {
     accountMetadataPatch.hubspot_sync_status = 'blocked_duplicate';
     accountMetadataPatch.hubspot_sync_blocked_reason = 'skipped_possible_match';
@@ -2454,14 +2833,22 @@ export async function approveAndConvertCandidateAction(
     updated_at: nowStr,
   };
 
-  if (hubspotCompanyId) {
+  // AGENT1-AUDIT-WS4 — nunca se pisa un `hubspot_company_id` que la cuenta ya tenía.
+  if (hubspotCompanyId && !existingAccountHubSpotCompanyId) {
     accountUpdates.hubspot_company_id = hubspotCompanyId;
   }
 
-  await supabase
+  const { error: accountUpdateError } = await supabase
     .from('accounts')
     .update(accountUpdates)
     .eq('id', accountId);
+  if (accountUpdateError) {
+    console.error('[approveAndConvertCandidateAction] no se pudo actualizar la cuenta tras aprobar:', {
+      candidateId: id,
+      accountId,
+      message: accountUpdateError.message,
+    });
+  }
 
   // HUBSPOT-ACCOUNT-SYNC-1 — responsable + lo que HubSpot ya sabe de la empresa
   // (industria, tamaño, NIT… sólo lo vacío) y, después de responder, las fuentes
@@ -2479,12 +2866,14 @@ export async function approveAndConvertCandidateAction(
 
   // Formatear candidate.metadata.hubspot_sync para compatibilidad del panel de detalle
   const candidateHubspotSync: Record<string, unknown> = {
-    status: hubspotAction === 'created' || hubspotAction === 'linked_existing' ? 'synced' :
+    status: preCreateBlock ? preCreateBlock.syncStatus :
+            hubspotAction === 'created' || hubspotAction === 'linked_existing' ? 'synced' :
             hubspotAction === 'skipped_possible_match' ? 'blocked_duplicate' :
             hubspotAction === 'skipped_not_configured' ? 'skipped_no_connection' :
             hubspotAction === 'failed' ? 'failed_create' : 'skipped_flag_off',
     company_id: hubspotCompanyId ?? null,
-    blocked_reason: hubspotAction === 'skipped_possible_match' ? 'skipped_possible_match' :
+    blocked_reason: preCreateBlock ? preCreateBlock.reason :
+                    hubspotAction === 'skipped_possible_match' ? 'skipped_possible_match' :
                     hubspotAction === 'skipped_not_configured' ? 'HubSpot no está configurado' :
                     hubspotAction === 'failed' ? hubspotError : null,
     synced_at: hubspotAction === 'created' || hubspotAction === 'linked_existing' ? nowStr : null,
@@ -2516,9 +2905,15 @@ export async function approveAndConvertCandidateAction(
       action: sellupAccountSource,
       account_source: sellupAccountSource,
       matched_by: accountMatchedBy,
+      linked_to_other_owner: accountOwnerConflict.linkedToOtherOwner,
+      existing_owner_id: accountOwnerConflict.existingOwnerId,
     },
+    // AGENT1-AUDIT-WS4 — las comprobaciones guardadas estaban desactualizadas
+    // (cambió el NIT) y se ignoraron: todo se decidió en vivo.
+    duplicate_check_stale_at_approval: duplicateCheckStale,
     hubspot: {
       attempted: hubspotAttempted,
+      link_source: hubspotAction === 'linked_existing' ? linkTarget.source : null,
       action: hubspotAction,
       company_id: hubspotCompanyId ?? undefined,
       company_name: hubspotCompanyName ?? undefined,
@@ -2536,7 +2931,8 @@ export async function approveAndConvertCandidateAction(
     },
   };
 
-  const candidateMeta = (candidate.metadata || {}) as Record<string, unknown>;
+  // AGENT1-AUDIT-WS4 — se escribe SIN el candado (soltarlo es parte del éxito).
+  const candidateMeta = stripApprovalLock(candidate.metadata as Record<string, unknown> | null);
   const updatedCandidateMeta = {
     ...candidateMeta,
     approval: approvalMetadata,
@@ -2566,7 +2962,27 @@ export async function approveAndConvertCandidateAction(
     candidateId: id,
     expectedStatus: originalCandidateStatus,
     updates: candidateUpdates,
+    // AGENT1-AUDIT-WS4 — sólo quien tiene el candado puede convertir.
+    lockToken,
   });
+
+  if (conversionUpdate.outcome === 'update_failed') {
+    // La base falló al cerrar la conversión: quien llama anota lo creado como
+    // huérfano y suelta el candado.
+    return buildApprovalFailure(
+      'No se pudo completar la aprobación en SellUp. Inténtalo de nuevo.',
+      'candidate_update_failed',
+    );
+  }
+
+  if (conversionUpdate.outcome === 'idempotent_success' && (effects.accountCreated || effects.hubspotCompanyCreated)) {
+    // AGENT1-AUDIT-WS4 — otra operación convirtió el candidato mientras ESTA ya
+    // había creado cosas: no es un éxito idempotente, es un huérfano.
+    return buildApprovalFailure(
+      'Otra operación aprobó este prospecto al mismo tiempo. Lo creado aquí quedó registrado para revisión.',
+      'concurrent_conversion',
+    );
+  }
 
   if (conversionUpdate.outcome === 'idempotent_success') {
     return {
@@ -2617,6 +3033,8 @@ export async function approveAndConvertCandidateAction(
         account_id: accountId,
         account_source: sellupAccountSource,
         matched_by: accountMatchedBy,
+        linked_to_other_owner: accountOwnerConflict.linkedToOtherOwner,
+        existing_owner_id: accountOwnerConflict.existingOwnerId,
         ...(ownerMappingDetails ? { hubspot_owner_mapping: ownerMappingDetails } : {}),
       },
     });
@@ -2625,14 +3043,24 @@ export async function approveAndConvertCandidateAction(
   }
 
   // 7. Post-approval source enrichment trigger (detrás de flag, non-blocking)
+  // AGENT1-AUDIT-WS4 — `after()` (Next) en vez de `void`: la plataforma espera a
+  // que termine después de responder, en vez de poder congelar la función con la
+  // promesa a medias.
   if (isPostApprovalSourceEnrichmentEnabled()) {
-    void triggerPostApprovalEnrichment({
-      candidate: candidate as unknown as Record<string, unknown>,
-      candidateId: id,
-      batchId: candidate.batch_id,
-      accountId: accountId!,
-      internalUserId,
-      supabase,
+    const enrichmentAccountId = accountId!;
+    after(async () => {
+      try {
+        await triggerPostApprovalEnrichment({
+          candidate: candidate as unknown as Record<string, unknown>,
+          candidateId: id,
+          batchId: candidate.batch_id,
+          accountId: enrichmentAccountId,
+          internalUserId,
+          supabase,
+        });
+      } catch (err) {
+        console.error('[approveAndConvertCandidateAction] enriquecimiento posterior falló:', err);
+      }
     });
   }
 
@@ -2660,6 +3088,19 @@ export async function approveAndConvertCandidateAction(
   } else {
     responseMessage = 'Candidato aprobado en SellUp.';
   }
+  if (preCreateBlock?.syncStatus === 'blocked_inactive_or_liquidation') {
+    responseMessage = 'Candidato aprobado en SellUp. No se creó en HubSpot: la empresa tiene señal de liquidación o inactividad.';
+  } else if (preCreateBlock?.syncStatus === 'blocked_duplicate') {
+    responseMessage = 'Candidato aprobado en SellUp. No se creó en HubSpot: ya existe una empresa igual; requiere revisión.';
+  } else if (preCreateBlock?.syncStatus === 'failed_lookup') {
+    responseMessage = 'Candidato aprobado en SellUp. HubSpot quedó pendiente: no se pudo comprobar si la empresa ya existe.';
+  }
+  if (duplicateCheckStale) {
+    responseMessage += ' Las comprobaciones de duplicados estaban desactualizadas (cambió el NIT) y se repitieron en vivo.';
+  }
+  if (accountOwnerConflict.linkedToOtherOwner) {
+    responseMessage += ' La empresa ya existía en SellUp a nombre de otra persona; no se cambió su responsable.';
+  }
 
   return {
     success: true,
@@ -2668,13 +3109,20 @@ export async function approveAndConvertCandidateAction(
       account_created: accountCreated,
       account_id: accountId,
       status: 'approved',
+      linked_to_other_owner: accountOwnerConflict.linkedToOtherOwner,
+      existing_owner_id: accountOwnerConflict.existingOwnerId,
     },
     hubspot: {
       attempted: hubspotAttempted,
       action: hubspotAction,
       company_id: hubspotCompanyId ?? undefined,
       company_name: hubspotCompanyName ?? undefined,
-      error: hubspotError ?? undefined,
+      // AGENT1-AUDIT-WS4 — código genérico; el detalle saneado queda en la metadata.
+      error: hubspotAction === 'failed'
+        ? 'hubspot_sync_failed'
+        : hubspotAction === 'skipped_not_configured'
+          ? 'hubspot_not_configured'
+          : hubspotError ?? undefined,
     },
     message: responseMessage,
   };
@@ -2955,6 +3403,22 @@ export async function generateTavilyProspectBatch(
   input: GenerateTavilyBatchInput
 ): Promise<GenerateTavilyBatchResult> {
   const { internalUserId } = await requireActiveUser();
+
+  // AGENT1-AUDIT-WS4 — server action sin bandera ni tope de gasto: cualquier
+  // usuario activo podía disparar Tavily. Su único llamador
+  // (`GenerateTavilyBatchDrawer`) no está montado en ninguna pantalla; el
+  // camino vivo es el asistente, con su propia reserva de presupuesto. Fail-
+  // closed: sólo admin, y sólo si la cuota de Tavily en Proveedores lo permite.
+  if (!(await resolveIsAdminForLegacyGate())) {
+    throw new Error('Acceso restringido: se requiere rol admin');
+  }
+  const tavilyQuota = await checkProviderQuotaAvailable('tavily').catch((err) => {
+    console.error('[generateTavilyProspectBatch] no se pudo leer la cuota de Tavily:', err);
+    return null;
+  });
+  if (!tavilyQuota?.allowed) {
+    throw new Error('No hay cuota disponible de búsqueda web este mes.');
+  }
 
   if (!input.country || !input.countryCode) {
     throw new Error('País requerido para la búsqueda web');

@@ -58,6 +58,8 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ProspectCandidate } from '@/modules/prospect-batches/types';
 
 let render: (typeof import('@testing-library/react'))['render'];
@@ -180,7 +182,14 @@ const findAprobar = (): HTMLElement | undefined =>
 describe('HF1 — Prospectos three-dot Aprobar (onApproveOverride) never converts', () => {
   it('clicking Aprobar calls the safe override and NOT approveAndConvertCandidateAction', async () => {
     const onApproveOverride = mock.fn();
-    render(<CandidateRowActions candidate={candidate()} onApproveOverride={onApproveOverride} />);
+    render(
+      <CandidateRowActions
+        candidate={candidate()}
+        onApproveOverride={onApproveOverride}
+        onDiscardOverride={() => {}}
+        onMarkDuplicateOverride={() => {}}
+      />,
+    );
 
     openMenu();
     await waitFor(() => assert.ok(findAprobar(), 'Aprobar entry must render in the menu'));
@@ -195,20 +204,19 @@ describe('HF1 — Prospectos three-dot Aprobar (onApproveOverride) never convert
   });
 });
 
-describe('HF1 — legacy prospect-batches surface (no override) still reaches convert', () => {
-  it('clicking Aprobar with no override calls approveAndConvertCandidateAction (no regression)', async () => {
-    render(<CandidateRowActions candidate={candidate()} />);
-
-    openMenu();
-    await waitFor(() => assert.ok(findAprobar(), 'Aprobar entry must render in the menu'));
-    fireEvent.click(findAprobar()!);
-
-    await waitFor(() =>
-      assert.equal(
-        mockConvert.mock.callCount(),
-        1,
-        'legacy surface must still use the convert-and-approve flow',
-      ),
-    );
+describe('AGENT1-AUDIT-WS4 — ya no existe la vía heredada en el menú de fila', () => {
+  // Antes este caso fijaba que, SIN override, el menú llamaba directo a la server
+  // action heredada (approveAndConvertCandidateAction), que sólo pedía usuario activo. Era el defecto: el
+  // componente cliente publicaba esa acción al navegador. Ahora los overrides son
+  // obligatorios y el componente no importa la acción heredada.
+  it('el componente no referencia approveAndConvertCandidateAction', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/prospect-batches/candidate-row-actions.tsx'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.equal(/\bapproveAndConvertCandidateAction\b/.test(src), false);
   });
 });

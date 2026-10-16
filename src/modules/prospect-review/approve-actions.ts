@@ -93,7 +93,9 @@ export async function approvePendingReviewCandidateAction(
 
     // 5. Delegate the status write + audit to the canonical approveCandidate.
     //    (needs_review → approved, reviewed_by/reviewed_at, candidate_approved.)
-    await approveCandidate(candidateId);
+    //    AGENT1-AUDIT-WS4 — la canónica revalida la misma política; se le pasa la
+    //    confirmación de posible duplicado que este envoltorio ya validó.
+    await approveCandidate(candidateId, { confirmPossibleDuplicate: options.confirmPossibleDuplicate });
 
     // 6. Refresh the review queue so the row drops out (no longer needs_review).
     revalidatePath(REVIEW_QUEUE_PATH);

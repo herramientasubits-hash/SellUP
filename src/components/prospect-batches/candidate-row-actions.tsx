@@ -27,77 +27,46 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  DuplicateReviewConfirmDialog,
-  PossibleDuplicateApproveDialog,
-  RelatedCompanyApproveDialog,
-} from './candidate-approve-dialogs';
-import { CandidateDiscardDialog } from './candidate-discard-dialog';
-import {
-  CandidateMarkDuplicateDialog,
-  type MarkDuplicateType,
-} from './candidate-mark-duplicate-dialog';
+import { DuplicateReviewConfirmDialog } from './candidate-approve-dialogs';
 import { CandidateRollbackConversionDialog } from './candidate-rollback-conversion-dialog';
 import { toast } from 'sonner';
+// AGENT1-AUDIT-WS4 — este componente cliente ya NO importa
+// `approveAndConvertCandidateAction`, `discardCandidate` ni
+// `markCandidateDuplicate`: importarlas aquí publicaba sus IDs de server action
+// al navegador aunque la UI nunca llegara a llamarlas. Aprobar / Descartar /
+// Marcar duplicado SIEMPRE abren el drawer con la confirmación armada, que llama
+// a los envoltorios seguros de `@/modules/prospect-review`.
 import {
-  approveAndConvertCandidateAction,
-  discardCandidate,
-  markCandidateDuplicate,
   markCandidateReadyForApprovalAction,
   markCandidateDuplicateReviewedAction,
   rollbackCandidateAccountConversionAction,
 } from '@/modules/prospect-batches/actions';
 import {
-  DUPLICATE_STATUS_LABELS,
   APPROVE_BLOCK_MESSAGES,
-  DISCARD_REASONS,
   isStructuredCandidate,
-  parseDuplicateCheck,
   type ProspectCandidate,
-  type DiscardReasonKey,
 } from '@/modules/prospect-batches/types';
 
 interface CandidateRowActionsProps {
   candidate: ProspectCandidate;
-  onBeforeAction?: () => void;
   /**
-   * Q3F-5AZ.2D-1-HF1 — safe-approve override for the Prospectos surface.
-   *
-   * When provided, the row-menu "Aprobar" entry NO LONGER runs the legacy
-   * convert-and-approve flow (`approveAndConvertCandidateAction`, which creates
-   * an account and may trigger HubSpot). It instead delegates to this callback,
-   * which the Prospectos data table wires to open the detail drawer with its
-   * inline confirmation armed — the already-validated
-   * `approvePendingReviewCandidateAction` path. Left undefined elsewhere (e.g.
-   * prospect-batches), the legacy behaviour is preserved verbatim.
+   * Q3F-5AZ.2D-1-HF1 — «Aprobar» abre el drawer con la confirmación armada (la
+   * vía segura `approveAndConvertPendingReviewCandidateAction`).
+   * AGENT1-AUDIT-WS4 — obligatorio: ya no existe la vía heredada.
    */
-  onApproveOverride?: () => void;
+  onApproveOverride: () => void;
   /**
-   * Q3F-5AZ.2G-1 — safe-discard override for the Prospectos surface.
-   *
-   * When provided, the row-menu "Descartar" entry NO LONGER opens the local
-   * reason dialog that calls the legacy `discardCandidate` directly (which runs
-   * under `requireActiveUser`, not the Prospectos admin gate). It instead
-   * delegates to this callback, which the Prospectos data table wires to open
-   * the detail drawer with its inline discard confirmation armed — the
-   * admin-gated `discardPendingReviewCandidateAction` path. Left undefined
-   * elsewhere (e.g. prospect-batches), the legacy behaviour is preserved
-   * verbatim.
+   * Q3F-5AZ.2G-1 — «Descartar» abre el drawer con la confirmación armada (la vía
+   * segura `discardPendingReviewCandidateAction`).
+   * AGENT1-AUDIT-WS4 — obligatorio: ya no existe la vía heredada.
    */
-  onDiscardOverride?: () => void;
+  onDiscardOverride: () => void;
   /**
-   * Q3F-5AZ.2G-2 — safe mark-duplicate override for the Prospectos surface.
-   *
-   * When provided, the row-menu "Marcar como duplicado" entry NO LONGER opens
-   * the local duplicate dialog that calls the legacy `markCandidateDuplicate`
-   * directly (which runs under `requireActiveUser`, not the Prospectos admin
-   * gate). It instead delegates to this callback, which the Prospectos data
-   * table wires to open the detail drawer with its inline duplicate confirmation
-   * armed — the admin-gated `markDuplicatePendingReviewCandidateAction` path.
-   * Left undefined elsewhere (e.g. prospect-batches), the legacy behaviour is
-   * preserved verbatim.
+   * Q3F-5AZ.2G-2 — «Marcar como duplicado» abre el drawer con la confirmación
+   * armada (la vía segura `markDuplicatePendingReviewCandidateAction`).
+   * AGENT1-AUDIT-WS4 — obligatorio: ya no existe la vía heredada.
    */
-  onMarkDuplicateOverride?: () => void;
+  onMarkDuplicateOverride: () => void;
   /**
    * BULK-COMPANY-ASSIGNMENT-1 — en Prospectos abre «Asignar a…» para esta fila.
    * Sin definir (p. ej. en prospect-batches) la entrada no aparece.
@@ -107,7 +76,6 @@ interface CandidateRowActionsProps {
 
 export function CandidateRowActions({
   candidate,
-  onBeforeAction,
   onApproveOverride,
   onDiscardOverride,
   onMarkDuplicateOverride,
@@ -115,23 +83,11 @@ export function CandidateRowActions({
 }: CandidateRowActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = React.useState(false);
-  // Discard
-  const [discardOpen, setDiscardOpen] = React.useState(false);
-  const [discardReasonKey, setDiscardReasonKey] = React.useState<DiscardReasonKey | ''>('');
-  const [discardReason, setDiscardReason] = React.useState('');
-  // Approve confirmation (possible_duplicate)
-  const [approveConfirmOpen, setApproveConfirmOpen] = React.useState(false);
-  // Approve warning (related_company)
-  const [relatedCompanyWarnOpen, setRelatedCompanyWarnOpen] = React.useState(false);
   // Duplicate review confirmation
   const [duplicateReviewConfirmOpen, setDuplicateReviewConfirmOpen] = React.useState(false);
   // Rollback conversión
   const [rollbackOpen, setRollbackOpen] = React.useState(false);
   const [rollbackReason, setRollbackReason] = React.useState('');
-  // Mark duplicate dialog
-  const [markDuplicateOpen, setMarkDuplicateOpen] = React.useState(false);
-  const [markDuplicateType, setMarkDuplicateType] = React.useState<MarkDuplicateType>('possible_duplicate');
-  const [markDuplicateNote, setMarkDuplicateNote] = React.useState('');
 
   const isStructured = isStructuredCandidate(candidate);
   const reviewStatus = candidate.review_status ?? null;
@@ -141,7 +97,6 @@ export function CandidateRowActions({
   );
   const approveBlockMessage = APPROVE_BLOCK_MESSAGES[candidate.duplicate_status];
   const isDuplicateBlocked = !!approveBlockMessage;
-  const isPossibleDuplicate = candidate.duplicate_status === 'possible_duplicate';
 
   // Para candidatos estructurados: solo aprobar si review_status = ready_for_approval
   const approveBlockedNotReady =
@@ -166,123 +121,6 @@ export function CandidateRowActions({
     candidate.status === 'converted_to_account' &&
     candidate.converted_account_id !== null &&
     !conversionRolledBack;
-
-  const dc = parseDuplicateCheck(candidate.metadata);
-
-  async function handleApproveClick() {
-    // related_company: allow approval but show informational warning first
-    if (candidate.duplicate_status === 'related_company') {
-      setRelatedCompanyWarnOpen(true);
-      return;
-    }
-    // possible_duplicate: require explicit confirmation
-    if (isPossibleDuplicate) {
-      setApproveConfirmOpen(true);
-      return;
-    }
-    await doApprove();
-  }
-
-  async function doApprove() {
-    setLoading(true);
-    try {
-      const result = await approveAndConvertCandidateAction(candidate.id);
-
-      if (!result.success) {
-        toast.error(result.message || 'Error al aprobar candidato');
-        return;
-      }
-
-      const hs = result.hubspot;
-      const message = result.message;
-
-      if (hs.action === 'failed') {
-        toast.warning(
-          <span>
-            {message}{' '}
-            <Button
-              variant="link"
-              size="xs"
-              className="h-auto p-0 align-baseline text-current underline"
-              onClick={() => router.push('/accounts')}
-            >
-              Ver empresas
-            </Button>
-          </span>
-        );
-      } else {
-        toast.success(
-          <span>
-            {message}{' '}
-            <Button
-              variant="link"
-              size="xs"
-              className="h-auto p-0 align-baseline text-current underline"
-              onClick={() => router.push('/accounts')}
-            >
-              Ver empresas
-            </Button>
-          </span>
-        );
-      }
-      setApproveConfirmOpen(false);
-      setRelatedCompanyWarnOpen(false);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al aprobar');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDiscard() {
-    const reasonObj = DISCARD_REASONS.find((r) => r.value === discardReasonKey);
-    let finalReason: string | undefined;
-    if (discardReasonKey && discardReasonKey !== 'other') {
-      finalReason = discardReason.trim()
-        ? `${reasonObj?.label}: ${discardReason.trim()}`
-        : reasonObj?.label;
-    } else {
-      finalReason = discardReason.trim() || undefined;
-    }
-
-    setLoading(true);
-    try {
-      await discardCandidate(candidate.id, finalReason);
-      toast.success(`"${candidate.name}" descartado`);
-      setDiscardOpen(false);
-      setDiscardReason('');
-      setDiscardReasonKey('');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al descartar');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleMarkDuplicateClick() {
-    setMarkDuplicateType('possible_duplicate');
-    setMarkDuplicateNote('');
-    setMarkDuplicateOpen(true);
-  }
-
-  async function doMarkDuplicate() {
-    setLoading(true);
-    try {
-      await markCandidateDuplicate(candidate.id, {
-        duplicate_status: markDuplicateType,
-        review_notes: markDuplicateNote.trim() || undefined,
-      });
-      toast.success(
-        `"${candidate.name}" marcado como ${DUPLICATE_STATUS_LABELS[markDuplicateType].toLowerCase()}`
-      );
-      setMarkDuplicateOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al marcar duplicado');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleMarkDuplicateReviewed() {
     setLoading(true);
@@ -412,13 +250,11 @@ export function CandidateRowActions({
                   </TooltipContent>
                 </Tooltip>
               ) : (
-                // Q3F-5AZ.2D-1-HF1: in Prospectos (onApproveOverride set) this
-                // opens the safe drawer confirmation instead of the legacy
-                // convert-and-approve flow. handleApproveClick — the only path to
-                // approveAndConvertCandidateAction — is unreachable in that mode.
-                <DropdownMenuItem onClick={onApproveOverride ?? handleApproveClick}>
+                // Q3F-5AZ.2D-1-HF1 / AGENT1-AUDIT-WS4: abre siempre la
+                // confirmación segura del drawer (no hay vía heredada).
+                <DropdownMenuItem onClick={onApproveOverride}>
                   <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-success" />
-                  Aprobar{!onApproveOverride && isPossibleDuplicate ? '…' : ''}
+                  Aprobar
                 </DropdownMenuItem>
               )
             )}
@@ -441,25 +277,18 @@ export function CandidateRowActions({
             )}
             <DropdownMenuSeparator />
             {canMarkDuplicate && (
-              // Q3F-5AZ.2G-2: in Prospectos (onMarkDuplicateOverride set) this
-              // opens the safe drawer confirmation instead of the legacy dialog
-              // that calls markCandidateDuplicate directly. handleMarkDuplicateClick
-              // — the only path to the legacy markCandidateDuplicate — is
-              // unreachable in that mode.
-              <DropdownMenuItem onClick={onMarkDuplicateOverride ?? handleMarkDuplicateClick}>
+              // Q3F-5AZ.2G-2 / AGENT1-AUDIT-WS4: abre siempre la confirmación
+              // segura del drawer (no hay vía heredada).
+              <DropdownMenuItem onClick={onMarkDuplicateOverride}>
                 <GitMerge className="mr-2 h-3.5 w-3.5 text-warning" />
-                Marcar como duplicado{onMarkDuplicateOverride ? '' : '…'}
+                Marcar como duplicado
               </DropdownMenuItem>
             )}
             {canDiscard && (
-              // Q3F-5AZ.2G-1: in Prospectos (onDiscardOverride set) this opens
-              // the safe drawer confirmation instead of the legacy reason dialog
-              // that calls discardCandidate directly. handleDiscard — the only
-              // path to the legacy discardCandidate — is unreachable in that mode.
+              // Q3F-5AZ.2G-1 / AGENT1-AUDIT-WS4: abre siempre la confirmación
+              // segura del drawer (no hay vía heredada).
               <DropdownMenuItem
-                onClick={
-                  onDiscardOverride ?? (() => { onBeforeAction?.(); setDiscardOpen(true); })
-                }
+                onClick={onDiscardOverride}
                 className="text-destructive focus:text-destructive"
               >
                 <XCircle className="mr-2 h-3.5 w-3.5" />
@@ -469,44 +298,6 @@ export function CandidateRowActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </TooltipProvider>
-
-      <PossibleDuplicateApproveDialog
-        open={approveConfirmOpen}
-        onOpenChange={setApproveConfirmOpen}
-        loading={loading}
-        onConfirm={doApprove}
-        duplicateCheck={dc}
-      />
-
-      <CandidateDiscardDialog
-        open={discardOpen}
-        onOpenChange={(open) => {
-          setDiscardOpen(open);
-          if (!open) { setDiscardReason(''); setDiscardReasonKey(''); }
-        }}
-        candidateName={candidate.name}
-        loading={loading}
-        reasonKey={discardReasonKey}
-        onReasonKeyChange={setDiscardReasonKey}
-        reason={discardReason}
-        onReasonChange={setDiscardReason}
-        onConfirm={handleDiscard}
-      />
-
-      <CandidateMarkDuplicateDialog
-        open={markDuplicateOpen}
-        onOpenChange={(open) => {
-          setMarkDuplicateOpen(open);
-          if (!open) setMarkDuplicateNote('');
-        }}
-        candidateName={candidate.name}
-        loading={loading}
-        type={markDuplicateType}
-        onTypeChange={setMarkDuplicateType}
-        note={markDuplicateNote}
-        onNoteChange={setMarkDuplicateNote}
-        onConfirm={doMarkDuplicate}
-      />
 
       <DuplicateReviewConfirmDialog
         open={duplicateReviewConfirmOpen}
@@ -528,14 +319,6 @@ export function CandidateRowActions({
         onConfirm={handleRollback}
       />
 
-      <RelatedCompanyApproveDialog
-        open={relatedCompanyWarnOpen}
-        onOpenChange={setRelatedCompanyWarnOpen}
-        loading={loading}
-        onConfirm={doApprove}
-        candidateName={candidate.name}
-        summary={dc?.summary}
-      />
     </>
   );
 }
