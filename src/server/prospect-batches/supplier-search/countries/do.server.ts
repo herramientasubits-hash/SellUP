@@ -78,7 +78,9 @@ export function buildDoLookups(serviceClient: SupabaseClient, fetchJson: (url: s
 
     findPublicEntities: async (normalizedName) => {
       try {
-        return matchDoBuyingUnits(await buyingUnits(fetchJson), normalizedName).slice(0, ENTITY_MATCH_LIMIT);
+        // Más coincidencias que el tope ⇒ lista cortada ⇒ el paso no corre (no se elige de un trozo).
+        const matched = matchDoBuyingUnits(await buyingUnits(fetchJson), normalizedName);
+        return { rows: matched.slice(0, ENTITY_MATCH_LIMIT), truncated: matched.length > ENTITY_MATCH_LIMIT };
       } catch (error) {
         logError('buying units', error);
         return [];

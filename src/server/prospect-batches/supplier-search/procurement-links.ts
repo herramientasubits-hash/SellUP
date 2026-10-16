@@ -187,7 +187,10 @@ export type StoredProcurementLink = {
   window_start: string;
 };
 
-/** Entidades compradoras distintas (una por código). */
+/**
+ * Entidades compradoras distintas (una por código), en orden fijo por código: el
+ * resultado no depende del orden en que la base devolvió las filas.
+ */
 export function buyersFromLinks(rows: readonly Pick<StoredProcurementLink, 'buyer_code' | 'buyer_name_normalized'>[]): PublicEntityRow[] {
   const byCode = new Map<string, PublicEntityRow>();
   for (const row of rows) {
@@ -195,7 +198,7 @@ export function buyersFromLinks(rows: readonly Pick<StoredProcurementLink, 'buye
       byCode.set(row.buyer_code, { taxId: row.buyer_code, normalizedLegalName: row.buyer_name_normalized, shortName: null, isHead: false });
     }
   }
-  return [...byCode.values()];
+  return [...byCode.values()].sort((a, b) => (a.taxId < b.taxId ? -1 : a.taxId > b.taxId ? 1 : 0));
 }
 
 /** Industria del proveedor por su clasificación de compras (regla del 50 %). */

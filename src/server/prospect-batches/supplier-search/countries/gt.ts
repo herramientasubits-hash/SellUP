@@ -7,7 +7,7 @@
 
 import { canonicalGuatemalaNit } from '@/server/source-catalog/connectors/gt-guatecompras/gt-nit';
 import { isGtSatPersonName } from '@/server/source-catalog/connectors/gt-guatecompras/gt-sources-rows';
-import { normalizePublicEntityName } from '../public-buyer-suppliers';
+import { isConsortiumSupplierName, normalizePublicEntityName } from '../public-buyer-suppliers';
 import { UNSPSC_CLASSIFIER } from '../unspsc-classifier';
 import type { LoadedCountrySource } from './types';
 
@@ -15,8 +15,11 @@ export const GT_GUATECOMPRAS_SOURCE_KEY = 'gt_guatecompras_awards';
 /** ~US$10 mil a GTQ 7,7. */
 export const GT_MIN_PAIR_AMOUNT_GTQ = 77_000;
 
-/** Uniones de personas, no la empresa a prospectar («… COPROPIEDAD», «…, NEGOCIO EN PARTICIPACIÓN»). */
-const CONSORTIUM_NAME = /^\s*["'«]?\s*CONSORCIO\b|\bCOPROPIEDAD\b|\bNEGOCIO EN PARTICIPACION\b/;
+/**
+ * Uniones de personas propias de Guatemala, no la empresa a prospectar («… COPROPIEDAD»,
+ * «…, NEGOCIO EN PARTICIPACIÓN»); consorcios y uniones temporales, con la regla común.
+ */
+const GT_JOINT_NAME = /\bCOPROPIEDAD\b|\bNEGOCIO EN PARTICIPACION\b/;
 
 /** Entidades del Estado que también salen como proveedoras (las que compran se sacan por su NIT). */
 const PUBLIC_ENTITY_NAME =
@@ -36,7 +39,7 @@ export function gtCompanySupplier(rawId: unknown, rawName: unknown): { nit: stri
   const name = typeof rawName === 'string' ? rawName.replace(/\s+/g, ' ').trim() : '';
   if (!nit || !name || isGtSatPersonName(name)) return null;
   const upper = normalizePublicEntityName(name);
-  if (CONSORTIUM_NAME.test(upper) || PUBLIC_ENTITY_NAME.test(upper)) return null;
+  if (isConsortiumSupplierName(name) || GT_JOINT_NAME.test(upper) || PUBLIC_ENTITY_NAME.test(upper)) return null;
   return { nit, name };
 }
 
