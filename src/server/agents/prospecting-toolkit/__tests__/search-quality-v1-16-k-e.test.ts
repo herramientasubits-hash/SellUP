@@ -94,14 +94,18 @@ function makeMockSupabase(opts: {
     from: (table: string) => {
       if (table === 'prospect_candidates') {
         return {
-          select: (_cols: string) => ({
-            eq: (_col: string, _val: string) => ({
-              not: (_col2: string, _op: string, _val2: unknown) => ({
-                limit: (_n: number) =>
-                  Promise.resolve({ data: rows, error: null }),
-              }),
-            }),
-          }),
+          // AGENT1-AUDIT-WS1 — la selección ahora filtra el estado del bloque en la
+          // base y ordena por antigüedad (eq/not/eq/eq/order/limit): el mock es una
+          // cadena que acepta cualquier orden y devuelve las filas al final.
+          select: (_cols: string) => {
+            const chain = {
+              eq: (_col: string, _val: string) => chain,
+              not: (_col2: string, _op: string, _val2: unknown) => chain,
+              order: (_col3: string, _opts: unknown) => chain,
+              limit: (_n: number) => Promise.resolve({ data: rows, error: null }),
+            };
+            return chain;
+          },
           update: (data: Record<string, unknown>) => ({
             eq: (_col: string, id: string) => {
               updatedRows.push({ id, data });
