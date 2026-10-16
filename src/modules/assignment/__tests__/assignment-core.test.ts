@@ -91,6 +91,27 @@ describe('resolveConversionOwnerUserId', () => {
       'admin',
     );
   });
+
+  // AGENT1-AUDIT-WS4 — la empresa no nace a nombre de una persona inactiva.
+  it('salta a la persona inactiva y pasa a la siguiente opción', () => {
+    const active = new Set(['lead', 'admin']);
+    const isActiveUser = (id: string) => active.has(id);
+    assert.equal(
+      resolveConversionOwnerUserId({ assignedTo: 'gone', batchCreatedBy: 'lead', approverUserId: 'admin', isActiveUser }),
+      'lead',
+    );
+    assert.equal(
+      resolveConversionOwnerUserId({ assignedTo: 'gone', batchCreatedBy: 'gone-too', approverUserId: 'admin', isActiveUser }),
+      'admin',
+    );
+  });
+
+  it('sin poder leer quién está activo, la regla de siempre', () => {
+    assert.equal(
+      resolveConversionOwnerUserId({ assignedTo: 'gone', batchCreatedBy: 'lead', approverUserId: 'admin' }),
+      'gone',
+    );
+  });
 });
 
 describe('buildCandidateOwnershipOrClause', () => {

@@ -89,8 +89,18 @@ export function resolveConversionOwnerUserId(input: {
   assignedTo: string | null | undefined;
   batchCreatedBy: string | null | undefined;
   approverUserId: string;
+  /**
+   * AGENT1-AUDIT-WS4 — ¿la persona sigue activa? Una persona dada de baja se
+   * salta y se pasa a la siguiente opción (la empresa no nace a nombre de
+   * alguien inactivo). Sin la función (no se pudo leer), la regla de siempre.
+   */
+  isActiveUser?: (userId: string) => boolean;
 }): string {
-  return input.assignedTo || input.batchCreatedBy || input.approverUserId;
+  const usable = (userId: string | null | undefined): userId is string =>
+    typeof userId === 'string' && userId.length > 0 && (input.isActiveUser ? input.isActiveUser(userId) : true);
+  if (usable(input.assignedTo)) return input.assignedTo;
+  if (usable(input.batchCreatedBy)) return input.batchCreatedBy;
+  return input.approverUserId;
 }
 
 /**

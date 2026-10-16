@@ -60,6 +60,8 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ProspectCandidate } from '@/modules/prospect-batches/types';
 
 let render: (typeof import('@testing-library/react'))['render'];
@@ -171,6 +173,8 @@ describe('Q3F-5AZ.2G-2 — Prospectos three-dot Marcar duplicado (onMarkDuplicat
     render(
       <CandidateRowActions
         candidate={candidate()}
+        onApproveOverride={() => {}}
+        onDiscardOverride={() => {}}
         onMarkDuplicateOverride={onMarkDuplicateOverride}
       />,
     );
@@ -192,38 +196,19 @@ describe('Q3F-5AZ.2G-2 — Prospectos three-dot Marcar duplicado (onMarkDuplicat
   });
 });
 
-describe('Q3F-5AZ.2G-2 — legacy prospect-batches surface (no override) still reaches mark-duplicate', () => {
-  it('clicking Marcar como duplicado… with no override opens the dialog and, on confirm, calls markCandidateDuplicate (no regression)', async () => {
-    render(<CandidateRowActions candidate={candidate()} />);
-
-    openMenu();
-    await waitFor(() =>
-      assert.ok(findDuplicateMenuItem(), 'Marcar como duplicado entry must render in the menu'),
-    );
-    fireEvent.click(findDuplicateMenuItem()!);
-
-    // Legacy path opens the duplicate dialog; the mark has NOT happened yet.
-    await waitFor(() =>
-      assert.ok(
-        screen.queryAllByText('Marcar como duplicado').length > 0,
-        'the legacy duplicate dialog must open',
-      ),
-    );
-    assert.equal(mockMarkDuplicate.mock.callCount(), 0, 'no mark until the dialog is confirmed');
-
-    // Confirm via the dialog's "Confirmar" button.
-    const confirmBtn = screen
-      .queryAllByRole('button')
-      .find((b) => b.textContent?.trim() === 'Confirmar') as HTMLButtonElement | undefined;
-    assert.ok(confirmBtn, 'dialog confirm button must be present');
-    fireEvent.click(confirmBtn!);
-
-    await waitFor(() =>
-      assert.equal(
-        mockMarkDuplicate.mock.callCount(),
-        1,
-        'legacy surface must still reach markCandidateDuplicate',
-      ),
-    );
+describe('AGENT1-AUDIT-WS4 — ya no existe la vía heredada en el menú de fila', () => {
+  // Antes este caso fijaba que, SIN override, el menú llamaba directo a la server
+  // action heredada (markCandidateDuplicate), que sólo pedía usuario activo. Era el defecto: el
+  // componente cliente publicaba esa acción al navegador. Ahora los overrides son
+  // obligatorios y el componente no importa la acción heredada.
+  it('el componente no referencia markCandidateDuplicate', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/prospect-batches/candidate-row-actions.tsx'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.equal(/\bmarkCandidateDuplicate\b/.test(src), false);
   });
 });

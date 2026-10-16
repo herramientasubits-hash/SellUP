@@ -60,6 +60,8 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ProspectCandidate } from '@/modules/prospect-batches/types';
 
 let render: (typeof import('@testing-library/react'))['render'];
@@ -168,7 +170,14 @@ const findDescartarMenuItem = (): HTMLElement | undefined =>
 describe('Q3F-5AZ.2G-1 — Prospectos three-dot Descartar (onDiscardOverride) never discards directly', () => {
   it('clicking Descartar calls the safe override and NOT the legacy discardCandidate, opening no dialog', async () => {
     const onDiscardOverride = mock.fn();
-    render(<CandidateRowActions candidate={candidate()} onDiscardOverride={onDiscardOverride} />);
+    render(
+      <CandidateRowActions
+        candidate={candidate()}
+        onApproveOverride={() => {}}
+        onDiscardOverride={onDiscardOverride}
+        onMarkDuplicateOverride={() => {}}
+      />,
+    );
 
     openMenu();
     await waitFor(() => assert.ok(findDescartarMenuItem(), 'Descartar entry must render in the menu'));
@@ -185,27 +194,19 @@ describe('Q3F-5AZ.2G-1 — Prospectos three-dot Descartar (onDiscardOverride) ne
   });
 });
 
-describe('Q3F-5AZ.2G-1 — legacy prospect-batches surface (no override) still reaches discard', () => {
-  it('clicking Descartar with no override opens the dialog and, on confirm, calls discardCandidate (no regression)', async () => {
-    render(<CandidateRowActions candidate={candidate()} />);
-
-    openMenu();
-    await waitFor(() => assert.ok(findDescartarMenuItem(), 'Descartar entry must render in the menu'));
-    fireEvent.click(findDescartarMenuItem()!);
-
-    // Legacy path opens the reason dialog; discard has NOT happened yet.
-    await waitFor(() => assert.ok(screen.getByText('Descartar candidato')));
-    assert.equal(mockDiscard.mock.callCount(), 0, 'no discard until the dialog is confirmed');
-
-    // Confirm via the dialog's destructive button (role=button, unlike the menuitem).
-    const confirmBtn = screen
-      .queryAllByRole('button')
-      .find((b) => b.textContent?.trim() === 'Descartar') as HTMLButtonElement | undefined;
-    assert.ok(confirmBtn, 'dialog confirm button must be present');
-    fireEvent.click(confirmBtn!);
-
-    await waitFor(() =>
-      assert.equal(mockDiscard.mock.callCount(), 1, 'legacy surface must still reach discardCandidate'),
-    );
+describe('AGENT1-AUDIT-WS4 — ya no existe la vía heredada en el menú de fila', () => {
+  // Antes este caso fijaba que, SIN override, el menú llamaba directo a la server
+  // action heredada (discardCandidate), que sólo pedía usuario activo. Era el defecto: el
+  // componente cliente publicaba esa acción al navegador. Ahora los overrides son
+  // obligatorios y el componente no importa la acción heredada.
+  it('el componente no referencia discardCandidate', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/components/prospect-batches/candidate-row-actions.tsx'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.equal(/\bdiscardCandidate\b/.test(src), false);
   });
 });
