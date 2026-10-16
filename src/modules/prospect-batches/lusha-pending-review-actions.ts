@@ -1253,12 +1253,18 @@ async function runLushaSearchWithReservation(args: {
     // páginas despachadas sin importe reportado (ver `settlementCreditsTotal`).
     // Sólo cambia CUÁNTO se confirma de la reserva ya existente; la reserva, su
     // liberación y la RPC no cambian.
+    // AUDIT-HARDENING-1 — la parte ESTIMADA (contractual) nunca confirma más de lo
+    // reservado; un cobro REPORTADO por Lusha se confirma tal cual, como siempre.
+    const reportedCharged = result?.creditsChargedTotal ?? null;
+    const settlementWithEstimate =
+      result?.settlementCreditsTotal !== undefined ? result.settlementCreditsTotal : reportedCharged;
+    const boundedSettlement =
+      typeof settlementWithEstimate === 'number' && typeof reportedCharged === 'number'
+        ? Math.max(reportedCharged, Math.min(settlementWithEstimate, reservation.creditsReserved))
+        : settlementWithEstimate;
     const actualCreditsConsumed = decideLushaCreditsToConfirm({
       creditsReserved: reservation.creditsReserved,
-      creditsChargedTotal:
-        result?.settlementCreditsTotal !== undefined
-          ? result.settlementCreditsTotal
-          : (result?.creditsChargedTotal ?? null),
+      creditsChargedTotal: boundedSettlement,
     });
 
     const confirmed = await confirmWizardPilotCredits(

@@ -3249,10 +3249,13 @@ export async function persistLushaPendingReviewBatch(
       if (billingContrast.matchesContract === false) billingContractMismatchPages++;
       // WS6 · F6 — página despachada, sin importe y NO probadamente gratis: se
       // liquida con su importe contractual (nunca se infla un importe reportado).
+      // AUDIT-HARDENING-1 — sólo `potentially_charged` (timeout, corte de red tras
+      // despachar). Un rechazo 400/401/403 queda `unknown` y, como dice el § 11,
+      // un intento fallido NO hereda el mínimo.
       if (
         pageCredits === null &&
         search.providerOutcome?.providerRequestDispatched !== false &&
-        search.providerOutcome?.billingCertainty !== 'definitely_not_charged'
+        search.providerOutcome?.billingCertainty === 'potentially_charged'
       ) {
         unreportedPossiblyChargedCredits +=
           billingContrast.expectedCredits ?? search.billing?.expectedMaxCredits ?? 1;
