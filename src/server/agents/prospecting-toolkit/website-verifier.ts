@@ -9,7 +9,8 @@
  * - No modifica datos.
  * - No hace crawling profundo (solo extrae title y meta description).
  * - Máximo 3 redirects.
- * - Bloquea URLs locales, privadas, protocolos inseguros.
+ * - Bloquea URLs locales, privadas, protocolos inseguros: decide por la dirección
+ *   (ip-safety.ts) y resuelve el DNS antes de cada salto.
  * - No rompe el build si un sitio no responde.
  * - No imprime headers sensibles.
  * - No guarda HTML completo.
@@ -17,6 +18,7 @@
 
 import type { WebsiteVerificationInput, WebsiteVerificationOutput, WebsiteVerificationStatus } from './types';
 import { normalizeDomain, normalizeCompanyName } from './normalization';
+import { isBlockedHostname, isBlockedIpAddress, isIpLiteralHostname } from './ip-safety';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -40,46 +42,54 @@ const BLOCKED_PROTOCOLS = new Set(['file:', 'javascript:', 'data:', 'ftp:', 'blo
 
 /**
  * Devuelve true si el hostname apunta a una dirección local o privada.
- * Protege contra SSRF.
+ * Protege contra SSRF. Decide por la DIRECCIÓN (IPv4, IPv6, IPv4 mapeada o
+ * embebida en IPv6, ULA…), no por el texto: ver `ip-safety.ts`.
  */
 function isPrivateOrLocalHost(hostname: string): boolean {
-  if (!hostname) return true;
+  return isBlockedHostname(hostname);
+}
 
-  const lower = hostname.toLowerCase();
+// ─── Resolución DNS antes de conectar (anti-SSRF) ─────────────────────────────
 
-  // Nombres reservados
-  if (lower === 'localhost' || lower === 'localhost.localdomain') return true;
-  if (lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) return true;
+/** Direcciones IP a las que resuelve un nombre. Inyectable en pruebas. */
+export type HostLookup = (hostname: string) => Promise<string[]>;
 
-  // IPv4 loopback / link-local / privadas / APIPA
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(lower);
-  if (ipv4) {
-    const [, a, b, c, d] = ipv4.map(Number);
-    if (
-      a === 0 ||                          // 0.x.x.x
-      a === 127 ||                        // loopback
-      a === 10 ||                         // RFC 1918
-      (a === 172 && b >= 16 && b <= 31) || // RFC 1918
-      (a === 192 && b === 168) ||         // RFC 1918
-      (a === 169 && b === 254) ||         // APIPA / link-local
-      (a === 100 && b >= 64 && b <= 127) || // Carrier-grade NAT
-      a === 192 && b === 0 && c === 0 ||  // IETF protocol assignments
-      a === 198 && (b === 18 || b === 19) || // benchmark
-      a === 240                            // reserved
-    ) {
-      void d; // usado solo para desestructurar; lint safe
-      return true;
-    }
+/** Tope de la consulta DNS: un resolvedor lento no puede comerse el tiempo de la descarga. */
+const DNS_LOOKUP_TIMEOUT_MS = 3_000;
+
+const defaultHostLookup: HostLookup = async (hostname) => {
+  // Import dinámico: este módulo no debe arrastrar `node:dns` a ningún bundle de cliente.
+  const { lookup } = await import('node:dns/promises');
+  const records = await lookup(hostname, { all: true, verbatim: true });
+  return records.map((r) => r.address);
+};
+
+/**
+ * ¿El nombre resuelve a alguna dirección interna? Un nombre público que apunta a
+ * 127.0.0.1 o a 169.254.169.254 (metadatos de la nube) se bloquea igual que la IP.
+ *
+ * Si el DNS falla o tarda, NO se bloquea aquí: la descarga fallará por su cuenta
+ * con el mismo error de siempre (un dominio inexistente sigue siendo «no existe»).
+ *
+ * Queda un riesgo residual de DNS rebinding (el DNS cambia entre esta consulta y
+ * la conexión): cerrarlo exige fijar la IP en la conexión con un dispatcher propio.
+ */
+async function resolvesToBlockedAddress(hostname: string, lookupHost: HostLookup): Promise<boolean> {
+  if (isIpLiteralHostname(hostname)) return false; // ya lo juzgó isBlockedHostname
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const addresses = await Promise.race([
+      lookupHost(hostname),
+      new Promise<string[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), DNS_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+    return addresses.some((address) => isBlockedIpAddress(address));
+  } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-
-  // IPv6 loopback y variantes
-  if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true;
-  if (lower.startsWith('::ffff:127.') || lower.startsWith('[::1]') || lower.startsWith('[::ffff:127.')) return true;
-  // Link-local IPv6
-  if (lower.startsWith('fe80') || lower.startsWith('[fe80')) return true;
-
-  return false;
 }
 
 /**
@@ -381,6 +391,7 @@ async function fetchWithRedirectTracking(
   startUrl: URL,
   timeoutMs: number,
   maxHtmlBytes: number = MAX_HTML_BYTES,
+  lookupHost: HostLookup = defaultHostLookup,
 ): Promise<FetchResult> {
   const redirectChain: string[] = [];
   let currentUrl = startUrl.toString();
@@ -415,6 +426,17 @@ async function fetchWithRedirectTracking(
           redirectChain,
           html: null,
           fetchError: `blocked_redirect_${safeResult.reason}`,
+        };
+      }
+
+      // Antes de conectar: el nombre no puede resolver a una dirección interna.
+      if (await resolvesToBlockedAddress(safeResult.url.hostname, lookupHost)) {
+        return {
+          httpStatus: null,
+          finalUrl: currentUrl,
+          redirectChain,
+          html: null,
+          fetchError: attempt === 0 ? 'blocked_url:private_resolution' : 'blocked_redirect_private_resolution',
         };
       }
 
@@ -510,6 +532,8 @@ export async function fetchSafePageHtml(
   websiteOrDomain: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   maxHtmlBytes: number = MAX_HTML_BYTES,
+  /** `lookupHost`: resolvedor DNS (inyectable en pruebas; por defecto, el del sistema). */
+  options: { lookupHost?: HostLookup } = {},
 ): Promise<SafePageFetchResult> {
   const requestedUrl = websiteOrDomain.trim();
   const safeResult = buildSafeUrl(requestedUrl);
@@ -523,7 +547,7 @@ export async function fetchSafePageHtml(
       error: `blocked_url:${safeResult.reason}`,
     };
   }
-  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs, maxHtmlBytes);
+  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs, maxHtmlBytes, options.lookupHost);
   return {
     requestedUrl,
     finalUrl: fetchResult.finalUrl,
