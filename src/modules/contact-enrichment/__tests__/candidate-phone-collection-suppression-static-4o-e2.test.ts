@@ -319,6 +319,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // columna ni función de las cadenas que esta guarda vigila. AUTORADAS y NO APLICADAS.
       '151_claim_enrichment_jobs_hardening.sql',
       '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
     ]);
   });
 

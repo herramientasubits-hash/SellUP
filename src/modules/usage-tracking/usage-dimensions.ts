@@ -289,6 +289,8 @@ export function resolveBatchDimensions(batch: BatchDimensionSource | null | unde
 export const AGENT_DIMENSION_LABELS: Readonly<Record<string, string>> = {
   agent1: 'Agente 1 · Empresas',
   agent2a: 'Agente 2A · Contactos',
+  // Agente 3 declara agent_key en cada consulta (no hay regla por proveedor + operación).
+  agent3: 'Agente 3 · Primera llamada',
   accounts: 'Empresas de HubSpot',
 };
 
@@ -315,6 +317,10 @@ export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
   numero_fiscal_migo: 'Validar RUC en Migo (Perú)',
   identificar_empresa: 'Identificar la empresa en Apollo',
   completar_cuenta: 'Completar país e industria (Claude)',
+  investigar_empresa: 'Investigar la empresa (Claude)',
+  noticias: 'Noticias del último año (Tavily)',
+  talento: 'Empleo y talento (Tavily)',
+  redactar_llamada: 'Preparar la primera llamada (Claude)',
 };
 
 export const SEARCH_MODE_LABELS: Readonly<Record<string, string>> = {

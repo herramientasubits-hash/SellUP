@@ -586,8 +586,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
       // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no ASIGNAN `mobile_phone`
       // ni introducen procedencia del escalar móvil. AUTORADAS y NO APLICADAS.
-      152,
-      'la 152 (el cruce NIT/dominio/LinkedIn de los reclamos de identidad, AGENT1-AUDIT-HARDENING-1) es la última',
+      153,
+      'la 153 (la ficha y el paquete de primera llamada del Agente 3, AGENT3-FIRST-CALL-1) es la última',
     );
   });
 

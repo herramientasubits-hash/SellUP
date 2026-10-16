@@ -352,7 +352,10 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
       // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
       // de CUT3B4. AUTORADAS y NO APLICADAS.
-      '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
