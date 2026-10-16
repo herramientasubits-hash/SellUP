@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 
+// AUDIT-HARDENING-1 — la revalidación recorre las filas con búsquedas de NIT y de
+// HubSpot (la misma validación que la importación, que ya tiene 300 s): es la vía
+// para completar las filas que la importación dejó en `pending_revalidation`.
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();

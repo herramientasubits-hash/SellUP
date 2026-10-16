@@ -467,6 +467,8 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'Industrias sin códigos UNSPSC en la tabla (Gobierno, Educación) no consultan SECOP.',
       'La industria del proveedor es la de lo que le vende a esa entidad, no la de toda su actividad.',
       'Chile (ChileCompra) queda para cuando haya ticket de la API de Mercado Público.',
+      'AUDIT-HARDENING-1: fuera consorcios y uniones temporales (no son una empresa a la que venderle) y contratos con estado «Cancelado»; el NIT se agrupa sin dígito de verificación pero se consulta con las formas crudas que guarda SECOP.',
+      'AUDIT-HARDENING-1: si el nombre de la referencia casa con demasiadas entidades se responde «entidad ambigua» en vez de elegir una de una lista cortada. Las siglas (ICBF, SENA, DIAN) todavía no casan: falta una tabla de siglas de entidades públicas.',
     ],
     riskNotes: [
       'Nunca se piden ni se guardan cuentas bancarias, banco ni representante legal de SECOP: la consulta nombra sólo NIT, nombre, monto, fecha, código UNSPSC y página del proceso.',
