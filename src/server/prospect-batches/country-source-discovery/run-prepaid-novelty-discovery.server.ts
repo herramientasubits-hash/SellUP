@@ -179,6 +179,11 @@ export type PrePaidNoveltyDiscoveryInput = {
    */
   activityCodes?: readonly string[];
   /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda (las pasa el asistente).
+   * Viajan al banco de empresas para que lo genérico de la macro no cierre la meta.
+   */
+  subindustries?: readonly string[];
+  /**
    * «Competidores de una empresa» — elige, de lo que la capa gratuita aceptó,
    * cuáles le compiten a la referencia (devuelve las elegidas, con su relación).
    * `null` ⇒ no se pudo elegir y la capa gratuita NO aporta nada: nunca entra
@@ -464,6 +469,7 @@ async function runFreeLayerThenBank(
       requestedTarget: remaining,
       requestedByUserId: input.requestedByUserId,
       resolveBatchId: async () => free.batchId ?? (await resolveCanonical()),
+      ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
     })
     .catch(() => null);
   if (!bank || bank.persistedCount <= 0) {
@@ -476,14 +482,17 @@ async function runFreeLayerThenBank(
   const bankAccepted = Math.min(Math.max(0, bank.acceptedCount), remaining);
   const acceptedBeforeProvider = Math.min(input.requestedTarget, freeAccepted + bankAccepted);
   const residualGap = Math.max(0, input.requestedTarget - acceptedBeforeProvider);
+  // AUDIT-A1-WS7 — la base es `freeWithRescue`, no `free`: las rescatadas ya son
+  // filas del lote y, con banco, se perdían de `persistedCount` (se atribuían a la
+  // ruta de pago).
   return {
-    ...free,
+    ...freeWithRescue,
     requestedTarget: input.requestedTarget,
     acceptedBeforeProvider,
     residualGap,
     providerRequired: residualGap > 0,
-    batchId: free.batchId ?? bank.batchId,
-    persistedCount: free.persistedCount + bank.persistedCount,
+    batchId: freeWithRescue.batchId ?? bank.batchId,
+    persistedCount: freeWithRescue.persistedCount + bank.persistedCount,
     telemetry: { ...freeTelemetry, company_bank_first: bank.telemetry },
   };
 }
