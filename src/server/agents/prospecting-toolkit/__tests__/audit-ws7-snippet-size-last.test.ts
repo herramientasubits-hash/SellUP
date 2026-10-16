@@ -93,13 +93,20 @@ describe('AUDIT-A1-WS7 — el snippet es la última fuente', () => {
     assert.ok(resolved.attemptedSources.some((a) => a.source === 'source_snippet' && a.usable === false));
   });
 
-  it('un snippet solo por encima del umbral aprueba como estimado y confianza baja', () => {
+  // AUDIT-HARDENING-1 (decisión de la dueña 16-10) — antes un snippet solo, por
+  // encima del umbral, aprobaba como «estimado». Una regex sobre texto libre no
+  // aprueba ni descarta: el tamaño queda desconocido y la fila va a revisión
+  // (donde Claude lo completa con una cita verificable).
+  it('un snippet solo por encima del umbral NO aprueba: el tamaño queda desconocido y va a revisión', () => {
     const big = snippetProfileSize('Grupo', 'con más de 5.000 empleados en la región');
-    const { resolved, gate, action } = decide({ richProfileSize: big });
-    assert.equal(resolved.selectedSource, 'source_snippet');
-    assert.equal(resolved.confidence, 'low');
-    assert.equal(gate.size_status, 'estimated_above_threshold');
-    assert.equal(action, 'pass');
+    const { resolved, action } = decide({ richProfileSize: big });
+    assert.equal(resolved.selectedSource, 'unknown');
+    assert.equal(resolved.confidence, 'unknown');
+    assert.equal(action, 'needs_review');
+    // El rango leído se conserva para quien revisa.
+    const attempt = resolved.attemptedSources.find((a) => a.source === 'source_snippet');
+    assert.equal(attempt?.usable, false);
+    assert.ok(attempt?.value);
   });
 
   it('un rango enriquecido (no snippet) conserva la prioridad máxima', () => {

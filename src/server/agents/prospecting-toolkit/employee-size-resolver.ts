@@ -518,38 +518,22 @@ export function resolveEmployeeSizeForIcpGate(
     });
   }
 
-  // ── Fuente 5: texto del snippet (AUDIT-A1-WS7) ────────────────────────────
-  // Una regex sobre texto libre: puede APROBAR como estimado (sigue habiendo una
-  // persona que revisa), pero por debajo del umbral no descarta sola — sin otra
-  // fuente, el tamaño queda desconocido y la fila va a revisión.
+  // ── Fuente 5: texto del snippet (AUDIT-A1-WS7 + AUDIT-HARDENING-1) ────────
+  // Una regex sobre texto libre. Decisión de la dueña (16-10): un snippet SOLO no
+  // aprueba ni descarta — ni por encima ni por debajo del umbral. Sin otra fuente,
+  // el tamaño queda desconocido y la fila va a revisión (donde Claude lo completa
+  // con una cita verificable). El rango leído se conserva en `attemptedSources`
+  // para quien revisa.
   if (snippetRange !== null) {
     const projected = evaluateIcpSizeGate({ sizeRange: snippetRange, sizeStatus: 'estimated', threshold });
-    if (projected.decision === 'pass') {
-      attemptedSources.push({
-        source: 'source_snippet',
-        value: snippetRange,
-        usable: true,
-        reason: 'rango leído del snippet de búsqueda, por encima del umbral (estimado)',
-      });
-      return {
-        icpInput: {
-          sizeRange: snippetRange,
-          sizeStatus: 'estimated',
-          source: 'source_snippet',
-          threshold,
-        },
-        selectedSource: 'source_snippet',
-        selectedValue: snippetRange,
-        confidence: 'low',
-        reason: `Used search snippet range="${snippetRange}" as last resort (estimated)`,
-        attemptedSources,
-      };
-    }
     attemptedSources.push({
       source: 'source_snippet',
       value: snippetRange,
       usable: false,
-      reason: 'rango del snippet bajo el umbral: un snippet solo no descarta, queda para revisión',
+      reason:
+        projected.decision === 'pass'
+          ? 'rango leído del snippet, por encima del umbral: un snippet solo no aprueba, queda para revisión'
+          : 'rango del snippet bajo el umbral: un snippet solo no descarta, queda para revisión',
     });
   }
 
