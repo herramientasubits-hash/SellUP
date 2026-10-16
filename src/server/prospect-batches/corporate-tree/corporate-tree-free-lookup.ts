@@ -131,8 +131,15 @@ export function freeHitConfirmation(params: {
   origin: 'catalog' | 'bank';
   /** Directorio de empresas grandes, o registro con 50+ trabajadores. */
   strongSource: boolean;
+  /**
+   * El nombre sólo se parece DESPUÉS de quitar «Grupo», «Holding», «Corporación»…: «Grupo
+   * Familia» busca «familia» y un «FAMILIA S.A.S.» exacto puede ser un homónimo. Así no
+   * entra sola; la web de la empresa de partida (si coincide) la reconoce el plan.
+   */
+  strippedLeadingWord?: boolean;
 }): 'confirmed' | 'needs_claude' {
   if (params.origin === 'bank') return 'needs_claude';
+  if (params.strippedLeadingWord) return 'needs_claude';
   if (params.kinship === 'exact' && params.rootCountryCode && params.countryCode === params.rootCountryCode) return 'confirmed';
   // «ALPINA ARGENTINA S A» del registro completo, sin tamaño, puede ser un homónimo.
   if (params.kinship === 'family' && params.strongSource) return 'confirmed';
@@ -401,6 +408,8 @@ export async function findCorporateTreeFreeHits(
         rootCountryCode,
         origin: hit.origin,
         strongSource: isStrongFreeSource(hit),
+        // Con el nombre completo («grupo familia») no se parece: sólo sin la palabra genérica.
+        strippedLeadingWord: cores.length > 1 && nameKinship(hit.core, rootCore) === 'none',
       }),
     };
   });
@@ -430,5 +439,19 @@ export async function findCorporateTreeFreeHits(
       relation: classifyFreeHit({ core: hit.core, rootCore, countryCode: hit.countryCode, rootCountryCode }),
     });
   }
-  return { hits, rootCountryCode, queries, errors };
+  return { hits: withoutAmbiguousRoots(hits, rootCountryCode), rootCountryCode, queries, errors };
+}
+
+/**
+ * Sin país de partida, el nombre exacto en VARIOS países es ambiguo («BIMBO SA» en AR, ES y
+ * MX sin trabajadores): ninguno es la empresa de partida sin que Claude lo confirme. Quedan
+ * como «otro país» y por confirmar; sin Claude no entran (antes la primera se escribía como
+ * la propia empresa sin confirmar). Puro.
+ */
+export function withoutAmbiguousRoots(
+  hits: readonly CorporateTreeFreeHit[],
+  rootCountryCode: string | null,
+): CorporateTreeFreeHit[] {
+  if (rootCountryCode || hits.filter((h) => h.relation === 'root').length <= 1) return [...hits];
+  return hits.map((h) => (h.relation === 'root' ? { ...h, relation: 'other_country', confirmation: 'needs_claude' } : h));
 }
