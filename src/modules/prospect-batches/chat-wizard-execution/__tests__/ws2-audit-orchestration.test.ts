@@ -171,7 +171,7 @@ describe('AGENT1-AUDIT-WS2 §§ 2, 3 — guardas de tiempo en todo camino', () =
     );
     assert.equal(calls.apollo, 1);
     assert.equal(calls.lusha, 0);
-    assert.equal(result.ok && result.lushaWaterfallLeg.skipReason, 'lusha_no_time');
+    assert.equal(result.ok && result.lushaWaterfallLeg?.skipReason, 'lusha_no_time');
   });
 });
 
