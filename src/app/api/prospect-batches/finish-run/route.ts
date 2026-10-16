@@ -11,8 +11,8 @@ import { finishAgentRunForBatch } from '@/modules/prospect-batches/stuck-runs/st
  * revisar. No llama a ningún proveedor ni gasta créditos.
  *
  * Autorización: la MISMA puerta que la continuación — el lote se lee con el
- * cliente de la PERSONA; si RLS no se lo deja ver, no se cierra nada. Sólo
- * después se usa el cliente de servicio.
+ * cliente de la PERSONA y tiene que haberlo creado ella (`created_by`); si no,
+ * no se cierra nada. Sólo después se usa el cliente de servicio.
  */
 export async function POST(request: Request) {
   let batchId: unknown;
@@ -33,7 +33,15 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
-  const { data: batch } = await supabase.from('prospect_batches').select('id').eq('id', batchId).maybeSingle();
+  // AGENT1-AUDIT-WS1 — y el lote tiene que ser SUYO: la RLS de `prospect_batches`
+  // deja ver los de todos los usuarios activos, así que sin `created_by` cualquiera
+  // terminaba la corrida de otra persona.
+  const { data: batch } = await supabase
+    .from('prospect_batches')
+    .select('id')
+    .eq('id', batchId)
+    .eq('created_by', internalUserId)
+    .maybeSingle();
   if (!batch) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   try {
