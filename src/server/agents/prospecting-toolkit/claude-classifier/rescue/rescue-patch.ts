@@ -65,6 +65,11 @@ export type ClaudeRescueMetadata = {
   decision: RescueDecision['kind'] | 'data_completed';
   /** Claude vio otro sector sin evidencia suficiente para descartar. */
   sector_warning: 'claude_sector_mismatch_unconfirmed' | null;
+  /**
+   * AUDIT-A1-WS7 — Claude vio un tamaño bajo el umbral con una fuente que no es de
+   * esta empresa (o sin confianza suficiente): aviso, nunca descarte.
+   */
+  size_warning?: 'claude_size_below_min_unconfirmed';
   discard_reason: string | null;
   discard_detail: string | null;
   discard_source_url: string | null;
@@ -97,6 +102,9 @@ export function buildRescueMetadata(
     decision: decision.kind === 'admit' && !decision.sectorConfirmed ? 'data_completed' : decision.kind,
     sector_warning:
       (decision.kind === 'admit' || decision.kind === 'unchanged') && decision.sectorMismatchUnconfirmed ? 'claude_sector_mismatch_unconfirmed' : null,
+    ...((decision.kind === 'admit' || decision.kind === 'unchanged') && decision.sizeBelowMinUnconfirmed
+      ? { size_warning: 'claude_size_below_min_unconfirmed' as const }
+      : {}),
     discard_reason: decision.kind === 'discard' ? decision.reason : null,
     discard_detail: decision.kind === 'discard' ? decision.detail : null,
     discard_source_url: decision.kind === 'discard' ? decision.sourceUrl : null,

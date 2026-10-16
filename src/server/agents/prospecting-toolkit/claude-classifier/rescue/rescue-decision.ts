@@ -13,6 +13,8 @@
  */
 
 import type { CompanyClassificationResult } from '../types';
+import { normalizeLinkedInCompanyUrl } from '../../linkedin-company-enrichment';
+import { normalizeDomain } from '../../normalization';
 
 /** Umbral ICP por defecto (el mismo del asistente: > 200 colaboradores). */
 export const DEFAULT_ICP_MIN_EMPLOYEES = 200;
@@ -38,6 +40,8 @@ export type RescueDecision =
       linkedinConfirmed: boolean;
       /** Claude vio OTRO sector pero sin evidencia suficiente para descartar: aviso a la revisora. */
       sectorMismatchUnconfirmed?: boolean;
+      /** AUDIT-A1-WS7 — Claude vio un tamaño bajo el umbral sin fuente de ESTA empresa: aviso, no descarte. */
+      sizeBelowMinUnconfirmed?: boolean;
     }
   | {
       /**
@@ -60,6 +64,7 @@ export type RescueDecision =
       kind: 'unchanged';
       why: 'nothing_verifiable' | 'sector_unknown' | 'not_classified';
       sectorMismatchUnconfirmed?: boolean;
+      sizeBelowMinUnconfirmed?: boolean;
     };
 
 export type RescueContext = {
@@ -152,15 +157,59 @@ function sectorVerdict(result: CompanyClassificationResult, ctx: RescueContext):
 export const MIN_SIZE_DISCARD_CONFIDENCE_QUOTE = 0.6;
 export const MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE = 0.85;
 
-/** ¿Este rango demuestra, con suficiente confianza, que la empresa está bajo el umbral? */
+/**
+ * AUDIT-A1-WS7 — de qué páginas un tamaño `source_listed` (URL vista en la
+ * búsqueda, cita NO encontrada) puede venir y aun así descartar: la página de
+ * LinkedIn de ESTA empresa ya verificada (`verifyLinkedInCompany`) o su sitio
+ * oficial (el que descargamos). Sin esto, «De 11 a 50 empleados» de OTRA empresa
+ * con nombre parecido hacía desaparecer a esta.
+ */
+export type SizeSourceTrust = {
+  /** `linkedin.url` verificado del resultado (o `linkedin_company.url` guardado). */
+  verifiedLinkedInUrl: string | null;
+  /** Página oficial descargada (`pageFinalUrl` / `page_final_url`). */
+  officialPageUrl: string | null;
+};
+
+export function isTrustedSizeSource(sourceUrl: string | null | undefined, trust: SizeSourceTrust | null | undefined): boolean {
+  if (!sourceUrl || !trust) return false;
+  const linkedin = normalizeLinkedInCompanyUrl(sourceUrl);
+  if (!linkedin.rejected && linkedin.normalized) {
+    const verified = trust.verifiedLinkedInUrl ? normalizeLinkedInCompanyUrl(trust.verifiedLinkedInUrl) : null;
+    return !!verified?.normalized && verified.normalized === linkedin.normalized;
+  }
+  const sourceDomain = normalizeDomain(sourceUrl);
+  const officialDomain = trust.officialPageUrl ? normalizeDomain(trust.officialPageUrl) : null;
+  return !!sourceDomain && !!officialDomain && sourceDomain === officialDomain;
+}
+
+/**
+ * ¿Este rango demuestra, con suficiente confianza, que la empresa está bajo el umbral?
+ *
+ * AUDIT-A1-WS7 — `source_listed` sólo descarta si su fuente es de esta empresa
+ * (`isTrustedSizeSource`); si no, a lo sumo queda como aviso (nunca descarta).
+ */
 export function rangeProvesBelowThreshold(
-  range: { max: number | null; verification: string; confidence: number },
+  range: { max: number | null; verification: string; confidence: number; sourceUrl?: string | null },
   threshold: number,
+  trust?: SizeSourceTrust | null,
 ): boolean {
   if (range.max === null || range.max <= 0 || range.max >= threshold) return false;
   if (range.verification === 'quote_verified') return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_QUOTE;
-  if (range.verification === 'source_listed') return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE;
+  if (range.verification === 'source_listed') {
+    return range.confidence >= MIN_SIZE_DISCARD_CONFIDENCE_SEARCH_SOURCE && isTrustedSizeSource(range.sourceUrl, trust);
+  }
   return false;
+}
+
+/** ¿Claude vio un tamaño bajo el umbral que NO alcanza para descartar? (aviso a la revisora) */
+function sizeBelowMinUnconfirmed(result: CompanyClassificationResult, ctx: RescueContext): boolean {
+  const range = result.employeeRange;
+  return !!range && range.max !== null && range.max > 0 && range.max < ctx.icpMinEmployees;
+}
+
+function trustOf(result: CompanyClassificationResult): SizeSourceTrust {
+  return { verifiedLinkedInUrl: result.linkedin?.url ?? null, officialPageUrl: result.pageFinalUrl ?? null };
 }
 
 function sizeVerdict(result: CompanyClassificationResult, ctx: RescueContext): 'pass' | 'fail' | 'unknown' {
@@ -170,7 +219,7 @@ function sizeVerdict(result: CompanyClassificationResult, ctx: RescueContext): '
   if (range.min >= ctx.icpMinEmployees) return 'pass';
   // Otro proveedor ya lo dejó pasar por tamaño: Claude no lo contradice para descartar.
   if (ctx.sizePassedIcpGate) return 'unknown';
-  return rangeProvesBelowThreshold(range, ctx.icpMinEmployees) ? 'fail' : 'unknown';
+  return rangeProvesBelowThreshold(range, ctx.icpMinEmployees, trustOf(result)) ? 'fail' : 'unknown';
 }
 
 /**
@@ -190,7 +239,10 @@ export function storedSmallSizeDiscard(
   if (!fromSnippetOnly && (status.startsWith('confirmed') || status.startsWith('estimated') || gate?.decision === 'pass')) {
     return null;
   }
-  const range = (metadata?.claude_classification as { employee_range?: unknown } | undefined)?.employee_range as
+  const stored = metadata?.claude_classification as
+    | { employee_range?: unknown; linkedin_company?: { url?: unknown } | null; page_final_url?: unknown }
+    | undefined;
+  const range = stored?.employee_range as
     | { min?: unknown; max?: unknown; verification?: unknown; confidence?: unknown; quote?: unknown; source_url?: unknown }
     | null
     | undefined;
@@ -199,8 +251,13 @@ export function storedSmallSizeDiscard(
     max: typeof range.max === 'number' ? range.max : null,
     verification: typeof range.verification === 'string' ? range.verification : 'rejected',
     confidence: typeof range.confidence === 'number' ? range.confidence : 0,
+    sourceUrl: range.source_url,
   };
-  if (!rangeProvesBelowThreshold(parsed, threshold)) return null;
+  const trust: SizeSourceTrust = {
+    verifiedLinkedInUrl: typeof stored?.linkedin_company?.url === 'string' ? stored.linkedin_company.url : null,
+    officialPageUrl: typeof stored?.page_final_url === 'string' ? stored.page_final_url : null,
+  };
+  if (!rangeProvesBelowThreshold(parsed, threshold, trust)) return null;
   return {
     kind: 'discard',
     reason: 'claude_size_below_min',
@@ -286,8 +343,14 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
   // tamaño y, con eso, la empresa grande se quedaba en Descartadas si la web no decía
   // el sector (Prod 06-10, EC×Tec 0ef658fd: Cartimex, Computron, Movilcelistic con web
   // correcta). Pasa a revisión con el aviso de sector sin confirmar.
+  const sizeWarning = size === 'unknown' && !ctx.sizeAlreadyConfirmed && sizeBelowMinUnconfirmed(result, ctx);
   if (sector !== 'pass' && size !== 'pass' && !ctx.officialSizeMeasured && !linkedinConfirmed) {
-    return { kind: 'unchanged', why: 'sector_unknown', ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}) };
+    return {
+      kind: 'unchanged',
+      why: 'sector_unknown',
+      ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}),
+      ...(sizeWarning ? { sizeBelowMinUnconfirmed: true } : {}),
+    };
   }
   return {
     kind: 'admit',
@@ -295,5 +358,6 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
     sizeConfirmed: size === 'pass',
     linkedinConfirmed,
     ...(sectorMismatchUnconfirmed ? { sectorMismatchUnconfirmed } : {}),
+    ...(sizeWarning ? { sizeBelowMinUnconfirmed: true } : {}),
   };
 }
