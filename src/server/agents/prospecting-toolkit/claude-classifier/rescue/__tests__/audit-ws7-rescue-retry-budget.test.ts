@@ -76,7 +76,7 @@ function fakeDeps(spentBefore: number | null) {
     loadDispositions: async () => [],
     loadBatchIndustryId: async () => 'tec',
     loadBatchRescueSpentUsd: async () => spentBefore,
-    classify: async (company) => {
+    classify: async (company: { candidateId: string }) => {
       classified.push(company.candidateId);
       return {
         ...unreachable,
@@ -86,9 +86,10 @@ function fakeDeps(spentBefore: number | null) {
       } as CompanyClassificationResult;
     },
     logUsage: async () => true,
-    patchCandidate: async (_id, build) => build({ target_completeness: { failed_conditions: ['employee_count_status'] } }) !== null,
+    patchCandidate: async (_id: string, build: (metadata: Record<string, unknown>) => unknown) =>
+      build({ target_completeness: { failed_conditions: ['employee_count_status'] } }) !== null,
     patchDispositionEvidence: async () => true,
-    admitDisposition: async (id) => `new-${id}`,
+    admitDisposition: async (id: string) => `new-${id}`,
     claimIdentities: async () => undefined,
     nowIso: () => AT,
     nowMs: () => NOW,
