@@ -229,7 +229,9 @@ describe('4. consultas en vivo (dobles)', () => {
 
   it('agencias por nombre (toptier cabeza, nombre normalizado)', async () => {
     const { postJson, bodies } = fakePost();
-    const rows = await buildUsLookups(fakeClient([]), { postJson }).findPublicEntities('VETERANS AFFAIRS');
+    // `findPublicEntities` puede devolver también `{ rows, truncated }` (tope alcanzado); EE. UU. da la lista.
+    const found = await buildUsLookups(fakeClient([]), { postJson }).findPublicEntities('VETERANS AFFAIRS');
+    const rows = Array.isArray(found) ? found : found.rows;
     assert.deepEqual(rows[0], { taxId: VA, normalizedLegalName: 'VETERANS AFFAIRS', shortName: 'VA', isHead: true });
     assert.deepEqual(bodies[0], { search_text: 'VETERANS AFFAIRS', limit: 10 });
   });

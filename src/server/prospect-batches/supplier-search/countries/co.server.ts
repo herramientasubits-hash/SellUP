@@ -8,10 +8,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
 import { CO_SECOP_SUPPLIERS_SOURCE_KEY, fetchCoSecopSuppliers } from '../co-secop-suppliers';
 import type { PublicEntityRow } from '../public-buyer-suppliers';
+import { CO_COUNTRY } from './co';
 import type { CountryLookups } from './loaded-lookups.server';
 
 const SECOP_TIMEOUT_MS = 12_000;
-const ENTITY_QUERY_LIMIT = 25;
+/** Entidades candidatas que se leen por nombre; más ⇒ lista cortada ⇒ el paso no corre. */
+export const CO_ENTITY_QUERY_LIMIT = 50;
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -48,24 +50,32 @@ export function buildCoLookups(serviceClient: SupabaseClient): CountryLookups {
   return {
     sourceKey: CO_SECOP_SUPPLIERS_SOURCE_KEY,
     taxIdentifierType: 'NIT',
+    // El MISMO normalizador con el que se cargó `normalized_legal_name` de co_public_entities
+    // («… E.S.P.» → sin «ESP» en los dos lados); con otro, la búsqueda por nombre no coincide.
+    normalizeName: CO_COUNTRY.normalizeBuyerName,
 
     findPublicEntities: async (normalizedName) => {
+      // Orden fijo y una fila de más para saber si el tope cortó la lista (⇒ ambigua).
       const { data, error } = await snapshots()
         .select('tax_id, normalized_legal_name, raw_data')
         .eq('source_key', 'co_public_entities')
         .like('normalized_legal_name', `${normalizedName.replace(/[%_]/g, '')}%`)
-        .limit(ENTITY_QUERY_LIMIT);
+        .order('normalized_legal_name', { ascending: true })
+        .order('tax_id', { ascending: true })
+        .limit(CO_ENTITY_QUERY_LIMIT + 1);
       if (error) {
         logError('find entities', error);
         return [];
       }
-      return ((data ?? []) as Array<Record<string, unknown>>).flatMap((row): PublicEntityRow[] => {
+      const found = (data ?? []) as Array<Record<string, unknown>>;
+      const rows = found.slice(0, CO_ENTITY_QUERY_LIMIT).flatMap((row): PublicEntityRow[] => {
         const taxId = text(row.tax_id);
         const name = text(row.normalized_legal_name);
         if (!taxId || !name) return [];
         const raw = (row.raw_data ?? {}) as Record<string, unknown>;
         return [{ taxId, normalizedLegalName: name, shortName: text(raw.chip_name), isHead: raw.entity_head === true }];
       });
+      return { rows, truncated: found.length > CO_ENTITY_QUERY_LIMIT };
     },
 
     listSuppliers: (input) => fetchCoSecopSuppliers(input, fetchSecopJson),

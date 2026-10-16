@@ -241,7 +241,8 @@ describe('4. consultas en vivo (dobles)', () => {
   it('entidad por nombre sólo entre la administración pública de la Receita', async () => {
     const { client, calls } = fakeClient([{ normalized_tax_id: MS, normalized_legal_name: 'MINISTERIO DA SAUDE' }]);
     const rows = await buildBrLookups(client).findPublicEntities('MINISTERIO DA SAUDE');
-    assert.deepEqual(rows, [{ taxId: MS, normalizedLegalName: 'MINISTERIO DA SAUDE', shortName: null, isHead: false }]);
+    // Ahora avisa si el tope cortó la lista (`truncated`): con una fila, no.
+    assert.deepEqual(rows, { rows: [{ taxId: MS, normalizedLegalName: 'MINISTERIO DA SAUDE', shortName: null, isHead: false }], truncated: false });
     assert.deepEqual(calls[0].filter(([op]) => op === 'like').map(([, a]) => a), [['normalized_legal_name', 'MINISTERIO DA SAUDE%'], ['raw_data->>natureza_juridica', '1%']]);
   });
 

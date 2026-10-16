@@ -115,8 +115,10 @@ export function mergeRootFindings(
   const withDomain = pickRootFinding(root.name, known);
   const countryCode =
     root.countryCode ?? withDomain?.countryCode ?? known.find((f) => !!f.countryCode)?.countryCode ?? null;
-  const freeRootDomain =
-    freeHits.find((h) => h.relation === 'root' && !!h.domain && (!countryCode || h.countryCode === countryCode))?.domain ?? null;
+  // Sin país, la web del registro sólo vale si hay UNA sola candidata a empresa de partida:
+  // con homónimos en varios países sería la web de cualquiera de ellos.
+  const freeRoots = freeHits.filter((h) => h.relation === 'root' && (!countryCode || h.countryCode === countryCode));
+  const freeRootDomain = (!countryCode && freeRoots.length > 1 ? null : freeRoots.find((h) => !!h.domain)?.domain) ?? null;
   const domain = root.domain ?? withDomain?.domain ?? freeRootDomain;
   const website = root.website ?? withDomain?.website ?? (domain ? `https://${domain}` : null);
   return { ...root, website, domain, countryCode };
@@ -215,11 +217,19 @@ export function planCorporateTreeWrites(params: {
   const rootIsExisting = !!(root.candidateId || root.accountId);
   const rootKey = corporateTreeRowKey(root.name, root.countryCode);
 
-  // Webs compartidas: la de la empresa de partida o la que usan dos o más empresas de Claude.
-  const domainUse = new Map<string, number>();
-  for (const node of params.nodes) if (node.domain) domainUse.set(node.domain, (domainUse.get(node.domain) ?? 0) + 1);
+  // Webs compartidas: la de la empresa de partida o la que usan dos o más EMPRESAS de Claude.
+  // Se cuentan empresas (nombre × país), no respuestas: la misma «Nestlé Chile» que traen dos
+  // ramas no vuelve compartida su propia web.
+  const domainKeys = new Map<string, Set<string>>();
+  for (const node of params.nodes) {
+    if (!node.domain) continue;
+    domainKeys.set(node.domain, new Set([...(domainKeys.get(node.domain) ?? []), corporateTreeRowKey(node.name, node.countryCode)]));
+  }
   const isShared = (domain: string | null) =>
-    !!domain && ((!!root.domain && domain === root.domain) || (domainUse.get(domain) ?? 0) > 1);
+    !!domain && ((!!root.domain && domain === root.domain) || (domainKeys.get(domain)?.size ?? 0) > 1);
+  // Sin país de partida, el nombre exacto en varios países no dice cuál es la propia empresa:
+  // ninguna entra como tal sin que Claude la confirme (fail-closed).
+  const ambiguousRootByName = !root.countryCode && params.freeHits.filter((h) => h.relation === 'root').length > 1;
 
   // Lo que Claude devolvió, por empresa: confirma las de registro y les da su web.
   const nodeByKey = new Map<string, CorporateTreeNode>();
@@ -242,7 +252,8 @@ export function planCorporateTreeWrites(params: {
       !!root.domain && !!hit.domain && hit.domain === root.domain && hit.countryCode === root.countryCode;
     // La misma razón base en OTRO país no es la empresa de partida (Prod 14-10: «GENERAL
     // ELECTRIC S R L» de Argentina quedó como raíz de General Electric, EE. UU.).
-    const rootByName = hit.relation === 'root' && (!root.countryCode || hit.countryCode === root.countryCode);
+    const rootByName =
+      hit.relation === 'root' && (root.countryCode ? hit.countryCode === root.countryCode : !ambiguousRootByName);
     const isRoot = rootByName || key === rootKey || sameSiteAsRoot;
     const hitRelation: CorporateTreeRelation = hit.relation === 'root' && !isRoot ? 'other_country' : hit.relation;
     if (seen.has(key) || (isRoot && seen.has(rootKey))) continue;
@@ -251,7 +262,8 @@ export function planCorporateTreeWrites(params: {
       continue;
     }
     const node = nodeByKey.get(key) ?? null;
-    if (hit.confirmation === 'needs_claude' && !node && !isRoot) {
+    const unconfirmed = hit.confirmation === 'needs_claude' || (ambiguousRootByName && hit.relation === 'root');
+    if (unconfirmed && !node && !isRoot) {
       unconfirmedDropped++;
       continue;
     }

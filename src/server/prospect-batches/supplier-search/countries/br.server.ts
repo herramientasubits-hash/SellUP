@@ -45,6 +45,7 @@ import {
 import { BR_CATMAT_CLASSIFIER, BR_CATMAT_MACRO_TABLE_VERSION, brCatalogFamily } from './br-catmat-macro-table';
 import type { CountryLookups } from './loaded-lookups.server';
 
+/** Entidades candidatas que se leen por nombre; más ⇒ lista cortada ⇒ el paso no corre. */
 const ENTITY_QUERY_LIMIT = 25;
 const ORGAO_TIMEOUT_MS = 8_000;
 const COMPRAS_PAGE_SIZE = 500;
@@ -324,16 +325,21 @@ export function buildBrLookups(
         .eq('source_key', 'br_receita_registry')
         .like('normalized_legal_name', `${normalizedName.replace(/[%_]/g, '')}%`)
         .like('raw_data->>natureza_juridica', '1%')
-        .limit(ENTITY_QUERY_LIMIT);
+        // Orden fijo y una fila de más para saber si el tope cortó la lista (⇒ ambigua).
+        .order('normalized_legal_name', { ascending: true })
+        .order('normalized_tax_id', { ascending: true })
+        .limit(ENTITY_QUERY_LIMIT + 1);
       if (error) {
         logError('find entities', error);
         return [];
       }
-      return ((data ?? []) as Array<Record<string, unknown>>).flatMap((row): PublicEntityRow[] => {
+      const found = (data ?? []) as Array<Record<string, unknown>>;
+      const rows = found.slice(0, ENTITY_QUERY_LIMIT).flatMap((row): PublicEntityRow[] => {
         const taxId = text(row.normalized_tax_id);
         const name = text(row.normalized_legal_name);
         return taxId && name ? [{ taxId, normalizedLegalName: name, shortName: null, isHead: false }] : [];
       });
+      return { rows, truncated: found.length > ENTITY_QUERY_LIMIT };
     },
 
     listSuppliers: async ({ buyerTaxId, macroIndustryKey, nowIso }): Promise<PublicBuyerSuppliersResult> => {

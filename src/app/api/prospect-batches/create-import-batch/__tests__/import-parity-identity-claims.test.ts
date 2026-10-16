@@ -33,6 +33,8 @@ const spy = {
   drainCalls: 0,
   /** La validación (simulada) deja estos candidatos con enriquecimiento `pending`. */
   pendingEnrichment: false,
+  /** AGENT1-AUDIT-WS5 — cuántas RPC de reclamo había cuando arrancó la validación, y sus opciones. */
+  validationCalls: [] as Array<{ rpcCallsBefore: number; options: Row | undefined }>,
 };
 
 function resetSpy(): void {
@@ -43,6 +45,7 @@ function resetSpy(): void {
   spy.afterCallbacks.length = 0;
   spy.drainCalls = 0;
   spy.pendingEnrichment = false;
+  spy.validationCalls.length = 0;
 }
 
 const ACTIVE_ELSEWHERE: Row[] = [
@@ -141,10 +144,21 @@ function makeSession(): unknown {
                 : r.metadata,
             }));
         });
-        chain.insert = (row: Row) => {
-          spy.candidateInserts.push({ ...row });
-          const id = `cand-${spy.candidateInserts.length}`;
-          return { select: () => ({ single: async () => ({ data: { id }, error: null }) }) };
+        // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — la ruta inserta en bloque
+        // (array + `.select()` sin `.single()`); se aceptan las dos formas.
+        chain.insert = (rowOrRows: Row | Row[]) => {
+          const rows = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
+          const created = rows.map((row) => {
+            spy.candidateInserts.push({ ...row });
+            return { id: `cand-${spy.candidateInserts.length}`, status: row.status, metadata: row.metadata };
+          });
+          const result = { data: Array.isArray(rowOrRows) ? created : created[0], error: null };
+          return {
+            select: () => ({
+              single: async () => ({ data: created[0], error: null }),
+              then: (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(result).then(ok, ko),
+            }),
+          };
         };
         return chain;
       }
@@ -194,7 +208,12 @@ mock.module('@/server/prospect-batches/official-source-resolvers', {
 });
 
 mock.module('@/modules/prospect-batches/actions', {
-  namedExports: { validateImportedCandidatesBatch: async () => ({ success: true }) },
+  namedExports: {
+    validateImportedCandidatesBatch: async (_b: string, _u: string, _c: unknown, options?: Row) => {
+      spy.validationCalls.push({ rpcCallsBefore: spy.rpcCalls.length, options });
+      return { success: true };
+    },
+  },
 });
 mock.module('@/modules/prospect-batches/import-catalog-loader', {
   namedExports: {
@@ -220,20 +239,24 @@ function company(name: string, website: string, extra: Row = {}): Row {
 }
 
 async function importRows(candidates: Row[]): Promise<{ status: number; body: Row }> {
+  return importRaw({
+    import_type: 'csv',
+    candidates,
+    recognized_columns: ['company_name', 'country_code', 'industry', 'website'],
+    unrecognized_columns: [],
+    total_rows: candidates.length,
+    valid_rows: candidates.length,
+    invalid_rows: 0,
+    warning_rows: 0,
+  });
+}
+
+async function importRaw(payload: unknown): Promise<{ status: number; body: Row }> {
   const { POST } = await import('../route');
   const request = new Request('https://app.test/api/prospect-batches/create-import-batch', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      import_type: 'csv',
-      candidates,
-      recognized_columns: ['company_name', 'country_code', 'industry', 'website'],
-      unrecognized_columns: [],
-      total_rows: candidates.length,
-      valid_rows: candidates.length,
-      invalid_rows: 0,
-      warning_rows: 0,
-    }),
+    body: JSON.stringify(payload),
   });
   const response = await POST(request as never);
   return { status: response.status, body: (await response.json()) as Row };
@@ -352,5 +375,67 @@ describe('AGENT1-IMPORT-PARITY-1 — admisión por identidad en la ruta de impor
       global_claims_degraded: false,
       claimed_elsewhere: 1,
     });
+  });
+});
+
+describe('AGENT1-AUDIT-WS5 — contrato, correcciones manuales y orden reclamo → validación', () => {
+  beforeEach(resetSpy);
+
+  it('una industria corregida a mano en la revisión entra con el id y el nombre del catálogo', async () => {
+    const { status, body } = await importRows([
+      company('Acme SAS', 'acme.co', { industry: 'Industria que no existe', industry_id: '00000000-0000-4000-8000-0000000000a1' }),
+    ]);
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.success, true);
+    const [inserted] = spy.candidateInserts;
+    assert.equal(inserted.industry_id, '00000000-0000-4000-8000-0000000000a1');
+    assert.equal(inserted.industry, 'Tecnología');
+    assert.equal((inserted.import_classification as Row).industryMatchSource, 'manual');
+  });
+
+  it('sin la corrección, la misma fila sigue bloqueada (422) y con un mensaje legible', async () => {
+    const { status, body } = await importRows([company('Acme SAS', 'acme.co', { industry: 'Industria que no existe' })]);
+    assert.equal(status, 422);
+    assert.equal(body.code, 'classification_review_required');
+    assert.match(String(body.message), /requiere revisión de industria/);
+    assert.equal(spy.candidateInserts.length, 0);
+  });
+
+  it('un id de industria que no está en el catálogo se rechaza sin crear nada', async () => {
+    const { status, body } = await importRows([company('Acme SAS', 'acme.co', { industry_id: 'id-inventado' })]);
+    assert.equal(status, 422);
+    assert.equal(body.code, 'invalid_classification_override');
+    assert.equal(spy.candidateInserts.length, 0);
+  });
+
+  it('más de 500 filas ⇒ 400 antes de crear el lote', async () => {
+    const rows = Array.from({ length: 501 }, (_, i) => company(`Empresa ${i}`, ''));
+    const { status, body } = await importRows(rows);
+    assert.equal(status, 400);
+    assert.equal(body.code, 'invalid_import_input');
+    assert.equal(spy.candidateInserts.length, 0);
+  });
+
+  it('país no soportado o fila sin nombre ⇒ 400', async () => {
+    assert.equal((await importRows([company('Acme', 'acme.co', { country_code: 'ZZ' })])).status, 400);
+    assert.equal((await importRows([company('  ', 'acme.co')])).status, 400);
+    assert.equal((await importRaw('no es json de importación')).status, 400);
+  });
+
+  it('el reclamo global ocurre JUSTO después de insertar, antes de la validación con plazo', async () => {
+    await importRows([company('Uno SAS', 'uno.co'), company('Dos SAS', 'dos.co')]);
+    assert.equal(spy.validationCalls.length, 1);
+    assert.equal(spy.validationCalls[0].rpcCallsBefore, 1, 'la RPC de reclamo ya corrió');
+    const options = spy.validationCalls[0].options as Row;
+    assert.equal(typeof options.deadlineAtMs, 'number');
+    assert.deepEqual(options.candidateOrder, ['cand-1', 'cand-2']);
+  });
+
+  it('las filas se insertan en un solo bloque con su número de fila', async () => {
+    await importRows([company('Uno SAS', 'uno.co'), company('Dos SAS', 'dos.co')]);
+    assert.deepEqual(
+      spy.candidateInserts.map((r) => (r.metadata as Row).import_row_number),
+      [1, 2],
+    );
   });
 });

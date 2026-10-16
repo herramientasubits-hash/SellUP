@@ -266,7 +266,16 @@ function roundUsd(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-/** Une cada fila del lote con su fila planeada (nombre × país; si no, dominio). */
+/** Vías en que la `domain` de la fila es la web PROPIA de la empresa (no la del grupo). */
+const OWN_DOMAIN_ROUTES: ReadonlySet<CorporateTreePlannedRow['route']> = new Set(['agent1_writer', 'free_catalog']);
+
+/**
+ * Une cada fila del lote con su fila planeada: primero por nombre × país; si no, por dominio
+ * × país, pero SÓLO las filas escritas con su web propia. Una referencia del grupo lleva la
+ * web del grupo (Zenú y Colcafé con gruponutresa.com): por dominio se unía a la empresa de
+ * partida, la etiquetaba como filial y desaparecía del lote. Un candidato nunca se une a dos
+ * filas.
+ */
 export function matchPlannedRows(
   rows: readonly CorporateTreePlannedRow[],
   candidates: readonly CorporateTreeBatchCandidate[],
@@ -280,11 +289,58 @@ export function matchPlannedRows(
     if (c.domain && !byDomain.has(`${c.domain}|${c.country_code ?? ''}`)) byDomain.set(`${c.domain}|${c.country_code ?? ''}`, c);
   }
   const matched = new Map<string, CorporateTreeBatchCandidate>();
+  const usedCandidateIds = new Set<string>();
+  const link = (row: CorporateTreePlannedRow, candidate: CorporateTreeBatchCandidate | undefined) => {
+    if (!candidate || usedCandidateIds.has(candidate.id)) return;
+    matched.set(row.key, candidate);
+    usedCandidateIds.add(candidate.id);
+  };
+  for (const row of rows) link(row, byKey.get(row.key));
   for (const row of rows) {
-    const candidate = byKey.get(row.key) ?? (row.domain ? byDomain.get(`${row.domain}|${row.countryCode ?? ''}`) : undefined);
-    if (candidate) matched.set(row.key, candidate);
+    if (matched.has(row.key) || !row.domain || row.groupWebsite || !OWN_DOMAIN_ROUTES.has(row.route)) continue;
+    link(row, byDomain.get(`${row.domain}|${row.countryCode ?? ''}`));
   }
   return matched;
+}
+
+/**
+ * Pasada la hora límite de escritura, cuánto más se espera a una escritura YA empezada. Luego
+ * la corrida deja de esperarla y va a sellar: la función muere a los 300 s y un lote sin
+ * sellar queda «en curso» para siempre.
+ */
+export const CORPORATE_TREE_WRITE_GRACE_MS = 20_000;
+/**
+ * Pasada la hora límite de escritura, lo más que se espera antes de sellar (lectura del lote,
+ * etiquetas, asociaciones). Con la hora límite de la ruta (240 s) el sellado empieza a más
+ * tardar a los 275 s.
+ */
+export const CORPORATE_TREE_SEAL_START_GRACE_MS = 35_000;
+/** El mayor plazo que acepta `setTimeout` (más que eso dispara enseguida). */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * Espera a `promise` hasta `deadlineAtMs`; si no termina, sigue sin ella (`settled: false`).
+ * No la cancela: lo que no se esperó se anota y la corrida cierra el lote a tiempo.
+ */
+export async function settleBy<T>(
+  promise: Promise<T>,
+  deadlineAtMs: number,
+  nowMs: () => number,
+): Promise<{ settled: true; value: T } | { settled: false }> {
+  const remainingMs = deadlineAtMs - nowMs();
+  if (remainingMs <= 0) {
+    promise.catch(() => undefined);
+    return { settled: false };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ settled: false }>((resolve) => {
+    timer = setTimeout(() => resolve({ settled: false }), Math.min(remainingMs, MAX_TIMER_MS));
+  });
+  try {
+    return await Promise.race([promise.then((value) => ({ settled: true as const, value })), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type ClaudePhase = {
@@ -334,11 +390,17 @@ async function runClaudePhase(
 }
 
 
-async function withGroupTaxIds(plan: CorporateTreeWritePlan, deps: CorporateTreeRunDeps): Promise<CorporateTreeWritePlan> {
+async function withGroupTaxIds(
+  plan: CorporateTreeWritePlan,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeWritePlan> {
   const pendingKeys = plan.rows.filter((row) => row.route === 'group_reference' && plan.groupCompanies.has(row.key)).map((row) => row.key);
-  if (pendingKeys.length === 0) return plan;
+  if (pendingKeys.length === 0 || !deps.fillOfficialTaxIds || deps.nowMs() >= deadlineAtMs) return plan;
   const companies = pendingKeys.map((key) => plan.groupCompanies.get(key) as CountrySourceCompany);
-  const filled = deps.fillOfficialTaxIds ? await deps.fillOfficialTaxIds(companies).catch(() => companies) : companies;
+  // Sin respuesta antes de la hora límite, siguen como referencia: escribir y sellar va primero.
+  const lookup = await settleBy(deps.fillOfficialTaxIds(companies).catch(() => companies), deadlineAtMs, deps.nowMs);
+  const filled = lookup.settled ? lookup.value : companies;
   const byKey = new Map<string, CountrySourceCompany>();
   pendingKeys.forEach((key, index) => {
     const company = filled[index];
@@ -377,9 +439,14 @@ async function withKnownCompanies(
   for (let i = 0; i < pending.length; i += KNOWN_CHECK_CONCURRENCY) {
     if (deps.nowMs() >= deadlineAtMs) break;
     const slice = pending.slice(i, i + KNOWN_CHECK_CONCURRENCY);
-    const found = await Promise.all(
-      slice.map((row) => deps.findKnownCompany!({ name: row.name, countryCode: row.countryCode }).catch(() => null)),
+    const answered = await settleBy(
+      Promise.all(slice.map((row) => deps.findKnownCompany!({ name: row.name, countryCode: row.countryCode }).catch(() => null))),
+      deadlineAtMs,
+      deps.nowMs,
     );
+    // Sin respuesta a tiempo: las que faltan siguen su camino (van al rescate como siempre).
+    if (!answered.settled) break;
+    const found = answered.value;
     slice.forEach((row, index) => {
       const match = found[index];
       // Con su ficha de HubSpot: así el lote y la ficha pueden decir «Ya en HubSpot» (o
@@ -411,19 +478,36 @@ async function writePlan(
     errors.push(`time_budget:${what}`);
     return true;
   };
+  // Una escritura empezada justo antes de la hora límite tampoco puede comerse el sellado:
+  // se espera hasta la gracia y, si no terminó, se anota como pendiente y se sigue.
+  const waitUntilMs = deadlineAtMs + CORPORATE_TREE_WRITE_GRACE_MS;
+  const bounded = async <T>(what: string, write: Promise<T>): Promise<T | null> => {
+    const outcome = await settleBy(write, waitUntilMs, deps.nowMs);
+    if (outcome.settled) return outcome.value;
+    errors.push(`time_budget:${what}:pending`);
+    return null;
+  };
   // Uno a uno por país: el escritor adopta el lote y aplica las compuertas del país.
   for (const [code, companies] of plan.freeCatalog) {
     if (outOfTime(`free_catalog:${code}`)) continue;
-    const result = await deps.writeFreeCatalog(batchId, countryOf(code), companies).catch(() => ({ written: 0, failed: true }));
+    const result = await bounded(
+      `free_catalog:${code}`,
+      deps.writeFreeCatalog(batchId, countryOf(code), companies).catch(() => ({ written: 0, failed: true })),
+    );
+    if (!result) continue;
     written += result.written;
     if (result.failed) errors.push(`free_catalog:${code}`);
   }
   for (const [code, items] of plan.web) {
     if (outOfTime(`writer:${code}`)) continue;
-    const result = await deps.writeWeb(batchId, countryOf(code), items).catch((err: unknown) => ({
-      written: 0,
-      errors: [err instanceof Error ? err.message : String(err)],
-    }));
+    const result = await bounded(
+      `writer:${code}`,
+      deps.writeWeb(batchId, countryOf(code), items).catch((err: unknown) => ({
+        written: 0,
+        errors: [err instanceof Error ? err.message : String(err)],
+      })),
+    );
+    if (!result) continue;
     written += result.written;
     errors.push(...result.errors.map((e) => `writer:${code}:${e}`.slice(0, 200)));
     // Por qué el escritor no escribió cada una (Prod 15-10: Purina, HSBC Bank USA… sin motivo).
@@ -439,16 +523,16 @@ async function writePlan(
     notWritten.push(...countryNotWritten);
     const ownershipRejected = countryNotWritten.filter((n) => n.domain && n.reason.startsWith('company_ownership'));
     if (ownershipRejected.length > 0 && deps.recordOwnershipRejected && !outOfTime(`ownership_rejected:${code}`)) {
-      await deps.recordOwnershipRejected(batchId, code, ownershipRejected).catch(() => 0);
+      await bounded(`ownership_rejected:${code}`, deps.recordOwnershipRejected(batchId, code, ownershipRejected).catch(() => 0));
     }
   }
   for (const [code, items] of plan.possibleDuplicates) {
     if (outOfTime(`possible_duplicate:${code}`) || !deps.recordPossibleDuplicates) continue;
-    await deps.recordPossibleDuplicates(batchId, code, items).catch(() => 0);
+    await bounded(`possible_duplicate:${code}`, deps.recordPossibleDuplicates(batchId, code, items).catch(() => 0));
   }
   for (const [code, companies] of plan.withoutWebsite) {
     if (outOfTime(`without_website:${code}`)) continue;
-    withoutWebsite += await deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0);
+    withoutWebsite += (await bounded(`without_website:${code}`, deps.recordWithoutWebsite(batchId, code, companies).catch(() => 0))) ?? 0;
   }
   return { written, withoutWebsite, errors, notWritten };
 }
@@ -547,7 +631,7 @@ async function runAfterReservation(
   // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
   const withKnown = await withKnownCompanies(planCorporateTreeWrites({ root, freeHits: free.hits, nodes }), deps, context.writeDeadlineAtMs);
-  const withGroupFiscal = await withGroupTaxIds(withKnown, deps);
+  const withGroupFiscal = await withGroupTaxIds(withKnown, deps, context.writeDeadlineAtMs);
   const apollo = await withApolloFamily(
     withGroupFiscal,
     root,
@@ -559,12 +643,15 @@ async function runAfterReservation(
   const plan = apollo.plan;
   const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
-  // 5. Rama de cada fila y asociaciones.
+  // 5. Rama de cada fila y asociaciones. Todo acotado: lo que no termine antes del sellado
+  //    se deja (el lote se sella igual; sin lectura no se sella como vacío).
   deps.report('tree_saving');
-  const loaded = await deps.loadBatchCandidates(batchId).catch(() => null);
+  const sealStartAtMs = context.writeDeadlineAtMs + CORPORATE_TREE_SEAL_START_GRACE_MS;
+  const loadedOutcome = await settleBy(deps.loadBatchCandidates(batchId).catch(() => null), sealStartAtMs, deps.nowMs);
+  const loaded = loadedOutcome.settled ? loadedOutcome.value : null;
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
-  await Promise.all(
+  const tagging = Promise.all(
     plan.rows.map(async (row) => {
       const candidate = matched.get(row.key);
       if (!candidate) return;
@@ -581,9 +668,14 @@ async function runAfterReservation(
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
   );
-  await deps
-    .insertRelationships(buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }))
-    .catch(() => false);
+  await settleBy(tagging, sealStartAtMs, deps.nowMs);
+  await settleBy(
+    deps
+      .insertRelationships(buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }))
+      .catch(() => false),
+    sealStartAtMs,
+    deps.nowMs,
+  );
 
   // 6. Sellado y rescate.
   const inReview = candidates.filter((c) => c.status === 'needs_review').length;

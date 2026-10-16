@@ -10,6 +10,10 @@
  *
  * Nunca lanza: un fallo deja la corrida sin aporte gratuito (Claude en la web
  * hace el resto).
+ *
+ * Auditoría 16-10: una vez por corrida se carga lo que se sabe de la referencia
+ * (NIT de su cuenta o del registro, su grupo en `agent1_company_relationships`)
+ * para el filtro previo al juez; si esa lectura falla, sólo se apaga su regla.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -27,11 +31,18 @@ import {
   buildReferenceNamePattern,
   COMPETITOR_BANK_DRAW_LIMIT,
   isExactReferenceRow,
+  loadCompetitorReferenceExclusion,
   shouldResolveReferenceActivityCodes,
   pickReferenceActivityCodes,
   selectCompetitorBankCandidates,
   selectCompetitorCompanies,
+  tallyCompetitorJudge,
+  withRealCompetitorJudgedCount,
   type CompetitorJudgeContext,
+  type CompetitorJudgeTally,
+  type CompetitorPrefilterReason,
+  type CompetitorReferenceExclusionReader,
+  type CompetitorReferenceRelationshipRow,
 } from './competitor-free-sources';
 
 /** Filas del registro que se miran para reconocer a la referencia. */
@@ -50,16 +61,18 @@ export type CompetitorFreeSourcesInput = {
 
 
 /**
- * CIIU de la referencia en el registro colombiano, sólo si una fila ES la
- * referencia (misma web o mismo nombre completo) y sólo los códigos de la
- * industria elegida. Vacío ⇒ se lee por toda la macro, como siempre.
+ * La referencia en el registro colombiano, sólo si una fila ES la referencia
+ * (misma web o mismo nombre completo): sus CIIU de la industria elegida (vacío ⇒
+ * se lee por toda la macro, como siempre) y su NIT (para no ofrecerla al juez con
+ * otro nombre).
  */
-export async function resolveCoReferenceActivityCodes(
+export async function resolveCoReferenceRegistry(
   reference: Pick<CompetitorReference, 'name' | 'domain'>,
   macroIndustryKey: string | null,
-): Promise<string[]> {
+): Promise<{ activityCodes: string[]; taxIds: string[] }> {
+  const none = { activityCodes: [], taxIds: [] };
   const macroCodes = listCoCiiuCodesForMacro(macroIndustryKey);
-  if (macroCodes.length === 0) return [];
+  if (macroCodes.length === 0) return none;
   try {
     const client = createSupabaseAdminClient();
     const pattern = buildReferenceNamePattern(reference.name);
@@ -67,21 +80,101 @@ export async function resolveCoReferenceActivityCodes(
       ...(reference.domain ? [`raw_data->>website_domain.eq."${reference.domain}"`] : []),
       ...(pattern ? [`normalized_legal_name.ilike."${pattern}"`] : []),
     ];
-    if (filters.length === 0) return [];
+    if (filters.length === 0) return none;
     const { data, error } = await client
       .from('source_company_snapshots')
-      .select('legal_name, website_domain:raw_data->>website_domain, ciiu:raw_data->>CIIU')
+      .select('legal_name, tax_id, website_domain:raw_data->>website_domain, ciiu:raw_data->>CIIU')
       .eq('source_key', CO_SIIS_SNAPSHOT_SOURCE_KEY)
       .or(filters.join(','))
       .limit(REFERENCE_LOOKUP_LIMIT);
-    if (error || !data) return [];
-    const rows = (data as Array<{ legal_name: string | null; website_domain: string | null; ciiu: string | null }>).filter(
-      (row) => isExactReferenceRow(reference, { legalName: row.legal_name, websiteDomain: row.website_domain }),
-    );
-    return pickReferenceActivityCodes(rows, macroCodes, normalizeCoCiiuCode);
+    if (error || !data) return none;
+    const rows = (
+      data as Array<{ legal_name: string | null; tax_id: string | null; website_domain: string | null; ciiu: string | null }>
+    ).filter((row) => isExactReferenceRow(reference, { legalName: row.legal_name, websiteDomain: row.website_domain }));
+    return {
+      activityCodes: pickReferenceActivityCodes(rows, macroCodes, normalizeCoCiiuCode),
+      taxIds: [...new Set(rows.map((row) => row.tax_id).filter((taxId): taxId is string => !!taxId))],
+    };
   } catch {
-    return [];
+    return none;
   }
+}
+
+/** CIIU de la referencia (ver `resolveCoReferenceRegistry`). */
+export async function resolveCoReferenceActivityCodes(
+  reference: Pick<CompetitorReference, 'name' | 'domain'>,
+  macroIndustryKey: string | null,
+): Promise<string[]> {
+  return (await resolveCoReferenceRegistry(reference, macroIndustryKey)).activityCodes;
+}
+
+const RELATIONSHIP_COLUMNS = 'root_name, root_domain, root_account_id, related_name, related_domain';
+/** Filas del árbol que se miran por referencia (y por sus matrices). */
+const RELATIONSHIP_LOOKUP_LIMIT = 300;
+/** Sólo dominios limpios entran a un filtro de PostgREST (sin comas ni paréntesis). */
+const SAFE_DOMAIN_PATTERN = /^[a-z0-9.-]+$/;
+
+/**
+ * Lecturas reales de la exclusión (cliente de servicio): cuenta de la referencia y
+ * `agent1_company_relationships` (migración 148). Cualquier error se lanza y
+ * `loadCompetitorReferenceExclusion` lo convierte en «regla apagada».
+ */
+export function buildCompetitorReferenceExclusionReader(injected?: SupabaseClient): CompetitorReferenceExclusionReader {
+  // Perezoso: si el cliente de servicio no se puede crear, la lectura lanza DENTRO
+  // del cargador (que lo anota y apaga la regla), nunca al armar la corrida.
+  let cached: SupabaseClient | null = injected ?? null;
+  const db = (): SupabaseClient => (cached ??= createSupabaseAdminClient() as unknown as SupabaseClient);
+  return {
+    readAccountTaxId: async (accountId) => {
+      const { data, error } = await db()
+        .from('accounts')
+        .select('tax_identifier, country_code')
+        .eq('id', accountId)
+        .maybeSingle();
+      if (error) throw new Error(`competitor_reference_account_read_failed:${error.message}`);
+      const row = data as { tax_identifier: string | null; country_code: string | null } | null;
+      return row ? { taxId: row.tax_identifier, countryCode: row.country_code } : null;
+    },
+    readRelationships: async ({ domain, accountId }) => {
+      const filters = [
+        ...(domain && SAFE_DOMAIN_PATTERN.test(domain) ? [`root_domain.eq.${domain}`, `related_domain.eq.${domain}`] : []),
+        ...(accountId ? [`root_account_id.eq.${accountId}`] : []),
+      ];
+      if (filters.length === 0) return [];
+      const { data, error } = await db()
+        .from('agent1_company_relationships')
+        .select(RELATIONSHIP_COLUMNS)
+        .or(filters.join(','))
+        .limit(RELATIONSHIP_LOOKUP_LIMIT);
+      if (error) throw new Error(`competitor_reference_relationships_read_failed:${error.message}`);
+      return (data ?? []) as CompetitorReferenceRelationshipRow[];
+    },
+    readRelationshipsByRootDomains: async (rootDomains) => {
+      const safe = rootDomains.filter((d) => SAFE_DOMAIN_PATTERN.test(d));
+      if (safe.length === 0) return [];
+      const { data, error } = await db()
+        .from('agent1_company_relationships')
+        .select(RELATIONSHIP_COLUMNS)
+        .in('root_domain', safe)
+        .limit(RELATIONSHIP_LOOKUP_LIMIT);
+      if (error) throw new Error(`competitor_reference_relationships_read_failed:${error.message}`);
+      return (data ?? []) as CompetitorReferenceRelationshipRow[];
+    },
+  };
+}
+
+/** Cuenta los descartes del filtro previo por motivo (telemetría). */
+export function createCompetitorPrefilterCounter(): {
+  onPrefiltered: (reason: CompetitorPrefilterReason) => void;
+  counts: () => Partial<Record<CompetitorPrefilterReason, number>>;
+} {
+  const counts: Partial<Record<CompetitorPrefilterReason, number>> = {};
+  return {
+    onPrefiltered: (reason) => {
+      counts[reason] = (counts[reason] ?? 0) + 1;
+    },
+    counts: () => ({ ...counts }),
+  };
 }
 
 export async function runCompetitorFreeSourcesLive(
@@ -89,11 +182,25 @@ export async function runCompetitorFreeSourcesLive(
   input: CompetitorFreeSourcesInput,
 ): Promise<CompetitorFreeSourcesOutcome | null> {
   try {
-    const activityCodes =
-      shouldResolveReferenceActivityCodes(input.countryCode, input.reference)
-        ? await resolveCoReferenceActivityCodes(input.reference, input.macroIndustryKey)
-        : [];
-    const judgeLive = buildLiveCompetitorJudge(input.userId);
+    const registry = shouldResolveReferenceActivityCodes(input.countryCode, input.reference)
+      ? await resolveCoReferenceRegistry(input.reference, input.macroIndustryKey)
+      : { activityCodes: [], taxIds: [] };
+    const activityCodes = registry.activityCodes;
+    // Una sola vez por corrida: NIT (cuenta o registro) y grupo de la referencia.
+    const referenceExclusion = await loadCompetitorReferenceExclusion(
+      input.reference,
+      buildCompetitorReferenceExclusionReader(),
+      { withAccountTaxId: true, taxIds: registry.taxIds.map((taxId) => ({ taxId, countryCode: 'CO' })) },
+    );
+    const prefilter = createCompetitorPrefilterCounter();
+    const prefilterOptions = { exclusion: referenceExclusion.exclusion, onPrefiltered: prefilter.onPrefiltered };
+    const judgeTally: CompetitorJudgeTally = {};
+    const liveJudge = buildLiveCompetitorJudge(input.userId);
+    // El juez de cada fuente anota lo que juzgó de verdad (telemetría `competitor_selection`).
+    const judgeFor = (source: 'free_layer' | 'company_bank' | 'hubspot_free_pool') =>
+      tallyCompetitorJudge(judgeTally, source, (judgeInput) =>
+        liveJudge({ ...judgeInput, batchId: input.batchId, source }),
+      );
     const context: CompetitorJudgeContext = {
       reference: input.reference,
       countryName: input.countryName,
@@ -114,9 +221,7 @@ export async function runCompetitorFreeSourcesLive(
       resolveBatchId: async () => input.batchId,
       ...(activityCodes.length > 0 ? { activityCodes } : {}),
       selectFreeCompanies: (companies) =>
-        selectCompetitorCompanies(companies, context, (judgeInput) =>
-          judgeLive({ ...judgeInput, batchId: input.batchId, source: 'free_layer' }),
-        ),
+        selectCompetitorCompanies(companies, context, judgeFor('free_layer'), prefilterOptions),
       ...(bank
         ? {
             drawCompanyBank: (drawInput) =>
@@ -124,9 +229,7 @@ export async function runCompetitorFreeSourcesLive(
                 ...drawInput,
                 drawLimit: COMPETITOR_BANK_DRAW_LIMIT,
                 selectCandidates: (candidates) =>
-                  selectCompetitorBankCandidates(candidates, context, (judgeInput) =>
-                    judgeLive({ ...judgeInput, batchId: input.batchId, source: 'company_bank' }),
-                  ),
+                  selectCompetitorBankCandidates(candidates, context, judgeFor('company_bank'), prefilterOptions),
               }),
           }
         : {}),
@@ -137,9 +240,7 @@ export async function runCompetitorFreeSourcesLive(
                 ...drawInput,
                 drawLimit: COMPETITOR_BANK_DRAW_LIMIT,
                 selectCandidates: (candidates) =>
-                  selectCompetitorBankCandidates(candidates, context, (judgeInput) =>
-                    judgeLive({ ...judgeInput, batchId: input.batchId, source: 'hubspot_free_pool' }),
-                  ),
+                  selectCompetitorBankCandidates(candidates, context, judgeFor('hubspot_free_pool'), prefilterOptions),
               }),
           }
         : {}),
@@ -147,7 +248,13 @@ export async function runCompetitorFreeSourcesLive(
     return {
       persistedCount: outcome.persistedCount,
       acceptedCount: outcome.acceptedBeforeProvider,
-      telemetry: { ...outcome.telemetry, reference_activity_codes: activityCodes },
+      telemetry: {
+        ...withRealCompetitorJudgedCount(outcome.telemetry, judgeTally),
+        reference_activity_codes: activityCodes,
+        competitor_judge_by_source: judgeTally,
+        competitor_prefiltered: prefilter.counts(),
+        reference_exclusion: referenceExclusion.telemetry,
+      },
     };
   } catch (err) {
     console.error('[competitor-free-sources] failed (non-critical):', err instanceof Error ? err.message : err);

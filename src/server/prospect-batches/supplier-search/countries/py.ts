@@ -9,7 +9,7 @@
  * Industria por UNSPSC (tabla aprobada, la de Paraguay); web del directorio DNCP.
  */
 
-import { normalizePublicEntityName } from '../public-buyer-suppliers';
+import { isConsortiumSupplierName, normalizePublicEntityName } from '../public-buyer-suppliers';
 import { UNSPSC_CLASSIFIER } from '../unspsc-classifier';
 import type { LoadedCountrySource } from './types';
 
@@ -19,7 +19,6 @@ export const PY_MIN_PAIR_AMOUNT_PYG = 78_000_000;
 
 /** RUC de persona jurídica con dígito verificador (≥ 80.000.000; menor = persona física). */
 const COMPANY_RUC = /^80\d{6}-\d$/;
-const CONSORTIUM_NAME = /^\s*["'«]?\s*CONSORCIO\b/;
 const PUBLIC_ENTITY_NAME =
   /^(MINISTERIO|MUNICIPALIDAD|GOBERNACION|SECRETARIA|ADMINISTRACION NACIONAL|UNIVERSIDAD NACIONAL|INSTITUTO DE PREVISION SOCIAL|PETROLEOS PARAGUAYOS|COMPANIA PARAGUAYA DE COMUNICACIONES|EMPRESA DE SERVICIOS SANITARIOS DEL PARAGUAY|INDUSTRIA NACIONAL DEL CEMENTO|DIRECCION NACIONAL|BANCO CENTRAL DEL PARAGUAY|BANCO NACIONAL DE FOMENTO|CORTE SUPREMA|CONGRESO|PODER JUDICIAL|ITAIPU|ENTIDAD BINACIONAL YACYRETA)\b/;
 
@@ -29,7 +28,7 @@ export function pyCompanySupplier(rawId: unknown, rawName: unknown): { ruc: stri
   const name = typeof rawName === 'string' ? rawName.replace(/\s+/g, ' ').trim() : '';
   if (!COMPANY_RUC.test(ruc) || !name) return null;
   const upper = normalizePublicEntityName(name);
-  if (CONSORTIUM_NAME.test(upper) || PUBLIC_ENTITY_NAME.test(upper)) return null;
+  if (isConsortiumSupplierName(name) || PUBLIC_ENTITY_NAME.test(upper)) return null;
   return { ruc, name };
 }
 

@@ -81,6 +81,12 @@ import {
 } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
+  IMPORT_VALIDATION_CONCURRENCY,
+  memoizeAsync,
+  orderByIds,
+  runBoundedWithDeadline,
+} from './import-validation-scheduler';
+import {
   IMPORT_ADMISSION_METADATA_KEY,
   resolveImportExistingCompanyDuplicate,
 } from '@/server/prospect-batches/import-identity-admission';
@@ -3619,11 +3625,152 @@ interface ActionsCandidateMeta {
   tax_identifier_lookup?: Record<string, unknown>;
 }
 
+/**
+ * AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — opciones de la validación post-import.
+ *   · `deadlineAtMs`: después de este instante no se EMPIEZAN filas nuevas; las
+ *     que no alcanzaron quedan `pending_revalidation` (nunca a medias).
+ *   · `candidateOrder`: ids en el orden del archivo. La inserción ahora es en
+ *     bloque (mismo `created_at` para todo el bloque), así que el orden por
+ *     fecha ya no basta para que el tope de IA sea determinístico.
+ */
+interface ValidateImportedCandidatesOptions {
+  deadlineAtMs?: number | null;
+  candidateOrder?: readonly string[] | null;
+}
+
+/** Lo que la fase de red lee de cada candidato importado. */
+interface ImportCandidateRow {
+  id: string;
+  name: string;
+  website: string | null;
+  domain: string | null;
+  country_code: string | null;
+  tax_identifier: string | null;
+  source_primary: string | null;
+  normalized_name: string | null;
+  metadata: unknown;
+}
+
+type ImportCandidateDetection =
+  | { failed: true }
+  | {
+      failed: false;
+      currentMetadata: ActionsCandidateMeta;
+      linkedinUrl: string | null;
+      taxIdentifierCandidate: string | null;
+      lookupAttempted: boolean;
+      lookupOutcome: 'success' | 'fail' | 'provider_not_configured' | 'none';
+      lookupCandidatesFound: number;
+      lookupBestCandidateFound: boolean;
+      dupResult: Awaited<ReturnType<typeof detectCandidateDuplicates>>;
+    };
+
+/** Fase de red de una fila: búsqueda de NIT (si aplica) + duplicados SellUp/HubSpot. */
+async function detectImportedCandidate(
+  candidate: ImportCandidateRow,
+  ctx: { supabase: SupabaseClient; userId: string; isColombiaProviderConfigured: () => Promise<boolean> },
+): Promise<ImportCandidateDetection> {
+  try {
+    const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
+    const linkedinUrl = candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url || null;
+
+    // Búsqueda automática de NIT (Socrata/RUES) si aplica
+    let taxIdentifierCandidate: string | null = null;
+    const currentMetadata = { ...candidateMeta };
+    let lookupAttempted = false;
+    let lookupOutcome: 'success' | 'fail' | 'provider_not_configured' | 'none' = 'none';
+    let lookupCandidatesFound = 0;
+    let lookupBestCandidateFound = false;
+
+    const isCO = candidate.country_code?.toUpperCase() === 'CO';
+    const hasNoTaxId = !candidate.tax_identifier || candidate.tax_identifier.trim() === '';
+    const isExternalImport = candidate.source_primary === 'external_import';
+    const hasCompanyName = !!candidate.name && candidate.name.trim().length > 0;
+
+    const lookup = currentMetadata.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined;
+    const hasValidLookup =
+      !!lookup &&
+      lookup.status !== 'failed' &&
+      (lookup.best_candidate !== undefined ||
+       lookup.best_candidate_skip_reason !== undefined);
+
+    if (isCO && hasNoTaxId && isExternalImport && hasCompanyName && !hasValidLookup) {
+      lookupAttempted = true;
+      // Una sola consulta de disponibilidad por petición (antes: una por fila).
+      const isProviderConfigured = await ctx.isColombiaProviderConfigured();
+      if (isProviderConfigured) {
+        try {
+          const lookupResult = await lookupTaxIdentifierForCandidate({
+            candidateId: candidate.id,
+            userId: ctx.userId,
+            supabase: ctx.supabase,
+          });
+          if (lookupResult.success && lookupResult.lookup) {
+            lookupOutcome = 'success';
+            currentMetadata.tax_identifier_lookup = lookupResult.lookup as unknown as Record<string, unknown>;
+            const bestCandidate = lookupResult.lookup.best_candidate;
+            if (bestCandidate) {
+              taxIdentifierCandidate = bestCandidate.normalized_tax_identifier;
+              lookupBestCandidateFound = true;
+            }
+            lookupCandidatesFound = lookupResult.lookup.candidates?.length ?? 0;
+          } else {
+            lookupOutcome = 'fail';
+          }
+        } catch (lookupErr) {
+          lookupOutcome = 'fail';
+          console.error(`[validateImportedCandidatesBatch] Automated NIT lookup failed for candidate ${candidate.id}:`, lookupErr);
+        }
+      } else {
+        lookupOutcome = 'provider_not_configured';
+      }
+    } else if (hasValidLookup && lookup) {
+      const bestCandidate = lookup.best_candidate;
+      if (bestCandidate) {
+        taxIdentifierCandidate = bestCandidate.normalized_tax_identifier as string | null;
+      }
+    }
+
+    // --- Detección universal de duplicados ---
+    const dupResult = await detectCandidateDuplicates({
+      supabase: ctx.supabase,
+      candidate: {
+        id: candidate.id,
+        name: candidate.name,
+        website: candidate.website,
+        domain: candidate.domain,
+        country_code: candidate.country_code,
+        tax_identifier: candidate.tax_identifier,
+        tax_identifier_candidate: taxIdentifierCandidate,
+        normalized_name: candidate.normalized_name,
+        linkedin_url: linkedinUrl,
+      },
+      includeHubSpot: true,
+    });
+
+    return {
+      failed: false,
+      currentMetadata,
+      linkedinUrl,
+      taxIdentifierCandidate,
+      lookupAttempted,
+      lookupOutcome,
+      lookupCandidatesFound,
+      lookupBestCandidateFound,
+      dupResult,
+    };
+  } catch (candErr) {
+    console.error(`Error validando candidato ${candidate.id}:`, candErr);
+    return { failed: true };
+  }
+}
+
 export async function validateImportedCandidatesBatch(
   batchId: string,
   userId: string,
-  supabaseClient?: SupabaseClient
-): Promise<{ success: boolean; error?: string }> {
+  supabaseClient?: SupabaseClient,
+  options?: ValidateImportedCandidatesOptions,
+): Promise<{ success: boolean; error?: string; pendingRevalidationCount?: number }> {
   try {
     const supabase = supabaseClient || (await createClient());
 
@@ -3644,16 +3791,18 @@ export async function validateImportedCandidatesBatch(
     }
 
     // 3. Cargar candidates — en orden de inserción (= orden del archivo), para
-    // que el tope de IA (AGENT1-IMPORT-PARITY-9) sea determinístico.
-    const { data: candidates, error: candidatesError } = await supabase
+    // que el tope de IA (AGENT1-IMPORT-PARITY-9) sea determinístico. Con
+    // `candidateOrder` (inserción en bloque) manda el orden explícito.
+    const { data: loadedCandidates, error: candidatesError } = await supabase
       .from('prospect_candidates')
       .select('*')
       .eq('batch_id', batchId)
       .order('created_at', { ascending: true });
 
-    if (candidatesError || !candidates) {
+    if (candidatesError || !loadedCandidates) {
       return { success: false, error: `Error al cargar candidatos: ${candidatesError?.message}` };
     }
+    const candidates = orderByIds(loadedCandidates, options?.candidateOrder);
 
     let validated_candidates = 0;
     let sellup_matches_count = 0;
@@ -3676,84 +3825,44 @@ export async function validateImportedCandidatesBatch(
     let lookup_used_for_duplicate_detection = false;
     let autoEnrichQueuedCount = 0;
 
-    for (const candidate of candidates) {
+    // 3a. Fase de red, con concurrencia acotada y plazo (AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1).
+    const isColombiaProviderConfigured = memoizeAsync(checkIsColombiaProviderConfigured);
+    const detection = await runBoundedWithDeadline(
+      candidates,
+      (candidate) => detectImportedCandidate(candidate, { supabase, userId, isColombiaProviderConfigured }),
+      { concurrency: IMPORT_VALIDATION_CONCURRENCY, deadlineAtMs: options?.deadlineAtMs ?? null },
+    );
+
+    // 3b. Decisiones en el orden del archivo (contadores y tope de IA
+    // determinísticos); las escrituras se arman aquí y se aplican en 3c.
+    const writes: Array<() => Promise<void>> = [];
+
+    for (let index = 0; index < candidates.length; index++) {
+      const candidate = candidates[index];
+      const detected = detection.results.get(index);
+      if (!detected) continue; // no alcanzó el plazo: se marca abajo
+      if (detected.failed) {
+        failed_count++;
+        continue;
+      }
       try {
+        const { currentMetadata, linkedinUrl, taxIdentifierCandidate, dupResult } = detected;
         const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
-        const linkedinUrl = candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url || null;
 
-        // Búsqueda automática de NIT (Socrata/RUES) si aplica
-        let taxIdentifierCandidate: string | null = null;
-        const currentMetadata = { ...candidateMeta };
-
-        const isCO = candidate.country_code?.toUpperCase() === 'CO';
-        const hasNoTaxId = !candidate.tax_identifier || candidate.tax_identifier.trim() === '';
-        const isExternalImport = candidate.source_primary === 'external_import';
-        const hasCompanyName = !!candidate.name && candidate.name.trim().length > 0;
-
-        const lookup = currentMetadata.tax_identifier_lookup as TaxIdentifierLookupMetadata | undefined;
-        const hasValidLookup =
-          !!lookup &&
-          lookup.status !== 'failed' &&
-          (lookup.best_candidate !== undefined ||
-           lookup.best_candidate_skip_reason !== undefined);
-
-        if (isCO && hasNoTaxId && isExternalImport && hasCompanyName && !hasValidLookup) {
-          lookup_attempted = true;
-          const isProviderConfigured = await checkIsColombiaProviderConfigured();
-          if (isProviderConfigured) {
-            try {
-              const lookupResult = await lookupTaxIdentifierForCandidate({
-                candidateId: candidate.id,
-                userId,
-                supabase,
-              });
-              if (lookupResult.success && lookupResult.lookup) {
-                lookup_success_count++;
-                currentMetadata.tax_identifier_lookup = lookupResult.lookup as unknown as Record<string, unknown>;
-                const bestCandidate = lookupResult.lookup.best_candidate;
-                if (bestCandidate) {
-                  taxIdentifierCandidate = bestCandidate.normalized_tax_identifier;
-                  lookup_best_candidate_found = true;
-                }
-                const count = lookupResult.lookup.candidates?.length ?? 0;
-                lookup_total_candidates_found += count;
-              } else {
-                lookup_fail_count++;
-              }
-            } catch (lookupErr) {
-              lookup_fail_count++;
-              console.error(`[validateImportedCandidatesBatch] Automated NIT lookup failed for candidate ${candidate.id}:`, lookupErr);
-            }
-          } else {
-            lookup_reason_skipped = 'provider_not_configured';
-          }
-        } else if (hasValidLookup && lookup) {
-          const bestCandidate = lookup.best_candidate;
-          if (bestCandidate) {
-            taxIdentifierCandidate = bestCandidate.normalized_tax_identifier as string | null;
-          }
+        if (detected.lookupAttempted) lookup_attempted = true;
+        if (detected.lookupOutcome === 'success') {
+          lookup_success_count++;
+          lookup_total_candidates_found += detected.lookupCandidatesFound;
+          if (detected.lookupBestCandidateFound) lookup_best_candidate_found = true;
+        } else if (detected.lookupOutcome === 'fail') {
+          lookup_fail_count++;
+        } else if (detected.lookupOutcome === 'provider_not_configured') {
+          lookup_reason_skipped = 'provider_not_configured';
         }
 
         if (taxIdentifierCandidate) {
           lookup_used_for_duplicate_detection = true;
         }
-
-        // --- Detección universal de duplicados ---
-        const dupResult = await detectCandidateDuplicates({
-          supabase,
-          candidate: {
-            id: candidate.id,
-            name: candidate.name,
-            website: candidate.website,
-            domain: candidate.domain,
-            country_code: candidate.country_code,
-            tax_identifier: candidate.tax_identifier,
-            tax_identifier_candidate: taxIdentifierCandidate,
-            normalized_name: candidate.normalized_name,
-            linkedin_url: linkedinUrl,
-          },
-          includeHubSpot: true,
-        });
 
         // Actualizar contadores de batch HubSpot
         if (dupResult.hubspot_connected) {
@@ -3893,32 +4002,28 @@ export async function validateImportedCandidatesBatch(
           },
         };
 
-        // Actualizar candidato
-        await supabase
-          .from('prospect_candidates')
-          .update({
-            ...(existingCompanyReason !== null && !wasDuplicateOnImport ? { status: 'duplicate' } : {}),
-            duplicate_status: effectiveDuplicateStatus,
-            matched_account_id: dupResult.db_matched_account_id,
-            matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
-            confidence_score: dupResult.db_confidence_score,
-            metadata: existingCompanyReason !== null && !wasDuplicateOnImport
-              ? {
-                  ...updatedMetadataWithEnrichment,
-                  [IMPORT_ADMISSION_METADATA_KEY]: {
-                    decision: 'duplicate',
-                    reason: existingCompanyReason,
-                  },
-                }
-              : updatedMetadataWithEnrichment,
-          })
-          .eq('id', candidate.id);
+        const candidateUpdate = {
+          ...(existingCompanyReason !== null && !wasDuplicateOnImport ? { status: 'duplicate' } : {}),
+          duplicate_status: effectiveDuplicateStatus,
+          matched_account_id: dupResult.db_matched_account_id,
+          matched_hubspot_company_id: dupResult.db_matched_hubspot_company_id,
+          confidence_score: dupResult.db_confidence_score,
+          metadata: existingCompanyReason !== null && !wasDuplicateOnImport
+            ? {
+                ...updatedMetadataWithEnrichment,
+                [IMPORT_ADMISSION_METADATA_KEY]: {
+                  decision: 'duplicate',
+                  reason: existingCompanyReason,
+                },
+              }
+            : updatedMetadataWithEnrichment,
+        };
 
-        // Registrar o actualizar el trabajo de enriquecimiento automático de forma duradera en la base de datos
-        if (eligibility.status === 'pending') {
-          const { error: jobErr } = await supabase
-            .from('prospect_enrichment_jobs')
-            .upsert({
+        // Registrar o actualizar el trabajo de enriquecimiento automático de forma duradera en la base de datos.
+        // Si el candidato no es elegible, se registra como omitido (skipped) para tener trazabilidad duradera.
+        const isEnrichmentPending = eligibility.status === 'pending';
+        const enrichmentJob: Record<string, unknown> = isEnrichmentPending
+          ? {
               candidate_id: candidate.id,
               import_source: candidate.source_primary || 'external_import',
               user_id: userId,
@@ -3934,18 +4039,8 @@ export async function validateImportedCandidatesBatch(
               metadata: {
                 batch_id: batchId,
               },
-            }, {
-              onConflict: 'candidate_id'
-            });
-
-          if (jobErr) {
-            console.error(`[validateImportedCandidatesBatch] Error creating enrichment job for candidate ${candidate.id}:`, jobErr);
-          }
-        } else {
-          // Si el candidato no es elegible, registramos el trabajo como omitido (skipped) para tener trazabilidad duradera
-          const { error: jobErr } = await supabase
-            .from('prospect_enrichment_jobs')
-            .upsert({
+            }
+          : {
               candidate_id: candidate.id,
               import_source: candidate.source_primary || 'external_import',
               user_id: userId,
@@ -3962,14 +4057,26 @@ export async function validateImportedCandidatesBatch(
                 batch_id: batchId,
                 skip_reason: eligibility.reason || 'No elegible',
               },
-            }, {
-              onConflict: 'candidate_id'
-            });
+            };
+
+        writes.push(async () => {
+          // Actualizar candidato
+          const { error: updateErr } = await supabase
+            .from('prospect_candidates')
+            .update(candidateUpdate)
+            .eq('id', candidate.id);
+          if (updateErr) {
+            console.error(`[validateImportedCandidatesBatch] Error updating candidate ${candidate.id}:`, updateErr);
+          }
+
+          const { error: jobErr } = await supabase
+            .from('prospect_enrichment_jobs')
+            .upsert(enrichmentJob, { onConflict: 'candidate_id' });
 
           if (jobErr) {
-            console.error(`[validateImportedCandidatesBatch] Error skipping enrichment job for candidate ${candidate.id}:`, jobErr);
+            console.error(`[validateImportedCandidatesBatch] Error ${isEnrichmentPending ? 'creating' : 'skipping'} enrichment job for candidate ${candidate.id}:`, jobErr);
           }
-        }
+        });
 
         validated_candidates++;
       } catch (candErr) {
@@ -3977,6 +4084,36 @@ export async function validateImportedCandidatesBatch(
         failed_count++;
       }
     }
+
+    // 3c. Filas que no alcanzaron el plazo: se marcan para revalidar (no se
+    // dejan como si se hubieran validado). Ni enriquecimiento ni duplicado.
+    const pendingRevalidationIds = detection.skippedIndexes.map((i) => candidates[i].id as string);
+    for (const index of detection.skippedIndexes) {
+      const candidate = candidates[index];
+      writes.push(async () => {
+        const { error: pendingErr } = await supabase
+          .from('prospect_candidates')
+          .update({
+            metadata: {
+              ...((candidate.metadata as Record<string, unknown> | null) ?? {}),
+              validation: {
+                validation_source: 'post_import_auto',
+                validation_status: 'pending_revalidation',
+                pending_reason: 'import_deadline',
+                marked_at: new Date().toISOString(),
+              },
+            },
+          })
+          .eq('id', candidate.id);
+        if (pendingErr) {
+          console.error(`[validateImportedCandidatesBatch] Error marking candidate ${candidate.id} for revalidation:`, pendingErr);
+        }
+      });
+    }
+
+    // Las escrituras ya están decididas: se aplican con la misma concurrencia
+    // acotada y SIN plazo (son rápidas y dejarlas a medias es peor).
+    await runBoundedWithDeadline(writes, (write) => write(), { concurrency: IMPORT_VALIDATION_CONCURRENCY });
 
     // 4. Actualizar metadata del lote
     const batchMeta = (batch.metadata || {}) as Record<string, unknown>;
@@ -4034,6 +4171,8 @@ export async function validateImportedCandidatesBatch(
       no_match_count,
       warnings_count,
       failed_count,
+      // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — filas que quedaron para revalidar.
+      pending_revalidation_count: pendingRevalidationIds.length,
       hubspot_status: hubspotStatusForBatch,
       tax_identifier_auto_lookup,
     };
@@ -4058,7 +4197,7 @@ export async function validateImportedCandidatesBatch(
       console.warn('[validateImportedCandidatesBatch] revalidatePath skipped/failed:', revalErr);
     }
 
-    return { success: true };
+    return { success: true, pendingRevalidationCount: pendingRevalidationIds.length };
   } catch (err) {
     console.error('Error en validateImportedCandidatesBatch:', err);
     return { success: false, error: err instanceof Error ? err.message : 'Error desconocido' };
