@@ -5,7 +5,7 @@
  * AUDIT-HARDENING-1 (seguimiento del PR #731, decisión de la dueña 16-10).
  *
  * Problema: el paso de compras públicas resuelve la referencia contra el registro de
- * entidades (`_registry`) por el NOMBRE OFICIAL (exacto, o su comienzo). Una sigla
+ * entidades (`co_public_entities`) por el NOMBRE OFICIAL (exacto, o su comienzo). Una sigla
  * nunca es el comienzo del nombre oficial: «ICBF» no encuentra «INSTITUTO COLOMBIANO
  * DE BIENESTAR FAMILIAR», «SENA» no encuentra «SERVICIO NACIONAL DE APRENDIZAJE»,
  * «DIAN» no encuentra la «UNIDAD ADMINISTRATIVA ESPECIAL DIRECCION DE IMPUESTOS Y
@@ -14,20 +14,30 @@
  *
  * Qué hace esta tabla: traduce la sigla al nombre oficial ANTES de buscar. No decide
  * la entidad: sólo cambia el texto que se busca. La elección sigue siendo la de
- * siempre (`_pickPublicBuyer`): una sola entidad, o ninguna; si el nombre oficial
- * coincidiera con varias, el paso responde `_ambiguous_entity` y no corre. Peor caso:
+ * siempre (`pickPublicBuyer`): una sola entidad, o ninguna; si el nombre oficial
+ * coincidiera con varias, el paso responde `ambiguous_entity` y no corre. Peor caso:
  * no hay coincidencia y todo queda como hoy.
  *
  * De dónde sale: los nombres y NIT se leyeron del dataset público SIGEP II de
  * datos.gov.co (h8rs-jxum) el 16-10-2026. Sólo entran entidades con UN NIT limpio de
  * 9 dígitos, sin NIT repetido con otra entidad y sin nombre dañado. El NIT va aquí
- * como PRUEBA para quien revisa y para `_verify-co-entity-aliases.ts`; la búsqueda
+ * como PRUEBA para quien revisa y para `scripts/agent1/verify-co-entity-aliases.ts`; la búsqueda
  * no lo usa. Las entidades con NIT sucio en el SIGEP (Ministerio del Trabajo,
  * Vivienda, Defensa, DPS, Ejército, Armada, UPTC…) se dejaron fuera a propósito:
  * hay que revisarlas a mano contra el registro cargado.
  *
+ * Verificado contra el registro de Producción el 16-10-2026 (consulta SQL equivalente
+ * a `scripts/agent1/verify-co-entity-aliases.ts`): 85 de 87 resolvieron a su NIT.
+ * Quedaron fuera las dos que no:
+ *   · Ministerio de Salud (MinSalud): su NIT choca en el SIGEP con el del Ministerio
+ *     del Trabajo («8301152263» = 830115226 + un dígito) y en el registro cargado el
+ *     nombre resuelve a OTRA entidad (900474727). Una sigla que lleva a la entidad
+ *     equivocada es lo único realmente dañino.
+ *   · INPEC: el registro tiene dos candidatas con ese nombre y ninguna cabeza, así
+ *     que el paso no correría igual.
+ *
  * Para agregar una: la sigla debe ser de USO COMÚN y apuntar a UNA sola entidad;
- * correr `_verify-co-entity-aliases.ts` (sólo lectura) y comprobar que resuelve a
+ * correr `scripts/agent1/verify-co-entity-aliases.ts` (sólo lectura) y comprobar que resuelve a
  * ese NIT.
  *
  * Puro: sin red ni base.
@@ -44,7 +54,6 @@ export type CoEntityAlias = {
 
 export const CO_PUBLIC_ENTITY_ALIASES: readonly CoEntityAlias[] = [
   { aliases: ['MINHACIENDA', 'MHCP'], officialName: 'MINISTERIO DE HACIENDA Y CREDITO PUBLICO', nit: '899999090' },
-  { aliases: ['MINSALUD'], officialName: 'MINISTERIO DE SALUD Y PROTECCION SOCIAL', nit: '830115226' },
   { aliases: ['MINEDUCACION'], officialName: 'MINISTERIO DE EDUCACION NACIONAL', nit: '899999001' },
   { aliases: ['MINTIC'], officialName: 'MINISTERIO DE TECNOLOGIAS DE LA INFORMACION Y LAS COMUNICACIONES', nit: '899999053' },
   { aliases: ['MININTERIOR'], officialName: 'MINISTERIO DEL INTERIOR', nit: '830114475' },
@@ -76,7 +85,6 @@ export const CO_PUBLIC_ENTITY_ALIASES: readonly CoEntityAlias[] = [
   { aliases: ['ICETEX'], officialName: 'INSTITUTO COLOMBIANO DE CREDITO EDUCATIVO Y ESTUDIOS TECNICOS EN EL EXTERIOR', nit: '899999035' },
   { aliases: ['ICFES'], officialName: 'INSTITUTO COLOMBIANO PARA LA EVALUACION DE LA EDUCACION', nit: '860024301' },
   { aliases: ['ICA'], officialName: 'INSTITUTO COLOMBIANO AGROPECUARIO', nit: '899999069' },
-  { aliases: ['INPEC'], officialName: 'INSTITUTO NACIONAL PENITENCIARIO Y CARCELARIO', nit: '800546215' },
   { aliases: ['MIGRACION COLOMBIA'], officialName: 'UNIDAD ADMINISTRATIVA ESPECIAL MIGRACION COLOMBIA', nit: '900477235' },
   { aliases: ['UNGRD'], officialName: 'UNIDAD NACIONAL PARA LA GESTION DEL RIESGO DE DESASTRES', nit: '900478966' },
   { aliases: ['UARIV'], officialName: 'UNIDAD ADMINISTRATIVA ESPECIAL PARA LA ATENCION Y REPARACION INTEGRAL A LAS VICTIMAS', nit: '900490473' },

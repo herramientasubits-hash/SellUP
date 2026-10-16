@@ -468,7 +468,7 @@ export const CATALOG_SOURCES: CatalogSource[] = [
       'La industria del proveedor es la de lo que le vende a esa entidad, no la de toda su actividad.',
       'Chile (ChileCompra) queda para cuando haya ticket de la API de Mercado Público.',
       'AUDIT-HARDENING-1: fuera consorcios y uniones temporales (no son una empresa a la que venderle) y contratos con estado «Cancelado»; el NIT se agrupa sin dígito de verificación pero se consulta con las formas crudas que guarda SECOP.',
-      'AUDIT-HARDENING-1: si el nombre de la referencia casa con demasiadas entidades se responde «entidad ambigua» en vez de elegir una de una lista cortada. Las siglas de las entidades nacionales más nombradas (ICBF, SENA, DIAN, ministerios, superintendencias, universidades públicas…) se traducen a su nombre oficial con una tabla curada de unas 90 (co-entity-aliases.ts, nombres y NIT del SIGEP II); una sigla fuera de la tabla, o de una entidad regional o local, sigue sin casar: hay que escribir el nombre de la entidad.',
+      'AUDIT-HARDENING-1: si el nombre de la referencia casa con demasiadas entidades se responde «entidad ambigua» en vez de elegir una de una lista cortada. Las siglas de las entidades nacionales más nombradas (ICBF, SENA, DIAN, ministerios, superintendencias, universidades públicas…) se traducen a su nombre oficial con una tabla curada de 85 (co-entity-aliases.ts, nombres y NIT del SIGEP II); una sigla fuera de la tabla, o de una entidad regional o local, sigue sin casar: hay que escribir el nombre de la entidad.',
     ],
     riskNotes: [
       'Nunca se piden ni se guardan cuentas bancarias, banco ni representante legal de SECOP: la consulta nombra sólo NIT, nombre, monto, fecha, código UNSPSC y página del proceso.',
