@@ -151,3 +151,46 @@ describe('AUDIT-A1-WS7 — rescate + banco', () => {
     assert.deepEqual(buildBankPipelineOutput({ ...base, subindustries: ['Ciberseguridad'] }).input.subindustries, ['Ciberseguridad']);
   });
 });
+
+describe('AUDIT-A1-WS7 — «juzgadas» en la telemetría de Competidores', () => {
+  const base = {
+    provider: 'apollo',
+    countryCode: 'CO',
+    countryName: 'Colombia',
+    macroIndustryKey: 'technology',
+    requestedTarget: TARGET,
+    requestedByUserId: 'u-1',
+    partialGapSupported: true,
+    resolveBatchId: async () => 'b-canon',
+  };
+
+  it('si el juez falla, no juzgó ninguna (antes contaba todas las aceptadas por la puerta)', async () => {
+    const out = await runPrePaidNoveltyDiscovery(
+      {} as unknown as SupabaseClient,
+      { ...base, selectFreeCompanies: async () => null } as Parameters<typeof runPrePaidNoveltyDiscovery>[1],
+      deps([company(1, 'e1.com.co'), company(2, 'e2.com.co')]),
+    );
+    assert.deepEqual(out.telemetry['competitor_selection'], {
+      gate_accepted: 2,
+      judged: 0,
+      selected: 0,
+      selection_failed: true,
+    });
+  });
+
+  it('con juez, juzgadas = las que vio y elegidas = las que devolvió', async () => {
+    const companies = [company(1, 'e1.com.co'), company(2, 'e2.com.co'), company(3, 'e3.com.co')];
+    const out = await runPrePaidNoveltyDiscovery(
+      {} as unknown as SupabaseClient,
+      {
+        ...base,
+        selectFreeCompanies: async (list: readonly CountrySourceCompany[]) => [list[0]],
+      } as Parameters<typeof runPrePaidNoveltyDiscovery>[1],
+      deps(companies),
+    );
+    const selection = out.telemetry['competitor_selection'] as Record<string, unknown>;
+    assert.equal(selection.judged, 3);
+    assert.equal(selection.selected, 1);
+    assert.equal(selection.selection_failed, false);
+  });
+});

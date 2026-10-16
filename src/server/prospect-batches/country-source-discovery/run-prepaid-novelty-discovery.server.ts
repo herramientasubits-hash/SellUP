@@ -73,6 +73,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { COMPETITOR_JUDGE_MAX_ITEMS } from '@/server/agents/prospecting-toolkit/claude-classifier/competitor-judge';
 import {
   notAttemptedFreeSourceOutcome,
   withFreeSourcePersistenceOutcome,
@@ -603,11 +604,22 @@ async function runFreeCatalogLayer(
   }
 
   // «Competidores» — sólo las que el juez elige; si no pudo elegir, ninguna.
-  const selectedCompanies = input.selectFreeCompanies
-    ? (await input.selectFreeCompanies(gate.acceptedCompanies).catch(() => null)) ?? []
-    : gate.acceptedCompanies;
+  const picked = input.selectFreeCompanies
+    ? await input.selectFreeCompanies(gate.acceptedCompanies).catch(() => null)
+    : null;
+  const selectedCompanies = input.selectFreeCompanies ? picked ?? [] : gate.acceptedCompanies;
+  // AUDIT-A1-WS7 — «juzgadas» = lo que el juez vio de verdad: nada si falló (o no
+  // había nada que juzgar) y como mucho su tope de ítems. Antes se contaban todas
+  // las aceptadas por la puerta y la telemetría de Competidores salía inflada.
   const selectionTelemetry = input.selectFreeCompanies
-    ? { competitor_selection: { judged: gate.acceptedCompanies.length, selected: selectedCompanies.length } }
+    ? {
+        competitor_selection: {
+          gate_accepted: gate.acceptedCompanies.length,
+          judged: picked === null ? 0 : Math.min(gate.acceptedCompanies.length, COMPETITOR_JUDGE_MAX_ITEMS),
+          selected: selectedCompanies.length,
+          selection_failed: picked === null && gate.acceptedCompanies.length > 0,
+        },
+      }
     : {};
 
   if (selectedCompanies.length === 0) {

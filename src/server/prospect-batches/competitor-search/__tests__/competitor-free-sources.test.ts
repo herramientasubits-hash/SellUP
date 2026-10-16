@@ -436,7 +436,14 @@ describe('N — capa gratuita en Competidores', () => {
     assert.deepEqual(h.persisted[0].map((c) => c.recordIdentityKey), ['siis:2']);
     assert.equal(out.persistedCount, 1);
     assert.equal(out.residualGap, 4, 'sólo lo GUARDADO cierra hueco');
-    assert.deepEqual(out.telemetry['competitor_selection'], { judged: 3, selected: 1 });
+    // AUDIT-A1-WS7 — «juzgadas» es lo que el juez vio (0 si falla); se añaden lo
+    // aceptado por la puerta y si la selección falló.
+    assert.deepEqual(out.telemetry['competitor_selection'], {
+      gate_accepted: 3,
+      judged: 3,
+      selected: 1,
+      selection_failed: false,
+    });
   });
 
   it('N2: 🔴 juez caído ⇒ no se escribe NADA (nunca una empresa sin filtrar)', async () => {
