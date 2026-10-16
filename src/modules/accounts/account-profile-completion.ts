@@ -235,18 +235,25 @@ export interface HubSpotFillInput {
   current: Partial<Record<'pais' | 'country' | 'industriaespecifica', string | null>>;
   /** Lo que SellUp acaba de completar. */
   country: string | null;
+  /**
+   * AGENT1-COUNTRY-IDENTITY-1 — el valor interno de `pais` en HubSpot para ese
+   * país, si se conoce. `pais` tiene opciones propias («Bolivia (Estado
+   * Plurinacional de)», «República Dominicana») que no coinciden con la etiqueta
+   * de SellUp; sin él se escribe la etiqueta, como antes.
+   */
+  pais?: string | null;
   industry: string | null;
 }
 
 /**
  * Propiedades a escribir en HubSpot: sólo las que están vacías allá. `pais` (propiedad de
- * UBITS) y `country` (estándar) reciben el mismo nombre; la industria va a la Macro industria
- * (`industriaespecifica`).
+ * UBITS) recibe su valor interno cuando se conoce y `country` (estándar) el nombre de SellUp;
+ * la industria va a la Macro industria (`industriaespecifica`).
  */
 export function buildHubSpotFillProperties(input: HubSpotFillInput): Record<string, string> {
   const properties: Record<string, string> = {};
   if (input.country) {
-    if (isBlank(input.current.pais)) properties.pais = input.country;
+    if (isBlank(input.current.pais)) properties.pais = input.pais || input.country;
     if (isBlank(input.current.country)) properties.country = input.country;
   }
   if (input.industry && isBlank(input.current.industriaespecifica)) {

@@ -219,3 +219,31 @@ describe('§ 3 — lo ambiguo no rechaza', () => {
     );
   });
 });
+
+// ─── § 4 · AGENT1-COUNTRY-IDENTITY-1 ──────────────────────────────────────────
+
+describe('§ 4 — huecos de identidad por país (auditoría 16-10)', () => {
+  it('US: `.edu` es nativo de Estados Unidos', () => {
+    const result = evaluateCountryCompatibility('https://www.mit.edu', 'US');
+    assert.equal(result.compatible, true);
+    assert.equal(result.reason, 'native_tld:.edu');
+  });
+
+  it('US: «usaquen» (barrio de Bogotá) no es una señal de ruta de Estados Unidos', () => {
+    const result = evaluateCountryCompatibility('https://acme.com/sedes/usaquen', 'US');
+    assert.notEqual(result.reason.includes('path'), true);
+  });
+
+  it('US: `/usa/` en la ruta sigue siendo señal de Estados Unidos', () => {
+    const result = evaluateCountryCompatibility('https://acme.com/usa/', 'US');
+    assert.equal(result.compatible, true);
+    assert.equal(result.confidence, 'high');
+  });
+});
+
+describe('§ 5 — `.edu` desnudo fuera de Estados Unidos', () => {
+  it('ufm.edu (Guatemala) no se vuelve extranjera en una búsqueda de Guatemala', () => {
+    const result = evaluateCountryCompatibility('https://www.ufm.edu', 'GT');
+    assert.equal(result.compatible, true);
+  });
+});

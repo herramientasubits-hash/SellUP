@@ -239,6 +239,10 @@ function isSEOPhrase(name: string): boolean {
 /** Segundos niveles que los países ponen antes de su ccTLD (`com.bo`, `gob.pe`, `org.ar`…). */
 const COUNTRY_SECOND_LEVEL_LABELS: ReadonlySet<string> = new Set([
   'com', 'net', 'org', 'edu', 'gob', 'gov', 'mil', 'ac', 'co', 'nom', 'info', 'int', 'web', 'sld', 'gub',
+  // AGENT1-COUNTRY-IDENTITY-1 — Costa Rica: `go.cr` (Gobierno), `fi.cr`
+  // (financieras), `or.cr` (organizaciones), `ed.cr` (educación). Sin ellos
+  // `mep.go.cr` se leía como «Mep.go».
+  'go', 'fi', 'or', 'ed',
 ]);
 
 /**

@@ -54,10 +54,42 @@ const COUNTRY_CODE_MAP: Record<string, string> = {
   españa: 'ES',
 };
 
+/**
+ * AGENT1-COUNTRY-IDENTITY-1 — nombres que el mapa no conocía: la etiqueta del
+ * asistente («Rep. Dominicana», `LATAM_COUNTRIES`), el valor de `pais` en HubSpot
+ * («Bolivia (Estado Plurinacional de)») y abreviaturas de Estados Unidos.
+ */
+const EXTRA_COUNTRY_NAMES: Record<string, string> = {
+  'rep dominicana': 'DO',
+  'bolivia estado plurinacional de': 'BO',
+  usa: 'US',
+  eeuu: 'US',
+  'ee uu': 'US',
+  'united states of america': 'US',
+};
+
+/** Minúsculas, sin tildes y sin puntuación: «EE. UU.» y «ee uu» comparan igual. */
+function normalizeCountryKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const NORMALIZED_COUNTRY_CODE_MAP: ReadonlyMap<string, string> = new Map(
+  [...Object.entries(COUNTRY_CODE_MAP), ...Object.entries(EXTRA_COUNTRY_NAMES)].map(
+    ([name, code]) => [normalizeCountryKey(name), code],
+  ),
+);
+
 export function mapCountryToCode(country: string | null | undefined): string | null {
   if (!country) return null;
-  const key = country.trim().toLowerCase();
-  return COUNTRY_CODE_MAP[key] ?? null;
+  const exact = COUNTRY_CODE_MAP[country.trim().toLowerCase()];
+  if (exact) return exact;
+  return NORMALIZED_COUNTRY_CODE_MAP.get(normalizeCountryKey(country)) ?? null;
 }
 
 // ── Default SellUp search implementations ────────────────────

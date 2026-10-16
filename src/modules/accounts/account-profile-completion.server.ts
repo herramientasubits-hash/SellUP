@@ -25,6 +25,7 @@ import {
 } from '@/server/agents/prospecting-toolkit/claude-classifier/types';
 import { getCountryNameFromCode, readHubSpotCompanyProperties } from '@/server/integrations/hubspot-company-create';
 import { updateHubSpotCompanyProperties } from '@/server/integrations/hubspot-company-update';
+import { hubSpotPaisForCountryCode } from '@/server/integrations/hubspot-free-company-policy';
 import { readHubSpotCompanyContactLocations } from '@/server/integrations/hubspot-company-contact-locations';
 import {
   buildHubSpotFillProperties,
@@ -238,7 +239,12 @@ export async function completeAccountProfile(
     return unavailable;
   }
 
-  const hubspot = await writeBackToHubSpot(account, patch.country ?? null, patch.industry ?? null);
+  const hubspot = await writeBackToHubSpot(
+    account,
+    patch.country ?? null,
+    hubSpotPaisForCountryCode(patch.country_code),
+    patch.industry ?? null,
+  );
   return {
     status: filled.length > 0 ? 'updated' : 'nothing_found',
     filled,
@@ -250,6 +256,7 @@ export async function completeAccountProfile(
 async function writeBackToHubSpot(
   account: AccountRow,
   country: string | null,
+  pais: string | null,
   industry: string | null,
 ): Promise<CompleteAccountProfileResult['hubspot']> {
   if (!account.hubspot_company_id) return { status: 'not_linked', written: [] };
@@ -264,6 +271,7 @@ async function writeBackToHubSpot(
       industriaespecifica: current.properties.industriaespecifica ?? null,
     },
     country,
+    pais,
     industry,
   });
   if (Object.keys(properties).length === 0) return { status: 'nothing_to_write', written: [] };
