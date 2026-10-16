@@ -253,7 +253,28 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'genealog.cl',
   'mercantil.com',
   'boletinoficial.com',
+  // AUDIT-A1-WS7 — directorios que se colaban (el resto va por marca: ver
+  // `DIRECTORY_BRAND_LABELS`, que cubre las terminaciones de cada país).
+  'rues.org.co',
+  'bnamericas.com',
+  'cybo.com',
+  'informacolombia.com',
 ]);
+
+/**
+ * AUDIT-A1-WS7 — marcas de directorio con un dominio por país (doctoralia.com.co,
+ * tripadvisor.com.mx, mercadolibre.cl, mercadolivre.com.br, guialocal.com.co,
+ * infoempresa.com.pe…). Se reconocen por la etiqueta que precede al sufijo.
+ */
+const DIRECTORY_BRAND_LABELS = [
+  'doctoralia', 'tripadvisor', 'mercadolibre', 'mercadolivre', 'bnamericas', 'cybo',
+  'informacolombia', 'guialocal', 'infoempresa',
+];
+const DIRECTORY_BRAND_PATTERN = new RegExp(`(?:^|\\.)(?:${DIRECTORY_BRAND_LABELS.join('|')})\\.(?:(?:com?|org|net)\\.)?[a-z]{2,3}$`);
+
+export function isDirectoryBrandDomain(domain: string): boolean {
+  return DIRECTORY_BRAND_PATTERN.test(domain.toLowerCase());
+}
 
 /**
  * Bases de datos financieras y empresariales comerciales.
@@ -961,7 +982,7 @@ export function isProspectableCompanyResult(result: {
   }
 
   // 7c. Directorios genéricos (por dominio)
-  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
+  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS) || isDirectoryBrandDomain(domain)) {
     return {
       isProspectable: false,
       reason: `Directorio empresarial (${domain}) — no empresa prospectable`,
@@ -1196,7 +1217,7 @@ export function classifySearchResult(result: {
   }
 
   // 7. Directorios genéricos (por dominio)
-  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
+  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS) || isDirectoryBrandDomain(domain)) {
     return {
       resultType: 'directory',
       shouldKeep: false,
