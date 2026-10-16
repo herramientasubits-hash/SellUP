@@ -233,10 +233,17 @@ function newCountryAcc(): CountryAcc {
 
 const TOOL_ORDER: readonly CountryToolKey[] = ['total', ...COMPANY_TOOLS];
 
+/**
+ * Las empresas se cuentan por los lotes creados en el periodo; el costo tiene
+ * que salir de esos MISMOS lotes. Si no, una búsqueda creada antes del periodo
+ * que gastó dentro sumaba su costo sin sus aprobadas y el «costo por aprobada»
+ * salía inflado (sobre todo a principio de mes).
+ */
 export function aggregateCountryTools(
   outcomes: readonly CompanyOutcome[],
   discards: readonly ResolvedDiscard[],
   logs: readonly DimensionedLogRow[],
+  batchIdsInScope?: ReadonlySet<string>,
 ): CountryToolRow[] {
   const cells = new Map<string, CountryAcc>();
   const cellOf = (country: string | null, tool: CountryToolKey) => {
@@ -261,8 +268,9 @@ export function aggregateCountryTools(
   }
   for (const d of discards) both(d.countryCode, d.tool, (acc) => acc.discarded++);
   for (const log of logs) {
-    // Sólo el dinero que se puede poner en un país.
+    // Sólo el dinero que se puede poner en un país, de las búsquedas del periodo.
     if (!log.country_code) continue;
+    if (batchIdsInScope && (!log.batch_id || !batchIdsInScope.has(log.batch_id))) continue;
     both(log.country_code, providerTool(log.provider_key), (acc) => addMoney(acc.money, log.estimated_cost_usd));
   }
 
@@ -288,6 +296,21 @@ export function aggregateCountryTools(
     if (country !== 0) return country;
     return TOOL_ORDER.indexOf(a.tool) - TOOL_ORDER.indexOf(b.tool);
   });
+}
+
+/**
+ * Los filtros de Proveedor y Agente recortan el costo; las empresas tienen que
+ * recortarse igual. Con «Apollo», sólo las empresas que trajo Apollo; con un
+ * agente que no es el Agente 1, ninguna (las empresas son del Agente 1).
+ */
+export function scopeCompanyOutcomes<T extends { tool: CompanyTool }>(
+  rows: readonly T[],
+  filters: { providerKey?: string | null; agentKey?: string | null },
+): T[] {
+  if (filters.agentKey && filters.agentKey !== 'agent1') return [];
+  if (!filters.providerKey) return [...rows];
+  const tool = providerTool(filters.providerKey);
+  return rows.filter((r) => r.tool === tool);
 }
 
 /**

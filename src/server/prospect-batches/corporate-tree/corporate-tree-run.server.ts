@@ -149,6 +149,8 @@ export function buildCorporateTreeUsageLog(
     usage_key: `${CLAUDE_COMPANY_SEARCH_OPERATION_KEY}:${context.runId}:${outcome.branch}`,
     provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
     operation_key: CLAUDE_COMPANY_SEARCH_OPERATION_KEY,
+    agent_key: 'agent1',
+    agent_step: 'arbol_corporativo',
     model: outcome.usage.model,
     input_tokens: outcome.usage.inputTokens,
     output_tokens: outcome.usage.outputTokens,

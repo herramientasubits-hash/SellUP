@@ -112,6 +112,9 @@ async function classifyIndustry(
       usage_key: `account_profile_completion:${account.id}:${nowIso}`,
       provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
       operation_key: CLAUDE_CLASSIFIER_OPERATION_KEY,
+      // Mismo clasificador, pero es el módulo de empresas de HubSpot, no el Agente 1.
+      agent_key: 'accounts',
+      agent_step: 'completar_cuenta',
       model: result.usage.model,
       input_tokens: result.usage.inputTokens,
       output_tokens: result.usage.outputTokens,

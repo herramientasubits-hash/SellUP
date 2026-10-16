@@ -120,6 +120,9 @@ export async function resolveCompetitorReferenceAction(
     await logProviderUsage({
       provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
       operation_key: REFERENCE_OPERATION_KEY,
+      // Reutiliza la operación de «Claude busca empresas»: el paso se declara.
+      agent_key: 'agent1',
+      agent_step: 'competidores_referencia',
       model: outcome.usage.model,
       input_tokens: outcome.usage.inputTokens,
       output_tokens: outcome.usage.outputTokens,

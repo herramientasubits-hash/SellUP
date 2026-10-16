@@ -34,6 +34,9 @@ export async function runLiveImportAiExtraction(text: string, userId: string): P
     await logProviderUsage({
       provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
       operation_key: IMPORT_AI_EXTRACTION_OPERATION_KEY,
+      // Sin regla en la 147 ni ejecución: quedaba «Sin agente identificado».
+      agent_key: 'agent1',
+      agent_step: 'importar_ia',
       model: outcome.usage.model,
       input_tokens: outcome.usage.inputTokens,
       output_tokens: outcome.usage.outputTokens,

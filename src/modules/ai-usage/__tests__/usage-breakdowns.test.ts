@@ -37,6 +37,8 @@ import {
   aggregateSearchBatches,
   NO_GROUP_KEY,
   OTHER_STEP_KEY,
+  scopeCompanyOutcomes,
+  withAgent1CompanyOutcomes,
 } from '../usage-breakdowns';
 import {
   canSeeMoney,
@@ -374,5 +376,58 @@ describe('money-visibility — dólares sólo para administración y líderes', 
     ]);
     assert.equal(log.estimated_cost_usd, null);
     assert.deepEqual(log.metadata, { run_correlation: { billing_state: 'unknown' } });
+  });
+});
+
+// AI-USAGE-AUDIT-2 (16-10)
+describe('auditoría 2 — empresas y costo del mismo universo', () => {
+  it('las empresas libres de HubSpot son «HubSpot libre», no Tavily', () => {
+    assert.equal(candidateTool('web_ai', false, { hubspot_free_pool: { company_id: '123' } }), 'hubspot');
+    assert.equal(candidateTool('hubspot_recyclable', false), 'hubspot');
+    assert.equal(candidateTool('web_ai', false, null), 'web_ai');
+    assert.equal(candidateTool('chilecompra_chile', false), 'gratis');
+  });
+
+  it('Por país: sólo cuenta el costo de las búsquedas del periodo', () => {
+    const outcomes = resolveCompanyOutcomes(
+      [candidate({ id: 'c1', status: 'approved' })],
+      new Map([['b1', B1]]),
+      new Set(),
+    );
+    const logs = [enriched({ batch_id: 'b1', estimated_cost_usd: 2 }), enriched({ batch_id: 'b-old', estimated_cost_usd: 5 })];
+    const rows = aggregateCountryTools(outcomes, [], logs.map((l) => ({ ...l, country_code: 'CO' })), new Set(['b1']));
+    const total = rows.find((r) => r.countryCode === 'CO' && r.tool === 'total');
+    assert.equal(total?.costUsd, 2);
+    assert.equal(total?.approved, 1);
+    assert.equal(total?.costPerApprovedUsd, 2);
+  });
+
+  it('filtro de Proveedor o de otro agente recorta también las empresas', () => {
+    const rows = [{ tool: 'apollo' as const }, { tool: 'web_ai' as const }, { tool: 'gratis' as const }];
+    assert.deepEqual(scopeCompanyOutcomes(rows, { providerKey: 'apollo' }), [{ tool: 'apollo' }]);
+    assert.deepEqual(scopeCompanyOutcomes(rows, { agentKey: 'agent2a' }), []);
+    assert.equal(scopeCompanyOutcomes(rows, { agentKey: 'agent1' }).length, 3);
+  });
+
+  it('Resumen: Generados/Aprobados del Agente 1 salen de sus empresas reales', () => {
+    const agents = [
+      { agent_key: 'agent1', agent_name: null, total_executions: 2, completed_executions: 0, failed_executions: 0,
+        total_results_generated: 0, total_results_approved: 0, total_estimated_cost_usd: 4, has_unknown_cost: false, last_run_at: null },
+      { agent_key: 'agent2a', agent_name: null, total_executions: 1, completed_executions: 1, failed_executions: 0,
+        total_results_generated: 3, total_results_approved: 1, total_estimated_cost_usd: 1, has_unknown_cost: false, last_run_at: null },
+    ];
+    const countryTools = [
+      { id: 'CO:total', countryCode: 'CO', tool: 'total' as const, reachedReview: 5, approved: 2, converted: 0, withTaxId: 0,
+        withWebsite: 0, discarded: 0, costUsd: 4, hasUnknownCost: false, costPerApprovedUsd: 2 },
+      { id: 'CO:apollo', countryCode: 'CO', tool: 'apollo' as const, reachedReview: 5, approved: 2, converted: 0, withTaxId: 0,
+        withWebsite: 0, discarded: 0, costUsd: 4, hasUnknownCost: false, costPerApprovedUsd: 2 },
+      { id: 'PE:total', countryCode: 'PE', tool: 'total' as const, reachedReview: 1, approved: 1, converted: 1, withTaxId: 0,
+        withWebsite: 0, discarded: 0, costUsd: 0, hasUnknownCost: false, costPerApprovedUsd: 0 },
+    ];
+    const [a1, a2] = withAgent1CompanyOutcomes(agents, countryTools);
+    assert.equal(a1.total_results_generated, 6);
+    assert.equal(a1.total_results_approved, 3);
+    assert.equal(a2.total_results_generated, 3);
+    assert.deepEqual(withAgent1CompanyOutcomes(agents, null), agents);
   });
 });
