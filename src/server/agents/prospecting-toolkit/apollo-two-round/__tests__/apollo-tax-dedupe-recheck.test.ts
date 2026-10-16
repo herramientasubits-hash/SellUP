@@ -164,7 +164,9 @@ test('the tax tier is attempted BEFORE the weaker name tiers', async () => {
 
   const decoded = accountsRequests().map((r) => r.decoded);
   const taxIndex = decoded.findIndex((d) => d.includes('tax_identifier=ilike.'));
-  const normalizedNameIndex = decoded.findIndex((d) => d.includes('normalized_name=eq.'));
+  // AGENT1-NORMALIZED-NAME-LOOKUP-1 — el eje de nombre busca ahora las DOS formas
+  // guardadas («acme» y «acme s a s») con `in.(…)`; antes era `eq.` contra una sola.
+  const normalizedNameIndex = decoded.findIndex((d) => d.includes('normalized_name=in.'));
   const nameIlikeIndex = decoded.findIndex((d) => d.includes('name=ilike.'));
 
   assert.ok(taxIndex >= 0, 'tax tier must be attempted');
