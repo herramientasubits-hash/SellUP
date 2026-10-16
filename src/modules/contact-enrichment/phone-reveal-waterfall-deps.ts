@@ -32,6 +32,7 @@ import {
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { estimateProviderCreditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 // Puerta de privacidad COMPARTIDA con el disparo manual de Lusha (4O-E3): una sola
 // implementación de la re-comprobación de supresión + do-not-contact.
 import {
@@ -1017,6 +1018,7 @@ export async function callLushaFallbackLeg(args: {
           // filas separadas y jamás sumados.
           operation_key: entry.operationKey,
           credits_used: entry.creditsUsed ?? undefined,
+          estimated_cost_usd: await estimateProviderCreditCostUsd(entry.provider, entry.creditsUsed),
           status: entry.status,
           error_code: entry.errorCode ?? undefined,
           triggered_by: entry.triggeredBy,

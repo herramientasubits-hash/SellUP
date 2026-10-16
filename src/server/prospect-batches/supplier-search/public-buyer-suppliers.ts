@@ -106,7 +106,13 @@ export type PublicBuyerStepOutcome =
   | { executed: false; reason: PublicBuyerStepSkipReason | string }
   | {
       executed: true;
-      buyer: { taxId: string; name: string; matchedBy: 'exact' | 'prefix' };
+      buyer: {
+        taxId: string;
+        name: string;
+        matchedBy: 'exact' | 'prefix';
+        /** La sigla con la que se nombró a la entidad («ICBF»), cuando la referencia era una sigla conocida. */
+        viaAlias?: string;
+      };
       sourceKey: string;
       tableVersion: string;
       read: number;
@@ -139,6 +145,13 @@ export type PublicBuyerStepDeps = {
   taxIdentifierType?: CountrySourceCompany['taxIdentifierType'];
   /** Cómo normaliza el país el nombre del comprador (Chile quita «I»/«Ilustre»). */
   normalizeName?: (raw: string) => string;
+  /**
+   * AUDIT-HARDENING-1 — si la referencia ES una sigla conocida de una entidad pública
+   * («ICBF», «SENA», «DIAN»), el nombre oficial al que se traduce; `null` si no. Sólo
+   * cambia el texto que se busca: la elección sigue siendo `pickPublicBuyer` (una sola
+   * entidad o ninguna). Ausente ⇒ el país no tiene tabla de siglas y todo sigue igual.
+   */
+  resolveReferenceAlias?: (reference: string) => string | null;
   /**
    * Entidades públicas del país cuyo nombre es o empieza por el normalizado. Si la
    * consulta tiene tope, debe avisar con `truncated` cuando lo alcanza (ver `PublicEntityLookup`).
@@ -284,12 +297,15 @@ export async function runPublicBuyerSupplierStep(
     return { executed: false, reason: 'country_not_supported' };
   }
   const normalize = deps.normalizeName ?? normalizePublicEntityName;
-  const normalized = normalize(input.referenceCompanyName);
+  // Una sigla conocida se busca por el nombre oficial de su entidad (ver `resolveReferenceAlias`).
+  const aliasOfficialName = deps.resolveReferenceAlias?.(input.referenceCompanyName) ?? null;
+  const searchedName = aliasOfficialName ?? input.referenceCompanyName;
+  const normalized = normalize(searchedName);
   const found = await deps.findPublicEntities(normalized);
   const lookup: PublicEntityLookup = Array.isArray(found) ? { rows: found, truncated: false } : found;
   // Con tope alcanzado la lista está cortada: lo que se elija de ella podría ser otra entidad.
   if (lookup.truncated) return { executed: false, reason: 'ambiguous_entity' };
-  const picked = pickPublicBuyer(input.referenceCompanyName, lookup.rows, normalize);
+  const picked = pickPublicBuyer(searchedName, lookup.rows, normalize);
   if (picked.entity === null) return { executed: false, reason: picked.reason };
   const buyer = picked.entity;
 
@@ -324,7 +340,12 @@ export async function runPublicBuyerSupplierStep(
   const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
   return {
     executed: true,
-    buyer: { taxId: buyer.taxId, name: buyer.normalizedLegalName, matchedBy: picked.matchedBy },
+    buyer: {
+      taxId: buyer.taxId,
+      name: buyer.normalizedLegalName,
+      matchedBy: picked.matchedBy,
+      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
+    },
     sourceKey: deps.sourceKey,
     tableVersion: listed.tableVersion,
     read: listed.read,

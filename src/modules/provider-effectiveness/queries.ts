@@ -14,6 +14,7 @@ import type {
   ProviderEffectivenessFilters,
   ProviderUsageEvidence,
 } from './types';
+import { fetchAllPages, fetchAllPagesInChunks, IN_FILTER_CHUNK_SIZE } from '@/lib/supabase/paginated-read';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -96,13 +97,16 @@ async function fetchUsageRowsByAgentRunId(
   agentRunIds: string[],
 ): Promise<RawUsageRow[]> {
   if (agentRunIds.length === 0) return [];
-  const { data, error } = await admin
-    .from('provider_usage_logs')
-    .select('agent_run_id, provider_key, status, estimated_cost_usd, credits_used, duration_ms, metadata')
-    .in('agent_run_id', agentRunIds)
-    .limit(20000);
-  if (error) throw new Error(`provider-effectiveness: failed to load provider_usage_logs: ${error.message}`);
-  return (data ?? []) as RawUsageRow[];
+  const { rows, error } = await fetchAllPagesInChunks<string, RawUsageRow>(agentRunIds, IN_FILTER_CHUNK_SIZE, (chunk) => (from, to) =>
+    admin
+      .from('provider_usage_logs')
+      .select('agent_run_id, provider_key, status, estimated_cost_usd, credits_used, duration_ms, metadata')
+      .in('agent_run_id', chunk)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if (error) throw new Error(`provider-effectiveness: failed to load provider_usage_logs: ${error}`);
+  return rows;
 }
 
 async function fetchCandidateRowsByRunId(
@@ -110,24 +114,30 @@ async function fetchCandidateRowsByRunId(
   runIds: string[],
 ): Promise<RawCandidateRow[]> {
   if (runIds.length === 0) return [];
-  const { data, error } = await admin
-    .from('contact_enrichment_candidates')
-    .select('id, enrichment_run_id, status')
-    .in('enrichment_run_id', runIds)
-    .limit(20000);
-  if (error) throw new Error(`provider-effectiveness: failed to load contact_enrichment_candidates: ${error.message}`);
-  return (data ?? []) as RawCandidateRow[];
+  const { rows, error } = await fetchAllPagesInChunks<string, RawCandidateRow>(runIds, IN_FILTER_CHUNK_SIZE, (chunk) => (from, to) =>
+    admin
+      .from('contact_enrichment_candidates')
+      .select('id, enrichment_run_id, status')
+      .in('enrichment_run_id', chunk)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if (error) throw new Error(`provider-effectiveness: failed to load contact_enrichment_candidates: ${error}`);
+  return rows;
 }
 
 /** Contacts traced from an enrichment candidate, scoped to the comparable provider cohort. */
 async function fetchTraceContactRows(admin: ReturnType<typeof getAdminClient>): Promise<RawContactRow[]> {
-  const { data, error } = await admin
-    .from('contacts')
-    .select('id, metadata')
-    .in('source', ['apollo', 'lusha'])
-    .limit(50000);
-  if (error) throw new Error(`provider-effectiveness: failed to load contacts: ${error.message}`);
-  return (data ?? []) as RawContactRow[];
+  const { rows, error } = await fetchAllPages<RawContactRow>((from, to) =>
+    admin
+      .from('contacts')
+      .select('id, metadata')
+      .in('source', ['apollo', 'lusha'])
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if (error) throw new Error(`provider-effectiveness: failed to load contacts: ${error}`);
+  return rows;
 }
 
 // ── Main evidence loader ──────────────────────────────────────────────────
@@ -143,16 +153,22 @@ export async function fetchContactEnrichmentRunEvidence(
 ): Promise<ContactEnrichmentRunEvidence[]> {
   const admin = getAdminClient();
 
-  let runQuery = admin
-    .from('contact_enrichment_runs')
-    .select('id, status, created_at, agent_run_id, providers_used, summary')
-    .is('bulk_run_id', null);
-  if (filters.dateFrom) runQuery = runQuery.gte('created_at', filters.dateFrom);
-  if (filters.dateTo) runQuery = runQuery.lt('created_at', filters.dateTo);
+  // El constructor de supabase-js acumula filtros sobre sí mismo: uno nuevo por página.
+  const buildRunQuery = () => {
+    let runQuery = admin
+      .from('contact_enrichment_runs')
+      .select('id, status, created_at, agent_run_id, providers_used, summary')
+      .is('bulk_run_id', null);
+    if (filters.dateFrom) runQuery = runQuery.gte('created_at', filters.dateFrom);
+    if (filters.dateTo) runQuery = runQuery.lt('created_at', filters.dateTo);
+    return runQuery;
+  };
 
-  const { data: runData, error: runError } = await runQuery.limit(20000);
-  if (runError) throw new Error(`provider-effectiveness: failed to load contact_enrichment_runs: ${runError.message}`);
-  const runRows = (runData ?? []) as RawRunRow[];
+  // Paginado: `.limit(20000)` no pasa del tope de 1.000 filas de la API REST.
+  const { rows: runRows, error: runError } = await fetchAllPages<RawRunRow>((from, to) =>
+    buildRunQuery().order('id', { ascending: true }).range(from, to),
+  );
+  if (runError) throw new Error(`provider-effectiveness: failed to load contact_enrichment_runs: ${runError}`);
   if (runRows.length === 0) return [];
 
   const runIds = runRows.map((r) => r.id);

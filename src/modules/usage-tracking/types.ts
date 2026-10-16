@@ -253,6 +253,14 @@ export interface LogProviderUsageInput {
    * (`agent_1` ⇒ `exploratory`); presente, el disparador la respeta (COALESCE).
    */
   search_mode?: string;
+  /**
+   * Agente y paso cuando la regla del disparador (migración 147, por proveedor +
+   * operación) no los distingue: p. ej. una búsqueda de empresa en Apollo que hace
+   * el Agente 2A, o el juez de competidores que reutiliza `company_search`.
+   * Ausentes ⇒ los rellena el disparador; presentes, el disparador los respeta.
+   */
+  agent_key?: string;
+  agent_step?: string;
   metadata?: Record<string, unknown>;
 }
 

@@ -40,6 +40,8 @@ import {
   resolveUsagePeopleScope,
 } from '@/modules/ai-usage/queries';
 import type { FilterOptions, UsageFilters } from '@/modules/ai-usage/queries';
+import { getAiUsageBreakdowns } from '@/modules/ai-usage/breakdown-queries';
+import { withAgent1CompanyOutcomes } from '@/modules/ai-usage/usage-breakdowns';
 import { resolvePeriodStart } from '@/modules/ai-usage/usage-filter-semantics';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 
@@ -143,10 +145,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
   // Todas las cifras salen de una sola lectura del universo filtrado (KPIs,
   // agentes, proveedores, personas y últimas consultas), así cuadran entre sí.
-  const [overview, filterOptionsResult, agent1Filters] = await Promise.all([
+  const [overview, filterOptionsResult, agent1Filters, breakdowns] = await Promise.all([
     getAiUsageOverview(filters, RECENT_LOGS_LIMIT),
     loadFilterOptions(),
     buildAgent1Filters(filters),
+    // En caché por petición: las secciones de abajo reutilizan la misma lectura.
+    getAiUsageBreakdowns(filters),
   ]);
 
   const header = (
@@ -176,8 +180,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     );
   }
 
-  const { summary, agentStats, providerStats, userConsumption, recentLogs, agentSteps, moneyVisible, dataQuality } =
-    overview;
+  const { summary, providerStats, userConsumption, recentLogs, agentSteps, moneyVisible, dataQuality } = overview;
+  const agentStats = withAgent1CompanyOutcomes(
+    overview.agentStats,
+    breakdowns && !breakdowns.dataQuality.readError ? breakdowns.countryTools : null,
+  );
   const filterOptions = filterOptionsResult === 'error' ? null : filterOptionsResult;
   const readError = dataQuality.readError || filterOptionsResult === 'error';
 

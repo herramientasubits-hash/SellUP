@@ -10,18 +10,20 @@
 //
 // Herramienta que la trajo: el buscador gratis (fuentes públicas), el banco de
 // empresas, la web con IA (Tavily y Claude guardan sus empresas como `web_ai`,
-// así que por fila no se pueden separar), Apollo, Lusha u otra.
+// así que por fila no se pueden separar), las empresas libres de HubSpot (que
+// se escriben con el nombre de Tavily pero no gastan nada), Apollo, Lusha u otra.
 // ============================================================
 
 import { resolveCandidateClassification } from '@/modules/agent1-effectiveness/aggregators';
 import { deriveRecordOriginClassification } from '@/modules/agent1-effectiveness/classification';
 import type { Agent1BatchRow, Agent1CandidateRow } from '@/modules/agent1-effectiveness/types';
 
-export const COMPANY_TOOLS = ['gratis', 'banco', 'web_ai', 'claude', 'apollo', 'lusha', 'otros'] as const;
+export const COMPANY_TOOLS = ['gratis', 'hubspot', 'banco', 'web_ai', 'claude', 'apollo', 'lusha', 'otros'] as const;
 export type CompanyTool = (typeof COMPANY_TOOLS)[number];
 
 export const COMPANY_TOOL_LABELS: Readonly<Record<CompanyTool, string>> = {
   gratis: 'Buscador gratis',
+  hubspot: 'HubSpot libre',
   banco: 'Banco de empresas',
   web_ai: 'Web con IA (Tavily)',
   claude: 'Claude',
@@ -37,7 +39,21 @@ const FREE_SOURCES: ReadonlySet<string> = new Set([
   'socrata_colombia',
   'denue_mexico',
   'datos_gob_cl',
+  'chilecompra_chile',
 ]);
+
+/** source_primary de empresas que ya estaban en HubSpot (bolsa libre, recicladas). */
+const HUBSPOT_SOURCES: ReadonlySet<string> = new Set(['hubspot', 'hubspot_recyclable']);
+
+/**
+ * ¿La empresa salió de la bolsa libre de HubSpot? La capa escribe con
+ * `provider: 'tavily'` (⇒ source_primary `web_ai`), pero deja su marca en
+ * `metadata.hubspot_free_pool`: sin mirarla, esas empresas gratis inflaban a Tavily.
+ */
+function isHubSpotFreePoolCandidate(metadata: Record<string, unknown> | null | undefined): boolean {
+  const mark = metadata?.hubspot_free_pool;
+  return mark !== null && mark !== undefined && typeof mark === 'object';
+}
 
 const APPROVED_STATUSES: ReadonlySet<string> = new Set(['approved', 'converted_to_account']);
 
@@ -157,10 +173,16 @@ export function isProductionDiscard(discard: CompanyDiscardRow, batch?: CompanyB
   return derived.recordOrigin === 'production';
 }
 
-export function candidateTool(sourcePrimary: string | null, fromBank: boolean): CompanyTool {
+export function candidateTool(
+  sourcePrimary: string | null,
+  fromBank: boolean,
+  metadata?: Record<string, unknown> | null,
+): CompanyTool {
   if (fromBank) return 'banco';
+  if (isHubSpotFreePoolCandidate(metadata)) return 'hubspot';
   const source = sourcePrimary?.trim().toLowerCase() ?? '';
   if (FREE_SOURCES.has(source)) return 'gratis';
+  if (HUBSPOT_SOURCES.has(source)) return 'hubspot';
   if (source === 'web_ai' || source === 'tavily') return 'web_ai';
   if (source === 'apollo') return 'apollo';
   if (source === 'lusha') return 'lusha';
@@ -194,7 +216,7 @@ export function resolveCompanyOutcomes(
       candidateId: c.id,
       batchId: c.batch_id,
       countryCode: (c.country_code ?? batch?.country_code ?? null)?.trim().toUpperCase() || null,
-      tool: candidateTool(c.source_primary, bankCandidateIds.has(c.id)),
+      tool: candidateTool(c.source_primary, bankCandidateIds.has(c.id), c.metadata),
       approved: isApprovedCandidate(c),
       converted: c.converted_account_id != null,
       hasTaxId: nonEmpty(c.tax_identifier),

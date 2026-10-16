@@ -252,6 +252,17 @@ export interface ApolloOrgResolutionMeta {
   error?: string;
 }
 
+/**
+ * Créditos que costó resolver la organización. La búsqueda de empresas de Apollo
+ * (`mixed_companies/search`) cobra 1 crédito por página CON resultados y 0 por
+ * página vacía (soporte Apollo 29-09). El resolver hace como mucho dos páginas:
+ * por dominio y, si no encontró, por nombre.
+ */
+export function apolloOrgResolutionCredits(meta: ApolloOrgResolutionMeta | undefined): number {
+  if (!meta) return 0;
+  return (meta.domain_query_results > 0 ? 1 : 0) + (meta.name_query_results > 0 ? 1 : 0);
+}
+
 /** Diagnóstico del filtro de país aplicado a people_search (Hito 17A.9B.2). */
 export interface CountryFilterMeta {
   country_code_received: string | null;
@@ -662,6 +673,7 @@ export async function searchApolloPeopleForCompany(
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
+        organizationResolution: orgResolutionMeta,
         countryFilter: countryFilterMeta,
         reason: `Error de red consultando Apollo: ${msg}`,
       };
@@ -679,6 +691,7 @@ export async function searchApolloPeopleForCompany(
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
+        organizationResolution: orgResolutionMeta,
         countryFilter: countryFilterMeta,
         reason: result.error?.message ?? 'Error consultando Apollo people search',
       };

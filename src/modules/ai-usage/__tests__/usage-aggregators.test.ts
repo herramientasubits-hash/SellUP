@@ -167,7 +167,7 @@ describe('aggregateAgentStats — costo por agente desde los logs', () => {
   it('ignora agent_runs.estimated_cost_usd y suma los logs de cada agente', () => {
     const runs = [
       run({ id: 'r1', agent_key: 'prospect_generation', estimated_cost_usd: 50 }),
-      run({ id: 'r2', agent_key: 'candidate_enrichment', agent_name: 'Enriquecimiento' }),
+      run({ id: 'r2', agent_key: 'agent_2a_contact_enrichment', agent_name: 'Contactos' }),
     ];
     const logs = [
       log({ agent_run_id: 'r1', estimated_cost_usd: 2 }),
@@ -175,8 +175,8 @@ describe('aggregateAgentStats — costo por agente desde los logs', () => {
       log({ agent_run_id: 'r2', estimated_cost_usd: null }),
     ];
     const stats = aggregateAgentStats(runs, logs, indexRunsById(runs));
-    const pg = stats.find((s) => s.agent_key === 'prospect_generation');
-    const ce = stats.find((s) => s.agent_key === 'candidate_enrichment');
+    const pg = stats.find((s) => s.agent_key === 'agent1');
+    const ce = stats.find((s) => s.agent_key === 'agent2a');
     assert.equal(pg?.total_estimated_cost_usd, 2);
     assert.equal(pg?.has_unknown_cost, false);
     assert.equal(ce?.total_estimated_cost_usd, 1);
@@ -187,9 +187,28 @@ describe('aggregateAgentStats — costo por agente desde los logs', () => {
     const allRuns = [run({ id: 'old', created_at: '2026-01-01T00:00:00Z' })];
     const stats = aggregateAgentStats([], [log({ agent_run_id: 'old' })], indexRunsById(allRuns));
     assert.equal(stats.length, 1);
-    assert.equal(stats[0].agent_key, 'prospect_generation');
+    assert.equal(stats[0].agent_key, 'agent1');
     assert.equal(stats[0].total_executions, 0);
     assert.equal(stats[0].total_estimated_cost_usd, 1);
+  });
+
+  it('el agente de la consulta (147) manda: el Agente 1 sin ejecuciones ya no cae en «sin agente»', () => {
+    const logs = [
+      log({ agent_key: 'agent1', batch_id: 'b1', estimated_cost_usd: 2, created_at: '2026-10-02T00:00:00Z' }),
+      log({ agent_key: 'agent1', batch_id: 'b1', estimated_cost_usd: 1, created_at: '2026-10-03T00:00:00Z' }),
+      log({ agent_key: 'agent1', batch_id: 'b2', estimated_cost_usd: 1, created_at: '2026-10-04T00:00:00Z' }),
+    ];
+    const stats = aggregateAgentStats([], logs, new Map());
+    assert.equal(stats.length, 1);
+    assert.equal(stats[0].agent_key, 'agent1');
+    assert.equal(stats[0].total_estimated_cost_usd, 4);
+    // Cada búsqueda (lote) con gasto cuenta como una ejecución.
+    assert.equal(stats[0].total_executions, 2);
+    assert.equal(stats[0].last_run_at, '2026-10-04T00:00:00Z');
+
+    const summary = aggregateUsageSummary([], logs);
+    assert.equal(summary.total_executions, 2);
+    assert.equal(summary.avg_cost_per_run, 2);
   });
 
   it('las consultas sin ejecución van a «sin agente» para que la tabla cuadre con el total', () => {
@@ -231,7 +250,7 @@ describe('aggregateProviderStats — «sin tarifa» se cuenta, no se suma como 0
 describe('selectLogsInScope / selectRunsInScope — los mismos filtros en los dos lados', () => {
   const runs = [
     run({ id: 'r1', agent_key: 'prospect_generation', status: 'completed', triggered_by: 'u1' }),
-    run({ id: 'r2', agent_key: 'candidate_enrichment', status: 'running', triggered_by: 'u2' }),
+    run({ id: 'r2', agent_key: 'agent_2a_contact_enrichment', status: 'running', triggered_by: 'u2' }),
   ];
   const byId = indexRunsById(runs);
   const logs = [
@@ -241,9 +260,19 @@ describe('selectLogsInScope / selectRunsInScope — los mismos filtros en los do
   ];
 
   it('Agente filtra las consultas por su ejecución', () => {
-    const scope: UsageScope = { ...NO_SCOPE, agentKey: 'candidate_enrichment' };
+    const scope: UsageScope = { ...NO_SCOPE, agentKey: 'agent2a' };
     const inScope = selectLogsInScope(logs, byId, scope);
     assert.deepEqual(inScope.map((l) => l.provider_key), ['tavily']);
+    assert.deepEqual(selectRunsInScope(runs, inScope, scope).map((r) => r.id), ['r2']);
+  });
+
+  it('Agente filtra por el agent_key de la consulta aunque no tenga ejecución', () => {
+    const withAgentKey = [...logs, log({ agent_run_id: null, provider_key: 'anthropic', agent_key: 'agent1' })];
+    const scope: UsageScope = { ...NO_SCOPE, agentKey: 'agent1' };
+    assert.deepEqual(
+      selectLogsInScope(withAgentKey, byId, scope).map((l) => l.provider_key),
+      ['apollo', 'anthropic'],
+    );
   });
 
   it('Estado «Completado» encuentra consultas success (ya no da 0)', () => {

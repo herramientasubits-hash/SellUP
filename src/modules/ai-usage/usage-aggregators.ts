@@ -16,6 +16,7 @@
 import type { AgentStat, AiUsageSummary, ProviderStat } from '@/modules/usage-tracking/types';
 import { resolveUsageCredits } from '@/modules/usage-tracking/credits-display';
 import type { StatusFilterResolution } from './usage-filter-semantics';
+import { agentKeyFromRunKey } from '@/modules/usage-tracking/usage-dimensions';
 
 export interface UsageRunRow {
   id: string;
@@ -43,6 +44,9 @@ export interface UsageLogRow {
   results_returned: number | null;
   estimated_cost_usd: number | string | null;
   created_at: string;
+  /** Agente de la consulta (migración 147); manda sobre el de la ejecución. */
+  agent_key?: string | null;
+  batch_id?: string | null;
 }
 
 /** Ámbito ya resuelto de los filtros de la página. */
@@ -64,6 +68,26 @@ export interface UsageScope {
 
 /** Cubeta de las consultas que no pertenecen a ninguna ejecución de agente. */
 export const UNATTRIBUTED_AGENT_KEY = 'sin_agente';
+
+/**
+ * Agente de una consulta en el vocabulario de la 147 (agent1, agent2a, …): el
+ * que trae la fila y, si falta, el de su ejecución. El Agente 1 actual no crea
+ * ejecuciones (agent_runs), así que atribuir por ejecución dejaba casi todo su
+ * gasto en «Sin agente asignado».
+ */
+export function logAgentKey(
+  log: Pick<UsageLogRow, 'agent_key' | 'agent_run_id'>,
+  runsById: ReadonlyMap<string, UsageRunRow>,
+): string | null {
+  if (log.agent_key) return log.agent_key;
+  const run = log.agent_run_id ? runsById.get(log.agent_run_id) : undefined;
+  return agentKeyFromRunKey(run?.agent_key);
+}
+
+/** Agente de una ejecución en el mismo vocabulario. */
+export function runAgentKey(run: Pick<UsageRunRow, 'agent_key'>): string {
+  return agentKeyFromRunKey(run.agent_key) ?? run.agent_key;
+}
 
 export function indexRunsById(runs: readonly UsageRunRow[]): Map<string, UsageRunRow> {
   return new Map(runs.map((r) => [r.id, r]));
@@ -92,11 +116,10 @@ export function selectLogsInScope<T extends UsageLogRow>(
     if (status.logStatuses && !status.logStatuses.includes(l.status)) return false;
     if (!inUserScope(l.triggered_by, userIds)) return false;
 
-    const needsRun = Boolean(agentKey) || status.logsByRunStatus;
-    if (!needsRun) return true;
+    if (agentKey && logAgentKey(l, runsById) !== agentKey) return false;
+    if (!status.logsByRunStatus) return true;
     const run = l.agent_run_id ? runsById.get(l.agent_run_id) : undefined;
     if (!run) return false;
-    if (agentKey && run.agent_key !== agentKey) return false;
     if (status.logsByRunStatus && status.runStatuses && !status.runStatuses.includes(run.status)) {
       return false;
     }
@@ -120,7 +143,7 @@ export function selectRunsInScope(
     : null;
   return runs.filter((r) => {
     if (since && r.created_at < since) return false;
-    if (agentKey && r.agent_key !== agentKey) return false;
+    if (agentKey && runAgentKey(r) !== agentKey) return false;
     if (status.runStatuses && !status.runStatuses.includes(r.status)) return false;
     if (!inUserScope(r.triggered_by, userIds)) return false;
     if (runsWithProvider && !runsWithProvider.has(r.id)) return false;
@@ -142,6 +165,7 @@ export function aggregateUsageSummary(
   logsInScope: readonly UsageLogRow[],
 ): AiUsageSummary {
   const runIds = new Set(runsInScope.map((r) => r.id));
+  const searches = searchesWithoutRun(logsInScope);
   let total = 0;
   let attributedToRuns = 0;
   let hasUnknown = false;
@@ -152,11 +176,12 @@ export function aggregateUsageSummary(
       continue;
     }
     total += cost;
-    if (l.agent_run_id && runIds.has(l.agent_run_id)) attributedToRuns += cost;
+    if (l.agent_run_id ? runIds.has(l.agent_run_id) : Boolean(l.batch_id)) attributedToRuns += cost;
   }
+  const executions = runsInScope.length + searches.size;
 
   return {
-    total_executions: runsInScope.length,
+    total_executions: executions,
     running_executions: runsInScope.filter((r) => r.status === 'running').length,
     failed_executions: runsInScope.filter((r) => r.status === 'failed').length,
     total_provider_calls: logsInScope.length,
@@ -167,8 +192,18 @@ export function aggregateUsageSummary(
     // Costo medio por ejecución: sólo el costo de las consultas de esas
     // ejecuciones. Una consulta suelta (sin agent_run_id) no es de ninguna
     // ejecución y no debe inflar el promedio.
-    avg_cost_per_run: runsInScope.length > 0 ? attributedToRuns / runsInScope.length : null,
+    avg_cost_per_run: executions > 0 ? attributedToRuns / executions : null,
   };
+}
+
+/**
+ * Búsquedas (lotes) con gasto que no tienen ejecución: así trabaja el Agente 1
+ * actual. Cada lote cuenta como una ejecución.
+ */
+function searchesWithoutRun(logs: readonly UsageLogRow[]): Set<string> {
+  const ids = new Set<string>();
+  for (const l of logs) if (!l.agent_run_id && l.batch_id) ids.add(l.batch_id);
+  return ids;
 }
 
 function newAgentStat(agentKey: string, agentName: string | null): AgentStat {
@@ -187,9 +222,11 @@ function newAgentStat(agentKey: string, agentName: string | null): AgentStat {
 }
 
 /**
- * Por agente: conteos desde las ejecuciones del ámbito; dinero desde las
- * consultas del ámbito, atribuidas por agent_run_id con el mapa de TODAS las
- * ejecuciones (una consulta del periodo puede ser de una ejecución anterior).
+ * Por agente (vocabulario de la 147: agent1, agent2a, …): conteos desde las
+ * ejecuciones del ámbito más las búsquedas sin ejecución; dinero desde las
+ * consultas del ámbito, atribuidas por su agent_key (o, si falta, por su
+ * ejecución, con el mapa de TODAS: una consulta del periodo puede ser de una
+ * ejecución anterior). Igual que la pestaña «Por agente».
  */
 export function aggregateAgentStats(
   runsInScope: readonly UsageRunRow[],
@@ -204,7 +241,7 @@ export function aggregateAgentStats(
   };
 
   for (const r of runsInScope) {
-    const stat = get(r.agent_key, r.agent_name ?? null);
+    const stat = get(runAgentKey(r), null);
     stat.total_executions++;
     if (r.status === 'completed') stat.completed_executions++;
     if (r.status === 'failed') stat.failed_executions++;
@@ -213,11 +250,19 @@ export function aggregateAgentStats(
     if (!stat.last_run_at || r.created_at > stat.last_run_at) stat.last_run_at = r.created_at;
   }
 
+  const searchesByAgent = new Map<string, Set<string>>();
   for (const l of logsInScope) {
-    const run = l.agent_run_id ? allRunsById.get(l.agent_run_id) : undefined;
-    const stat = run
-      ? get(run.agent_key, run.agent_name ?? null)
-      : get(UNATTRIBUTED_AGENT_KEY, null);
+    const key = logAgentKey(l, allRunsById) ?? UNATTRIBUTED_AGENT_KEY;
+    const stat = get(key, null);
+    if (!l.agent_run_id && l.batch_id) {
+      const searches = searchesByAgent.get(key) ?? new Set<string>();
+      if (!searches.has(l.batch_id)) {
+        searches.add(l.batch_id);
+        stat.total_executions++;
+        if (!stat.last_run_at || l.created_at > stat.last_run_at) stat.last_run_at = l.created_at;
+      }
+      searchesByAgent.set(key, searches);
+    }
     const cost = knownCost(l.estimated_cost_usd);
     if (cost === null) stat.has_unknown_cost = true;
     else stat.total_estimated_cost_usd += cost;

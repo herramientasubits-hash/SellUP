@@ -41,6 +41,7 @@ import {
   type UsageDimensionFilters,
 } from './usage-dimension-scope';
 import type { AdminClient, UsageFilters, UserScope } from './queries';
+import { agentKeyFromRunKey } from '@/modules/usage-tracking/usage-dimensions';
 
 const RUN_COLUMNS =
   'id, agent_key, agent_name, status, triggered_by, created_at, results_generated, results_approved';
@@ -90,7 +91,9 @@ export function buildUsageScope(
   return {
     since: resolvePeriodStart(filters.period),
     providerKey: filters.provider || undefined,
-    agentKey: filters.agent || undefined,
+    // Vocabulario de la 147 (agent1, agent2a…); una URL vieja con la clave de
+    // agent_runs (prospect_generation…) se traduce igual que el disparador.
+    agentKey: agentKeyFromRunKey(filters.agent || null) ?? undefined,
     status: resolveStatusFilter(filters.status),
     userIds: userScope.mode === 'ids' ? userScope.ids : null,
     runsMustHaveLogs: hasDimensionFilters(dimensions),
@@ -207,10 +210,12 @@ export async function loadUsageDataset(
   if (logs.read.error) throw new UsageReadError('provider_usage_logs', logs.read.error);
 
   const runsById = indexRunsById(runsRead.rows);
-  const baseLogs = selectLogsInScope(logs.read.rows, runsById, scope);
+  // El agente se filtra DESPUÉS de completar las dimensiones: una fila sin
+  // agent_key escrito lo obtiene aquí con las reglas de la 147.
+  const baseLogs = selectLogsInScope(logs.read.rows, runsById, { ...scope, agentKey: undefined });
   const batches = await readBatchDimensions(admin, batchIdsNeedingDimensions(baseLogs));
-  const logsInScope = enrichLogDimensions(baseLogs, batches.byId, runsById).filter((log) =>
-    matchesDimensionFilters(log, dimensions),
+  const logsInScope = enrichLogDimensions(baseLogs, batches.byId, runsById).filter(
+    (log) => matchesDimensionFilters(log, dimensions) && (!scope.agentKey || log.agent_key === scope.agentKey),
   );
   const runsInScope = selectRunsInScope(runsRead.rows, logsInScope, scope);
   return {

@@ -9,6 +9,7 @@ import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-publ
 import { CO_SECOP_SUPPLIERS_SOURCE_KEY, fetchCoSecopSuppliers } from '../co-secop-suppliers';
 import type { PublicEntityRow } from '../public-buyer-suppliers';
 import { CO_COUNTRY } from './co';
+import { resolveCoEntityAlias } from './co-entity-aliases';
 import type { CountryLookups } from './loaded-lookups.server';
 
 const SECOP_TIMEOUT_MS = 12_000;
@@ -53,6 +54,8 @@ export function buildCoLookups(serviceClient: SupabaseClient): CountryLookups {
     // El MISMO normalizador con el que se cargó `normalized_legal_name` de co_public_entities
     // («… E.S.P.» → sin «ESP» en los dos lados); con otro, la búsqueda por nombre no coincide.
     normalizeName: CO_COUNTRY.normalizeBuyerName,
+    // AUDIT-HARDENING-1 — «ICBF», «SENA», «DIAN»… se buscan por el nombre oficial de la entidad.
+    resolveReferenceAlias: resolveCoEntityAlias,
 
     findPublicEntities: async (normalizedName) => {
       // Orden fijo y una fila de más para saber si el tope cortó la lista (⇒ ambigua).

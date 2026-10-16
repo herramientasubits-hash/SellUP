@@ -21,6 +21,7 @@ import {
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
   type ApolloOrgResolutionMeta,
+  apolloOrgResolutionCredits,
 } from './apollo-people-adapter';
 import { normalizeApolloPeople, type NormalizedApolloContact } from './contact-normalizer';
 import {
@@ -709,6 +710,41 @@ export async function executeContactEnrichmentApolloRun(
     companyCountryCode: run.company_country_code,
     maxCandidates: DEFAULT_MAX_CANDIDATES,
   });
+
+  // 5'. Resolver la organización cuesta créditos de la búsqueda de empresas de
+  //     Apollo (antes no dejaba fila: gasto invisible en Uso de IA y presupuestos).
+  //     Se registra pase lo que pase después con la búsqueda de personas.
+  if (apollo.organizationResolution) {
+    const orgCredits = apolloOrgResolutionCredits(apollo.organizationResolution);
+    const orgUnitCost = orgCredits > 0 ? await loadApolloUnitCost() : 0;
+    await logUsage({
+      agent_run_id: run.agent_run_id ?? undefined,
+      agent_run_step_id: step?.id,
+      provider_key: APOLLO_PROVIDER_KEY,
+      operation_key: 'mixed_companies_search',
+      // La regla del disparador asocia esta operación al Agente 1: se declara.
+      agent_key: 'agent2a',
+      agent_step: 'identificar_empresa',
+      credits_used: orgCredits,
+      results_returned:
+        apollo.organizationResolution.domain_query_results + apollo.organizationResolution.name_query_results,
+      estimated_cost_usd: Number((orgCredits * orgUnitCost).toFixed(6)),
+      status: apollo.organizationResolution.status === 'error' ? 'error' : 'success',
+      error_message: apollo.organizationResolution.error,
+      triggered_by: triggeredBy ?? undefined,
+      metadata: {
+        company_name: run.company_name,
+        company_domain: run.company_domain,
+        flow: 'agent2a_org_resolution',
+        resolution_status: apollo.organizationResolution.status,
+        resolution_method: apollo.organizationResolution.resolution_method,
+        domain_query_results: apollo.organizationResolution.domain_query_results,
+        name_query_results: apollo.organizationResolution.name_query_results,
+        pricing_source: 'provider_pricing_config',
+        pricing_basis: 'credit_per_page_with_results',
+      },
+    });
+  }
 
   // 5a. Apollo no conectado o error de proveedor → failed controlado
   if (apollo.status === 'error') {
