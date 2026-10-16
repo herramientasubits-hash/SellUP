@@ -13,6 +13,7 @@ import {
   isNonCorporateDomain,
   normalizeWebsiteHost,
 } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
+import { isPlatformHostByLabel } from '@/server/agents/prospecting-toolkit/shared-hosts';
 
 /** Proveedores de internet de Venezuela (el dominio es del proveedor, no de la empresa). */
 export const VE_NON_CORPORATE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
@@ -22,14 +23,13 @@ export const VE_NON_CORPORATE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
 /** Primer nivel del dominio de los correos gratuitos, con cualquier terminación. */
 const FREE_MAIL_LABEL = /^(gmail|gmaill|googlemail|hotmail|outlook|live|msn|yahoo|ymail|aol|icloud|me|mail|protonmail|proton|zoho|gmx|cantv)$/;
 
-/** Redes sociales, enlaces y alojamiento gratuito: la «web» es de la plataforma. */
-const PLATFORM_HOST =
-  /(^|\.)(facebook|fb|instagram|twitter|x|tiktok|youtube|youtu|linkedin|whatsapp|wa|linktr|google|goo|blogspot|blogger|wordpress|wixsite|wix|weebly|jimdo|jimdofree|site123|webnode|godaddysites|carrd|bit|tinyurl|es\.tl)\.[a-z.]+$/;
-
-/** ¿Host de una red social o de un alojamiento gratuito? */
+/**
+ * ¿Host de una red social o de un alojamiento gratuito? La lista vive en UN solo
+ * sitio (`shared-hosts.ts`, AGENT1-SHARED-HOSTS-1): antes era una copia local que
+ * ya se había separado de la de Nicaragua y de la de Ecuador.
+ */
 export function isVenezuelaPlatformHost(host: string): boolean {
-  const lower = host.toLowerCase();
-  return PLATFORM_HOST.test(lower) || /(^|\.)(linktr\.ee|wa\.me|bit\.ly|business\.site|negocio\.site|es\.tl)$/.test(lower);
+  return isPlatformHostByLabel(host);
 }
 
 /** Dominios del Estado de Venezuela (`.gob.ve`, `.mil.ve`). */
