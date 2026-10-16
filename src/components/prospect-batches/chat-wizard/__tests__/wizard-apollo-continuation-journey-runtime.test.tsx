@@ -603,10 +603,13 @@ describe('§ 4 · caso 8 — el cableado de la señal', () => {
       path.join(__dirname, '..', '..', '..', '..', 'modules', 'prospect-batches', 'agent-runs', 'agent-runs-store.ts'),
       'utf8',
     );
+    // AGENT1-AUDIT-WS2 § 5 — la señal sigue viniendo de lo que el servidor declaró,
+    // pero ahora sólo cuando la continuación quedó DE VERDAD en cola: antes bastaba
+    // con que existiera `apolloContinuation`, aunque el encolado hubiera fallado.
     assert.match(
       storeSource,
-      /continuationPending: result\.apolloContinuation !== undefined/,
-      'y esa señal tiene que venir de lo que el servidor declaró',
+      /continuationPending: result\.apolloContinuation\?\.enqueued === true/,
+      'y esa señal tiene que venir de lo que el servidor declaró (sólo si quedó en cola)',
     );
     const wizardSource = fs.readFileSync(path.join(__dirname, '..', 'prospect-chat-wizard.tsx'), 'utf8');
     assert.doesNotMatch(wizardSource, /<WizardApolloContinuationPanel/, 'el chat ya no la pinta en su cabecera');
