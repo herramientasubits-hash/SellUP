@@ -7,6 +7,7 @@
 
 import type { DuplicateCheckInput } from './types';
 import { isSharedPlatformHost } from './shared-hosts';
+import { isNationalPortalWithEntityPaths } from './national-portal-entity';
 
 // ============================================================
 // Sufijos legales a remover (LatAm + globales comunes)
@@ -193,6 +194,11 @@ export function normalizeIdentityDomain(urlOrDomain: string | null | undefined):
   const withoutTrailingDot = domain.replace(/\.+$/, '');
   if (!withoutTrailingDot.includes('.') || withoutTrailingDot.length < 4) return null;
   if (isSharedPlatformHost(withoutTrailingDot)) return null;
+  // AUDIT-HARDENING-1 — el portal nacional del Estado (`gob.pe`, `gob.mx`…) aloja a
+  // TODOS los ministerios como rutas (`gob.pe/minsa`): no es la identidad de
+  // ninguno. Como dominio de identidad haría que el primer ministerio reclamara
+  // `domain:gob.pe` y todos los demás chocaran con él.
+  if (isNationalPortalWithEntityPaths(withoutTrailingDot)) return null;
   return withoutTrailingDot;
 }
 
