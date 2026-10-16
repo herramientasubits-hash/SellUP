@@ -808,10 +808,10 @@ describe('la migración 128 — su contrato', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(files[files.length - 1], '152_agent1_identity_claims_crosscheck.sql');
+    assert.equal(files[files.length - 1], '153_agent3_first_call_prep.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 152);
-    assert.equal(files.length, 152,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 153);
+    assert.equal(files.length, 153,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

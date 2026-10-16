@@ -1147,9 +1147,19 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
         `la 152 nombra ${foreign}: dejaría de ser ajena a CUT-L7`,
       );
     }
-    // Ninguna 153 o superior, se llame como se llame.
+    // AGENT3-FIRST-CALL-1 declara la 153: fichas y paquetes de primera llamada del Agente 3.
+    assert.deepEqual(
+      migrations.filter((f) => /^153_/.test(f)),
+      ['153_agent3_first_call_prep.sql'],
+      'la 153 tiene que ser la del Agente 3, y sólo ella',
+    );
+    const agent3FirstCall = read('supabase/migrations/153_agent3_first_call_prep.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(agent3FirstCall.includes(foreign), false, `la 153 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
+    }
+    // Ninguna 154 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15[3-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[4-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

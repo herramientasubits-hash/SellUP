@@ -326,7 +326,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // 152 cross-checks NIT/domain/LinkedIn in the identity claims (`agent1_company_identity_claims`)
     // and releases the claims of an archived batch. Not phone chain 109–117, not catalog, not BR,
     // not CUT3B4. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 152);
+    // AGENT3-FIRST-CALL-1 moves the ceiling to 153: Agent 3 research briefs and first-call packs
+    // (`account_research_briefs`, `first_call_packs`). New tables only. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 153);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -440,7 +442,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
       files.filter((f) => f.startsWith('152')),
       [MIGRATION_152_IDENTITY_CLAIMS_CROSSCHECK],
     );
-    assert.equal(files.some((f) => f.startsWith('153')), false);
+    // AGENT3-FIRST-CALL-1 declares the 153 (Agent 3 research briefs and first-call packs).
+    assert.deepEqual(files.filter((f) => f.startsWith('153')), ['153_agent3_first_call_prep.sql']);
+    assert.equal(files.some((f) => f.startsWith('154')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
