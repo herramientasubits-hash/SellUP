@@ -3,7 +3,8 @@
  * libre (HUBSPOT-FREE-POOL-SOURCE-1). Sólo la llama la aprobación, y sólo con
  * `ENABLE_HUBSPOT_FREE_POOL_OWNER_WRITEBACK` (decisión de la dueña, 15-10):
  *
- *   · empresa: dueño = vendedor, estado de lead «New», Fecha Asignación = hoy;
+ *   · empresa: dueño = vendedor y estado de lead «New» (HubSpot pone solo la Fecha
+ *     Asignación al cambiar el dueño);
  *   · contactos asociados: pasan al vendedor los sin dueño, de bolsa, de dueño
  *     desactivado o del dueño anterior; los de OTRO vendedor activo no se tocan.
  *
@@ -125,7 +126,7 @@ async function updateContactOwners(
 
 /** Toma la empresa en HubSpot para el vendedor. Nunca lanza. */
 export async function claimHubSpotCompanyForOwner(
-  input: { hubspotCompanyId: string; newOwnerId: string; now: Date },
+  input: { hubspotCompanyId: string; newOwnerId: string },
   options: { fetchFn?: HubSpotFetch; resolveToken?: () => Promise<string | null> } = {},
 ): Promise<HubSpotClaimResult> {
   const fetchFn = options.fetchFn ?? fetch;
@@ -145,7 +146,7 @@ export async function claimHubSpotCompanyForOwner(
       {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: buildHubSpotClaimProperties(input.newOwnerId, input.now) }),
+        body: JSON.stringify({ properties: buildHubSpotClaimProperties(input.newOwnerId) }),
       },
       TIMEOUT_MS,
       { fetchFn },

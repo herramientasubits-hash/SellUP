@@ -2,7 +2,7 @@
  * Tests — tomar una empresa libre en HubSpot (HUBSPOT-FREE-POOL-SOURCE-1).
  *
  * Decisión de la dueña (15-10): al tomarla, dueño = vendedor, estado de lead «New»,
- * Fecha Asignación = hoy, y los contactos pasan al vendedor salvo los de OTRO
+ * y los contactos pasan al vendedor salvo los de OTRO
  * vendedor activo. Sin red: HubSpot simulado.
  */
 
@@ -31,11 +31,10 @@ const owners = buildHubSpotOwnerDirectory(
 );
 
 describe('propiedades al tomarla', () => {
-  it('dueño, estado «New» y Fecha Asignación de hoy', () => {
-    assert.deepEqual(buildHubSpotClaimProperties('seller', NOW), {
+  it('dueño y estado «New»; la Fecha Asignación la pone HubSpot', () => {
+    assert.deepEqual(buildHubSpotClaimProperties('seller'), {
       hubspot_owner_id: 'seller',
       hs_lead_status: 'New',
-      fecha_asignacion: '2026-10-15',
     });
   });
 
@@ -47,7 +46,7 @@ describe('propiedades al tomarla', () => {
     );
     assert.equal(before.free, true);
     const after = classifyHubSpotCompanyAvailability(
-      { ...buildHubSpotClaimProperties('seller', NOW), lifecyclestage: 'lead', hs_num_open_deals: '0', hs_last_sales_activity_timestamp: null },
+      { ...buildHubSpotClaimProperties('seller'), lifecyclestage: 'lead', hs_num_open_deals: '0', hs_last_sales_activity_timestamp: null },
       owners,
       NOW,
     );
@@ -126,13 +125,13 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot();
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, true);
     assert.equal(out.previousOwnerId, 'prev');
     const patch = hs.calls.find((c) => c.method === 'PATCH');
-    assert.deepEqual(patch?.body, { properties: { hubspot_owner_id: 'seller', hs_lead_status: 'New', fecha_asignacion: '2026-10-15' } });
+    assert.deepEqual(patch?.body, { properties: { hubspot_owner_id: 'seller', hs_lead_status: 'New' } });
     const update = hs.calls.find((c) => c.url.endsWith('/contacts/batch/update'));
     assert.deepEqual(update?.body, {
       inputs: [
@@ -147,7 +146,7 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot({ patchStatus: 403 });
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, false);
@@ -159,7 +158,7 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot({ contactsUpdateStatus: 500 });
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, true);
@@ -171,7 +170,7 @@ describe('tomar la empresa en HubSpot', () => {
   it('sin credencial ⇒ nada se escribe', async () => {
     const hs = fakeHubSpot();
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => null },
     );
     assert.equal(out.companyError, 'token_unavailable');
