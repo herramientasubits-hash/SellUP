@@ -61,6 +61,7 @@ function fakeClient(tables: Tables, beforeUpdate?: (table: string) => void) {
       is: (col: string, value: unknown) => (filters.push((r) => (r[col] ?? null) === value), api),
       in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(r[col])), api),
       lt: (col: string, value: string) => (filters.push((r) => String(r[col]) < value), api),
+      gte: (col: string, value: string) => (filters.push((r) => String(r[col]) >= value), api),
       order: () => api,
       limit: (n: number) => ((limit = n), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),

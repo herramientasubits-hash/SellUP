@@ -82,6 +82,15 @@ export function isBatchIdle(input: { status: string; updatedAt: string | null; n
   return Number.isFinite(updated) && input.nowMs - updated >= STUCK_BATCH_IDLE_MINUTES * 60_000;
 }
 
+/**
+ * AUDIT-HARDENING-1 — el barrido automático sólo cierra borradores del Agente 1 que
+ * se movieron en las últimas 72 h. Sin esta ventana, el primer barrido tras
+ * desplegar cerraría de golpe todos los borradores históricos (y los que tuvieran
+ * filas reaparecerían en las colas de revisión). Los viejos se siguen pudiendo
+ * terminar a mano desde la página del lote.
+ */
+export const STUCK_DRAFT_SWEEP_MAX_AGE_HOURS = 72;
+
 /** Origen de los lotes del Agente 1: los únicos cuyos borradores son corridas. */
 export const AGENT1_BATCH_SOURCE = 'agent_1';
 

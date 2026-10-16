@@ -129,6 +129,7 @@ function fakeClient(tables: Tables) {
       eq: (col: string, value: unknown) => (filters.push((r) => r[col] === value), api),
       in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(r[col])), api),
       lt: (col: string, value: string) => (filters.push((r) => String(r[col]) < value), api),
+      gte: (col: string, value: string) => (filters.push((r) => String(r[col]) >= value), api),
       is: (col: string, value: unknown) => (filters.push((r) => (r[col] ?? null) === value), api),
       order: () => api,
       limit: (n: number) => ((limit = n), api),

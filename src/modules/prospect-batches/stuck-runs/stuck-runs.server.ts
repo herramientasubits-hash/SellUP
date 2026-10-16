@@ -21,6 +21,7 @@ import {
   isClosableStuckBatchStatus,
   isDraftAgentBatchIdle,
   STUCK_BATCH_IDLE_MINUTES,
+  STUCK_DRAFT_SWEEP_MAX_AGE_HOURS,
   STUCK_RUN_CLOSE_CODES,
   stuckBatchFinalStatus,
   type ContinuationJobState,
@@ -186,6 +187,8 @@ export async function closeStuckAgentRuns(
       .eq('status', 'draft')
       .eq('source', AGENT1_BATCH_SOURCE)
       .lt('updated_at', idleBefore)
+      // AUDIT-HARDENING-1 — sólo corridas recientes, no el histórico (ver la constante).
+      .gte('updated_at', new Date(nowMs - STUCK_DRAFT_SWEEP_MAX_AGE_HOURS * 3_600_000).toISOString())
       .limit(SWEEP_LIMIT);
     for (const batch of (idleDrafts ?? []) as Array<{ id: string; status: string; source: string | null; updated_at: string | null }>) {
       if (

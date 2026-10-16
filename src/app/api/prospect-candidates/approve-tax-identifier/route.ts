@@ -218,6 +218,11 @@ async function claimNewTaxIdentity(
     console.error('[approve-tax-identifier] Cliente de servicio no disponible para el reclamo:', error);
     return { status: 'skipped', reason: 'service_unavailable' };
   }
-  const outcome = await claimGlobalIdentitiesForPersistedCandidates(admin, batchId, [candidateId]);
+  // AUDIT-HARDENING-1 — la fila ya tiene reclamos propios (dominio, entidad de
+  // proveedor…): reenviarlos con la 140 chocaría contra sí misma y la dejaría
+  // `duplicate`. Sólo se reclama lo que aún no tiene (el NIT nuevo).
+  const outcome = await claimGlobalIdentitiesForPersistedCandidates(admin, batchId, [candidateId], {
+    excludeClaimsAlreadyHeld: true,
+  });
   return summarizeTaxIdentifierClaim(candidateId, outcome);
 }

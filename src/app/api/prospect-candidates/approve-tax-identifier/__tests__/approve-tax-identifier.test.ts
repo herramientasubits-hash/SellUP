@@ -128,7 +128,12 @@ describe('la ruta', () => {
 
   it('marca la comprobación de duplicados y reclama la identidad nueva con el cliente de servicio', () => {
     assert.match(route, /markDuplicateChecksStale\(/);
-    assert.match(route, /claimGlobalIdentitiesForPersistedCandidates\(admin, batchId, \[candidateId\]\)/);
+    // AUDIT-HARDENING-1 — reclama SÓLO lo que la fila aún no tiene: reenviar sus
+    // reclamos propios chocaba contra sí misma (sin la 152) y la dejaba `duplicate`.
+    assert.match(
+      route,
+      /claimGlobalIdentitiesForPersistedCandidates\(admin, batchId, \[candidateId\], \{\s*excludeClaimsAlreadyHeld: true,\s*\}\)/,
+    );
     assert.match(route, /globalIdentityClaim: claim/);
   });
 });
