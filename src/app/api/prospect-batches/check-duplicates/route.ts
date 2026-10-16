@@ -1,24 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import {
-  normalizeCompanyName,
-  normalizeDomain,
-} from '@/server/agents/prospecting-toolkit/normalization';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { IMPORT_BATCH_MAX_ROWS } from '@/modules/prospect-batches/import-batch-schema';
+import { precheckImportDuplicates } from '@/server/prospect-batches/import-duplicate-precheck';
 
-interface CheckItem {
-  index: number;
-  company_name: string;
-  country_code?: string | null;
-  domain?: string | null;
-  website?: string | null;
-  tax_identifier?: string | null;
-}
-
-interface DuplicateResult {
-  index: number;
-  duplicate_status: 'no_match' | 'possible_duplicate' | 'exact_duplicate' | 'insufficient_data';
-  reason?: string;
-}
+// AGENT1-AUDIT-WS5-IMPORT-PRECHECK-1 — el mismo tope de filas que la importación.
+const checkItemSchema = z.object({
+  index: z.number().int().min(0),
+  company_name: z.string().max(300).default(''),
+  country_code: z.string().max(8).nullish(),
+  domain: z.string().max(2048).nullish(),
+  website: z.string().max(2048).nullish(),
+  tax_identifier: z.string().max(300).nullish(),
+});
+const checkBodySchema = z.object({
+  items: z.array(checkItemSchema).max(IMPORT_BATCH_MAX_ROWS).default([]),
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,83 +26,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const body = await request.json() as { items?: CheckItem[] };
-    const items: CheckItem[] = body.items ?? [];
-
-    const results: DuplicateResult[] = items.map((item) => ({
-      index: item.index,
-      duplicate_status: 'no_match' as const,
-    }));
-
-    if (items.length === 0) return NextResponse.json(results);
-
-    const [{ data: existingCandidates }, { data: existingAccounts }] = await Promise.all([
-      supabase
-        .from('prospect_candidates')
-        .select('normalized_name, country_code, domain, tax_identifier')
-        .not('status', 'eq', 'discarded'),
-      supabase
-        .from('accounts')
-        .select('normalized_name, country_code, domain, tax_identifier')
-        .is('deleted_at', null),
-    ]);
-
-    const candidates = existingCandidates ?? [];
-    const accounts = existingAccounts ?? [];
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (!item.company_name) {
-        results[i].duplicate_status = 'insufficient_data';
-        continue;
-      }
-
-      const normalizedName = normalizeCompanyName(item.company_name);
-      const itemDomain =
-        normalizeDomain(item.domain ?? '') ??
-        normalizeDomain(item.website ?? '');
-
-      let found: 'possible_duplicate' | 'exact_duplicate' | null = null;
-      let reason: string | undefined;
-
-      if (item.tax_identifier) {
-        const taxMatch = [
-          ...candidates.filter((c) => c.tax_identifier === item.tax_identifier),
-          ...accounts.filter((a) => a.tax_identifier === item.tax_identifier),
-        ];
-        if (taxMatch.length > 0) { found = 'exact_duplicate'; reason = 'Mismo identificador fiscal'; }
-      }
-
-      if (itemDomain && !found) {
-        const domainMatch = [
-          ...candidates.filter((c) => c.domain === itemDomain),
-          ...accounts.filter((a) => a.domain === itemDomain),
-        ];
-        if (domainMatch.length > 0) { found = 'exact_duplicate'; reason = 'Mismo dominio web'; }
-      }
-
-      if (!found && normalizedName.length >= 3) {
-        const nameMatches = [
-          ...candidates.filter(
-            (c) =>
-              c.normalized_name === normalizedName &&
-              (!item.country_code || !c.country_code || c.country_code === item.country_code)
-          ),
-          ...accounts.filter(
-            (a) =>
-              a.normalized_name === normalizedName &&
-              (!item.country_code || !a.country_code || a.country_code === item.country_code)
-          ),
-        ];
-        if (nameMatches.length > 0) { found = 'possible_duplicate'; reason = 'Nombre similar en el mismo país'; }
-      }
-
-      if (found) {
-        results[i].duplicate_status = found;
-        results[i].reason = reason;
-      }
+    // Sólo usuarios internos ACTIVOS (igual que la ruta que crea el lote).
+    const { data: internalUser } = await supabase
+      .from('internal_users')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .eq('access_status', 'active')
+      .single();
+    if (!internalUser) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
     }
 
+    const parsed = checkBodySchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Datos inválidos para verificar duplicados.' }, { status: 400 });
+    }
+    const items = parsed.data.items;
+    if (items.length === 0) return NextResponse.json([]);
+
+    // El aviso tiene que ver TODO SellUp (no sólo los lotes del vendedor): se
+    // lee con el cliente administrativo y sólo se devuelve estado + motivo por
+    // fila, nunca datos de otros. Sin cliente administrativo, se usa la sesión.
+    let readClient = supabase;
+    try {
+      readClient = createSupabaseAdminClient();
+    } catch (adminErr) {
+      console.error('[check-duplicates] admin client unavailable, using session client:', adminErr);
+    }
+
+    const results = await precheckImportDuplicates(readClient, items);
     return NextResponse.json(results);
   } catch (err) {
     console.error('[check-duplicates] Error:', err);

@@ -12,6 +12,7 @@ import {
   parsePastedCandidates,
   parseCsvCandidates,
   parseXlsxCandidates,
+  decodeImportTextFile,
   buildImportPreview,
   buildParseResultFromParsedRows,
   type ImportPreview,
@@ -23,6 +24,7 @@ import {
 } from '@/modules/prospect-batches/import-candidates-parser';
 import { LATAM_COUNTRIES } from '@/modules/accounts/types';
 import { detectColumnMappings } from '@/modules/prospect-batches/import-column-mapping';
+import { validateImportBatchInput } from '@/modules/prospect-batches/import-batch-schema';
 import type {
   ImportColumnMapping,
   ImportColumnTarget,
@@ -45,6 +47,8 @@ import {
   describeImportDetection,
   getImportStepDescription,
   getStepperIndex,
+  readCreateImportBatchResponse,
+  selectClassifiedRowsForImport,
   summarizeClassificationRows,
   validateImportFile,
   type FileMethod,
@@ -52,6 +56,7 @@ import {
   type ImportCatalogData,
   type ImportCatalogIndustry,
   type ImportDuplicateResult,
+  type ImportIndustryOverride,
   type Step,
 } from './import-candidates-helpers';
 import { ImportCandidatesInputStep } from './import-candidates-input-step';
@@ -257,14 +262,19 @@ export function ImportCandidatesDrawer({
       return;
     }
 
-    // CSV
+    // CSV / TXT — se leen los bytes y se detecta la codificación: un CSV
+    // guardado por Excel en Windows viene en Windows-1252 y leído como UTF-8
+    // rompía tildes y eñes (AGENT1-AUDIT-WS5-IMPORT-CSV-1).
     setFileXlsx(null);
     setDetectedMethod('csv');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setFileText((ev.target?.result as string) ?? '');
-    };
-    reader.readAsText(file, 'UTF-8');
+    file
+      .arrayBuffer()
+      .then((buffer) => setFileText(decodeImportTextFile(buffer)))
+      .catch(() => {
+        const message = 'No pudimos leer el archivo. Intenta de nuevo o pega el contenido.';
+        toast.error(message);
+        setFileError(message);
+      });
   }
 
   function handleFileRemoved() {
@@ -538,17 +548,15 @@ export function ImportCandidatesDrawer({
       throw new Error(result.message ?? 'Error al revalidar');
     }
 
-    // Update the row in state
-    setClassificationRows((prev) =>
-      prev.map((r) => (r.rowNumber === correction.rowNumber ? result.row! : r)),
-    );
-
-    // Recompute summary
-    const newRows = classificationRows.map((r) =>
-      r.rowNumber === correction.rowNumber ? result.row! : r,
-    );
-    const newSummary = summarizeClassificationRows(newRows);
-    setClassificationSummary(newSummary);
+    // Update the row in state and recompute the summary from the SAME rows
+    // (antes se recalculaba con un `classificationRows` viejo: en la corrección
+    // masiva el resumen quedaba desfasado).
+    const savedRow = result.row;
+    setClassificationRows((prev) => {
+      const next = prev.map((r) => (r.rowNumber === correction.rowNumber ? savedRow : r));
+      setClassificationSummary(summarizeClassificationRows(next));
+      return next;
+    });
   }
 
   // ── Handle bulk correction ─────────────────────────────────────────────────
@@ -573,38 +581,54 @@ export function ImportCandidatesDrawer({
 
   // Crea el lote con las filas elegidas. Usa fetch (no Server Action) → sin
   // router.refresh automático: se cierra el drawer, se avisa y se refresca.
-  async function submitImport(rowsToImport: ImportRow[], includeSubindustry: boolean) {
+  // Si el servidor rechaza la importación, se muestra su mensaje y el drawer
+  // sigue abierto con la revisión intacta (AGENT1-AUDIT-WS5-IMPORT-OVERRIDES-1).
+  async function submitImport(
+    rowsToImport: ImportRow[],
+    includeSubindustry: boolean,
+    overrides?: ReadonlyMap<number, ImportIndustryOverride>,
+  ) {
     if (!preview) return;
+    const body = buildCreateImportBatchBody({
+      importType: detectedMethod,
+      candidates: buildImportCandidates(rowsToImport, includeSubindustry, overrides),
+      preview,
+      defaults: {
+        country: selectedCountry?.name,
+        country_code: selectedCountryCode || undefined,
+        industry: selectedIndustryName || undefined,
+        subindustry: selectedSubindustryName || undefined,
+      },
+    });
+    // El mismo contrato que aplica el servidor, antes de enviar.
+    const inputCheck = validateImportBatchInput(body);
+    if (!inputCheck.ok) {
+      toast.error(inputCheck.message);
+      return;
+    }
     setConfirming(true);
     try {
       const res = await fetch('/api/prospect-batches/create-import-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          buildCreateImportBatchBody({
-            importType: detectedMethod,
-            candidates: buildImportCandidates(rowsToImport, includeSubindustry),
-            preview,
-            defaults: {
-              country: selectedCountry?.name,
-              country_code: selectedCountryCode || undefined,
-              industry: selectedIndustryName || undefined,
-              subindustry: selectedSubindustryName || undefined,
-            },
-          }),
-        ),
+        body: JSON.stringify(body),
       });
 
-      const result = await res.json() as {
-        batchId: string;
-        candidatesCreated: number;
-        stats: ImportBatchStats;
-      };
-      setResultBatchId(result.batchId);
-      setResultCount(result.candidatesCreated);
-      setImportStats(result.stats || null);
+      const outcome = readCreateImportBatchResponse(res.ok, await res.json().catch(() => null));
+      if (!outcome.ok) {
+        toast.error(outcome.message);
+        return;
+      }
+      setResultBatchId(outcome.batchId);
+      setResultCount(outcome.candidatesCreated);
+      setImportStats(outcome.stats);
       handleClose();
-      toast.success(`Se importaron ${result.candidatesCreated} candidato${result.candidatesCreated !== 1 ? 's' : ''} exitosamente.`);
+      toast.success(`Se importaron ${outcome.candidatesCreated} candidato${outcome.candidatesCreated !== 1 ? 's' : ''} exitosamente.`);
+      if (outcome.pendingRevalidationCount > 0) {
+        toast.warning(
+          `${outcome.pendingRevalidationCount} fila${outcome.pendingRevalidationCount !== 1 ? 's' : ''} quedó pendiente de validar por tiempo. Revalida el lote para completarla${outcome.pendingRevalidationCount !== 1 ? 's' : ''}.`,
+        );
+      }
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al importar prospectos');
@@ -617,21 +641,20 @@ export function ImportCandidatesDrawer({
   async function handleConfirmWithClassification() {
     if (!preview || !catalogVersion) return;
     // Import only the rows the user has selected (blocking logic already prevents
-    // this being called when selected rows have requires_review/invalid status)
-    const rowsToImport = classificationRows
-      .filter((r) => classificationSelectedIds.has(r.rowNumber))
-      .map((r) => {
-        const originalRow = preview.rows.find((pr) => pr.index === r.rowNumber - 1);
-        return originalRow;
-      })
-      .filter((r): r is ImportRow => r !== undefined);
+    // this being called when selected rows have requires_review/invalid status),
+    // with the manual industry corrections made in the review.
+    const { rows: rowsToImport, overrides } = selectClassifiedRowsForImport(
+      preview,
+      classificationRows,
+      classificationSelectedIds,
+    );
 
     if (rowsToImport.length === 0) {
       toast.error('Selecciona al menos una fila para importar.');
       return;
     }
 
-    await submitImport(rowsToImport, subindustriesEnabled);
+    await submitImport(rowsToImport, subindustriesEnabled, overrides);
   }
 
   // handleConfirm usa fetch (no Server Action) → sin router.refresh automático

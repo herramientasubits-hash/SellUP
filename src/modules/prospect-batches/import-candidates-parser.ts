@@ -1,4 +1,5 @@
 import { resolveImportTaxIdentifier } from './import-tax-identifier';
+import { IMPORT_BATCH_MAX_ROWS } from './import-batch-schema';
 import {
   parseCompanyList,
   parseMatrixByContent,
@@ -371,6 +372,12 @@ function resolveCountryCode(countryValue: string): string | null {
   return COUNTRY_TO_CODE[normalized] ?? null;
 }
 
+/**
+ * Parte una línea lógica en celdas (RFC 4180). AGENT1-AUDIT-WS5-IMPORT-CSV-1 —
+ * la comilla sólo abre un campo entrecomillado al INICIO del campo; una comilla
+ * suelta a mitad de un nombre («Almacenes "La 14"») es texto, no un cambio de
+ * modo que se trague el resto de la línea.
+ */
 function splitCsvLine(line: string, sep: string): string[] {
   let processedLine = line.trim();
   if (sep === '|' && processedLine.startsWith('|') && processedLine.endsWith('|')) {
@@ -383,14 +390,23 @@ function splitCsvLine(line: string, sep: string): string[] {
 
   for (let i = 0; i < processedLine.length; i++) {
     const ch = processedLine[i];
-    if (ch === '"') {
-      if (inQuotes && processedLine[i + 1] === '"') {
-        current += '"';
-        i++;
+    if (inQuotes) {
+      if (ch === '"') {
+        if (processedLine[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
       } else {
-        inQuotes = !inQuotes;
+        current += ch;
       }
-    } else if (ch === sep && !inQuotes) {
+      continue;
+    }
+    if (ch === '"' && current.trim() === '') {
+      inQuotes = true;
+      current = '';
+    } else if (ch === sep) {
       cells.push(current.trim());
       current = '';
     } else {
@@ -399,6 +415,83 @@ function splitCsvLine(line: string, sep: string): string[] {
   }
   cells.push(current.trim());
   return cells;
+}
+
+/**
+ * Líneas LÓGICAS de un texto delimitado: un salto de línea dentro de un campo
+ * entrecomillado (una descripción de varias líneas exportada por Excel) NO
+ * parte la fila (AGENT1-AUDIT-WS5-IMPORT-CSV-1; antes se partía por `\n`
+ * antes de mirar las comillas y la fila se rompía en dos filas basura).
+ * La comilla sólo abre un campo al inicio del campo. Con una comilla sin
+ * cerrar (texto mal formado) se vuelve a las líneas físicas: nunca se funden
+ * todas las filas restantes en una.
+ */
+export function splitDelimitedLogicalLines(text: string, sep: string): string[] {
+  const physical = text.split(/\r\n|\n|\r/);
+  if (sep === '|' || !text.includes('"')) return physical;
+
+  const lines: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let atFieldStart = true;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          current += '""';
+          i++;
+          continue;
+        }
+        inQuotes = false;
+      }
+      current += ch;
+      continue;
+    }
+    if (ch === '\r' || ch === '\n') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      lines.push(current);
+      current = '';
+      atFieldStart = true;
+      continue;
+    }
+    current += ch;
+    if (ch === sep) {
+      atFieldStart = true;
+    } else if (ch === '"' && atFieldStart) {
+      inQuotes = true;
+      atFieldStart = false;
+    } else if (ch !== ' ' && ch !== '\t') {
+      atFieldStart = false;
+    }
+  }
+  if (inQuotes) return physical;
+  lines.push(current);
+  return lines;
+}
+
+/**
+ * Texto de un archivo CSV/TXT con la codificación correcta.
+ * AGENT1-AUDIT-WS5-IMPORT-CSV-1 — el drawer leía todo como UTF-8: un CSV de
+ * Excel en Windows (Windows-1252) salía con «Compa�ía». Orden: BOM UTF-8 /
+ * UTF-16 si lo hay; si no, UTF-8 ESTRICTO; si no es UTF-8 válido, Windows-1252.
+ */
+export function decodeImportTextFile(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(bytes.subarray(2));
+  }
+  const withoutBom =
+    bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? bytes.subarray(3) : bytes;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(withoutBom);
+  } catch {
+    return new TextDecoder('windows-1252').decode(withoutBom);
+  }
 }
 
 function isBlankRow(cells: string[]): boolean {
@@ -565,7 +658,8 @@ export interface ParseResult {
   source_text?: string;
 }
 
-const MAX_IMPORT_ROWS = 500;
+// El mismo tope que valida el servidor (`import-batch-schema.ts`).
+const MAX_IMPORT_ROWS = IMPORT_BATCH_MAX_ROWS;
 
 const EMPTY_PARSE: ParseResult = {
   rows: [],
@@ -586,10 +680,11 @@ interface TabularBlock {
 
 /** Bloques contiguos de líneas con el mismo separador, ya partidos en celdas. */
 function findTabularBlocks(text: string): TabularBlock[] {
-  const allLines = text.split(/\r?\n/);
   const found: TabularBlock[] = [];
 
   for (const sep of ['\t', '|', ';', ',']) {
+    // Líneas lógicas para este separador (respetan saltos dentro de comillas).
+    const allLines = splitDelimitedLogicalLines(text, sep);
     // Find contiguous blocks of non-blank lines containing the separator
     const blocks: string[][] = [];
     let currentBlock: string[] = [];
@@ -711,6 +806,32 @@ function buildContractResult(headers: string[], dataRows: string[][], defaults?:
 }
 
 /**
+ * AGENT1-AUDIT-WS5-IMPORT-HEADER-HINTS-1 — fuera del formato oficial, una
+ * columna se toma como identificador fiscal por la FORMA de sus valores (8-14
+ * dígitos, guion de verificación…). Si el valor no es válido para el país de
+ * la fila, no se persiste como identificador fiscal (alimentaría identidad y
+ * reclamo global con un teléfono): se deja en las notas para que se vea.
+ * El formato oficial (columna «NIT» declarada) mantiene la regla de
+ * AGENT1-IMPORT-PARITY-2: inválido = aviso, no se descarta.
+ */
+function dropInvalidGuessedTaxIdentifier(raw: ParsedImportRow, defaults?: ImportDefaults): ParsedImportRow {
+  const value = raw.tax_identifier?.trim();
+  if (!value) return raw;
+  const countryCode =
+    raw.country_code?.trim().toUpperCase() ||
+    (raw.country ? resolveCountryCode(raw.country) : null) ||
+    defaults?.countryCode ||
+    null;
+  if (resolveImportTaxIdentifier(value, countryCode).status !== 'invalid') return raw;
+  const note = `Número descartado como identificador fiscal (no válido para ${countryCode}): ${value}`;
+  return {
+    ...raw,
+    tax_identifier: undefined,
+    notes: raw.notes ? `${raw.notes}\n${note}` : note,
+  };
+}
+
+/**
  * IMPORT-FREE-FORMAT-1 — filas que no vienen del formato oficial (columnas
  * reconocidas por su contenido, lista o lectura con IA) pasan por la MISMA
  * validación que el formato oficial.
@@ -727,8 +848,13 @@ export function buildParseResultFromParsedRows(
   const truncated = parsedRows.length > MAX_IMPORT_ROWS;
   const limited = truncated ? parsedRows.slice(0, MAX_IMPORT_ROWS) : parsedRows;
   const recognized = [...new Set(columnGuesses.map((g) => g.field).filter((f): f is ImportFieldKey => f !== null))];
+  // Un identificador fiscal ADIVINADO por su forma que no es válido para el
+  // país no se guarda como tal (era un teléfono, un código interno…).
+  const guessedByShape = detection === 'columns_by_content' || detection === 'company_list';
   return {
-    rows: limited.map((raw, index) => validateRow(raw, index, defaults)),
+    rows: limited.map((raw, index) =>
+      validateRow(guessedByShape ? dropInvalidGuessedTaxIdentifier(raw, defaults) : raw, index, defaults),
+    ),
     recognized_columns: recognized.length > 0 ? recognized : ['company_name'],
     unrecognized_columns: columnGuesses.filter((g) => g.field === null).map((g) => g.column),
     duplicate_columns: [],
