@@ -565,6 +565,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // esta suite protege. AUTORADAS y NO APLICADAS.
       '151_claim_enrichment_jobs_hardening.sql',
       '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -683,7 +687,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(numbered[numbered.length - 1], 152);
+    assert.equal(numbered[numbered.length - 1], 153);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

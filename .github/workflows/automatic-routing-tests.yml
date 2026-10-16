@@ -181,6 +181,11 @@ jobs:
       - name: Run Agent 1 Claude classifier tests
         run: npm run test:a1-claude-classifier
 
+      # AGENT3-FIRST-CALL-1 — Agente 3: investigar la empresa y preparar la primera llamada.
+      # Fuentes y modelo simulados: 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Agent 3 first-call tests
+        run: npm run test:agent3-first-call
+
       # Q3F-5BB.11F.2 — Apollo per-candidate provider_trace + source_trace.
       # Guards that each inserted candidate row carries an additive
       # metadata.source_provider='apollo', metadata.provider_trace (attempt_index=0,
@@ -982,6 +987,13 @@ jobs:
       # leyendo los archivos verbatim de `supabase/migrations`.
       - name: Run provider-native in-flight race tests against real PostgreSQL
         run: npm run test:agent2a:provider-native-race:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # AGENT3-FIRST-CALL-1 — la 153 (fichas y paquetes de primera llamada) aplicada de verdad y
+      # leída como `authenticated`: un usuario activo lee, uno inactivo no ve nada, nadie escribe.
+      - name: Run Agent 3 first-call migration tests against real PostgreSQL
+        run: npm run test:agent3-first-call:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 

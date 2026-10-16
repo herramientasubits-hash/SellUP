@@ -421,7 +421,7 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no tocan el registro de identidad del lote
 // ni la valla; su autoría se policía por CONTENIDO en las pruebas dedicadas de abajo. AUTORADAS y
 // NO APLICADAS.
-const REPOSITORY_CEILING = '152_agent1_identity_claims_crosscheck.sql';
+const REPOSITORY_CEILING = '153_agent3_first_call_prep.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -805,7 +805,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // AGENT1-AUDIT-HARDENING-1 lo movió a la 152 (la 151 endurece `claim_enrichment_jobs` y la 152
     // cruza NIT/dominio/LinkedIn en los reclamos de identidad), policiadas igual por AUTORÍA en sus
     // pruebas dedicadas.
-    assert.ok(last.startsWith('152'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('153'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));

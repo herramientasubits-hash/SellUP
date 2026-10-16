@@ -1,0 +1,132 @@
+/**
+ * Agente 3 · Primera llamada — juntar lo que se va a leer (sitio y noticias).
+ *
+ * Todo lo que entra aquí se descarga NOSOTROS (sitio oficial) o viene de Tavily
+ * con su texto: así la cita de cada hecho se puede comprobar contra el texto real.
+ */
+
+import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
+import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
+import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
+import { normalizeDomain } from '../prospecting-toolkit/normalization';
+import { DOC_TEXT_MAX_CHARS, type ResearchDocument } from './research-prompt';
+import { MAX_SITE_PAGES, SITE_PAGE_LABELS, pickSitePages, type SitePageKind } from './site-pages';
+
+/** Menos texto que esto = página vacía o bloqueada: no se manda al modelo. */
+export const MIN_DOC_TEXT_CHARS = 200;
+/** Texto de la portada: un poco más largo que el de las demás páginas. */
+const HOME_TEXT_MAX_CHARS = 8_000;
+
+export interface NewsResult {
+  url: string;
+  title: string | null;
+  content: string | null;
+  publishedOn: string | null;
+}
+
+export interface NewsSearchOutput {
+  results: NewsResult[];
+  /** Créditos que Tavily dijo cobrar (null = no informó). */
+  credits: number | null;
+  skipped: boolean;
+  error: string | null;
+}
+
+export interface SiteReadResult {
+  documents: ResearchDocument[];
+  pageKinds: SitePageKind[];
+  homeReachable: boolean;
+  pagesRead: number;
+}
+
+function toUrl(websiteOrDomain: string): string {
+  const trimmed = websiteOrDomain.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function usable(page: SafePageFetchResult): boolean {
+  return !!page.html && (page.httpStatus ?? 0) < 400;
+}
+
+/** Portada + hasta cinco páginas por tema, en paralelo. Nunca lanza. */
+export async function readOfficialSite(
+  websiteOrDomain: string | null,
+  fetchPage: (url: string) => Promise<SafePageFetchResult>,
+): Promise<SiteReadResult> {
+  const empty: SiteReadResult = { documents: [], pageKinds: [], homeReachable: false, pagesRead: 0 };
+  if (!websiteOrDomain) return empty;
+
+  let home: SafePageFetchResult;
+  try {
+    home = await fetchPage(toUrl(websiteOrDomain));
+  } catch {
+    return empty;
+  }
+  if (!usable(home)) return empty;
+  const homeUrl = home.finalUrl ?? home.requestedUrl;
+  const homeText = extractVisibleText(home.html!, HOME_TEXT_MAX_CHARS);
+  const documents: ResearchDocument[] = [];
+  if (homeText.length >= MIN_DOC_TEXT_CHARS) {
+    documents.push({ docId: '', url: homeUrl, label: 'Sitio oficial · Portada', kind: 'official_site', text: homeText, publishedOn: null });
+  }
+
+  const links = pickSitePages(home.html!, homeUrl, MAX_SITE_PAGES - 1);
+  const pages = await Promise.all(
+    links.map(async (link) => {
+      try {
+        const page = await fetchPage(link.url);
+        if (!usable(page)) return null;
+        const text = extractVisibleText(page.html!, DOC_TEXT_MAX_CHARS);
+        if (text.length < MIN_DOC_TEXT_CHARS) return null;
+        return { link, url: page.finalUrl ?? link.url, text };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const pageKinds: SitePageKind[] = [];
+  for (const page of pages) {
+    if (!page) continue;
+    pageKinds.push(page.link.kind);
+    documents.push({
+      docId: '',
+      url: page.url,
+      label: SITE_PAGE_LABELS[page.link.kind],
+      kind: 'official_site',
+      text: page.text,
+      publishedOn: null,
+    });
+  }
+  return { documents, pageKinds, homeReachable: true, pagesRead: 1 + pages.filter(Boolean).length };
+}
+
+/** Sitios que no son fuente útil de una noticia sobre la empresa. */
+const NOISE_HOSTS = /(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|pinterest|computrabajo|indeed|glassdoor|wikipedia)\.[a-z.]+$/i;
+
+/** Noticias como documentos: sin redes, sin portales de empleo prohibidos y sin competidores. */
+export function newsToDocuments(results: readonly NewsResult[], companyDomain: string | null): ResearchDocument[] {
+  const own = companyDomain ? normalizeDomain(companyDomain) : null;
+  const seen = new Set<string>();
+  const documents: ResearchDocument[] = [];
+  for (const result of results) {
+    const host = normalizeDomain(result.url);
+    const text = [result.title, result.content].filter(Boolean).join('\n').trim();
+    if (!host || NOISE_HOSTS.test(host) || isUbitsCompetitorDomain(result.url)) continue;
+    if (text.length < 80 || seen.has(result.url)) continue;
+    seen.add(result.url);
+    documents.push({
+      docId: '',
+      url: result.url,
+      label: own && host === own ? 'Sitio oficial · Noticia' : `Noticia · ${host}`,
+      kind: 'news',
+      text: text.slice(0, DOC_TEXT_MAX_CHARS),
+      publishedOn: result.publishedOn,
+    });
+  }
+  return documents;
+}
+
+/** Numera los documentos D1, D2… en el orden en que se mandan. */
+export function numberDocuments(documents: readonly ResearchDocument[]): ResearchDocument[] {
+  return documents.map((d, i) => ({ ...d, docId: `D${i + 1}` }));
+}

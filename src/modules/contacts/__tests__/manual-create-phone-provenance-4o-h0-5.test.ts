@@ -691,7 +691,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
       // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no crean contacto ni
       // escriben `phone_source`. AUTORADAS y NO APLICADAS.
-      '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

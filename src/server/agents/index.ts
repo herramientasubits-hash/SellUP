@@ -1,2 +1,2 @@
 // Definiciones de agentes de IA
-// Pendiente: prospect-agent, intelligence-agent, speech-agent
+// Agente 3 (investigación + primera llamada): ./first-call. Ver docs/AGENTE_3_PRIMERA_LLAMADA.md.
