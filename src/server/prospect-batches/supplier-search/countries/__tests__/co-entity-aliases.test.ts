@@ -120,8 +120,8 @@ describe('integridad de la tabla curada', () => {
     }
   });
 
-  it('las entidades con NIT sucio en el SIGEP quedaron fuera a propósito', () => {
-    for (const alias of ['MINTRABAJO', 'MINVIVIENDA', 'MINDEFENSA', 'DPS', 'EJERCITO', 'ARMADA', 'UPTC']) {
+  it('las entidades con NIT sucio, o que no resolvieron bien en Producción, quedaron fuera a propósito', () => {
+    for (const alias of ['MINTRABAJO', 'MINSALUD', 'INPEC', 'MINVIVIENDA', 'MINDEFENSA', 'DPS', 'EJERCITO', 'ARMADA', 'UPTC']) {
       assert.equal(findCoEntityAlias(alias), null, alias);
     }
   });
