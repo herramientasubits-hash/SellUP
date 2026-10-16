@@ -142,17 +142,36 @@ function getAdminSupabase(): SupabaseClient {
 // ── Candidate selection ────────────────────────────────────────────────────────
 
 /**
- * Fetches converted candidates with post_approval_enrichment.status='queued'
- * and strategy='nit_first' and a non-null NIT.
+ * ¿Puede este candidato entrar al worker? Misma regla que el disparador
+ * (`post-approval-enrichment-trigger.ts`): encolado con estrategia `nit_first`
+ * y con NIT, salvo México, que se encola SIN RFC porque DENUE busca por nombre
+ * (`isMxNameContextOnly`). Antes el worker exigía NIT siempre, así que los
+ * mexicanos sin RFC quedaban `queued` para siempre.
+ */
+export function isPostApprovalNitQueueEligible(candidate: Pick<CandidateRow, 'country_code' | 'metadata'>): boolean {
+  const meta = candidate.metadata as Record<string, unknown> | null;
+  const pae = meta?.post_approval_enrichment as Record<string, unknown> | undefined;
+  if (pae?.status !== 'queued' || pae?.strategy !== 'nit_first') return false;
+  const hasNit = typeof pae.nit === 'string' && pae.nit.trim().length > 0;
+  if (hasNit) return true;
+  const isMx = (candidate.country_code ?? '').trim().toUpperCase() === 'MX';
+  return isMx && (pae.nit === undefined || pae.nit === null);
+}
+
+/**
+ * Candidatos convertidos con `post_approval_enrichment.status = 'queued'`.
  *
- * Queries by status at DB level, then applies precise JS filter for the
- * metadata state to avoid complex JSONB query syntax.
+ * AGENT1-AUDIT-WS1 — el estado del bloque se filtra EN LA BASE y se ordena por
+ * antigüedad (`updated_at` ascendente). Antes se pedían 60 convertidos
+ * cualesquiera, sin orden, y se filtraba en JS: en cuanto había más de 60
+ * convertidos ya procesados, los encolados no salían nunca de la consulta.
+ * El filtro en JS se queda como segunda barrera (y para el caso de México).
  */
 export async function selectQueuedCandidates(
   supabase: SupabaseClient,
   limit: number,
 ): Promise<CandidateRow[]> {
-  // Fetch a batch larger than limit to account for JS filter
+  // Margen sobre el límite por si alguna fila encolada no pasa la regla en JS.
   const fetchLimit = Math.min(limit * 6, 60);
 
   const { data, error } = await supabase
@@ -162,26 +181,16 @@ export async function selectQueuedCandidates(
     )
     .eq('status', 'converted_to_account')
     .not('converted_account_id', 'is', null)
+    .eq('metadata->post_approval_enrichment->>status', 'queued')
+    .eq('metadata->post_approval_enrichment->>strategy', 'nit_first')
+    .order('updated_at', { ascending: true })
     .limit(fetchLimit);
 
   if (error) throw error;
 
   const rows = (data ?? []) as CandidateRow[];
 
-  return rows
-    .filter((c) => {
-      const meta = c.metadata as Record<string, unknown> | null;
-      const pae = meta?.post_approval_enrichment as
-        | Record<string, unknown>
-        | undefined;
-      return (
-        pae?.status === 'queued' &&
-        pae?.strategy === 'nit_first' &&
-        typeof pae?.nit === 'string' &&
-        (pae.nit as string).trim().length > 0
-      );
-    })
-    .slice(0, limit);
+  return rows.filter(isPostApprovalNitQueueEligible).slice(0, limit);
 }
 
 // ── Adapter execution ──────────────────────────────────────────────────────────
@@ -1173,7 +1182,8 @@ async function processCandidateNitEnrichment(
 ): Promise<{ candidateId: string; finalStatus: CandidateFinalStatus }> {
   const meta = (candidate.metadata as Record<string, unknown> | null) ?? {};
   const paeBlock = (meta.post_approval_enrichment as Record<string, unknown>) ?? {};
-  const nit = paeBlock.nit as string;
+  // México sin RFC entra por nombre (DENUE): sin NIT no corre ningún adaptador CO.
+  const nit = typeof paeBlock.nit === 'string' ? paeBlock.nit.trim() : '';
   const sourceKeys = Array.isArray(paeBlock.source_keys)
     ? (paeBlock.source_keys as string[])
     : [];

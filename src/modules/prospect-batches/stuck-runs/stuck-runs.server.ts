@@ -15,8 +15,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  AGENT1_BATCH_SOURCE,
   continuationJobCloseReason,
   isBatchIdle,
+  isClosableStuckBatchStatus,
+  isDraftAgentBatchIdle,
   STUCK_BATCH_IDLE_MINUTES,
   STUCK_RUN_CLOSE_CODES,
   stuckBatchFinalStatus,
@@ -29,15 +32,32 @@ const OPEN_JOB_STATUSES = ['pending', 'processing'] as const;
 /** Techo de filas por barrido: el barrido corre a menudo y debe ser barato. */
 const SWEEP_LIMIT = 100;
 
-type JobRow = ContinuationJobState & { id: string; batch_id: string };
+type JobRow = ContinuationJobState & { id: string; batch_id: string; lease_token: string | null };
 
 export type StuckRunsSweepResult = { closedJobs: number; closedBatches: number };
 
-async function closeJob(client: SupabaseClient, job: Pick<JobRow, 'id' | 'status'>, code: StuckRunCloseCode, nowIso: string) {
+type CloseJobOptions = {
+  /**
+   * AGENT1-AUDIT-WS1 — vallar también por el token del lease leído. El barrido lo
+   * exige: entre su lectura y su escritura un conductor puede reclamar el
+   * trabajo (mismo estado `processing`, token NUEVO) y el barrido lo cerraba en
+   * plena ejecución. El botón «Terminar» NO lo usa a propósito: quiere cerrar
+   * también la continuación que tiene turno vivo.
+   */
+  fenceLease: boolean;
+};
+
+async function closeJob(
+  client: SupabaseClient,
+  job: Pick<JobRow, 'id' | 'status'> & { lease_token?: string | null },
+  code: StuckRunCloseCode,
+  nowIso: string,
+  options: CloseJobOptions,
+) {
   // Vallado por el estado leído: si otro proceso lo tomó o lo cerró entre medias,
   // esta escritura no encuentra fila y no pisa nada. Soltar el token también
   // invalida el cierre tardío de un conductor que siguiera vivo.
-  const { data, error } = await client
+  let query = client
     .from(JOBS_TABLE)
     .update({
       status: 'failed',
@@ -49,8 +69,13 @@ async function closeJob(client: SupabaseClient, job: Pick<JobRow, 'id' | 'status
       locked_by: null,
     })
     .eq('id', job.id)
-    .eq('status', job.status)
-    .select('id');
+    .eq('status', job.status);
+  if (options.fenceLease) {
+    // Cada reclamo genera un token nuevo: si el token cambió, alguien lo tomó.
+    const token = job.lease_token ?? null;
+    query = token === null ? query.is('lease_token', null) : query.eq('lease_token', token);
+  }
+  const { data, error } = await query.select('id');
   return !error && Array.isArray(data) && data.length > 0;
 }
 
@@ -66,8 +91,9 @@ async function hasOpenJob(client: SupabaseClient, batchId: string): Promise<bool
 }
 
 /**
- * Cierra un lote «generando»: a revisión si tiene empresas, fallido si no. Deja
- * el motivo en `metadata.stuck_run_close`. Sólo si sigue «generando».
+ * Cierra un lote «generando» (o un borrador del Agente 1): a revisión si tiene
+ * empresas, fallido si no. Deja el motivo en `metadata.stuck_run_close`. Sólo si
+ * sigue en el estado leído.
  */
 async function closeBatch(
   client: SupabaseClient,
@@ -78,10 +104,18 @@ async function closeBatch(
 ): Promise<string | null> {
   const { data: batch, error } = await client
     .from('prospect_batches')
-    .select('status, metadata')
+    .select('status, source, metadata')
     .eq('id', batchId)
     .maybeSingle();
-  if (error || !batch || (batch as { status?: unknown }).status !== 'generating') return null;
+  if (error || !batch) return null;
+  const currentStatus = (batch as { status?: unknown }).status;
+  const source = (batch as { source?: unknown }).source;
+  if (
+    typeof currentStatus !== 'string' ||
+    !isClosableStuckBatchStatus({ status: currentStatus, source: typeof source === 'string' ? source : null })
+  ) {
+    return null;
+  }
 
   const { count } = await client
     .from('prospect_candidates')
@@ -101,7 +135,7 @@ async function closeBatch(
       },
     })
     .eq('id', batchId)
-    .eq('status', 'generating')
+    .eq('status', currentStatus)
     .select('id');
   return Array.isArray(updated) && updated.length > 0 ? status : null;
 }
@@ -116,7 +150,7 @@ export async function closeStuckAgentRuns(
   try {
     const { data: jobs } = await client
       .from(JOBS_TABLE)
-      .select('id, batch_id, status, attempts, max_attempts, lease_expires_at, created_at')
+      .select('id, batch_id, status, attempts, max_attempts, lease_expires_at, lease_token, created_at')
       .in('status', [...OPEN_JOB_STATUSES])
       .order('created_at', { ascending: true })
       .limit(SWEEP_LIMIT);
@@ -125,7 +159,7 @@ export async function closeStuckAgentRuns(
     for (const job of (jobs ?? []) as JobRow[]) {
       const code = continuationJobCloseReason(job, nowMs);
       if (code === null) continue;
-      if (await closeJob(client, job, code, nowIso)) {
+      if (await closeJob(client, job, code, nowIso, { fenceLease: true })) {
         result.closedJobs++;
         batchesToCheck.set(job.batch_id, code);
       }
@@ -140,6 +174,24 @@ export async function closeStuckAgentRuns(
       .limit(SWEEP_LIMIT);
     for (const batch of (idle ?? []) as Array<{ id: string; status: string; updated_at: string | null }>) {
       if (isBatchIdle({ status: batch.status, updatedAt: batch.updated_at, nowMs }) && !batchesToCheck.has(batch.id)) {
+        batchesToCheck.set(batch.id, 'idle');
+      }
+    }
+
+    // AGENT1-AUDIT-WS1 — borradores del Agente 1 quietos: la corrida murió antes de
+    // escribir. Mismo umbral y misma condición (sin continuación abierta).
+    const { data: idleDrafts } = await client
+      .from('prospect_batches')
+      .select('id, status, source, updated_at')
+      .eq('status', 'draft')
+      .eq('source', AGENT1_BATCH_SOURCE)
+      .lt('updated_at', idleBefore)
+      .limit(SWEEP_LIMIT);
+    for (const batch of (idleDrafts ?? []) as Array<{ id: string; status: string; source: string | null; updated_at: string | null }>) {
+      if (
+        isDraftAgentBatchIdle({ status: batch.status, source: batch.source, updatedAt: batch.updated_at, nowMs }) &&
+        !batchesToCheck.has(batch.id)
+      ) {
         batchesToCheck.set(batch.id, 'idle');
       }
     }
@@ -178,7 +230,7 @@ export async function finishAgentRunForBatch(
 
   let closedJobs = 0;
   for (const job of (jobs ?? []) as Array<{ id: string; status: string }>) {
-    if (await closeJob(client, job, code, nowIso)) closedJobs++;
+    if (await closeJob(client, job, code, nowIso, { fenceLease: false })) closedJobs++;
   }
   const batchStatus = await closeBatch(client, batchId, code, nowIso, actorUserId);
   return { closedJobs, batchStatus };
