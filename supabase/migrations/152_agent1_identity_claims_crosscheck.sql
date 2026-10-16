@@ -164,7 +164,11 @@ UPDATE public.agent1_company_identity_claims c
          'icloud.com'
        ]) AS shared(host)
       WHERE src.dom = shared.host OR src.dom LIKE '%.' || shared.host
-   );
+   )
+   -- AUDIT-HARDENING-1 — el portal nacional del Estado aloja a todos los
+   -- ministerios como rutas (`gob.pe/minsa`): no es la identidad de ninguno
+   -- (`national-portal-entity.ts`). Coincidencia EXACTA: `minsa.gob.pe` sí vale.
+   AND src.dom NOT IN ('gob.pe', 'gob.mx', 'argentina.gob.ar', 'gub.uy', 'gob.ec');
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 2. Cruce: ¿otro candidato activo tiene ya este dominio / LinkedIn?
