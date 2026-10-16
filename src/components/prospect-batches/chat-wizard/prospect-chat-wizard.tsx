@@ -516,7 +516,8 @@ export function ProspectChatWizard({
 
   // Dueña 06-10: «Editar búsqueda» ya no vuelve sólo al paso anterior: abre
   // «¿Qué quieres cambiar?» con cada decisión del chat. Se cambia una y se vuelve
-  // al resumen (misma corrida, mismo clientRequestId: § 9).
+  // al resumen (misma corrida, mismo clientRequestId: § 9) — mientras no se haya
+  // ejecutado; tras una respuesta del servidor el id ya se rotó (handleExecute).
   function handleEditSearch() {
     setCriteriaText('');
     dispatch({ type: 'OPEN_DECISIONS_EDITOR' });
@@ -578,8 +579,9 @@ export function ProspectChatWizard({
           // momento en que se acuña un clientRequestId, porque la elección de
           // proveedor pertenece a esa corrida y a ninguna otra: recordar Apollo
           // aquí convertiría una prueba puntual en el default silencioso del
-          // wizard. «Editar búsqueda» conserva el clientRequestId y por tanto la
-          // elección — es la misma corrida (§ 9).
+          // wizard. «Editar búsqueda» conserva la elección (§ 9); tras ejecutar,
+          // handleExecute ya rotó el id a uno nuevo y no nulo, así que este
+          // bloque no corre y la elección se mantiene.
           setRequestedProvider(undefined);
           setTwoRoundOutcome(null);
         }
@@ -755,6 +757,15 @@ export function ProspectChatWizard({
           : {}),
       });
 
+      // AGENT1-SEARCH-AUDIT-1 — el servidor ya respondió: esa corrida terminó (o
+      // quedó registrada con su lote). El próximo «Generar prospectos» —tras
+      // «Editar búsqueda», un reintento o un cambio de proveedor— es una corrida
+      // NUEVA. Con el mismo id el servidor volvía a correr la capa gratuita contra
+      // el lote viejo y contestaba «ya había sido iniciada» sin buscar. Sólo se
+      // rota con respuesta: si la red falla (catch) la corrida puede seguir viva y
+      // reusar el id es lo que evita duplicarla.
+      clientRequestIdRef.current = crypto.randomUUID();
+
       if (result.ok && result.twoRoundOutcome) {
         setTwoRoundOutcome(result.twoRoundOutcome);
       }
@@ -807,11 +818,8 @@ export function ProspectChatWizard({
         // sustituiría el `retryable` que decidió el servidor por el de una tabla.
         // AGENT1-SUPPLIER-SEARCH-1 — el camino de «Proveedores» devuelve su propio
         // texto (cuota de Claude agotada, modelo sin configurar…): se muestra tal cual.
-        // Su lote fallido ya quedó sellado: reintentar con el MISMO id devolvería
-        // «ya empezada» sin buscar, así que el reintento es una corrida nueva.
-        if (supplierReference && result.code === 'GENERATION_FAILED') {
-          clientRequestIdRef.current = crypto.randomUUID();
-        }
+        // Su lote fallido ya quedó sellado; el reintento es una corrida nueva (el id
+        // ya se rotó arriba, para todos los modos).
         const mapped = supplierReference && result.code === 'GENERATION_FAILED'
           ? { message: result.message, retryable: result.retryable }
           : result.code === 'PROVIDER_UNAVAILABLE'
