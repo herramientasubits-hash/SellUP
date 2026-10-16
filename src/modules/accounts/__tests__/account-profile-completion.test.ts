@@ -94,6 +94,25 @@ describe('qué se escribe en HubSpot', () => {
     );
   });
 
+  // AGENT1-COUNTRY-IDENTITY-1 — `pais` es una propiedad de HubSpot con valores
+  // propios («Bolivia (Estado Plurinacional de)», «República Dominicana»); la
+  // etiqueta de SellUp («Bolivia», «Rep. Dominicana») no es uno de ellos.
+  it('`pais` recibe el valor interno de HubSpot cuando se conoce', () => {
+    assert.deepEqual(
+      buildHubSpotFillProperties({
+        current: {},
+        country: 'Rep. Dominicana',
+        pais: 'República Dominicana',
+        industry: null,
+      }),
+      { pais: 'República Dominicana', country: 'Rep. Dominicana' },
+    );
+    assert.deepEqual(
+      buildHubSpotFillProperties({ current: {}, country: 'Bolivia', pais: null, industry: null }),
+      { pais: 'Bolivia', country: 'Bolivia' },
+    );
+  });
+
   it('sin nada que escribir devuelve vacío', () => {
     assert.deepEqual(buildHubSpotFillProperties({ current: {}, country: null, industry: null }), {});
     assert.deepEqual(

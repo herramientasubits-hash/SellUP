@@ -160,6 +160,11 @@ type CountryDomainRules = {
   nationalTld: string;
   /** Segundo nivel nativo explícito (`.com.mx`, `.gob.mx`), para trazas. */
   nativeTlds: readonly string[];
+  /**
+   * Sufijos que prueban ESTE país cuando es el objetivo, pero no bastan para
+   * llamar «extranjera» a la empresa en la búsqueda de otro país.
+   */
+  targetOnlyNativeTlds?: readonly string[];
   /** Señales de ruta que prueban operación en ESTE país sobre un dominio global. */
   pathSignals: readonly string[];
   /** Señales de ruta que, en OTRO país objetivo, apuntan a éste como extranjero. */
@@ -278,7 +283,12 @@ export const COUNTRY_DOMAIN_RULES: Readonly<Record<string, CountryDomainRules>> 
   US: {
     nationalTld: '.us',
     nativeTlds: ['.gov', '.mil'],
-    pathSignals: ['/us/', '/en-us', 'usa', 'united-states'],
+    // AGENT1-COUNTRY-IDENTITY-1 — `.edu` es de EE. UU., pero hay universidades
+    // latinas con `.edu` desnudo anterior a la regla (ufm.edu en Guatemala,
+    // unicah.edu en Honduras): prueba EE. UU. sin volver extranjeras a ésas.
+    // `usa` va con barras: por subcadena casaba con «usaquen» (Bogotá) o «causa».
+    targetOnlyNativeTlds: ['.edu'],
+    pathSignals: ['/us/', '/en-us', '/usa/', '/usa-', 'united-states'],
     foreignPathSignals: ['/us/', '/en-us'],
   },
   ES: {
@@ -290,10 +300,13 @@ export const COUNTRY_DOMAIN_RULES: Readonly<Record<string, CountryDomainRules>> 
 });
 
 /** ¿El dominio pertenece al país `code`? Devuelve el sufijo que lo prueba. */
-function nativeSuffixFor(domain: string, code: string): string | null {
+function nativeSuffixFor(domain: string, code: string, asTarget = false): string | null {
   const rules = COUNTRY_DOMAIN_RULES[code];
   if (!rules) return null;
-  const explicit = [...rules.nativeTlds]
+  const candidates = asTarget
+    ? [...rules.nativeTlds, ...(rules.targetOnlyNativeTlds ?? [])]
+    : [...rules.nativeTlds];
+  const explicit = candidates
     .sort((a, b) => b.length - a.length)
     .find((tld) => domain.endsWith(tld));
   if (explicit) return explicit;
@@ -330,7 +343,7 @@ function foreignCountryOfDomain(
  */
 export function resolveNativeCountryHostSuffix(hostname: string, code: string): string | null {
   if (code === 'CO') return null;
-  const native = nativeSuffixFor(hostname, code);
+  const native = nativeSuffixFor(hostname, code, true);
   // El propio sufijo no es el hostname de una empresa (`gob.mx` sí; `mx` no).
   if (native === null || hostname === native.slice(1)) return null;
   const foreign = foreignCountryOfDomain(hostname, code);
@@ -352,7 +365,7 @@ function evaluateNonColombia(url: string, code: string): CountryCompatibility {
   const hasTargetPath = rules.pathSignals.some((signal) => urlNorm.includes(signal));
 
   // Más largo gana: `.com.co` (extranjero) no puede leerse como `.co` genérico.
-  const native = nativeSuffixFor(domain, code);
+  const native = nativeSuffixFor(domain, code, true);
   const foreign = foreignCountryOfDomain(domain, code);
   if (native && (!foreign || native.length >= foreign.tld.length)) {
     return { compatible: true, confidence: 'high', reason: `native_tld:${native}` };
