@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 let rtl: typeof import('@testing-library/react');
 let ChatQuestionPanel: (typeof import('../chat-question-panel'))['ChatQuestionPanel'];
+let ChatQuestionBackContext: (typeof import('../chat-question-panel'))['ChatQuestionBackContext'];
 
 function pressKey(key: string): void {
   rtl.act(() => {
@@ -20,7 +21,7 @@ function pressKey(key: string): void {
 
 before(async () => {
   rtl = await import('@testing-library/react');
-  ({ ChatQuestionPanel } = await import('../chat-question-panel'));
+  ({ ChatQuestionPanel, ChatQuestionBackContext } = await import('../chat-question-panel'));
 });
 
 afterEach(() => rtl.cleanup());
@@ -119,5 +120,47 @@ describe('ChatQuestionPanel — «Otro», filtro y plegado', () => {
     assert.equal(rtl.screen.queryByRole('button', { name: /Colombia/ }), null);
     rtl.fireEvent.click(rtl.screen.getByRole('button', { name: 'Mostrar las opciones' }));
     assert.ok(rtl.screen.getByRole('button', { name: /Colombia/ }));
+  });
+});
+
+describe('ChatQuestionPanel — «Volver» a la pregunta anterior', () => {
+  it('sin «Volver» no hay botón; con él, va junto a los demás y vuelve', () => {
+    rtl.render(<ChatQuestionPanel title="¿País?" options={['Colombia']} onAnswer={() => {}} />);
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Volver' }), null);
+    rtl.cleanup();
+    const onBack = mock.fn();
+    rtl.render(
+      <ChatQuestionPanel title="¿Canales?" mode="multiple" options={['Llamada', 'Correo']} selected={['Llamada']} onBack={onBack} onSubmitSelection={() => {}} submitLabel="Continuar" />,
+    );
+    const back = rtl.screen.getByRole('button', { name: 'Volver' });
+    const next = rtl.screen.getByRole('button', { name: 'Continuar' });
+    assert.ok(back.compareDocumentPosition(next) & window.Node.DOCUMENT_POSITION_FOLLOWING, '«Volver» antes del botón principal');
+    rtl.fireEvent.click(back);
+    assert.equal(onBack.mock.callCount(), 1);
+  });
+
+  it('una pregunta de una sola respuesta también muestra «Volver»', () => {
+    const onBack = mock.fn();
+    rtl.render(<ChatQuestionPanel title="¿Industria?" options={['Retail']} onAnswer={() => {}} onBack={onBack} />);
+    rtl.fireEvent.click(rtl.screen.getByRole('button', { name: 'Volver' }));
+    assert.equal(onBack.mock.callCount(), 1);
+  });
+
+  it('lo toma del asistente (contexto) y `null` lo quita en una pregunta concreta', () => {
+    const onBack = mock.fn();
+    rtl.render(
+      <ChatQuestionBackContext.Provider value={onBack}>
+        <ChatQuestionPanel title="¿Industria?" options={['Retail']} onAnswer={() => {}} />
+      </ChatQuestionBackContext.Provider>,
+    );
+    rtl.fireEvent.click(rtl.screen.getByRole('button', { name: 'Volver' }));
+    assert.equal(onBack.mock.callCount(), 1);
+    rtl.cleanup();
+    rtl.render(
+      <ChatQuestionBackContext.Provider value={onBack}>
+        <ChatQuestionPanel title="¿Ramas?" options={['Filiales']} onAnswer={() => {}} onBack={null} />
+      </ChatQuestionBackContext.Provider>,
+    );
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Volver' }), null);
   });
 });

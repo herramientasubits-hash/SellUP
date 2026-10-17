@@ -58,7 +58,13 @@ export function AgentChatTimeline({
           return <ChatAgentMessage message={chatMessage} isLast={false} />;
         }
         if (message.role === 'user') {
-          return <ChatUserMessage message={chatMessage} />;
+          return (
+            <ChatUserMessage
+              message={chatMessage}
+              onEditRequest={message.onEditRequest}
+              editLabel={message.onEditRequest ? `Cambiar respuesta: ${message.content}` : undefined}
+            />
+          );
         }
         if (message.tone === 'warning') {
           return (

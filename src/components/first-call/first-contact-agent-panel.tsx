@@ -243,6 +243,9 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setStep((s) => Math.min(s + 1, FIRST_CONTACT_STEPS.length - 1));
   };
 
+  /** «Volver»: la pregunta anterior, con lo ya elegido marcado. */
+  const goBack = () => setStep((s) => Math.max(0, s - 1));
+
   const stepId = FIRST_CONTACT_STEPS[step].id;
   const total = preparationsCount(selection);
 
@@ -258,7 +261,13 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   for (let i = 0; i < step; i += 1) {
     const id = FIRST_CONTACT_STEPS[i].id;
     messages.push({ id: `q-${id}`, role: 'assistant', content: QUESTIONS[id] });
-    messages.push({ id: `a-${id}`, role: 'user', content: answerText(i, selection, contacts) });
+    messages.push({
+      id: `a-${id}`,
+      role: 'user',
+      content: answerText(i, selection, contacts),
+      // Corregir una respuesta sin esperar al final: vuelve a esa pregunta con lo elegido marcado.
+      onEditRequest: phase === 'asking' ? () => setStep(i) : undefined,
+    });
   }
   if (stepId === 'resumen') {
     messages.push({ id: 'summary', role: 'assistant', content: summaryText(selection, contacts, !hasFreshBrief) });
@@ -335,6 +344,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         return (
           <ChatQuestionPanel
             title={QUESTIONS.canales}
+            onBack={goBack}
             description="Escribo un mensaje para cada canal, con el mismo enfoque."
             mode="multiple"
             max={FIRST_CALL_CHANNELS.length}
@@ -349,6 +359,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         return (
           <ChatQuestionPanel
             title={QUESTIONS.objetivo}
+            onBack={goBack}
             description="Puedes elegir varios: el mensaje los encadena en este orden."
             mode="multiple"
             max={goalOptions().length}
@@ -363,6 +374,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         return (
           <ChatQuestionPanel
             title={QUESTIONS.productos}
+            onBack={goBack}
             description="Elige uno o varios, o «El que mejor conecte» para que el agente elija según lo que encuentre."
             mode="multiple"
             options={productOptions()}
@@ -377,6 +389,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         return (
           <ChatQuestionPanel
             title={QUESTIONS.resumen}
+            onBack={goBack}
             description={total > 1 ? `Saldrán ${total} preparaciones.` : undefined}
             options={[
               { value: 'go', label: regenerate ? 'Preparar otra versión' : 'Preparar', description: 'Con lo que elegiste.' },

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ChatQuestionPanel, ChatThinking, type ChatQuestionOptionDetail } from '@/components/chat';
+import { ChatQuestionBackContext, ChatQuestionPanel, ChatThinking, type ChatQuestionOptionDetail } from '@/components/chat';
 import { FieldError } from '@/components/forms/field';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
@@ -11,6 +11,7 @@ import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import {
   MAX_COMPETITOR_COUNTRIES,
+  getPreviousWizardStep,
   REFERENCE_COMPANY_LIMITS,
   resolveSearchModeDefinitions,
 } from '@/modules/prospect-batches/chat-wizard';
@@ -56,7 +57,25 @@ export type WizardActiveStepProps = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-export function WizardActiveStep({
+/**
+ * El paso activo, con «Volver» en su pregunta: regresa a la anterior sin borrar lo
+ * ya elegido (el reductor sólo cambia el paso). En la primera pregunta no hay.
+ */
+export function WizardActiveStep(props: WizardActiveStepProps) {
+  const { state, dispatch } = props;
+  const previous = getPreviousWizardStep(state.currentStep, state.catalogVersion, state.searchMode);
+  const onBack = React.useMemo(
+    () => (previous && previous !== 'welcome' ? () => dispatch({ type: 'GO_BACK' }) : null),
+    [previous, dispatch],
+  );
+  return (
+    <ChatQuestionBackContext.Provider value={onBack}>
+      <WizardActiveStepBody {...props} />
+    </ChatQuestionBackContext.Provider>
+  );
+}
+
+function WizardActiveStepBody({
   state,
   dispatch,
   industryOptions,
