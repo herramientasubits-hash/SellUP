@@ -12,4 +12,9 @@ export interface AgentChatMessage {
   content: string;
   /** Visual tone — only meaningful for `system` messages. Defaults to 'default'. */
   tone?: AgentChatTone;
+  /**
+   * Sólo en respuestas de la persona: «Editar» la devuelve a la pregunta donde
+   * eligió (sin borrar lo que eligió después). Sin esto no hay botón.
+   */
+  onEditRequest?: () => void;
 }

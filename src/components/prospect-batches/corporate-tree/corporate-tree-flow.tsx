@@ -308,6 +308,8 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
             mode="multiple"
             options={BRANCH_OPTIONS}
             selected={branches}
+            // Con empresa ya dada desde fuera no hay pregunta anterior en este flujo.
+            onBack={initialRoot ? null : () => setStep('company')}
             onSelectionChange={(values) => setBranches(values.filter(isCorporateTreeBranch))}
             onSubmitSelection={(values) => {
               const picked = values.filter(isCorporateTreeBranch);
@@ -328,6 +330,7 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
             mode="multiple"
             options={COUNTRY_OPTIONS}
             selected={countryCodes}
+            onBack={() => setStep('branches')}
             filterPlaceholder="Filtrar países"
             onSelectionChange={setCountryCodes}
             onSubmitSelection={(values) => {
@@ -345,6 +348,7 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
             title={`¿Busco el árbol de ${root?.name ?? 'la empresa'}?`}
             titleRef={titleRef}
             options={CONFIRM_OPTIONS}
+            onBack={() => setStep('countries')}
             onAnswer={(value) => (value === 'launch' ? void launch() : restart())}
           />
         );
