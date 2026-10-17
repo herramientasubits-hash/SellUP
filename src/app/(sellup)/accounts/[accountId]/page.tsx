@@ -49,8 +49,8 @@ import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-c
 import { resolveHubSpotPresentation } from '@/modules/accounts/hubspot-company-sync-presentation';
 import { getFirstCallState } from '@/modules/speech/actions';
 import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
-import { ResearchBriefView } from '@/components/first-call/research-brief-view';
 import { FirstCallTab, hasFreshBrief, toFirstCallContactOptions } from '@/components/first-call/first-call-tab';
+import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
 import { FirstCallActivity } from '@/components/first-call/first-call-activity';
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
 
@@ -135,12 +135,13 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
   const isArchived = account.pipeline_status === 'archived';
   const firstCallContacts = toFirstCallContactOptions(contacts);
   const firstCallEnabled = firstCall.enabled && !isArchived;
-  // Desde la ficha de un contacto («Preparar llamada») llega ya elegido.
+  // Desde la ficha de un contacto («Preparar primer contacto») llega ya elegido.
   const preselectedContactId =
     typeof contacto === 'string' && firstCallContacts.some((c) => c.id === contacto) ? contacto : null;
   const firstCallLauncher = firstCallEnabled ? (
     <FirstCallLauncher
       accountId={account.id}
+      accountName={account.name}
       contacts={firstCallContacts}
       hasFreshBrief={hasFreshBrief(firstCall)}
       defaultContactId={preselectedContactId}
@@ -153,8 +154,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
   const tabs: UrlTab[] = [
     { id: 'resumen', label: 'Resumen' },
     { id: 'contactos', label: 'Contactos', count: contacts.length },
-    { id: 'inteligencia', label: 'Inteligencia' },
-    { id: 'primera-llamada', label: 'Primera llamada', count: activePacks },
+    { id: FIRST_CALL_TAB_ID, label: 'Primer contacto', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
     { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length + agent3RunsCount },
   ];
@@ -194,7 +194,6 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             />
             <AccountDetailActions
               accountId={account.id}
-              currentStatus={account.pipeline_status}
               users={users}
             />
           </>
@@ -255,7 +254,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
       <UrlTabs
         ariaLabel="Secciones de la empresa"
         tabs={tabs}
-        initialTab={typeof tab === 'string' ? tab : undefined}
+        initialTab={normalizeAccountTab(typeof tab === 'string' ? tab : undefined)}
       >
         {/* ── Resumen ─────────────────────────────────────────── */}
         <TabsContent value="resumen">
@@ -353,30 +352,11 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
           />
         </TabsContent>
 
-        {/* ── Inteligencia ─────────────────────────────────────── */}
-        <TabsContent value="inteligencia">
-          <ResearchBriefView
-            brief={firstCall.brief}
-            enabled={firstCallEnabled}
-            expired={!hasFreshBrief(firstCall)}
-            launcher={
-              firstCallEnabled ? (
-                <FirstCallLauncher
-                  accountId={account.id}
-                  contacts={firstCallContacts}
-                  hasFreshBrief={hasFreshBrief(firstCall)}
-                  variant={firstCall.brief ? 'outline' : 'default'}
-                  label={firstCall.brief ? 'Preparar llamada' : 'Investigar y preparar la llamada'}
-                />
-              ) : undefined
-            }
-          />
-        </TabsContent>
-
-        {/* ── Primera llamada (Agente 3) ───────────────────────── */}
-        <TabsContent value="primera-llamada">
+        {/* ── Primer contacto (Agente 3): investigación y preparaciones ── */}
+        <TabsContent value={FIRST_CALL_TAB_ID}>
           <FirstCallTab
             accountId={account.id}
+            accountName={account.name}
             state={firstCall}
             contacts={firstCallContacts}
             archived={isArchived}

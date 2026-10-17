@@ -251,9 +251,11 @@ describe('verificación del paquete', () => {
       call_script: { text: 'Hola, soy de UBITS.', fact_refs: ['F1'] },
       short_message: { text: 'x'.repeat(400), fact_refs: [] },
     });
-    const issues = verifyPack(pack, facts, 'linkedin');
-    assert.ok(issues.some((i) => i.includes('muy corto')));
-    assert.ok(issues.some((i) => i.includes('300 caracteres')));
+    assert.ok(verifyPack(pack, facts, 'call').some((i) => i.includes('muy corto')));
+    const linkedin = verifyPack(pack, facts, 'linkedin');
+    assert.ok(linkedin.some((i) => i.includes('300 caracteres')));
+    // En LinkedIn no hay guion: su largo no se revisa.
+    assert.ok(!linkedin.some((i) => i.includes('muy corto')));
   });
 
   it('un año no es un teléfono', () => {
@@ -326,7 +328,9 @@ describe('solicitud del navegador', () => {
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
       assert.equal(parsed.request.goal, 'book_meeting');
-      assert.equal(parsed.request.contactId, null);
+      assert.deepEqual(parsed.request.contactIds, []);
+      assert.deepEqual(parsed.request.channels, ['whatsapp']);
+      assert.deepEqual(parsed.request.productKeys, []);
       assert.equal(parsed.request.refreshResearch, false);
     }
   });

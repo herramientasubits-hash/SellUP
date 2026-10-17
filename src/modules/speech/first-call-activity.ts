@@ -1,5 +1,5 @@
 /**
- * Agente 3 · Primera llamada — su historia como eventos (puro).
+ * Agente 3 · Primer contacto — su historia como eventos (puro).
  *
  * `account_audit` tiene una lista CERRADA de acciones (CHECK de la 038), así que el
  * agente no escribe ahí: sus eventos salen de sus propias tablas (la investigación y
@@ -38,7 +38,7 @@ function researchEvent(brief: ResearchBrief): FirstCallEvent | null {
       kind: 'run',
       at,
       title: 'La investigación de la empresa no terminó',
-      description: 'Se puede volver a intentar desde «Primera llamada».',
+      description: 'Se puede volver a intentar desde «Primer contacto».',
       tone: 'negative',
     };
   }
@@ -65,7 +65,7 @@ function packEvents(pack: FirstCallPack): FirstCallEvent[] {
       id: `pack-${pack.id}`,
       kind: 'run',
       at: pack.createdAt,
-      title: 'No se pudo preparar la primera llamada',
+      title: 'No se pudo preparar el primer contacto',
       description: `${target(pack)} · ${channel}`,
       tone: 'negative',
     });
@@ -75,7 +75,7 @@ function packEvents(pack: FirstCallPack): FirstCallEvent[] {
     id: `pack-${pack.id}`,
     kind: 'run',
     at: pack.createdAt,
-    title: pack.verifierIssues.length > 0 ? 'Primera llamada preparada (a revisar)' : 'Primera llamada preparada',
+    title: pack.verifierIssues.length > 0 ? 'Primer contacto preparado (a revisar)' : 'Primer contacto preparado',
     description: `${target(pack)} · ${channel}`,
     tone: pack.verifierIssues.length > 0 ? 'warning' : 'primary',
   });
@@ -84,7 +84,7 @@ function packEvents(pack: FirstCallPack): FirstCallEvent[] {
       id: `pack-used-${pack.id}`,
       kind: 'action',
       at: pack.usedAt,
-      title: 'Primera llamada usada',
+      title: 'Primer contacto usado',
       description: `${target(pack)} · ${channel}`,
       tone: 'positive',
     });
@@ -94,7 +94,7 @@ function packEvents(pack: FirstCallPack): FirstCallEvent[] {
       id: `pack-discarded-${pack.id}`,
       kind: 'action',
       at: pack.discardedAt,
-      title: 'Primera llamada descartada',
+      title: 'Preparación descartada',
       description: `${target(pack)} · ${channel}`,
       tone: 'default',
     });

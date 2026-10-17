@@ -68,7 +68,7 @@ export function PipelineScreen({
   const [enrichmentOpen, setEnrichmentOpen] = React.useState(false);
   const [filters, setFilters] = usePipelineUrlFilters(initialFilters);
   const [stageDetailOpen, setStageDetailOpen] = React.useState(false);
-  // «Preparar primera llamada» (Agente 3): lo abre la barra de acciones o «Que lo haga la IA».
+  // «Preparar primer contacto» (Agente 3): lo abre la barra de acciones o «Que lo haga la IA».
   const [firstCallOpen, setFirstCallOpen] = React.useState(false);
 
   const navigate = React.useCallback(
@@ -223,10 +223,11 @@ export function PipelineScreen({
 
       <PipelineRailGap visible={railAtBottom} />
 
-      {/* Agente 3: «Preparar primera llamada» desde la barra de acciones o al mover de etapa. */}
+      {/* Agente 3: «Preparar primer contacto» desde la barra de acciones o al mover de etapa. */}
       {journey?.agent3 && (
         <FirstCallLauncher
           accountId={journey.account.id}
+          accountName={journey.account.name}
           contacts={journey.agent3.contacts}
           hasFreshBrief={journey.agent3.freshBrief}
           hideTrigger

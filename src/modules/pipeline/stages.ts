@@ -105,7 +105,7 @@ export function stageIndex(id: PipelineStageId): number {
   return PIPELINE_STAGE_IDS.indexOf(id);
 }
 
-/** Dónde está la empresa según `pipeline_status`, que hoy solo cambia una persona. */
+/** Dónde está la empresa según `pipeline_status` (lo mueven las personas y el Agente 3). */
 export interface CurrentStageResolution {
   /** `null` cuando la empresa está archivada: ninguna etapa es la actual. */
   stageId: PipelineStageId | null;
@@ -120,6 +120,24 @@ const CURRENT_STAGE_BY_STATUS: Record<PipelineStatus, CurrentStageResolution> = 
   ready_for_outreach: { stageId: 'preparacion', substatusLabel: 'Lista para contacto' },
   archived: { stageId: null, substatusLabel: 'Archivada' },
 };
+
+const STATUS_ORDER: Readonly<Record<Exclude<PipelineStatus, 'archived'>, number>> = {
+  new: 0,
+  ready_for_research: 1,
+  research_in_progress: 2,
+  ready_for_outreach: 3,
+};
+
+/**
+ * El estado que cuenta para el Pipeline: si el Agente 3 ya dejó una preparación
+ * usable, la empresa está «Lista para contacto» aunque su estado guardado sea
+ * anterior (empresas preparadas antes de que el agente moviera el estado solo).
+ * Nunca retrocede ni toca archivadas.
+ */
+export function withFirstContactEvidence(status: PipelineStatus, firstContactPrepared: boolean): PipelineStatus {
+  if (!firstContactPrepared || status === 'archived') return status;
+  return STATUS_ORDER[status] < STATUS_ORDER.ready_for_outreach ? 'ready_for_outreach' : status;
+}
 
 export function resolveCurrentStage(status: PipelineStatus): CurrentStageResolution {
   return CURRENT_STAGE_BY_STATUS[status] ?? CURRENT_STAGE_BY_STATUS.new;

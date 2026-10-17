@@ -21,10 +21,10 @@ const NOW = Date.parse('2026-10-16T15:00:00Z');
 
 const REQUEST: FirstCallRequest = {
   accountId: ACCOUNT_ID,
-  contactId: 'c1',
-  channel: 'call',
+  contactIds: ['c1'],
+  channels: ['call'],
   goal: 'book_meeting',
-  productFocus: null,
+  productKeys: [],
   refreshResearch: false,
   regenerateFromPackId: null,
   regenerationReason: null,
@@ -103,6 +103,7 @@ interface Harness {
     packs: PackInsert[];
     logs: UsageLogInput[];
     briefsCreated: number;
+    statuses: string[];
   };
 }
 
@@ -113,12 +114,19 @@ function harness(options: {
   writer?: Array<unknown>;
   briefLocked?: boolean;
 } = {}): Harness {
-  const calls: Harness['calls'] = { fetched: [], news: [], conversations: [], briefPatches: [], packs: [], logs: [], briefsCreated: 0 };
+  const calls: Harness['calls'] = { fetched: [], news: [], conversations: [], briefPatches: [], packs: [], logs: [], briefsCreated: 0, statuses: [] };
   const writerAnswers = [...(options.writer ?? [GOOD_PACK])];
   const context: FirstCallContext | null =
     options.context === null
       ? null
-      : { internal: INTERNAL, sellerName: 'Ana', currentBrief: null, researchRunning: false, ...options.context };
+      : {
+          internal: INTERNAL,
+          decisionMakers: [INTERNAL.decisionMaker!],
+          sellerName: 'Ana',
+          currentBrief: null,
+          researchRunning: false,
+          ...options.context,
+        };
   const deps: RunFirstCallDeps = {
     loadContext: async () => context,
     resolveModels: async () => ({ apiKey: 'k', writerModel: 'claude-sonnet-4-6', extractionModel: 'claude-sonnet-4-6' }),
@@ -166,7 +174,10 @@ function harness(options: {
     },
     insertPack: async (pack) => {
       calls.packs.push(pack);
-      return 'pack-1';
+      return `pack-${calls.packs.length}`;
+    },
+    advanceAccountStatus: async (_accountId, target) => {
+      calls.statuses.push(target);
     },
     logUsage: async (entry) => {
       calls.logs.push(entry);
@@ -358,7 +369,7 @@ describe('runFirstCall — correcciones de la revisión', () => {
       return original(body, key);
     };
     const result = await runFirstCall(REQUEST, deps);
-    assert.equal(result.ok && result.packStatus, 'needs_review');
+    assert.equal(result.ok && result.packStatuses[0], 'needs_review');
     assert.ok(calls.packs[0].content);
     assert.equal(calls.packs[0].errorCode, 'http_529');
   });
@@ -397,7 +408,7 @@ describe('runFirstCall — verificación del paquete', () => {
   it('un paquete con cifras inventadas vuelve una vez al redactor y queda listo si lo corrige', async () => {
     const { deps, calls } = harness({ writer: [BAD_PACK, GOOD_PACK] });
     const result = await runFirstCall(REQUEST, deps);
-    assert.equal(result.ok && result.packStatus, 'draft');
+    assert.equal(result.ok && result.packStatuses[0], 'draft');
     const writerCalls = calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
     assert.equal(writerCalls.length, 2);
     const retry = writerCalls[1].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
@@ -408,7 +419,7 @@ describe('runFirstCall — verificación del paquete', () => {
   it('si sigue mal, queda «para revisar» con los motivos', async () => {
     const { deps, calls } = harness({ writer: [BAD_PACK, BAD_PACK] });
     const result = await runFirstCall(REQUEST, deps);
-    assert.equal(result.ok && result.packStatus, 'needs_review');
+    assert.equal(result.ok && result.packStatuses[0], 'needs_review');
     assert.ok(calls.packs[0].verifierIssues.some((i) => i.includes('35%')));
   });
 
@@ -424,5 +435,86 @@ describe('runFirstCall — verificación del paquete', () => {
     const result = await runFirstCall(REQUEST, deps);
     assert.equal(!result.ok && result.code, 'writer_failed');
     assert.equal(calls.packs[0].status, 'failed');
+  });
+});
+
+describe('runFirstCall — cascada con varias selecciones', () => {
+  const SECOND = { id: 'c2', name: 'Jorge Ruiz', title: 'Gerente General', department: null };
+  const MULTI = {
+    ...GOOD_PACK,
+    messages: [
+      { channel: 'call', text: 'María, le dejo este mensaje por las nuevas sedes. ¿Lo vemos 20 minutos?', fact_refs: ['F5'] },
+      { channel: 'email', text: 'Asunto: Asesores para las nuevas sedes\nMaría, vi que están contratando. ¿Conversamos?', fact_refs: ['F5'] },
+    ],
+  };
+
+  it('investiga una vez, redacta una vez por decisor y guarda una preparación por decisor y canal', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] }, writer: [MULTI, MULTI] });
+    const result = await runFirstCall({ ...REQUEST, contactIds: ['c1', 'c2'], channels: ['call', 'email'] }, deps);
+    assert.equal(result.ok, true);
+    assert.equal(calls.briefsCreated, 1);
+    const writerCalls = calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
+    assert.equal(writerCalls.length, 2);
+    assert.deepEqual(
+      calls.packs.map((p) => `${p.contactId}:${p.channel}`).sort(),
+      ['c1:call', 'c1:email', 'c2:call', 'c2:email'],
+    );
+    assert.equal(calls.packs.find((p) => p.contactId === 'c2')?.targetTitle, 'Gerente General');
+    assert.equal(calls.packs.find((p) => p.channel === 'email')?.content?.callScript.text, '');
+    assert.equal(result.ok && result.packIds.length, 4);
+    // El costo de cada llamada al redactor se reparte entre sus canales.
+    const writerLogs = calls.logs.filter((l) => l.operationKey === 'first_call_pack');
+    assert.equal(writerLogs.length, 2);
+    const c1Cost = calls.packs.filter((p) => p.contactId === 'c1').reduce((sum, p) => sum + p.costUsd, 0);
+    assert.ok(Math.abs(c1Cost - (writerLogs[0].costUsd ?? 0)) < 1e-9);
+  });
+
+  it('sin decisor escribe una vez y deja la preparación sin contacto', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [] } });
+    const result = await runFirstCall({ ...REQUEST, contactIds: [] }, deps);
+    assert.equal(result.ok, true);
+    assert.equal(calls.packs.length, 1);
+    assert.equal(calls.packs[0].contactId, null);
+  });
+
+  it('con una preparación lista, la empresa pasa a «Lista para contacto»', async () => {
+    const { deps, calls } = harness();
+    await runFirstCall(REQUEST, deps);
+    assert.deepEqual(calls.statuses, ['ready_for_outreach']);
+  });
+
+  it('si no sale ninguna preparación, el estado no cambia (no queda «en curso» para siempre)', async () => {
+    const { deps, calls } = harness({ writer: [{}, {}] });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, false);
+    assert.deepEqual(calls.statuses, []);
+  });
+
+  it('si los decisores pedidos ya no están en la empresa, no escribe «sin decisor» ni gasta', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [] } });
+    const result = await runFirstCall({ ...REQUEST, contactIds: ['c-borrado'] }, deps);
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.code, 'contacts_not_found');
+    assert.equal(calls.conversations.length, 0);
+    assert.equal(calls.packs.length, 0);
+  });
+
+  it('si guardar falla para un decisor, los demás siguen y la ficha termina en «done»', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] }, writer: [MULTI, MULTI] });
+    const insert = deps.insertPack;
+    deps.insertPack = async (pack) => {
+      if (pack.contactId === 'c2') throw new Error('db down');
+      return insert(pack);
+    };
+    const result = await runFirstCall({ ...REQUEST, contactIds: ['c1', 'c2'], channels: ['call', 'email'] }, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.packIds.length, 2);
+    assert.equal(calls.briefPatches.at(-1)?.progressStage, 'done');
+  });
+
+  it('con productos pedidos, se guarda el que eligió el redactor', async () => {
+    const { deps, calls } = harness({ writer: [{ ...GOOD_PACK, product_key: 'desempeno_360' }] });
+    await runFirstCall({ ...REQUEST, productKeys: ['desempeno_360', 'aprendizaje_planes'] }, deps);
+    assert.equal(calls.packs[0].productFocus, 'desempeno_360');
   });
 });

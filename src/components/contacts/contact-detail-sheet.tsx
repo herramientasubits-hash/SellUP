@@ -137,7 +137,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
   // ningún número viaja al navegador hasta que el operador abre el disclosure.
   const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
-  // Agente 3: ¿se ofrece «Preparar llamada»? Complementario: si no se puede saber, no se ofrece.
+  // Agente 3: ¿se ofrece «Preparar primer contacto»? Complementario: si no se puede saber, no se ofrece.
   const [firstCallEnabled, setFirstCallEnabled] = React.useState(false);
   // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
   // Sin este estado, «no encontrado» y «la lectura falló» eran indistinguibles de «todavía
@@ -276,7 +276,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
               <Button asChild type="button" size="sm" variant="outline">
                 <Link href={firstCallHref(account.id, contact.id)}>
                   <PhoneCall aria-hidden="true" />
-                  Preparar llamada
+                  Preparar primer contacto
                 </Link>
               </Button>
             )}

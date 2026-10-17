@@ -20,7 +20,7 @@ interface FirstCallActivityProps {
 }
 
 /** La historia del Agente 3 en una empresa. No pinta nada si el agente no ha hecho nada. */
-export function FirstCallActivity({ state, kind, title = 'Agente 3 · Primera llamada' }: FirstCallActivityProps) {
+export function FirstCallActivity({ state, kind, title = 'Agente 3 · Primer contacto' }: FirstCallActivityProps) {
   const events = buildFirstCallEvents(state.brief, state.packs).filter((e) => kind === 'events' || e.kind === 'run');
   if (events.length === 0) return null;
   return (

@@ -19,12 +19,13 @@ import {
 import {
   FIRST_CALL_CHANNEL_LABELS,
   FIRST_CALL_GOAL_LABELS,
+  type FirstCallChannel,
   type FirstCallPack,
   type FirstCallPackStatus,
   type ResearchFact,
 } from '@/server/agents/first-call/types';
-import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
-import { FirstCallLauncher, type FirstCallContactOption } from './first-call-launcher';
+import { ubitsProductNames } from '@/server/agents/first-call/ubits-messaging-library';
+import { FirstCallLauncher, type FirstCallContactOption, type FirstContactLaunchRequest } from './first-call-launcher';
 
 const STATUS: Record<FirstCallPackStatus, { status: StatusType; label: string }> = {
   draft: { status: 'info', label: 'Lista para usar' },
@@ -32,6 +33,14 @@ const STATUS: Record<FirstCallPackStatus, { status: StatusType; label: string }>
   used: { status: 'completed', label: 'Usada' },
   discarded: { status: 'inactive', label: 'Descartada' },
   failed: { status: 'error', label: 'Falló' },
+};
+
+/** El texto que acompaña al guion (o lo reemplaza) según el canal. */
+const MESSAGE_TITLE: Record<FirstCallChannel, string> = {
+  call: 'Si no contesta',
+  whatsapp: 'Mensaje de WhatsApp',
+  email: 'Correo',
+  linkedin: 'Nota de LinkedIn',
 };
 
 function formatDate(iso: string): string {
@@ -97,6 +106,11 @@ function Block({ title, icon: Icon, action, children }: {
 interface FirstCallPackCardProps {
   pack: FirstCallPack;
   accountId: string;
+  accountName?: string;
+  /** Dentro del panel lateral de la empresa: el agente lo abre quien monta el panel. */
+  onRequestFirstContact?: (request: FirstContactLaunchRequest) => void;
+  /** Dentro del grupo de un decisor: no repite su nombre. */
+  grouped?: boolean;
   contacts: readonly FirstCallContactOption[];
   hasFreshBrief: boolean;
   /** ¿La empresa todavía no está en «Lista para contacto»? */
@@ -106,7 +120,18 @@ interface FirstCallPackCardProps {
   onChanged?: () => void;
 }
 
-export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, canMoveToReady, enabled, onChanged }: FirstCallPackCardProps) {
+export function FirstCallPackCard({
+  pack,
+  accountId,
+  accountName,
+  onRequestFirstContact,
+  grouped = false,
+  contacts,
+  hasFreshBrief,
+  canMoveToReady,
+  enabled,
+  onChanged,
+}: FirstCallPackCardProps) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(pack.editedScript ?? pack.content?.callScript.text ?? '');
@@ -144,15 +169,18 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
   };
 
   const target = [pack.targetName, pack.targetTitle].filter(Boolean).join(' · ') || 'Sin decisor elegido';
+  const products = ubitsProductNames(pack.productFocus);
+  const isCall = pack.channel === 'call';
 
   return (
     <SurfaceCard className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-base font-semibold text-foreground">{target}</p>
+          <p className="text-base font-semibold text-foreground">{grouped ? FIRST_CALL_CHANNEL_LABELS[pack.channel] : target}</p>
           <p className="text-xs text-muted-foreground">
-            {FIRST_CALL_CHANNEL_LABELS[pack.channel]} · {FIRST_CALL_GOAL_LABELS[pack.goal]} · {formatDate(pack.createdAt)}
-            {pack.regenerationReason ? ` · rehecha: «${pack.regenerationReason}»` : ''}
+            {grouped ? '' : `${FIRST_CALL_CHANNEL_LABELS[pack.channel]} · `}
+            {FIRST_CALL_GOAL_LABELS[pack.goal]} · {formatDate(pack.createdAt)}
+            {pack.regenerationReason ? ` · otra versión: «${pack.regenerationReason}»` : ''}
           </p>
         </div>
         <StatusBadge status={STATUS[pack.status].status} label={STATUS[pack.status].label} />
@@ -160,7 +188,7 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
 
       {pack.status === 'failed' || !content ? (
         <p className="text-sm text-muted-foreground">
-          No se pudo escribir esta preparación. Vuelve a intentarlo con «Preparar primera llamada».
+          No se pudo escribir esta preparación. Vuelve a intentarlo con «Preparar primer contacto».
         </p>
       ) : (
         <>
@@ -178,12 +206,13 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
             </div>
           )}
 
-          <Block title="Razón para llamar" icon={Target}>
+          <Block title="Por qué contactarlo hoy" icon={Target}>
             <p className="text-sm text-foreground">{content.reasonToCall.text}</p>
             <FactRefs refs={content.reasonToCall.factRefs} facts={factMap} />
             {content.angle && <p className="text-xs text-muted-foreground">Ángulo: {content.angle}</p>}
           </Block>
 
+          {isCall && script && (
           <Block
             title="Guion de la llamada"
             icon={PhoneCall}
@@ -227,11 +256,12 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
             {pack.editedScript && !editing && <p className="text-xs text-muted-foreground">Es tu versión editada.</p>}
             <FactRefs refs={content.callScript.factRefs} facts={factMap} />
           </Block>
+          )}
 
           <Block
-            title={`Mensaje corto · ${FIRST_CALL_CHANNEL_LABELS[pack.channel]}`}
+            title={MESSAGE_TITLE[pack.channel]}
             icon={MessageSquare}
-            action={<CopyButton text={content.shortMessage.text} label="Copiar el mensaje corto" />}
+            action={<CopyButton text={content.shortMessage.text} label={`Copiar: ${MESSAGE_TITLE[pack.channel].toLowerCase()}`} />}
           >
             <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">
               {content.shortMessage.text}
@@ -276,9 +306,11 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
 
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4">
         <div className="flex flex-wrap gap-1">
-          {pack.productFocus && (
-            <Badge variant="outline">{UBITS_PRODUCTS.find((p) => p.key === pack.productFocus)?.name ?? pack.productFocus}</Badge>
-          )}
+          {products.map((name) => (
+            <Badge key={name} variant="outline">
+              {name}
+            </Badge>
+          ))}
         </div>
         {enabled && !closed && (
           <div className="flex flex-wrap gap-2">
@@ -288,10 +320,12 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
             </Button>
             <FirstCallLauncher
               accountId={accountId}
+              accountName={accountName}
               contacts={contacts}
               hasFreshBrief={hasFreshBrief}
               variant="outline"
               onDone={onChanged}
+              onRequestOpen={onRequestFirstContact}
               regenerate={{
                 packId: pack.id,
                 contactId: pack.contactId,

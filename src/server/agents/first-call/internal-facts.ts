@@ -89,6 +89,18 @@ const HUBSPOT_STATEMENTS: Record<HubSpotRelationStatus, string | null> = {
 
 type Draft = Omit<ResearchFact, 'id'>;
 
+/** «25000» → «Unos 25.000 empleados…»; «1001-5000» → «Entre 1.001 y 5.000…»; otro texto tal cual. */
+export function companySizeStatement(size: string): string {
+  const fmt = (n: string) => Number(n).toLocaleString('es-CO');
+  const trimmed = size.trim();
+  const range = trimmed.match(/^(\d+)\s*[-–a]\s*(\d+)$/);
+  if (range) return `Entre ${fmt(range[1])} y ${fmt(range[2])} empleados (tamaño registrado en SellUp).`;
+  const plus = trimmed.match(/^(\d+)\s*\+$/);
+  if (plus) return `Más de ${fmt(plus[1])} empleados (tamaño registrado en SellUp).`;
+  if (/^\d+$/.test(trimmed)) return `Unos ${fmt(trimmed)} empleados (tamaño registrado en SellUp).`;
+  return `Tamaño registrado: ${trimmed}.`;
+}
+
 function sellupFact(topic: ResearchTopic, statement: string, sourceLabel: string): Draft {
   return { topic, statement, quote: null, sourceKind: 'sellup', sourceUrl: null, sourceLabel, publishedOn: null };
 }
@@ -149,7 +161,7 @@ export function buildInternalFacts(context: InternalContext): Draft[] {
       publishedOn: null,
     });
   } else if (account.companySize) {
-    facts.push(sellupFact('size_presence', `Tamaño registrado: ${account.companySize}.`, 'Ficha de SellUp'));
+    facts.push(sellupFact('size_presence', companySizeStatement(account.companySize), 'Ficha de SellUp'));
   }
 
   if (account.country) {

@@ -168,7 +168,7 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               <Button asChild size="sm">
                 <Link href={`/accounts/${account.id}?tab=primera-llamada&contacto=${contact.id}`}>
                   <PhoneCall aria-hidden="true" />
-                  Preparar llamada
+                  Preparar primer contacto
                 </Link>
               </Button>
             )}

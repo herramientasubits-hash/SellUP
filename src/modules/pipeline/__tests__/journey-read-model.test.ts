@@ -356,6 +356,7 @@ describe('Read model — resumen del pipeline', () => {
     decisionMakersWithPhone: 1,
     hubspotSynced: true,
     lastRunStatus: 'completed',
+    firstContactPrepared: false,
   };
 
   const overview = buildPipelineOverview({

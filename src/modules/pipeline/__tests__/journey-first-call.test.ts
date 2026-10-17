@@ -7,6 +7,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { buildPipelineOverview } from '../journey-read-model';
+import { withFirstContactEvidence } from '../stages';
 
 import { buildFirstCallEvents } from '../../speech/first-call-activity';
 import type { FirstCallPack, ResearchBrief } from '../../../server/agents/first-call/types';
@@ -96,6 +98,11 @@ describe('toJourneyFirstCall', () => {
       completedAt: '2026-10-10T10:01:00Z',
       factsCount: 1,
       sourcesCount: 1,
+      // Por pregunta, sin los datos de SellUp (F1) ni las preguntas vacías.
+      topics: [{ label: 'Talento y formación', count: 1 }],
+      hypotheses: [],
+      gapsCount: 0,
+      expiresAt: '2026-11-09T10:01:00Z',
     });
     assert.equal(result.freshBrief, true);
     const serialized = JSON.stringify(result);
@@ -181,5 +188,54 @@ describe('applyFirstCallToJourney', () => {
     );
     assert.deepEqual(journey.history.map((e) => e.id), ['agent3-pack-p1', 'agent3-brief-b1', 'audit-1']);
     assert.ok(journey.history.every((e, i, all) => i === 0 || all[i - 1].at >= e.at));
+  });
+});
+
+describe('etapa actual con lo que hizo el Agente 3', () => {
+  it('una preparación usable deja la empresa «Lista para contacto» sin retroceder ni tocar archivadas', () => {
+    assert.equal(withFirstContactEvidence('new', true), 'ready_for_outreach');
+    assert.equal(withFirstContactEvidence('research_in_progress', true), 'ready_for_outreach');
+    assert.equal(withFirstContactEvidence('new', false), 'new');
+    assert.equal(withFirstContactEvidence('archived', true), 'archived');
+  });
+
+  it('la lista y los filtros del Pipeline cuentan la empresa en «Preparación» (caso Davivienda)', () => {
+    const base = {
+      country: 'Colombia',
+      country_code: 'CO',
+      industry: 'Finanzas',
+      website: null,
+      domain: null,
+      source: 'agent_1',
+      created_at: '2026-10-10T10:00:00Z',
+      owner_id: 'u-1',
+      owner_name: 'Ana',
+    };
+    const facts = (prepared: boolean) => ({
+      lastStatusChangeAt: null,
+      contactsTotal: 1,
+      decisionMakersTotal: 1,
+      decisionMakersWithPhone: 0,
+      hubspotSynced: true,
+      lastRunStatus: 'completed',
+      firstContactPrepared: prepared,
+    });
+    const overview = buildPipelineOverview({
+      accounts: [
+        { ...base, id: 'davivienda', name: 'Davivienda Colombia', pipeline_status: 'new' },
+        { ...base, id: 'otra', name: 'Otra', pipeline_status: 'new' },
+      ] as Parameters<typeof buildPipelineOverview>[0]['accounts'],
+      facts: new Map([
+        ['davivienda', facts(true)],
+        ['otra', facts(false)],
+      ]),
+      archivedTotal: 0,
+      now: new Date('2026-10-17T12:00:00Z'),
+    });
+    const davivienda = overview.accounts.find((a) => a.id === 'davivienda')!;
+    assert.equal(davivienda.currentStageId, 'preparacion');
+    assert.equal(davivienda.substatusLabel, 'Lista para contacto');
+    assert.equal(overview.countsByStage.preparacion, 1);
+    assert.equal(overview.countsByStage.enriquecimiento, 1);
   });
 });

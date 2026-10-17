@@ -74,10 +74,23 @@ const CONTACTS = [{ id: 'c1', name: 'María Pérez', title: 'Gerente de Talento'
 const EMPTY: JourneyFirstCall = { freshBrief: false, brief: null, packs: [], contacts: CONTACTS };
 const DONE: JourneyFirstCall = {
   freshBrief: true,
-  brief: { status: 'sufficient', summary: 'Cadena de tiendas en expansión.', completedAt: '2026-10-10T10:01:00Z', factsCount: 7, sourcesCount: 5 },
+  brief: {
+    status: 'sufficient',
+    summary: 'Cadena de tiendas en expansión.',
+    completedAt: '2026-10-10T10:01:00Z',
+    factsCount: 7,
+    sourcesCount: 5,
+    topics: [
+      { label: 'Qué le está pasando ahora', count: 2 },
+      { label: 'Talento y formación', count: 3 },
+    ],
+    hypotheses: [{ text: 'Podría necesitar planes de formación para el personal nuevo.', productName: 'Planes de Formación' }],
+    gapsCount: 2,
+    expiresAt: '2026-11-09T10:01:00Z',
+  },
   packs: [
-    { id: 'p2', targetName: 'María Pérez', targetTitle: 'Gerente de Talento', channel: 'whatsapp', status: 'used', createdAt: '2026-10-12T09:00:00Z', usedAt: '2026-10-13T09:00:00Z' },
-    { id: 'p1', targetName: null, targetTitle: null, channel: 'call', status: 'needs_review', createdAt: '2026-10-11T09:00:00Z', usedAt: null },
+    { id: 'p2', contactId: 'c1', targetName: 'María Pérez', targetTitle: 'Gerente de Talento', channel: 'whatsapp', status: 'used', createdAt: '2026-10-12T09:00:00Z', usedAt: '2026-10-13T09:00:00Z', productNames: ['Evaluaciones 360'] },
+    { id: 'p1', contactId: null, targetName: null, targetTitle: null, channel: 'call', status: 'needs_review', createdAt: '2026-10-11T09:00:00Z', usedAt: null, productNames: [] },
   ],
   contacts: CONTACTS,
 };
@@ -103,7 +116,7 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
       assert.ok(!stage(id).hasAttribute('data-invitation'), id);
       assert.ok(rtl.within(stage(id)).getByText('Próximamente'), id);
     }
-    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
   });
 
   it('encendido y sin nada hecho, las dos etapas invitan con el botón del agente', () => {
@@ -114,41 +127,51 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
       assert.ok(card.hasAttribute('data-invitation'));
       assert.ok(card.querySelector('[aria-expanded]') === null, 'una invitación no se pliega');
       assert.ok(rtl.within(card).getByText('Agente 3'));
-      assert.ok(rtl.within(card).getByRole('button', { name: 'Preparar primera llamada' }));
+      assert.ok(rtl.within(card).getByRole('button', { name: 'Preparar primer contacto' }));
     }
     assert.ok(rtl.within(research).getByText(/Aún no se ha investigado Globex/));
-    assert.ok(rtl.within(prep).getByText(/Aún no se ha preparado la primera llamada a Globex/));
+    assert.ok(rtl.within(prep).getByText(/Aún no se ha preparado el primer contacto con Globex/));
   });
 
-  it('con la investigación hecha, la etapa resume y lleva a la pestaña «Inteligencia» de la empresa', () => {
+  it('con la investigación hecha, la etapa resume qué encontró, sus hipótesis y lleva a «Primer contacto»', () => {
     renderCards(DONE);
     const research = stage('inteligencia');
     assert.ok(!research.hasAttribute('data-invitation'));
     open(research);
-    assert.ok(rtl.within(research).getByText('Suficiente para llamar'));
+    assert.ok(rtl.within(research).getByText('Suficiente para contactar'));
     assert.ok(rtl.within(research).getByText('Cadena de tiendas en expansión.'));
+    const found = rtl.within(research).getByRole('region', { name: 'Qué encontró' });
+    assert.match(found.textContent ?? '', /Talento y formación · 3/);
+    const hypotheses = rtl.within(research).getByRole('region', { name: 'Hipótesis para UBITS' });
+    assert.ok(rtl.within(hypotheses).getByText('Planes de Formación'));
+    assert.ok(rtl.within(research).getByText(/2 preguntas quedaron sin respuesta/));
     const link = rtl.within(research).getByRole('link', { name: 'Abrir la investigación' });
-    assert.equal(link.getAttribute('href'), '/accounts/globex?tab=inteligencia');
+    assert.equal(link.getAttribute('href'), '/accounts/globex?tab=primer-contacto');
     assert.equal(rtl.within(research).queryByRole('button', { name: /Ver más/ }), null, 'no abre el drawer de detalle');
   });
 
-  it('con paquetes, «Preparación y contacto» los lista y lleva a «Primera llamada»', () => {
+  it('con preparaciones, «Preparación y contacto» las agrupa por decisor y canal, dice lo que falta y lleva a «Primer contacto»', () => {
     renderCards(DONE);
     const prep = stage('preparacion');
     open(prep);
-    const list = rtl.within(prep).getByRole('list', { name: 'Preparaciones de llamada' });
-    assert.equal(rtl.within(list).getAllByRole('listitem').length, 2);
-    assert.ok(rtl.within(list).getByText(/María Pérez · Gerente de Talento/));
-    assert.ok(rtl.within(list).getByText('Usada'));
-    assert.ok(rtl.within(list).getByText('Revisar antes de usar'));
-    assert.equal(rtl.within(prep).getByRole('link', { name: 'Ver las preparaciones' }).getAttribute('href'), '/accounts/globex?tab=primera-llamada');
-    assert.ok(rtl.within(prep).getByRole('button', { name: 'Preparar otra llamada' }));
+    const list = rtl.within(prep).getByRole('list', { name: 'Preparaciones por decisor' });
+    assert.equal(list.children.length, 2, 'María y «sin decisor»');
+    const maria = rtl.within(prep).getByRole('list', { name: 'Canales de María Pérez' });
+    assert.ok(rtl.within(maria).getByText('WhatsApp: Usada'));
+    assert.ok(rtl.within(maria).getByText('Llamada: falta'));
+    assert.ok(rtl.within(list).getByText('Evaluaciones 360'));
+    const none = rtl.within(prep).getByRole('list', { name: 'Canales de Sin decisor' });
+    assert.ok(rtl.within(none).getByText('Llamada: Revisar'));
+    assert.ok(rtl.within(prep).getByText(/Falta preparar a 1 decisor/));
+    assert.equal(rtl.within(prep).getByRole('link', { name: 'Ver las preparaciones' }).getAttribute('href'), '/accounts/globex?tab=primer-contacto');
+    assert.ok(rtl.within(prep).getByRole('button', { name: 'Preparar lo que falta' }));
+    assert.ok(rtl.within(prep).getByRole('button', { name: 'Preparar otro' }));
   });
 
-  it('una empresa archivada no ofrece preparar la llamada', () => {
+  it('una empresa archivada no ofrece preparar el primer contacto', () => {
     const journey = applyFirstCallToJourney(buildJourney({ pipeline_status: 'archived' }), EMPTY);
     rtl.render(h(PipelineStageCards, { journey }));
-    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
     assert.ok(rtl.within(stage('inteligencia')).getByText(/la empresa está archivada/));
   });
 });
@@ -222,12 +245,12 @@ describe('Pipeline · barra de acciones', () => {
   const labels = () =>
     visibleActionLabels(Array.from((rtl.screen.getByRole('toolbar') as HTMLElement).querySelectorAll<HTMLElement>('button')));
 
-  it('con el agente presente ofrece «Preparar primera llamada» y la abre', () => {
+  it('con el agente presente ofrece «Preparar primer contacto» y la abre', () => {
     let opened = 0;
     renderActions({ agent3: EMPTY, onPrepare: () => (opened += 1) });
-    assert.ok(labels().includes('Preparar primera llamada'));
+    assert.ok(labels().includes('Preparar primer contacto'));
     const button = Array.from((rtl.screen.getByRole('toolbar') as HTMLElement).querySelectorAll<HTMLElement>('button')).find(
-      (candidate) => candidate.getAttribute('aria-label') === 'Preparar primera llamada',
+      (candidate) => candidate.getAttribute('aria-label') === 'Preparar primer contacto',
     ) as HTMLElement;
     rtl.fireEvent.click(button);
     assert.equal(opened, 1);
@@ -235,9 +258,9 @@ describe('Pipeline · barra de acciones', () => {
 
   it('sin el agente en el recorrido, o con la empresa archivada, no se ofrece', () => {
     renderActions({ agent3: null, onPrepare: () => {} });
-    assert.ok(!labels().includes('Preparar primera llamada'));
+    assert.ok(!labels().includes('Preparar primer contacto'));
     rtl.cleanup();
     renderActions({ agent3: EMPTY, archived: true, onPrepare: () => {} });
-    assert.ok(!labels().includes('Preparar primera llamada'));
+    assert.ok(!labels().includes('Preparar primer contacto'));
   });
 });

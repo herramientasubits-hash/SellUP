@@ -114,11 +114,14 @@ export function newsToDocuments(results: readonly NewsResult[], companyDomain: s
     if (!host || NOISE_HOSTS.test(host) || isUbitsCompetitorDomain(result.url)) continue;
     if (text.length < 80 || seen.has(result.url)) continue;
     seen.add(result.url);
+    // Un subdominio de la empresa (ir.empresa.com, blog.empresa.com) es la empresa hablando.
+    const isOwn = own !== null && (host === own || host.endsWith(`.${own}`));
+    const isReport = /\.pdf($|[?#])/i.test(result.url);
     documents.push({
       docId: '',
       url: result.url,
-      label: own && host === own ? 'Sitio oficial · Noticia' : `Noticia · ${host}`,
-      kind: 'news',
+      label: isOwn ? (isReport ? 'Sitio oficial · Informe' : 'Sitio oficial · Publicación') : `Noticia · ${host}`,
+      kind: isOwn ? 'official_site' : 'news',
       text: text.slice(0, DOC_TEXT_MAX_CHARS),
       publishedOn: result.publishedOn,
     });

@@ -39,7 +39,8 @@ import { FirstCallLauncher } from "@/components/first-call/first-call-launcher";
 import { SOURCE_LABELS } from "@/modules/accounts/types";
 import { STAGE_PHASE_LABELS } from "@/modules/pipeline/stages";
 import { isFirstCallStage } from "@/modules/pipeline/journey-first-call";
-import { FIRST_CALL_CHANNEL_LABELS } from "@/server/agents/first-call/types";
+import { FIRST_CALL_CHANNELS, FIRST_CALL_CHANNEL_LABELS } from "@/server/agents/first-call/types";
+import { buildCoverage, missingSelection } from "@/modules/speech/first-contact-wizard";
 import { firstCallHref } from "@/modules/speech/first-call-links";
 import type { AccountJourney, JourneyEvent, JourneyFirstCall, JourneyStage, PipelineStageId } from "@/modules/pipeline/types";
 import { SIGNAL_BADGE_VARIANT, STAGE_STATE_BADGE, sourcePrimaryLabel } from "./pipeline-copy";
@@ -153,7 +154,7 @@ function StageCardFrame({ entry, index, open, onToggle, children }: StageCardFra
 // ── Etapa disponible pero sin empezar: invitación a activarla ───
 
 /**
- * «Preparar primera llamada» dentro de una etapa: al terminar, el recorrido se vuelve a leer.
+ * «Preparar primer contacto» dentro de una etapa: al terminar, el recorrido se vuelve a leer.
  * Es un componente aparte para que `useRouter` solo exista cuando el Agente 3 está presente.
  */
 function StageFirstCallLauncher(props: Omit<React.ComponentProps<typeof FirstCallLauncher>, "onDone">) {
@@ -166,11 +167,11 @@ function firstCallInvitation(stageId: PipelineStageId, accountName: string, arch
   if (archived) {
     return stageId === "inteligencia"
       ? `No se investigó ${accountName}: la empresa está archivada.`
-      : `No se preparó la primera llamada a ${accountName}: la empresa está archivada.`;
+      : `No se preparó el primer contacto con ${accountName}: la empresa está archivada.`;
   }
   return stageId === "inteligencia"
     ? `Aún no se ha investigado ${accountName}. El agente lee su sitio y sus noticias y deja cada dato con su fuente.`
-    : `Aún no se ha preparado la primera llamada a ${accountName}: el guion, el mensaje, las preguntas y las respuestas a objeciones.`;
+    : `Aún no se ha preparado el primer contacto con ${accountName}: qué decirle a cada decisor en cada canal, las preguntas y las respuestas a objeciones.`;
 }
 
 interface StageInvitationProps {
@@ -227,6 +228,7 @@ function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvit
             <div className="shrink-0">
               <StageFirstCallLauncher
                 accountId={journey.account.id}
+                accountName={journey.account.name}
                 contacts={firstCall.contacts}
                 hasFreshBrief={firstCall.freshBrief}
                 variant="outline"
@@ -385,12 +387,12 @@ function PlannedBody({ entry, journey }: { entry: JourneyStage; journey: Account
   );
 }
 
-const BRIEF_STATUS_LABEL = { sufficient: "Suficiente para llamar", partial: "Parcial", failed: "No terminó" } as const;
+const BRIEF_STATUS_LABEL = { sufficient: "Suficiente para contactar", partial: "Parcial", failed: "No terminó" } as const;
 const BRIEF_STATUS_BADGE = { sufficient: "completed", partial: "warning", failed: "error" } as const;
-const PACK_STATUS_LABEL = { draft: "Lista para usar", needs_review: "Revisar antes de usar", used: "Usada" } as const;
+const PACK_STATUS_LABEL = { draft: "Lista", needs_review: "Revisar", used: "Usada" } as const;
 const PACK_STATUS_BADGE = { draft: "info", needs_review: "warning", used: "completed" } as const;
 
-/** Etapa «Inteligencia de cuenta» con el Agente 3: lo que investigó, en una fila. */
+/** Etapa «Inteligencia de cuenta» con el Agente 3: qué encontró, con qué y qué falta. */
 function InteligenciaBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
   const brief = firstCall.brief;
   if (!brief) return null;
@@ -406,54 +408,163 @@ function InteligenciaBody({ journey, firstCall }: { journey: AccountJourney; fir
         <DetailItem icon={Globe} label="Fuentes consultadas">
           <Figure value={brief.sourcesCount} />
         </DetailItem>
+        <DetailItem icon={Activity} label="Vigente hasta">
+          {brief.expiresAt ? (
+            <Text size="sm" className="tabular-nums">
+              {formatAppDate(brief.expiresAt)}
+              {!firstCall.freshBrief && <span className="text-muted-foreground"> · vencida</span>}
+            </Text>
+          ) : (
+            <EmptyCell />
+          )}
+        </DetailItem>
       </StageSummary>
+
       {brief.summary && (
         <Text tone="secondary" className="max-w-3xl leading-relaxed">
           {brief.summary}
         </Text>
       )}
+
+      {brief.topics.length > 0 && (
+        <section aria-label="Qué encontró" className="flex flex-col gap-1.5">
+          <Text size="xs" tone="secondary">Qué encontró</Text>
+          <ul className="flex flex-wrap gap-1.5">
+            {brief.topics.map((topic) => (
+              <li key={topic.label}>
+                <Badge variant="outline">
+                  {topic.label} · <span className="tabular-nums">{topic.count}</span>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {brief.hypotheses.length > 0 && (
+        <section aria-label="Hipótesis para UBITS" className="flex flex-col gap-1.5">
+          <Text size="xs" tone="secondary">Hipótesis para UBITS (confírmalas en la conversación)</Text>
+          <ul className="flex flex-col gap-1.5">
+            {brief.hypotheses.map((h) => (
+              <li key={h.text} className="flex flex-wrap items-start gap-2 text-sm text-foreground">
+                <Target className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1">{h.text}</span>
+                {h.productName && <Badge variant="brand">{h.productName}</Badge>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {brief.gapsCount > 0 && (
+        <Text size="xs" tone="secondary">
+          {brief.gapsCount === 1 ? "1 pregunta quedó sin respuesta" : `${brief.gapsCount} preguntas quedaron sin respuesta`}: buenas para la primera conversación.
+        </Text>
+      )}
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button asChild variant="outline" size="sm">
-          <Link href={`/accounts/${journey.account.id}?tab=inteligencia`}>Abrir la investigación</Link>
+          <Link href={firstCallHref(journey.account.id)}>Abrir la investigación</Link>
         </Button>
       </div>
     </>
   );
 }
 
-/** Etapa «Preparación y contacto» con el Agente 3: las preparaciones de llamada vivas. */
+/** Etapa «Preparación y contacto» con el Agente 3: lo preparado por decisor y canal, y lo que falta. */
 function PreparacionBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
+  const coverage = buildCoverage(firstCall.packs, firstCall.contacts);
+  const missing = missingSelection(coverage);
+  const withPacks = coverage.filter((row) => FIRST_CALL_CHANNELS.some((c) => row.cells[c] !== null));
+  const used = firstCall.packs.filter((p) => p.status === "used").length;
+  const toReview = firstCall.packs.filter((p) => p.status === "needs_review").length;
+  const launcherBase = {
+    accountId: journey.account.id,
+    accountName: journey.account.name,
+    contacts: firstCall.contacts,
+    hasFreshBrief: firstCall.freshBrief,
+  };
   return (
     <>
-      <ul aria-label="Preparaciones de llamada" className="flex flex-col divide-y divide-border/50">
-        {firstCall.packs.slice(0, 3).map((pack) => (
-          <li key={pack.id} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
-            <span className="min-w-0 text-sm text-foreground">
-              {[pack.targetName, pack.targetTitle].filter(Boolean).join(" · ") || "Sin decisor elegido"}
-              <span className="text-muted-foreground"> · {FIRST_CALL_CHANNEL_LABELS[pack.channel]}</span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span className="text-xs tabular-nums text-text-muted">{formatAppDate(pack.usedAt ?? pack.createdAt)}</span>
-              <StatusBadge status={PACK_STATUS_BADGE[pack.status]} label={PACK_STATUS_LABEL[pack.status]} />
-            </span>
-          </li>
-        ))}
+      <StageSummary label="Cifras de la preparación">
+        <DetailItem icon={Users} label="Decisores preparados">
+          <Text size="sm" className="tabular-nums">
+            {withPacks.filter((r) => r.contactId !== null).length} de {firstCall.contacts.length}
+          </Text>
+        </DetailItem>
+        <DetailItem icon={PhoneCall} label="Preparaciones">
+          <Figure value={firstCall.packs.length} />
+        </DetailItem>
+        <DetailItem icon={Check} label="Usadas">
+          <Figure value={used} />
+        </DetailItem>
+        <DetailItem icon={Tag} label="Para revisar">
+          <Figure value={toReview} />
+        </DetailItem>
+      </StageSummary>
+
+      <ul aria-label="Preparaciones por decisor" className="flex flex-col divide-y divide-border/50">
+        {withPacks.map((row) => {
+          const products = [
+            ...new Set(firstCall.packs.filter((p) => (p.contactId ?? null) === row.contactId).flatMap((p) => p.productNames)),
+          ];
+          return (
+            <li key={row.contactId ?? "sin-decisor"} className="flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <Text size="sm" weight="medium">
+                  {row.name}
+                  {row.title && <span className="font-normal text-muted-foreground"> · {row.title}</span>}
+                </Text>
+                {products.length > 0 && (
+                  <span className="flex flex-wrap gap-1">
+                    {products.map((name) => (
+                      <Badge key={name} variant="outline">
+                        {name}
+                      </Badge>
+                    ))}
+                  </span>
+                )}
+              </div>
+              <ul className="flex flex-wrap gap-1.5" aria-label={`Canales de ${row.name}`}>
+                {FIRST_CALL_CHANNELS.map((channel) => {
+                  const cell = row.cells[channel];
+                  return (
+                    <li key={channel}>
+                      {cell ? (
+                        <StatusBadge
+                          status={PACK_STATUS_BADGE[cell.status as keyof typeof PACK_STATUS_BADGE] ?? "info"}
+                          label={`${FIRST_CALL_CHANNEL_LABELS[channel]}: ${PACK_STATUS_LABEL[cell.status as keyof typeof PACK_STATUS_LABEL] ?? "Lista"}`}
+                        />
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          {FIRST_CALL_CHANNEL_LABELS[channel]}: falta
+                        </Badge>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          );
+        })}
       </ul>
-      {firstCall.packs.length > 3 && (
+
+      {missing && (
         <Text size="xs" tone="secondary">
-          y {firstCall.packs.length - 3} más
+          Falta preparar a {missing.contactIds.length === 1 ? "1 decisor" : `${missing.contactIds.length} decisores`} en algún canal.
         </Text>
       )}
+
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {!journey.isArchived && (
+        {!journey.isArchived && missing && (
           <StageFirstCallLauncher
-            accountId={journey.account.id}
-            contacts={firstCall.contacts}
-            hasFreshBrief={firstCall.freshBrief}
+            {...launcherBase}
             variant="outline"
-            label="Preparar otra llamada"
+            label="Preparar lo que falta"
+            initialSelection={{ contactIds: missing.contactIds, channels: missing.channels }}
           />
         )}
+        {!journey.isArchived && <StageFirstCallLauncher {...launcherBase} variant="outline" label="Preparar otro" />}
         <Button asChild variant="outline" size="sm">
           <Link href={firstCallHref(journey.account.id)}>
             <PhoneCall aria-hidden />
@@ -467,7 +578,7 @@ function PreparacionBody({ journey, firstCall }: { journey: AccountJourney; firs
 
 /** Las etapas con detalle que enseñar en el drawer: las que ya tienen agente y su propio detalle. */
 export function stageHasDetail(entry: JourneyStage): boolean {
-  // Las del Agente 3 se abren en la ficha de la empresa (pestañas «Inteligencia» y «Primera llamada»).
+  // Las del Agente 3 se abren en la ficha de la empresa (pestaña «Primer contacto»).
   return entry.stage.phase === "hecho" && !entry.notStarted && !isFirstCallStage(entry.stage.id);
 }
 

@@ -11,7 +11,7 @@ import {
   type ResearchBrief,
   type ResearchFact,
 } from '@/server/agents/first-call/types';
-import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
+import { ubitsProductName } from '@/server/agents/first-call/ubits-messaging-library';
 
 const LINK_CLASSES =
   'inline-flex items-center gap-1 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
@@ -67,15 +67,13 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
           running
             ? 'El agente está leyendo su sitio oficial y sus noticias. Recarga en un momento.'
             : enabled
-              ? 'El agente investiga qué hace, su tamaño, lo que le está pasando y cómo maneja su talento, con la fuente de cada dato. Luego prepara la primera llamada.'
+              ? 'El agente investiga qué hace, su tamaño, lo que le está pasando y cómo maneja su talento, con la fuente de cada dato. Luego prepara el primer contacto.'
               : 'Cuando el Agente 3 esté activado verás aquí qué hace la empresa, su momento y sus señales de talento, cada dato con su fuente.'
         }
         action={running ? undefined : launcher}
       />
     );
   }
-
-  const productName = (key: string | null) => UBITS_PRODUCTS.find((p) => p.key === key)?.name ?? null;
 
   return (
     <div className="space-y-4">
@@ -105,7 +103,16 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
         )}
       </SurfaceCard>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <ResearchBriefDetails brief={brief} />
+    </div>
+  );
+}
+
+/** Los datos de la investigación por pregunta, las hipótesis y lo que no se encontró (sin el encabezado). */
+export function ResearchBriefDetails({ brief, compact = false }: { brief: ResearchBrief; compact?: boolean }) {
+  return (
+    <div className="space-y-4">
+      <div className={compact ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>
         {RESEARCH_TOPICS.map((topic) => {
           const facts = brief.facts.filter((f) => f.topic === topic);
           if (facts.length === 0) return null;
@@ -123,7 +130,7 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
       </div>
 
       {(brief.hypotheses.length > 0 || brief.gaps.length > 0) && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className={compact ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>
           {brief.hypotheses.length > 0 && (
             <SurfaceCard>
               <SurfaceCardHeader
@@ -137,7 +144,7 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
                     <div className="space-y-1">
                       <p>{h.text}</p>
                       <div className="flex flex-wrap gap-1">
-                        {productName(h.productKey) && <Badge variant="outline">{productName(h.productKey)}</Badge>}
+                        {ubitsProductName(h.productKey) && <Badge variant="outline">{ubitsProductName(h.productKey)}</Badge>}
                         {h.factRefs.map((ref) => (
                           <a key={ref} href={`#fact-${ref}`} className="text-xs tabular-nums text-muted-foreground hover:underline">
                             {ref}

@@ -164,16 +164,25 @@ export interface JourneyFirstCall {
     completedAt: string | null;
     factsCount: number;
     sourcesCount: number;
+    /** Datos con fuente por pregunta («Qué hace», «Talento y formación»…), sin las vacías. */
+    topics: Array<{ label: string; count: number }>;
+    /** Las hipótesis para UBITS (texto y producto), las primeras. */
+    hypotheses: Array<{ text: string; productName: string | null }>;
+    /** Cuántas preguntas quedaron sin respuesta. */
+    gapsCount: number;
+    expiresAt: string | null;
   } | null;
   /** Los paquetes que siguen vivos (no descartados ni fallidos), del más reciente al más antiguo. */
   packs: Array<{
     id: string;
+    contactId: string | null;
     targetName: string | null;
     targetTitle: string | null;
     channel: 'call' | 'whatsapp' | 'email' | 'linkedin';
     status: 'draft' | 'needs_review' | 'used';
     createdAt: string;
     usedAt: string | null;
+    productNames: string[];
   }>;
   /** Los decisores que se pueden elegir al preparar la llamada. */
   contacts: Array<{ id: string; name: string; title: string | null }>;

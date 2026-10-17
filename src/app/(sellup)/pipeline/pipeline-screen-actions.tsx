@@ -28,7 +28,7 @@ interface PipelineScreenActionsProps {
   isBlocked?: boolean;
   /** Quien monta las acciones puede abrir el alta de contactos de la empresa tras mover. */
   canUploadContacts?: boolean;
-  /** Abre «Preparar primera llamada» (Agente 3). Sin ella, o sin agente en el recorrido, no se ofrece. */
+  /** Abre «Preparar primer contacto» (Agente 3). Sin ella, o sin agente en el recorrido, no se ofrece. */
   onPrepareFirstCall?: () => void;
   /** El Agente 3 está encendido: el diálogo de mover ofrece la IA en las etapas de investigar y preparar. */
   firstCallEnabled?: boolean;
@@ -78,7 +78,7 @@ export function PipelineScreenActions({
     if (onPrepareFirstCall && journey?.agent3 && !isArchived) {
       list.push({
         id: "prepare-first-call",
-        label: "Preparar primera llamada",
+        label: "Preparar primer contacto",
         icon: <PhoneCall aria-hidden="true" />,
         scope: ["screen"],
         onSelect: onPrepareFirstCall,

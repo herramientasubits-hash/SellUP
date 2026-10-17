@@ -13,7 +13,10 @@ import { revalidatePath } from 'next/cache';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getAccountById } from '@/modules/accounts/actions';
+import { getContactsByAccount } from '@/modules/contacts/actions';
 import { moveAccountStage } from '@/modules/pipeline/actions';
+import { toFirstCallContactOptions, type FirstCallContactOption } from './first-call-contacts';
+import { isBriefFresh } from './first-call-state';
 import { mapBriefRow, mapPackRow } from '@/server/agents/first-call/row-mappers';
 import { RESEARCH_RUNNING_STALE_MS } from '@/server/agents/first-call/run-first-call.server';
 import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchProgressStage } from '@/server/agents/first-call/types';
@@ -39,7 +42,7 @@ export interface FirstCallState {
 }
 
 /** Paquetes que se muestran en el historial de una empresa. */
-const PACKS_LIMIT = 20;
+const PACKS_LIMIT = 60;
 
 export async function getFirstCallState(accountId: string): Promise<FirstCallState> {
   const enabled = isAgent3FirstCallEnabled();
@@ -71,6 +74,31 @@ export async function getFirstCallState(accountId: string): Promise<FirstCallSta
 }
 
 /** ¿Está encendido el Agente 3? Para los paneles que cargan sus datos por su cuenta. */
+export interface FirstContactLaunchData {
+  accountId: string;
+  accountName: string;
+  contacts: FirstCallContactOption[];
+  hasFreshBrief: boolean;
+}
+
+/**
+ * Lo que necesita el panel del Agente 3 para abrirse desde una lista (menú de la
+ * fila, Pipeline): el nombre, los decisores elegibles y si hay investigación vigente.
+ * `null` si el agente está apagado, la empresa no es visible o está archivada.
+ */
+export async function getFirstContactLaunchData(accountId: string): Promise<FirstContactLaunchData | null> {
+  if (!isAgent3FirstCallEnabled()) return null;
+  const account = await getAccountById(accountId);
+  if (!account || account.pipeline_status === 'archived') return null;
+  const [state, contacts] = await Promise.all([getFirstCallState(accountId), getContactsByAccount(accountId).catch(() => [])]);
+  return {
+    accountId,
+    accountName: account.name,
+    contacts: toFirstCallContactOptions(contacts),
+    hasFreshBrief: isBriefFresh(state.brief, Date.now()),
+  };
+}
+
 export async function getFirstCallEnabled(): Promise<boolean> {
   return isAgent3FirstCallEnabled();
 }

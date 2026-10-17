@@ -12,10 +12,22 @@
  * Para cambiarla: editar este archivo en un PR (queda revisado y versionado).
  */
 
-export const UBITS_LIBRARY_VERSION = 'ubits-library-v1-draft';
+export const UBITS_LIBRARY_VERSION = 'ubits-library-v2-draft';
+
+/** Familias del menú de la plataforma UBITS (Workspace). */
+export type UbitsProductFamily = 'seleccion' | 'aprendizaje' | 'desempeno_cultura' | 'herramientas';
+
+export const UBITS_PRODUCT_FAMILY_LABELS: Readonly<Record<UbitsProductFamily, string>> = {
+  seleccion: 'Selección',
+  aprendizaje: 'Aprendizaje',
+  desempeno_cultura: 'Desempeño y cultura',
+  herramientas: 'Herramientas',
+};
 
 export interface UbitsProduct {
   key: string;
+  /** Familia del menú de UBITS en la que vive. */
+  family: UbitsProductFamily;
   name: string;
   /** Qué es, en una frase que se puede decir en voz alta. */
   pitch: string;
@@ -23,56 +35,156 @@ export interface UbitsProduct {
   fitsWhen: readonly string[];
 }
 
+/**
+ * Los módulos tal como aparecen en el menú de la plataforma (16-10-2026):
+ * Selección, Aprendizaje, Desempeño y cultura y Herramientas. «Créditos» (cobro de
+ * Selección) no es algo que se ofrezca en una llamada y queda fuera.
+ * Las frases son un BORRADOR a partir del nombre de cada módulo: la dueña las aprueba.
+ */
 export const UBITS_PRODUCTS: readonly UbitsProduct[] = [
   {
-    key: 'learning',
-    name: 'UBITS Learning',
-    pitch:
-      'Plataforma de formación corporativa con catálogo de cursos para líderes y por rol, rutas de aprendizaje y medición de avance.',
+    key: 'seleccion_ai_insights',
+    family: 'seleccion',
+    name: 'AI Insights',
+    pitch: 'Lectura con inteligencia artificial de los procesos de selección para priorizar a los candidatos con datos.',
+    fitsWhen: ['muchas vacantes abiertas', 'contratación masiva', 'interés en IA aplicada a RR. HH.'],
+  },
+  {
+    key: 'seleccion_vacantes',
+    family: 'seleccion',
+    name: 'Vacantes',
+    pitch: 'Publicación y gestión de las vacantes en un solo lugar.',
+    fitsWhen: ['muchas vacantes abiertas', 'aperturas de sedes, tiendas o plantas', 'alta rotación del sector'],
+  },
+  {
+    key: 'seleccion_candidatos',
+    family: 'seleccion',
+    name: 'Mis candidatos',
+    pitch: 'Seguimiento de los candidatos de cada vacante en un mismo tablero.',
+    fitsWhen: ['procesos de selección con muchos candidatos', 'equipos de selección pequeños para el volumen'],
+  },
+  {
+    key: 'aprendizaje_lms_creator',
+    family: 'aprendizaje',
+    name: 'LMS Creator',
+    pitch: 'Para crear los cursos propios de la empresa dentro de la plataforma.',
+    fitsWhen: ['academia o universidad corporativa propia', 'conocimiento técnico propio que hay que enseñar', 'procesos o productos que cambian seguido'],
+  },
+  {
+    key: 'aprendizaje_planes',
+    family: 'aprendizaje',
+    name: 'Planes de Formación',
+    pitch: 'Planes de formación por equipo o por rol, con el avance de cada persona.',
     fitsWhen: [
       'crecimiento o expansión que obliga a formar a mucha gente nueva',
+      'integraciones, fusiones o adquisiciones',
+      'inducción de muchos ingresos',
       'equipos distribuidos en varias sedes o países',
-      'transformación digital o cambio de procesos',
-      'interés público en desarrollo, cultura o formación',
     ],
   },
   {
-    key: 'onboarding',
-    name: 'Onboarding en plataforma',
-    pitch: 'Inducción estructurada dentro de la plataforma para que cada ingreso llegue listo sin depender del equipo de RR. HH.',
-    fitsWhen: ['contratación masiva o muchas vacantes abiertas', 'aperturas de tiendas, plantas o sedes', 'alta rotación del sector'],
+    key: 'aprendizaje_certificados',
+    family: 'aprendizaje',
+    name: 'Certificados',
+    pitch: 'Certificados de los cursos y planes completados.',
+    fitsWhen: ['sectores regulados con formación obligatoria', 'necesidad de demostrar cumplimiento'],
   },
   {
-    key: 'leadership',
-    name: 'Formación de líderes',
-    pitch: 'Catálogo de liderazgo para que los jefes nuevos y actuales desarrollen las mismas competencias.',
-    fitsWhen: ['ascensos o crecimiento de mandos medios', 'cambios de liderazgo', 'fusiones o reorganizaciones'],
+    key: 'aprendizaje_diagnostico',
+    family: 'aprendizaje',
+    name: 'Diagnóstico',
+    pitch: 'Diagnóstico de las necesidades de formación de cada equipo antes de formarlo.',
+    fitsWhen: ['no saben por dónde empezar a formar', 'cambios de procesos o transformación digital', 'procesos de promoción o sucesión'],
   },
   {
-    key: 'study_mode',
-    name: 'Modo Estudio con IA',
-    pitch: 'Asistente de estudio con inteligencia artificial que acompaña a cada persona mientras aprende.',
-    fitsWhen: ['interés en IA o en productividad', 'equipos con poco tiempo para formarse'],
+    key: 'aprendizaje_reportes',
+    family: 'aprendizaje',
+    name: 'Reportes',
+    pitch: 'Reportes del avance de la formación por equipo, sede o persona.',
+    fitsWhen: ['muchas sedes o países', 'necesidad de rendir cuentas de la inversión en formación'],
   },
   {
-    key: 'assessments',
-    name: 'Assessments',
-    pitch: 'Evaluaciones de competencias para saber dónde está cada equipo antes y después de formarlo.',
-    fitsWhen: ['necesidad de medir competencias', 'procesos de promoción o sucesión'],
+    key: 'aprendizaje_metricas',
+    family: 'aprendizaje',
+    name: 'Métricas',
+    pitch: 'Métricas de uso y de resultados de la formación, sin armar archivos a mano.',
+    fitsWhen: ['programas de formación grandes', 'interés en medir el impacto de la formación'],
   },
   {
-    key: 'performance',
-    name: 'Desempeño',
-    pitch: 'Gestión del desempeño para conectar objetivos, evaluaciones y planes de desarrollo.',
+    key: 'desempeno_360',
+    family: 'desempeno_cultura',
+    name: 'Evaluaciones 360',
+    pitch: 'Evaluaciones 360 de desempeño y competencias.',
+    fitsWhen: ['líderes nuevos o ascensos', 'cambios de liderazgo', 'cultura de retroalimentación'],
+  },
+  {
+    key: 'desempeno_objetivos',
+    family: 'desempeno_cultura',
+    name: 'Objetivos',
+    pitch: 'Objetivos por persona y por equipo, con su seguimiento.',
     fitsWhen: ['cultura de resultados o metas públicas', 'crecimiento de equipos que necesita seguimiento'],
   },
   {
-    key: 'recruiting_ai',
-    name: 'Reclutamiento con IA',
-    pitch: 'Selección apoyada en inteligencia artificial para filtrar y priorizar candidatos más rápido.',
-    fitsWhen: ['muchas vacantes abiertas', 'contratación masiva', 'aperturas de sedes'],
+    key: 'desempeno_matriz',
+    family: 'desempeno_cultura',
+    name: 'Matriz de talento',
+    pitch: 'Matriz de desempeño y potencial para decidir sucesión y desarrollo.',
+    fitsWhen: ['procesos de sucesión', 'crecimiento de mandos medios', 'fusiones o reorganizaciones'],
+  },
+  {
+    key: 'desempeno_pdi',
+    family: 'desempeno_cultura',
+    name: 'PDI',
+    pitch: 'Planes de desarrollo individual conectados con la evaluación de cada persona.',
+    fitsWhen: ['retención del talento', 'programas de liderazgo', 'después de una evaluación de desempeño'],
+  },
+  {
+    key: 'desempeno_encuestas',
+    family: 'desempeno_cultura',
+    name: 'Encuestas',
+    pitch: 'Encuestas de clima y cultura para escuchar a los equipos.',
+    fitsWhen: ['premios o rankings de clima laboral', 'integraciones o cambios grandes', 'alta rotación'],
+  },
+  {
+    key: 'herramientas_tareas',
+    family: 'herramientas',
+    name: 'Tareas',
+    pitch: 'Tareas asignadas y su seguimiento dentro de la misma plataforma.',
+    fitsWhen: ['procesos de RR. HH. con muchos pasos manuales'],
+  },
+  {
+    key: 'herramientas_avisos',
+    family: 'herramientas',
+    name: 'Avisos internos',
+    pitch: 'Avisos internos para comunicar algo a toda la organización o a un equipo.',
+    fitsWhen: ['muchas sedes o personal en terreno', 'integraciones o cambios que hay que comunicar'],
   },
 ];
+
+/** Claves de la v1 (antes del menú): siguen guardadas en preparaciones viejas. */
+const LEGACY_PRODUCT_NAMES: Readonly<Record<string, string>> = {
+  learning: 'UBITS Learning',
+  onboarding: 'Onboarding en plataforma',
+  leadership: 'Formación de líderes',
+  study_mode: 'Modo Estudio con IA',
+  assessments: 'Assessments',
+  performance: 'Desempeño',
+  recruiting_ai: 'Reclutamiento con IA',
+};
+
+/** Nombre legible de un producto, también de los de la v1. `null` si no se conoce. */
+export function ubitsProductName(key: string | null | undefined): string | null {
+  if (!key) return null;
+  return UBITS_PRODUCTS.find((p) => p.key === key)?.name ?? LEGACY_PRODUCT_NAMES[key] ?? null;
+}
+
+/** «a,b» (lo que guarda `product_focus`) → nombres legibles, sin claves desconocidas. */
+export function ubitsProductNames(stored: string | null | undefined): string[] {
+  return (stored ?? '')
+    .split(',')
+    .map((k) => ubitsProductName(k.trim()))
+    .filter((n): n is string => n !== null);
+}
 
 export interface UbitsClaim {
   key: string;
@@ -207,7 +319,8 @@ export const BANNED_PHRASES: readonly string[] = [
 /** Texto de la biblioteca para las instrucciones del modelo (va en caché). */
 export function renderLibraryForPrompt(): string {
   const products = UBITS_PRODUCTS.map(
-    (p) => `- ${p.key} | ${p.name}: ${p.pitch} Encaja cuando: ${p.fitsWhen.join('; ')}.`,
+    (p) =>
+      `- ${p.key} | ${UBITS_PRODUCT_FAMILY_LABELS[p.family]} › ${p.name}: ${p.pitch} Encaja cuando: ${p.fitsWhen.join('; ')}.`,
   ).join('\n');
   const claims = UBITS_CLAIMS.map((c) => `- ${c.key}: «${c.text}» (fuente: ${c.source})`).join('\n');
   const objections = UBITS_OBJECTIONS.map((o) => `- ${o.key} | «${o.objection}» → ${o.response}`).join('\n');

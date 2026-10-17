@@ -159,6 +159,8 @@ export interface PackObjection {
 }
 
 export interface FirstCallPackContent {
+  /** Producto de UBITS que el redactor eligió para este decisor (clave de la biblioteca). */
+  productKey?: string | null;
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;
@@ -195,13 +197,25 @@ export interface FirstCallPack {
   discardedAt: string | null;
 }
 
-/** Lo que pide el vendedor al pulsar «Preparar primera llamada». */
+/** Topes de una corrida: cada decisor es una llamada al redactor. */
+export const MAX_CONTACTS_PER_RUN = 5;
+
+/**
+ * Lo que pide el vendedor al preparar el primer contacto. Cascada:
+ *  1. una investigación por empresa (se reutiliza 30 días);
+ *  2. un ángulo por decisor (una llamada al redactor por decisor);
+ *  3. dentro de esa llamada, un mensaje por canal elegido.
+ * Cada decisor × canal queda como una preparación propia.
+ */
 export interface FirstCallRequest {
   accountId: string;
-  contactId: string | null;
-  channel: FirstCallChannel;
+  /** Decisores elegidos; vacío = sin decisor (el guion pide averiguar quién decide). */
+  contactIds: string[];
+  /** Canales elegidos (al menos uno). */
+  channels: FirstCallChannel[];
   goal: FirstCallGoal;
-  productFocus: string | null;
+  /** Productos de UBITS en los que enfocarse; vacío = el que mejor conecte. */
+  productKeys: string[];
   /** true = investigar de nuevo aunque haya una ficha vigente. */
   refreshResearch: boolean;
   /** Paquete que se regenera, y por qué. */
