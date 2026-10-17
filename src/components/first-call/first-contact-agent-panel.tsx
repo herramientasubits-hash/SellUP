@@ -9,6 +9,7 @@ import { Stepper } from '@/components/navigation/stepper';
 import { getFirstCallProgress } from '@/modules/speech/actions';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
 import {
+  BEST_PRODUCT,
   DEFAULT_SELECTION,
   FIRST_CONTACT_STEPS,
   NO_DECISION_MAKER,
@@ -18,7 +19,9 @@ import {
   decisionMakerOptions,
   goalOptions,
   normalizeDecisionMakerSelection,
+  normalizeProductSelection,
   preparationsCount,
+  productKeysFrom,
   productOptions,
   summaryText,
   type FirstContactSelection,
@@ -26,8 +29,9 @@ import {
 import {
   FIRST_CALL_CHANNELS,
   FIRST_CALL_CHANNEL_LABELS,
-  FIRST_CALL_GOAL_LABELS,
   MAX_CONTACTS_PER_RUN,
+  goalsLabel,
+  orderGoals,
   RESEARCH_PROGRESS_LABELS,
   type FirstCallChannel,
   type FirstCallGoal,
@@ -58,6 +62,7 @@ export interface FirstContactRegenerateSeed {
   contactId: string | null;
   channel: FirstCallChannel;
   goal: FirstCallGoal;
+  goals?: FirstCallGoal[];
   productFocus: string | null;
 }
 
@@ -84,7 +89,7 @@ function seedSelection(props: Pick<FirstContactAgentPanelProps, 'initialSelectio
     return {
       contactIds: props.regenerate.contactId ? [props.regenerate.contactId] : [],
       channels: [props.regenerate.channel],
-      goal: props.regenerate.goal,
+      goals: props.regenerate.goals ?? [props.regenerate.goal],
       productKeys: (props.regenerate.productFocus ?? '').split(',').filter((k) => UBITS_PRODUCTS.some((p) => p.key === k)),
     };
   }
@@ -106,7 +111,7 @@ function answerText(step: number, selection: FirstContactSelection, contacts: re
     case 'canales':
       return selection.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]).join(', ');
     case 'objetivo':
-      return FIRST_CALL_GOAL_LABELS[selection.goal];
+      return goalsLabel(selection.goals);
     case 'productos':
       return selection.productKeys.length === 0
         ? 'El que mejor conecte'
@@ -134,6 +139,10 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   const { open, onOpenChange, accountId, accountName, contacts, hasFreshBrief, regenerate, onDone, onViewResult } = props;
   const [step, setStep] = React.useState(0);
   const [selection, setSelection] = React.useState<FirstContactSelection>(() => seedSelection(props));
+  const [markedProducts, setMarkedProducts] = React.useState<string[]>(() => {
+    const seeded = seedSelection(props).productKeys;
+    return seeded.length > 0 ? seeded : [BEST_PRODUCT];
+  });
   const [markedContacts, setMarkedContacts] = React.useState<string[]>(() => {
     const seeded = seedSelection(props).contactIds;
     return seeded.length > 0 ? seeded : [NO_DECISION_MAKER];
@@ -149,6 +158,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setStep(0);
     setSelection(seeded);
     setMarkedContacts(seeded.contactIds.length > 0 ? seeded.contactIds : [NO_DECISION_MAKER]);
+    setMarkedProducts(seeded.productKeys.length > 0 ? seeded.productKeys : [BEST_PRODUCT]);
     setPhase('asking');
     setStage(null);
     setResult(null);
@@ -339,25 +349,27 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         return (
           <ChatQuestionPanel
             title={QUESTIONS.objetivo}
+            description="Puedes elegir varios: el mensaje los encadena en este orden."
+            mode="multiple"
+            max={goalOptions().length}
             options={goalOptions()}
-            selected={[selection.goal]}
-            onAnswer={(value) => advance({ goal: value as FirstCallGoal })}
+            selected={selection.goals}
+            onSelectionChange={(next) => setSelection((prev) => ({ ...prev, goals: next as FirstCallGoal[] }))}
+            onSubmitSelection={(values) => advance({ goals: orderGoals(values as FirstCallGoal[]) })}
+            submitLabel="Continuar"
           />
         );
       case 'productos':
         return (
           <ChatQuestionPanel
             title={QUESTIONS.productos}
-            description="Elige uno o varios, o deja que el agente use el que mejor conecte con lo que encuentre."
+            description="Elige uno o varios, o «El que mejor conecte» para que el agente elija según lo que encuentre."
             mode="multiple"
-            max={productOptions().length}
             options={productOptions()}
-            selected={selection.productKeys}
+            selected={markedProducts}
             filterPlaceholder="Buscar producto"
-            onSelectionChange={(next) => setSelection((prev) => ({ ...prev, productKeys: next }))}
-            onSubmitSelection={(values) => advance({ productKeys: values })}
-            onSkip={() => advance({ productKeys: [] })}
-            skipLabel="El que mejor conecte"
+            onSelectionChange={(next) => setMarkedProducts((prev) => normalizeProductSelection(prev, next))}
+            onSubmitSelection={() => advance({ productKeys: productKeysFrom(markedProducts) })}
             submitLabel="Continuar"
           />
         );

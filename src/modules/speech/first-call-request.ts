@@ -10,13 +10,16 @@ import {
   FIRST_CALL_CHANNELS,
   FIRST_CALL_GOALS,
   MAX_CONTACTS_PER_RUN,
+  orderGoals,
   type FirstCallChannel,
+  type FirstCallGoal,
   type FirstCallRequest,
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
 
 const productKeys = UBITS_PRODUCTS.map((p) => p.key) as [string, ...string[]];
 const channelEnum = z.enum(FIRST_CALL_CHANNELS as unknown as [string, ...string[]]);
+const goalEnum = z.enum(FIRST_CALL_GOALS as unknown as [string, ...string[]]);
 
 const requestSchema = z.object({
   accountId: z.uuid(),
@@ -24,7 +27,8 @@ const requestSchema = z.object({
   contactId: z.uuid().nullable().optional(),
   channels: z.array(channelEnum).min(1).max(FIRST_CALL_CHANNELS.length).optional(),
   channel: channelEnum.optional(),
-  goal: z.enum(FIRST_CALL_GOALS as unknown as [string, ...string[]]).default('book_meeting'),
+  goals: z.array(goalEnum).max(FIRST_CALL_GOALS.length).optional(),
+  goal: goalEnum.optional(),
   productKeys: z.array(z.enum(productKeys)).max(productKeys.length).optional(),
   productFocus: z.enum(productKeys).nullable().optional(),
   refreshResearch: z.boolean().default(false),
@@ -52,7 +56,7 @@ export function parseFirstCallRequest(body: unknown): ParsedFirstCallRequest {
       accountId: data.accountId,
       contactIds,
       channels,
-      goal: data.goal as FirstCallRequest['goal'],
+      goals: orderGoals((data.goals ?? (data.goal ? [data.goal] : [])) as FirstCallGoal[]),
       productKeys: products,
       refreshResearch: data.refreshResearch,
       regenerateFromPackId: data.regenerateFromPackId,

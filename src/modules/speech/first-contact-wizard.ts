@@ -13,6 +13,7 @@ import {
   FIRST_CALL_GOALS,
   FIRST_CALL_GOAL_LABELS,
   MAX_CONTACTS_PER_RUN,
+  orderGoals,
   type FirstCallChannel,
   type FirstCallGoal,
   type FirstCallPack,
@@ -33,11 +34,15 @@ export const FIRST_CONTACT_STEPS: ReadonlyArray<{ id: FirstContactStepId; label:
 /** Opción «sin decisor»: el guion pide averiguar quién decide. Excluye a las demás. */
 export const NO_DECISION_MAKER = '__sin_decisor__';
 
+/** Opción «El que mejor conecte» en la lista de productos. Excluye a las demás. */
+export const BEST_PRODUCT = '__mejor_producto__';
+
 export interface FirstContactSelection {
   /** Vacío = sin decisor. */
   contactIds: string[];
   channels: FirstCallChannel[];
-  goal: FirstCallGoal;
+  /** Uno o varios, en el orden de la conversación. */
+  goals: FirstCallGoal[];
   /** Vacío = el que mejor conecte. */
   productKeys: string[];
 }
@@ -45,7 +50,7 @@ export interface FirstContactSelection {
 export const DEFAULT_SELECTION: FirstContactSelection = {
   contactIds: [],
   channels: ['call'],
-  goal: 'book_meeting',
+  goals: ['book_meeting'],
   productKeys: [],
 };
 
@@ -83,8 +88,15 @@ export function goalOptions(): WizardOption[] {
   return FIRST_CALL_GOALS.map((g) => ({ value: g, label: FIRST_CALL_GOAL_LABELS[g], description: GOAL_DESCRIPTIONS[g] }));
 }
 
-/** Productos en el orden del menú de UBITS, con su familia delante. */
+/** Productos en el orden del menú de UBITS, con su familia delante; primero «El que mejor conecte». */
 export function productOptions(): WizardOption[] {
+  return [
+    { value: BEST_PRODUCT, label: 'El que mejor conecte', description: 'El agente elige según lo que encuentre de la empresa.' },
+    ...productModuleOptions(),
+  ];
+}
+
+function productModuleOptions(): WizardOption[] {
   return UBITS_PRODUCTS.map((p) => ({
     value: p.key,
     label: p.name,
@@ -97,9 +109,25 @@ export function productOptions(): WizardOption[] {
  * lo último, gana; si se marcó un decisor estando «Sin decisor», se quita «Sin decisor».
  */
 export function normalizeDecisionMakerSelection(previous: readonly string[], next: readonly string[]): string[] {
+  return normalizeExclusiveSelection(previous, next, NO_DECISION_MAKER, MAX_CONTACTS_PER_RUN);
+}
+
+/** Igual para productos: «El que mejor conecte» excluye a los demás y al revés. */
+export function normalizeProductSelection(previous: readonly string[], next: readonly string[]): string[] {
+  return normalizeExclusiveSelection(previous, next, BEST_PRODUCT);
+}
+
+/** Lo marcado en «Productos» → claves (vacío = el que mejor conecte). */
+export function productKeysFrom(marked: readonly string[]): string[] {
+  return marked.filter((v) => v !== BEST_PRODUCT);
+}
+
+/** Una opción que excluye a las demás: si se marcó al final gana; si se marca otra, se quita. */
+function normalizeExclusiveSelection(previous: readonly string[], next: readonly string[], exclusive: string, max?: number): string[] {
   const added = next.filter((v) => !previous.includes(v));
-  if (added.includes(NO_DECISION_MAKER)) return [NO_DECISION_MAKER];
-  return next.filter((v) => v !== NO_DECISION_MAKER).slice(0, MAX_CONTACTS_PER_RUN);
+  if (added.includes(exclusive)) return [exclusive];
+  const rest = next.filter((v) => v !== exclusive);
+  return max === undefined ? rest : rest.slice(0, max);
 }
 
 export function contactIdsFrom(marked: readonly string[]): string[] {
@@ -147,7 +175,7 @@ export function summaryText(
       ? 'Primero investigo la empresa: sitio oficial, noticias del último año y lo que ya saben SellUp y HubSpot.'
       : 'Uso la investigación vigente de la empresa (no se paga otra).',
     `Luego preparo ${total === 1 ? 'una preparación' : `${total} preparaciones`}: ${who}, por ${channels}.`,
-    `Objetivo: ${FIRST_CALL_GOAL_LABELS[selection.goal].toLowerCase()}. Productos: ${products}.`,
+    `${selection.goals.length > 1 ? 'Objetivos' : 'Objetivo'}: ${listInSpanish(orderGoals(selection.goals).map((g) => FIRST_CALL_GOAL_LABELS[g].toLowerCase()))}. Productos: ${products}.`,
     `Tarda ${estimatedDuration(selection, willResearch)}.`,
   ].join('\n\n');
 }
@@ -164,7 +192,7 @@ export function buildFirstContactRequestBody(params: {
     accountId: params.accountId,
     contactIds: params.selection.contactIds,
     channels: params.selection.channels,
-    goal: params.selection.goal,
+    goals: orderGoals(params.selection.goals),
     productKeys: params.selection.productKeys,
     refreshResearch: params.refreshResearch,
     regenerateFromPackId: params.regenerateFromPackId ?? null,

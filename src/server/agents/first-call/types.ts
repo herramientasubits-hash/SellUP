@@ -146,6 +146,18 @@ export const FIRST_CALL_GOAL_LABELS: Readonly<Record<FirstCallGoal, string>> = {
   validate_owner: 'Saber quién decide',
 };
 
+/** Los objetivos en el orden de la conversación (reunión, conversación, quién decide), sin repetir. */
+export function orderGoals(goals: readonly FirstCallGoal[]): FirstCallGoal[] {
+  const chosen = new Set(goals);
+  const ordered = FIRST_CALL_GOALS.filter((g) => chosen.has(g));
+  return ordered.length > 0 ? ordered : ['book_meeting'];
+}
+
+/** «Conseguir una reunión · Saber quién decide». */
+export function goalsLabel(goals: readonly FirstCallGoal[]): string {
+  return orderGoals(goals).map((g) => FIRST_CALL_GOAL_LABELS[g]).join(' · ');
+}
+
 export interface PackTextWithRefs {
   text: string;
   factRefs: string[];
@@ -181,7 +193,10 @@ export interface FirstCallPack {
   targetName: string | null;
   targetTitle: string | null;
   channel: FirstCallChannel;
+  /** El primero de `goals` (lo que se buscaba ante todo). */
   goal: FirstCallGoal;
+  /** Todos los objetivos pedidos, en orden. */
+  goals: FirstCallGoal[];
   productFocus: string | null;
   content: FirstCallPackContent | null;
   /** Los hechos con los que se escribió: sus IDs son los que cita el texto. */
@@ -213,7 +228,8 @@ export interface FirstCallRequest {
   contactIds: string[];
   /** Canales elegidos (al menos uno). */
   channels: FirstCallChannel[];
-  goal: FirstCallGoal;
+  /** Objetivos (uno o varios), en el orden de la conversación. */
+  goals: FirstCallGoal[];
   /** Productos de UBITS en los que enfocarse; vacío = el que mejor conecte. */
   productKeys: string[];
   /** true = investigar de nuevo aunque haya una ficha vigente. */

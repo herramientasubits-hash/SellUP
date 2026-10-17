@@ -13,7 +13,8 @@ import { extractNumbers } from '../numbers';
 import { newsToDocuments } from '../research-documents';
 import { contentForChannel, parseWriterSubmission, verifyPack } from '../pack-verifier';
 import { buildWriterSubmitTool, buildWriterUserMessage } from '../writer-prompt';
-import type { ResearchFact } from '../types';
+import { goalsLabel, type ResearchFact } from '../types';
+import { mapPackRow } from '../row-mappers';
 import { UBITS_PRODUCTS, ubitsProductName, ubitsProductNames } from '../ubits-messaging-library';
 import { parseFirstCallRequest } from '../../../../modules/speech/first-call-request';
 
@@ -67,6 +68,14 @@ describe('solicitud con varias selecciones', () => {
     assert.deepEqual(parsed.request.productKeys, ['desempeno_360', 'aprendizaje_planes']);
   });
 
+  it('acepta varios objetivos y los ordena como la conversación', () => {
+    const parsed = parseFirstCallRequest({ accountId: ACCOUNT, channels: ['call'], goals: ['validate_owner', 'book_meeting', 'validate_owner'] });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) assert.deepEqual(parsed.request.goals, ['book_meeting', 'validate_owner']);
+    const legacy = parseFirstCallRequest({ accountId: ACCOUNT, channel: 'call', goal: 'open_conversation' });
+    assert.equal(legacy.ok && legacy.request.goals.join(), 'open_conversation');
+  });
+
   it('sigue aceptando la forma de la v1 (un decisor, un canal, un producto)', () => {
     const parsed = parseFirstCallRequest({ accountId: ACCOUNT, contactId: C1, channel: 'linkedin', productFocus: 'desempeno_pdi' });
     assert.equal(parsed.ok, true);
@@ -82,6 +91,17 @@ describe('solicitud con varias selecciones', () => {
     const many = Array.from({ length: 6 }, (_, i) => `${i}${C1.slice(1)}`);
     assert.equal(parseFirstCallRequest({ accountId: ACCOUNT, channels: ['call'], contactIds: many }).ok, false);
     assert.equal(parseFirstCallRequest({ accountId: ACCOUNT, channels: ['call'], productKeys: ['learning'] }).ok, false);
+  });
+});
+
+describe('objetivos guardados', () => {
+  it('varios objetivos se guardan y se leen en orden; uno viejo o raro cae en «reunión»', () => {
+    const many = mapPackRow({ id: 'p', account_id: 'a', status: 'draft', channel: 'call', goal: 'book_meeting,validate_owner', pack: {}, created_at: '2026-10-17T00:00:00Z' });
+    assert.deepEqual(many.goals, ['book_meeting', 'validate_owner']);
+    assert.equal(many.goal, 'book_meeting');
+    assert.equal(goalsLabel(many.goals), 'Conseguir una reunión · Saber quién decide');
+    const odd = mapPackRow({ id: 'p', account_id: 'a', status: 'draft', channel: 'call', goal: 'x', pack: {}, created_at: '2026-10-17T00:00:00Z' });
+    assert.deepEqual(odd.goals, ['book_meeting']);
   });
 });
 
@@ -118,7 +138,7 @@ describe('redactor con varios canales', () => {
       sellerName: 'Elkin',
       decisionMaker: { name: 'Fabián Martínez', title: 'Learning Leader', roleFocus: 'x' },
       channels: ['call', 'linkedin'],
-      goal: 'book_meeting',
+      goals: ['book_meeting', 'validate_owner'],
       productKeys: ['desempeno_360', 'aprendizaje_planes'],
       briefStatus: 'sufficient',
       summary: null,
@@ -129,6 +149,7 @@ describe('redactor con varios canales', () => {
       regenerationReason: null,
     });
     assert.match(text, /Canales: Llamada, LinkedIn/);
+    assert.match(text, /Objetivos \(en este orden\): Conseguir una reunión → Saber quién decide/);
     assert.match(text, /Evaluaciones 360 \(desempeno_360\), Planes de Formación \(aprendizaje_planes\)/);
   });
 

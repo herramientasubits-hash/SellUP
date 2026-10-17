@@ -51,6 +51,7 @@ import {
   FIRST_CALL_CHANNEL_LABELS,
   RESEARCH_BRIEF_TTL_DAYS,
   type FirstCallChannel,
+  type FirstCallGoal,
   type FirstCallPackContent,
   type FirstCallPackStatus,
   type FirstCallRequest,
@@ -121,7 +122,7 @@ export interface PackInsert {
   targetName: string | null;
   targetTitle: string | null;
   channel: FirstCallChannel;
-  goal: FirstCallRequest['goal'];
+  goals: FirstCallGoal[];
   productFocus: string | null;
   content: FirstCallPackContent | null;
   /** Los hechos con los que se escribió (sus IDs son los que cita el paquete). */
@@ -497,7 +498,7 @@ async function writeForTarget(params: {
           sellerName: context.sellerName,
           decisionMaker: { name: target?.name ?? null, title: target?.title ?? null, roleFocus: roleFocusFor(target?.title) },
           channels,
-          goal: request.goal,
+          goals: request.goals,
           productKeys: request.productKeys,
           briefStatus: brief.status,
           summary: brief.summary,
@@ -651,7 +652,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         targetName: target?.name ?? null,
         targetTitle: target?.title ?? null,
         channel,
-        goal: request.goal,
+        goals: request.goals,
         productFocus: content?.productKey ?? (request.productKeys.length > 0 ? request.productKeys.join(',') : null),
         content: status === 'failed' ? null : content,
         facts: written.facts,

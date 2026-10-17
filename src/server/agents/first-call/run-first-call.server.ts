@@ -167,7 +167,8 @@ function packRow(pack: PackInsert, userId: string): Record<string, unknown> {
     target_name: pack.targetName,
     target_title: pack.targetTitle,
     channel: pack.channel,
-    goal: pack.goal,
+    // Varios objetivos en la misma columna, en orden («book_meeting,validate_owner»).
+    goal: pack.goals.join(','),
     product_focus: pack.productFocus,
     // Los hechos van con el paquete: sus IDs (F1…) son los que el texto cita, aunque la
     // empresa se vuelva a investigar y la ficha nueva numere distinto.

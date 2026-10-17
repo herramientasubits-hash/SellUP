@@ -67,6 +67,7 @@ function pack(id: string, overrides: Partial<FirstCallPack> = {}): FirstCallPack
     targetTitle: 'Gerente de Talento',
     channel: 'call',
     goal: 'book_meeting',
+    goals: ['book_meeting'],
     productFocus: null,
     content: { reasonToCall: { text: 'SECRETO', factRefs: [] } } as unknown as FirstCallPack['content'],
     facts: [],

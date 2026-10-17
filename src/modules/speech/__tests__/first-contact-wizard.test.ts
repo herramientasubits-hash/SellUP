@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  BEST_PRODUCT,
   NO_DECISION_MAKER,
   buildCoverage,
   buildFirstContactRequestBody,
@@ -14,6 +15,8 @@ import {
   estimatedDuration,
   missingSelection,
   normalizeDecisionMakerSelection,
+  normalizeProductSelection,
+  productKeysFrom,
   preparationsCount,
   productOptions,
   summaryText,
@@ -38,9 +41,16 @@ describe('opciones del asistente', () => {
   it('canales y productos con descripción; productos en el orden del menú con su familia', () => {
     assert.equal(channelOptions().length, 4);
     const products = productOptions();
-    assert.equal(products[0].label, 'AI Insights');
-    assert.match(products[0].description ?? '', /^Selección · /);
+    assert.equal(products[0].value, BEST_PRODUCT, '«El que mejor conecte» es una opción más, la primera');
+    assert.equal(products[1].label, 'AI Insights');
+    assert.match(products[1].description ?? '', /^Selección · /);
     assert.ok(products.some((p) => p.label === 'Evaluaciones 360' && p.description?.startsWith('Desempeño y cultura')));
+  });
+
+  it('«El que mejor conecte» excluye a los demás productos y al revés', () => {
+    assert.deepEqual(normalizeProductSelection(['desempeno_360'], ['desempeno_360', BEST_PRODUCT]), [BEST_PRODUCT]);
+    assert.deepEqual(normalizeProductSelection([BEST_PRODUCT], [BEST_PRODUCT, 'desempeno_pdi']), ['desempeno_pdi']);
+    assert.deepEqual(productKeysFrom([BEST_PRODUCT]), []);
   });
 
   it('«Sin decisor» excluye a los demás y al revés', () => {
@@ -58,14 +68,20 @@ describe('resumen y pedido', () => {
 
   it('el resumen dice si investiga o reusa, a quién, por dónde y cuánto tarda', () => {
     const text = summaryText(
-      { contactIds: ['c1', 'c2'], channels: ['call', 'whatsapp'], goal: 'book_meeting', productKeys: ['desempeno_360'] },
+      { contactIds: ['c1', 'c2'], channels: ['call', 'whatsapp'], goals: ['book_meeting'], productKeys: ['desempeno_360'] },
       CONTACTS,
       true,
     );
     assert.match(text, /Primero investigo la empresa/);
     assert.match(text, /4 preparaciones: Fabián Martínez \(Learning Leader\) y Laura Gómez \(Vicepresidenta de Talento\), por Llamada y WhatsApp/);
     assert.match(text, /Productos: Evaluaciones 360/);
-    assert.match(summaryText({ contactIds: [], channels: ['email'], goal: 'validate_owner', productKeys: [] }, CONTACTS, false), /investigación vigente/);
+    const several = summaryText(
+      { contactIds: ['c1'], channels: ['call'], goals: ['validate_owner', 'book_meeting'], productKeys: [] },
+      CONTACTS,
+      false,
+    );
+    assert.match(several, /Objetivos: conseguir una reunión y saber quién decide/);
+    assert.match(summaryText({ contactIds: [], channels: ['email'], goals: ['validate_owner'], productKeys: [] }, CONTACTS, false), /investigación vigente/);
     assert.equal(estimatedDuration({ contactIds: [] }, false), 'menos de un minuto');
     assert.equal(estimatedDuration({ contactIds: ['a', 'b', 'c'] }, true), 'unos 2 minutos');
   });
@@ -73,12 +89,13 @@ describe('resumen y pedido', () => {
   it('el pedido lleva las listas y limpia el motivo', () => {
     const body = buildFirstContactRequestBody({
       accountId: 'acc',
-      selection: { contactIds: ['c1'], channels: ['call', 'email'], goal: 'book_meeting', productKeys: [] },
+      selection: { contactIds: ['c1'], channels: ['call', 'email'], goals: ['book_meeting'], productKeys: [] },
       refreshResearch: false,
       regenerateFromPackId: 'p1',
       regenerationReason: '   ',
     });
     assert.deepEqual(body.channels, ['call', 'email']);
+    assert.deepEqual(body.goals, ['book_meeting']);
     assert.equal(body.regenerationReason, null);
     assert.equal(body.regenerateFromPackId, 'p1');
   });

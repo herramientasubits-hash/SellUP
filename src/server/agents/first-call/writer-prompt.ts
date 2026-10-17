@@ -134,6 +134,7 @@ export function buildWriterSystemPrompt(): string {
     '- reason_to_call: una razón CONCRETA, basada en un hecho de la ficha (mejor una señal reciente o un dato de talento). Dar una razón concreta duplica las llamadas exitosas; no abras con «¿tiene un minuto?» ni «¿lo agarro en mal momento?».',
     `- call_script (sólo si piden llamada): entre ${CALL_SCRIPT_MIN_WORDS} y ${CALL_SCRIPT_MAX_WORDS} palabras (45 a 60 segundos). Orden: saludo y quién eres, la razón concreta, la posible necesidad dicha como pregunta o hipótesis, una pregunta abierta y el siguiente paso según el objetivo.`,
     `- messages: uno por canal pedido, todos con el mismo ángulo. Formatos: ${(Object.keys(CHANNEL_FORMAT) as FirstCallChannel[]).map((c) => `${FIRST_CALL_CHANNEL_LABELS[c]}: ${CHANNEL_FORMAT[c]}`).join('; ')}.`,
+    '- Si hay varios objetivos, encadénalos en ese orden: el mensaje y next_step piden el primero y, si no se da, pasan al siguiente; si se pide «Saber quién decide», cierra preguntando quién lleva la formación y el talento.',
     '- El ángulo depende del cargo del decisor: a cada cargo háblale de lo que le importa (ver «Enfoque para este cargo»).',
     '- Cada cifra que escribas tiene que estar en un hecho que CITES en ese mismo texto (fact_refs) o en las afirmaciones permitidas de la biblioteca. Si no hay cifra, no pongas cifra.',
     '- No compares cifras de hechos distintos ni inventes variaciones («pasó de X a Y», «creció N %») salvo que un mismo hecho lo diga: pueden medir cosas distintas (un país frente a la región).',
@@ -160,7 +161,7 @@ export interface WriterInput {
   sellerName: string | null;
   decisionMaker: { name: string | null; title: string | null; roleFocus: string };
   channels: readonly FirstCallChannel[];
-  goal: FirstCallGoal;
+  goals: readonly FirstCallGoal[];
   productKeys: readonly string[];
   briefStatus: ResearchBriefStatus;
   summary: string | null;
@@ -188,7 +189,7 @@ export function buildWriterUserMessage(input: WriterInput): string {
     `Vendedor: ${input.sellerName ?? '[tu nombre]'}, de UBITS`,
     `Decisor: ${input.decisionMaker.name ?? '[nombre]'}${input.decisionMaker.title ? `, ${input.decisionMaker.title}` : ''}`,
     `Enfoque para este cargo: ${input.decisionMaker.roleFocus}`,
-    `Canales: ${input.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]).join(', ')} · Objetivo: ${FIRST_CALL_GOAL_LABELS[input.goal]}`,
+    `Canales: ${input.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]).join(', ')} · Objetivos (en este orden): ${input.goals.map((g) => FIRST_CALL_GOAL_LABELS[g]).join(' → ')}`,
     `Productos a enfocar: ${products.length > 0 ? products.join(', ') : 'el que mejor conecte con los hechos'}`,
     input.hubspotWarning ? `Aviso de HubSpot: ${input.hubspotWarning}` : null,
     input.briefStatus === 'partial'

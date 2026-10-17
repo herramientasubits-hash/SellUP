@@ -327,7 +327,7 @@ describe('solicitud del navegador', () => {
     const parsed = parseFirstCallRequest({ accountId: '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f', channel: 'whatsapp' });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.equal(parsed.request.goal, 'book_meeting');
+      assert.deepEqual(parsed.request.goals, ['book_meeting']);
       assert.deepEqual(parsed.request.contactIds, []);
       assert.deepEqual(parsed.request.channels, ['whatsapp']);
       assert.deepEqual(parsed.request.productKeys, []);

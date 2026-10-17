@@ -71,7 +71,7 @@ function Section({
   testId?: string;
 }) {
   return (
-    <details open={defaultOpen} className="group rounded-2xl border border-border/60 bg-card shadow-card" data-testid={testId}>
+    <details open={defaultOpen} className="group/section rounded-2xl border border-border/60 bg-card shadow-card" data-testid={testId}>
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Icon className="size-4" aria-hidden="true" />
@@ -80,7 +80,7 @@ function Section({
           <span className="block text-sm font-semibold text-foreground">{title}</span>
           {meta && <span className="block text-xs text-muted-foreground">{meta}</span>}
         </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open/section:rotate-180" aria-hidden="true" />
       </summary>
       <div className="border-t border-border/60 px-4 py-4">{children}</div>
     </details>

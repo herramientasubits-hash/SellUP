@@ -53,6 +53,7 @@ function pack(overrides: Partial<FirstCallPack> = {}): FirstCallPack {
     targetTitle: 'Gerente de Talento',
     channel: 'whatsapp',
     goal: 'book_meeting',
+    goals: ['book_meeting'],
     productFocus: null,
     content: null,
     facts: [],

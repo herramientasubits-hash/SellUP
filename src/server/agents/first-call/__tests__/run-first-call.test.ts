@@ -23,7 +23,7 @@ const REQUEST: FirstCallRequest = {
   accountId: ACCOUNT_ID,
   contactIds: ['c1'],
   channels: ['call'],
-  goal: 'book_meeting',
+  goals: ['book_meeting'],
   productKeys: [],
   refreshResearch: false,
   regenerateFromPackId: null,
