@@ -68,7 +68,7 @@ describe('resumen y pedido', () => {
 
   it('el resumen dice si investiga o reusa, a quién, por dónde y cuánto tarda', () => {
     const text = summaryText(
-      { contactIds: ['c1', 'c2'], channels: ['call', 'whatsapp'], goals: ['book_meeting'], productKeys: ['desempeno_360'] },
+      { contactIds: ['c1', 'c2'], channels: ['call', 'whatsapp'], goals: ['book_meeting'], productKeys: ['desempeno_360'], approaches: [], referralNote: null },
       CONTACTS,
       true,
     );
@@ -76,12 +76,12 @@ describe('resumen y pedido', () => {
     assert.match(text, /4 preparaciones: Fabián Martínez \(Learning Leader\) y Laura Gómez \(Vicepresidenta de Talento\), por Llamada y WhatsApp/);
     assert.match(text, /Productos: Evaluaciones 360/);
     const several = summaryText(
-      { contactIds: ['c1'], channels: ['call'], goals: ['validate_owner', 'book_meeting'], productKeys: [] },
+      { contactIds: ['c1'], channels: ['call'], goals: ['validate_owner', 'book_meeting'], productKeys: [], approaches: [], referralNote: null },
       CONTACTS,
       false,
     );
     assert.match(several, /Objetivos: conseguir una reunión y saber quién decide/);
-    assert.match(summaryText({ contactIds: [], channels: ['email'], goals: ['validate_owner'], productKeys: [] }, CONTACTS, false), /investigación vigente/);
+    assert.match(summaryText({ contactIds: [], channels: ['email'], goals: ['validate_owner'], productKeys: [], approaches: [], referralNote: null }, CONTACTS, false), /investigación vigente/);
     assert.equal(estimatedDuration({ contactIds: [] }, false), 'menos de un minuto');
     assert.equal(estimatedDuration({ contactIds: ['a', 'b', 'c'] }, true), 'unos 2 minutos');
   });
@@ -89,7 +89,7 @@ describe('resumen y pedido', () => {
   it('el pedido lleva las listas y limpia el motivo', () => {
     const body = buildFirstContactRequestBody({
       accountId: 'acc',
-      selection: { contactIds: ['c1'], channels: ['call', 'email'], goals: ['book_meeting'], productKeys: [] },
+      selection: { contactIds: ['c1'], channels: ['call', 'email'], goals: ['book_meeting'], productKeys: [], approaches: [], referralNote: null },
       refreshResearch: false,
       regenerateFromPackId: 'p1',
       regenerationReason: '   ',

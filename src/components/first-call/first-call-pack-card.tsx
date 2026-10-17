@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { AlertTriangle, Check, ChevronDown, Copy, MessageSquare, PhoneCall, Pencil, Target, ThumbsUp, Trash2 } from '@/icons';
+import { AlertTriangle, Check, ChevronDown, Clock, Copy, MessageSquare, PhoneCall, Pencil, Target, ThumbsUp, Trash2 } from '@/icons';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatInAppZone } from '@/lib/format-date';
@@ -12,12 +12,20 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge, type StatusType } from '@/components/data-display';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   discardFirstCallPack,
   markFirstCallPackUsed,
   saveFirstCallScriptEdit,
+  setFirstCallPackOutcome,
 } from '@/modules/speech/actions';
+import {
+  APPROACH_DEFINITIONS,
+  FIRST_CONTACT_OUTCOMES,
+  FIRST_CONTACT_OUTCOME_LABELS,
+  bestContactWindow,
+  type FirstContactOutcome,
+} from '@/server/agents/first-call/approaches';
 import {
   FIRST_CALL_CHANNEL_LABELS,
   goalsLabel,
@@ -120,6 +128,49 @@ interface FirstCallPackCardProps {
   enabled: boolean;
   /** Tras un cambio. Sin él se refresca la ruta (página completa de la empresa). */
   onChanged?: () => void;
+  /** País de la empresa: para sugerir cuándo contactar en su hora. */
+  countryCode?: string | null;
+}
+
+const OUTCOME_STATUS: Record<FirstContactOutcome, StatusType> = {
+  meeting_booked: 'completed',
+  interested: 'info',
+  not_now: 'warning',
+  wrong_person: 'inactive',
+  no_answer: 'inactive',
+};
+
+/** «La usé» o «Cambiar resultado»: el vendedor dice qué pasó con el contacto. */
+function OutcomeMenu({
+  label,
+  disabled,
+  onPick,
+  variant = 'default',
+}: {
+  label: string;
+  disabled: boolean;
+  onPick: (outcome: FirstContactOutcome) => void;
+  variant?: 'default' | 'outline';
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button type="button" size="sm" variant={variant} disabled={disabled}>
+            <ThumbsUp aria-hidden="true" />
+            {label}
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        {FIRST_CONTACT_OUTCOMES.map((outcome) => (
+          <DropdownMenuItem key={outcome} onClick={() => onPick(outcome)}>
+            {FIRST_CONTACT_OUTCOME_LABELS[outcome]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function FirstCallPackCard({
@@ -133,12 +184,14 @@ export function FirstCallPackCard({
   canMoveToReady,
   enabled,
   onChanged,
+  countryCode = null,
 }: FirstCallPackCardProps) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(pack.editedScript ?? pack.content?.callScript.text ?? '');
   const [busy, setBusy] = React.useState(false);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  // La versión que se muestra: la principal o la de otro enfoque.
+  const [version, setVersion] = React.useState<string>('main');
   // Los hechos del propio paquete: los de la ficha actual pueden estar numerados distinto.
   const factMap = React.useMemo(() => new Map((pack.facts ?? []).map((f) => [f.id, f])), [pack.facts]);
   const content = pack.content;
@@ -162,17 +215,20 @@ export function FirstCallPackCard({
     }
   };
 
-  const markUsed = async (moveToReady: boolean) => {
-    setConfirmOpen(false);
+  const markUsed = async (outcome: FirstContactOutcome) => {
     await run(
-      () => markFirstCallPackUsed(pack.id, moveToReady),
-      moveToReady ? 'Marcada como usada. La empresa pasó a «Lista para contacto».' : 'Marcada como usada.',
+      () => markFirstCallPackUsed(pack.id, canMoveToReady, outcome),
+      `Marcada como usada: ${FIRST_CONTACT_OUTCOME_LABELS[outcome].toLowerCase()}.`,
     );
   };
 
   const target = [pack.targetName, pack.targetTitle].filter(Boolean).join(' · ') || 'Sin decisor elegido';
   const products = ubitsProductNames(pack.productFocus);
   const isCall = pack.channel === 'call';
+  const variants = content?.variants ?? [];
+  const mainApproach = content?.approach ?? null;
+  const shownVariant = variants.find((v) => v.approach === version) ?? null;
+  const message = !isCall && shownVariant ? shownVariant.text : content?.shortMessage.text ?? '';
 
   return (
     <SurfaceCard className="space-y-4">
@@ -185,8 +241,21 @@ export function FirstCallPackCard({
             {pack.regenerationReason ? ` · otra versión: «${pack.regenerationReason}»` : ''}
           </p>
         </div>
-        <StatusBadge status={STATUS[pack.status].status} label={STATUS[pack.status].label} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          {mainApproach && <Badge variant="outline">{APPROACH_DEFINITIONS[mainApproach].label}</Badge>}
+          {pack.outcome ? (
+            <StatusBadge status={OUTCOME_STATUS[pack.outcome.result]} label={FIRST_CONTACT_OUTCOME_LABELS[pack.outcome.result]} />
+          ) : (
+            <StatusBadge status={STATUS[pack.status].status} label={STATUS[pack.status].label} />
+          )}
+        </div>
       </header>
+      {content && pack.status !== 'used' && (
+        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {bestContactWindow(countryCode, pack.channel)}
+        </p>
+      )}
 
       {pack.status === 'failed' || !content ? (
         <p className="text-sm text-muted-foreground">
@@ -215,8 +284,39 @@ export function FirstCallPackCard({
             </p>
             <p className="mt-1 text-sm text-foreground">{content.reasonToCall.text}</p>
             <FactRefs refs={content.reasonToCall.factRefs} facts={factMap} />
-            {content.angle && <p className="mt-1.5 text-xs text-muted-foreground">Enfoque: {content.angle}</p>}
+            {content.angle && <p className="mt-1.5 text-xs text-muted-foreground">Ángulo: {content.angle}</p>}
+            {content.approachReason && mainApproach && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {APPROACH_DEFINITIONS[mainApproach].label}: {content.approachReason}
+              </p>
+            )}
           </section>
+
+          {variants.length > 0 && (
+            <div role="radiogroup" aria-label="Versión del mensaje" className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">{isCall ? 'Aperturas:' : 'Versión:'}</span>
+              {[{ key: 'main', label: mainApproach ? APPROACH_DEFINITIONS[mainApproach].label : 'Principal' }, ...variants.map((v) => ({ key: v.approach, label: APPROACH_DEFINITIONS[v.approach].label }))].map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="xs"
+                  role="radio"
+                  aria-checked={version === option.key}
+                  variant={version === option.key ? 'secondary' : 'ghost'}
+                  onClick={() => setVersion(option.key)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {isCall && shownVariant && (
+            <Block title={`Apertura · ${APPROACH_DEFINITIONS[shownVariant.approach].label}`} icon={PhoneCall} action={<CopyButton text={shownVariant.text} label="Copiar la apertura" />}>
+              <p className="whitespace-pre-line rounded-xl bg-primary/5 p-3 text-sm leading-relaxed text-foreground">{shownVariant.text}</p>
+              <p className="text-xs text-muted-foreground">Después de la apertura, sigue con el guion desde el motivo.</p>
+            </Block>
+          )}
 
           {isCall && script && (
             <Block
@@ -266,7 +366,7 @@ export function FirstCallPackCard({
           <Block
             title={MESSAGE_TITLE[pack.channel]}
             icon={MessageSquare}
-            action={<CopyButton text={content.shortMessage.text} label={`Copiar: ${MESSAGE_TITLE[pack.channel].toLowerCase()}`} />}
+            action={<CopyButton text={message} label={`Copiar: ${MESSAGE_TITLE[pack.channel].toLowerCase()}`} />}
           >
             <p
               className={cn(
@@ -274,18 +374,34 @@ export function FirstCallPackCard({
                 isCall ? 'text-xs' : 'text-sm',
               )}
             >
-              {content.shortMessage.text}
+              {message}
             </p>
           </Block>
 
           {/* Lo que sirve DURANTE la conversación: en pestañas, para no hacer un muro de texto. */}
-          <Tabs defaultValue="preguntas" className="gap-3">
+          <Tabs defaultValue={content.meetingAsk ? 'reunion' : 'preguntas'} className="gap-3">
             <TabsList variant="line" aria-label="Para la conversación">
+              {content.meetingAsk && <TabsTrigger value="reunion">Pedir la reunión</TabsTrigger>}
               <TabsTrigger value="preguntas">Preguntas · {content.questions.length}</TabsTrigger>
               <TabsTrigger value="objeciones">Si te dicen… · {content.objections.length}</TabsTrigger>
-              <TabsTrigger value="siguiente">Siguiente paso</TabsTrigger>
+              {content.confirmation ? (
+                <TabsTrigger value="confirmar">Después de agendar</TabsTrigger>
+              ) : (
+                <TabsTrigger value="siguiente">Siguiente paso</TabsTrigger>
+              )}
               {content.cautions.length > 0 && <TabsTrigger value="cuidado">Cuidado · {content.cautions.length}</TabsTrigger>}
             </TabsList>
+            {content.meetingAsk && (
+              <TabsContent value="reunion" className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">{content.meetingAsk}</p>
+                  <CopyButton text={content.meetingAsk} label="Copiar cómo pedir la reunión" />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pídela al ver interés, con dos horarios concretos, y si es por teléfono envía la invitación en la llamada. {content.nextStep}
+                </p>
+              </TabsContent>
+            )}
             <TabsContent value="preguntas">
               <ol className="space-y-2">
                 {content.questions.map((q, i) => (
@@ -312,10 +428,26 @@ export function FirstCallPackCard({
                   </li>
                 ))}
               </ul>
+              {content.ifNo && (
+                <div className="mt-3 rounded-xl border border-warning/30 bg-warning/5 p-3">
+                  <p className="text-xs font-medium text-warning">Si dice que no o «no es momento»</p>
+                  <p className="mt-1 text-sm leading-relaxed text-foreground">{content.ifNo}</p>
+                </div>
+              )}
             </TabsContent>
-            <TabsContent value="siguiente">
-              <p className="text-sm leading-relaxed text-foreground">{content.nextStep}</p>
-            </TabsContent>
+            {content.confirmation ? (
+              <TabsContent value="confirmar" className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">{content.confirmation}</p>
+                  <CopyButton text={content.confirmation} label="Copiar la confirmación" />
+                </div>
+                <p className="text-xs text-muted-foreground">Envíala apenas agendes. Un recordatorio el día antes y otro una hora antes bajan las ausencias.</p>
+              </TabsContent>
+            ) : (
+              <TabsContent value="siguiente">
+                <p className="text-sm leading-relaxed text-foreground">{content.nextStep}</p>
+              </TabsContent>
+            )}
             {content.cautions.length > 0 && (
               <TabsContent value="cuidado">
                 <ul className="space-y-1.5">
@@ -361,31 +493,23 @@ export function FirstCallPackCard({
                 goal: pack.goal,
                 goals: pack.goals,
                 productFocus: pack.productFocus,
+                approach: mainApproach,
               }}
             />
-            {content && (
-              <Button type="button" size="sm" disabled={busy} onClick={() => (canMoveToReady ? setConfirmOpen(true) : markUsed(false))}>
-                <ThumbsUp aria-hidden="true" />
-                La usé
-              </Button>
-            )}
+            {content && <OutcomeMenu label="La usé" disabled={busy} onPick={(outcome) => void markUsed(outcome)} />}
           </div>
         )}
+        {enabled && pack.status === 'used' && (
+          <OutcomeMenu
+            label={pack.outcome ? 'Cambiar resultado' : '¿Qué pasó?'}
+            variant="outline"
+            disabled={busy}
+            onPick={(outcome) =>
+              void run(() => setFirstCallPackOutcome(pack.id, outcome), `Resultado: ${FIRST_CONTACT_OUTCOME_LABELS[outcome].toLowerCase()}.`)
+            }
+          />
+        )}
       </footer>
-
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="¿Pasar la empresa a «Lista para contacto»?"
-        description="Marcamos esta preparación como usada. Si ya vas a contactarla, también puedes mover la empresa de etapa en el Pipeline."
-        confirmLabel="Sí, pasarla"
-        secondaryLabel="Sólo marcar como usada"
-        secondaryVariant="outline"
-        cancelLabel="Cancelar"
-        onConfirm={() => markUsed(true)}
-        onSecondary={() => markUsed(false)}
-        loading={busy}
-      />
     </SurfaceCard>
   );
 }

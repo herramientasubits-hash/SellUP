@@ -20,6 +20,7 @@ import {
 } from '@/server/agents/first-call/types';
 import { FirstCallLauncher, type FirstCallContactOption, type FirstContactLaunchRequest } from './first-call-launcher';
 import { FirstCallPackCard } from './first-call-pack-card';
+import type { FirstContactOutcome } from '@/server/agents/first-call/approaches';
 import { ResearchBriefDetails } from './research-brief-view';
 
 interface FirstCallTabProps {
@@ -35,6 +36,8 @@ interface FirstCallTabProps {
   onChanged?: () => void;
   /** Dentro del panel lateral de la empresa: el agente lo abre quien monta el panel. */
   onRequestFirstContact?: (request: FirstContactLaunchRequest) => void;
+  /** País de la empresa: cada preparación sugiere cuándo contactar en su hora. */
+  countryCode?: string | null;
 }
 
 /** ¿La ficha sigue vigente? Entonces una preparación nueva no paga otra investigación. */
@@ -48,6 +51,15 @@ const CELL_STATUS: Record<FirstCallPackStatus, { status: StatusType; label: stri
   used: { status: 'completed', label: 'Usada' },
   discarded: { status: 'inactive', label: 'Descartada' },
   failed: { status: 'error', label: 'Falló' },
+};
+
+/** Con resultado marcado, la celda dice qué pasó en vez de «Usada». */
+const OUTCOME_CELL: Record<FirstContactOutcome, { status: StatusType; label: string }> = {
+  meeting_booked: { status: 'completed', label: 'Reunión' },
+  interested: { status: 'info', label: 'Interesado' },
+  not_now: { status: 'warning', label: 'No por ahora' },
+  wrong_person: { status: 'inactive', label: 'Otra persona' },
+  no_answer: { status: 'inactive', label: 'Sin respuesta' },
 };
 
 function formatDay(iso: string): string {
@@ -118,7 +130,11 @@ function CoverageGrid({
                 <TableCell key={channel}>
                   {cell ? (
                     <a href={`#pack-${cell.id}`} className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                      <StatusBadge status={CELL_STATUS[cell.status].status} label={CELL_STATUS[cell.status].label} />
+                      {cell.outcome ? (
+                        <StatusBadge status={OUTCOME_CELL[cell.outcome.result].status} label={OUTCOME_CELL[cell.outcome.result].label} />
+                      ) : (
+                        <StatusBadge status={CELL_STATUS[cell.status].status} label={CELL_STATUS[cell.status].label} />
+                      )}
                     </a>
                   ) : (
                     renderMissing(row, channel)
@@ -159,6 +175,7 @@ export function FirstCallTab({
   defaultContactId = null,
   onChanged,
   onRequestFirstContact,
+  countryCode = null,
 }: FirstCallTabProps) {
   const fresh = hasFreshBrief(state);
   const enabled = state.enabled && !archived;
@@ -192,7 +209,7 @@ export function FirstCallTab({
 
   const expired = !!brief && !fresh;
   const groups = groupByTarget(active);
-  const cardProps = { accountId, accountName, contacts, hasFreshBrief: fresh, canMoveToReady, enabled, onChanged, onRequestFirstContact };
+  const cardProps = { accountId, accountName, contacts, hasFreshBrief: fresh, canMoveToReady, enabled, onChanged, onRequestFirstContact, countryCode };
 
   return (
     <div className="space-y-4" data-testid="first-contact-tab">

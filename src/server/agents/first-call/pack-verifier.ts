@@ -9,14 +9,17 @@
 
 import type { AnthropicContentBlock } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { unsupportedNumbers } from './numbers';
-import type { FirstCallChannel, FirstCallPackContent, PackObjection, PackTextWithRefs, ResearchFact } from './types';
+import type { ApproachVariant, FirstCallChannel, FirstCallPackContent, PackObjection, PackTextWithRefs, ResearchFact } from './types';
 import { BANNED_PHRASES, UBITS_CLAIMS, UBITS_OBJECTIONS, UBITS_PRODUCTS } from './ubits-messaging-library';
+import { FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
 import {
   CALL_SCRIPT_MAX_WORDS,
   CALL_SCRIPT_MIN_WORDS,
   MAX_CAUTIONS,
   MAX_OBJECTIONS,
   MAX_QUESTIONS,
+  EMAIL_BODY_MAX_WORDS,
+  EMAIL_SUBJECT_MAX_WORDS,
   MIN_QUESTIONS,
   SHORT_MESSAGE_MAX_CHARS,
   WRITER_SUBMIT_TOOL,
@@ -60,8 +63,14 @@ export function parsePackSubmission(raw: Record<string, unknown>): FirstCallPack
     .filter((o) => o.objection && o.response)
     .slice(0, MAX_OBJECTIONS);
   const productKey = str(raw.product_key);
+  const approach = str(raw.approach);
   return {
     productKey: productKey && UBITS_PRODUCTS.some((p) => p.key === productKey) ? productKey : null,
+    approach: isApproach(approach) ? approach : null,
+    approachReason: str(raw.approach_reason) || null,
+    meetingAsk: str(raw.meeting_ask),
+    ifNo: str(raw.if_no),
+    confirmation: str(raw.confirmation),
     reasonToCall: withRefs(raw.reason_to_call),
     angle: str(raw.angle),
     callScript: withRefs(raw.call_script),
@@ -75,32 +84,69 @@ export function parsePackSubmission(raw: Record<string, unknown>): FirstCallPack
 
 const EMPTY_TEXT: PackTextWithRefs = { text: '', factRefs: [] };
 
+function isApproach(value: string): value is FirstContactApproach {
+  return (FIRST_CONTACT_APPROACHES as readonly string[]).includes(value);
+}
+
+function variantsFrom(value: unknown, exclude: FirstContactApproach | null | undefined): ApproachVariant[] {
+  const seen = new Set<string>();
+  const out: ApproachVariant[] = [];
+  for (const item of Array.isArray(value) ? value : []) {
+    const record = (item ?? {}) as Record<string, unknown>;
+    const approach = str(record.approach);
+    const text = str(record.text);
+    if (!isApproach(approach) || !text || approach === exclude || seen.has(approach)) continue;
+    seen.add(approach);
+    out.push({ approach, text, factRefs: withRefs(record).factRefs });
+  }
+  return out;
+}
+
+/** La línea para dejar de recibir correos (Chile, Colombia): la agrega el sistema, no el modelo. */
+export const EMAIL_OPT_OUT_LINE = 'Si prefiere no recibir más mensajes míos, me lo dice y no le escribo más.';
+
+function withOptOut(text: string): string {
+  if (!text || normalizeForBan(text).includes('no le escribo mas')) return text;
+  return `${text.trimEnd()}\n\n${EMAIL_OPT_OUT_LINE}`;
+}
+
 /** Lo que entrega el redactor para un decisor: lo común y un mensaje por canal. */
 export interface WriterSubmission {
   shared: FirstCallPackContent;
   messages: Partial<Record<FirstCallChannel, PackTextWithRefs>>;
+  /** Versiones por enfoque extra: de cada mensaje y de la apertura de la llamada. */
+  messageVariants: Partial<Record<FirstCallChannel, ApproachVariant[]>>;
+  callOpenerVariants: ApproachVariant[];
 }
 
 /** Lee la entrega con varios canales (la v1 traía un solo `short_message`). */
 export function parseWriterSubmission(raw: Record<string, unknown>, channels: readonly FirstCallChannel[]): WriterSubmission {
   const shared = parsePackSubmission(raw);
   const messages: Partial<Record<FirstCallChannel, PackTextWithRefs>> = {};
+  const messageVariants: Partial<Record<FirstCallChannel, ApproachVariant[]>> = {};
   for (const item of Array.isArray(raw.messages) ? raw.messages : []) {
     const record = (item ?? {}) as Record<string, unknown>;
     const channel = str(record.channel) as FirstCallChannel;
-    if (channels.includes(channel) && !messages[channel]) messages[channel] = withRefs(record);
+    if (channels.includes(channel) && !messages[channel]) {
+      messages[channel] = withRefs(record);
+      messageVariants[channel] = variantsFrom(record.variants, shared.approach);
+    }
   }
   // Una entrega de un solo canal con `short_message` (forma v1) también vale.
   if (channels.length === 1 && !messages[channels[0]] && shared.shortMessage.text) messages[channels[0]] = shared.shortMessage;
-  return { shared, messages };
+  return { shared, messages, messageVariants, callOpenerVariants: variantsFrom(raw.call_opener_variants, shared.approach) };
 }
 
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
+  const message = submission.messages[channel] ?? EMPTY_TEXT;
+  const variants = channel === 'call' ? submission.callOpenerVariants : submission.messageVariants[channel] ?? [];
+  const isEmail = channel === 'email';
   return {
     ...submission.shared,
     callScript: channel === 'call' ? submission.shared.callScript : EMPTY_TEXT,
-    shortMessage: submission.messages[channel] ?? EMPTY_TEXT,
+    shortMessage: isEmail ? { ...message, text: withOptOut(message.text) } : message,
+    variants: isEmail ? variants.map((v) => ({ ...v, text: withOptOut(v.text) })) : variants,
   };
 }
 
@@ -150,6 +196,26 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
 export interface VerifyPackOptions {
   /** Nombre del decisor, si se conoce: el texto no debería decir «[nombre]». */
   decisionMakerName?: string | null;
+  /** Hoy (ms): con el enfoque «evento reciente», la noticia citada debe ser de los últimos 90 días. */
+  nowMs?: number;
+}
+
+/** Una noticia para «Por un evento reciente» sirve hasta 90 días. */
+export const RECENT_SIGNAL_MAX_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** El primer contacto va sin enlaces ni calendario. */
+const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
+/** Tuteo (ya normalizado, sin tildes): en el primer contacto va «usted». */
+const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento)\b/;
+
+/** «Asunto: …» y el cuerpo, sin la línea para dejar de recibir correos. */
+export function splitEmail(text: string): { subject: string | null; body: string } {
+  const lines = text.split('\n');
+  const first = lines.findIndex((l) => l.trim().length > 0);
+  const match = first >= 0 ? lines[first].match(/^\s*asunto\s*:\s*(.*)$/i) : null;
+  const body = (match ? lines.slice(first + 1) : lines).join('\n').replace(EMAIL_OPT_OUT_LINE, '').trim();
+  return { subject: match ? match[1].trim() : null, body };
 }
 
 /**
@@ -234,6 +300,83 @@ export function verifyPack(
   );
   if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
     issues.push('Afirma experiencia, clientes o casos de UBITS que la biblioteca no respalda.');
+  }
+
+  // ── Manual del primer contacto (17-10-2026) ──────────────────────────────────
+  const variants = pack.variants ?? [];
+  const isWritten = channel !== 'call';
+  if (pack.meetingAsk !== undefined && !pack.meetingAsk) issues.push('Falta cómo pedir la reunión (dos horarios y lo que se lleva).');
+  if (pack.ifNo !== undefined && !pack.ifNo) issues.push('Falta qué hacer si dice que no.');
+  if (pack.confirmation !== undefined && !pack.confirmation) issues.push('Falta el mensaje para confirmar la reunión.');
+
+  const firstTouch = [pack.shortMessage.text, ...(isWritten ? variants.map((v) => v.text) : [])];
+  if (isWritten && firstTouch.some((t) => LINK.test(t))) {
+    issues.push('El mensaje lleva un enlace: el primer contacto va sin enlaces ni calendario.');
+  }
+  if (isWritten && firstTouch.some((t) => (t.match(/\?/g) ?? []).length > 2)) {
+    issues.push('El mensaje hace más de un pedido: deja uno solo.');
+  }
+  if (channel === 'email') {
+    for (const text of firstTouch) {
+      const { subject, body } = splitEmail(text);
+      if (!subject) {
+        issues.push('Al correo le falta la línea «Asunto: …».');
+        break;
+      }
+      const subjectWords = countWords(subject);
+      if (subjectWords > EMAIL_SUBJECT_MAX_WORDS + 2) {
+        issues.push(`El asunto es largo (${subjectWords} palabras; se buscan 1 a ${EMAIL_SUBJECT_MAX_WORDS}).`);
+        break;
+      }
+      const bodyWords = countWords(body);
+      if (bodyWords > Math.round(EMAIL_BODY_MAX_WORDS * 1.25)) {
+        issues.push(`El correo es largo (${bodyWords} palabras; se buscan 50 a ${EMAIL_BODY_MAX_WORDS}).`);
+        break;
+      }
+    }
+  }
+
+  const sellerTexts = [
+    pack.reasonToCall.text,
+    pack.callScript.text,
+    pack.shortMessage.text,
+    pack.nextStep,
+    ...pack.questions,
+    ...pack.objections.map((o) => o.response),
+    pack.meetingAsk ?? '',
+    pack.ifNo ?? '',
+    pack.confirmation ?? '',
+    ...variants.map((v) => v.text),
+  ];
+  if (sellerTexts.some((t) => INFORMAL.test(normalizeForBan(t)))) {
+    issues.push('Tutea al decisor: en el primer contacto va «usted».');
+  }
+
+  const variantText = normalizeForBan([...variants.map((v) => v.text), pack.meetingAsk ?? '', pack.confirmation ?? ''].join(' '));
+  const bannedExtra = BANNED_PHRASES.filter((p) => variantText.includes(normalizeForBan(p)) && !banned.includes(p));
+  if (bannedExtra.length > 0) issues.push(`Usa frases que no conviene decir: «${bannedExtra.join('», «')}».`);
+  if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(variantText)) && !UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
+    issues.push('Afirma experiencia, clientes o casos de UBITS que la biblioteca no respalda.');
+  }
+  const variantNumbers = [
+    ...new Set(
+      [...variants.map((v) => v.text), pack.meetingAsk ?? '', pack.ifNo ?? '', pack.confirmation ?? ''].flatMap((t) =>
+        unsupportedNumbers(t, allSources),
+      ),
+    ),
+  ].filter((n) => !unsupported.includes(n));
+  if (variantNumbers.length > 0) {
+    issues.push(`Las otras versiones usan cifras sin fuente: ${variantNumbers.join(', ')}.`);
+  }
+
+  if (options.nowMs !== undefined && pack.approach === 'trigger') {
+    const stale = pack.reasonToCall.factRefs
+      .map((r) => byId.get(r))
+      .filter((f): f is ResearchFact => !!f && !!f.publishedOn)
+      .filter((f) => options.nowMs! - Date.parse(`${f.publishedOn}T12:00:00Z`) > RECENT_SIGNAL_MAX_DAYS * DAY_MS);
+    if (stale.length > 0) {
+      issues.push(`La noticia citada tiene más de ${RECENT_SIGNAL_MAX_DAYS} días (${stale.map((f) => f.publishedOn).join(', ')}): ya no es un evento reciente.`);
+    }
   }
 
   if (options.decisionMakerName && /\[nombre\]/i.test([pack.callScript.text, pack.shortMessage.text].join(' '))) {

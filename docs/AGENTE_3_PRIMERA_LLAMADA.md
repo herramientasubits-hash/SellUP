@@ -82,6 +82,41 @@ Con la bandera encendida, el agente se ofrece donde se actúa sobre una empresa 
 
 Desde la lista de Empresas no se ofrece en acciones **masivas** sobre varias empresas: cada una gasta su propia investigación.
 
+## Enfoques y reglas para conseguir la reunión (17-10-2026)
+
+Salen del [Manual del primer contacto](https://claude.ai/artifact/QGNBaKdbVJA8EQtGpa4YH6), una investigación con fuentes: Gong, Nooks, Orum, Lavender, 30MPC, Blount, Braun, Bertuzzi, Gartner, LinkedIn y las leyes de cada país. El objetivo de cada preparación es la primera reunión: **se vende la reunión, no la plataforma**.
+
+- **Paso «Enfoque»** en el asistente: hasta 3, o «El que recomiende el agente» (por defecto).
+  - Por defecto, el agente recomienda según el caso: en Perú, con permiso; sin decisor, pedir a quién dirigirse; con una noticia de los últimos 90 días, el evento reciente; a un CHRO o CEO, un dato; si no, el problema.
+  - Los enfoques: evento reciente, problema, dato, dar valor primero, directo y con permiso, referencia y pedir a quién dirigirse.
+  - «Pares del sector» queda apagado hasta tener la lista de clientes que autorizan ser nombrados.
+  - «Por referencia» pide quién refirió el contacto y lo usa tal cual.
+  - Con varios enfoques, cada mensaje (y la apertura de la llamada) trae una versión por enfoque.
+- **Cada preparación trae, además:**
+  - cómo pedir la reunión: dos horarios en 7 a 14 días, de 20 a 30 minutos, y lo que se lleva el cliente;
+  - qué hacer si dice que no: un próximo paso con fecha, un permiso o una referencia;
+  - el mensaje para confirmar la reunión;
+  - para la llamada, un mensaje de voz de menos de 30 segundos;
+  - la franja sugerida en la hora del país, dentro del horario que permite la ley colombiana.
+- **Reglas por canal:**
+  - Llamada: pedir permiso para 30 segundos; en Perú sólo se pide permiso.
+  - Correo: asunto de 1 a 4 palabras, cuerpo de 50 a 90 palabras, un pedido de interés y sin enlaces ni calendario. La línea para dejar de recibir correos la agrega el sistema.
+  - LinkedIn: nota sin vender, de menos de 300 caracteres.
+  - WhatsApp: si es el primer contacto, sólo pide permiso.
+  - En todos: «usted» siempre.
+- **El verificador marca:**
+  - «¿cómo ha estado?» y frases de plantilla traducida;
+  - enlaces, más de un pedido y correos largos o sin asunto;
+  - tuteo;
+  - una noticia de más de 90 días con el enfoque de evento reciente;
+  - cifras sin fuente y clientes inventados también en las otras versiones;
+  - que falte el pedido de reunión, el plan B o la confirmación.
+- **Resultado del contacto.** «La usé» pide qué pasó: reunión agendada, interesado, no por ahora, no es la persona o no respondió. Se guarda dentro de la preparación, sin migración, y se ve en la tabla «Lo preparado y lo que falta». Sirve para aprender qué enfoque, canal y cargo funcionan en Latinoamérica, que es justo lo que ningún estudio publica.
+- **La biblioteca suma:**
+  - datos de industria con fuente (LinkedIn Workplace Learning Report 2025, Gartner 2026);
+  - lo que se puede ofrecer para la reunión (diagnóstico, demo con casos del sector, estimación de valor): **borrador, la dueña confirma que existe**;
+  - la objeción «No me interesa».
+
 ## Reglas que no se negocian
 
 - **Ninguna cifra sin fuente.** Cada número de un texto tiene que estar en los hechos que **ese texto cita**, o en la biblioteca. Así no se cuela una comparación entre hechos que miden cosas distintas. Los datos de la ficha sólo pueden repetir las cifras de su cita.
@@ -130,7 +165,7 @@ La corrida real de Davivienda (17-10) costó **US$0,098**: investigación US$0,0
 
 ## Pendiente de la dueña
 
-1. **Aprobar la biblioteca de UBITS** (`ubits-messaging-library.ts`): productos, cifras con fuente y respuestas a objeciones.
+1. **Aprobar la biblioteca de UBITS** (`ubits-messaging-library.ts`): productos, cifras con fuente, respuestas a objeciones y **lo que se ofrece para la reunión** (`UBITS_OFFERS`). Para activar «Pares del sector» hace falta la lista de clientes que autorizan ser nombrados.
    - Los productos ya siguen el menú de la plataforma: Selección, Aprendizaje, Desempeño y cultura, Herramientas. «Créditos» no se ofrece.
    - La frase de cada módulo es un borrador escrito a partir de su nombre: hay que confirmarla.
    - «Orbit» no está incluido: falta saber qué es.

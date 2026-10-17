@@ -28,6 +28,8 @@ import {
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
+import { recommendApproach } from './approaches';
+import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
 import { contentForChannel, extractWriterSubmission, parseWriterSubmission, verifyPack, type WriterSubmission } from './pack-verifier';
 import {
@@ -429,6 +431,16 @@ export function factsForWriting(briefFacts: readonly ResearchFact[], internal: I
   return [...briefFacts, ...buildRequestFacts(internal).map((fact, i) => ({ id: `F${next + i}`, ...fact }))];
 }
 
+/** ¿La ficha tiene una señal reciente con fecha de los últimos 90 días? (para recomendar el enfoque) */
+export function hasRecentSignal(facts: readonly ResearchFact[], nowMs: number): boolean {
+  return facts.some(
+    (f) =>
+      f.topic === 'recent_signal' &&
+      !!f.publishedOn &&
+      nowMs - Date.parse(`${f.publishedOn}T12:00:00Z`) <= RECENT_SIGNAL_MAX_DAYS * 24 * 60 * 60 * 1000,
+  );
+}
+
 /** Cuántos decisores se redactan a la vez (cada uno es una llamada al redactor). */
 const WRITER_CONCURRENCY = 2;
 
@@ -445,10 +457,11 @@ function verifyAll(
   facts: readonly ResearchFact[],
   channels: readonly FirstCallChannel[],
   decisionMakerName: string | null,
+  nowMs: number,
 ): Partial<Record<FirstCallChannel, string[]>> {
   const result: Partial<Record<FirstCallChannel, string[]>> = {};
   for (const channel of channels) {
-    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName });
+    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName, nowMs });
   }
   return result;
 }
@@ -481,12 +494,21 @@ async function writeForTarget(params: {
   const { request, context, target, brief, models, deps } = params;
   const internal: InternalContext = { ...context.internal, decisionMaker: target };
   const channels = request.channels;
+  const approaches = request.approaches;
   const facts = factsForWriting(brief.facts, internal);
+  const nowMs = deps.now();
+  const recommendedApproach = recommendApproach({
+    title: target?.title ?? null,
+    hasRecentSignal: hasRecentSignal(brief.facts, nowMs),
+    hasDecisionMaker: target !== null,
+    countryCode: internal.account.countryCode,
+  });
+  const extraVersions = Math.max(0, approaches.length - 1) * (channels.length + (channels.includes('call') ? 1 : 0));
   const body: AnthropicRequestBody = {
     model: models.writerModel,
-    max_tokens: WRITER_MAX_OUTPUT_TOKENS + 400 * Math.max(0, channels.length - 1),
+    max_tokens: WRITER_MAX_OUTPUT_TOKENS + 400 * Math.max(0, channels.length - 1) + 250 * extraVersions,
     system: [{ type: 'text', text: buildWriterSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-    tools: [buildWriterSubmitTool(channels)],
+    tools: [buildWriterSubmitTool(channels, approaches)],
     tool_choice: { type: 'tool', name: WRITER_SUBMIT_TOOL },
     messages: [
       {
@@ -500,6 +522,10 @@ async function writeForTarget(params: {
           channels,
           goals: request.goals,
           productKeys: request.productKeys,
+          approaches,
+          recommendedApproach,
+          referralNote: request.referralNote,
+          countryCode: internal.account.countryCode,
           briefStatus: brief.status,
           summary: brief.summary,
           facts,
@@ -522,7 +548,7 @@ async function writeForTarget(params: {
     const raw = extractWriterSubmission(first.content);
     if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission' };
     submission = parseWriterSubmission(raw, channels);
-    issuesByChannel = verifyAll(submission, facts, channels, dmName);
+    issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     const issues = combinedIssues(issuesByChannel, channels);
     if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null };
 
@@ -552,7 +578,7 @@ async function writeForTarget(params: {
     const retried = extractWriterSubmission(second.content);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
-      issuesByChannel = verifyAll(submission, facts, channels, dmName);
+      issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     }
     return { submission, facts, issuesByChannel, usage, errorCode: null };
   } catch (err) {

@@ -16,10 +16,18 @@ import {
   type FirstCallRequest,
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
+import {
+  FIRST_CONTACT_APPROACHES,
+  MAX_APPROACHES,
+  isApproachAvailable,
+  type FirstContactApproach,
+} from '@/server/agents/first-call/approaches';
 
 const productKeys = UBITS_PRODUCTS.map((p) => p.key) as [string, ...string[]];
 const channelEnum = z.enum(FIRST_CALL_CHANNELS as unknown as [string, ...string[]]);
 const goalEnum = z.enum(FIRST_CALL_GOALS as unknown as [string, ...string[]]);
+// Sólo los enfoques que hoy se pueden ofrecer (los apagados, como «Pares», no pasan).
+const approachEnum = z.enum(FIRST_CONTACT_APPROACHES.filter(isApproachAvailable) as unknown as [string, ...string[]]);
 
 const requestSchema = z.object({
   accountId: z.uuid(),
@@ -31,6 +39,8 @@ const requestSchema = z.object({
   goal: goalEnum.optional(),
   productKeys: z.array(z.enum(productKeys)).max(productKeys.length).optional(),
   productFocus: z.enum(productKeys).nullable().optional(),
+  approaches: z.array(approachEnum).max(MAX_APPROACHES).optional(),
+  referralNote: z.string().trim().max(200).nullable().optional(),
   refreshResearch: z.boolean().default(false),
   regenerateFromPackId: z.uuid().nullable().default(null),
   regenerationReason: z.string().trim().max(300).nullable().default(null),
@@ -50,6 +60,10 @@ export function parseFirstCallRequest(body: unknown): ParsedFirstCallRequest {
   if (channels.length === 0) return { ok: false, error: 'invalid_request' };
   const contactIds = unique(data.contactIds ?? (data.contactId ? [data.contactId] : []));
   const products = unique(data.productKeys ?? (data.productFocus ? [data.productFocus] : []));
+  const referralNote = data.referralNote && data.referralNote.length > 0 ? data.referralNote : null;
+  const approaches = unique((data.approaches ?? []) as FirstContactApproach[]).filter(
+    (a) => a !== 'referral' || referralNote !== null,
+  );
   return {
     ok: true,
     request: {
@@ -58,6 +72,9 @@ export function parseFirstCallRequest(body: unknown): ParsedFirstCallRequest {
       channels,
       goals: orderGoals((data.goals ?? (data.goal ? [data.goal] : [])) as FirstCallGoal[]),
       productKeys: products,
+      approaches,
+      // Una referencia sin enfoque «Por referencia» no se usa, y el enfoque sin referencia se quita.
+      referralNote: approaches.includes('referral') ? referralNote : null,
       refreshResearch: data.refreshResearch,
       regenerateFromPackId: data.regenerateFromPackId,
       regenerationReason: data.regenerationReason && data.regenerationReason.length > 0 ? data.regenerationReason : null,

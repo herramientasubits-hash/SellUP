@@ -362,6 +362,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             archived={isArchived}
             defaultContactId={preselectedContactId}
             canMoveToReady={account.pipeline_status !== 'ready_for_outreach'}
+            countryCode={account.country_code}
           />
         </TabsContent>
 

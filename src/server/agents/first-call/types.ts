@@ -6,8 +6,10 @@
  * del paquete apunta a un hecho de la ficha o a la biblioteca de UBITS.
  */
 
+import type { FirstContactApproach, FirstContactOutcome } from './approaches';
+
 /** Versión del agente: se guarda en cada ficha y paquete para comparar resultados. */
-export const AGENT3_VERSION = 'agent3-first-call-v1';
+export const AGENT3_VERSION = 'agent3-first-contact-v2';
 
 /** Clave del agente en `provider_usage_logs.agent_key` (Uso de IA). */
 export const AGENT3_USAGE_AGENT_KEY = 'agent3';
@@ -170,9 +172,27 @@ export interface PackObjection {
   libraryKey: string | null;
 }
 
+/** Otra versión del mensaje (o de la apertura de la llamada) con otro enfoque. */
+export interface ApproachVariant {
+  approach: FirstContactApproach;
+  text: string;
+  factRefs: string[];
+}
+
 export interface FirstCallPackContent {
   /** Producto de UBITS que el redactor eligió para este decisor (clave de la biblioteca). */
   productKey?: string | null;
+  /** Enfoque de la versión principal y por qué se eligió. */
+  approach?: FirstContactApproach | null;
+  approachReason?: string | null;
+  /** Versiones con los otros enfoques pedidos (el vendedor elige cuál usar). */
+  variants?: ApproachVariant[];
+  /** Cómo pedir la reunión: dos horarios concretos y lo que se lleva. */
+  meetingAsk?: string;
+  /** Si dice que no: el próximo paso con fecha, la referencia o el permiso. */
+  ifNo?: string;
+  /** El mensaje para confirmar la reunión apenas se agenda. */
+  confirmation?: string;
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;
@@ -210,6 +230,8 @@ export interface FirstCallPack {
   createdAt: string;
   usedAt: string | null;
   discardedAt: string | null;
+  /** Qué pasó al usarla (lo marca el vendedor). */
+  outcome: { result: FirstContactOutcome; at: string } | null;
 }
 
 /** Topes de una corrida: cada decisor es una llamada al redactor. */
@@ -232,6 +254,10 @@ export interface FirstCallRequest {
   goals: FirstCallGoal[];
   /** Productos de UBITS en los que enfocarse; vacío = el que mejor conecte. */
   productKeys: string[];
+  /** Enfoques para abrir (hasta 3); vacío = el que recomiende el agente. */
+  approaches: FirstContactApproach[];
+  /** Quién refirió el contacto, tal como lo escribe el vendedor (sólo con el enfoque «Por referencia»). */
+  referralNote: string | null;
   /** true = investigar de nuevo aunque haya una ficha vigente. */
   refreshResearch: boolean;
   /** Paquete que se regenera, y por qué. */

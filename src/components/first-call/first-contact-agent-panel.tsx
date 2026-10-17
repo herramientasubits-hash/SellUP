@@ -18,6 +18,9 @@ import {
   contactIdsFrom,
   decisionMakerOptions,
   goalOptions,
+  approachOptions,
+  approachesFrom,
+  normalizeApproachSelection,
   normalizeDecisionMakerSelection,
   normalizeProductSelection,
   preparationsCount,
@@ -38,6 +41,12 @@ import {
   type ResearchProgressStage,
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS, ubitsProductName } from '@/server/agents/first-call/ubits-messaging-library';
+import {
+  APPROACH_DEFINITIONS,
+  MAX_APPROACHES,
+  RECOMMENDED_APPROACH,
+  type FirstContactApproach,
+} from '@/server/agents/first-call/approaches';
 
 /** Cada cuánto se mira el avance mientras trabaja. */
 const PROGRESS_POLL_MS = 2_500;
@@ -64,6 +73,8 @@ export interface FirstContactRegenerateSeed {
   goal: FirstCallGoal;
   goals?: FirstCallGoal[];
   productFocus: string | null;
+  /** El enfoque de la versión que se rehace. */
+  approach?: FirstContactApproach | null;
 }
 
 export interface FirstContactAgentPanelProps {
@@ -91,6 +102,8 @@ function seedSelection(props: Pick<FirstContactAgentPanelProps, 'initialSelectio
       channels: [props.regenerate.channel],
       goals: props.regenerate.goals ?? [props.regenerate.goal],
       productKeys: (props.regenerate.productFocus ?? '').split(',').filter((k) => UBITS_PRODUCTS.some((p) => p.key === k)),
+      approaches: props.regenerate.approach ? [props.regenerate.approach] : [],
+      referralNote: null,
     };
   }
   const known = new Set(props.contacts.map((c) => c.id));
@@ -112,6 +125,12 @@ function answerText(step: number, selection: FirstContactSelection, contacts: re
       return selection.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]).join(', ');
     case 'objetivo':
       return goalsLabel(selection.goals);
+    case 'enfoque':
+      return selection.approaches.length === 0
+        ? 'El que recomiende el agente'
+        : selection.approaches
+            .map((a) => (a === 'referral' && selection.referralNote ? `${APPROACH_DEFINITIONS[a].label} (${selection.referralNote})` : APPROACH_DEFINITIONS[a].label))
+            .join(', ');
     case 'productos':
       return selection.productKeys.length === 0
         ? 'El que mejor conecte'
@@ -125,6 +144,7 @@ const QUESTIONS: Readonly<Record<string, string>> = {
   decisores: '¿A quién vas a contactar?',
   canales: '¿Por qué canales?',
   objetivo: '¿Qué buscas con este primer contacto?',
+  enfoque: '¿Cómo quieres abrir?',
   productos: '¿Qué productos de UBITS quieres poner sobre la mesa?',
   resumen: '¿Empiezo?',
 };
@@ -139,6 +159,12 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   const { open, onOpenChange, accountId, accountName, contacts, hasFreshBrief, regenerate, onDone, onViewResult } = props;
   const [step, setStep] = React.useState(0);
   const [selection, setSelection] = React.useState<FirstContactSelection>(() => seedSelection(props));
+  const [markedApproaches, setMarkedApproaches] = React.useState<string[]>(() => {
+    const seeded = seedSelection(props).approaches;
+    return seeded.length > 0 ? seeded : [RECOMMENDED_APPROACH];
+  });
+  // «Por referencia» necesita saber quién refirió: se pregunta antes de seguir.
+  const [askingReferral, setAskingReferral] = React.useState(false);
   const [markedProducts, setMarkedProducts] = React.useState<string[]>(() => {
     const seeded = seedSelection(props).productKeys;
     return seeded.length > 0 ? seeded : [BEST_PRODUCT];
@@ -159,6 +185,8 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setSelection(seeded);
     setMarkedContacts(seeded.contactIds.length > 0 ? seeded.contactIds : [NO_DECISION_MAKER]);
     setMarkedProducts(seeded.productKeys.length > 0 ? seeded.productKeys : [BEST_PRODUCT]);
+    setMarkedApproaches(seeded.approaches.length > 0 ? seeded.approaches : [RECOMMENDED_APPROACH]);
+    setAskingReferral(false);
     setPhase('asking');
     setStage(null);
     setResult(null);
@@ -367,6 +395,45 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
             selected={selection.goals}
             onSelectionChange={(next) => setSelection((prev) => ({ ...prev, goals: next as FirstCallGoal[] }))}
             onSubmitSelection={(values) => advance({ goals: orderGoals(values as FirstCallGoal[]) })}
+            submitLabel="Continuar"
+          />
+        );
+      case 'enfoque':
+        if (askingReferral) {
+          return (
+            <ChatQuestionPanel
+              title="¿Quién te refirió?"
+              description="Su nombre y empresa, tal como lo dirías. El agente lo usa sin agregar nada."
+              options={[]}
+              otherLabel="Referencia"
+              otherPlaceholder="Ej.: María Gómez, de Bancolombia"
+              otherMaxLength={200}
+              onBack={() => setAskingReferral(false)}
+              onOther={(text) => {
+                setAskingReferral(false);
+                advance({ approaches: approachesFrom(markedApproaches), referralNote: text.trim() });
+              }}
+            />
+          );
+        }
+        return (
+          <ChatQuestionPanel
+            title={QUESTIONS.enfoque}
+            onBack={goBack}
+            description={`Puedes elegir hasta ${MAX_APPROACHES}: cada uno trae su propia versión del mensaje para que elijas.`}
+            mode="multiple"
+            max={MAX_APPROACHES}
+            options={approachOptions()}
+            selected={markedApproaches}
+            onSelectionChange={(next) => setMarkedApproaches((prev) => normalizeApproachSelection(prev, next))}
+            onSubmitSelection={() => {
+              const approaches = approachesFrom(markedApproaches);
+              if (approaches.includes('referral')) {
+                setAskingReferral(true);
+                return;
+              }
+              advance({ approaches, referralNote: null });
+            }}
             submitLabel="Continuar"
           />
         );

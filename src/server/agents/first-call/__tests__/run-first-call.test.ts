@@ -25,6 +25,8 @@ const REQUEST: FirstCallRequest = {
   channels: ['call'],
   goals: ['book_meeting'],
   productKeys: [],
+  approaches: [],
+  referralNote: null,
   refreshResearch: false,
   regenerateFromPackId: null,
   regenerationReason: null,
@@ -90,6 +92,9 @@ const GOOD_PACK = {
   questions: ['¿Cómo forman hoy a los asesores nuevos?', '¿Quién define la inducción?', '¿Cómo saben si llegó a todos?'],
   objections: [{ library_key: 'send_info', objection: 'Mándame información.', response: 'Con gusto, ¿cuál es hoy el reto principal?' }],
   next_step: 'Agendar 20 minutos la próxima semana.',
+  meeting_ask: '¿Le parece si lo vemos 20 minutos el martes a las 10 o el jueves a las 4? Le muestro casos de su sector.',
+  if_no: 'Si no es momento, preguntar si le escribo el próximo trimestre y dejar esa fecha.',
+  confirmation: 'Quedamos el martes a las 10. Agenda: su reto con los líderes nuevos y casos de su sector.',
   cautions: ['Que la formación sea un problema es una hipótesis.'],
 };
 

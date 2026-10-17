@@ -20,6 +20,7 @@ import { isBriefFresh } from './first-call-state';
 import { mapBriefRow, mapPackRow } from '@/server/agents/first-call/row-mappers';
 import { RESEARCH_RUNNING_STALE_MS } from '@/server/agents/first-call/run-first-call.server';
 import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchProgressStage } from '@/server/agents/first-call/types';
+import { FIRST_CONTACT_OUTCOMES, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
 
 /**
  * Qué ficha mostrar, con la MISMA regla que el servidor al reusar: una investigación
@@ -121,18 +122,21 @@ export type PackActionResult = { success: true } | { success: false; error: stri
 
 const DISABLED: PackActionResult = { success: false, error: 'La preparación de la primera llamada no está activada.' };
 
-async function loadOwnPack(packId: string): Promise<{ accountId: string; status: FirstCallPackStatus; hasContent: boolean } | null> {
+async function loadOwnPack(
+  packId: string,
+): Promise<{ accountId: string; status: FirstCallPackStatus; hasContent: boolean; pack: Record<string, unknown> | null } | null> {
   const admin = createSupabaseAdminClient();
   const { data } = await admin.from('first_call_packs').select('account_id, status, pack').eq('id', packId).maybeSingle();
   const row = data as { account_id: string; status: FirstCallPackStatus; pack: Record<string, unknown> | null } | null;
   if (!row?.account_id) return null;
   if (!(await getAccountById(row.account_id))) return null;
-  return { accountId: row.account_id, status: row.status, hasContent: !!row.pack && 'callScript' in row.pack };
+  return { accountId: row.account_id, status: row.status, hasContent: !!row.pack && 'callScript' in row.pack, pack: row.pack };
 }
 
 /** Desde qué estados se puede hacer cada acción. */
-const ALLOWED_FROM: Readonly<Record<'used' | 'discarded' | 'edit', readonly FirstCallPackStatus[]>> = {
+const ALLOWED_FROM: Readonly<Record<'used' | 'discarded' | 'edit' | 'outcome', readonly FirstCallPackStatus[]>> = {
   used: ['draft', 'needs_review'],
+  outcome: ['used'],
   discarded: ['draft', 'needs_review', 'failed'],
   edit: ['draft', 'needs_review', 'used'],
 };
@@ -158,9 +162,31 @@ async function updatePack(
   return { success: true };
 }
 
-/** El vendedor usó el paquete; si lo pide, la empresa pasa a «Lista para contacto». */
-export async function markFirstCallPackUsed(packId: string, moveToReady: boolean): Promise<PackActionResult> {
-  const result = await updatePack(packId, 'used', { status: 'used', used_at: new Date().toISOString() });
+/** El resultado del contacto va dentro del JSON de la preparación (sin migración). */
+async function packWithOutcome(packId: string, outcome: FirstContactOutcome): Promise<Record<string, unknown> | null> {
+  if (!FIRST_CONTACT_OUTCOMES.includes(outcome)) return null;
+  const own = await loadOwnPack(packId);
+  if (!own?.pack) return null;
+  return { ...own.pack, outcome: { result: outcome, at: new Date().toISOString() } };
+}
+
+/**
+ * El vendedor usó la preparación y dice qué pasó (reunión, interesado, no por ahora…).
+ * Así se aprende qué enfoque, canal y cargo funcionan en Latinoamérica.
+ * Si lo pide, la empresa pasa a «Lista para contacto».
+ */
+export async function markFirstCallPackUsed(
+  packId: string,
+  moveToReady: boolean,
+  outcome: FirstContactOutcome | null = null,
+): Promise<PackActionResult> {
+  const pack = outcome ? await packWithOutcome(packId, outcome) : null;
+  if (outcome && !pack) return { success: false, error: 'No encontramos esa preparación.' };
+  const result = await updatePack(packId, 'used', {
+    status: 'used',
+    used_at: new Date().toISOString(),
+    ...(pack ? { pack } : {}),
+  });
   if (!result.success || !moveToReady) return result;
   const own = await loadOwnPack(packId);
   if (!own) return result;
@@ -168,6 +194,13 @@ export async function markFirstCallPackUsed(packId: string, moveToReady: boolean
   if (!account || account.pipeline_status === 'ready_for_outreach' || account.pipeline_status === 'archived') return result;
   const moved = await moveAccountStage(own.accountId, 'ready_for_outreach');
   return moved.success ? result : { success: false, error: 'Se marcó como usada, pero no pudimos mover la empresa de etapa.' };
+}
+
+/** Cambiar el resultado de una preparación ya usada (p. ej. «interesado» → «reunión agendada»). */
+export async function setFirstCallPackOutcome(packId: string, outcome: FirstContactOutcome): Promise<PackActionResult> {
+  const pack = await packWithOutcome(packId, outcome);
+  if (!pack) return { success: false, error: 'No encontramos esa preparación.' };
+  return updatePack(packId, 'outcome', { pack });
 }
 
 export async function discardFirstCallPack(packId: string): Promise<PackActionResult> {

@@ -80,6 +80,7 @@ function pack(id: string, overrides: Partial<FirstCallPack> = {}): FirstCallPack
     createdAt: '2026-10-11T09:00:00Z',
     usedAt: null,
     discardedAt: null,
+    outcome: null,
     ...overrides,
   };
 }
