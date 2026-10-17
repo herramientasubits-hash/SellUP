@@ -3,6 +3,7 @@
  */
 
 import type { PriorClassificationEvidence } from './internal-facts';
+import { FIRST_CONTACT_APPROACHES, FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from './approaches';
 import {
   FIRST_CALL_CHANNELS,
   FIRST_CALL_GOALS,
@@ -178,7 +179,31 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
       })),
     nextStep: text(pack['nextStep']) ?? '',
     cautions: stringsFrom(pack['cautions']),
+    productKey: text(pack['productKey']),
+    approach: approachFrom(pack['approach']),
+    approachReason: text(pack['approachReason']),
+    variants: (Array.isArray(pack['variants']) ? pack['variants'] : [])
+      .map(asRecord)
+      .filter((v): v is Record<string, unknown> => !!v && approachFrom(v['approach']) !== null && !!text(v['text']))
+      .map((v) => ({ approach: approachFrom(v['approach'])!, text: v['text'] as string, factRefs: stringsFrom(v['factRefs']) })),
+    meetingAsk: text(pack['meetingAsk']) ?? undefined,
+    ifNo: text(pack['ifNo']) ?? undefined,
+    confirmation: text(pack['confirmation']) ?? undefined,
   };
+}
+
+function approachFrom(value: unknown): FirstContactApproach | null {
+  return typeof value === 'string' && (FIRST_CONTACT_APPROACHES as readonly string[]).includes(value)
+    ? (value as FirstContactApproach)
+    : null;
+}
+
+function outcomeFrom(value: unknown): FirstCallPack['outcome'] {
+  const record = asRecord(value);
+  const result = text(record?.['result']);
+  const at = text(record?.['at']);
+  if (!result || !at || !(FIRST_CONTACT_OUTCOMES as readonly string[]).includes(result)) return null;
+  return { result: result as FirstContactOutcome, at };
 }
 
 export function mapPackRow(row: Record<string, unknown>): FirstCallPack {
@@ -210,5 +235,6 @@ export function mapPackRow(row: Record<string, unknown>): FirstCallPack {
     createdAt: row['created_at'] as string,
     usedAt: text(row['used_at']),
     discardedAt: text(row['discarded_at']),
+    outcome: outcomeFrom(asRecord(row['pack'])?.['outcome']),
   };
 }

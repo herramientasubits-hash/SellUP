@@ -209,6 +209,47 @@ export const UBITS_CLAIMS: readonly UbitsClaim[] = [
     text: 'Al cierre del año se puede repetir el cálculo de valor con los datos reales de uso del cliente.',
     source: 'Calculadora de ROI de UBITS (guion de venta)',
   },
+  // Datos de la industria para el enfoque «Con un dato» (Manual del primer contacto, 17-10-2026).
+  {
+    key: 'linkedin_wlr_2025_skills',
+    text: 'El 49 % de los líderes de talento dice que a su alta dirección le preocupa que la gente no tenga las habilidades para ejecutar la estrategia.',
+    source: 'LinkedIn Workplace Learning Report 2025',
+  },
+  {
+    key: 'linkedin_wlr_2025_retention',
+    text: 'El 88 % de las organizaciones está preocupado por retener talento, y la formación es su principal estrategia para lograrlo.',
+    source: 'LinkedIn Workplace Learning Report 2025',
+  },
+  {
+    key: 'gartner_2026_hr_priorities',
+    text: 'Las prioridades de los líderes de RR. HH. para 2026 son la IA en RR. HH., rediseñar el trabajo, llevar a los líderes a través del cambio y la cultura.',
+    source: 'Gartner, prioridades de RR. HH. 2026',
+  },
+];
+
+export interface UbitsOffer {
+  key: string;
+  /** Lo que se ofrece, en una frase («le comparto…», «le muestro…»). */
+  text: string;
+}
+
+/**
+ * Lo que el vendedor puede ofrecer para que la reunión valga la pena aunque no sigan
+ * («se queda con…»). BORRADOR: la dueña confirma que cada oferta existe.
+ */
+export const UBITS_OFFERS: readonly UbitsOffer[] = [
+  {
+    key: 'diagnostic',
+    text: 'Un diagnóstico rápido de las necesidades de formación de su equipo, con el módulo Diagnóstico de UBITS.',
+  },
+  {
+    key: 'sector_demo',
+    text: 'Una demo de 20 minutos con casos de su sector y de su momento (crecimiento, integración, líderes nuevos).',
+  },
+  {
+    key: 'value_estimate',
+    text: 'Una estimación del valor que recibiría frente a lo que invertiría, con la calculadora de UBITS.',
+  },
 ];
 
 export interface UbitsObjection {
@@ -218,6 +259,12 @@ export interface UbitsObjection {
 }
 
 export const UBITS_OBJECTIONS: readonly UbitsObjection[] = [
+  {
+    key: 'not_interested',
+    objection: 'No me interesa.',
+    response:
+      'Es justo. ¿Es porque ya tienen resuelta la formación de sus líderes o porque no es prioridad este trimestre? Si es lo segundo, ¿le escribo cuando planeen el presupuesto?',
+  },
   {
     key: 'send_info',
     objection: 'Mándame información.',
@@ -293,11 +340,13 @@ export function roleFocusFor(title: string | null | undefined): string {
   return ROLE_GUIDANCE.find((rule) => rule.match.test(title))?.focus ?? DEFAULT_ROLE_FOCUS;
 }
 
-/** Tratamiento por país. «usted» por defecto en B2B; tuteo donde es lo habitual. */
-const TU_COUNTRIES = new Set(['MX', 'CL', 'ES']);
-
+/**
+ * Tratamiento en el primer contacto: «usted» en todos los países (Manual del primer
+ * contacto). Se pasa a «tú» sólo cuando el comprador lo hace primero, ya en la conversación.
+ */
 export function addressFormFor(countryCode: string | null | undefined): 'tú' | 'usted' {
-  return countryCode && TU_COUNTRIES.has(countryCode.toUpperCase()) ? 'tú' : 'usted';
+  void countryCode;
+  return 'usted';
 }
 
 /** Frases que el guion no puede usar (bajan el éxito o prometen de más). */
@@ -314,6 +363,17 @@ export const BANNED_PHRASES: readonly string[] = [
   'líder del mercado',
   'número uno',
   'el mejor del mercado',
+  // Manual del primer contacto (17-10-2026): falsa confianza, plantillas traducidas y exageraciones.
+  'cómo ha estado',
+  'como ha estado',
+  'cómo has estado',
+  'espero que este correo',
+  'espero que se encuentre muy bien',
+  'pregunta rápida',
+  'revolucionaria',
+  'revolucionario',
+  'tiene 15 minutos',
+  'tienes 15 minutos',
 ];
 
 /** Texto de la biblioteca para las instrucciones del modelo (va en caché). */
@@ -323,6 +383,7 @@ export function renderLibraryForPrompt(): string {
       `- ${p.key} | ${UBITS_PRODUCT_FAMILY_LABELS[p.family]} › ${p.name}: ${p.pitch} Encaja cuando: ${p.fitsWhen.join('; ')}.`,
   ).join('\n');
   const claims = UBITS_CLAIMS.map((c) => `- ${c.key}: «${c.text}» (fuente: ${c.source})`).join('\n');
+  const offers = UBITS_OFFERS.map((o) => `- ${o.key}: ${o.text}`).join('\n');
   const objections = UBITS_OBJECTIONS.map((o) => `- ${o.key} | «${o.objection}» → ${o.response}`).join('\n');
   return [
     `# Productos de UBITS (${UBITS_LIBRARY_VERSION})`,
@@ -333,5 +394,8 @@ export function renderLibraryForPrompt(): string {
     '',
     '# Objeciones y respuestas aprobadas (adáptalas al contexto, no inventes otras promesas)',
     objections,
+    '',
+    '# Lo que se puede ofrecer para la reunión (lo ÚNICO que se puede ofrecer)',
+    offers,
   ].join('\n');
 }

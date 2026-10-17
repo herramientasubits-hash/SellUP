@@ -225,6 +225,9 @@ describe('verificación del paquete', () => {
     questions: ['¿Cómo forman hoy al personal nuevo?', '¿Quién define la inducción?', '¿Cómo miden el avance?'],
     objections: [{ library_key: 'send_info', objection: 'Mándame información.', response: 'Con gusto, ¿cuál es el reto principal?' }],
     next_step: 'Agendar 20 minutos la próxima semana.',
+    meeting_ask: '¿Le parece si lo vemos 20 minutos el martes a las 10 o el jueves a las 4? Le muestro casos de su sector.',
+    if_no: 'Si no es momento, preguntar si le escribo el próximo trimestre y dejar esa fecha.',
+    confirmation: 'Quedamos el martes a las 10. Agenda: su reto con los líderes nuevos y casos de su sector.',
     cautions: ['Que la formación sea un problema es una hipótesis.'],
   };
 
@@ -291,7 +294,8 @@ describe('noticias', () => {
 
 describe('biblioteca y filas', () => {
   it('ajusta el tratamiento y el enfoque', () => {
-    assert.equal(addressFormFor('MX'), 'tú');
+    // Manual del primer contacto: «usted» en todos los países en el primer contacto.
+    assert.equal(addressFormFor('MX'), 'usted');
     assert.equal(addressFormFor('CO'), 'usted');
     assert.match(roleFocusFor('Gerente de Formación y Desarrollo'), /operativo/);
     assert.equal(roleFocusFor(null), DEFAULT_ROLE_FOCUS);

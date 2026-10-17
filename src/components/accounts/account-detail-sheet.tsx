@@ -460,6 +460,7 @@ export function AccountDetailSheet({
                       canMoveToReady={data.account.pipeline_status !== 'ready_for_outreach'}
                       onChanged={() => afterFirstCall(data.account.id, false)}
                       onRequestFirstContact={onRequestFirstContact}
+                      countryCode={data.account.country_code}
                     />
                   </TabsContent>
 

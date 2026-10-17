@@ -20,13 +20,22 @@ import {
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS, UBITS_PRODUCT_FAMILY_LABELS, ubitsProductName } from '@/server/agents/first-call/ubits-messaging-library';
 import type { FirstCallContactOption } from './first-call-contacts';
+import {
+  APPROACH_DEFINITIONS,
+  FIRST_CONTACT_APPROACHES,
+  MAX_APPROACHES,
+  RECOMMENDED_APPROACH,
+  isApproachAvailable,
+  type FirstContactApproach,
+} from '@/server/agents/first-call/approaches';
 
-export type FirstContactStepId = 'decisores' | 'canales' | 'objetivo' | 'productos' | 'resumen';
+export type FirstContactStepId = 'decisores' | 'canales' | 'objetivo' | 'enfoque' | 'productos' | 'resumen';
 
 export const FIRST_CONTACT_STEPS: ReadonlyArray<{ id: FirstContactStepId; label: string }> = [
   { id: 'decisores', label: 'Decisores' },
   { id: 'canales', label: 'Canales' },
   { id: 'objetivo', label: 'Objetivo' },
+  { id: 'enfoque', label: 'Enfoque' },
   { id: 'productos', label: 'Productos' },
   { id: 'resumen', label: 'Resumen' },
 ];
@@ -45,12 +54,18 @@ export interface FirstContactSelection {
   goals: FirstCallGoal[];
   /** Vacío = el que mejor conecte. */
   productKeys: string[];
+  /** Enfoques para abrir (hasta 3); vacío = el que recomiende el agente. */
+  approaches: FirstContactApproach[];
+  /** Quién refirió el contacto (sólo con «Por referencia»). */
+  referralNote: string | null;
 }
 
 export const DEFAULT_SELECTION: FirstContactSelection = {
   contactIds: [],
   channels: ['call'],
   goals: ['book_meeting'],
+  approaches: [],
+  referralNote: null,
   productKeys: [],
 };
 
@@ -58,6 +73,36 @@ export interface WizardOption {
   value: string;
   label: string;
   description?: string;
+  hint?: string;
+  unavailable?: boolean;
+}
+
+/** Enfoques: primero «El que recomiende el agente»; los que aún no se pueden ofrecer, apagados. */
+export function approachOptions(): WizardOption[] {
+  return [
+    { value: RECOMMENDED_APPROACH, label: 'El que recomiende el agente', description: 'Según el cargo, la noticia más reciente y el país.' },
+    ...FIRST_CONTACT_APPROACHES.map((a) => {
+      const def = APPROACH_DEFINITIONS[a];
+      return def.unavailableReason
+        ? { value: a, label: def.label, description: def.unavailableReason, hint: 'Próximamente', unavailable: true }
+        : { value: a, label: def.label, description: def.bestFor };
+    }),
+  ];
+}
+
+/** «El que recomiende el agente» excluye a los demás; tope de 3 enfoques. */
+export function normalizeApproachSelection(previous: readonly string[], next: readonly string[]): string[] {
+  return normalizeExclusiveSelection(
+    previous,
+    next.filter((v) => v === RECOMMENDED_APPROACH || isApproachAvailable(v as FirstContactApproach)),
+    RECOMMENDED_APPROACH,
+    MAX_APPROACHES,
+  );
+}
+
+/** Lo marcado en «Enfoque» → enfoques (vacío = el que recomiende el agente). */
+export function approachesFrom(marked: readonly string[]): FirstContactApproach[] {
+  return marked.filter((v): v is FirstContactApproach => v !== RECOMMENDED_APPROACH);
 }
 
 const CHANNEL_DESCRIPTIONS: Readonly<Record<FirstCallChannel, string>> = {
@@ -170,12 +215,17 @@ export function summaryText(
       ? listInSpanish(selection.productKeys.map((k) => ubitsProductName(k) ?? k))
       : 'el que mejor conecte con lo que encuentre';
   const total = preparationsCount(selection);
+  const approaches =
+    selection.approaches.length > 0
+      ? listInSpanish(selection.approaches.map((a) => APPROACH_DEFINITIONS[a].label.toLowerCase()))
+      : 'el que recomiende el agente';
   return [
     willResearch
       ? 'Primero investigo la empresa: sitio oficial, noticias del último año y lo que ya saben SellUp y HubSpot.'
       : 'Uso la investigación vigente de la empresa (no se paga otra).',
     `Luego preparo ${total === 1 ? 'una preparación' : `${total} preparaciones`}: ${who}, por ${channels}.`,
-    `${selection.goals.length > 1 ? 'Objetivos' : 'Objetivo'}: ${listInSpanish(orderGoals(selection.goals).map((g) => FIRST_CALL_GOAL_LABELS[g].toLowerCase()))}. Productos: ${products}.`,
+    `${selection.goals.length > 1 ? 'Objetivos' : 'Objetivo'}: ${listInSpanish(orderGoals(selection.goals).map((g) => FIRST_CALL_GOAL_LABELS[g].toLowerCase()))}. ${selection.approaches.length > 1 ? 'Enfoques' : 'Enfoque'}: ${approaches}${selection.approaches.length > 1 ? ' (una versión de cada uno)' : ''}. Productos: ${products}.`,
+    'Cada preparación trae cómo pedir la reunión, qué hacer si dice que no y el mensaje para confirmarla.',
     `Tarda ${estimatedDuration(selection, willResearch)}.`,
   ].join('\n\n');
 }
@@ -193,6 +243,8 @@ export function buildFirstContactRequestBody(params: {
     contactIds: params.selection.contactIds,
     channels: params.selection.channels,
     goals: orderGoals(params.selection.goals),
+    approaches: params.selection.approaches,
+    referralNote: params.selection.approaches.includes('referral') ? params.selection.referralNote?.trim() || null : null,
     productKeys: params.selection.productKeys,
     refreshResearch: params.refreshResearch,
     regenerateFromPackId: params.regenerateFromPackId ?? null,
@@ -212,8 +264,8 @@ export interface CoverageRow {
   contactId: string | null;
   name: string;
   title: string | null;
-  /** Por canal: la preparación más reciente que cuenta, o `null` si falta. */
-  cells: Record<FirstCallChannel, Pick<FirstCallPack, 'id' | 'status' | 'createdAt'> | null>;
+  /** Por canal: la preparación más reciente que cuenta (con su resultado, si se marcó), o `null` si falta. */
+  cells: Record<FirstCallChannel, (Pick<FirstCallPack, 'id' | 'status' | 'createdAt'> & { outcome?: FirstCallPack['outcome'] }) | null>;
 }
 
 /**
@@ -221,7 +273,11 @@ export interface CoverageRow {
  * (aunque hoy no estén activos), más «sin decisor» si se preparó algo así.
  */
 export function buildCoverage(
-  packs: ReadonlyArray<Pick<FirstCallPack, 'id' | 'status' | 'createdAt' | 'contactId' | 'targetName' | 'targetTitle' | 'channel'>>,
+  packs: ReadonlyArray<
+    Pick<FirstCallPack, 'id' | 'status' | 'createdAt' | 'contactId' | 'targetName' | 'targetTitle' | 'channel'> & {
+      outcome?: FirstCallPack['outcome'];
+    }
+  >,
   contacts: readonly FirstCallContactOption[],
 ): CoverageRow[] {
   const rows = new Map<string, CoverageRow>();
@@ -241,7 +297,9 @@ export function buildCoverage(
       });
     }
     const row = rows.get(key)!;
-    if (!row.cells[pack.channel]) row.cells[pack.channel] = { id: pack.id, status: pack.status, createdAt: pack.createdAt };
+    if (!row.cells[pack.channel]) {
+      row.cells[pack.channel] = { id: pack.id, status: pack.status, createdAt: pack.createdAt, outcome: pack.outcome ?? null };
+    }
   }
   return [...rows.values()];
 }
