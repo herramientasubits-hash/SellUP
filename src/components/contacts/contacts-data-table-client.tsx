@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users } from "@/icons";
+import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users, PhoneCall } from "@/icons";
+import { firstCallHref } from '@/modules/speech/first-call-links';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -120,6 +121,8 @@ interface ContactsDataTableClientProps {
    * crear uno). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
+  /** Agente 3 encendido: la fila ofrece «Preparar primera llamada» a ese decisor. */
+  firstCallEnabled?: boolean;
 }
 
 export function ContactsDataTableClient({
@@ -127,6 +130,7 @@ export function ContactsDataTableClient({
   accountOwners,
   scopeFilterOptions,
   emptyActions,
+  firstCallEnabled = false,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
@@ -424,6 +428,17 @@ export function ContactsDataTableClient({
             icon: Pencil,
             onClick: () => openEdit(row),
           },
+          ...(firstCallEnabled && row.contact_status === 'active' && row.account_id
+            ? [
+                {
+                  id: 'first-call',
+                  label: 'Preparar primera llamada',
+                  icon: PhoneCall,
+                  // Lleva a la empresa con este contacto ya elegido como decisor.
+                  onClick: () => router.push(firstCallHref(row.account_id, row.id)),
+                },
+              ]
+            : []),
           {
             id: 'go-account',
             label: 'Abrir la empresa',
@@ -468,7 +483,7 @@ export function ContactsDataTableClient({
         return items;
       },
     }),
-    [openDetail, openEdit],
+    [openDetail, openEdit, firstCallEnabled, router],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -492,6 +507,20 @@ export function ContactsDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => openEdit(rows[0]),
       },
+      ...(firstCallEnabled
+        ? [
+            {
+              id: 'first-call',
+              // Un decisor a la vez: cada uno gasta su propio paquete.
+              scope: ['single'] as ('single' | 'bulk')[],
+              label: 'Preparar primera llamada',
+              icon: PhoneCall,
+              disabled: (rows: Row[]) =>
+                rows.length !== 1 || rows[0].contact_status !== 'active' || !rows[0].account_id,
+              onClick: (rows: Row[]) => router.push(firstCallHref(rows[0].account_id, rows[0].id)),
+            },
+          ]
+        : []),
       {
         id: 'go-accounts',
         // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
@@ -523,7 +552,7 @@ export function ContactsDataTableClient({
         onClick: (rows) => setArchiving(rows[0]),
       },
     ],
-    [openDetail, openEdit],
+    [openDetail, openEdit, firstCallEnabled, router],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

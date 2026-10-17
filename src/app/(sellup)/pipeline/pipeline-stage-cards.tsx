@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   Bot,
@@ -11,6 +13,7 @@ import {
   Globe,
   PanelRight,
   Phone,
+  PhoneCall,
   Tag,
   Target,
   UserCheck,
@@ -32,9 +35,13 @@ import {
   resolveAccountRunProviderLabel,
   resolveAccountRunStatusBadge,
 } from "@/components/contact-enrichment/account-agents-run-history";
+import { FirstCallLauncher } from "@/components/first-call/first-call-launcher";
 import { SOURCE_LABELS } from "@/modules/accounts/types";
 import { STAGE_PHASE_LABELS } from "@/modules/pipeline/stages";
-import type { AccountJourney, JourneyEvent, JourneyStage, PipelineStageId } from "@/modules/pipeline/types";
+import { isFirstCallStage } from "@/modules/pipeline/journey-first-call";
+import { FIRST_CALL_CHANNEL_LABELS } from "@/server/agents/first-call/types";
+import { firstCallHref } from "@/modules/speech/first-call-links";
+import type { AccountJourney, JourneyEvent, JourneyFirstCall, JourneyStage, PipelineStageId } from "@/modules/pipeline/types";
 import { SIGNAL_BADGE_VARIANT, STAGE_STATE_BADGE, sourcePrimaryLabel } from "./pipeline-copy";
 
 /** El `id` del ancla de la tarjeta de una etapa (la pista desplaza hasta aquí). */
@@ -145,6 +152,27 @@ function StageCardFrame({ entry, index, open, onToggle, children }: StageCardFra
 
 // ── Etapa disponible pero sin empezar: invitación a activarla ───
 
+/**
+ * «Preparar primera llamada» dentro de una etapa: al terminar, el recorrido se vuelve a leer.
+ * Es un componente aparte para que `useRouter` solo exista cuando el Agente 3 está presente.
+ */
+function StageFirstCallLauncher(props: Omit<React.ComponentProps<typeof FirstCallLauncher>, "onDone">) {
+  const router = useRouter();
+  return <FirstCallLauncher {...props} onDone={() => router.refresh()} />;
+}
+
+/** La frase de invitación de una etapa del Agente 3 que aún no se ha hecho. */
+function firstCallInvitation(stageId: PipelineStageId, accountName: string, archived: boolean): string {
+  if (archived) {
+    return stageId === "inteligencia"
+      ? `No se investigó ${accountName}: la empresa está archivada.`
+      : `No se preparó la primera llamada a ${accountName}: la empresa está archivada.`;
+  }
+  return stageId === "inteligencia"
+    ? `Aún no se ha investigado ${accountName}. El agente lee su sitio y sus noticias y deja cada dato con su fuente.`
+    : `Aún no se ha preparado la primera llamada a ${accountName}: el guion, el mensaje, las preguntas y las respuestas a objeciones.`;
+}
+
 interface StageInvitationProps {
   entry: JourneyStage;
   index: number;
@@ -165,7 +193,14 @@ function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvit
   const { stage, state, signals } = entry;
   const stateBadge = STAGE_STATE_BADGE[state];
   const anchor = stageAnchorId(stage.id);
-  const canActivate = Boolean(onSearchContacts) && !journey.isArchived;
+  // Las etapas del Agente 3 se activan con su propio botón; la de contactos, con el buscador del 2A.
+  const firstCall = isFirstCallStage(stage.id) ? journey.agent3 ?? null : null;
+  const canActivate = firstCall ? !journey.isArchived : Boolean(onSearchContacts) && !journey.isArchived;
+  const invitation = firstCall
+    ? firstCallInvitation(stage.id, journey.account.name, journey.isArchived)
+    : journey.isArchived
+      ? `No se buscaron los contactos de ${journey.account.name}: la empresa está archivada.`
+      : `Aún no se han buscado los contactos de ${journey.account.name}.`;
 
   return (
     <SurfaceCard className="border-dashed bg-surface-subtle p-0 shadow-none">
@@ -186,13 +221,19 @@ function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvit
               <Badge variant="brand">{stage.agent}</Badge>
               <StatusBadge status={stateBadge.status} label={stateBadge.label} />
             </div>
-            <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
-              {journey.isArchived
-                ? `No se buscaron los contactos de ${journey.account.name}: la empresa está archivada.`
-                : `Aún no se han buscado los contactos de ${journey.account.name}.`}
-            </p>
+            <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">{invitation}</p>
           </div>
-          {canActivate && (
+          {canActivate && firstCall && (
+            <div className="shrink-0">
+              <StageFirstCallLauncher
+                accountId={journey.account.id}
+                contacts={firstCall.contacts}
+                hasFreshBrief={firstCall.freshBrief}
+                variant="outline"
+              />
+            </div>
+          )}
+          {canActivate && !firstCall && (
             <AIButton variant="secondary" size="sm" className="shrink-0" onClick={onSearchContacts}>
               Buscar contactos con IA
             </AIButton>
@@ -344,9 +385,90 @@ function PlannedBody({ entry, journey }: { entry: JourneyStage; journey: Account
   );
 }
 
-/** Las etapas con detalle que enseñar en el drawer: las que ya tienen agente. */
+const BRIEF_STATUS_LABEL = { sufficient: "Suficiente para llamar", partial: "Parcial", failed: "No terminó" } as const;
+const BRIEF_STATUS_BADGE = { sufficient: "completed", partial: "warning", failed: "error" } as const;
+const PACK_STATUS_LABEL = { draft: "Lista para usar", needs_review: "Revisar antes de usar", used: "Usada" } as const;
+const PACK_STATUS_BADGE = { draft: "info", needs_review: "warning", used: "completed" } as const;
+
+/** Etapa «Inteligencia de cuenta» con el Agente 3: lo que investigó, en una fila. */
+function InteligenciaBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
+  const brief = firstCall.brief;
+  if (!brief) return null;
+  return (
+    <>
+      <StageSummary label="Cifras de la investigación">
+        <DetailItem icon={Check} label="Estado">
+          <StatusBadge status={BRIEF_STATUS_BADGE[brief.status]} label={BRIEF_STATUS_LABEL[brief.status]} />
+        </DetailItem>
+        <DetailItem icon={Tag} label="Datos con fuente">
+          <Figure value={brief.factsCount} />
+        </DetailItem>
+        <DetailItem icon={Globe} label="Fuentes consultadas">
+          <Figure value={brief.sourcesCount} />
+        </DetailItem>
+      </StageSummary>
+      {brief.summary && (
+        <Text tone="secondary" className="max-w-3xl leading-relaxed">
+          {brief.summary}
+        </Text>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/accounts/${journey.account.id}?tab=inteligencia`}>Abrir la investigación</Link>
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/** Etapa «Preparación y contacto» con el Agente 3: las preparaciones de llamada vivas. */
+function PreparacionBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
+  return (
+    <>
+      <ul aria-label="Preparaciones de llamada" className="flex flex-col divide-y divide-border/50">
+        {firstCall.packs.slice(0, 3).map((pack) => (
+          <li key={pack.id} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
+            <span className="min-w-0 text-sm text-foreground">
+              {[pack.targetName, pack.targetTitle].filter(Boolean).join(" · ") || "Sin decisor elegido"}
+              <span className="text-muted-foreground"> · {FIRST_CALL_CHANNEL_LABELS[pack.channel]}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="text-xs tabular-nums text-text-muted">{formatAppDate(pack.usedAt ?? pack.createdAt)}</span>
+              <StatusBadge status={PACK_STATUS_BADGE[pack.status]} label={PACK_STATUS_LABEL[pack.status]} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      {firstCall.packs.length > 3 && (
+        <Text size="xs" tone="secondary">
+          y {firstCall.packs.length - 3} más
+        </Text>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {!journey.isArchived && (
+          <StageFirstCallLauncher
+            accountId={journey.account.id}
+            contacts={firstCall.contacts}
+            hasFreshBrief={firstCall.freshBrief}
+            variant="outline"
+            label="Preparar otra llamada"
+          />
+        )}
+        <Button asChild variant="outline" size="sm">
+          <Link href={firstCallHref(journey.account.id)}>
+            <PhoneCall aria-hidden />
+            Ver las preparaciones
+          </Link>
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/** Las etapas con detalle que enseñar en el drawer: las que ya tienen agente y su propio detalle. */
 export function stageHasDetail(entry: JourneyStage): boolean {
-  return entry.stage.phase === "hecho" && !entry.notStarted;
+  // Las del Agente 3 se abren en la ficha de la empresa (pestañas «Inteligencia» y «Primera llamada»).
+  return entry.stage.phase === "hecho" && !entry.notStarted && !isFirstCallStage(entry.stage.id);
 }
 
 // ── Las ocho tarjetas ───────────────────────────────────────────
@@ -434,6 +556,10 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
             <ProspeccionBody journey={journey} />
           ) : entry.stage.id === "enriquecimiento" ? (
             <EnriquecimientoBody journey={journey} />
+          ) : entry.stage.id === "inteligencia" && journey.agent3 ? (
+            <InteligenciaBody journey={journey} firstCall={journey.agent3} />
+          ) : entry.stage.id === "preparacion" && journey.agent3 ? (
+            <PreparacionBody journey={journey} firstCall={journey.agent3} />
           ) : (
             <PlannedBody entry={entry} journey={journey} />
           )}

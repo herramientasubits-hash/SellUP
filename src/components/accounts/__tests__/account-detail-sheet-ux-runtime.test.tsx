@@ -113,6 +113,18 @@ mock.module('@/modules/contacts/actions', {
     getContactsSummary: async () => ({}),
   },
 });
+// Agente 3: el panel carga su estado con una acción de servidor; aquí se simula para
+// aislar el panel (la real también llama a getAccountById y descuadraría `loads`).
+let firstCallState: { enabled: boolean; brief: null; packs: [] } = { enabled: false, brief: null, packs: [] };
+mock.module('@/modules/speech/actions', {
+  namedExports: {
+    getFirstCallState: async () => firstCallState,
+    getFirstCallProgress: async () => null,
+    markFirstCallPackUsed: async () => ({ success: true }),
+    discardFirstCallPack: async () => ({ success: true }),
+    saveFirstCallScriptEdit: async () => ({ success: true }),
+  },
+});
 mock.module('@/modules/contact-enrichment/account-run-history-actions', {
   namedExports: { getContactEnrichmentRunsByAccountId: async () => [] },
 });
@@ -142,6 +154,7 @@ before(async () => {
 beforeEach(() => {
   accountToReturn = ACCOUNT;
   loads = 0;
+  firstCallState = { enabled: false, brief: null, packs: [] };
 });
 afterEach(() => cleanup());
 
@@ -211,6 +224,33 @@ describe('Detalle de empresa — pie', () => {
 
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
     assert.equal(screen.queryByRole('button', { name: 'Buscar contactos' }), null);
+  });
+});
+
+describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
+  it('con la bandera apagada no ofrece nada: ni botón ni pestaña con acción', async () => {
+    renderSheet();
+    await screen.findByRole('region', { name: 'Resumen de la empresa' });
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
+  });
+
+  it('con la bandera encendida ofrece «Preparar primera llamada» en el pie, antes de «Buscar contactos»', async () => {
+    firstCallState = { enabled: true, brief: null, packs: [] };
+    renderSheet();
+
+    const prepare = await screen.findByRole('button', { name: 'Preparar primera llamada' });
+    const search = screen.getByRole('button', { name: 'Buscar contactos' });
+    assert.ok(prepare.compareDocumentPosition(search) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.ok(screen.getByRole('tab', { name: /Primera llamada/ }));
+  });
+
+  it('una empresa archivada no ofrece preparar la llamada', async () => {
+    firstCallState = { enabled: true, brief: null, packs: [] };
+    accountToReturn = { ...ACCOUNT, pipeline_status: 'archived' };
+    renderSheet();
+
+    await screen.findByRole('region', { name: 'Resumen de la empresa' });
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
   });
 });
 

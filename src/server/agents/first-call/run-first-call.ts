@@ -58,6 +58,9 @@ import {
 import { addressFormFor, roleFocusFor } from './ubits-messaging-library';
 import { WRITER_MAX_OUTPUT_TOKENS, WRITER_SUBMIT_TOOL, buildWriterSubmitTool, buildWriterSystemPrompt, buildWriterUserMessage } from './writer-prompt';
 
+/** Tavily cobra 1 crédito por búsqueda básica (la que usa el agente). */
+export const TAVILY_BASIC_SEARCH_CREDITS = 1;
+
 /** Páginas de búsqueda que se descargan para comprobar citas que no se pudieron ver. */
 const MAX_VERIFY_FETCHES = 3;
 
@@ -81,6 +84,10 @@ export interface UsageLogInput {
   status: 'success' | 'error';
   errorCode: string | null;
   durationMs: number;
+  /** País de la empresa (ISO-2): el gasto del agente se filtra por país en Uso de IA. */
+  countryCode: string | null;
+  /** Cuántos resultados o datos produjo la consulta. */
+  resultsReturned?: number;
   metadata: Record<string, unknown>;
 }
 
@@ -205,11 +212,15 @@ async function gatherNews(context: InternalContext, deps: RunFirstCallDeps): Pro
         agentStep: q.step,
         model: null,
         usage: null,
+        // El costo en dólares lo resuelve la capa real con la tarifa vigente (null = desconocido,
+        // nunca un 0 inventado). Los créditos: lo que Tavily informó o, si no, 1 por búsqueda básica.
         costUsd: null,
-        credits: output.credits,
+        credits: output.error ? (output.credits ?? 0) : (output.credits ?? TAVILY_BASIC_SEARCH_CREDITS),
         status: output.error ? 'error' : 'success',
         errorCode: output.error,
         durationMs: deps.now() - startedAt,
+        countryCode: account.countryCode,
+        resultsReturned: output.results.length,
         metadata: { account_id: account.id, results: output.results.length, skipped: output.skipped },
       });
       return output;
@@ -307,6 +318,7 @@ async function research(
       status: run.errorCode ? 'error' : 'success',
       errorCode: run.errorCode,
       durationMs: deps.now() - startedAt,
+      countryCode: account.countryCode,
       metadata: {
         account_id: account.id,
         brief_id: briefId,
@@ -539,6 +551,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     status: written.errorCode ? 'error' : 'success',
     errorCode: written.errorCode,
     durationMs: deps.now() - startedAt,
+    countryCode: context.internal.account.countryCode,
     metadata: {
       account_id: request.accountId,
       brief_id: briefId,

@@ -27,11 +27,9 @@ import {
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
 
-export interface FirstCallContactOption {
-  id: string;
-  name: string;
-  title: string | null;
-}
+import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
+
+export type { FirstCallContactOption };
 
 export interface FirstCallRegenerateSeed {
   packId: string;
@@ -52,6 +50,15 @@ interface FirstCallLauncherProps {
   label?: string;
   variant?: 'default' | 'outline' | 'ghost';
   size?: 'sm' | 'default';
+  /**
+   * Al terminar. Sin él, va a la pestaña «Primera llamada» de la página de la
+   * empresa; con él (el panel lateral), quien llama recarga sus datos.
+   */
+  onDone?: () => void;
+  /** Modo controlado: quien lo monta decide cuándo se abre (sin botón propio con `hideTrigger`). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }
 
 const NO_CONTACT = 'none';
@@ -107,9 +114,21 @@ export function FirstCallLauncher({
   label,
   variant = 'default',
   size = 'sm',
+  onDone,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: FirstCallLauncherProps) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setInternalOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
   const [contactId, setContactId] = React.useState<string>(regenerate?.contactId ?? defaultContactId ?? contacts[0]?.id ?? NO_CONTACT);
   const [channel, setChannel] = React.useState<FirstCallChannel>(regenerate?.channel ?? 'call');
   const [goal, setGoal] = React.useState<FirstCallGoal>(regenerate?.goal ?? 'book_meeting');
@@ -178,8 +197,12 @@ export function FirstCallLauncher({
       );
       setOpen(false);
       setReason('');
-      router.push(`/accounts/${accountId}?tab=primera-llamada`);
-      router.refresh();
+      if (onDone) {
+        onDone();
+      } else {
+        router.push(`/accounts/${accountId}?tab=primera-llamada`);
+        router.refresh();
+      }
     } catch {
       setError('No pudimos conectar con el servidor. Revisa tu conexión y vuelve a intentarlo.');
     } finally {
@@ -192,10 +215,12 @@ export function FirstCallLauncher({
 
   return (
     <>
-      <Button type="button" size={size} variant={variant} onClick={() => setOpen(true)}>
-        {regenerate ? <RefreshCw aria-hidden="true" /> : <PhoneCall aria-hidden="true" />}
-        {triggerLabel}
-      </Button>
+      {!hideTrigger && (
+        <Button type="button" size={size} variant={variant} onClick={() => setOpen(true)}>
+          {regenerate ? <RefreshCw aria-hidden="true" /> : <PhoneCall aria-hidden="true" />}
+          {triggerLabel}
+        </Button>
+      )}
       <DrawerShell
         open={open}
         onOpenChange={(next) => {

@@ -51,6 +51,8 @@ import { getFirstCallState } from '@/modules/speech/actions';
 import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
 import { ResearchBriefView } from '@/components/first-call/research-brief-view';
 import { FirstCallTab, hasFreshBrief, toFirstCallContactOptions } from '@/components/first-call/first-call-tab';
+import { FirstCallActivity } from '@/components/first-call/first-call-activity';
+import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -144,6 +146,8 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
       defaultContactId={preselectedContactId}
     />
   ) : null;
+  // La pestaña «Agentes» cuenta también lo que el Agente 3 investigó y preparó.
+  const agent3RunsCount = buildFirstCallEvents(firstCall.brief, firstCall.packs).filter((e) => e.kind === 'run').length;
   const activePacks = firstCall.packs.filter((p) => p.status !== 'discarded' && p.status !== 'failed').length;
 
   const tabs: UrlTab[] = [
@@ -152,7 +156,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
     { id: 'inteligencia', label: 'Inteligencia' },
     { id: 'primera-llamada', label: 'Primera llamada', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
-    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length },
+    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length + agent3RunsCount },
   ];
 
   return (
@@ -418,11 +422,15 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
               </Timeline>
             )}
           </SurfaceCard>
+          <div className="mt-4">
+            <FirstCallActivity state={firstCall} kind="events" />
+          </div>
         </TabsContent>
 
         {/* ── Agentes ──────────────────────────────────────────── */}
-        <TabsContent value="agentes">
+        <TabsContent value="agentes" className="space-y-4">
           <AccountAgentsRunHistory runs={contactEnrichmentRuns} />
+          <FirstCallActivity state={firstCall} kind="runs" />
         </TabsContent>
       </UrlTabs>
     </div>

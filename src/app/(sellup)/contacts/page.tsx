@@ -4,6 +4,7 @@ import { DataTablePage } from '@/components/shared/data-table-page';
 import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
 import { getAllContacts } from '@/modules/contacts/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
+import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
@@ -112,6 +113,7 @@ async function ApprovedContactsPanel() {
           contacts={contacts}
           accountOwners={accountOwners}
           scopeFilterOptions={scopeFilterOptions}
+          firstCallEnabled={isAgent3FirstCallEnabled()}
           emptyActions={
             <div className="flex flex-wrap items-center justify-center gap-2">
               <ContactsEnrichmentCTA />

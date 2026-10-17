@@ -192,6 +192,7 @@ export interface FirstCallPack {
   model: string | null;
   createdAt: string;
   usedAt: string | null;
+  discardedAt: string | null;
 }
 
 /** Lo que pide el vendedor al pulsar «Preparar primera llamada». */

@@ -203,6 +203,8 @@ describe('runFirstCall — investigar y preparar', () => {
     const steps = calls.logs.map((l) => `${l.providerKey}:${l.agentStep}`).sort();
     assert.deepEqual(steps, ['anthropic:investigar_empresa', 'anthropic:redactar_llamada', 'tavily:noticias', 'tavily:talento']);
     assert.ok(calls.logs.every((l) => l.status === 'success'));
+    // El gasto se filtra por país en Uso de IA: todas las filas llevan el de la empresa.
+    assert.ok(calls.logs.every((l) => l.countryCode === 'CO'));
     assert.equal(calls.briefPatches.at(-1)!.progressStage, 'done');
   });
 
@@ -359,6 +361,33 @@ describe('runFirstCall — correcciones de la revisión', () => {
     assert.equal(result.ok && result.packStatus, 'needs_review');
     assert.ok(calls.packs[0].content);
     assert.equal(calls.packs[0].errorCode, 'http_529');
+  });
+});
+
+describe('runFirstCall — créditos de Tavily', () => {
+  it('si Tavily no informa créditos, cada búsqueda básica cuenta 1 (nunca queda vacío)', async () => {
+    const { deps, calls } = harness();
+    deps.searchNews = async () => ({ results: [], credits: null, skipped: false, error: null });
+    await runFirstCall(REQUEST, deps);
+    const tavily = calls.logs.filter((l) => l.providerKey === 'tavily');
+    assert.equal(tavily.length, 2);
+    assert.ok(tavily.every((l) => l.credits === 1), 'créditos con respaldo');
+    assert.ok(tavily.every((l) => l.costUsd === null), 'el costo en dólares lo pone la capa real con la tarifa (null = desconocido)');
+  });
+
+  it('una búsqueda que falló no cobra créditos que no consta que se cobraron', async () => {
+    const { deps, calls } = harness();
+    deps.searchNews = async () => ({ results: [], credits: null, skipped: false, error: 'tavily_http_500' });
+    await runFirstCall(REQUEST, deps);
+    const tavily = calls.logs.filter((l) => l.providerKey === 'tavily');
+    assert.ok(tavily.every((l) => l.status === 'error' && l.credits === 0 && l.errorCode === 'tavily_http_500'));
+  });
+
+  it('sin llave de Tavily no hubo consulta: nada que registrar', async () => {
+    const { deps, calls } = harness();
+    deps.searchNews = async () => ({ results: [], credits: null, skipped: true, error: null });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(calls.logs.filter((l) => l.providerKey === 'tavily').length, 0);
   });
 });
 

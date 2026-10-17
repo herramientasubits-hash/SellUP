@@ -205,5 +205,6 @@ export function mapPackRow(row: Record<string, unknown>): FirstCallPack {
     model: text(row['model']),
     createdAt: row['created_at'] as string,
     usedAt: text(row['used_at']),
+    discardedAt: text(row['discarded_at']),
   };
 }

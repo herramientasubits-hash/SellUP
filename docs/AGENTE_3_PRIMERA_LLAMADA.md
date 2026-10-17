@@ -47,6 +47,28 @@ Principio (el mismo del Agente 1): **el modelo propone, las herramientas verific
 | Interfaz | `src/components/first-call/*`, ficha de empresa y de contacto |
 | Tablas | `account_research_briefs`, `first_call_packs` (migración 153) |
 
+## Dónde está conectado
+
+Con la bandera encendida, el agente se ofrece donde se actúa sobre una empresa o un contacto. Todo lleva a la misma pestaña, «Primera llamada», de la empresa.
+
+| Lugar | Qué hay |
+|---|---|
+| Página de la empresa | Botón «Preparar primera llamada» en la cabecera y pestañas «Inteligencia» y «Primera llamada» |
+| Panel lateral de la empresa (se abre desde la lista) | El mismo botón en el pie y las mismas dos pestañas; al terminar se recarga solo |
+| Lista de Empresas | «Preparar primera llamada» en el menú de la fila y en la barra de selección (con **una** empresa elegida); abre el panel en «Primera llamada» |
+| Lista de Contactos | «Preparar primera llamada» en el menú de la fila y en la barra de selección (con **un** contacto activo); lleva a la empresa con ese decisor elegido |
+| Panel del contacto y página del contacto | «Preparar llamada» |
+| **Pipeline** | Las etapas 3 «Inteligencia de cuenta» y 4 «Preparación y contacto» dejan de ser «Próximamente»: invitan a activarse y, con datos, resumen la investigación y las llamadas. La barra de acciones suma «Preparar primera llamada». El diálogo «Mover de etapa» ofrece «Que lo haga la IA» (el Agente 3) al mover a «Lista para investigar», «Investigación en curso» o «Lista para contacto» |
+| Actividad de la empresa | Sección «Agente 3 · Primera llamada» con lo que hizo el agente y lo que se hizo con su resultado |
+| Pestaña «Agentes» | Cada investigación y cada preparación, junto a las búsquedas del Agente 2A |
+| Historial del Pipeline | Los mismos eventos, mezclados con los de la empresa |
+| Uso de IA | Agente «Agente 3 · Primera llamada», con 4 pasos, por país y por usuario |
+| Presupuesto y créditos | Créditos de Tavily (1 por búsqueda básica si Tavily no informa), costo con la tarifa vigente (sin tarifa queda «desconocido», nunca 0) y la verificación de presupuesto de Tavily |
+
+No se ofrece en acciones **masivas**: cada empresa gasta su propia investigación y el presupuesto no debe agotarse con un clic sobre muchas filas.
+
+`account_audit` tiene una lista cerrada de acciones (CHECK de la migración 038), así que el agente no escribe ahí: sus eventos salen de sus propias tablas. No hace falta migración.
+
 ## Reglas que no se negocian
 
 - **Ninguna cifra sin fuente.** Cada número del paquete tiene que estar en un hecho de la ficha o en la biblioteca. Los datos de la ficha sólo pueden repetir las cifras de su cita.
@@ -77,3 +99,4 @@ La primera vez cuesta US$0,10 a 0,25 por empresa. Un paquete extra con la ficha 
 
 - `npm run test:agent3-first-call`: piezas puras y recorrido completo con fuentes y modelo simulados.
 - `npm run test:agent3-first-call:postgres`: la 153 en PostgreSQL real, leída como `authenticated`.
+- `npm run test:ui-experience`: incluye las pantallas del Pipeline con el agente (`pipeline-first-call-runtime`) y el panel de la empresa.
