@@ -11,6 +11,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { getAccountById } from '@/modules/accounts/actions';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { loadActiveTavilyMultiQueryPricing } from '@/modules/usage-tracking/provider-pricing';
+import { evaluateTavilyBudgetAlertOnly } from '@/modules/budgets/tavily-budget-alert';
 import { getTavilyApiKey } from '@/server/services/tavily-connection';
 import { runAnthropicConversation } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { resolveActiveAnthropicModel } from '../prospecting-toolkit/claude-classifier/classify-batch-candidates.server';
@@ -193,7 +195,23 @@ function briefPatchRow(patch: BriefPatch): Record<string, unknown> {
   return row;
 }
 
+/**
+ * Costo en dólares de una consulta de Tavily: créditos × tarifa vigente. Sin tarifa
+ * activa devuelve `null` (costo DESCONOCIDO, nunca un 0 fabricado), como el resto de
+ * las consultas de Tavily.
+ */
+async function tavilyCostUsd(credits: number | null): Promise<number | null> {
+  if (credits === null) return null;
+  const pricing = await loadActiveTavilyMultiQueryPricing();
+  return pricing ? Math.round(credits * pricing.unitCostUsd * 1_000_000) / 1_000_000 : null;
+}
+
 async function logUsage(entry: UsageLogInput, userId: string): Promise<void> {
+  const isTavily = entry.providerKey === 'tavily';
+  const costUsd = isTavily && entry.costUsd === null ? await tavilyCostUsd(entry.credits) : entry.costUsd;
+  // Misma verificación de presupuesto «sólo avisa» que el resto de Tavily: queda en la fila
+  // y la página de Presupuesto y créditos la muestra en su actividad.
+  const budgetCheck = isTavily ? await evaluateTavilyBudgetAlertOnly(userId, entry.credits ?? 0, entry.operationKey) : null;
   await logProviderUsage({
     provider_key: entry.providerKey,
     operation_key: entry.operationKey,
@@ -203,7 +221,9 @@ async function logUsage(entry: UsageLogInput, userId: string): Promise<void> {
     input_tokens: entry.usage?.inputTokens ?? 0,
     output_tokens: entry.usage?.outputTokens ?? 0,
     ...(entry.credits !== null ? { credits_used: entry.credits } : {}),
-    estimated_cost_usd: entry.costUsd,
+    estimated_cost_usd: costUsd,
+    results_returned: entry.resultsReturned ?? 0,
+    ...(entry.countryCode ? { country_code: entry.countryCode } : {}),
     status: entry.status,
     ...(entry.errorCode ? { error_code: entry.errorCode } : {}),
     duration_ms: entry.durationMs,
@@ -212,6 +232,7 @@ async function logUsage(entry: UsageLogInput, userId: string): Promise<void> {
       ...entry.metadata,
       flow: 'agent3_first_call',
       agent_version: AGENT3_VERSION,
+      ...(budgetCheck ? { budget_check: budgetCheck } : {}),
       ...(entry.usage
         ? {
             cache_read_input_tokens: entry.usage.cacheReadInputTokens,

@@ -24,6 +24,7 @@ import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
+import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
@@ -94,6 +95,7 @@ async function AccountsPanel() {
           accounts={accounts}
           users={users}
           scopeFilterOptions={scopeFilterOptions}
+          firstCallEnabled={isAgent3FirstCallEnabled()}
           emptyActions={
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Link

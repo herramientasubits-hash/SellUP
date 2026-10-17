@@ -291,6 +291,7 @@ export function buildProviderUsageLogInsertPayload(
     ...(input.search_mode ? { search_mode: input.search_mode } : {}),
     ...(input.agent_key ? { agent_key: input.agent_key } : {}),
     ...(input.agent_step ? { agent_step: input.agent_step } : {}),
+    ...(input.country_code ? { country_code: input.country_code.trim().toUpperCase() } : {}),
     metadata: sanitizeMetadata(input.metadata ?? {}),
   };
 }

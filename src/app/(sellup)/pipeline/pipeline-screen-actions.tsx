@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRightCircle, ExternalLink, GitBranch, Sparkles } from "@/icons";
+import { ArrowRightCircle, ExternalLink, GitBranch, PhoneCall, Sparkles } from "@/icons";
 import {
   RailScreenActions,
   useActionRailReserveSide,
@@ -28,6 +28,10 @@ interface PipelineScreenActionsProps {
   isBlocked?: boolean;
   /** Quien monta las acciones puede abrir el alta de contactos de la empresa tras mover. */
   canUploadContacts?: boolean;
+  /** Abre «Preparar primera llamada» (Agente 3). Sin ella, o sin agente en el recorrido, no se ofrece. */
+  onPrepareFirstCall?: () => void;
+  /** El Agente 3 está encendido: el diálogo de mover ofrece la IA en las etapas de investigar y preparar. */
+  firstCallEnabled?: boolean;
 }
 
 /**
@@ -48,6 +52,8 @@ export function PipelineScreenActions({
   onViewAccount,
   isBlocked = false,
   canUploadContacts = false,
+  onPrepareFirstCall,
+  firstCallEnabled = false,
 }: PipelineScreenActionsProps) {
   const [target, setTarget] = React.useState<PipelineStatus | null>(null);
 
@@ -69,6 +75,15 @@ export function PipelineScreenActions({
         onSelect: () => onViewAccount(accountId),
       });
     }
+    if (onPrepareFirstCall && journey?.agent3 && !isArchived) {
+      list.push({
+        id: "prepare-first-call",
+        label: "Preparar primera llamada",
+        icon: <PhoneCall aria-hidden="true" />,
+        scope: ["screen"],
+        onSelect: onPrepareFirstCall,
+      });
+    }
     if (canChangeStage) {
       list.push({
         id: "change-stage",
@@ -87,7 +102,7 @@ export function PipelineScreenActions({
       });
     }
     return list;
-  }, [accountId, canChangeStage, currentStatus, onViewAccount]);
+  }, [accountId, canChangeStage, currentStatus, onViewAccount, onPrepareFirstCall, journey?.agent3, isArchived]);
 
   const agent = React.useMemo<RailActionSpec | null>(() => {
     if (!accountId || !onSearchContacts) return null;
@@ -122,6 +137,7 @@ export function PipelineScreenActions({
         onCancel={() => setTarget(null)}
         canUseAi={Boolean(onSearchContacts) && !isArchived}
         canUploadContacts={canUploadContacts}
+        firstCallEnabled={firstCallEnabled}
       />
     </>
   );

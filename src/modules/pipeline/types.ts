@@ -154,6 +154,31 @@ export interface JourneyStage {
   notStarted: boolean;
 }
 
+/** Lo que el Pipeline sabe del Agente 3 en una empresa (resumen: los guiones no viajan). */
+export interface JourneyFirstCall {
+  /** ¿La investigación vigente sirve para otro paquete sin volver a pagarla? */
+  freshBrief: boolean;
+  brief: {
+    status: 'sufficient' | 'partial' | 'failed';
+    summary: string | null;
+    completedAt: string | null;
+    factsCount: number;
+    sourcesCount: number;
+  } | null;
+  /** Los paquetes que siguen vivos (no descartados ni fallidos), del más reciente al más antiguo. */
+  packs: Array<{
+    id: string;
+    targetName: string | null;
+    targetTitle: string | null;
+    channel: 'call' | 'whatsapp' | 'email' | 'linkedin';
+    status: 'draft' | 'needs_review' | 'used';
+    createdAt: string;
+    usedAt: string | null;
+  }>;
+  /** Los decisores que se pueden elegir al preparar la llamada. */
+  contacts: Array<{ id: string; name: string; title: string | null }>;
+}
+
 export type JourneyEventKind = 'audit' | 'approval' | 'run';
 
 export interface JourneyEvent {
@@ -211,4 +236,9 @@ export interface AccountJourney {
   runs: AccountContactEnrichmentRun[];
   audit: AccountAuditEntry[];
   history: JourneyEvent[];
+  /**
+   * Agente 3. `null`/ausente = apagado: las etapas «Inteligencia de cuenta» y «Preparación y
+   * contacto» siguen como «Próximamente». Lo suma `applyFirstCallToJourney`.
+   */
+  agent3?: JourneyFirstCall | null;
 }

@@ -8,7 +8,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ContactEnrichmentDrawer } from "@/components/contact-enrichment/contact-enrichment-drawer";
 import { countryName } from "@/components/shared/table-cells";
 import { CreateContactDrawer } from "@/components/contacts/create-contact-drawer";
+import { FirstCallLauncher } from "@/components/first-call/first-call-launcher";
 import { moveAccountStage } from "@/modules/pipeline/actions";
+import { isFirstCallStage } from "@/modules/pipeline/journey-first-call";
+import { resolveCurrentStage } from "@/modules/pipeline/stages";
+import { firstCallHref } from "@/modules/speech/first-call-links";
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
 import type { PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import type { AccountJourney, PipelineOverview } from "@/modules/pipeline/types";
@@ -38,6 +42,8 @@ interface PipelineScreenProps {
   journeyError?: boolean;
   /** Los filtros que venían en la URL. */
   initialFilters: PipelineFilters;
+  /** El Agente 3 está encendido: las etapas de investigar y preparar ofrecen la IA al mover. */
+  firstCallEnabled?: boolean;
 }
 
 /**
@@ -47,13 +53,23 @@ interface PipelineScreenProps {
  * `updateAccount`)—, que siempre nace del flujo «Mover de etapa» y nunca se
  * hace a ciegas.
  */
-export function PipelineScreen({ overview, view, selectedAccountId, journey, journeyError = false, initialFilters }: PipelineScreenProps) {
+export function PipelineScreen({
+  overview,
+  view,
+  selectedAccountId,
+  journey,
+  journeyError = false,
+  initialFilters,
+  firstCallEnabled = false,
+}: PipelineScreenProps) {
   const router = useRouter();
   const [isNavigating, startNavigation] = React.useTransition();
   const [targetAccountId, setTargetAccountId] = React.useState<string | null>(null);
   const [enrichmentOpen, setEnrichmentOpen] = React.useState(false);
   const [filters, setFilters] = usePipelineUrlFilters(initialFilters);
   const [stageDetailOpen, setStageDetailOpen] = React.useState(false);
+  // «Preparar primera llamada» (Agente 3): lo abre la barra de acciones o «Que lo haga la IA».
+  const [firstCallOpen, setFirstCallOpen] = React.useState(false);
 
   const navigate = React.useCallback(
     (nextView: PipelineView, accountId: string | null) => {
@@ -112,6 +128,12 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
           : `Etapa cambiada a «${PIPELINE_STATUS_LABELS[status]}»`,
       );
       router.refresh();
+      // «Que lo haga la IA» en las etapas de investigar y preparar es el Agente 3, no el buscador de contactos.
+      if (context.kind === "ai" && firstCallEnabled && isFirstCallStage(resolveCurrentStage(status).stageId)) {
+        if (journey?.account.id === accountId && journey.agent3) setFirstCallOpen(true);
+        else router.push(firstCallHref(accountId));
+        return result;
+      }
       if (context.kind === "ai" || context.kind === "contacts") {
         setPanelCompany(companyFor(accountId));
         if (context.kind === "ai") setEnrichmentOpen(true);
@@ -119,7 +141,7 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
       }
       return result;
     },
-    [router, companyFor],
+    [router, companyFor, firstCallEnabled, journey],
   );
 
   const openEnrichment = React.useCallback(() => {
@@ -158,8 +180,10 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
           onChangeStage={changeStage}
           onSearchContacts={openEnrichment}
           onViewAccount={viewAccount}
-          isBlocked={enrichmentOpen || contactsOpen || stageDetailOpen}
+          isBlocked={enrichmentOpen || contactsOpen || stageDetailOpen || firstCallOpen}
           canUploadContacts
+          onPrepareFirstCall={() => setFirstCallOpen(true)}
+          firstCallEnabled={firstCallEnabled}
         />
       }
     >
@@ -178,6 +202,7 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
           onOpenAccount={(accountId) => navigate("recorrido", accountId)}
           canUseAi
           canUploadContacts
+          firstCallEnabled={firstCallEnabled}
           filters={filters}
           onFiltersChange={setFilters}
         />
@@ -197,6 +222,19 @@ export function PipelineScreen({ overview, view, selectedAccountId, journey, jou
       )}
 
       <PipelineRailGap visible={railAtBottom} />
+
+      {/* Agente 3: «Preparar primera llamada» desde la barra de acciones o al mover de etapa. */}
+      {journey?.agent3 && (
+        <FirstCallLauncher
+          accountId={journey.account.id}
+          contacts={journey.agent3.contacts}
+          hasFreshBrief={journey.agent3.freshBrief}
+          hideTrigger
+          open={firstCallOpen}
+          onOpenChange={setFirstCallOpen}
+          onDone={() => router.refresh()}
+        />
+      )}
 
       {enrichmentCompany && (
         <ContactEnrichmentDrawer

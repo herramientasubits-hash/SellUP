@@ -19,6 +19,7 @@ import {
   Sparkles,
   SendHorizonal,
   UserPlus,
+  PhoneCall,
 } from "@/icons";
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -61,6 +62,7 @@ import { archiveAccounts, assignAccountsToUser, updateAccount } from '@/modules/
 import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
+import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
@@ -152,6 +154,8 @@ interface AccountsDataTableClientProps {
    * revisar prospectos). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
+  /** Agente 3 encendido: la fila ofrece «Preparar primera llamada». */
+  firstCallEnabled?: boolean;
 }
 
 export function AccountsDataTableClient({
@@ -159,11 +163,14 @@ export function AccountsDataTableClient({
   users,
   scopeFilterOptions,
   emptyActions,
+  firstCallEnabled = false,
 }: AccountsDataTableClientProps) {
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  // Con qué pestaña se abre el panel: «Resumen», salvo desde «Preparar primera llamada».
+  const [detailTab, setDetailTab] = React.useState('resumen');
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
@@ -197,7 +204,8 @@ export function AccountsDataTableClient({
     onToggle: toggleQuickFilter,
   };
 
-  const openDetail = React.useCallback((id: string) => {
+  const openDetail = React.useCallback((id: string, tab: string = 'resumen') => {
+    setDetailTab(tab);
     setDetailAccountId(id);
     setDetailOpen(true);
   }, []);
@@ -417,6 +425,16 @@ export function AccountsDataTableClient({
             icon: UserPlus,
             onClick: () => setAssignRows([row]),
           },
+          ...(firstCallEnabled && row.pipeline_status !== 'archived'
+            ? [
+                {
+                  id: 'first-call',
+                  label: 'Preparar primera llamada',
+                  icon: PhoneCall,
+                  onClick: () => openDetail(row.id, FIRST_CALL_TAB_ID),
+                },
+              ]
+            : []),
           {
             id: 'enrich-contacts',
             label: 'Buscar contactos de esta empresa',
@@ -480,7 +498,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, handleStatusChange, corporateTreeMenuItem],
+    [openDetail, handleStatusChange, corporateTreeMenuItem, firstCallEnabled],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -504,6 +522,19 @@ export function AccountsDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
       },
+      ...(firstCallEnabled
+        ? [
+            {
+              id: 'first-call',
+              // Una empresa a la vez: cada una gasta su propia investigación.
+              scope: ['single'] as ('single' | 'bulk')[],
+              label: 'Preparar primera llamada',
+              icon: PhoneCall,
+              disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
+              onClick: (rows: Row[]) => openDetail(rows[0].id, FIRST_CALL_TAB_ID),
+            },
+          ]
+        : []),
       {
         id: 'assign',
         label: 'Asignar a…',
@@ -576,7 +607,7 @@ export function AccountsDataTableClient({
         },
       },
     ],
-    [openDetail, router],
+    [openDetail, router, firstCallEnabled],
   );
 
   // ── Vista de lista ────────────────────────────────────────────
@@ -685,6 +716,7 @@ export function AccountsDataTableClient({
       <AccountDetailSheet
         accountId={detailAccountId}
         open={detailOpen}
+        initialTab={detailTab}
         onClose={() => {
           setDetailOpen(false);
           setDetailAccountId(null);

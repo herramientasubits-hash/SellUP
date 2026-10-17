@@ -261,6 +261,12 @@ export interface LogProviderUsageInput {
    */
   agent_key?: string;
   agent_step?: string;
+  /**
+   * País (ISO-2) cuando la consulta NO nace de un lote (p. ej. el Agente 3, que trabaja
+   * sobre una empresa). Ausente ⇒ lo rellena el disparador desde el lote; presente, el
+   * disparador lo respeta (COALESCE).
+   */
+  country_code?: string;
   metadata?: Record<string, unknown>;
 }
 

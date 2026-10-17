@@ -70,6 +70,11 @@ export async function getFirstCallState(accountId: string): Promise<FirstCallSta
   };
 }
 
+/** ¿Está encendido el Agente 3? Para los paneles que cargan sus datos por su cuenta. */
+export async function getFirstCallEnabled(): Promise<boolean> {
+  return isAgent3FirstCallEnabled();
+}
+
 /** Avance de la investigación en curso (lo lee el formulario cada pocos segundos). */
 export async function getFirstCallProgress(accountId: string): Promise<ResearchProgressStage | null> {
   if (!(await getAccountById(accountId))) return null;

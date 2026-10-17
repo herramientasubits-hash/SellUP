@@ -99,6 +99,8 @@ interface PipelineBoardProps {
   canUseAi?: boolean;
   /** Quien monta el tablero puede abrir el alta de contactos de la empresa tras mover. */
   canUploadContacts?: boolean;
+  /** El Agente 3 está encendido: el diálogo de mover ofrece la IA en las etapas de investigar y preparar. */
+  firstCallEnabled?: boolean;
   /** Abre el recorrido de la empresa (la misma selección que la lista, con los filtros puestos). */
   onOpenAccount?: (accountId: string) => void;
   /** Avisa de que el movimiento falló (un toast). */
@@ -168,6 +170,7 @@ export function PipelineBoard({
   onMoveFailed,
   canUseAi = false,
   canUploadContacts = false,
+  firstCallEnabled = false,
   filters: controlledFilters,
   onFiltersChange,
   now: nowProp,
@@ -304,6 +307,7 @@ export function PipelineBoard({
         }}
         canUseAi={canUseAi}
         canUploadContacts={canUploadContacts}
+        firstCallEnabled={firstCallEnabled}
       />
     </div>
   );

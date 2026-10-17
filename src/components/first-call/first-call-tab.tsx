@@ -1,6 +1,7 @@
 import { PhoneCall } from '@/icons';
 import { EmptyState } from '@/components/ui/empty-state';
 import type { FirstCallState } from '@/modules/speech/actions';
+import { isBriefFresh } from '@/modules/speech/first-call-state';
 import { FirstCallLauncher, type FirstCallContactOption } from './first-call-launcher';
 import { FirstCallPackCard } from './first-call-pack-card';
 
@@ -12,26 +13,28 @@ interface FirstCallTabProps {
   archived: boolean;
   /** Decisor ya elegido (llega desde la ficha del contacto). */
   defaultContactId?: string | null;
+  /** Tras un cambio (usar, descartar, rehacer). Sin él se refresca la ruta (página completa). */
+  onChanged?: () => void;
 }
 
 /** ¿La ficha sigue vigente? Entonces un paquete nuevo no paga otra investigación. */
 export function hasFreshBrief(state: FirstCallState, nowMs: number = Date.now()): boolean {
-  const brief = state.brief;
-  return (
-    !!brief &&
-    (brief.status === 'sufficient' || brief.status === 'partial') &&
-    !!brief.expiresAt &&
-    Date.parse(brief.expiresAt) > nowMs
-  );
+  return isBriefFresh(state.brief, nowMs);
 }
 
-export function FirstCallTab({ accountId, state, contacts, canMoveToReady, archived, defaultContactId = null }: FirstCallTabProps) {
+export function FirstCallTab({ accountId, state, contacts, canMoveToReady, archived, defaultContactId = null, onChanged }: FirstCallTabProps) {
   const fresh = hasFreshBrief(state);
   const enabled = state.enabled && !archived;
   const active = state.packs.filter((p) => p.status !== 'discarded' && p.status !== 'failed');
   const closed = state.packs.filter((p) => p.status === 'discarded' || p.status === 'failed');
   const launcher = enabled ? (
-    <FirstCallLauncher accountId={accountId} contacts={contacts} hasFreshBrief={fresh} defaultContactId={defaultContactId} />
+    <FirstCallLauncher
+      accountId={accountId}
+      contacts={contacts}
+      hasFreshBrief={fresh}
+      defaultContactId={defaultContactId}
+      onDone={onChanged}
+    />
   ) : null;
 
   if (state.packs.length === 0) {
@@ -49,7 +52,7 @@ export function FirstCallTab({ accountId, state, contacts, canMoveToReady, archi
     );
   }
 
-  const cardProps = { accountId, contacts, hasFreshBrief: fresh, canMoveToReady, enabled };
+  const cardProps = { accountId, contacts, hasFreshBrief: fresh, canMoveToReady, enabled, onChanged };
   return (
     <div className="space-y-4">
       {launcher && <div className="flex justify-end">{launcher}</div>}
@@ -72,15 +75,4 @@ export function FirstCallTab({ accountId, state, contacts, canMoveToReady, archi
   );
 }
 
-/** Contactos para elegir decisor: primero los que deciden o llevan talento y formación. */
-export function toFirstCallContactOptions(
-  contacts: ReadonlyArray<{ id: string; full_name: string; job_title: string | null; role_in_account: string | null; contact_status: string }>,
-): FirstCallContactOption[] {
-  const priority = (role: string | null) =>
-    role === 'decision_maker' || role === 'economic_buyer' ? 0 : role === 'hr_leader' || role === 'learning_leader' ? 1 : 2;
-  return contacts
-    .filter((c) => c.contact_status === 'active')
-    .map((c, index) => ({ c, index }))
-    .sort((a, b) => priority(a.c.role_in_account) - priority(b.c.role_in_account) || a.index - b.index)
-    .map(({ c }) => ({ id: c.id, name: c.full_name, title: c.job_title }));
-}
+export { toFirstCallContactOptions } from '@/modules/speech/first-call-contacts';

@@ -3,6 +3,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { isNextControlFlowSignal } from "@/modules/contact-enrichment/next-control-flow-signal";
 import { parsePipelineFilters, type PipelineFilters } from "@/modules/pipeline/pipeline-filters";
 import { getAccountJourney, getPipelineOverview } from "@/modules/pipeline/actions";
+import { isAgent3FirstCallEnabled } from "@/lib/feature-flags.server";
+import { getContactsByAccount } from "@/modules/contacts/actions";
+import { getFirstCallState } from "@/modules/speech/actions";
+import { buildFirstCallEvents } from "@/modules/speech/first-call-activity";
+import { toFirstCallContactOptions } from "@/modules/speech/first-call-contacts";
+import { applyFirstCallToJourney, toJourneyFirstCall } from "@/modules/pipeline/journey-first-call";
+import type { AccountJourney } from "@/modules/pipeline/types";
 import { resolvePipelineView, type PipelineView } from "./pipeline-copy";
 import { PipelineFrame } from "./pipeline-frame";
 import { PipelineScreen } from "./pipeline-screen";
@@ -17,6 +24,28 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 /** Carga el resumen y, si hay empresa elegida, su recorrido, en paralelo. */
+/**
+ * Con el Agente 3 encendido, suma al recorrido lo que investigó y preparó. Es
+ * complementario: si no se puede leer, el recorrido sigue sin él (nunca se cae).
+ */
+async function withFirstCall(journey: AccountJourney | null): Promise<AccountJourney | null> {
+  if (!journey || !isAgent3FirstCallEnabled()) return journey;
+  try {
+    const [state, contacts] = await Promise.all([
+      getFirstCallState(journey.account.id),
+      getContactsByAccount(journey.account.id),
+    ]);
+    return applyFirstCallToJourney(
+      journey,
+      toJourneyFirstCall(state, toFirstCallContactOptions(contacts), Date.now()),
+      buildFirstCallEvents(state.brief, state.packs),
+    );
+  } catch (error) {
+    if (isNextControlFlowSignal(error)) throw error;
+    return journey;
+  }
+}
+
 async function PipelineData({
   view,
   accountId,
@@ -47,12 +76,15 @@ async function PipelineData({
     );
   }
 
+  const journeyWithAgent = journey.status === "fulfilled" ? await withFirstCall(journey.value) : null;
+
   return (
     <PipelineScreen
       overview={overview.value}
       view={view}
       selectedAccountId={journey.status === "rejected" ? null : accountId}
-      journey={journey.status === "fulfilled" ? journey.value : null}
+      journey={journeyWithAgent}
+      firstCallEnabled={isAgent3FirstCallEnabled()}
       journeyError={journey.status === "rejected"}
       initialFilters={filters}
     />

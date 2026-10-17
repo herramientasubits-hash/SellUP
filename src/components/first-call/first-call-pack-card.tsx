@@ -102,9 +102,11 @@ interface FirstCallPackCardProps {
   /** ¿La empresa todavía no está en «Lista para contacto»? */
   canMoveToReady: boolean;
   enabled: boolean;
+  /** Tras un cambio. Sin él se refresca la ruta (página completa de la empresa). */
+  onChanged?: () => void;
 }
 
-export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, canMoveToReady, enabled }: FirstCallPackCardProps) {
+export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, canMoveToReady, enabled, onChanged }: FirstCallPackCardProps) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(pack.editedScript ?? pack.content?.callScript.text ?? '');
@@ -125,7 +127,8 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
         return false;
       }
       toast.success(ok);
-      router.refresh();
+      if (onChanged) onChanged();
+      else router.refresh();
       return true;
     } finally {
       setBusy(false);
@@ -288,6 +291,7 @@ export function FirstCallPackCard({ pack, accountId, contacts, hasFreshBrief, ca
               contacts={contacts}
               hasFreshBrief={hasFreshBrief}
               variant="outline"
+              onDone={onChanged}
               regenerate={{
                 packId: pack.id,
                 contactId: pack.contactId,
