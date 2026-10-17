@@ -54,7 +54,6 @@ let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
 let within: (typeof import('@testing-library/react'))['within'];
 let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
-let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
 mock.module('next/navigation', {
@@ -119,7 +118,7 @@ const ACCOUNTS = [
 ];
 
 before(async () => {
-  ({ render, screen, within, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
+  ({ render, screen, within, fireEvent, cleanup } = await import('@testing-library/react'));
   ({ AccountsDataTableClient } = await import('../accounts-data-table-client'));
 });
 
@@ -235,21 +234,19 @@ describe('Empresas — celdas', () => {
   });
 });
 
-describe('Empresas — el menú dice a qué estado pasa', () => {
-  it('ofrece una entrada por estado posible, nunca el actual, y aplica el elegido', async () => {
+describe('Empresas — el estado no se cambia a mano', () => {
+  it('el menú de la fila no ofrece cambiar el estado: lo mueven los agentes', async () => {
     // «Menú en cada fila» (Configurar tabla): las mismas entradas que el clic derecho.
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ rowControl: 'menu' }));
     renderTable();
 
     fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme' }));
 
-    const target = await screen.findByRole('menuitem', { name: 'Marcar como «Lista para contacto»' });
-    assert.ok(screen.getByRole('menuitem', { name: 'Marcar como «Lista para investigar»' }));
-    assert.equal(screen.queryByRole('menuitem', { name: 'Marcar como «Nueva»' }), null);
+    await screen.findByRole('menuitem', { name: 'Editar empresa' });
+    assert.equal(screen.queryByRole('menuitem', { name: /Marcar como/ }), null);
     assert.equal(screen.queryByRole('menuitem', { name: 'Cambiar estado' }), null);
-
-    fireEvent.click(target);
-    await waitFor(() => assert.deepEqual(statusChanges, [{ id: 'a1', status: 'ready_for_outreach' }]));
+    assert.ok(screen.getByRole('menuitem', { name: 'Archivar empresa' }));
+    assert.deepEqual(statusChanges, []);
   });
 });
 

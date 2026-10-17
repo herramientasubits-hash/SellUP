@@ -14,7 +14,7 @@ import {
   resolveHubSpotPresentation,
   safeAccountMetadata,
 } from '@/modules/accounts/hubspot-company-sync-presentation';
-import { PIPELINE_STAGES, PIPELINE_STAGE_IDS, resolveCurrentStage, resolveStageStates } from './stages';
+import { PIPELINE_STAGES, PIPELINE_STAGE_IDS, resolveCurrentStage, resolveStageStates, withFirstContactEvidence } from './stages';
 import { latestStageNote } from './stage-notes';
 import { computeSignals, daysBetween, highestSeverity, severityRank, SIGNAL_IDS } from './signals';
 import type {
@@ -266,6 +266,8 @@ export interface AccountJourneyInput {
   runs: readonly AccountContactEnrichmentRun[];
   audit: readonly AccountAuditEntry[];
   now: Date;
+  /** ¿El Agente 3 dejó una preparación usable? Mueve la etapa actual (ver `withFirstContactEvidence`). */
+  firstContactPrepared?: boolean;
 }
 
 export function buildAccountJourney(input: AccountJourneyInput): AccountJourney {
@@ -273,7 +275,9 @@ export function buildAccountJourney(input: AccountJourneyInput): AccountJourney 
   const metadata = safeAccountMetadata(account.metadata);
   const status = account.pipeline_status;
   const isArchived = status === 'archived' || Boolean(account.archived_at);
-  const effectiveStatus: PipelineStatus = isArchived ? 'archived' : status;
+  const effectiveStatus: PipelineStatus = isArchived
+    ? 'archived'
+    : withFirstContactEvidence(status, input.firstContactPrepared ?? false);
   const { stageId: currentStageId, substatusLabel } = resolveCurrentStage(effectiveStatus);
   const stageStates = resolveStageStates(effectiveStatus);
 
@@ -373,6 +377,8 @@ export interface OverviewAccountFacts {
   decisionMakersWithPhone: number;
   hubspotSynced: boolean;
   lastRunStatus: string | null;
+  /** ¿El Agente 3 dejó una preparación usable (lista, para revisar o usada)? */
+  firstContactPrepared: boolean;
 }
 
 export const EMPTY_ACCOUNT_FACTS: OverviewAccountFacts = {
@@ -382,6 +388,7 @@ export const EMPTY_ACCOUNT_FACTS: OverviewAccountFacts = {
   decisionMakersWithPhone: 0,
   hubspotSynced: false,
   lastRunStatus: null,
+  firstContactPrepared: false,
 };
 
 export interface PipelineOverviewInput {
@@ -408,11 +415,12 @@ export function buildPipelineOverview(input: PipelineOverviewInput): PipelineOve
 
   const accounts = input.accounts.map((account): PipelineOverviewAccount => {
     const facts = input.facts.get(account.id) ?? EMPTY_ACCOUNT_FACTS;
-    const { stageId, substatusLabel } = resolveCurrentStage(account.pipeline_status);
+    const status = withFirstContactEvidence(account.pipeline_status, facts.firstContactPrepared);
+    const { stageId, substatusLabel } = resolveCurrentStage(status);
     const lastMovementAt = facts.lastStatusChangeAt ?? account.created_at;
     const daysSinceMovement = daysBetween(lastMovementAt, input.now);
     const signals: PipelineSignal[] = computeSignals({
-      pipelineStatus: account.pipeline_status,
+      pipelineStatus: status,
       currentStageId: stageId,
       daysSinceMovement,
       contactsTotal: facts.contactsTotal,
@@ -434,6 +442,7 @@ export function buildPipelineOverview(input: PipelineOverviewInput): PipelineOve
       countryCode: account.country_code,
       industry: account.industry,
       ownerName: account.owner_name,
+      // El estado guardado (lo que «Mover de etapa» compara); la etapa usa el efectivo.
       pipelineStatus: account.pipeline_status,
       currentStageId: stageId,
       substatusLabel,

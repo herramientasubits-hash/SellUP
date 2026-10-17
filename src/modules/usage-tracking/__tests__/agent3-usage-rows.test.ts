@@ -37,7 +37,7 @@ describe('país del gasto', () => {
 
 describe('«Uso de IA»', () => {
   it('nombra al agente y a sus cuatro pasos', () => {
-    assert.equal(AGENT_DIMENSION_LABELS.agent3, 'Agente 3 · Primera llamada');
+    assert.equal(AGENT_DIMENSION_LABELS.agent3, 'Agente 3 · Primer contacto');
     for (const step of ['investigar_empresa', 'noticias', 'talento', 'redactar_llamada']) {
       assert.ok(AGENT_STEP_LABELS[step], step);
     }
@@ -68,7 +68,7 @@ describe('«Uso de IA»', () => {
 describe('«Presupuesto y créditos»', () => {
   it('las operaciones del agente tienen nombre en español', () => {
     assert.equal(getProviderOperationLabel('anthropic', 'account_research'), 'Investigar la empresa (Agente 3)');
-    assert.equal(getProviderOperationLabel('anthropic', 'first_call_pack'), 'Preparar la primera llamada (Agente 3)');
+    assert.equal(getProviderOperationLabel('anthropic', 'first_call_pack'), 'Preparar el primer contacto (Agente 3)');
     assert.equal(getProviderOperationLabel('tavily', 'account_research_news'), 'Noticias de la empresa (Agente 3)');
     assert.equal(getProviderOperationLabel('tavily', 'account_research_talent'), 'Empleo y talento de la empresa (Agente 3)');
   });

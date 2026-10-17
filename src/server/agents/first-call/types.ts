@@ -146,6 +146,18 @@ export const FIRST_CALL_GOAL_LABELS: Readonly<Record<FirstCallGoal, string>> = {
   validate_owner: 'Saber quién decide',
 };
 
+/** Los objetivos en el orden de la conversación (reunión, conversación, quién decide), sin repetir. */
+export function orderGoals(goals: readonly FirstCallGoal[]): FirstCallGoal[] {
+  const chosen = new Set(goals);
+  const ordered = FIRST_CALL_GOALS.filter((g) => chosen.has(g));
+  return ordered.length > 0 ? ordered : ['book_meeting'];
+}
+
+/** «Conseguir una reunión · Saber quién decide». */
+export function goalsLabel(goals: readonly FirstCallGoal[]): string {
+  return orderGoals(goals).map((g) => FIRST_CALL_GOAL_LABELS[g]).join(' · ');
+}
+
 export interface PackTextWithRefs {
   text: string;
   factRefs: string[];
@@ -159,6 +171,8 @@ export interface PackObjection {
 }
 
 export interface FirstCallPackContent {
+  /** Producto de UBITS que el redactor eligió para este decisor (clave de la biblioteca). */
+  productKey?: string | null;
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;
@@ -179,7 +193,10 @@ export interface FirstCallPack {
   targetName: string | null;
   targetTitle: string | null;
   channel: FirstCallChannel;
+  /** El primero de `goals` (lo que se buscaba ante todo). */
   goal: FirstCallGoal;
+  /** Todos los objetivos pedidos, en orden. */
+  goals: FirstCallGoal[];
   productFocus: string | null;
   content: FirstCallPackContent | null;
   /** Los hechos con los que se escribió: sus IDs son los que cita el texto. */
@@ -195,13 +212,26 @@ export interface FirstCallPack {
   discardedAt: string | null;
 }
 
-/** Lo que pide el vendedor al pulsar «Preparar primera llamada». */
+/** Topes de una corrida: cada decisor es una llamada al redactor. */
+export const MAX_CONTACTS_PER_RUN = 5;
+
+/**
+ * Lo que pide el vendedor al preparar el primer contacto. Cascada:
+ *  1. una investigación por empresa (se reutiliza 30 días);
+ *  2. un ángulo por decisor (una llamada al redactor por decisor);
+ *  3. dentro de esa llamada, un mensaje por canal elegido.
+ * Cada decisor × canal queda como una preparación propia.
+ */
 export interface FirstCallRequest {
   accountId: string;
-  contactId: string | null;
-  channel: FirstCallChannel;
-  goal: FirstCallGoal;
-  productFocus: string | null;
+  /** Decisores elegidos; vacío = sin decisor (el guion pide averiguar quién decide). */
+  contactIds: string[];
+  /** Canales elegidos (al menos uno). */
+  channels: FirstCallChannel[];
+  /** Objetivos (uno o varios), en el orden de la conversación. */
+  goals: FirstCallGoal[];
+  /** Productos de UBITS en los que enfocarse; vacío = el que mejor conecte. */
+  productKeys: string[];
   /** true = investigar de nuevo aunque haya una ficha vigente. */
   refreshResearch: boolean;
   /** Paquete que se regenera, y por qué. */

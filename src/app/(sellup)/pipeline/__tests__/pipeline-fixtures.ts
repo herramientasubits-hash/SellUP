@@ -39,6 +39,7 @@ const HEALTHY: OverviewAccountFacts = {
   decisionMakersWithPhone: 1,
   hubspotSynced: true,
   lastRunStatus: 'completed',
+  firstContactPrepared: false,
 };
 
 /** Cuatro empresas: una por estado, con y sin señales. */

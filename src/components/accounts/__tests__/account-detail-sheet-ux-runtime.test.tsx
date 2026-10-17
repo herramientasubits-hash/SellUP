@@ -231,26 +231,35 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
   it('con la bandera apagada no ofrece nada: ni botón ni pestaña con acción', async () => {
     renderSheet();
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
-    assert.equal(screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
   });
 
-  it('con la bandera encendida ofrece «Preparar primera llamada» en el pie, antes de «Buscar contactos»', async () => {
+  it('con la bandera encendida ofrece «Preparar primer contacto» en el pie: todo a la derecha, «Más acciones» primero y «Buscar contactos» al final', async () => {
     firstCallState = { enabled: true, brief: null, packs: [] };
     renderSheet();
 
-    const prepare = await screen.findByRole('button', { name: 'Preparar primera llamada' });
+    const prepare = await screen.findByRole('button', { name: 'Preparar primer contacto' });
     const search = screen.getByRole('button', { name: 'Buscar contactos' });
     assert.ok(prepare.compareDocumentPosition(search) & window.Node.DOCUMENT_POSITION_FOLLOWING);
-    assert.ok(screen.getByRole('tab', { name: /Primera llamada/ }));
+    const more = screen.getByRole('button', { name: 'Más acciones de la empresa' });
+    assert.ok(more.compareDocumentPosition(prepare) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    // Las tres en el mismo grupo, alineado a la derecha.
+    const group = screen.getByTestId('account-sheet-actions');
+    assert.ok(group.contains(more) && group.contains(prepare) && group.contains(search));
+    assert.match(group.className, /ml-auto/);
+    // Una sola pestaña para la investigación y las preparaciones.
+    assert.ok(screen.getByRole('tab', { name: /Primer contacto/ }));
+    assert.equal(screen.queryByRole('tab', { name: /Inteligencia/ }), null);
+    assert.equal(screen.queryByRole('tab', { name: /Primera llamada/ }), null);
   });
 
-  it('una empresa archivada no ofrece preparar la llamada', async () => {
+  it('una empresa archivada no ofrece preparar el primer contacto', async () => {
     firstCallState = { enabled: true, brief: null, packs: [] };
     accountToReturn = { ...ACCOUNT, pipeline_status: 'archived' };
     renderSheet();
 
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
-    assert.equal(screen.queryByRole('button', { name: 'Preparar primera llamada' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
   });
 });
 

@@ -20,6 +20,8 @@ import { CLAUDE_PAGE_MAX_HTML_BYTES } from '../prospecting-toolkit/claude-classi
 import { checkHubSpotCompanyCommercialStatus } from '../prospecting-toolkit/hubspot-commercial-checker';
 import { fetchSafePageHtml } from '../prospecting-toolkit/website-verifier';
 import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/latam-curated/latam-curated-rows';
+import type { PipelineStatus } from '@/modules/accounts/types';
+import { nextAgent3Status, type Agent3StatusTarget } from './account-status';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
 import { curatedListLabels, mapBriefRow, readPriorClassification } from './row-mappers';
@@ -116,19 +118,24 @@ async function readHubSpot(account: {
   }
 }
 
-async function readDecisionMaker(accountId: string, contactId: string | null) {
-  if (!contactId) return null;
+/** Los decisores pedidos que pertenecen a la empresa, en el orden pedido (los demás se ignoran). */
+async function readDecisionMakers(accountId: string, contactIds: readonly string[]) {
+  if (contactIds.length === 0) return [];
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from('contacts')
     .select('id, full_name, first_name, last_name, job_title, department')
-    .eq('id', contactId)
-    .eq('account_id', accountId)
-    .maybeSingle();
-  if (!data) return null;
-  const row = data as { id: string; full_name: string | null; first_name: string | null; last_name: string | null; job_title: string | null; department: string | null };
-  const name = row.full_name ?? [row.first_name, row.last_name].filter(Boolean).join(' ');
-  return { id: row.id, name: name || 'Contacto', title: row.job_title, department: row.department };
+    .in('id', [...contactIds])
+    .eq('account_id', accountId);
+  type Row = { id: string; full_name: string | null; first_name: string | null; last_name: string | null; job_title: string | null; department: string | null };
+  const byId = new Map(((data ?? []) as Row[]).map((row) => [row.id, row]));
+  return contactIds
+    .map((id) => byId.get(id))
+    .filter((row): row is Row => row !== undefined)
+    .map((row) => {
+      const name = row.full_name ?? [row.first_name, row.last_name].filter(Boolean).join(' ');
+      return { id: row.id, name: name || 'Contacto', title: row.job_title, department: row.department };
+    });
 }
 
 async function readBriefState(accountId: string, nowMs: number) {
@@ -160,7 +167,8 @@ function packRow(pack: PackInsert, userId: string): Record<string, unknown> {
     target_name: pack.targetName,
     target_title: pack.targetTitle,
     channel: pack.channel,
-    goal: pack.goal,
+    // Varios objetivos en la misma columna, en orden («book_meeting,validate_owner»).
+    goal: pack.goals.join(','),
     product_focus: pack.productFocus,
     // Los hechos van con el paquete: sus IDs (F1…) son los que el texto cita, aunque la
     // empresa se vuelva a investigar y la ficha nueva numere distinto.
@@ -254,12 +262,12 @@ export async function loadFirstCallContext(request: FirstCallRequest, userId: st
       : {};
 
   const admin = createSupabaseAdminClient();
-  const [classification, curatedLists, relations, hubspot, decisionMaker, seller, briefState] = await Promise.all([
+  const [classification, curatedLists, relations, hubspot, decisionMakers, seller, briefState] = await Promise.all([
     readOriginClassification(account.id, metadata).catch(() => null),
     readCuratedLists(account),
     readRelations(account.id),
     readHubSpot(account),
-    readDecisionMaker(account.id, request.contactId),
+    readDecisionMakers(account.id, request.contactIds),
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
   ]);
@@ -283,15 +291,52 @@ export async function loadFirstCallContext(request: FirstCallRequest, userId: st
     curatedLists,
     relations,
     hubspot,
-    decisionMaker,
+    // Cada decisor se agrega al redactar (uno por llamada al redactor).
+    decisionMaker: null,
   };
   const fullName = (seller.data as { full_name: string | null } | null)?.full_name ?? null;
   return {
     internal,
+    decisionMakers,
     sellerName: fullName ? fullName.split(/\s+/)[0] : null,
     currentBrief: briefState.currentBrief,
     researchRunning: briefState.researchRunning,
   };
+}
+
+/**
+ * Avanza el estado de la empresa por el agente y lo deja en el historial como un cambio
+ * de estado de quien lo pidió (con `by: 'agent3'`). Sin carrera: sólo escribe si el
+ * estado no cambió desde que se leyó. Un fallo no detiene la preparación.
+ */
+async function advanceAccountStatus(accountId: string, target: Agent3StatusTarget, userId: string): Promise<void> {
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data } = await admin.from('accounts').select('pipeline_status').eq('id', accountId).maybeSingle();
+    const current = ((data as { pipeline_status: PipelineStatus } | null)?.pipeline_status ?? null) as PipelineStatus | null;
+    const next = nextAgent3Status(current, target);
+    if (!next || !current) return;
+    const { data: updated, error: updateError } = await admin
+      .from('accounts')
+      .update({ pipeline_status: next, updated_by: userId })
+      .eq('id', accountId)
+      .eq('pipeline_status', current)
+      .select('id');
+    if (updateError) {
+      console.error('[agent3] status advance failed:', updateError.message);
+      return;
+    }
+    if (!updated || updated.length === 0) return;
+    const audit = await admin.from('account_audit').insert({
+      account_id: accountId,
+      actor_user_id: userId,
+      action_type: 'account_status_changed',
+      details: { from: current, to: next, by: 'agent3' },
+    });
+    if (audit.error) console.error('[agent3] status audit insert failed:', audit.error.message);
+  } catch (err) {
+    console.error('[agent3] status advance failed:', err instanceof Error ? err.message : err);
+  }
 }
 
 export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
@@ -299,6 +344,7 @@ export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
   const deadlineAtMs = Date.now() + RUN_DEADLINE_MS;
   return {
     loadContext: (request) => loadFirstCallContext(request, userId),
+    advanceAccountStatus: (accountId, target) => advanceAccountStatus(accountId, target, userId),
     resolveModels: async () => {
       const active = await resolveActiveAnthropicModel();
       if ('error' in active) return { error: active.error };

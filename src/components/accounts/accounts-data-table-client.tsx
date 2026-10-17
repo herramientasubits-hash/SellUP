@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import {
   Eye,
   Pencil,
-  Tag,
   Archive,
   Building2,
   ExternalLink,
@@ -58,12 +57,13 @@ import {
   type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import { archiveAccounts, assignAccountsToUser, updateAccount } from '@/modules/accounts/actions';
+import { archiveAccounts, assignAccountsToUser } from '@/modules/accounts/actions';
 import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
+import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
 
@@ -107,14 +107,6 @@ const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] =
   },
 ];
 
-/** Los estados a los que se puede pasar una empresa desde su menú. */
-const ACTIVE_PIPELINE_STATUSES: PipelineStatus[] = [
-  'new',
-  'ready_for_research',
-  'research_in_progress',
-  'ready_for_outreach',
-];
-
 // ── Filter options ─────────────────────────────────────────────
 
 const STATUS_FILTER_OPTIONS = Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => ({
@@ -154,7 +146,7 @@ interface AccountsDataTableClientProps {
    * revisar prospectos). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
-  /** Agente 3 encendido: la fila ofrece «Preparar primera llamada». */
+  /** Agente 3 encendido: la fila ofrece «Preparar primer contacto». */
   firstCallEnabled?: boolean;
 }
 
@@ -169,11 +161,14 @@ export function AccountsDataTableClient({
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
-  // Con qué pestaña se abre el panel: «Resumen», salvo desde «Preparar primera llamada».
+  // Con qué pestaña se abre el panel: «Resumen», salvo al volver del Agente 3 («Primer contacto»).
   const [detailTab, setDetailTab] = React.useState('resumen');
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
+  // Agente 3: el panel del agente, abierto desde el menú, la barra o el panel de la empresa.
+  const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
+  const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
   // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
   const corporateTree = useCorporateTreeAction();
   const corporateTreeMenuItem = corporateTree.menuItem;
@@ -210,15 +205,6 @@ export function AccountsDataTableClient({
     setDetailOpen(true);
   }, []);
 
-  const handleStatusChange = React.useCallback(async (accountId: string, status: PipelineStatus) => {
-    const result = await updateAccount(accountId, { pipeline_status: status });
-    if (result.success) {
-      router.refresh();
-      toast.success(`Estado cambiado a «${PIPELINE_STATUS_LABELS[status]}»`);
-    } else {
-      toast.error(result.error);
-    }
-  }, [router]);
 
   // Los responsables que aparecen en la lista, para el embudo de la columna
   // cuando no hay opciones de equipo (si no, saldrían identificadores). La
@@ -429,9 +415,9 @@ export function AccountsDataTableClient({
             ? [
                 {
                   id: 'first-call',
-                  label: 'Preparar primera llamada',
+                  label: 'Preparar primer contacto',
                   icon: PhoneCall,
-                  onClick: () => openDetail(row.id, FIRST_CALL_TAB_ID),
+                  onClick: () => setFirstContact({ kind: 'account', accountId: row.id }),
                 },
               ]
             : []),
@@ -455,20 +441,6 @@ export function AccountsDataTableClient({
           accountId: row.id,
         });
         if (treeItem) items.push(treeItem);
-
-        // Antes había un único «Cambiar estado» que saltaba al siguiente sin
-        // decir a cuál. Ahora cada estado posible es su propia entrada.
-        ACTIVE_PIPELINE_STATUSES.filter((status) => status !== row.pipeline_status).forEach(
-          (status, index) => {
-            items.push({
-              id: `status-${status}`,
-              label: `Marcar como «${PIPELINE_STATUS_LABELS[status]}»`,
-              icon: Tag,
-              separator: index === 0,
-              onClick: () => handleStatusChange(row.id, status),
-            });
-          },
-        );
 
         items.push({
           id: 'archive',
@@ -498,7 +470,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, handleStatusChange, corporateTreeMenuItem, firstCallEnabled],
+    [openDetail, corporateTreeMenuItem, firstCallEnabled],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -528,10 +500,10 @@ export function AccountsDataTableClient({
               id: 'first-call',
               // Una empresa a la vez: cada una gasta su propia investigación.
               scope: ['single'] as ('single' | 'bulk')[],
-              label: 'Preparar primera llamada',
+              label: 'Preparar primer contacto',
               icon: PhoneCall,
               disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
-              onClick: (rows: Row[]) => openDetail(rows[0].id, FIRST_CALL_TAB_ID),
+              onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
             },
           ]
         : []),
@@ -726,6 +698,19 @@ export function AccountsDataTableClient({
           setDetailAccountId(null);
           setEnrichCompany(company);
         }}
+        onRequestFirstContact={(request) => {
+          setDetailOpen(false);
+          setDetailAccountId(null);
+          setFirstContact({ kind: 'request', request });
+        }}
+      />
+
+      {/* Agente 3 · Primer contacto */}
+      <FirstContactPanelHost
+        target={firstContact}
+        onClose={closeFirstContact}
+        onDone={() => router.refresh()}
+        onViewResult={(id) => openDetail(id, FIRST_CALL_TAB_ID)}
       />
 
       {/* Contact enrichment sidepanel (Agente 2A) */}

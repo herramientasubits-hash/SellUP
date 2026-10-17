@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { buildFirstCallEvents } from '../first-call-activity';
 import { toFirstCallContactOptions } from '../first-call-contacts';
-import { FIRST_CALL_TAB_ID, firstCallHref } from '../first-call-links';
+import { FIRST_CALL_TAB_ID, firstCallHref, normalizeAccountTab } from '../first-call-links';
 import { isBriefFresh } from '../first-call-state';
 import type { FirstCallPack, ResearchBrief, ResearchFact } from '../../../server/agents/first-call/types';
 
@@ -53,6 +53,7 @@ function pack(overrides: Partial<FirstCallPack> = {}): FirstCallPack {
     targetTitle: 'Gerente de Talento',
     channel: 'whatsapp',
     goal: 'book_meeting',
+    goals: ['book_meeting'],
     productFocus: null,
     content: null,
     facts: [],
@@ -70,11 +71,18 @@ function pack(overrides: Partial<FirstCallPack> = {}): FirstCallPack {
 }
 
 describe('enlaces', () => {
-  it('lleva a la pestaña «Primera llamada» de la empresa, con o sin decisor', () => {
-    assert.equal(FIRST_CALL_TAB_ID, 'primera-llamada');
-    assert.equal(firstCallHref('acc-1'), '/accounts/acc-1?tab=primera-llamada');
-    assert.equal(firstCallHref('acc-1', 'c-9'), '/accounts/acc-1?tab=primera-llamada&contacto=c-9');
-    assert.equal(firstCallHref('acc-1', null), '/accounts/acc-1?tab=primera-llamada');
+  it('lleva a la pestaña «Primer contacto» de la empresa, con o sin decisor', () => {
+    assert.equal(FIRST_CALL_TAB_ID, 'primer-contacto');
+    assert.equal(firstCallHref('acc-1'), '/accounts/acc-1?tab=primer-contacto');
+    assert.equal(firstCallHref('acc-1', 'c-9'), '/accounts/acc-1?tab=primer-contacto&contacto=c-9');
+    assert.equal(firstCallHref('acc-1', null), '/accounts/acc-1?tab=primer-contacto');
+  });
+
+  it('los enlaces viejos («Inteligencia», «Primera llamada») abren «Primer contacto»', () => {
+    assert.equal(normalizeAccountTab('inteligencia'), 'primer-contacto');
+    assert.equal(normalizeAccountTab('primera-llamada'), 'primer-contacto');
+    assert.equal(normalizeAccountTab('actividad'), 'actividad');
+    assert.equal(normalizeAccountTab(undefined), undefined);
   });
 });
 
@@ -138,9 +146,9 @@ describe('historia del agente', () => {
     ]);
     const title = (id: string) => events.find((e) => e.id === id)!.title;
     assert.equal(title('brief-b1'), 'Empresa investigada (parcial)');
-    assert.equal(title('pack-p-review'), 'Primera llamada preparada (a revisar)');
-    assert.equal(title('pack-p-failed'), 'No se pudo preparar la primera llamada');
-    assert.equal(title('pack-discarded-p-gone'), 'Primera llamada descartada');
+    assert.equal(title('pack-p-review'), 'Primer contacto preparado (a revisar)');
+    assert.equal(title('pack-p-failed'), 'No se pudo preparar el primer contacto');
+    assert.equal(title('pack-discarded-p-gone'), 'Preparación descartada');
   });
 
   it('sin decisor elegido lo dice', () => {

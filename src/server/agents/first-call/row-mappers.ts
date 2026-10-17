@@ -184,7 +184,10 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
 export function mapPackRow(row: Record<string, unknown>): FirstCallPack {
   const status = row['status'] as FirstCallPackStatus;
   const channel = row['channel'] as FirstCallChannel;
-  const goal = row['goal'] as FirstCallGoal;
+  const goals = String(row['goal'] ?? '')
+    .split(',')
+    .map((g) => g.trim())
+    .filter((g): g is FirstCallGoal => FIRST_CALL_GOALS.includes(g as FirstCallGoal));
   return {
     id: row['id'] as string,
     accountId: row['account_id'] as string,
@@ -193,7 +196,8 @@ export function mapPackRow(row: Record<string, unknown>): FirstCallPack {
     targetName: text(row['target_name']),
     targetTitle: text(row['target_title']),
     channel: FIRST_CALL_CHANNELS.includes(channel) ? channel : 'call',
-    goal: FIRST_CALL_GOALS.includes(goal) ? goal : 'book_meeting',
+    goal: goals[0] ?? 'book_meeting',
+    goals: goals.length > 0 ? goals : ['book_meeting'],
     productFocus: text(row['product_focus']),
     content: packContentFrom(row['pack']),
     facts: factsFrom(asRecord(row['pack'])?.['facts']),

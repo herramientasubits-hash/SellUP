@@ -9,7 +9,8 @@
 
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
 import { isBriefFresh } from '@/modules/speech/first-call-state';
-import type { FirstCallPack, ResearchBrief } from '@/server/agents/first-call/types';
+import { RESEARCH_TOPICS, RESEARCH_TOPIC_LABELS, type FirstCallPack, type ResearchBrief } from '@/server/agents/first-call/types';
+import { ubitsProductName, ubitsProductNames } from '@/server/agents/first-call/ubits-messaging-library';
 import type { AccountJourney, JourneyEvent, JourneyFirstCall, JourneyStage, PipelineStageId } from './types';
 
 /** Las dos etapas que cubre el Agente 3. */
@@ -18,6 +19,9 @@ export const FIRST_CALL_STAGE_IDS: readonly PipelineStageId[] = ['inteligencia',
 export function isFirstCallStage(stageId: PipelineStageId | null | undefined): boolean {
   return !!stageId && FIRST_CALL_STAGE_IDS.includes(stageId);
 }
+
+/** Hipótesis que se enseñan en la etapa (el resto, en la ficha de la empresa). */
+const HYPOTHESES_SHOWN = 2;
 
 /** Rótulo del agente en las etapas que cubre. */
 export const FIRST_CALL_AGENT_LABEL = 'Agente 3';
@@ -46,6 +50,13 @@ export function toJourneyFirstCall(
             completedAt: brief.completedAt,
             factsCount: brief.facts.filter((fact) => fact.sourceKind !== 'sellup').length,
             sourcesCount: brief.sources.length,
+            topics: RESEARCH_TOPICS.map((topic) => ({
+              label: RESEARCH_TOPIC_LABELS[topic],
+              count: brief.facts.filter((fact) => fact.topic === topic && fact.sourceKind !== 'sellup').length,
+            })).filter((t) => t.count > 0),
+            hypotheses: brief.hypotheses.slice(0, HYPOTHESES_SHOWN).map((h) => ({ text: h.text, productName: ubitsProductName(h.productKey) })),
+            gapsCount: brief.gaps.length,
+            expiresAt: brief.expiresAt,
           }
         : null,
     packs: source.packs
@@ -54,12 +65,14 @@ export function toJourneyFirstCall(
       )
       .map((pack) => ({
         id: pack.id,
+        contactId: pack.contactId,
         targetName: pack.targetName,
         targetTitle: pack.targetTitle,
         channel: pack.channel,
         status: pack.status,
         createdAt: pack.createdAt,
         usedAt: pack.usedAt,
+        productNames: ubitsProductNames(pack.productFocus),
       }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     contacts: [...contacts],

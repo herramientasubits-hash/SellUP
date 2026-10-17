@@ -7,6 +7,8 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
 import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users, PhoneCall } from "@/icons";
 import { firstCallHref } from '@/modules/speech/first-call-links';
+import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
+import { MAX_CONTACTS_PER_RUN } from '@/server/agents/first-call/types';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -121,7 +123,7 @@ interface ContactsDataTableClientProps {
    * crear uno). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
-  /** Agente 3 encendido: la fila ofrece «Preparar primera llamada» a ese decisor. */
+  /** Agente 3 encendido: la fila ofrece «Preparar primer contacto» a ese decisor. */
   firstCallEnabled?: boolean;
 }
 
@@ -133,6 +135,9 @@ export function ContactsDataTableClient({
   firstCallEnabled = false,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
+  // Agente 3: el panel del agente para la empresa de los decisores elegidos.
+  const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
+  const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [editingContact, setEditingContact] = React.useState<ContactListItem | null>(null);
@@ -432,10 +437,11 @@ export function ContactsDataTableClient({
             ? [
                 {
                   id: 'first-call',
-                  label: 'Preparar primera llamada',
+                  label: 'Preparar primer contacto',
                   icon: PhoneCall,
                   // Lleva a la empresa con este contacto ya elegido como decisor.
-                  onClick: () => router.push(firstCallHref(row.account_id, row.id)),
+                  onClick: () =>
+                    setFirstContact({ kind: 'account', accountId: row.account_id!, initialSelection: { contactIds: [row.id] } }),
                 },
               ]
             : []),
@@ -511,13 +517,21 @@ export function ContactsDataTableClient({
         ? [
             {
               id: 'first-call',
-              // Un decisor a la vez: cada uno gasta su propio paquete.
-              scope: ['single'] as ('single' | 'bulk')[],
-              label: 'Preparar primera llamada',
+              // Varios decisores de UNA misma empresa (hasta 5): una investigación, una
+              // preparación por decisor. De empresas distintas no: cada una gasta la suya.
+              label: 'Preparar primer contacto',
               icon: PhoneCall,
               disabled: (rows: Row[]) =>
-                rows.length !== 1 || rows[0].contact_status !== 'active' || !rows[0].account_id,
-              onClick: (rows: Row[]) => router.push(firstCallHref(rows[0].account_id, rows[0].id)),
+                rows.length === 0 ||
+                rows.length > MAX_CONTACTS_PER_RUN ||
+                !rows[0].account_id ||
+                rows.some((r) => r.contact_status !== 'active' || r.account_id !== rows[0].account_id),
+              onClick: (rows: Row[]) =>
+                setFirstContact({
+                  kind: 'account',
+                  accountId: rows[0].account_id!,
+                  initialSelection: { contactIds: rows.map((r) => r.id) },
+                }),
             },
           ]
         : []),
@@ -619,6 +633,12 @@ export function ContactsDataTableClient({
 
   return (
     <>
+      <FirstContactPanelHost
+        target={firstContact}
+        onClose={closeFirstContact}
+        onDone={() => router.refresh()}
+        onViewResult={(accountId) => router.push(firstCallHref(accountId))}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {contacts.length > 0 && !isWide && (
           <QuickFilterStrip

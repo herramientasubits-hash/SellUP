@@ -4,8 +4,10 @@
  *   1. Controles: empresa visible, presupuesto, sin otra investigación en curso.
  *   2. Ficha: si hay una vigente se reusa; si no, se investiga en cascada
  *      (SellUp → sitio oficial → noticias → búsqueda web de Claude) y se verifica.
- *   3. Paquete: Claude redacta con la ficha y la biblioteca; un verificador sin IA
- *      revisa cifras, largo y frases; si falla, se corrige una vez.
+ *   3. Cascada de redacción: una llamada al redactor por decisor elegido (su ángulo
+ *      según el cargo), con un mensaje por cada canal pedido. Cada decisor × canal
+ *      queda guardado como una preparación. Un verificador sin IA revisa cifras,
+ *      largo, frases y afirmaciones; si falla, se corrige una vez.
  *   4. Todo queda guardado con su costo y en Uso de IA como «Agente 3».
  */
 
@@ -25,8 +27,9 @@ import {
 } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
-import { buildInternalFacts, buildRequestFacts, hubspotWarning, type InternalContext } from './internal-facts';
-import { verifyPack, extractWriterSubmission, parsePackSubmission } from './pack-verifier';
+import type { Agent3StatusTarget } from './account-status';
+import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
+import { contentForChannel, extractWriterSubmission, parseWriterSubmission, verifyPack, type WriterSubmission } from './pack-verifier';
 import {
   RESEARCH_MAX_OUTPUT_TOKENS,
   RESEARCH_SUBMIT_TOOL,
@@ -45,7 +48,10 @@ import {
   type VerifiedResearch,
 } from './research-verifier';
 import {
+  FIRST_CALL_CHANNEL_LABELS,
   RESEARCH_BRIEF_TTL_DAYS,
+  type FirstCallChannel,
+  type FirstCallGoal,
   type FirstCallPackContent,
   type FirstCallPackStatus,
   type FirstCallRequest,
@@ -66,6 +72,8 @@ const MAX_VERIFY_FETCHES = 3;
 
 export interface FirstCallContext {
   internal: InternalContext;
+  /** Los decisores pedidos que existen en la empresa (en el orden pedido). */
+  decisionMakers: DecisionMaker[];
   sellerName: string | null;
   /** Ficha vigente (no vencida, no fallida), o null. */
   currentBrief: ResearchBrief | null;
@@ -113,8 +121,8 @@ export interface PackInsert {
   contactId: string | null;
   targetName: string | null;
   targetTitle: string | null;
-  channel: FirstCallRequest['channel'];
-  goal: FirstCallRequest['goal'];
+  channel: FirstCallChannel;
+  goals: FirstCallGoal[];
   productFocus: string | null;
   content: FirstCallPackContent | null;
   /** Los hechos con los que se escribió (sus IDs son los que cita el paquete). */
@@ -139,16 +147,23 @@ export interface RunFirstCallDeps {
   createBrief: (accountId: string) => Promise<string | null>;
   updateBrief: (briefId: string, patch: BriefPatch) => Promise<void>;
   insertPack: (pack: PackInsert) => Promise<string>;
+  /** Avanza el estado de la empresa (nunca retrocede; ver `nextAgent3Status`). */
+  advanceAccountStatus: (accountId: string, target: Agent3StatusTarget) => Promise<void>;
   logUsage: (entry: UsageLogInput) => Promise<void>;
   now: () => number;
 }
 
 export type RunFirstCallResult =
-  | { ok: true; briefId: string; packId: string; packStatus: FirstCallPackStatus; reusedBrief: boolean }
-  | { ok: false; code: 'not_found' | 'budget_blocked' | 'model_unavailable' | 'already_running' | 'writer_failed'; message: string };
+  | { ok: true; briefId: string; packIds: string[]; packStatuses: FirstCallPackStatus[]; reusedBrief: boolean }
+  | {
+      ok: false;
+      code: 'not_found' | 'contacts_not_found' | 'budget_blocked' | 'model_unavailable' | 'already_running' | 'writer_failed';
+      message: string;
+    };
 
 const MESSAGES = {
   not_found: 'No encontramos esa empresa o no está en tu cartera.',
+  contacts_not_found: 'Los decisores elegidos ya no están en esta empresa. Vuelve a elegirlos.',
   budget_blocked: 'No hay presupuesto de IA disponible este mes. Pídele a un administrador que lo revise.',
   model_unavailable: 'La IA no está configurada. Revisa Configuración → IA.',
   already_running: 'Ya hay una investigación de esta empresa en curso. Espera a que termine.',
@@ -414,28 +429,64 @@ export function factsForWriting(briefFacts: readonly ResearchFact[], internal: I
   return [...briefFacts, ...buildRequestFacts(internal).map((fact, i) => ({ id: `F${next + i}`, ...fact }))];
 }
 
-async function writePack(params: {
+/** Cuántos decisores se redactan a la vez (cada uno es una llamada al redactor). */
+const WRITER_CONCURRENCY = 2;
+
+interface WrittenForTarget {
+  submission: WriterSubmission | null;
+  facts: ResearchFact[];
+  issuesByChannel: Partial<Record<FirstCallChannel, string[]>>;
+  usage: AnthropicUsageTotals;
+  errorCode: string | null;
+}
+
+function verifyAll(
+  submission: WriterSubmission,
+  facts: readonly ResearchFact[],
+  channels: readonly FirstCallChannel[],
+  decisionMakerName: string | null,
+): Partial<Record<FirstCallChannel, string[]>> {
+  const result: Partial<Record<FirstCallChannel, string[]>> = {};
+  for (const channel of channels) {
+    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName });
+  }
+  return result;
+}
+
+/** Los problemas de todos los canales, sin repetir, para pedir UNA corrección. */
+function combinedIssues(byChannel: Partial<Record<FirstCallChannel, string[]>>, channels: readonly FirstCallChannel[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const channel of channels) {
+    for (const issue of byChannel[channel] ?? []) {
+      const line = channels.length > 1 ? `${FIRST_CALL_CHANNEL_LABELS[channel]}: ${issue}` : issue;
+      if (!seen.has(line)) {
+        seen.add(line);
+        out.push(line);
+      }
+    }
+  }
+  return out;
+}
+
+/** Una llamada al redactor para un decisor (o sin decisor), con todos los canales pedidos. */
+async function writeForTarget(params: {
   request: FirstCallRequest;
   context: FirstCallContext;
+  target: DecisionMaker | null;
   brief: WritableBrief;
   models: { apiKey: string; writerModel: string };
   deps: RunFirstCallDeps;
-}): Promise<{
-  content: FirstCallPackContent | null;
-  facts: ResearchFact[];
-  issues: string[];
-  usage: AnthropicUsageTotals;
-  errorCode: string | null;
-}> {
-  const { request, context, brief, models, deps } = params;
-  const { internal } = context;
-  const dm = internal.decisionMaker;
+}): Promise<WrittenForTarget> {
+  const { request, context, target, brief, models, deps } = params;
+  const internal: InternalContext = { ...context.internal, decisionMaker: target };
+  const channels = request.channels;
   const facts = factsForWriting(brief.facts, internal);
   const body: AnthropicRequestBody = {
     model: models.writerModel,
-    max_tokens: WRITER_MAX_OUTPUT_TOKENS,
+    max_tokens: WRITER_MAX_OUTPUT_TOKENS + 400 * Math.max(0, channels.length - 1),
     system: [{ type: 'text', text: buildWriterSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-    tools: [buildWriterSubmitTool()],
+    tools: [buildWriterSubmitTool(channels)],
     tool_choice: { type: 'tool', name: WRITER_SUBMIT_TOOL },
     messages: [
       {
@@ -445,10 +496,10 @@ async function writePack(params: {
           countryName: internal.account.country,
           addressForm: addressFormFor(internal.account.countryCode),
           sellerName: context.sellerName,
-          decisionMaker: { name: dm?.name ?? null, title: dm?.title ?? null, roleFocus: roleFocusFor(dm?.title) },
-          channel: request.channel,
-          goal: request.goal,
-          productFocus: request.productFocus,
+          decisionMaker: { name: target?.name ?? null, title: target?.title ?? null, roleFocus: roleFocusFor(target?.title) },
+          channels,
+          goals: request.goals,
+          productKeys: request.productKeys,
           briefStatus: brief.status,
           summary: brief.summary,
           facts,
@@ -461,17 +512,19 @@ async function writePack(params: {
     ],
   };
 
+  const dmName = target?.name ?? null;
   let usage = EMPTY_USAGE;
-  let content: FirstCallPackContent | null = null;
-  let issues: string[] = [];
+  let submission: WriterSubmission | null = null;
+  let issuesByChannel: Partial<Record<FirstCallChannel, string[]>> = {};
   try {
     const first = await deps.runConversation(body, models.apiKey);
     usage = first.usage;
     const raw = extractWriterSubmission(first.content);
-    if (!raw) return { content: null, facts, issues: [], usage, errorCode: 'no_submission' };
-    content = parsePackSubmission(raw);
-    issues = verifyPack(content, facts, request.channel);
-    if (issues.length === 0) return { content, facts, issues, usage, errorCode: null };
+    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission' };
+    submission = parseWriterSubmission(raw, channels);
+    issuesByChannel = verifyAll(submission, facts, channels, dmName);
+    const issues = combinedIssues(issuesByChannel, channels);
+    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null };
 
     const second = await deps.runConversation(
       {
@@ -498,18 +551,32 @@ async function writePack(params: {
     usage = sumUsage(usage, second.usage);
     const retried = extractWriterSubmission(second.content);
     if (retried) {
-      content = parsePackSubmission(retried);
-      issues = verifyPack(content, facts, request.channel);
+      submission = parseWriterSubmission(retried, channels);
+      issuesByChannel = verifyAll(submission, facts, channels, dmName);
     }
-    return { content, facts, issues, usage, errorCode: null };
+    return { submission, facts, issuesByChannel, usage, errorCode: null };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
     usage = sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE);
     // Si falló la CORRECCIÓN, el primer borrador sigue sirviendo: queda para revisar.
-    if (content) return { content, facts, issues, usage, errorCode };
-    return { content: null, facts, issues: [], usage, errorCode };
+    if (submission) return { submission, facts, issuesByChannel, usage, errorCode };
+    return { submission: null, facts, issuesByChannel: {}, usage, errorCode };
   }
+}
+
+/** Corre `task` sobre cada elemento con un tope de tareas a la vez, conservando el orden. */
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await task(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 // ── Entrada ──────────────────────────────────────────────────────────────────
@@ -517,6 +584,10 @@ async function writePack(params: {
 export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCallDeps): Promise<RunFirstCallResult> {
   const context = await deps.loadContext(request);
   if (!context) return { ok: false, code: 'not_found', message: MESSAGES.not_found };
+  // Si se pidieron decisores y ninguno sigue en la empresa, no se cambia en silencio a «sin decisor».
+  if (request.contactIds.length > 0 && context.decisionMakers.length === 0) {
+    return { ok: false, code: 'contacts_not_found', message: MESSAGES.contacts_not_found };
+  }
 
   const budget = await deps.checkBudget('anthropic');
   if (!budget.allowed) return { ok: false, code: 'budget_blocked', message: MESSAGES.budget_blocked };
@@ -537,53 +608,89 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   }
   const briefId = brief.id;
   if (reuse) await deps.updateBrief(briefId, { progressStage: 'writing' });
-  const startedAt = deps.now();
-  const written = await writePack({ request, context, brief, models, deps });
-  const costUsd = costOf(written.usage, models.writerModel);
-  await deps.logUsage({
-    providerKey: 'anthropic',
-    operationKey: 'first_call_pack',
-    agentStep: 'redactar_llamada',
-    model: models.writerModel,
-    usage: written.usage,
-    costUsd,
-    credits: null,
-    status: written.errorCode ? 'error' : 'success',
-    errorCode: written.errorCode,
-    durationMs: deps.now() - startedAt,
-    countryCode: context.internal.account.countryCode,
-    metadata: {
-      account_id: request.accountId,
-      brief_id: briefId,
-      channel: request.channel,
-      regeneration: request.regenerateFromPackId !== null,
-    },
-  });
 
-  const status: FirstCallPackStatus = !written.content ? 'failed' : written.issues.length > 0 ? 'needs_review' : 'draft';
-  const dm = context.internal.decisionMaker;
-  const packId = await deps.insertPack({
-    accountId: request.accountId,
+  const targets: Array<DecisionMaker | null> = context.decisionMakers.length > 0 ? context.decisionMakers : [null];
+  // Lo que se escribe y se guarda para un decisor (aquí `context` y `models` ya están comprobados).
+  const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
+    const startedAt = deps.now();
+    const written = await writeForTarget({ request, context, target, brief, models, deps });
+    const costUsd = costOf(written.usage, models.writerModel);
+    await deps.logUsage({
+      providerKey: 'anthropic',
+      operationKey: 'first_call_pack',
+      agentStep: 'redactar_llamada',
+      model: models.writerModel,
+      usage: written.usage,
+      costUsd,
+      credits: null,
+      status: written.errorCode ? 'error' : 'success',
+      errorCode: written.errorCode,
+      durationMs: deps.now() - startedAt,
+      countryCode: context.internal.account.countryCode,
+      resultsReturned: written.submission ? request.channels.length : 0,
+      metadata: {
+        account_id: request.accountId,
+        brief_id: briefId,
+        contact_id: target?.id ?? null,
+        channels: request.channels,
+        product_keys: request.productKeys,
+        regeneration: request.regenerateFromPackId !== null,
+      },
+    });
+
+    // El costo de la llamada se reparte entre las preparaciones que produjo.
+    const share = costUsd / request.channels.length;
+    const inserted: Array<{ id: string; status: FirstCallPackStatus }> = [];
+    for (const channel of request.channels) {
+      const content = written.submission ? contentForChannel(written.submission, channel) : null;
+      const issues = written.issuesByChannel[channel] ?? [];
+      const status: FirstCallPackStatus = !content || !content.shortMessage.text ? 'failed' : issues.length > 0 ? 'needs_review' : 'draft';
+      const id = await deps.insertPack({
+        accountId: request.accountId,
+        briefId,
+        contactId: target?.id ?? null,
+        targetName: target?.name ?? null,
+        targetTitle: target?.title ?? null,
+        channel,
+        goals: request.goals,
+        productFocus: content?.productKey ?? (request.productKeys.length > 0 ? request.productKeys.join(',') : null),
+        content: status === 'failed' ? null : content,
+        facts: written.facts,
+        status,
+        verifierIssues: issues,
+        regeneratedFromId: request.regenerateFromPackId,
+        regenerationReason: request.regenerationReason,
+        costUsd: share,
+        model: models.writerModel,
+        errorCode: written.errorCode ?? (status === 'failed' ? 'no_message_for_channel' : null),
+      });
+      inserted.push({ id, status });
+    }
+    return inserted;
+  };
+
+  // Un decisor que falla (red, base de datos) no tumba a los demás, y la ficha siempre
+  // termina en «done»: si no, la investigación quedaría «escribiendo» para siempre.
+  let perTarget: Array<Array<{ id: string; status: FirstCallPackStatus }>> = [];
+  try {
+    perTarget = await mapWithConcurrency(targets, WRITER_CONCURRENCY, (target) =>
+      writeAndSaveForTarget(target).catch(() => [] as Array<{ id: string; status: FirstCallPackStatus }>),
+    );
+  } finally {
+    await deps.updateBrief(briefId, { progressStage: 'done' });
+  }
+
+
+  const packs = perTarget.flat();
+  const usable = packs.filter((p) => p.status !== 'failed');
+  if (usable.length === 0) return { ok: false, code: 'writer_failed', message: MESSAGES.writer_failed };
+  await deps.advanceAccountStatus(request.accountId, 'ready_for_outreach');
+  return {
+    ok: true,
     briefId,
-    contactId: dm?.id ?? null,
-    targetName: dm?.name ?? null,
-    targetTitle: dm?.title ?? null,
-    channel: request.channel,
-    goal: request.goal,
-    productFocus: request.productFocus,
-    content: written.content,
-    facts: written.facts,
-    status,
-    verifierIssues: written.issues,
-    regeneratedFromId: request.regenerateFromPackId,
-    regenerationReason: request.regenerationReason,
-    costUsd,
-    model: models.writerModel,
-    errorCode: written.errorCode,
-  });
-  await deps.updateBrief(briefId, { progressStage: 'done' });
-
-  if (status === 'failed') return { ok: false, code: 'writer_failed', message: MESSAGES.writer_failed };
-  return { ok: true, briefId, packId, packStatus: status, reusedBrief: reuse };
+    packIds: usable.map((p) => p.id),
+    packStatuses: usable.map((p) => p.status),
+    reusedBrief: reuse,
+  };
 }
 

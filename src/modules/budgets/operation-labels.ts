@@ -20,7 +20,7 @@ const PROVIDER_OPERATION_LABELS: Record<string, Record<string, string>> = {
   },
   anthropic: {
     account_research: 'Investigar la empresa (Agente 3)',
-    first_call_pack: 'Preparar la primera llamada (Agente 3)',
+    first_call_pack: 'Preparar el primer contacto (Agente 3)',
   },
 };
 

@@ -49,6 +49,8 @@ export interface ChatQuestionPanelProps {
   /** Ref al encabezado, para llevar el foco a la pregunta nueva. */
   titleRef?: React.Ref<HTMLHeadingElement>;
   filterPlaceholder?: string;
+  /** Texto del botón que envía lo marcado o lo escrito. Por defecto «Enviar». */
+  submitLabel?: string;
   className?: string;
   "aria-label"?: string;
 }
@@ -104,6 +106,7 @@ export function ChatQuestionPanel({
   skipLabel = "Omitir",
   footerNotice,
   titleRef,
+  submitLabel = "Enviar",
   filterPlaceholder = "Filtrar opciones",
   className,
   ...props
@@ -367,7 +370,7 @@ export function ChatQuestionPanel({
                   disabled={!canSubmit}
                   onClick={submit}
                 >
-                  Enviar
+                  {submitLabel}
                 </Button>
               )}
             </div>
