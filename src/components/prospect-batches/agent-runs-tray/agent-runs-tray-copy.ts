@@ -15,7 +15,7 @@ export const AGENT_RUNS_TRAY_COPY = {
   done: (count: number): string => (count === 1 ? '1 terminada' : `${count} terminadas`),
   failed: (count: number): string => `${count} con error`,
   emptyTitle: 'No hay nada en proceso',
-  emptyHint: 'Las búsquedas del Agente IA que lances aparecen aquí con su avance, y se quedan cuando terminan.',
+  emptyHint: 'Las búsquedas y las preparaciones de primer contacto que lances aparecen aquí con su avance, y se quedan cuando terminan.',
   keepRunning: 'Siguen corriendo aunque cierres el panel',
   history: 'Historial',
   collapse: 'Plegar',

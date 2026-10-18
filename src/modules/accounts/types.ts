@@ -1,3 +1,4 @@
+import type { AccountNextStepKey } from './next-step';
 export type TaxIdentifierType =
   | 'NIT'
   | 'RFC'
@@ -105,6 +106,8 @@ export interface AccountListItem {
   created_at: string;
   owner_id: string | null;
   owner_name: string | null;
+  /** El siguiente paso (lo calcula la página de Empresas; ver `next-step.ts`). */
+  next_step?: AccountNextStepKey;
 }
 
 export interface CreateAccountInput {

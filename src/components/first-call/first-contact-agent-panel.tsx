@@ -1,13 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { toast } from 'sonner';
 import { ChatPanel, ChatQuestionPanel } from '@/components/chat';
 import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types';
 import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { Stepper } from '@/components/navigation/stepper';
 import { getFirstCallProgress } from '@/modules/speech/actions';
+import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
 import {
   BEST_PRODUCT,
@@ -25,7 +26,8 @@ import {
   normalizeDecisionMakerSelection,
   normalizeProductSelection,
   estimatedDuration,
-  firstContactDoneToast,
+  FIRST_CONTACT_STAGE_PERCENT,
+  firstContactRunDetail,
   preparationsCount,
   productKeysFrom,
   productOptions,
@@ -54,20 +56,8 @@ import {
 /** Cada cuánto se mira el avance mientras trabaja. */
 const PROGRESS_POLL_MS = 2_500;
 
-const STAGE_PERCENT: Readonly<Record<ResearchProgressStage, number>> = {
-  reading_sellup: 10,
-  reading_site: 25,
-  reading_news: 40,
-  extracting: 60,
-  writing: 80,
-  done: 100,
-};
 
 type Phase = 'asking' | 'running' | 'done' | 'error';
-
-type RunResponse =
-  | { ok: true; packIds: string[]; packStatuses: string[]; reusedBrief: boolean }
-  | { ok: false; code: string; message: string };
 
 export interface FirstContactRegenerateSeed {
   packId: string;
@@ -197,28 +187,36 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- se reinicia con lo que llegó al abrir
   }, [props.initialSelection, props.regenerate, props.contacts]);
 
+  // Una preparación de esta empresa que sigue en curso (se lanzó, se minimizó y se
+  // volvió a abrir): el panel muestra la espera en vez de las preguntas.
+  const activeRun = useFirstContactRuns().find((r) => r.accountId === accountId && r.status === 'running') ?? null;
+  const working = phase === 'running' || activeRun !== null;
+
   // Cada vez que se abre, empieza con lo que llega marcado (ajuste de estado al cambiar
   // `open`, durante el render: el patrón de React para esto, sin efecto).
   const [wasOpen, setWasOpen] = React.useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open && phase !== 'running') reset();
+    if (open && !working) reset();
   }
 
   // Segundos desde que empezó a trabajar (como el loader del Agente 1).
+  const runStartedAt = activeRun?.startedAtMs ?? null;
   const [elapsed, setElapsed] = React.useState(0);
   React.useEffect(() => {
-    if (phase !== 'running') return;
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    if (!working) return;
+    const startedAt = runStartedAt ?? Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
     return () => {
       window.clearInterval(timer);
       setElapsed(0);
     };
-  }, [phase]);
+  }, [working, runStartedAt]);
 
   React.useEffect(() => {
-    if (phase !== 'running') return;
+    if (!working) return;
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
@@ -232,61 +230,64 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [phase, accountId]);
+  }, [working, accountId]);
 
   // Lo último que se pidió: «Reintentar» lo repite igual (investigar de nuevo, motivo).
   const [lastRun, setLastRun] = React.useState<{ refresh: boolean; reason: string | null }>({ refresh: false, reason: null });
 
+  // ¿Sigue abierto al terminar? Sólo entonces lleva al resultado; si se cerró o se
+  // minimizó, avisa el Centro de procesos (y el aviso «¡Primer contacto listo!»).
+  const openRef = React.useRef(open);
+  React.useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
   const run = async (refresh: boolean, reason: string | null) => {
+    const store = getFirstContactRunsStore();
+    if (!store) return;
     setLastRun({ refresh, reason });
     const research = !hasFreshBrief || refresh;
     setWillResearch(research);
     setPhase('running');
     setError(null);
     setStage(research ? 'reading_sellup' : 'writing');
-    try {
-      const response = await fetch('/api/agent3/first-call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          buildFirstContactRequestBody({
-            accountId,
-            selection,
-            refreshResearch: refresh,
-            regenerateFromPackId: regenerate?.packId ?? null,
-            regenerationReason: reason,
-          }),
-        ),
-      });
-      // Sin sesión, el proxy redirige a /login y la respuesta es la página, no JSON.
-      if (response.redirected && new URL(response.url).pathname.startsWith('/login')) {
-        setError('Tu sesión se cerró. Vuelve a iniciar sesión e inténtalo de nuevo.');
-        setPhase('error');
-        return;
-      }
-      const body = (await response.json().catch(() => null)) as RunResponse | null;
-      if (!body || !body.ok) {
-        setError(body && !body.ok ? body.message : 'Algo falló al preparar el primer contacto. Vuelve a intentarlo.');
-        setPhase('error');
-        return;
-      }
-      setResult({ total: body.packIds.length, toReview: body.packStatuses.filter((s) => s === 'needs_review').length });
-      setPhase('done');
-      onDone?.();
-      // Como el Agente 1 al terminar: un aviso que confirma lo que hizo y el panel
-      // se cierra para mostrar el resultado.
-      const notice = firstContactDoneToast(body.packStatuses, selection, contacts);
-      toast[notice.tone](notice.title, { description: notice.description, duration: 8000 });
-      if (onViewResult) {
-        onOpenChange(false);
-        onViewResult();
-      }
-    } catch {
-      setError('No pudimos conectar con el servidor. Revisa tu conexión y vuelve a intentarlo.');
+    const body = await store.startRun({
+      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      accountId,
+      accountName,
+      title: firstContactRunDetail(selection, contacts),
+      expected: preparationsCount(selection),
+      body: buildFirstContactRequestBody({
+        accountId,
+        selection,
+        refreshResearch: refresh,
+        regenerateFromPackId: regenerate?.packId ?? null,
+        regenerationReason: reason,
+      }),
+    });
+    setStage(null);
+    if (!body.ok) {
+      setError(body.message);
       setPhase('error');
-    } finally {
-      setStage(null);
+      return;
     }
+    setResult({ total: body.packIds.length, toReview: body.packStatuses.filter((s) => s === 'needs_review').length });
+    setPhase('done');
+    // Cerrado o minimizado: quien muestra la empresa se entera por el evento del
+    // registro (y sólo recarga si sigue mostrando ESTA empresa).
+    if (!openRef.current) return;
+    onDone?.();
+    // Como el Agente 1 al terminar: el panel se cierra para mostrar el resultado.
+    if (onViewResult) {
+      onOpenChange(false);
+      onViewResult();
+    }
+  };
+
+  /** «Minimizar»: el panel se va y la preparación sigue en el Centro de procesos. */
+  const minimize = () => {
+    onOpenChange(false);
+    window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
   };
 
   const advance = (patch: Partial<FirstContactSelection>) => {
@@ -336,7 +337,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   if (phase === 'error' && error) messages.push({ id: 'error', role: 'system', tone: 'error', content: error });
 
   const question = (() => {
-    if (phase === 'running') return null;
+    if (working) return null;
     if (phase === 'done') {
       return (
         <ChatQuestionPanel
@@ -505,25 +506,25 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
       open={open}
       onOpenChange={onOpenChange}
       subtitle={`Primer contacto · ${accountName}`}
-      markMotion={phase === 'running' ? 'thinking' : 'breathing'}
+      markMotion={working ? 'thinking' : 'breathing'}
       onNewConversation={reset}
       newConversationLabel="Empezar de nuevo"
-      newConversationDisabled={phase === 'running'}
-      closeDisabled={phase === 'running'}
+      newConversationDisabled={working}
+      onMinimize={working ? minimize : undefined}
     >
-      {phase === 'running' ? (
+      {working ? (
         // Mientras trabaja, la espera ocupa todo el panel (como en el Agente 1): sin la
         // conversación ni los pasos arriba, con lo que hace en vivo y los segundos.
         <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="first-contact-running">
           <AiAnalyzingState
             className="flex-1"
             title={stage ? RESEARCH_PROGRESS_LABELS[stage] : 'Empezando'}
-            progress={stage ? (willResearch ? STAGE_PERCENT[stage] : stage === 'writing' ? 50 : STAGE_PERCENT[stage]) : 5}
-            detail={total === 1 ? 'Una preparación' : `${total} preparaciones`}
+            progress={stage ? (willResearch ? FIRST_CONTACT_STAGE_PERCENT[stage] : stage === 'writing' ? 50 : FIRST_CONTACT_STAGE_PERCENT[stage]) : 5}
+            detail={(activeRun?.expected ?? total) === 1 ? 'Una preparación' : `${activeRun?.expected ?? total} preparaciones`}
             caption={elapsed > 0 ? `Preparando el primer contacto · ${elapsed} s` : 'Preparando el primer contacto'}
           />
           <p className="px-6 pb-6 pt-5 text-center text-xs leading-relaxed text-muted-foreground">
-            No cierres este panel mientras trabaja: tarda {estimatedDuration(selection, willResearch)}.
+            Tarda {estimatedDuration(selection, willResearch)}. Puedes minimizar o cerrar este panel: sigue trabajando y la ves en el Centro de procesos, arriba a la derecha.
           </p>
         </div>
       ) : (

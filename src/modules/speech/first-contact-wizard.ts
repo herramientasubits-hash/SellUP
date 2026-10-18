@@ -17,6 +17,7 @@ import {
   type FirstCallChannel,
   type FirstCallGoal,
   type FirstCallPack,
+  type ResearchProgressStage,
 } from '@/server/agents/first-call/types';
 import { UBITS_PRODUCTS, UBITS_PRODUCT_FAMILY_LABELS, ubitsProductName } from '@/server/agents/first-call/ubits-messaging-library';
 import type { FirstCallContactOption } from './first-call-contacts';
@@ -235,27 +236,41 @@ export function summaryText(
   ].join('\n\n');
 }
 
+/** Cuánto avanza la barra en cada etapa (el panel y el Centro de procesos). */
+export const FIRST_CONTACT_STAGE_PERCENT: Readonly<Record<ResearchProgressStage, number>> = {
+  reading_sellup: 10,
+  reading_site: 25,
+  reading_news: 40,
+  extracting: 60,
+  writing: 80,
+  done: 100,
+};
+
+/** Para quién y por dónde, en una línea: «para Emily Cerdas por Llamada y Correo». */
+export function firstContactRunDetail(selection: FirstContactSelection, contacts: readonly FirstCallContactOption[]): string {
+  const names = selection.contactIds
+    .map((id) => contacts.find((c) => c.id === id)?.name)
+    .filter((n): n is string => !!n);
+  const who = names.length > 0 ? `para ${listInSpanish(names)} ` : '';
+  return `${who}por ${listInSpanish(selection.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]))}`;
+}
+
 /**
- * El aviso al terminar (como el «¡Objetivo alcanzado!» del Agente 1): confirma
+ * El aviso al terminar (como el «¡Primer contacto listo!» del Agente 1): confirma
  * que hizo lo que se pidió — cuántas preparaciones, para quién y por dónde — y
- * cuántas tienen avisos o no se pudieron escribir.
+ * cuántas tienen avisos o no se pudieron escribir. Lo dispara el registro de
+ * corridas, así sale aunque el panel esté cerrado.
  */
 export function firstContactDoneToast(
   packStatuses: readonly string[],
-  selection: FirstContactSelection,
-  contacts: readonly FirstCallContactOption[],
+  detail: string,
 ): { tone: 'success' | 'warning'; title: string; description: string } {
   const total = packStatuses.length;
   const failed = packStatuses.filter((s) => s === 'failed').length;
   const toReview = packStatuses.filter((s) => s === 'needs_review').length;
   const usable = total - failed;
-  const names = selection.contactIds
-    .map((id) => contacts.find((c) => c.id === id)?.name)
-    .filter((n): n is string => !!n);
-  const who = names.length > 0 ? ` para ${listInSpanish(names)}` : '';
-  const channels = listInSpanish(selection.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]));
   const count = usable === 0 ? 'Ninguna preparación' : usable === 1 ? 'Una preparación' : `${usable} preparaciones`;
-  const parts = [`${count}${who} por ${channels}.`];
+  const parts = [`${count} ${detail}.`];
   if (toReview > 0) parts.push(toReview === 1 ? 'Una tiene avisos para revisar antes de usarla.' : `${toReview} tienen avisos para revisar antes de usarlas.`);
   else if (usable > 0) parts.push(usable === 1 ? 'Lista para usar.' : 'Listas para usar.');
   if (failed > 0) parts.push(failed === 1 ? 'Una no se pudo escribir: rehazla desde la tarjeta.' : `${failed} no se pudieron escribir: rehazlas desde su tarjeta.`);

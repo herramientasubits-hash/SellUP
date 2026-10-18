@@ -58,7 +58,7 @@ const textWithRefs = {
 } as const;
 
 const CHANNEL_FORMAT: Readonly<Record<FirstCallChannel, string>> = {
-  call: 'el mensaje de voz para dejar si no contesta: menos de 30 segundos, sólo contexto, remite al correo y NO pide que devuelva la llamada',
+  call: 'el mensaje de voz para dejar si no contesta: menos de 30 segundos, sólo contexto, remite al correo y NO pide que devuelva la llamada; es OTRO texto, nunca el guion copiado',
   whatsapp:
     'sólo si ya hubo contacto: 2 a 4 líneas; si es el primer contacto, SÓLO pide permiso para escribir por ahí («¿Le puedo escribir por aquí?»), sin ofrecer nada; nunca enlaces ni adjuntos',
   email: `primera línea «Asunto: …» de 1 a ${EMAIL_SUBJECT_MAX_WORDS} palabras; cuerpo de 50 a ${EMAIL_BODY_MAX_WORDS} palabras, frases cortas, un solo pedido de INTERÉS («¿Le sirve que…?»), sin enlace de calendario ni enlaces`,
@@ -235,6 +235,10 @@ export function buildWriterSystemPrompt(): string {
     '',
     'Reglas obligatorias:',
     '- Escribe en español natural de Latinoamérica, como habla un vendedor consultivo, no como un folleto. SIEMPRE «usted», en todos los países: es un primer contacto.',
+    '- En la llamada, saluda y preséntate natural: «Buenos días, [nombre]. Le habla [vendedor], de UBITS.» Nunca «le llamo de UBITS. Soy…».',
+    '- Un dato de la biblioteca se dice con su fuente por nombre («según el LinkedIn Workplace Learning Report 2025…»), nunca «estudios de la industria muestran».',
+    '- No prometas que algo es gratis o sin costo, ni duraciones o accesos que la biblioteca no diga: ofrece las ofertas tal como están escritas.',
+    '- Es el primer contacto: no digas «llamé», «como le comenté» ni des por hecho una conversación anterior. Sólo el mensaje de voz puede remitir al correo.',
     '- reason_to_call: una razón CONCRETA y verificable, basada en un hecho de la ficha (mejor una señal de los últimos 90 días o un dato de talento). Dar el motivo duplica las llamadas exitosas.',
     '- Enfoques: escribe la versión principal con el enfoque indicado y una versión por cada enfoque extra pedido. Cada enfoque tiene su regla (ver «Enfoques pedidos»). Cada versión es completa y se puede usar sola: en la llamada, el guion entero y el mensaje si no contesta, no sólo la apertura.',
     `- call_script (sólo si piden llamada): entre ${CALL_SCRIPT_MIN_WORDS} y ${CALL_SCRIPT_MAX_WORDS} palabras. Orden: (1) nombre y empresa; (2) reconoce que la llamada es inesperada y pide permiso para 30 segundos («¿me regala 30 segundos y usted decide si seguimos?»); (3) el motivo de hoy y el problema, sin vender la plataforma; (4) UNA pregunta abierta; (5) si hay interés, pedir la reunión con dos horarios y callar.`,

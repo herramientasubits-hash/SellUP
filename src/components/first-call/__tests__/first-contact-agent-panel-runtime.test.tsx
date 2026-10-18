@@ -22,9 +22,13 @@ before(async () => {
   ({ FirstContactAgentPanel } = await import('../first-contact-agent-panel'));
 });
 
-afterEach(() => {
+afterEach(async () => {
   rtl.cleanup();
   globalThis.fetch = realFetch;
+  // Cada prueba con un registro de preparaciones limpio (vive fuera del panel).
+  window.localStorage.clear();
+  const { resetFirstContactRunsStoreForTests } = await import('@/modules/speech/first-contact-runs-client');
+  resetFirstContactRunsStoreForTests(null);
 });
 
 const CONTACTS = [{ id: '11111111-1111-4111-8111-111111111111', name: 'Emily Cerdas', title: 'Head of Human Resources' }];
@@ -57,7 +61,9 @@ describe('Agente 3 · panel mientras trabaja', () => {
     assert.equal(rtl.screen.queryByTestId('first-contact-agent'), null, 'la conversación no se ve mientras trabaja');
     assert.equal(rtl.screen.queryByText(/Primero investigo la empresa/), null);
     assert.equal(rtl.screen.queryByRole('list', { name: /Pasos del primer contacto/ }), null);
-    assert.ok(rtl.within(running).getByText(/No cierres este panel/));
+    assert.ok(rtl.within(running).getByText(/Puedes minimizar o cerrar este panel/));
+    // Se puede minimizar: sigue en el Centro de procesos.
+    assert.ok(rtl.screen.getByTestId('chat-panel-minimize'));
   });
 
   it('al terminar cierra el panel y lleva al resultado (como el Agente 1)', async () => {

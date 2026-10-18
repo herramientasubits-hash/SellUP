@@ -250,6 +250,20 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\b(otros|muchos) (bancos|clientes) (ya )?(nos usan|usan ubits|trabajan con nosotros)/,
 ];
 
+/** «Gratis», «sin costo»…: ninguna oferta de la biblioteca lo promete. */
+const FREE_PROMISE = /\b(gratis|gratuit[oa]s?|sin costo|sin cargo|cero costo|no tiene costo)\b/;
+
+/** Un primer mensaje escrito que da por hecho un contacto anterior. */
+const PRIOR_CONTACT = /\b(llame porque|le llame|ya le llame|como le comente|como le dije|como hablamos|segun hablamos)\b/;
+
+/** ¿El mensaje de voz es el guion otra vez? (Asdeporte, 18-10: lo copió entero.) */
+function repeatsScript(voicemail: string, script: string): boolean {
+  if (!voicemail || !script) return false;
+  const a = normalizeForBan(voicemail).replace(/\s+/g, ' ').trim();
+  const b = normalizeForBan(script).replace(/\s+/g, ' ').trim();
+  return a === b || (a.length >= 120 && b.startsWith(a.slice(0, 120)));
+}
+
 export interface VerifyPackOptions {
   /** Nombre del decisor, si se conoce: el texto no debería decir «[nombre]». */
   decisionMakerName?: string | null;
@@ -357,6 +371,24 @@ export function verifyPack(
   );
   if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
     issues.push('Afirma experiencia, clientes o casos de UBITS que la biblioteca no respalda.');
+  }
+
+  // ── Lo que mostró la corrida de Asdeporte (18-10) ────────────────────────────
+  const variantList = pack.variants ?? [];
+  if (isCall && repeatsScript(pack.shortMessage.text, pack.callScript.text)) {
+    issues.push('El mensaje si no contesta repite el guion: va uno distinto y corto (menos de 30 segundos).');
+  }
+  if (isCall && variantList.some((v) => v.voicemail && repeatsScript(v.voicemail, v.text))) {
+    issues.push('En otro tipo, el mensaje si no contesta repite su guion.');
+  }
+  const everything = normalizeForBan(
+    [said, pack.meetingAsk ?? '', pack.ifNo ?? '', pack.confirmation ?? '', ...variantList.flatMap((v) => [v.text, v.voicemail ?? ''])].join(' '),
+  );
+  if (FREE_PROMISE.test(everything)) {
+    issues.push('Promete que algo es gratis o sin costo: la biblioteca no lo dice.');
+  }
+  if (!isCall && [pack.shortMessage.text, ...variantList.map((v) => v.text)].some((t) => PRIOR_CONTACT.test(normalizeForBan(t)))) {
+    issues.push('Dice que ya hubo contacto («llamé», «como le comenté») y es el primero.');
   }
 
   // ── Manual del primer contacto (17-10-2026) ──────────────────────────────────

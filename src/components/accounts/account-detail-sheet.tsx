@@ -52,6 +52,7 @@ import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
 import { getFirstCallState, type FirstCallState } from '@/modules/speech/actions';
 import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
+import { FIRST_CONTACT_RUN_SETTLED_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { FirstCallTab, hasFreshBrief, toFirstCallContactOptions } from '@/components/first-call/first-call-tab';
 import type { FirstContactLaunchRequest } from '@/components/first-call/first-call-launcher';
 import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
@@ -207,6 +208,16 @@ export function AccountDetailSheet({
     setContactSheetId(cId);
     setContactSheetOpen(true);
   }
+
+  // Una preparación que terminó con el panel cerrado: si es de esta empresa, recarga.
+  React.useEffect(() => {
+    const onSettled = (event: Event) => {
+      const settledId = (event as CustomEvent<{ accountId: string }>).detail?.accountId;
+      if (open && accountId && settledId === accountId) void loadData(accountId);
+    };
+    window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+    return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+  }, [open, accountId, loadData]);
 
   // Con el Agente 3 disponible, preparar el contacto es la acción principal del pie.
   const firstCallOffered = !!data && data.firstCall.enabled && data.account.pipeline_status !== 'archived';

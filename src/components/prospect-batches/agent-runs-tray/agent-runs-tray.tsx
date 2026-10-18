@@ -42,6 +42,8 @@ import {
   type ProcessState,
 } from './agent-runs-tray-copy';
 import { openAgentRun } from './agent-run-opener';
+import { FirstContactRunRows } from '@/components/first-call/first-contact-run-rows';
+import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -237,6 +239,8 @@ export const AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT = 'sellup:agent-runs:open-proc
 export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const runs = useAgentRuns();
   const live = useLiveProgress(runs);
+  // Las preparaciones del Agente 3 también viven aquí (dueña 18-10).
+  const firstContactRuns = useFirstContactRuns();
   const [open, setOpen] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [continuationActive, setContinuationActive] = React.useState(false);
@@ -257,9 +261,10 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   for (const run of runs) counts[agentRunProcessState(run)] += 1;
   // La corrida a medias también es trabajo en curso.
   if (continuationActive) counts.running += 1;
+  for (const run of firstContactRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
   const running = counts.running;
   const finished = counts.done + counts.failed;
-  const isEmpty = runs.length === 0 && !continuationActive;
+  const isEmpty = runs.length === 0 && firstContactRuns.length === 0 && !continuationActive;
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
   const router = useRouter();
@@ -365,6 +370,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             pausedRunSignal={pausedRunSignal}
             onActiveChange={setContinuationActive}
           />
+          <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
           {runs.map((run) => (
             <ProcessRow
               key={run.clientRequestId}
@@ -385,7 +391,10 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             </Text>
             <div className="-mr-2 flex shrink-0 items-center gap-1">
               {finished > 0 && (
-                <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => store?.dismissFinished()}>
+                <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => {
+                    store?.dismissFinished();
+                    getFirstContactRunsStore()?.dismissFinished();
+                  }}>
                   {AGENT_RUNS_TRAY_COPY.clearFinished}
                 </Button>
               )}

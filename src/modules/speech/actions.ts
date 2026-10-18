@@ -118,6 +118,22 @@ export async function getFirstCallProgress(accountId: string): Promise<ResearchP
   return ((data as { progress_stage: ResearchProgressStage | null } | null)?.progress_stage) ?? null;
 }
 
+/**
+ * Una preparación seguida desde el Centro de procesos tras recargar la página: los
+ * estados de las preparaciones de la empresa creadas desde que empezó.
+ */
+export async function getFirstContactRunPacks(accountId: string, sinceIso: string): Promise<string[] | null> {
+  if (Number.isNaN(Date.parse(sinceIso)) || !(await getAccountById(accountId))) return null;
+  const admin = createSupabaseAdminClient();
+  const { data } = await admin
+    .from('first_call_packs')
+    .select('status')
+    .eq('account_id', accountId)
+    .gte('created_at', new Date(Date.parse(sinceIso) - 5_000).toISOString())
+    .limit(50);
+  return ((data ?? []) as { status: string }[]).map((row) => row.status);
+}
+
 export type PackActionResult = { success: true } | { success: false; error: string };
 
 const DISABLED: PackActionResult = { success: false, error: 'La preparación de la primera llamada no está activada.' };
