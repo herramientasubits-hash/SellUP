@@ -151,7 +151,8 @@ function variantsFrom(value: unknown, exclude: FirstContactApproach | null | und
     const text = str(record.text);
     if (!isApproach(approach) || !text || approach === exclude || seen.has(approach)) continue;
     seen.add(approach);
-    out.push({ approach, text, factRefs: withRefs(record).factRefs });
+    const voicemail = str(record.voicemail);
+    out.push({ approach, text, factRefs: withRefs(record).factRefs, ...(voicemail ? { voicemail } : {}) });
   }
   return out;
 }
@@ -168,9 +169,9 @@ function withOptOut(text: string): string {
 export interface WriterSubmission {
   shared: FirstCallPackContent;
   messages: Partial<Record<FirstCallChannel, PackTextWithRefs>>;
-  /** Versiones por enfoque extra: de cada mensaje y de la apertura de la llamada. */
+  /** Versiones por enfoque extra: de cada mensaje y del guion completo de la llamada. */
   messageVariants: Partial<Record<FirstCallChannel, ApproachVariant[]>>;
-  callOpenerVariants: ApproachVariant[];
+  callScriptVariants: ApproachVariant[];
 }
 
 /** Lee la entrega con varios canales (la v1 traía un solo `short_message`). */
@@ -188,13 +189,15 @@ export function parseWriterSubmission(raw: Record<string, unknown>, channels: re
   }
   // Una entrega de un solo canal con `short_message` (forma v1) también vale.
   if (channels.length === 1 && !messages[channels[0]] && shared.shortMessage.text) messages[channels[0]] = shared.shortMessage;
-  return { shared, messages, messageVariants, callOpenerVariants: variantsFrom(raw.call_opener_variants, shared.approach) };
+  // `call_opener_variants` es la forma anterior (sólo la apertura): también se lee.
+  const callScriptVariants = variantsFrom(raw.call_script_variants ?? raw.call_opener_variants, shared.approach);
+  return { shared, messages, messageVariants, callScriptVariants };
 }
 
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
   const message = submission.messages[channel] ?? EMPTY_TEXT;
-  const variants = channel === 'call' ? submission.callOpenerVariants : submission.messageVariants[channel] ?? [];
+  const variants = channel === 'call' ? submission.callScriptVariants : submission.messageVariants[channel] ?? [];
   const isEmail = channel === 'email';
   return {
     ...submission.shared,
@@ -261,7 +264,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** El primer contacto va sin enlaces ni calendario. */
 const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
 /** Tuteo (ya normalizado, sin tildes): en el primer contacto va «usted». */
-const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento)\b/;
+const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo)\b/;
 
 /** «Asunto: …» y el cuerpo, sin la línea para dejar de recibir correos. */
 export function splitEmail(text: string): { subject: string | null; body: string } {
@@ -390,23 +393,26 @@ export function verifyPack(
     }
   }
 
-  const sellerTexts = [
-    pack.reasonToCall.text,
-    pack.callScript.text,
-    pack.shortMessage.text,
-    pack.nextStep,
-    ...pack.questions,
-    ...pack.objections.map((o) => o.response),
-    pack.meetingAsk ?? '',
-    pack.ifNo ?? '',
-    pack.confirmation ?? '',
-    ...variants.map((v) => v.text),
+  const sellerTexts: Array<[string, readonly string[]]> = [
+    ['el motivo', [pack.reasonToCall.text]],
+    ['el guion', [pack.callScript.text]],
+    ['el mensaje', [pack.shortMessage.text]],
+    ['el cierre', [pack.nextStep]],
+    ['las preguntas', pack.questions],
+    ['las objeciones', pack.objections.map((o) => o.response)],
+    ['el pedido de reunión', [pack.meetingAsk ?? '']],
+    ['el plan si dice que no', [pack.ifNo ?? '']],
+    ['la confirmación', [pack.confirmation ?? '']],
+    ['las otras versiones', variants.flatMap((v) => [v.text, v.voicemail ?? ''])],
   ];
-  if (sellerTexts.some((t) => INFORMAL.test(normalizeForBan(t)))) {
-    issues.push('Tutea al decisor: en el primer contacto va «usted».');
+  const informalIn = sellerTexts
+    .filter(([, texts]) => texts.some((t) => INFORMAL.test(normalizeForBan(t))))
+    .map(([where]) => where);
+  if (informalIn.length > 0) {
+    issues.push(`Tutea al decisor en ${informalIn.join(', ')}: en el primer contacto va «usted».`);
   }
 
-  const variantText = normalizeForBan([...variants.map((v) => v.text), pack.meetingAsk ?? '', pack.confirmation ?? ''].join(' '));
+  const variantText = normalizeForBan([...variants.flatMap((v) => [v.text, v.voicemail ?? '']), pack.meetingAsk ?? '', pack.confirmation ?? ''].join(' '));
   const bannedExtra = BANNED_PHRASES.filter((p) => variantText.includes(normalizeForBan(p)) && !banned.includes(p));
   if (bannedExtra.length > 0) issues.push(`Usa frases que no conviene decir: «${bannedExtra.join('», «')}».`);
   if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(variantText)) && !UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
@@ -414,7 +420,7 @@ export function verifyPack(
   }
   const variantNumbers = [
     ...new Set(
-      [...variants.map((v) => v.text), pack.meetingAsk ?? '', pack.ifNo ?? '', pack.confirmation ?? ''].flatMap((t) =>
+      [...variants.flatMap((v) => [v.text, v.voicemail ?? '']), pack.meetingAsk ?? '', pack.ifNo ?? '', pack.confirmation ?? ''].flatMap((t) =>
         unsupportedNumbers(t, allSources),
       ),
     ),

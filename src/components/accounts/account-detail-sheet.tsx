@@ -208,6 +208,9 @@ export function AccountDetailSheet({
     setContactSheetOpen(true);
   }
 
+  // Con el Agente 3 disponible, preparar el contacto es la acción principal del pie.
+  const firstCallOffered = !!data && data.firstCall.enabled && data.account.pipeline_status !== 'archived';
+
   return (
     <>
       <DrawerShell
@@ -228,7 +231,8 @@ export function AccountDetailSheet({
           ) : undefined
         }
         loading={loading && !data}
-        // Pie: todas las acciones a la derecha; la principal («Buscar contactos») al final.
+        // Pie: todas las acciones a la derecha; la principal (el Agente 3) al final y
+        // «Buscar contactos» como secundaria (dueña 18-10).
         actions={
           data ? (
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2" data-testid="account-sheet-actions">
@@ -238,20 +242,8 @@ export function AccountDetailSheet({
                 onChanged={() => loadData(data.account.id)}
                 onArchived={onClose}
               />
-              {data.firstCall.enabled && data.account.pipeline_status !== 'archived' && (
-                <FirstCallLauncher
-                  accountId={data.account.id}
-                  accountName={data.account.name}
-                  contacts={toFirstCallContactOptions(data.contacts)}
-                  hasFreshBrief={data.freshBrief}
-                  variant="outline"
-                  onDone={() => afterFirstCall(data.account.id, true)}
-                  onViewResult={() => setTab(FIRST_CALL_TAB_ID)}
-                  onRequestOpen={onRequestFirstContact}
-                />
-              )}
               <AccountEnrichContactsButton
-                variant="default"
+                variant={firstCallOffered ? 'outline' : 'default'}
                 label="Buscar contactos"
                 preloadedCompany={{
                   name: data.account.name,
@@ -264,6 +256,18 @@ export function AccountDetailSheet({
                 disabled={data.account.pipeline_status === 'archived'}
                 onRequestOpen={onRequestEnrich}
               />
+              {firstCallOffered && (
+                <FirstCallLauncher
+                  accountId={data.account.id}
+                  accountName={data.account.name}
+                  contacts={toFirstCallContactOptions(data.contacts)}
+                  hasFreshBrief={data.freshBrief}
+                  prepared={data.firstCall.packs.some((p) => p.status !== 'failed' && p.status !== 'discarded')}
+                  onDone={() => afterFirstCall(data.account.id, true)}
+                  onViewResult={() => setTab(FIRST_CALL_TAB_ID)}
+                  onRequestOpen={onRequestFirstContact}
+                />
+              )}
             </div>
           ) : undefined
         }

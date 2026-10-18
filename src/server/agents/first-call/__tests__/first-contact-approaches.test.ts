@@ -17,7 +17,11 @@ import {
   recommendApproach,
 } from '../approaches';
 import { EMAIL_OPT_OUT_LINE, contentForChannel, parseWriterSubmission, splitEmail, verifyPack } from '../pack-verifier';
+import { hubspotActivityDay } from '../internal-facts';
+import { unsupportedNumbers } from '../numbers';
 import { mapPackRow } from '../row-mappers';
+import { allApplicableApproaches } from '../approaches';
+import { channelTabs, visibleClosedPacks } from '../../../../modules/speech/first-contact-tab-view';
 import { hasRecentSignal } from '../run-first-call';
 import type { ResearchFact } from '../types';
 import { BANNED_PHRASES, UBITS_CLAIMS, UBITS_OFFERS, addressFormFor, renderLibraryForPrompt } from '../ubits-messaging-library';
@@ -27,6 +31,7 @@ import {
   approachOptions,
   approachesFrom,
   buildFirstContactRequestBody,
+  firstContactDoneToast,
   normalizeApproachSelection,
   summaryText,
 } from '../../../../modules/speech/first-contact-wizard';
@@ -53,7 +58,14 @@ function raw(overrides: Record<string, unknown> = {}) {
     angle: 'Que los líderes de los dos bancos lideren igual.',
     product_key: null,
     call_script: { text: SCRIPT, fact_refs: ['F1'] },
-    call_opener_variants: [{ approach: 'insight', text: 'Laura, el 49 % de los líderes de talento dice que a su alta dirección le preocupa que la gente no tenga las habilidades para ejecutar la estrategia.', fact_refs: [] }],
+    call_script_variants: [
+      {
+        approach: 'insight',
+        text: 'Laura, el 49 % de los líderes de talento dice que a su alta dirección le preocupa que la gente no tenga las habilidades para ejecutar la estrategia. ¿Cómo lo están viviendo con la integración?',
+        voicemail: 'Laura, le dejé un correo con un dato sobre líderes de talento. Le escribo por ahí.',
+        fact_refs: [],
+      },
+    ],
     messages: [
       { channel: 'call', text: 'Laura, le dejé un correo sobre la integración con Scotiabank.', fact_refs: ['F1'], variants: [] },
       {
@@ -138,14 +150,14 @@ describe('solicitud y redactor con enfoques', () => {
     const tool = buildWriterSubmitTool(['call', 'email'], ['trigger', 'insight']);
     assert.deepEqual(tool.input_schema.properties.approach.enum, ['trigger', 'insight']);
     const props = tool.input_schema.properties as unknown as Record<string, { maxItems?: number; items?: { properties: Record<string, { maxItems?: number }> } }>;
-    assert.equal(props.call_opener_variants?.maxItems, 1);
+    assert.equal(props.call_script_variants?.maxItems, 1);
     assert.equal(props.messages.items?.properties.variants?.maxItems, 1);
     // Sin enfoques extra, el formulario no pide listas de versiones (más simple para modelos chicos).
     const single = buildWriterSubmitTool(['email'], []);
     const singleProps = single.input_schema.properties as unknown as Record<string, { items?: { properties: Record<string, unknown> } }>;
-    assert.equal(singleProps.call_opener_variants, undefined);
+    assert.equal(singleProps.call_script_variants, undefined);
     assert.equal(singleProps.messages.items?.properties.variants, undefined);
-    assert.ok(!single.input_schema.required.includes('call_opener_variants'));
+    assert.ok(!single.input_schema.required.includes('call_script_variants'));
     assert.ok(!single.input_schema.properties.approach.enum.includes('referral' as never));
     assert.ok(tool.input_schema.required.includes('meeting_ask'));
   });
@@ -194,6 +206,11 @@ describe('versiones por enfoque y correo', () => {
     assert.ok(email.shortMessage.text.endsWith(EMAIL_OPT_OUT_LINE));
     assert.ok(email.variants?.[0].text.endsWith(EMAIL_OPT_OUT_LINE));
     assert.deepEqual(call.variants?.map((v) => v.approach), ['insight']);
+    // En la llamada cada tipo trae todo: el guion completo y el mensaje si no contesta.
+    assert.match(call.variants?.[0].voicemail ?? '', /le dejé un correo/);
+    // La forma anterior (sólo la apertura) también se lee.
+    const legacy = parseWriterSubmission({ ...raw(), call_script_variants: undefined, call_opener_variants: [{ approach: 'insight', text: 'Laura, un dato.', fact_refs: [] }] }, ['call']);
+    assert.equal(contentForChannel(legacy, 'call').variants?.[0].voicemail, undefined);
     assert.equal(call.meetingAsk?.startsWith('¿Le parece'), true);
     assert.deepEqual(verifyPack(email, FACTS, 'email', { nowMs: NOW }), []);
     assert.deepEqual(verifyPack(call, FACTS, 'call', { nowMs: NOW }), []);
@@ -225,6 +242,22 @@ describe('verificador · reglas del manual', () => {
 
   it('no tutea en el primer contacto', () => {
     assert.ok(emailIssues('Asunto: Líderes\nLaura, vi la integración. ¿Te sirve que te comparta lo que vemos?').some((i) => i.includes('usted')));
+  });
+
+  it('dice dónde tutea: Grupo Ciisa (18-10) lo hacía sólo en la confirmación', () => {
+    const issues = emailIssues('Asunto: Líderes\nLaura, vi la integración. ¿Le sirve?', {
+      confirmation: 'Laura, confirmamos: [día y hora]. Te llevaré un diagnóstico para tu equipo.',
+    });
+    assert.ok(issues.some((i) => i.includes('Tutea al decisor en la confirmación')), issues.join(' | '));
+  });
+
+  it('los plazos y horarios de agenda no son cifras sin fuente; una cifra de la empresa sí', () => {
+    const agenda = emailIssues('Asunto: Líderes\nLaura, vi la integración. ¿Le sirve?', {
+      meeting_ask: '¿Le queda el miércoles a las 10 de la mañana o el jueves a las 2 p. m.? Algo en los próximos 7 a 14 días, de 20 a 30 minutos.',
+    });
+    assert.ok(!agenda.some((i) => i.includes('cifras sin fuente')), agenda.join(' | '));
+    assert.deepEqual(unsupportedNumbers('Abrieron 14 sedes nuevas.', []), ['14']);
+    assert.deepEqual(unsupportedNumbers('En los próximos 14 días o en 12 horas.', []), []);
   });
 
   it('con el enfoque «evento reciente», la noticia citada debe tener menos de 90 días', () => {
@@ -272,13 +305,13 @@ describe('preparación guardada', () => {
         approach: 'trigger',
         variants: [{ approach: 'insight', text: 'z', factRefs: [] }, { approach: 'magia', text: 'w' }],
         meetingAsk: 'martes o jueves',
-        outcome: { result: 'meeting_booked', at: '2026-10-18T10:00:00Z' },
+        outcome: { result: 'meeting_booked', at: '2026-10-18T10:00:00Z', approach: 'insight' },
       },
     });
     assert.equal(pack.content?.approach, 'trigger');
     assert.deepEqual(pack.content?.variants?.map((v) => v.approach), ['insight']);
     assert.equal(pack.content?.meetingAsk, 'martes o jueves');
-    assert.deepEqual(pack.outcome, { result: 'meeting_booked', at: '2026-10-18T10:00:00Z' });
+    assert.deepEqual(pack.outcome, { result: 'meeting_booked', at: '2026-10-18T10:00:00Z', approach: 'insight' });
     const odd = mapPackRow({ id: 'p', account_id: 'a', status: 'used', channel: 'email', goal: 'x', created_at: '2026-10-17T00:00:00Z', pack: { callScript: {}, outcome: { result: 'gané', at: 'x' } } });
     assert.equal(odd.outcome, null);
   });
@@ -309,6 +342,79 @@ describe('asistente · paso «Enfoque»', () => {
       buildFirstContactRequestBody({ accountId: ACCOUNT, selection: { ...selection, approaches: ['trigger'] }, refreshResearch: false }).referralNote,
       null,
     );
-    assert.match(summaryText({ ...selection, approaches: [] }, [], true), /Enfoque: el que recomiende el agente/);
+    assert.match(summaryText({ ...selection, approaches: [] }, [], true), /Enfoques: todos los que apliquen, una versión de cada uno/);
+  });
+});
+
+describe('HubSpot en la ficha', () => {
+  const NOW_MS = Date.UTC(2026, 9, 18);
+  it('omite fechas imposibles y lee un número en segundos', () => {
+    assert.equal(hubspotActivityDay('1970-01-21T00:00:00Z', NOW_MS), null);
+    assert.equal(hubspotActivityDay('2026-09-30T14:00:00Z', NOW_MS), '2026-09-30');
+    assert.equal(hubspotActivityDay('1759240800', NOW_MS), '2025-09-30');
+    assert.equal(hubspotActivityDay('1759240800000', NOW_MS), '2025-09-30');
+    assert.equal(hubspotActivityDay('2030-01-01', NOW_MS), null);
+    assert.equal(hubspotActivityDay('no es fecha', NOW_MS), null);
+    assert.equal(hubspotActivityDay(null, NOW_MS), null);
+  });
+});
+
+describe('aviso al terminar', () => {
+  const contacts = [{ id: 'c1', name: 'Emily Cerdas', title: 'Head of Human Resources' }];
+  const selection = { contactIds: ['c1'], channels: ['call', 'email'] as const, goals: ['book_meeting'] as const, productKeys: [], approaches: [], referralNote: null };
+
+  it('confirma cuántas, para quién y por dónde, y cuántas revisar', () => {
+    const notice = firstContactDoneToast(['draft', 'needs_review'], { ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts);
+    assert.equal(notice.tone, 'success');
+    assert.equal(notice.title, '¡Primer contacto listo!');
+    assert.equal(notice.description, '2 preparaciones para Emily Cerdas por Llamada y Correo. Una tiene avisos para revisar antes de usarla.');
+  });
+
+  it('avisa las que no se pudieron escribir', () => {
+    const notice = firstContactDoneToast(['draft', 'failed'], { ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts);
+    assert.equal(notice.tone, 'warning');
+    assert.match(notice.description, /^Una preparación para Emily Cerdas .* Lista para usar\. Una no se pudo escribir/);
+  });
+});
+
+describe('«Todos»: una versión con cada enfoque que aplique', () => {
+  it('el recomendado primero; sin noticia no hay «evento reciente», sin nombre no hay referencia, nunca «Pares»', () => {
+    assert.deepEqual(allApplicableApproaches('problem', { hasRecentSignal: false, hasReferral: false, countryCode: 'CR' }), [
+      'problem',
+      'insight',
+      'value_first',
+      'permission',
+      'who_decides',
+    ]);
+    const withNews = allApplicableApproaches('trigger', { hasRecentSignal: true, hasReferral: true, countryCode: 'CO' });
+    assert.equal(withNews[0], 'trigger');
+    assert.ok(withNews.includes('referral'));
+    assert.ok(!withNews.includes('peers'));
+    assert.deepEqual(allApplicableApproaches('permission', { hasRecentSignal: true, hasReferral: false, countryCode: 'PE' }), ['permission']);
+  });
+});
+
+describe('pestaña «Primer contacto»', () => {
+  const pack = (id: string, channel: string, status: string, createdAt: string, contactId = 'c1') =>
+    ({ id, channel, status, createdAt, contactId }) as unknown as Parameters<typeof channelTabs>[0][number];
+
+  it('una pestaña por canal, en el orden de siempre y la más nueva primero', () => {
+    const tabs = channelTabs([
+      pack('a', 'linkedin', 'draft', '2026-10-18T01:00:00Z'),
+      pack('b', 'call', 'draft', '2026-10-17T01:00:00Z'),
+      pack('c', 'call', 'needs_review', '2026-10-18T01:00:00Z'),
+    ]);
+    assert.deepEqual(tabs.map((t) => t.channel), ['call', 'linkedin']);
+    assert.deepEqual(tabs[0].packs.map((p) => p.id), ['c', 'b']);
+  });
+
+  it('esconde la fallida que ya tiene una preparación más nueva del mismo decisor y canal', () => {
+    const closed = visibleClosedPacks([
+      pack('old', 'email', 'failed', '2026-10-17T20:19:00Z'),
+      pack('new', 'email', 'needs_review', '2026-10-18T01:54:00Z'),
+      pack('other', 'email', 'failed', '2026-10-17T20:19:00Z', 'c2'),
+      pack('gone', 'call', 'discarded', '2026-10-17T20:19:00Z'),
+    ]);
+    assert.deepEqual(closed.map((p) => p.id).sort(), ['gone', 'other']);
   });
 });

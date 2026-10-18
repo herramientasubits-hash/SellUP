@@ -28,7 +28,7 @@ import {
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
-import { recommendApproach } from './approaches';
+import { allApplicableApproaches, recommendApproach } from './approaches';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
 import {
@@ -503,16 +503,26 @@ async function writeForTarget(params: {
   const { request, context, target, brief, models, deps } = params;
   const internal: InternalContext = { ...context.internal, decisionMaker: target };
   const channels = request.channels;
-  const approaches = request.approaches;
   const facts = factsForWriting(brief.facts, internal);
   const nowMs = deps.now();
+  const recentSignal = hasRecentSignal(brief.facts, nowMs);
   const recommendedApproach = recommendApproach({
     title: target?.title ?? null,
-    hasRecentSignal: hasRecentSignal(brief.facts, nowMs),
+    hasRecentSignal: recentSignal,
     hasDecisionMaker: target !== null,
     countryCode: internal.account.countryCode,
   });
-  const extraVersions = Math.max(0, approaches.length - 1) * (channels.length + (channels.includes('call') ? 1 : 0));
+  // Sin enfoques elegidos: una versión con cada uno que aplique, el recomendado como principal.
+  const approaches =
+    request.approaches.length > 0
+      ? request.approaches
+      : allApplicableApproaches(recommendedApproach, {
+          hasRecentSignal: recentSignal,
+          hasReferral: !!request.referralNote,
+          countryCode: internal.account.countryCode,
+        });
+  // En la llamada cada versión es el guion completo más el mensaje de voz (pesa como tres mensajes).
+  const extraVersions = Math.max(0, approaches.length - 1) * (channels.length + (channels.includes('call') ? 2 : 0));
   const body: AnthropicRequestBody = {
     model: models.writerModel,
     max_tokens: WRITER_MAX_OUTPUT_TOKENS + 400 * Math.max(0, channels.length - 1) + 250 * extraVersions,

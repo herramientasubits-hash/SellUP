@@ -76,9 +76,22 @@ const approachVariant = {
   },
 } as const;
 
+/** En la llamada, cada enfoque trae TODO: el guion completo y el mensaje si no contesta. */
+const callScriptVariant = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approach', 'text', 'voicemail', 'fact_refs'],
+  properties: {
+    approach: { type: 'string', enum: [...FIRST_CONTACT_APPROACHES] },
+    text: { type: 'string', description: 'El guion completo de la llamada con este enfoque.' },
+    voicemail: { type: 'string', description: 'El mensaje de voz si no contesta, con este enfoque.' },
+    fact_refs: { type: 'array', items: { type: 'string' } },
+  },
+} as const;
+
 /**
  * Herramienta del redactor para los canales pedidos (un mensaje por canal). Con varios
- * enfoques, cada mensaje (y la apertura de la llamada) trae una versión por enfoque extra.
+ * enfoques, cada mensaje (y en la llamada, el guion y el mensaje de voz) trae una versión por enfoque extra.
  */
 export function buildWriterSubmitTool(
   channels: readonly FirstCallChannel[] = ['call'],
@@ -110,7 +123,7 @@ export function buildWriterSubmitTool(
         : {}),
     },
   };
-  const withOpeners = wantsCall && extra > 0;
+  const withCallVariants = wantsCall && extra > 0;
   const required = [
     'approach',
     'approach_reason',
@@ -118,7 +131,7 @@ export function buildWriterSubmitTool(
     'angle',
     'product_key',
     'call_script',
-    ...(withOpeners ? ['call_opener_variants'] : []),
+    ...(withCallVariants ? ['call_script_variants'] : []),
     'messages',
     'meeting_ask',
     'questions',
@@ -155,13 +168,13 @@ export function buildWriterSubmitTool(
             ? `Guion de llamada de ${CALL_SCRIPT_MIN_WORDS} a ${CALL_SCRIPT_MAX_WORDS} palabras con el enfoque principal.`
             : 'No se pidió llamada: deja text vacío y fact_refs vacío.',
         },
-        ...(withOpeners
+        ...(withCallVariants
           ? {
-              call_opener_variants: {
+              call_script_variants: {
                 type: 'array',
                 maxItems: extra,
-                items: approachVariant,
-                description: 'Las primeras 2 o 3 frases de la llamada (la apertura) con cada uno de los OTROS enfoques pedidos.',
+                items: callScriptVariant,
+                description: `El guion COMPLETO de la llamada (${CALL_SCRIPT_MIN_WORDS} a ${CALL_SCRIPT_MAX_WORDS} palabras, el mismo orden) y el mensaje de voz si no contesta, con cada uno de los OTROS enfoques pedidos. No sólo la apertura: todo cambia con el enfoque.`,
               },
             }
           : {}),
@@ -202,7 +215,7 @@ export function buildWriterSubmitTool(
         confirmation: {
           type: 'string',
           description:
-            'El mensaje para confirmar la reunión apenas se agenda: su nombre, 2 o 3 líneas de agenda y lo que se lleva. Menos de 70 palabras.',
+            'El mensaje para confirmar la reunión apenas se agenda: su nombre, 2 o 3 líneas de agenda y lo que se lleva. Menos de 70 palabras. También en «usted» («le llevo», «su equipo»; nunca «te», «tu»).',
         },
         cautions: {
           type: 'array',
@@ -223,7 +236,7 @@ export function buildWriterSystemPrompt(): string {
     'Reglas obligatorias:',
     '- Escribe en español natural de Latinoamérica, como habla un vendedor consultivo, no como un folleto. SIEMPRE «usted», en todos los países: es un primer contacto.',
     '- reason_to_call: una razón CONCRETA y verificable, basada en un hecho de la ficha (mejor una señal de los últimos 90 días o un dato de talento). Dar el motivo duplica las llamadas exitosas.',
-    '- Enfoques: escribe la versión principal con el enfoque indicado y una versión por cada enfoque extra pedido. Cada enfoque tiene su regla (ver «Enfoques pedidos»).',
+    '- Enfoques: escribe la versión principal con el enfoque indicado y una versión por cada enfoque extra pedido. Cada enfoque tiene su regla (ver «Enfoques pedidos»). Cada versión es completa y se puede usar sola: en la llamada, el guion entero y el mensaje si no contesta, no sólo la apertura.',
     `- call_script (sólo si piden llamada): entre ${CALL_SCRIPT_MIN_WORDS} y ${CALL_SCRIPT_MAX_WORDS} palabras. Orden: (1) nombre y empresa; (2) reconoce que la llamada es inesperada y pide permiso para 30 segundos («¿me regala 30 segundos y usted decide si seguimos?»); (3) el motivo de hoy y el problema, sin vender la plataforma; (4) UNA pregunta abierta; (5) si hay interés, pedir la reunión con dos horarios y callar.`,
     '- Nunca abras con «¿cómo ha estado?» (falsa confianza con alguien que no lo conoce), «¿lo agarro en mal momento?», «¿tiene un minuto?» ni «¿tiene 15 minutos?» antes de dar el motivo.',
     `- messages: uno por canal pedido, todos con el mismo ángulo. Formatos: ${(Object.keys(CHANNEL_FORMAT) as FirstCallChannel[]).map((c) => `${FIRST_CALL_CHANNEL_LABELS[c]}: ${CHANNEL_FORMAT[c]}`).join('; ')}.`,

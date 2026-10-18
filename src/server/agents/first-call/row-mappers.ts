@@ -185,7 +185,12 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
     variants: (Array.isArray(pack['variants']) ? pack['variants'] : [])
       .map(asRecord)
       .filter((v): v is Record<string, unknown> => !!v && approachFrom(v['approach']) !== null && !!text(v['text']))
-      .map((v) => ({ approach: approachFrom(v['approach'])!, text: v['text'] as string, factRefs: stringsFrom(v['factRefs']) })),
+      .map((v) => ({
+        approach: approachFrom(v['approach'])!,
+        text: v['text'] as string,
+        factRefs: stringsFrom(v['factRefs']),
+        ...(text(v['voicemail']) ? { voicemail: text(v['voicemail'])! } : {}),
+      })),
     meetingAsk: text(pack['meetingAsk']) ?? undefined,
     ifNo: text(pack['ifNo']) ?? undefined,
     confirmation: text(pack['confirmation']) ?? undefined,
@@ -203,7 +208,7 @@ function outcomeFrom(value: unknown): FirstCallPack['outcome'] {
   const result = text(record?.['result']);
   const at = text(record?.['at']);
   if (!result || !at || !(FIRST_CONTACT_OUTCOMES as readonly string[]).includes(result)) return null;
-  return { result: result as FirstContactOutcome, at };
+  return { result: result as FirstContactOutcome, at, approach: approachFrom(record?.['approach']) };
 }
 
 export function mapPackRow(row: Record<string, unknown>): FirstCallPack {

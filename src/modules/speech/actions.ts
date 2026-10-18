@@ -20,7 +20,7 @@ import { isBriefFresh } from './first-call-state';
 import { mapBriefRow, mapPackRow } from '@/server/agents/first-call/row-mappers';
 import { RESEARCH_RUNNING_STALE_MS } from '@/server/agents/first-call/run-first-call.server';
 import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchProgressStage } from '@/server/agents/first-call/types';
-import { FIRST_CONTACT_OUTCOMES, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
+import { FIRST_CONTACT_APPROACHES, FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
 
 /**
  * Qué ficha mostrar, con la MISMA regla que el servidor al reusar: una investigación
@@ -163,11 +163,18 @@ async function updatePack(
 }
 
 /** El resultado del contacto va dentro del JSON de la preparación (sin migración). */
-async function packWithOutcome(packId: string, outcome: FirstContactOutcome): Promise<Record<string, unknown> | null> {
+async function packWithOutcome(
+  packId: string,
+  outcome: FirstContactOutcome,
+  approach?: FirstContactApproach | null,
+): Promise<Record<string, unknown> | null> {
   if (!FIRST_CONTACT_OUTCOMES.includes(outcome)) return null;
   const own = await loadOwnPack(packId);
   if (!own?.pack) return null;
-  return { ...own.pack, outcome: { result: outcome, at: new Date().toISOString() } };
+  // La versión usada: la que llega (si es un enfoque válido) o la que ya estaba guardada.
+  const previous = (own.pack['outcome'] as { approach?: unknown } | null | undefined)?.approach;
+  const used = approach && FIRST_CONTACT_APPROACHES.includes(approach) ? approach : typeof previous === 'string' ? previous : null;
+  return { ...own.pack, outcome: { result: outcome, at: new Date().toISOString(), approach: used } };
 }
 
 /**
@@ -179,8 +186,10 @@ export async function markFirstCallPackUsed(
   packId: string,
   moveToReady: boolean,
   outcome: FirstContactOutcome | null = null,
+  /** La versión (enfoque) que usó, para aprender cuál consigue la reunión. */
+  approach: FirstContactApproach | null = null,
 ): Promise<PackActionResult> {
-  const pack = outcome ? await packWithOutcome(packId, outcome) : null;
+  const pack = outcome ? await packWithOutcome(packId, outcome, approach) : null;
   if (outcome && !pack) return { success: false, error: 'No encontramos esa preparación.' };
   const result = await updatePack(packId, 'used', {
     status: 'used',
