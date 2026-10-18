@@ -31,7 +31,48 @@ const LENGTH_TOLERANCE = 1.1;
 export function extractWriterSubmission(content: readonly AnthropicContentBlock[]): Record<string, unknown> | null {
   const block = [...content].reverse().find((b) => b.type === 'tool_use' && b.name === WRITER_SUBMIT_TOOL);
   if (!block || typeof block.input !== 'object' || block.input === null) return null;
-  return block.input as Record<string, unknown>;
+  return normalizeKeys(block.input) as Record<string, unknown>;
+}
+
+/**
+ * Los modelos chicos (Haiku) a veces entregan una lista o un objeto como TEXTO JSON
+ * («"messages": "[{…}]"») o con las claves en camelCase. Corrida real de Grupo Ciisa
+ * (18-10): la entrega llegó sin mensajes, objeciones ni pedido de reunión. Antes de
+ * leer, se desenvuelve el texto JSON y se pasan las claves a snake_case.
+ */
+function unwrapJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!(trimmed.startsWith('[') || trimmed.startsWith('{'))) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function snakeCase(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+function normalizeKeys(value: unknown): unknown {
+  const unwrapped = unwrapJson(value);
+  if (Array.isArray(unwrapped)) return unwrapped.map(normalizeKeys);
+  if (unwrapped && typeof unwrapped === 'object') {
+    return Object.fromEntries(Object.entries(unwrapped as Record<string, unknown>).map(([k, v]) => [snakeCase(k), normalizeKeys(v)]));
+  }
+  return unwrapped;
+}
+
+/** Una lista, aunque llegue como objeto con claves (p. ej. un mensaje por canal: `{ "call": {…} }`). */
+function list(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).map(([key, item]) =>
+      item && typeof item === 'object' && !Array.isArray(item) ? { channel: key, ...(item as Record<string, unknown>) } : item,
+    );
+  }
+  return [];
 }
 
 function str(value: unknown): string {
@@ -39,22 +80,35 @@ function str(value: unknown): string {
 }
 
 function strList(value: unknown, max: number): string[] {
-  return (Array.isArray(value) ? value : []).map(str).filter((s) => s.length > 0).slice(0, max);
+  return list(value).map(str).filter((s) => s.length > 0).slice(0, max);
 }
 
+/** Un texto con sus hechos citados; si llega sólo el texto, sin citas. */
 function withRefs(value: unknown): PackTextWithRefs {
+  if (typeof value === 'string') return { text: value.trim(), factRefs: [] };
   const record = (value ?? {}) as Record<string, unknown>;
-  const refs = Array.isArray(record.fact_refs) ? record.fact_refs : [];
+  const refs = list(record.fact_refs);
   return {
     text: str(record.text),
     factRefs: [...new Set(refs.filter((r): r is string => typeof r === 'string').map((r) => r.trim()))],
   };
 }
 
+/**
+ * Qué trajo la entrega, sin el contenido: cada campo y su tipo. Va al registro de uso
+ * cuando falla, para diagnosticar sin guardar el texto.
+ */
+export function describeSubmissionShape(raw: Record<string, unknown> | null): Record<string, string> {
+  if (!raw) return { submission: 'missing' };
+  return Object.fromEntries(
+    Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? `array(${v.length})` : v === null ? 'null' : typeof v]),
+  );
+}
+
 /** De la respuesta cruda a un paquete con forma fija (sin validar el contenido). */
 export function parsePackSubmission(raw: Record<string, unknown>): FirstCallPackContent {
   const libraryKeys = new Set(UBITS_OBJECTIONS.map((o) => o.key));
-  const objections: PackObjection[] = (Array.isArray(raw.objections) ? raw.objections : [])
+  const objections: PackObjection[] = list(raw.objections)
     .map((o) => (o ?? {}) as Record<string, unknown>)
     .map((o) => {
       const key = str(o.library_key);
@@ -91,7 +145,7 @@ function isApproach(value: string): value is FirstContactApproach {
 function variantsFrom(value: unknown, exclude: FirstContactApproach | null | undefined): ApproachVariant[] {
   const seen = new Set<string>();
   const out: ApproachVariant[] = [];
-  for (const item of Array.isArray(value) ? value : []) {
+  for (const item of list(value)) {
     const record = (item ?? {}) as Record<string, unknown>;
     const approach = str(record.approach);
     const text = str(record.text);
@@ -124,7 +178,7 @@ export function parseWriterSubmission(raw: Record<string, unknown>, channels: re
   const shared = parsePackSubmission(raw);
   const messages: Partial<Record<FirstCallChannel, PackTextWithRefs>> = {};
   const messageVariants: Partial<Record<FirstCallChannel, ApproachVariant[]>> = {};
-  for (const item of Array.isArray(raw.messages) ? raw.messages : []) {
+  for (const item of list(raw.messages)) {
     const record = (item ?? {}) as Record<string, unknown>;
     const channel = str(record.channel) as FirstCallChannel;
     if (channels.includes(channel) && !messages[channel]) {

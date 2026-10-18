@@ -31,7 +31,14 @@ import type { Agent3StatusTarget } from './account-status';
 import { recommendApproach } from './approaches';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
-import { contentForChannel, extractWriterSubmission, parseWriterSubmission, verifyPack, type WriterSubmission } from './pack-verifier';
+import {
+  contentForChannel,
+  describeSubmissionShape,
+  extractWriterSubmission,
+  parseWriterSubmission,
+  verifyPack,
+  type WriterSubmission,
+} from './pack-verifier';
 import {
   RESEARCH_MAX_OUTPUT_TOKENS,
   RESEARCH_SUBMIT_TOOL,
@@ -450,6 +457,8 @@ interface WrittenForTarget {
   issuesByChannel: Partial<Record<FirstCallChannel, string[]>>;
   usage: AnthropicUsageTotals;
   errorCode: string | null;
+  /** Qué campos trajo la última entrega y de qué tipo (sin contenido), para diagnosticar. */
+  shape: Record<string, string>;
 }
 
 function verifyAll(
@@ -540,17 +549,19 @@ async function writeForTarget(params: {
 
   const dmName = target?.name ?? null;
   let usage = EMPTY_USAGE;
+  let shape: Record<string, string> = {};
   let submission: WriterSubmission | null = null;
   let issuesByChannel: Partial<Record<FirstCallChannel, string[]>> = {};
   try {
     const first = await deps.runConversation(body, models.apiKey);
     usage = first.usage;
     const raw = extractWriterSubmission(first.content);
-    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission' };
+    shape = describeSubmissionShape(raw);
+    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape };
     submission = parseWriterSubmission(raw, channels);
     issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     const issues = combinedIssues(issuesByChannel, channels);
-    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null };
+    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape };
 
     const second = await deps.runConversation(
       {
@@ -576,18 +587,19 @@ async function writeForTarget(params: {
     );
     usage = sumUsage(usage, second.usage);
     const retried = extractWriterSubmission(second.content);
+    if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null };
+    return { submission, facts, issuesByChannel, usage, errorCode: null, shape };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
     usage = sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE);
     // Si falló la CORRECCIÓN, el primer borrador sigue sirviendo: queda para revisar.
-    if (submission) return { submission, facts, issuesByChannel, usage, errorCode };
-    return { submission: null, facts, issuesByChannel: {}, usage, errorCode };
+    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape };
+    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape };
   }
 }
 
@@ -641,6 +653,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     const startedAt = deps.now();
     const written = await writeForTarget({ request, context, target, brief, models, deps });
     const costUsd = costOf(written.usage, models.writerModel);
+    const missingChannels = request.channels.filter((c) => !written.submission?.messages[c]?.text);
     await deps.logUsage({
       providerKey: 'anthropic',
       operationKey: 'first_call_pack',
@@ -661,6 +674,8 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         channels: request.channels,
         product_keys: request.productKeys,
         regeneration: request.regenerateFromPackId !== null,
+        // Sólo si algún canal quedó sin mensaje: qué trajo la entrega (campos y tipos, sin texto).
+        ...(missingChannels.length > 0 ? { missing_channels: missingChannels, submission_shape: written.shape } : {}),
       },
     });
 
@@ -670,7 +685,9 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     for (const channel of request.channels) {
       const content = written.submission ? contentForChannel(written.submission, channel) : null;
       const issues = written.issuesByChannel[channel] ?? [];
-      const status: FirstCallPackStatus = !content || !content.shortMessage.text ? 'failed' : issues.length > 0 ? 'needs_review' : 'draft';
+      // Una llamada con guion sirve aunque falte el mensaje de voz: queda «para revisar».
+      const usable = !!content && (!!content.shortMessage.text || (channel === 'call' && !!content.callScript.text));
+      const status: FirstCallPackStatus = !usable ? 'failed' : issues.length > 0 ? 'needs_review' : 'draft';
       const id = await deps.insertPack({
         accountId: request.accountId,
         briefId,

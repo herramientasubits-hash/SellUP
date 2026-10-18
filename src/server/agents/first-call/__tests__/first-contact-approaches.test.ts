@@ -137,10 +137,15 @@ describe('solicitud y redactor con enfoques', () => {
   it('la herramienta pide versiones sólo por los enfoques extra y limita el enfoque a los pedidos', () => {
     const tool = buildWriterSubmitTool(['call', 'email'], ['trigger', 'insight']);
     assert.deepEqual(tool.input_schema.properties.approach.enum, ['trigger', 'insight']);
-    assert.equal(tool.input_schema.properties.call_opener_variants.maxItems, 1);
-    assert.equal(tool.input_schema.properties.messages.items.properties.variants.maxItems, 1);
+    const props = tool.input_schema.properties as unknown as Record<string, { maxItems?: number; items?: { properties: Record<string, { maxItems?: number }> } }>;
+    assert.equal(props.call_opener_variants?.maxItems, 1);
+    assert.equal(props.messages.items?.properties.variants?.maxItems, 1);
+    // Sin enfoques extra, el formulario no pide listas de versiones (más simple para modelos chicos).
     const single = buildWriterSubmitTool(['email'], []);
-    assert.equal(single.input_schema.properties.call_opener_variants.maxItems, 0);
+    const singleProps = single.input_schema.properties as unknown as Record<string, { items?: { properties: Record<string, unknown> } }>;
+    assert.equal(singleProps.call_opener_variants, undefined);
+    assert.equal(singleProps.messages.items?.properties.variants, undefined);
+    assert.ok(!single.input_schema.required.includes('call_opener_variants'));
     assert.ok(!single.input_schema.properties.approach.enum.includes('referral' as never));
     assert.ok(tool.input_schema.required.includes('meeting_ask'));
   });

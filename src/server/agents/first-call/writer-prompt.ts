@@ -88,29 +88,54 @@ export function buildWriterSubmitTool(
   const productKeys = UBITS_PRODUCTS.map((p) => p.key);
   const wantsCall = channels.includes('call');
   const extra = Math.max(0, approaches.length - 1);
+  // Sin enfoques extra no se piden listas de versiones: un formulario más simple
+  // (los modelos chicos dejaban campos sin llenar con listas vacías obligatorias).
+  const messageItem = {
+    type: 'object',
+    additionalProperties: false,
+    required: extra > 0 ? ['channel', 'text', 'fact_refs', 'variants'] : ['channel', 'text', 'fact_refs'],
+    properties: {
+      channel: { type: 'string', enum: [...channels] },
+      text: { type: 'string', description: 'El mensaje completo para ese canal.' },
+      fact_refs: { type: 'array', items: { type: 'string' }, description: 'IDs de los hechos usados (F1…).' },
+      ...(extra > 0
+        ? {
+            variants: {
+              type: 'array',
+              maxItems: extra,
+              items: approachVariant,
+              description: 'El mismo mensaje con cada uno de los OTROS enfoques pedidos.',
+            },
+          }
+        : {}),
+    },
+  };
+  const withOpeners = wantsCall && extra > 0;
+  const required = [
+    'approach',
+    'approach_reason',
+    'reason_to_call',
+    'angle',
+    'product_key',
+    'call_script',
+    ...(withOpeners ? ['call_opener_variants'] : []),
+    'messages',
+    'meeting_ask',
+    'questions',
+    'objections',
+    'if_no',
+    'next_step',
+    'confirmation',
+    'cautions',
+  ];
   return {
     name: WRITER_SUBMIT_TOOL,
-    description: 'Entrega la preparación del primer contacto con este decisor. Llámalo UNA vez, al final.',
+    description:
+      'Entrega la preparación del primer contacto con este decisor. Llámalo UNA vez, al final, con TODOS los campos: cada lista como lista JSON (no como texto) y un mensaje por canal pedido.',
     input_schema: {
       type: 'object',
       additionalProperties: false,
-      required: [
-        'approach',
-        'approach_reason',
-        'reason_to_call',
-        'angle',
-        'product_key',
-        'call_script',
-        'call_opener_variants',
-        'messages',
-        'meeting_ask',
-        'questions',
-        'objections',
-        'if_no',
-        'next_step',
-        'confirmation',
-        'cautions',
-      ],
+      required,
       properties: {
         approach: {
           type: 'string',
@@ -130,35 +155,22 @@ export function buildWriterSubmitTool(
             ? `Guion de llamada de ${CALL_SCRIPT_MIN_WORDS} a ${CALL_SCRIPT_MAX_WORDS} palabras con el enfoque principal.`
             : 'No se pidió llamada: deja text vacío y fact_refs vacío.',
         },
-        call_opener_variants: {
-          type: 'array',
-          maxItems: wantsCall ? extra : 0,
-          items: approachVariant,
-          description: wantsCall && extra > 0
-            ? 'Las primeras 2 o 3 frases de la llamada (la apertura) con cada uno de los OTROS enfoques pedidos.'
-            : 'Vacío.',
-        },
+        ...(withOpeners
+          ? {
+              call_opener_variants: {
+                type: 'array',
+                maxItems: extra,
+                items: approachVariant,
+                description: 'Las primeras 2 o 3 frases de la llamada (la apertura) con cada uno de los OTROS enfoques pedidos.',
+              },
+            }
+          : {}),
         messages: {
           type: 'array',
           minItems: channels.length,
           maxItems: channels.length,
-          description: 'Un mensaje por canal pedido, en el mismo ángulo y con el enfoque principal.',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['channel', 'text', 'fact_refs', 'variants'],
-            properties: {
-              channel: { type: 'string', enum: [...channels] },
-              text: { type: 'string' },
-              fact_refs: { type: 'array', items: { type: 'string' }, description: 'IDs de los hechos usados (F1…).' },
-              variants: {
-                type: 'array',
-                maxItems: extra,
-                items: approachVariant,
-                description: extra > 0 ? 'El mismo mensaje con cada uno de los OTROS enfoques pedidos.' : 'Vacío.',
-              },
-            },
-          },
+          description: `Exactamente ${channels.length} mensaje(s), uno por canal pedido (${channels.join(', ')}), en el mismo ángulo y con el enfoque principal.`,
+          items: messageItem,
         },
         meeting_ask: {
           type: 'string',
