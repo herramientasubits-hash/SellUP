@@ -523,3 +523,20 @@ describe('runFirstCall — cascada con varias selecciones', () => {
     assert.equal(calls.packs[0].productFocus, 'desempeno_360');
   });
 });
+
+describe('runFirstCall — entrega incompleta del redactor (Grupo Ciisa, 18-10)', () => {
+  it('una llamada con guion queda «para revisar» aunque falte el mensaje de voz; los otros canales sin mensaje fallan y el registro dice qué faltó', async () => {
+    const incomplete = { ...GOOD_PACK, short_message: undefined, messages: [] };
+    const { deps, calls } = harness({ writer: [incomplete, incomplete] });
+    const result = await runFirstCall({ ...REQUEST, channels: ['call', 'email'] }, deps);
+    assert.equal(result.ok, true);
+    const call = calls.packs.find((p) => p.channel === 'call')!;
+    const email = calls.packs.find((p) => p.channel === 'email')!;
+    assert.equal(call.status, 'needs_review');
+    assert.ok(call.content?.callScript.text);
+    assert.equal(email.status, 'failed');
+    const log = calls.logs.find((l) => l.operationKey === 'first_call_pack')!;
+    assert.deepEqual(log.metadata.missing_channels, ['call', 'email']);
+    assert.equal((log.metadata.submission_shape as Record<string, string>).messages, 'array(0)');
+  });
+});

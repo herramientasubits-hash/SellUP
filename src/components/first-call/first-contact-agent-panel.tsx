@@ -23,6 +23,7 @@ import {
   normalizeApproachSelection,
   normalizeDecisionMakerSelection,
   normalizeProductSelection,
+  estimatedDuration,
   preparationsCount,
   productKeysFrom,
   productOptions,
@@ -201,6 +202,18 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setWasOpen(open);
     if (open && phase !== 'running') reset();
   }
+
+  // Segundos desde que empezó a trabajar (como el loader del Agente 1).
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    if (phase !== 'running') return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => {
+      window.clearInterval(timer);
+      setElapsed(0);
+    };
+  }, [phase]);
 
   React.useEffect(() => {
     if (phase !== 'running') return;
@@ -488,29 +501,38 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
       newConversationDisabled={phase === 'running'}
       closeDisabled={phase === 'running'}
     >
-      <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="first-contact-agent">
-        <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-5">
-          <div className="flex min-h-full flex-col gap-4">
-            <Stepper
-              size="sm"
-              steps={[...FIRST_CONTACT_STEPS]}
-              current={phase === 'asking' ? step : FIRST_CONTACT_STEPS.length}
-              onStepClick={phase === 'asking' ? (index) => index < step && setStep(index) : undefined}
-              aria-label="Pasos del primer contacto"
-            />
-            <AgentChatTimeline messages={messages} />
-            {phase === 'running' && (
-              <AiAnalyzingState
-                title={stage ? RESEARCH_PROGRESS_LABELS[stage] : 'Empezando'}
-                progress={stage ? (willResearch ? STAGE_PERCENT[stage] : stage === 'writing' ? 50 : STAGE_PERCENT[stage]) : 5}
-                detail={total === 1 ? 'Una preparación' : `${total} preparaciones`}
-                caption="No cierres este panel mientras trabaja."
-              />
-            )}
-          </div>
+      {phase === 'running' ? (
+        // Mientras trabaja, la espera ocupa todo el panel (como en el Agente 1): sin la
+        // conversación ni los pasos arriba, con lo que hace en vivo y los segundos.
+        <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="first-contact-running">
+          <AiAnalyzingState
+            className="flex-1"
+            title={stage ? RESEARCH_PROGRESS_LABELS[stage] : 'Empezando'}
+            progress={stage ? (willResearch ? STAGE_PERCENT[stage] : stage === 'writing' ? 50 : STAGE_PERCENT[stage]) : 5}
+            detail={total === 1 ? 'Una preparación' : `${total} preparaciones`}
+            caption={elapsed > 0 ? `Preparando el primer contacto · ${elapsed} s` : 'Preparando el primer contacto'}
+          />
+          <p className="px-6 pb-6 pt-5 text-center text-xs leading-relaxed text-muted-foreground">
+            No cierres este panel mientras trabaja: tarda {estimatedDuration(selection, willResearch)}.
+          </p>
         </div>
-        {question && <div className="shrink-0 px-4 pb-4 pt-2">{question}</div>}
-      </div>
+      ) : (
+        <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="first-contact-agent">
+          <div className="relative min-h-0 flex-1 overflow-y-auto px-4 py-5">
+            <div className="flex min-h-full flex-col gap-4">
+              <Stepper
+                size="sm"
+                steps={[...FIRST_CONTACT_STEPS]}
+                current={phase === 'asking' ? step : FIRST_CONTACT_STEPS.length}
+                onStepClick={phase === 'asking' ? (index) => index < step && setStep(index) : undefined}
+                aria-label="Pasos del primer contacto"
+              />
+              <AgentChatTimeline messages={messages} />
+            </div>
+          </div>
+          {question && <div className="shrink-0 px-4 pb-4 pt-2">{question}</div>}
+        </div>
+      )}
     </ChatPanel>
   );
 }
