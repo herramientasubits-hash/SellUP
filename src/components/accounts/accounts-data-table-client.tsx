@@ -14,7 +14,6 @@ import {
   ExternalLink,
   UserSearch,
   Globe,
-  Search,
   Sparkles,
   SendHorizonal,
   UserPlus,
@@ -49,12 +48,16 @@ import {
   countryName,
 } from '@/components/shared/table-cells';
 import {
-  PIPELINE_STATUS_LABELS,
+  ACCOUNT_NEXT_STEPS,
+  ACCOUNT_NEXT_STEP_ORDER,
+  resolveAccountNextStep,
+  type AccountNextStepKey,
+} from '@/modules/accounts/next-step';
+import {
   INDUSTRIES,
   LATAM_COUNTRIES,
   type AccountListItem,
   type InternalUserOption,
-  type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { archiveAccounts, assignAccountsToUser } from '@/modules/accounts/actions';
@@ -71,48 +74,67 @@ import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bul
 
 type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
-const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
-  new: 'neutral',
-  ready_for_research: 'brand',
-  research_in_progress: 'warning',
-  ready_for_outreach: 'positive',
-  archived: 'neutral',
-};
+/** El siguiente paso de una fila (la página lo calcula; sin dato, el primero del recorrido). */
+function nextStepOf(account: AccountListItem): AccountNextStepKey {
+  return (
+    account.next_step ??
+    resolveAccountNextStep({ archived: account.pipeline_status === 'archived', contactsTotal: 0, lastEnrichmentStatus: null, packs: [] })
+  );
+}
+
+function NextStepBadge({ step }: { step: AccountNextStepKey }) {
+  const def = ACCOUNT_NEXT_STEPS[step];
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={def.agent ? `Lo hace el ${def.agent}` : 'Lo haces tú'}>
+      <Badge variant={def.tone as BadgeVariant}>{def.label}</Badge>
+      {def.agent && <span className="truncate text-xs text-muted-foreground">{def.agent}</span>}
+    </span>
+  );
+}
 
 // ── Indicadores que filtran ────────────────────────────────────
-// Los mismos tres estados que antes eran tarjetas de métricas: ahora son
-// botones de la franja y pulsarlos deja en la tabla solo esas empresas.
+// Lo que toca hacer (dueña 18-10: el estado guardado decía «Nueva» en casi todas):
+// pulsarlos deja en la tabla sólo esas empresas.
+
+const stepIn =
+  (...keys: AccountNextStepKey[]) =>
+  (account: AccountListItem) =>
+    keys.includes(nextStepOf(account));
 
 const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] = [
   {
-    id: 'new',
-    label: 'Nuevas',
-    icon: Sparkles,
+    id: 'find_contacts',
+    label: 'Buscar contactos',
+    icon: UserSearch,
     tone: 'neutral',
-    predicate: (account) => account.pipeline_status === 'new',
+    predicate: stepIn('find_contacts', 'retry_contacts', 'review_contacts', 'find_decision_maker'),
   },
   {
-    id: 'ready_for_research',
-    label: 'Listas para investigar',
-    icon: Search,
+    id: 'prepare_first_contact',
+    label: 'Preparar primer contacto',
+    icon: Sparkles,
     tone: 'brand',
-    predicate: (account) => account.pipeline_status === 'ready_for_research',
+    predicate: stepIn('prepare_first_contact'),
   },
   {
-    id: 'ready_for_outreach',
-    label: 'Listas para contacto',
+    id: 'make_first_contact',
+    label: 'Por contactar',
     icon: SendHorizonal,
     tone: 'positive',
-    predicate: (account) => account.pipeline_status === 'ready_for_outreach',
+    predicate: stepIn('make_first_contact', 'review_and_contact'),
+  },
+  {
+    id: 'in_conversation',
+    label: 'En conversación',
+    icon: PhoneCall,
+    tone: 'warning',
+    predicate: stepIn('log_outcome', 'insist', 'book_meeting', 'hold_meeting', 'follow_up_later'),
   },
 ];
 
 // ── Filter options ─────────────────────────────────────────────
 
-const STATUS_FILTER_OPTIONS = Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
+const NEXT_STEP_FILTER_OPTIONS = ACCOUNT_NEXT_STEP_ORDER.map((value) => ({ value, label: ACCOUNT_NEXT_STEPS[value].label }));
 
 const INDUSTRY_FILTER_OPTIONS = INDUSTRIES.map((i) => ({ value: i, label: i }));
 
@@ -309,26 +331,21 @@ export function AccountsDataTableClient({
         meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
       },
       {
-        id: 'pipeline_status',
-        accessorKey: 'pipeline_status',
+        id: 'next_step',
+        accessorFn: (account) => nextStepOf(account),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Estado" />
+          <DataTableColumnHeader column={column} title="Siguiente paso" />
         ),
-        cell: ({ row }) => {
-          const status = row.original.pipeline_status;
-          return (
-            <Badge variant={STATUS_VARIANT[status]}>
-              {PIPELINE_STATUS_LABELS[status]}
-            </Badge>
-          );
-        },
-        size: 140,
-        minSize: 120,
+        cell: ({ row }) => <NextStepBadge step={nextStepOf(row.original)} />,
+        sortingFn: (a, b) =>
+          ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(a.original)) - ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(b.original)),
+        size: 280,
+        minSize: 220,
         filterFn: 'arrIncludesSome',
         meta: {
-          label: 'Estado',
-          popoverTitle: 'Estado',
-          filterOptions: STATUS_FILTER_OPTIONS,
+          label: 'Siguiente paso',
+          popoverTitle: 'Siguiente paso',
+          filterOptions: NEXT_STEP_FILTER_OPTIONS,
         },
       },
       {
@@ -594,9 +611,7 @@ export function AccountsDataTableClient({
           'Sin país, industria ni dominio'
         }
         meta={
-          <Badge variant={STATUS_VARIANT[row.pipeline_status]}>
-            {PIPELINE_STATUS_LABELS[row.pipeline_status]}
-          </Badge>
+          <NextStepBadge step={nextStepOf(row)} />
         }
         actions={state.menu}
       />

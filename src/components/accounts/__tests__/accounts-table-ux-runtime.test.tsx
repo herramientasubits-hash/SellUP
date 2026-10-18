@@ -110,11 +110,12 @@ function account(overrides: Partial<AccountListItem>): AccountListItem {
   };
 }
 
+// El siguiente paso lo calcula la página (dueña 18-10: «Nueva» en casi todas no decía nada).
 const ACCOUNTS = [
-  account({ id: 'a1', name: 'Acme', pipeline_status: 'new' }),
-  account({ id: 'a2', name: 'Beta', pipeline_status: 'ready_for_research', country_code: 'MX', domain: null }),
-  account({ id: 'a3', name: 'Gamma', pipeline_status: 'ready_for_outreach', country_code: null, industry: null, owner_name: null, owner_id: null }),
-  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1' }),
+  account({ id: 'a1', name: 'Acme', pipeline_status: 'new', next_step: 'find_contacts' }),
+  account({ id: 'a2', name: 'Beta', pipeline_status: 'ready_for_research', country_code: 'MX', domain: null, next_step: 'prepare_first_contact' }),
+  account({ id: 'a3', name: 'Gamma', pipeline_status: 'ready_for_outreach', country_code: null, industry: null, owner_name: null, owner_id: null, next_step: 'make_first_contact' }),
+  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1', next_step: 'review_and_contact' }),
 ];
 
 before(async () => {
@@ -144,23 +145,23 @@ function renderTable(accounts: AccountListItem[] = ACCOUNTS, emptyActions?: Reac
 }
 
 describe('Empresas — los indicadores son filtros de un toque', () => {
-  it('cada estado clave es un botón con su recuento', () => {
+  it('cada siguiente paso clave es un botón con su recuento', () => {
     renderTable();
 
     const group = within(indicators());
-    assert.match(group.getByRole('button', { name: /Nuevas/ }).textContent ?? '', /1/);
-    assert.match(group.getByRole('button', { name: /Listas para investigar/ }).textContent ?? '', /1/);
-    assert.match(group.getByRole('button', { name: /Listas para contacto/ }).textContent ?? '', /2/);
+    assert.match(group.getByRole('button', { name: /Buscar contactos/ }).textContent ?? '', /1/);
+    assert.match(group.getByRole('button', { name: /Preparar primer contacto/ }).textContent ?? '', /1/);
+    assert.match(group.getByRole('button', { name: /Por contactar/ }).textContent ?? '', /2/);
   });
 
   it('pulsar uno deja solo esas empresas; pulsarlo otra vez las devuelve todas', () => {
     renderTable();
-    const button = () => within(indicators()).getByRole('button', { name: /Listas para contacto/ });
+    const button = () => within(indicators()).getByRole('button', { name: /Por contactar/ });
 
     fireEvent.click(button());
     assert.deepEqual(rowNames(), ['Gamma', 'Delta']);
     assert.equal(button().getAttribute('aria-pressed'), 'true');
-    assert.ok(screen.getByText('Empresas · Listas para contacto'));
+    assert.ok(screen.getByText('Empresas · Por contactar'));
 
     fireEvent.click(button());
     assert.equal(rowNames().length, 4);
@@ -187,8 +188,8 @@ describe('Empresas — vacíos', () => {
   it('un indicador sin filas lo dice y ofrece quitarlo', () => {
     renderTable(ACCOUNTS.slice(1));
 
-    fireEvent.click(within(indicators()).getByRole('button', { name: /Nuevas/ }));
-    assert.ok(screen.getByText('Nada en «Nuevas»'));
+    fireEvent.click(within(indicators()).getByRole('button', { name: /Buscar contactos/ }));
+    assert.ok(screen.getByText('Nada en «Buscar contactos»'));
     assert.equal(screen.queryByText('Todavía no hay empresas'), null, 'no se hace pasar por lista vacía');
 
     fireEvent.click(screen.getByRole('button', { name: 'Quitar filtro' }));
@@ -217,12 +218,13 @@ describe('Empresas — celdas', () => {
     assert.equal(detailOpenFor, null);
   });
 
-  it('solo el estado va en chip: la fuente es texto', () => {
+  it('solo el siguiente paso va en chip, con el agente que lo hace; la fuente es texto', () => {
     renderTable();
 
     const row = screen.getByRole('button', { name: 'Delta' }).closest('tr');
     assert.ok(row);
-    assert.equal(within(row).getByText('Lista para contacto').getAttribute('data-slot'), 'badge');
+    assert.equal(within(row).getByText('Revisar y contactar').getAttribute('data-slot'), 'badge');
+    assert.ok(within(row).getByText('Agente 3'));
     assert.equal(row.querySelectorAll('[data-slot="badge"]').length, 1);
   });
 
@@ -251,7 +253,7 @@ describe('Empresas — el estado no se cambia a mano', () => {
 });
 
 describe('Empresas — vista «Lista»', () => {
-  it('pinta cada empresa como fila de lista con su estado', () => {
+  it('pinta cada empresa como fila de lista con su siguiente paso', () => {
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ view: 'list' }));
     renderTable();
 
@@ -261,7 +263,7 @@ describe('Empresas — vista «Lista»', () => {
     const first = within(items[0]);
     assert.ok(first.getByRole('button', { name: 'Acme' }));
     assert.ok(first.getByText('Colombia · Tecnología · acme.co'));
-    assert.ok(first.getByText('Nueva'));
+    assert.ok(first.getByText('Buscar contactos'));
     assert.ok(first.getByRole('checkbox', { name: 'Seleccionar Acme' }));
   });
 });

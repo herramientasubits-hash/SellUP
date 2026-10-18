@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { FIRST_CONTACT_RUN_SETTLED_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { Archive, Brain, ChevronDown, PhoneCall, Table2, Users } from '@/icons';
 import { formatInAppZone } from '@/lib/format-date';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -230,6 +232,17 @@ export function FirstCallTab({
   onRequestFirstContact,
   countryCode = null,
 }: FirstCallTabProps) {
+  const router = useRouter();
+  // Una preparación de esta empresa terminó con el panel cerrado: se recargan los datos.
+  React.useEffect(() => {
+    const onSettled = (event: Event) => {
+      if ((event as CustomEvent<{ accountId: string }>).detail?.accountId !== accountId) return;
+      if (onChanged) onChanged();
+      else router.refresh();
+    };
+    window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+    return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+  }, [accountId, onChanged, router]);
   const fresh = hasFreshBrief(state);
   const enabled = state.enabled && !archived;
   const brief = state.brief;

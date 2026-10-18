@@ -32,6 +32,7 @@ import {
   approachesFrom,
   buildFirstContactRequestBody,
   firstContactDoneToast,
+  firstContactRunDetail,
   normalizeApproachSelection,
   summaryText,
 } from '../../../../modules/speech/first-contact-wizard';
@@ -260,11 +261,27 @@ describe('verificador · reglas del manual', () => {
     assert.deepEqual(unsupportedNumbers('En los próximos 14 días o en 12 horas.', []), []);
   });
 
+  it('Asdeporte (18-10): no promete «sin costo» ni da por hecha una llamada', () => {
+    const free = emailIssues('Asunto: Diagnóstico\nLaura, le ofrezco un diagnóstico rápido, sin costo ni compromiso. ¿Le sirve?');
+    assert.ok(free.some((i) => i.includes('gratis o sin costo')), free.join(' | '));
+    const prior = emailIssues('Asunto: Líderes\nLaura, llamé porque vi la integración. ¿Le sirve que le cuente?');
+    assert.ok(prior.some((i) => i.includes('ya hubo contacto')), prior.join(' | '));
+  });
+
   it('con el enfoque «evento reciente», la noticia citada debe tener menos de 90 días', () => {
     const issues = emailIssues('Asunto: Líderes\nLaura, vi la nueva sede. ¿Le sirve?', {
       reason_to_call: { text: 'Abrió una sede en Cali.', fact_refs: ['F2'] },
     });
     assert.ok(issues.some((i) => i.includes('más de 90 días')), issues.join(' | '));
+  });
+
+  it('Asdeporte (18-10): el mensaje si no contesta no puede ser el guion copiado', () => {
+    const submission = parseWriterSubmission(
+      raw({ messages: [{ channel: 'call', text: SCRIPT, fact_refs: ['F1'], variants: [] }] }),
+      ['call'],
+    );
+    const issues = verifyPack(contentForChannel(submission, 'call'), FACTS, 'call', { nowMs: NOW });
+    assert.ok(issues.some((i) => i.includes('repite el guion')), issues.join(' | '));
   });
 
   it('revisa también las otras versiones y lo nuevo (pedido, confirmación)', () => {
@@ -364,14 +381,14 @@ describe('aviso al terminar', () => {
   const selection = { contactIds: ['c1'], channels: ['call', 'email'] as const, goals: ['book_meeting'] as const, productKeys: [], approaches: [], referralNote: null };
 
   it('confirma cuántas, para quién y por dónde, y cuántas revisar', () => {
-    const notice = firstContactDoneToast(['draft', 'needs_review'], { ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts);
+    const notice = firstContactDoneToast(['draft', 'needs_review'], firstContactRunDetail({ ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts));
     assert.equal(notice.tone, 'success');
     assert.equal(notice.title, '¡Primer contacto listo!');
     assert.equal(notice.description, '2 preparaciones para Emily Cerdas por Llamada y Correo. Una tiene avisos para revisar antes de usarla.');
   });
 
   it('avisa las que no se pudieron escribir', () => {
-    const notice = firstContactDoneToast(['draft', 'failed'], { ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts);
+    const notice = firstContactDoneToast(['draft', 'failed'], firstContactRunDetail({ ...selection, channels: [...selection.channels], goals: [...selection.goals] }, contacts));
     assert.equal(notice.tone, 'warning');
     assert.match(notice.description, /^Una preparación para Emily Cerdas .* Lista para usar\. Una no se pudo escribir/);
   });

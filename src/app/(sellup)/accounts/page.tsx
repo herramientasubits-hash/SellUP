@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
+import { loadAccountNextSteps } from '@/modules/accounts/next-step.server';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import {
   ProspectsModulePanel,
@@ -78,6 +79,9 @@ async function AccountsPanel() {
     loadGenerateProspectsAgent(),
     getCurrentUser(),
   ]);
+  // El siguiente paso de cada empresa (contactos, Agente 2 y Agente 3), en lotes.
+  const nextSteps = await loadAccountNextSteps(accounts);
+  const accountsWithSteps = accounts.map((account) => ({ ...account, next_step: nextSteps[account.id] }));
   // ALWAYS-OWNER-ON-CREATE-1 — al crear una empresa, el responsable por defecto es quien la crea.
   const currentUserId = currentUser?.id ?? null;
 
@@ -92,7 +96,7 @@ async function AccountsPanel() {
         }
       >
         <AccountsDataTableClient
-          accounts={accounts}
+          accounts={accountsWithSteps}
           users={users}
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
