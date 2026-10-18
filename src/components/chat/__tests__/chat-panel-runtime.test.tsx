@@ -89,7 +89,7 @@ describe('ChatPanel en la ranura del shell', () => {
     assert.equal(panel.tagName, 'ASIDE');
     assert.match(panel.className, /ai-mesh-agent/);
     assert.ok(panel.querySelector('[data-slot="chat-mark"]'));
-    assert.ok(rtl.screen.getByRole('heading', { name: 'Agente IA' }));
+    assert.ok(rtl.screen.getByRole('heading', { name: 'Rumbo' }));
     assert.ok(rtl.screen.getByText('Generar empresas candidatas'));
     assert.ok(rtl.screen.getByRole('button', { name: 'Cerrar' }));
     assert.equal(rtl.screen.queryByRole('button', { name: 'Historial' }), null);

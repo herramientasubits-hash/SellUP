@@ -117,6 +117,15 @@ Salen del [Manual del primer contacto](https://claude.ai/artifact/QGNBaKdbVJA8EQ
   - lo que se puede ofrecer para la reunión (diagnóstico, demo con casos del sector, estimación de valor): **borrador, la dueña confirma que existe**;
   - la objeción «No me interesa».
 
+## Rumbo, el decisor y lo que agrega el vendedor (18-10-2026)
+
+- **Rumbo** es el nombre del agente (marca: brújula con flecha que sube, `ChatMark`; `AGENT_NAME`). En Empresas, el botón «Rumbo» pregunta qué hacer: prospectar (Agente 1), buscar contactos (Agente 2) o preparar el primer contacto (Agente 3); cada camino tiene «Volver». «Generar con IA» directo queda en «Por revisar».
+- **Empresa que no está en SellUp** (`first-contact-company-picker.tsx` + `resolveFirstContactCompanyAction`): la busca en SellUp y HubSpot con el buscador del Agente 2; si no está, pide país y dominio, revisa duplicados, la crea en SellUp y la crea o vincula en HubSpot con `resolveAccountHubSpotCompanyWired` (si hay duda de duplicado queda para revisión humana).
+- **Investigación del decisor** (`contact-research.ts`): dos búsquedas en Tavily (nombre + empresa; voz pública o nombramiento). Si Tavily no está (sin llave, presupuesto o créditos), Claude busca en la web. Hasta 5 datos verificados con cita que nombra a la persona, con categoría (nuevo en el cargo, voz pública, alcance, empresa anterior, contrata, reconocimiento), el mejor gancho, prioridades probables (hipótesis) y lo que no se confirmó. Sólo información profesional y pública. Se ve en la pestaña «Sobre {nombre}», al lado de los canales.
+- **Respaldo de Tavily en la empresa**: si Tavily no responde, Claude hace hasta 3 búsquedas (noticias con fecha primero); `tavily_unavailable` en el registro de uso.
+- **Lo que agrega el vendedor** (`addFirstCallSellerAnswers`): en «Lo que no se encontró» (empresa) y «Lo que no pudimos confirmar» (decisor) hay un campo por cada cosa y UN botón «Agregar a la investigación y rehacer los textos». Se guardan como «Dato del vendedor» (la pregunta como cita; los del decisor con su `contactId`) y se rehacen los textos en segundo plano (Centro de procesos).
+- **Siguiente paso en Empresas**: buscar contactos · buscando contactos · revisar contactos · preparar primer contacto · preparando primer contacto · hacer el primer contacto. «La usé» todavía no lo cambia.
+
 ## Reglas que no se negocian
 
 - **Ninguna cifra sin fuente.** Cada número de un texto tiene que estar en los hechos que **ese texto cita**, o en la biblioteca. Así no se cuela una comparación entre hechos que miden cosas distintas. Los datos de la ficha sólo pueden repetir las cifras de su cita.

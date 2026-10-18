@@ -19,7 +19,7 @@ import { toFirstCallContactOptions, type FirstCallContactOption } from './first-
 import { isBriefFresh } from './first-call-state';
 import { mapBriefRow, mapPackRow } from '@/server/agents/first-call/row-mappers';
 import { RESEARCH_RUNNING_STALE_MS } from '@/server/agents/first-call/run-first-call.server';
-import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchProgressStage } from '@/server/agents/first-call/types';
+import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchFact, ResearchProgressStage } from '@/server/agents/first-call/types';
 import { FIRST_CONTACT_APPROACHES, FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
 
 /**
@@ -132,6 +132,82 @@ export async function getFirstContactRunPacks(accountId: string, sinceIso: strin
     .gte('created_at', new Date(Date.parse(sinceIso) - 5_000).toISOString())
     .limit(50);
   return ((data ?? []) as { status: string }[]).map((row) => row.status);
+}
+
+/** Un dato que el vendedor agrega sobre algo que la investigación no encontró. */
+const SELLER_FACT_MIN_CHARS = 3;
+const SELLER_FACT_MAX_CHARS = 400;
+const SELLER_FACTS_MAX_PER_SAVE = 10;
+const SELLER_FACT_LABEL = 'Dato del vendedor';
+
+export interface SellerAnswerInput {
+  /** Lo que no se encontró (la pregunta), tal como se mostró. */
+  question: string;
+  /** La respuesta del vendedor. */
+  text: string;
+  /** Un faltante de la empresa (posición en `gaps`) o `null` si es del decisor. */
+  gapIndex: number | null;
+  /** Si es sobre un decisor: sólo lo usan sus preparaciones. */
+  contactId: string | null;
+}
+
+/**
+ * «Agregar a la investigación» (dueña 18-10): el vendedor responde uno o varios de los
+ * faltantes (de la empresa o del decisor) y se guardan juntos como «Dato del vendedor»
+ * (la pregunta va como cita). Los faltantes de la empresa respondidos dejan de aparecer.
+ * Después se rehacen los textos (lo dispara quien llama).
+ */
+export async function addFirstCallSellerAnswers(
+  briefId: string,
+  answers: readonly SellerAnswerInput[],
+): Promise<{ success: true; added: number } | { success: false; error: string }> {
+  if (!isAgent3FirstCallEnabled()) return { success: false, error: 'La preparación del primer contacto no está activada.' };
+  const clean = (Array.isArray(answers) ? answers : [])
+    .slice(0, SELLER_FACTS_MAX_PER_SAVE)
+    .map((a) => ({
+      question: String(a?.question ?? '').replace(/\s+/g, ' ').trim().slice(0, SELLER_FACT_MAX_CHARS),
+      text: String(a?.text ?? '').replace(/\s+/g, ' ').trim(),
+      gapIndex: typeof a?.gapIndex === 'number' && Number.isInteger(a.gapIndex) ? a.gapIndex : null,
+      contactId: typeof a?.contactId === 'string' && a.contactId ? a.contactId : null,
+    }))
+    .filter((a) => a.text.length > 0);
+  if (clean.length === 0) return { success: false, error: 'Escribe al menos una respuesta.' };
+  for (const a of clean) {
+    if (a.text.length < SELLER_FACT_MIN_CHARS || a.text.length > SELLER_FACT_MAX_CHARS) {
+      return { success: false, error: `Cada respuesta va en una frase (máximo ${SELLER_FACT_MAX_CHARS} caracteres).` };
+    }
+    if (/[^\s@]+@[^\s@]+\.[a-z]{2,}/i.test(a.text) || /(\+?\d[\d\s().-]{7,}\d)/.test(a.text)) {
+      return { success: false, error: 'Sin correos ni teléfonos: sólo el dato.' };
+    }
+  }
+
+  const admin = createSupabaseAdminClient();
+  const { data: row } = await admin.from('account_research_briefs').select('id, account_id, facts, gaps').eq('id', briefId).maybeSingle();
+  const brief = row as { id: string; account_id: string; facts: ResearchFact[] | null; gaps: string[] | null } | null;
+  // El alcance comercial: sólo quien ve la empresa puede completar su ficha.
+  if (!brief || !(await getAccountById(brief.account_id))) return { success: false, error: 'No encontramos esa investigación.' };
+
+  const facts = Array.isArray(brief.facts) ? brief.facts : [];
+  const used = facts.map((f) => Number(String(f.id).replace(/^F/, ''))).filter((n) => Number.isFinite(n));
+  let next = (used.length > 0 ? Math.max(...used) : 0) + 1;
+  const added: ResearchFact[] = clean.map((a) => ({
+    id: `F${next++}`,
+    // Los del decisor van con su tema; los de la empresa, como «qué hace» (se muestran aparte).
+    topic: a.contactId ? 'decision_maker' : 'business',
+    statement: a.text,
+    quote: a.question || null,
+    sourceKind: 'seller',
+    sourceUrl: null,
+    sourceLabel: SELLER_FACT_LABEL,
+    publishedOn: null,
+    ...(a.contactId ? { contactId: a.contactId } : {}),
+  }));
+  const answeredGaps = new Set(clean.map((a) => a.gapIndex).filter((i): i is number => i !== null));
+  const gaps = (Array.isArray(brief.gaps) ? brief.gaps : []).filter((_, i) => !answeredGaps.has(i));
+  const { error } = await admin.from('account_research_briefs').update({ facts: [...facts, ...added], gaps }).eq('id', brief.id);
+  if (error) return { success: false, error: 'No pudimos guardar los datos. Vuelve a intentarlo.' };
+  revalidatePath(`/accounts/${brief.account_id}`);
+  return { success: true, added: added.length };
 }
 
 export type PackActionResult = { success: true } | { success: false; error: string };

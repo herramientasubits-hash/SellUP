@@ -51,8 +51,9 @@ export const RESEARCH_TOPIC_LABELS: Readonly<Record<ResearchTopic, string>> = {
  *  - `news`: una noticia (Tavily, modo noticias, último año).
  *  - `web_search`: una fuente que devolvió la búsqueda web de Claude.
  *  - `curated_list`: una lista curada (Merco, Great Place to Work, reguladores…).
+ *  - `seller`: lo agregó el vendedor a mano sobre algo que la investigación no encontró.
  */
-export type FactSourceKind = 'sellup' | 'official_site' | 'news' | 'web_search' | 'curated_list';
+export type FactSourceKind = 'sellup' | 'official_site' | 'news' | 'web_search' | 'curated_list' | 'seller';
 
 export interface ResearchFact {
   /** «F1», «F2»…: estable dentro de la ficha; el paquete cita estos IDs. */
@@ -69,6 +70,46 @@ export interface ResearchFact {
   sourceLabel: string;
   /** Fecha de publicación (AAAA-MM-DD) si la fuente la da. */
   publishedOn: string | null;
+  /** Sólo en datos del decisor: qué tipo de dato es (ver `CONTACT_FACT_CATEGORY_LABELS`). */
+  category?: ContactFactCategory;
+  /** Dato del vendedor sobre UN decisor: sólo lo usan las preparaciones de esa persona. */
+  contactId?: string | null;
+}
+
+/**
+ * Qué tipo de dato del decisor (dueña 18-10, con lo que recomiendan los estudios de
+ * prospección: llegó hace poco al cargo pesa más que todo, luego su voz pública).
+ */
+export type ContactFactCategory = 'new_in_role' | 'previous_company' | 'public_voice' | 'scope' | 'team_hiring' | 'award';
+
+export const CONTACT_FACT_CATEGORIES: readonly ContactFactCategory[] = [
+  'new_in_role',
+  'public_voice',
+  'scope',
+  'previous_company',
+  'team_hiring',
+  'award',
+];
+
+export const CONTACT_FACT_CATEGORY_LABELS: Readonly<Record<ContactFactCategory, string>> = {
+  new_in_role: 'Nuevo en el cargo',
+  public_voice: 'Lo que dice en público',
+  scope: 'De qué es responsable',
+  previous_company: 'Dónde trabajó antes',
+  team_hiring: 'Contrata en su equipo',
+  award: 'Reconocimiento',
+};
+
+/** Lo que la investigación del decisor deja para el vendedor (además de los datos). */
+export interface ContactInsight {
+  /** El mejor gancho para abrir, en una frase (o `null` si no hay uno bueno). */
+  hook: string | null;
+  /** Prioridades probables del cargo: HIPÓTESIS, no hechos. */
+  priorities: string[];
+  /** Lo que no se pudo confirmar (si lleva el presupuesto, a quién reporta…). */
+  unknowns: string[];
+  /** ¿Las fuentes muestran que lleva la formación o el talento? */
+  leadsTraining: 'yes' | 'no' | 'unknown';
 }
 
 export interface ResearchHypothesis {
@@ -197,6 +238,8 @@ export interface FirstCallPackContent {
   ifNo?: string;
   /** El mensaje para confirmar la reunión apenas se agenda. */
   confirmation?: string;
+  /** La investigación del decisor: gancho, prioridades probables y lo que no se confirmó. */
+  contactInsight?: ContactInsight;
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;

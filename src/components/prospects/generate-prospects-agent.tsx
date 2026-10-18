@@ -9,6 +9,8 @@ import { RailScreenActions, type RailActionSpec } from '@/components/action-rail
 export interface ControllablePanelProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
+  onBack?: () => void;
 }
 
 /**

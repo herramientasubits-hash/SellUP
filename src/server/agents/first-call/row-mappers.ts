@@ -5,9 +5,12 @@
 import type { PriorClassificationEvidence } from './internal-facts';
 import { FIRST_CONTACT_APPROACHES, FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from './approaches';
 import {
+  CONTACT_FACT_CATEGORIES,
   FIRST_CALL_CHANNELS,
   FIRST_CALL_GOALS,
   RESEARCH_TOPICS,
+  type ContactFactCategory,
+  type ContactInsight,
   type FirstCallChannel,
   type FirstCallGoal,
   type FirstCallPack,
@@ -104,7 +107,22 @@ function factsFrom(value: unknown): ResearchFact[] {
       sourceUrl: text(f['sourceUrl']),
       sourceLabel: text(f['sourceLabel']) ?? '',
       publishedOn: text(f['publishedOn']),
+      ...(CONTACT_FACT_CATEGORIES.includes(f['category'] as ContactFactCategory) ? { category: f['category'] as ContactFactCategory } : {}),
+      ...(text(f['contactId']) ? { contactId: text(f['contactId']) } : {}),
     }));
+}
+
+/** La investigación del decisor guardada con la preparación (o `undefined` si no hubo). */
+function contactInsightFrom(value: unknown): ContactInsight | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const leads = text(record['leadsTraining']);
+  return {
+    hook: text(record['hook']),
+    priorities: stringsFrom(record['priorities']),
+    unknowns: stringsFrom(record['unknowns']),
+    leadsTraining: leads === 'yes' || leads === 'no' ? leads : 'unknown',
+  };
 }
 
 function hypothesesFrom(value: unknown): ResearchHypothesis[] {
@@ -194,6 +212,7 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
     meetingAsk: text(pack['meetingAsk']) ?? undefined,
     ifNo: text(pack['ifNo']) ?? undefined,
     confirmation: text(pack['confirmation']) ?? undefined,
+    contactInsight: contactInsightFrom(pack['contactInsight']),
   };
 }
 

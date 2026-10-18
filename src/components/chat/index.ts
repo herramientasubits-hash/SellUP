@@ -25,7 +25,7 @@ export { ChatQuestionBackContext, ChatQuestionPanel, type ChatQuestionPanelProps
 export { ChatCardView, type ChatCardViewProps } from "./chat-card-view";
 export { ChatFeedbackForm, type ChatFeedbackFormProps, type ChatFeedbackPayload } from "./chat-feedback-form";
 export { ChatMarkdown, type ChatMarkdownProps } from "./chat-markdown";
-export { ChatMark, type ChatMarkProps } from "./chat-mark";
+export { AGENT_NAME, ChatMark, RumboIcon, type ChatMarkProps } from "./chat-mark";
 export { ChatGreeting, type ChatGreetingProps } from "./chat-greeting";
 export { greetingKey } from "./greeting";
 export {

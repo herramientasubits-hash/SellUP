@@ -7,7 +7,7 @@ const MESSAGES = {
   "common.cancel": "Cancelar",
   "common.close": "Cerrar",
   "common.retry": "Reintentar",
-  "chat.title": "Agente IA",
+  "chat.title": "Rumbo",
   "chat.subtitle": "Asistente de la plataforma",
   "chat.greeting.morning": "¡Buenos días,",
   "chat.greeting.afternoon": "¡Buenas tardes,",

@@ -321,6 +321,8 @@ export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
   noticias: 'Noticias del último año (Tavily)',
   talento: 'Empleo y talento (Tavily)',
   redactar_llamada: 'Preparar el primer contacto (Claude)',
+  contacto_busqueda: 'Buscar al decisor (Tavily)',
+  investigar_contacto: 'Investigar al decisor (Claude)',
 };
 
 export const SEARCH_MODE_LABELS: Readonly<Record<string, string>> = {

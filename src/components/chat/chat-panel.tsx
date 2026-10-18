@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Clock, Minus, Plus, X } from "@/icons";
+import { ArrowLeft, Clock, Minus, Plus, X } from "@/icons";
 import { AiAgentDrawer } from "@/components/ai/ai-agent-drawer";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { Text } from "@/components/typography";
@@ -41,6 +41,10 @@ export interface ChatPanelProps {
   closeDisabled?: boolean;
   /** «Minimizar»: cierra el panel dejando lo que corre en el Centro de procesos. */
   onMinimize?: () => void;
+  /** «Volver»: regresa a la pantalla anterior del agente (p. ej. «¿Qué quieres hacer?» de Rumbo). */
+  onBack?: () => void;
+  /** Lo que dice el tooltip de «Volver». */
+  backLabel?: string;
   /** El cuerpo del panel: el hilo, la caja, lo que el asistente necesite. */
   children: React.ReactNode;
 }
@@ -69,6 +73,8 @@ export function ChatPanel({
   newConversationDisabled = false,
   closeDisabled = false,
   onMinimize,
+  onBack,
+  backLabel = "Volver",
   children,
 }: ChatPanelProps) {
   const heading = title ?? t("chat.title");
@@ -90,6 +96,15 @@ export function ChatPanel({
           className="ai-mesh-agent flex h-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card"
         >
           <header className="flex shrink-0 items-center gap-3 border-b border-border/20 px-4 py-3">
+            {onBack && (
+              <TooltipIconButton
+                icon={<ArrowLeft aria-hidden />}
+                label={backLabel}
+                onClick={onBack}
+                className="-ml-1.5"
+                data-testid="chat-panel-back"
+              />
+            )}
             <ChatMark size="md" motion={markMotion} />
             <div className="min-w-0 flex-1">
               <Text as="h2" id={titleId} size="sm" weight="semibold" className="leading-tight">

@@ -31,6 +31,11 @@ async function executeFirstContactRun(body: unknown): Promise<FirstContactRunRes
   return parsed ?? { ok: false, code: 'bad_response', message: 'Algo falló al preparar el primer contacto. Vuelve a intentarlo.' };
 }
 
+/** Un id para una corrida nueva (se llama al lanzarla, nunca al pintar). */
+export function newFirstContactRunId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Evento para que quien muestra la empresa recargue sus preparaciones al terminar. */
 export const FIRST_CONTACT_RUN_SETTLED_EVENT = 'sellup:agent3-run:settled';
 

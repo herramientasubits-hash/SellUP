@@ -78,18 +78,19 @@ type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 function nextStepOf(account: AccountListItem): AccountNextStepKey {
   return (
     account.next_step ??
-    resolveAccountNextStep({ archived: account.pipeline_status === 'archived', contactsTotal: 0, lastEnrichmentStatus: null, packs: [] })
+    resolveAccountNextStep({
+      archived: account.pipeline_status === 'archived',
+      contactsTotal: 0,
+      lastEnrichmentStatus: null,
+      firstContactInProgress: false,
+      firstContactPrepared: false,
+    })
   );
 }
 
 function NextStepBadge({ step }: { step: AccountNextStepKey }) {
   const def = ACCOUNT_NEXT_STEPS[step];
-  return (
-    <span className="flex min-w-0 items-center gap-1.5" title={def.agent ? `Lo hace el ${def.agent}` : 'Lo haces tú'}>
-      <Badge variant={def.tone as BadgeVariant}>{def.label}</Badge>
-      {def.agent && <span className="truncate text-xs text-muted-foreground">{def.agent}</span>}
-    </span>
-  );
+  return <Badge variant={def.tone as BadgeVariant}>{def.label}</Badge>;
 }
 
 // ── Indicadores que filtran ────────────────────────────────────
@@ -107,28 +108,28 @@ const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] =
     label: 'Buscar contactos',
     icon: UserSearch,
     tone: 'neutral',
-    predicate: stepIn('find_contacts', 'retry_contacts', 'review_contacts', 'find_decision_maker'),
+    predicate: stepIn('find_contacts', 'finding_contacts'),
+  },
+  {
+    id: 'review_contacts',
+    label: 'Revisar contactos',
+    icon: Eye,
+    tone: 'warning',
+    predicate: stepIn('review_contacts'),
   },
   {
     id: 'prepare_first_contact',
     label: 'Preparar primer contacto',
     icon: Sparkles,
     tone: 'brand',
-    predicate: stepIn('prepare_first_contact'),
+    predicate: stepIn('prepare_first_contact', 'preparing_first_contact'),
   },
   {
     id: 'make_first_contact',
-    label: 'Por contactar',
+    label: 'Hacer el primer contacto',
     icon: SendHorizonal,
     tone: 'positive',
-    predicate: stepIn('make_first_contact', 'review_and_contact'),
-  },
-  {
-    id: 'in_conversation',
-    label: 'En conversación',
-    icon: PhoneCall,
-    tone: 'warning',
-    predicate: stepIn('log_outcome', 'insist', 'book_meeting', 'hold_meeting', 'follow_up_later'),
+    predicate: stepIn('make_first_contact'),
   },
 ];
 
@@ -339,8 +340,8 @@ export function AccountsDataTableClient({
         cell: ({ row }) => <NextStepBadge step={nextStepOf(row.original)} />,
         sortingFn: (a, b) =>
           ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(a.original)) - ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(b.original)),
-        size: 280,
-        minSize: 220,
+        size: 220,
+        minSize: 180,
         filterFn: 'arrIncludesSome',
         meta: {
           label: 'Siguiente paso',

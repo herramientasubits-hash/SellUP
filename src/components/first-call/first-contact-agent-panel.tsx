@@ -7,7 +7,7 @@ import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types'
 import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { Stepper } from '@/components/navigation/stepper';
 import { getFirstCallProgress } from '@/modules/speech/actions';
-import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { getFirstContactRunsStore, newFirstContactRunId, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
 import {
@@ -252,7 +252,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setError(null);
     setStage(research ? 'reading_sellup' : 'writing');
     const body = await store.startRun({
-      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: newFirstContactRunId(),
       accountId,
       accountName,
       title: firstContactRunDetail(selection, contacts),

@@ -23,6 +23,8 @@ interface ContactEnrichmentDrawerProps {
   onOpenChange: (open: boolean) => void;
   preloadedCompany?: ContactEnrichmentInitialCompany | null;
   onCreateManualContact?: (ctx: ManualContactContext) => void;
+  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
+  onBack?: () => void;
 }
 
 /**
@@ -36,6 +38,7 @@ export function ContactEnrichmentDrawer({
   onOpenChange,
   preloadedCompany,
   onCreateManualContact,
+  onBack,
 }: ContactEnrichmentDrawerProps) {
   const wizardRef = React.useRef<ContactEnrichmentChatWizardHandle>(null);
   const [busy, setBusy] = React.useState(false);
@@ -50,6 +53,7 @@ export function ContactEnrichmentDrawer({
 
   return (
     <ChatPanel
+      onBack={onBack}
       open={open}
       onOpenChange={(next) => {
         // Al cerrar el panel se vuelve al asistente normal para la próxima vez.

@@ -13,9 +13,11 @@ interface ContactsEnrichmentCTAProps {
    */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
+  onBack?: () => void;
 }
 
-export function ContactsEnrichmentCTA({ open: controlledOpen, onOpenChange }: ContactsEnrichmentCTAProps = {}) {
+export function ContactsEnrichmentCTA({ open: controlledOpen, onOpenChange, onBack }: ContactsEnrichmentCTAProps = {}) {
   const isControlled = controlledOpen !== undefined;
   const [internalOpen, setInternalOpen] = React.useState(false);
   const enrichmentOpen = isControlled ? controlledOpen : internalOpen;
@@ -48,6 +50,7 @@ export function ContactsEnrichmentCTA({ open: controlledOpen, onOpenChange }: Co
         open={enrichmentOpen}
         onOpenChange={setEnrichmentOpen}
         onCreateManualContact={handleCreateManualContact}
+        onBack={onBack}
       />
       <CreateContactDrawer
         open={createContactOpen}
