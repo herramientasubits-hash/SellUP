@@ -59,4 +59,32 @@ describe('Agente 3 · panel mientras trabaja', () => {
     assert.equal(rtl.screen.queryByRole('list', { name: /Pasos del primer contacto/ }), null);
     assert.ok(rtl.within(running).getByText(/No cierres este panel/));
   });
+
+  it('al terminar cierra el panel y lleva al resultado (como el Agente 1)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: true, packIds: ['a', 'b'], packStatuses: ['draft', 'needs_review'], reusedBrief: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+    const closed: boolean[] = [];
+    let viewed = 0;
+    let done = 0;
+    rtl.render(
+      React.createElement(FirstContactAgentPanel, {
+        open: true,
+        onOpenChange: (open: boolean) => closed.push(open),
+        accountId: '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f',
+        accountName: 'Grupo Ciisa',
+        contacts: CONTACTS,
+        hasFreshBrief: false,
+        onDone: () => (done += 1),
+        onViewResult: () => (viewed += 1),
+      }),
+    );
+    for (let i = 0; i < 5; i += 1) clickButton('Continuar');
+    clickButton(/^Preparar\s*Con lo que elegiste/);
+    await rtl.waitFor(() => assert.equal(viewed, 1));
+    assert.equal(done, 1);
+    assert.deepEqual(closed, [false]);
+  });
 });

@@ -55,6 +55,8 @@ for (const proto of [dom.window.HTMLElement.prototype, dom.window.Element.protot
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { mapPackRow } from '@/server/agents/first-call/row-mappers';
+import type { FirstCallPack } from '@/server/agents/first-call/types';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -115,7 +117,7 @@ mock.module('@/modules/contacts/actions', {
 });
 // Agente 3: el panel carga su estado con una acción de servidor; aquí se simula para
 // aislar el panel (la real también llama a getAccountById y descuadraría `loads`).
-let firstCallState: { enabled: boolean; brief: null; packs: [] } = { enabled: false, brief: null, packs: [] };
+let firstCallState: { enabled: boolean; brief: null; packs: FirstCallPack[] } = { enabled: false, brief: null, packs: [] };
 mock.module('@/modules/speech/actions', {
   namedExports: {
     getFirstCallState: async () => firstCallState,
@@ -234,15 +236,17 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
     assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
   });
 
-  it('con la bandera encendida ofrece «Preparar primer contacto» en el pie: todo a la derecha, «Más acciones» primero y «Buscar contactos» al final', async () => {
+  it('con la bandera encendida ofrece «Preparar primer contacto» en el pie como principal, al final, y «Buscar contactos» como secundaria', async () => {
     firstCallState = { enabled: true, brief: null, packs: [] };
     renderSheet();
 
     const prepare = await screen.findByRole('button', { name: 'Preparar primer contacto' });
     const search = screen.getByRole('button', { name: 'Buscar contactos' });
-    assert.ok(prepare.compareDocumentPosition(search) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.ok(search.compareDocumentPosition(prepare) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.equal(prepare.getAttribute('data-variant'), 'default');
+    assert.equal(search.getAttribute('data-variant'), 'outline');
     const more = screen.getByRole('button', { name: 'Más acciones de la empresa' });
-    assert.ok(more.compareDocumentPosition(prepare) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.ok(more.compareDocumentPosition(search) & window.Node.DOCUMENT_POSITION_FOLLOWING);
     // Las tres en el mismo grupo, alineado a la derecha.
     const group = screen.getByTestId('account-sheet-actions');
     assert.ok(group.contains(more) && group.contains(prepare) && group.contains(search));
@@ -251,6 +255,18 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
     assert.ok(screen.getByRole('tab', { name: /Primer contacto/ }));
     assert.equal(screen.queryByRole('tab', { name: /Inteligencia/ }), null);
     assert.equal(screen.queryByRole('tab', { name: /Primera llamada/ }), null);
+  });
+
+  it('con preparaciones hechas, el botón dice «Nueva preparación»', async () => {
+    firstCallState = {
+      enabled: true,
+      brief: null,
+      packs: [mapPackRow({ id: 'p1', account_id: ACCOUNT.id, status: 'draft', channel: 'call', goal: 'book_meeting', created_at: '2026-10-18T01:54:00Z', pack: {} })],
+    };
+    renderSheet();
+
+    assert.ok(await screen.findByRole('button', { name: 'Nueva preparación' }));
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
   });
 
   it('una empresa archivada no ofrece preparar el primer contacto', async () => {

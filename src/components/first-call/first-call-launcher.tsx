@@ -35,6 +35,8 @@ interface FirstCallLauncherProps {
   /** Otra versión de una preparación. */
   regenerate?: FirstCallRegenerateSeed;
   label?: string;
+  /** La empresa ya tiene preparaciones: el botón ya no dice «primer contacto» (dueña 18-10). */
+  prepared?: boolean;
   variant?: 'default' | 'outline' | 'ghost';
   size?: 'sm' | 'default';
   /** Al terminar con éxito. Sin él, se recarga la página. */
@@ -54,6 +56,15 @@ interface FirstCallLauncherProps {
 }
 
 /**
+ * El nombre del botón: la primera vez prepara el primer contacto; con preparaciones
+ * hechas, lo que hace es otra preparación (otro decisor, canal o enfoque).
+ */
+export function launcherLabel({ regenerate, prepared }: { regenerate: boolean; prepared: boolean }): string {
+  if (regenerate) return 'Otra versión';
+  return prepared ? 'Nueva preparación' : 'Preparar primer contacto';
+}
+
+/**
  * «Preparar primer contacto»: abre el Agente 3 en el panel «Agente IA».
  */
 export function FirstCallLauncher({
@@ -65,6 +76,7 @@ export function FirstCallLauncher({
   initialSelection,
   regenerate,
   label,
+  prepared = false,
   variant = 'default',
   size = 'sm',
   onDone,
@@ -89,7 +101,7 @@ export function FirstCallLauncher({
     [initialSelection, defaultContactId],
   );
 
-  const triggerLabel = label ?? (regenerate ? 'Otra versión' : 'Preparar primer contacto');
+  const triggerLabel = label ?? launcherLabel({ regenerate: !!regenerate, prepared });
   const handleClick = () => {
     if (onRequestOpen) {
       onRequestOpen({ accountId, accountName, contacts, hasFreshBrief, initialSelection: selection, regenerate });

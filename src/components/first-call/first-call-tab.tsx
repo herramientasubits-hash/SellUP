@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { Archive, Brain, ChevronDown, PhoneCall, Table2, Users } from '@/icons';
 import { formatInAppZone } from '@/lib/format-date';
-import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge, type StatusType } from '@/components/data-display';
@@ -11,6 +10,8 @@ import { SurfaceCard } from '@/components/shared/surface-card';
 import type { FirstCallState } from '@/modules/speech/actions';
 import { isBriefFresh } from '@/modules/speech/first-call-state';
 import { buildCoverage, missingSelection, type CoverageRow } from '@/modules/speech/first-contact-wizard';
+import { channelTabs, visibleClosedPacks } from '@/modules/speech/first-contact-tab-view';
+import { Tabs, TabsBadge, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   FIRST_CALL_CHANNELS,
   FIRST_CALL_CHANNEL_LABELS,
@@ -103,9 +104,12 @@ function Section({
 function CoverageGrid({
   rows,
   renderMissing,
+  onOpenCell,
 }: {
   rows: readonly CoverageRow[];
   renderMissing: (row: CoverageRow, channel: FirstCallChannel) => React.ReactNode;
+  /** Una celda hecha lleva a su preparación: abre el decisor y la pestaña del canal. */
+  onOpenCell: (groupKey: string, channel: FirstCallChannel, packId: string) => void;
 }) {
   return (
     <Table containerClassName="overflow-x-auto" className="min-w-[32rem]" aria-label="Preparaciones por decisor y canal">
@@ -129,7 +133,14 @@ function CoverageGrid({
               return (
                 <TableCell key={channel}>
                   {cell ? (
-                    <a href={`#pack-${cell.id}`} className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                    <a
+                      href={`#pack-${cell.id}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onOpenCell(row.contactId ?? 'sin-decisor', channel, cell.id);
+                      }}
+                      className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                    >
                       {cell.outcome ? (
                         <StatusBadge status={OUTCOME_CELL[cell.outcome.result].status} label={OUTCOME_CELL[cell.outcome.result].label} />
                       ) : (
@@ -161,6 +172,48 @@ function groupByTarget(packs: readonly FirstCallPack[]): Array<{ key: string; na
 }
 
 /**
+ * Las preparaciones de un decisor, una pestaña por canal (pedido de la dueña 18-10:
+ * apiladas hacían mucho scroll). En cada pestaña, la más reciente y debajo las
+ * versiones anteriores de ese canal.
+ */
+function ChannelTabs({
+  packs,
+  value,
+  onValueChange,
+  renderPack,
+}: {
+  packs: readonly FirstCallPack[];
+  value: FirstCallChannel | undefined;
+  onValueChange: (channel: FirstCallChannel) => void;
+  renderPack: (pack: FirstCallPack) => React.ReactNode;
+}) {
+  const tabs = channelTabs(packs);
+  if (tabs.length === 0) return null;
+  const current = tabs.some((t) => t.channel === value) ? value! : tabs[0].channel;
+  return (
+    <Tabs value={current} onValueChange={(next) => onValueChange(next as FirstCallChannel)} className="gap-4">
+      <TabsList aria-label="Canales" className="w-full sm:w-fit">
+        {tabs.map((tab) => (
+          <TabsTrigger key={tab.channel} value={tab.channel}>
+            {FIRST_CALL_CHANNEL_LABELS[tab.channel]}
+            {tab.packs.length > 1 && <TabsBadge count={tab.packs.length} tone="neutral" />}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {tabs.map((tab) => (
+        <TabsContent key={tab.channel} value={tab.channel} className="space-y-4">
+          {tab.packs.map((pack) => (
+            <div key={pack.id} id={`pack-${pack.id}`} className="scroll-mt-4">
+              {renderPack(pack)}
+            </div>
+          ))}
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
+
+/**
  * «Primer contacto»: la investigación y las preparaciones de la empresa en un solo
  * lugar. Arriba lo que hay y las acciones; luego la investigación, la cobertura
  * (decisor × canal, con lo que falta) y las preparaciones agrupadas por decisor.
@@ -181,12 +234,24 @@ export function FirstCallTab({
   const enabled = state.enabled && !archived;
   const brief = state.brief;
   const active = state.packs.filter((p) => p.status !== 'discarded' && p.status !== 'failed');
-  const closed = state.packs.filter((p) => p.status === 'discarded' || p.status === 'failed');
+  const closed = visibleClosedPacks(state.packs);
   const coverage = React.useMemo(() => buildCoverage(state.packs, contacts), [state.packs, contacts]);
   const missing = React.useMemo(() => missingSelection(coverage), [coverage]);
+  // La pestaña de canal elegida en cada decisor (la celda de la tabla también la cambia).
+  const [channelByGroup, setChannelByGroup] = React.useState<Record<string, FirstCallChannel>>({});
+  const openCell = (groupKey: string, channel: FirstCallChannel, packId: string) => {
+    setChannelByGroup((prev) => ({ ...prev, [groupKey]: channel }));
+    // Tras pintar la pestaña: abrir la sección del decisor y bajar a la preparación.
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`pack-${packId}`);
+      const section = target?.closest('details');
+      if (section) section.open = true;
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
   const launcherBase = { accountId, accountName, contacts, hasFreshBrief: fresh, onDone: onChanged, onRequestOpen: onRequestFirstContact };
 
-  const mainLauncher = enabled ? <FirstCallLauncher {...launcherBase} defaultContactId={defaultContactId} /> : null;
+  const mainLauncher = enabled ? <FirstCallLauncher {...launcherBase} defaultContactId={defaultContactId} prepared={active.length > 0} /> : null;
   const hasBrief = !!brief && brief.status !== 'running' && !(brief.status === 'failed' && brief.facts.length === 0);
 
   if (!hasBrief && state.packs.length === 0) {
@@ -271,6 +336,7 @@ export function FirstCallTab({
         >
           <CoverageGrid
             rows={coverage}
+            onOpenCell={openCell}
             renderMissing={(row, channel) =>
               enabled && row.contactId !== null ? (
                 <FirstCallLauncher
@@ -296,13 +362,12 @@ export function FirstCallTab({
           defaultOpen={groups.length === 1 || group.key === (defaultContactId ?? '')}
           testId={`first-contact-group-${group.key}`}
         >
-          <div className="space-y-4">
-            {group.packs.map((pack) => (
-              <div key={pack.id} id={`pack-${pack.id}`} className={cn('scroll-mt-4')}>
-                <FirstCallPackCard pack={pack} grouped {...cardProps} />
-              </div>
-            ))}
-          </div>
+          <ChannelTabs
+            packs={group.packs}
+            value={channelByGroup[group.key]}
+            onValueChange={(channel) => setChannelByGroup((prev) => ({ ...prev, [group.key]: channel }))}
+            renderPack={(pack) => <FirstCallPackCard pack={pack} grouped {...cardProps} />}
+          />
         </Section>
       ))}
 

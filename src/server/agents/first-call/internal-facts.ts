@@ -114,12 +114,45 @@ function relationsStatement(relations: readonly CorporateRelation[]): string | n
   return `Empresas relacionadas en el árbol: ${parts.join('; ')}.`;
 }
 
+/** Las etapas de HubSpot vienen con su nombre interno («marketingqualifiedlead»). */
+const HUBSPOT_STAGE_LABELS: Record<string, string> = {
+  subscriber: 'suscriptor',
+  lead: 'lead',
+  marketingqualifiedlead: 'calificado por marketing (MQL)',
+  salesqualifiedlead: 'calificado por ventas (SQL)',
+  opportunity: 'oportunidad',
+  customer: 'cliente',
+  evangelist: 'promotor',
+  other: 'otra',
+};
+
+const SECONDS_EPOCH_LIMIT_MS = 1e11; // un número menor es un valor en segundos, no en milisegundos
+const OLDEST_PLAUSIBLE_ACTIVITY = Date.UTC(2000, 0, 1);
+
+/**
+ * La fecha de última actividad, o `null` si no es creíble. Grupo Ciisa (18-10)
+ * traía «1970-01-21» (un valor en segundos leído como milisegundos): se omite.
+ */
+export function hubspotActivityDay(value: string | null, nowMs: number = Date.now()): string | null {
+  if (!value) return null;
+  const numeric = /^\d+$/.test(value.trim());
+  const parsed = numeric ? Number(value) : Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  // Sólo un número crudo se puede leer como segundos; una fecha ya escrita no se adivina.
+  const ms = numeric && parsed < SECONDS_EPOCH_LIMIT_MS ? parsed * 1000 : parsed;
+  if (ms < OLDEST_PLAUSIBLE_ACTIVITY || ms > nowMs + 86_400_000) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 function hubspotStatement(hubspot: HubSpotRelation): string | null {
   const base = HUBSPOT_STATEMENTS[hubspot.status];
   if (!base) return null;
   const extras: string[] = [];
-  if (hubspot.lifecycleStage) extras.push(`etapa «${hubspot.lifecycleStage}»`);
-  if (hubspot.lastActivityDate) extras.push(`última actividad ${hubspot.lastActivityDate.slice(0, 10)}`);
+  if (hubspot.lifecycleStage) {
+    extras.push(`etapa «${HUBSPOT_STAGE_LABELS[hubspot.lifecycleStage.toLowerCase()] ?? hubspot.lifecycleStage}»`);
+  }
+  const activityDay = hubspotActivityDay(hubspot.lastActivityDate);
+  if (activityDay) extras.push(`última actividad ${activityDay}`);
   if (hubspot.numberOfDeals && hubspot.numberOfDeals > 0) extras.push(`${hubspot.numberOfDeals} negocio(s) asociados`);
   return extras.length > 0 ? `${base.slice(0, -1)} (${extras.join(', ')}).` : base;
 }

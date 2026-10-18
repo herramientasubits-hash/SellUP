@@ -118,6 +118,27 @@ export function recommendApproach(input: {
   return 'problem';
 }
 
+/**
+ * «Todos» (el vendedor no eligió): el recomendado primero y luego una versión con
+ * cada enfoque que aplique, para comparar y elegir en la tarjeta (dueña 18-10).
+ * Fuera: los apagados, «Por referencia» sin referencia y «Por un evento reciente»
+ * sin una noticia de los últimos 90 días. En Perú sólo el directo con permiso.
+ */
+export function allApplicableApproaches(
+  recommended: FirstContactApproach,
+  options: { hasRecentSignal: boolean; hasReferral: boolean; countryCode: string | null },
+): FirstContactApproach[] {
+  if (options.countryCode?.toUpperCase() === 'PE') return ['permission'];
+  const others = FIRST_CONTACT_APPROACHES.filter(
+    (a) =>
+      a !== recommended &&
+      isApproachAvailable(a) &&
+      (a !== 'referral' || options.hasReferral) &&
+      (a !== 'trigger' || options.hasRecentSignal),
+  );
+  return [recommended, ...others];
+}
+
 // ── Cuándo contactar (hora local) ─────────────────────────────────────────────
 
 const COUNTRY_CLOCK: Readonly<Record<string, string>> = {

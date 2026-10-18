@@ -172,11 +172,15 @@ export interface PackObjection {
   libraryKey: string | null;
 }
 
-/** Otra versión del mensaje (o de la apertura de la llamada) con otro enfoque. */
+/**
+ * Otra versión con otro enfoque: el mensaje del canal o, en la llamada, el guion
+ * completo (`text`) y el mensaje de voz si no contesta (`voicemail`).
+ */
 export interface ApproachVariant {
   approach: FirstContactApproach;
   text: string;
   factRefs: string[];
+  voicemail?: string;
 }
 
 export interface FirstCallPackContent {
@@ -231,7 +235,7 @@ export interface FirstCallPack {
   usedAt: string | null;
   discardedAt: string | null;
   /** Qué pasó al usarla (lo marca el vendedor). */
-  outcome: { result: FirstContactOutcome; at: string } | null;
+  outcome: { result: FirstContactOutcome; at: string; /** La versión (enfoque) que usó. */ approach?: FirstContactApproach | null } | null;
 }
 
 /** Topes de una corrida: cada decisor es una llamada al redactor. */

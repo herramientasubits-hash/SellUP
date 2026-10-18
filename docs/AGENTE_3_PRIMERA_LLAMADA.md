@@ -86,12 +86,12 @@ Desde la lista de Empresas no se ofrece en acciones **masivas** sobre varias emp
 
 Salen del [Manual del primer contacto](https://claude.ai/artifact/QGNBaKdbVJA8EQtGpa4YH6), una investigación con fuentes: Gong, Nooks, Orum, Lavender, 30MPC, Blount, Braun, Bertuzzi, Gartner, LinkedIn y las leyes de cada país. El objetivo de cada preparación es la primera reunión: **se vende la reunión, no la plataforma**.
 
-- **Paso «Enfoque»** en el asistente: hasta 3, o «El que recomiende el agente» (por defecto).
+- **Paso «Enfoque»** en el asistente: «Todos» (por defecto: una versión con cada enfoque que aplique, el recomendado como principal; fuera «Pares del sector», «Por referencia» sin referencia y «Por un evento reciente» sin noticia de 90 días; en Perú sólo «Directo y con permiso») o hasta 3 elegidos.
   - Por defecto, el agente recomienda según el caso: en Perú, con permiso; sin decisor, pedir a quién dirigirse; con una noticia de los últimos 90 días, el evento reciente; a un CHRO o CEO, un dato; si no, el problema.
   - Los enfoques: evento reciente, problema, dato, dar valor primero, directo y con permiso, referencia y pedir a quién dirigirse.
   - «Pares del sector» queda apagado hasta tener la lista de clientes que autorizan ser nombrados.
   - «Por referencia» pide quién refirió el contacto y lo usa tal cual.
-  - Con varios enfoques, cada mensaje (y la apertura de la llamada) trae una versión por enfoque.
+  - Con varios enfoques, cada mensaje trae una versión por enfoque; en la llamada, el guion completo y el mensaje si no contesta (no sólo la apertura). La tarjeta los ofrece en el selector «Tipo de mensaje» (los 8 tipos; los no escritos, apagados con su motivo) y «La usé» guarda qué tipo se usó (`outcome.approach`).
 - **Cada preparación trae, además:**
   - cómo pedir la reunión: dos horarios en 7 a 14 días, de 20 a 30 minutos, y lo que se lleva el cliente;
   - qué hacer si dice que no: un próximo paso con fecha, un permiso o una referencia;

@@ -77,10 +77,10 @@ export interface WizardOption {
   unavailable?: boolean;
 }
 
-/** Enfoques: primero «El que recomiende el agente»; los que aún no se pueden ofrecer, apagados. */
+/** Enfoques: primero «Todos» (una versión de cada uno); los que aún no se pueden ofrecer, apagados. */
 export function approachOptions(): WizardOption[] {
   return [
-    { value: RECOMMENDED_APPROACH, label: 'El que recomiende el agente', description: 'Según el cargo, la noticia más reciente y el país.' },
+    { value: RECOMMENDED_APPROACH, label: 'Todos: una versión de cada uno', description: 'El agente marca el que recomienda según el cargo, la noticia y el país; tú eliges cuál usar.' },
     ...FIRST_CONTACT_APPROACHES.map((a) => {
       const def = APPROACH_DEFINITIONS[a];
       return def.unavailableReason
@@ -90,7 +90,7 @@ export function approachOptions(): WizardOption[] {
   ];
 }
 
-/** «El que recomiende el agente» excluye a los demás; tope de 3 enfoques. */
+/** «Todos» excluye a los demás; elegidos a mano, tope de 3 enfoques. */
 export function normalizeApproachSelection(previous: readonly string[], next: readonly string[]): string[] {
   return normalizeExclusiveSelection(
     previous,
@@ -185,9 +185,14 @@ export function preparationsCount(selection: Pick<FirstContactSelection, 'contac
 }
 
 /** Cuánto tarda, en palabras: la investigación ~1 min y cada tanda de 2 decisores ~20 s. */
-export function estimatedDuration(selection: Pick<FirstContactSelection, 'contactIds'>, willResearch: boolean): string {
+export function estimatedDuration(
+  selection: Pick<FirstContactSelection, 'contactIds'> & Partial<Pick<FirstContactSelection, 'approaches'>>,
+  willResearch: boolean,
+): string {
   const writerRounds = Math.ceil(Math.max(1, selection.contactIds.length) / 2);
-  const seconds = (willResearch ? 70 : 0) + writerRounds * 25;
+  // «Todos» escribe hasta seis versiones de cada mensaje: tarda más (Grupo Ciisa, 1 enfoque: 50 s).
+  const perRound = (selection.approaches?.length ?? 0) === 0 ? 75 : 25 + 15 * ((selection.approaches?.length ?? 1) - 1);
+  const seconds = (willResearch ? 70 : 0) + writerRounds * perRound;
   if (seconds < 60) return 'menos de un minuto';
   const minutes = Math.round(seconds / 60);
   return minutes <= 1 ? 'cerca de un minuto' : `unos ${minutes} minutos`;
@@ -218,16 +223,47 @@ export function summaryText(
   const approaches =
     selection.approaches.length > 0
       ? listInSpanish(selection.approaches.map((a) => APPROACH_DEFINITIONS[a].label.toLowerCase()))
-      : 'el que recomiende el agente';
+      : 'todos los que apliquen, una versión de cada uno (el agente marca el que recomienda)';
   return [
     willResearch
       ? 'Primero investigo la empresa: sitio oficial, noticias del último año y lo que ya saben SellUp y HubSpot.'
       : 'Uso la investigación vigente de la empresa (no se paga otra).',
     `Luego preparo ${total === 1 ? 'una preparación' : `${total} preparaciones`}: ${who}, por ${channels}.`,
-    `${selection.goals.length > 1 ? 'Objetivos' : 'Objetivo'}: ${listInSpanish(orderGoals(selection.goals).map((g) => FIRST_CALL_GOAL_LABELS[g].toLowerCase()))}. ${selection.approaches.length > 1 ? 'Enfoques' : 'Enfoque'}: ${approaches}${selection.approaches.length > 1 ? ' (una versión de cada uno)' : ''}. Productos: ${products}.`,
+    `${selection.goals.length > 1 ? 'Objetivos' : 'Objetivo'}: ${listInSpanish(orderGoals(selection.goals).map((g) => FIRST_CALL_GOAL_LABELS[g].toLowerCase()))}. ${selection.approaches.length === 1 ? 'Enfoque' : 'Enfoques'}: ${approaches}${selection.approaches.length > 1 ? ' (una versión de cada uno)' : ''}. Productos: ${products}.`,
     'Cada preparación trae cómo pedir la reunión, qué hacer si dice que no y el mensaje para confirmarla.',
     `Tarda ${estimatedDuration(selection, willResearch)}.`,
   ].join('\n\n');
+}
+
+/**
+ * El aviso al terminar (como el «¡Objetivo alcanzado!» del Agente 1): confirma
+ * que hizo lo que se pidió — cuántas preparaciones, para quién y por dónde — y
+ * cuántas tienen avisos o no se pudieron escribir.
+ */
+export function firstContactDoneToast(
+  packStatuses: readonly string[],
+  selection: FirstContactSelection,
+  contacts: readonly FirstCallContactOption[],
+): { tone: 'success' | 'warning'; title: string; description: string } {
+  const total = packStatuses.length;
+  const failed = packStatuses.filter((s) => s === 'failed').length;
+  const toReview = packStatuses.filter((s) => s === 'needs_review').length;
+  const usable = total - failed;
+  const names = selection.contactIds
+    .map((id) => contacts.find((c) => c.id === id)?.name)
+    .filter((n): n is string => !!n);
+  const who = names.length > 0 ? ` para ${listInSpanish(names)}` : '';
+  const channels = listInSpanish(selection.channels.map((c) => FIRST_CALL_CHANNEL_LABELS[c]));
+  const count = usable === 0 ? 'Ninguna preparación' : usable === 1 ? 'Una preparación' : `${usable} preparaciones`;
+  const parts = [`${count}${who} por ${channels}.`];
+  if (toReview > 0) parts.push(toReview === 1 ? 'Una tiene avisos para revisar antes de usarla.' : `${toReview} tienen avisos para revisar antes de usarlas.`);
+  else if (usable > 0) parts.push(usable === 1 ? 'Lista para usar.' : 'Listas para usar.');
+  if (failed > 0) parts.push(failed === 1 ? 'Una no se pudo escribir: rehazla desde la tarjeta.' : `${failed} no se pudieron escribir: rehazlas desde su tarjeta.`);
+  return {
+    tone: failed > 0 ? 'warning' : 'success',
+    title: failed === 0 ? '¡Primer contacto listo!' : 'Primer contacto preparado a medias',
+    description: parts.join(' '),
+  };
 }
 
 /** El cuerpo del POST a `/api/agent3/first-call`. */

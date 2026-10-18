@@ -82,8 +82,11 @@ describe('resumen y pedido', () => {
     );
     assert.match(several, /Objetivos: conseguir una reunión y saber quién decide/);
     assert.match(summaryText({ contactIds: [], channels: ['email'], goals: ['validate_owner'], productKeys: [], approaches: [], referralNote: null }, CONTACTS, false), /investigación vigente/);
-    assert.equal(estimatedDuration({ contactIds: [] }, false), 'menos de un minuto');
-    assert.equal(estimatedDuration({ contactIds: ['a', 'b', 'c'] }, true), 'unos 2 minutos');
+    assert.equal(estimatedDuration({ contactIds: [], approaches: ['trigger'] }, false), 'menos de un minuto');
+    assert.equal(estimatedDuration({ contactIds: ['a', 'b', 'c'], approaches: ['trigger'] }, true), 'unos 2 minutos');
+    // «Todos» escribe una versión con cada enfoque: tarda más.
+    assert.equal(estimatedDuration({ contactIds: [] }, false), 'cerca de un minuto');
+    assert.equal(estimatedDuration({ contactIds: ['a', 'b', 'c'] }, true), 'unos 4 minutos');
   });
 
   it('el pedido lleva las listas y limpia el motivo', () => {

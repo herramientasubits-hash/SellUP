@@ -36,6 +36,7 @@ import {
 } from '@/server/agents/first-call/types';
 import { ubitsProductNames } from '@/server/agents/first-call/ubits-messaging-library';
 import { FirstCallLauncher, type FirstCallContactOption, type FirstContactLaunchRequest } from './first-call-launcher';
+import { MAIN_VERSION, MessageTypeSelect, messageTypeOptions } from './message-type-select';
 
 const STATUS: Record<FirstCallPackStatus, { status: StatusType; label: string }> = {
   draft: { status: 'info', label: 'Lista para usar' },
@@ -52,6 +53,7 @@ const MESSAGE_TITLE: Record<FirstCallChannel, string> = {
   email: 'Correo',
   linkedin: 'Nota de LinkedIn',
 };
+
 
 function formatDate(iso: string): string {
   return formatInAppZone(iso, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }, 'es-CO');
@@ -191,7 +193,10 @@ export function FirstCallPackCard({
   const [draft, setDraft] = React.useState(pack.editedScript ?? pack.content?.callScript.text ?? '');
   const [busy, setBusy] = React.useState(false);
   // La versión que se muestra: la principal o la de otro enfoque.
-  const [version, setVersion] = React.useState<string>('main');
+  // Usada: se abre en la versión que se usó.
+  const [version, setVersion] = React.useState<string>(() =>
+    pack.outcome?.approach && pack.content?.variants?.some((v) => v.approach === pack.outcome?.approach) ? pack.outcome.approach : MAIN_VERSION,
+  );
   // Los hechos del propio paquete: los de la ficha actual pueden estar numerados distinto.
   const factMap = React.useMemo(() => new Map((pack.facts ?? []).map((f) => [f.id, f])), [pack.facts]);
   const content = pack.content;
@@ -216,8 +221,10 @@ export function FirstCallPackCard({
   };
 
   const markUsed = async (outcome: FirstContactOutcome) => {
+    // La versión que tenía a la vista al marcarla: la principal o la de otro enfoque.
+    const usedApproach = pack.content?.variants?.find((v) => v.approach === version)?.approach ?? pack.content?.approach ?? null;
     await run(
-      () => markFirstCallPackUsed(pack.id, canMoveToReady, outcome),
+      () => markFirstCallPackUsed(pack.id, canMoveToReady, outcome, usedApproach),
       `Marcada como usada: ${FIRST_CONTACT_OUTCOME_LABELS[outcome].toLowerCase()}.`,
     );
   };
@@ -228,34 +235,52 @@ export function FirstCallPackCard({
   const variants = content?.variants ?? [];
   const mainApproach = content?.approach ?? null;
   const shownVariant = variants.find((v) => v.approach === version) ?? null;
-  const message = !isCall && shownVariant ? shownVariant.text : content?.shortMessage.text ?? '';
+  // Cada tipo cambia TODO: en la llamada, el guion completo y el mensaje si no contesta.
+  // Las preparaciones viejas sólo traían la apertura (sin mensaje de voz): se muestra aparte.
+  const openerOnly = isCall && !!shownVariant && !shownVariant.voicemail;
+  const shownScript = isCall && shownVariant && !openerOnly ? shownVariant.text : script;
+  const canEditScript = !closed && !shownVariant;
+  const message = shownVariant
+    ? isCall
+      ? shownVariant.voicemail ?? content?.shortMessage.text ?? ''
+      : shownVariant.text
+    : content?.shortMessage.text ?? '';
 
   return (
     <SurfaceCard className="space-y-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-base font-semibold text-foreground">{grouped ? FIRST_CALL_CHANNEL_LABELS[pack.channel] : target}</p>
-          <p className="text-xs text-muted-foreground">
-            {grouped ? '' : `${FIRST_CALL_CHANNEL_LABELS[pack.channel]} · `}
-            {goalsLabel(pack.goals)} · {formatDate(pack.createdAt)}
-            {pack.regenerationReason ? ` · otra versión: «${pack.regenerationReason}»` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {mainApproach && <Badge variant="outline">{APPROACH_DEFINITIONS[mainApproach].label}</Badge>}
+      <header className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <p className="text-base font-semibold text-foreground">{grouped ? FIRST_CALL_CHANNEL_LABELS[pack.channel] : target}</p>
+            <p className="text-xs text-muted-foreground">
+              {grouped ? '' : `${FIRST_CALL_CHANNEL_LABELS[pack.channel]} · `}
+              {goalsLabel(pack.goals)} · {formatDate(pack.createdAt)}
+              {pack.regenerationReason ? ` · otra versión: «${pack.regenerationReason}»` : ''}
+            </p>
+          </div>
           {pack.outcome ? (
             <StatusBadge status={OUTCOME_STATUS[pack.outcome.result]} label={FIRST_CONTACT_OUTCOME_LABELS[pack.outcome.result]} />
           ) : (
             <StatusBadge status={STATUS[pack.status].status} label={STATUS[pack.status].label} />
           )}
         </div>
+        {content && pack.status !== 'failed' && (
+          <div className="space-y-2 rounded-xl border border-border/60 bg-surface-subtle p-3">
+            <MessageTypeSelect
+              options={messageTypeOptions(mainApproach, variants)}
+              value={version}
+              onValueChange={setVersion}
+              isCall={isCall}
+            />
+            {pack.status !== 'used' && (
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                {bestContactWindow(countryCode, pack.channel)}
+              </p>
+            )}
+          </div>
+        )}
       </header>
-      {content && pack.status !== 'used' && (
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          {bestContactWindow(countryCode, pack.channel)}
-        </p>
-      )}
 
       {pack.status === 'failed' || !content ? (
         <p className="text-sm text-muted-foreground">
@@ -285,47 +310,28 @@ export function FirstCallPackCard({
             <p className="mt-1 text-sm text-foreground">{content.reasonToCall.text}</p>
             <FactRefs refs={content.reasonToCall.factRefs} facts={factMap} />
             {content.angle && <p className="mt-1.5 text-xs text-muted-foreground">Ángulo: {content.angle}</p>}
-            {content.approachReason && mainApproach && (
+            {content.approachReason && mainApproach && version === MAIN_VERSION && (
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {APPROACH_DEFINITIONS[mainApproach].label}: {content.approachReason}
               </p>
             )}
           </section>
 
-          {variants.length > 0 && (
-            <div role="radiogroup" aria-label="Versión del mensaje" className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">{isCall ? 'Aperturas:' : 'Versión:'}</span>
-              {[{ key: 'main', label: mainApproach ? APPROACH_DEFINITIONS[mainApproach].label : 'Principal' }, ...variants.map((v) => ({ key: v.approach, label: APPROACH_DEFINITIONS[v.approach].label }))].map((option) => (
-                <Button
-                  key={option.key}
-                  type="button"
-                  size="xs"
-                  role="radio"
-                  aria-checked={version === option.key}
-                  variant={version === option.key ? 'secondary' : 'ghost'}
-                  onClick={() => setVersion(option.key)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-          )}
-
-          {isCall && shownVariant && (
+          {openerOnly && shownVariant && (
             <Block title={`Apertura · ${APPROACH_DEFINITIONS[shownVariant.approach].label}`} icon={PhoneCall} action={<CopyButton text={shownVariant.text} label="Copiar la apertura" />}>
               <p className="whitespace-pre-line rounded-xl bg-primary/5 p-3 text-sm leading-relaxed text-foreground">{shownVariant.text}</p>
               <p className="text-xs text-muted-foreground">Después de la apertura, sigue con el guion desde el motivo.</p>
             </Block>
           )}
 
-          {isCall && script && (
+          {isCall && shownScript && (
             <Block
               title="Guion de la llamada"
               icon={PhoneCall}
               action={
                 <div className="flex gap-1">
-                  <CopyButton text={script} label="Copiar el guion" />
-                  {!closed && (
+                  <CopyButton text={shownScript} label="Copiar el guion" />
+                  {canEditScript && (
                     <Button type="button" size="xs" variant="ghost" onClick={() => setEditing((v) => !v)}>
                       <Pencil aria-hidden="true" />
                       {editing ? 'Cerrar' : 'Editar'}
@@ -334,7 +340,7 @@ export function FirstCallPackCard({
                 </div>
               }
             >
-              {editing ? (
+              {editing && canEditScript ? (
                 <div className="space-y-2">
                   <Textarea
                     id={`first-call-script-${pack.id}`}
@@ -357,9 +363,9 @@ export function FirstCallPackCard({
                   </div>
                 </div>
               ) : (
-                <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">{script}</p>
+                <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">{shownScript}</p>
               )}
-              {pack.editedScript && !editing && <p className="text-xs text-muted-foreground">Es tu versión editada.</p>}
+              {pack.editedScript && !editing && !shownVariant && <p className="text-xs text-muted-foreground">Es tu versión editada.</p>}
             </Block>
           )}
 

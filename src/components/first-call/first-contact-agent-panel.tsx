@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { toast } from 'sonner';
 import { ChatPanel, ChatQuestionPanel } from '@/components/chat';
 import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types';
@@ -24,6 +25,7 @@ import {
   normalizeDecisionMakerSelection,
   normalizeProductSelection,
   estimatedDuration,
+  firstContactDoneToast,
   preparationsCount,
   productKeysFrom,
   productOptions,
@@ -128,7 +130,7 @@ function answerText(step: number, selection: FirstContactSelection, contacts: re
       return goalsLabel(selection.goals);
     case 'enfoque':
       return selection.approaches.length === 0
-        ? 'El que recomiende el agente'
+        ? 'Todos (una versión de cada uno)'
         : selection.approaches
             .map((a) => (a === 'referral' && selection.referralNote ? `${APPROACH_DEFINITIONS[a].label} (${selection.referralNote})` : APPROACH_DEFINITIONS[a].label))
             .join(', ');
@@ -271,6 +273,14 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
       setResult({ total: body.packIds.length, toReview: body.packStatuses.filter((s) => s === 'needs_review').length });
       setPhase('done');
       onDone?.();
+      // Como el Agente 1 al terminar: un aviso que confirma lo que hizo y el panel
+      // se cierra para mostrar el resultado.
+      const notice = firstContactDoneToast(body.packStatuses, selection, contacts);
+      toast[notice.tone](notice.title, { description: notice.description, duration: 8000 });
+      if (onViewResult) {
+        onOpenChange(false);
+        onViewResult();
+      }
     } catch {
       setError('No pudimos conectar con el servidor. Revisa tu conexión y vuelve a intentarlo.');
       setPhase('error');
@@ -433,7 +443,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
           <ChatQuestionPanel
             title={QUESTIONS.enfoque}
             onBack={goBack}
-            description={`Puedes elegir hasta ${MAX_APPROACHES}: cada uno trae su propia versión del mensaje para que elijas.`}
+            description={`Con «Todos» escribe el mensaje con cada enfoque que aplique y eliges cuál usar en la tarjeta. O elige hasta ${MAX_APPROACHES}.`}
             mode="multiple"
             max={MAX_APPROACHES}
             options={approachOptions()}
