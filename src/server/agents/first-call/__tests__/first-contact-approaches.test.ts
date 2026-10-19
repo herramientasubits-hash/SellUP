@@ -261,6 +261,35 @@ describe('verificador · reglas del manual', () => {
     assert.deepEqual(unsupportedNumbers('En los próximos 14 días o en 12 horas.', []), []);
   });
 
+  it('Auteco (19-10): un dato de hace más de un año no se dice como actual (salvo con su año)', () => {
+    const facts = [...FACTS, fact('F9', 'El grupo tiene más de 5.000 colaboradores indirectos.', '2024-10-17', 'size_presence')];
+    const build = (reason: string) =>
+      verifyPack(
+        contentForChannel(
+          parseWriterSubmission(
+            raw({
+              approach: 'problem',
+              reason_to_call: { text: reason, fact_refs: ['F9'] },
+              messages: [{ channel: 'email', text: 'Asunto: Equipos\nLaura, ¿cómo lo están viviendo? ¿Le sirve?', fact_refs: ['F9'], variants: [] }],
+            }),
+            ['email'],
+          ),
+          'email',
+        ),
+        facts,
+        'email',
+        { nowMs: NOW },
+      );
+    assert.ok(build('Está en expansión con más de 5.000 colaboradores indirectos.').some((i) => i.includes('más de un año (2024-10-17)')));
+    assert.ok(!build('En 2024 contaban más de 5.000 colaboradores indirectos.').some((i) => i.includes('más de un año')));
+  });
+
+  it('Auteco (19-10): «muchas empresas de manufactura usan…» es prueba social inventada; el redactor no afirma faltantes', () => {
+    const issues = emailIssues('Asunto: Diagnóstico\nLaura, le ofrezco algo que muchas empresas de manufactura usan antes de cualquier otra cosa. ¿Le sirve?');
+    assert.ok(issues.some((i) => i.includes('UBITS que la biblioteca no respalda')), issues.join(' | '));
+    assert.match(buildWriterSystemPrompt(), /«Lo que no se encontró» o en las hipótesis NO es un hecho/);
+  });
+
   it('Auteco (19-10): citar la fuente por nombre («… Report 2025») no es una cifra sin fuente', () => {
     const issues = emailIssues(
       'Asunto: Un dato\nLaura, según el LinkedIn Workplace Learning Report 2025, el 88 % de las organizaciones está preocupado por retener talento. ¿Le sirve que le cuente más?',

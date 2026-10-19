@@ -252,6 +252,8 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\b(otros|muchos) (bancos|clientes) (ya )?(nos usan|usan ubits|trabajan con nosotros)/,
   // Asdeporte (19-10): «trabajo con empresas que…», «otros equipos de RR. HH. me comentan».
   /\btrabajo con (muchas |varias |otras )?(empresas|compa[nñ]ias|equipos|organizaciones|clientes)\b/,
+  // Auteco (19-10): «algo que muchas empresas de manufactura usan…».
+  /\bmuchas (empresas|compa[nñ]ias|organizaciones|areas de talento)\b[^?!\n]{0,50}\b(usan|ya usan|eligen|prefieren|confian)\b/,
   // Sin cortar en los puntos de «RR. HH.»: hasta 40 caracteres de la misma frase.
   /\botr[oa]s (equipos|lideres|líderes|empresas|clientes|gerentes|directores)[^?!\n]{0,40}\b(me (comentan|cuentan|dicen)|lo resuelven|lo resolvieron|ya lo hacen)\b/,
 ];
@@ -279,6 +281,8 @@ export interface VerifyPackOptions {
 
 /** Una noticia para «Por un evento reciente» sirve hasta 90 días. */
 export const RECENT_SIGNAL_MAX_DAYS = 90;
+/** Un dato con fecha de hace más de esto no se presenta como actual sin su año. */
+export const OLD_FACT_MAX_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** El primer contacto va sin enlaces ni calendario. */
@@ -482,6 +486,21 @@ export function verifyPack(
       .filter((f) => options.nowMs! - Date.parse(`${f.publishedOn}T12:00:00Z`) > RECENT_SIGNAL_MAX_DAYS * DAY_MS);
     if (stale.length > 0) {
       issues.push(`La noticia citada tiene más de ${RECENT_SIGNAL_MAX_DAYS} días (${stale.map((f) => f.publishedOn).join(', ')}): ya no es un evento reciente.`);
+    }
+  }
+
+  // Auteco (19-10): el motivo de hoy se apoyaba en un dato de octubre de 2024 dicho como actual.
+  if (options.nowMs !== undefined && pack.approach !== 'trigger') {
+    const opening = [pack.reasonToCall.text, pack.callScript.text, pack.shortMessage.text].join(' ');
+    const old = pack.reasonToCall.factRefs
+      .map((r) => byId.get(r))
+      .filter((f): f is ResearchFact => !!f && !!f.publishedOn && f.sourceKind !== 'sellup' && f.sourceKind !== 'seller')
+      .filter((f) => options.nowMs! - Date.parse(`${f.publishedOn}T12:00:00Z`) > OLD_FACT_MAX_DAYS * DAY_MS)
+      .filter((f) => !opening.includes(f.publishedOn!.slice(0, 4)));
+    if (old.length > 0) {
+      issues.push(
+        `El motivo se apoya en un dato de hace más de un año (${old.map((f) => f.publishedOn).join(', ')}) dicho como actual: menciona su año o usa uno más reciente.`,
+      );
     }
   }
 
