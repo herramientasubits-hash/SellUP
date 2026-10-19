@@ -5,7 +5,7 @@
  * la frase LITERAL de la fuente. No escribe nada que luego no se pueda comprobar.
  */
 
-import { UBITS_PRODUCTS } from './ubits-messaging-library';
+import { UBITS_PRODUCTS, renderSignalPlaysForPrompt } from './ubits-messaging-library';
 import { RESEARCH_TOPICS } from './types';
 import type { ResearchFact } from './types';
 
@@ -131,6 +131,9 @@ export function buildResearchSystemPrompt(): string {
     '',
     '# Productos de UBITS (product_key)',
     products,
+    '',
+    '# Qué señal apunta a qué producto (para elegir el product_key de cada hipótesis)',
+    renderSignalPlaysForPrompt(),
   ].join('\n');
 }
 

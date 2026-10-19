@@ -15,7 +15,15 @@ import { contentForChannel, parseWriterSubmission, verifyPack } from '../pack-ve
 import { buildWriterSubmitTool, buildWriterUserMessage } from '../writer-prompt';
 import { goalsLabel, type ResearchFact } from '../types';
 import { mapPackRow } from '../row-mappers';
-import { UBITS_PRODUCTS, ubitsProductName, ubitsProductNames } from '../ubits-messaging-library';
+import { buildResearchSystemPrompt } from '../research-prompt';
+import {
+  UBITS_CATALOG_TOPICS,
+  UBITS_PRODUCTS,
+  UBITS_SIGNAL_PLAYS,
+  renderLibraryForPrompt,
+  ubitsProductName,
+  ubitsProductNames,
+} from '../ubits-messaging-library';
 import { parseFirstCallRequest } from '../../../../modules/speech/first-call-request';
 
 const ACCOUNT = '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f';
@@ -121,6 +129,33 @@ describe('productos de UBITS (menú de la plataforma)', () => {
     assert.equal(ubitsProductName('performance'), 'Desempeño');
     assert.deepEqual(ubitsProductNames('desempeno_360,aprendizaje_planes,raro'), ['Evaluaciones 360', 'Planes de Formación']);
     assert.equal(ubitsProductName(null), null);
+  });
+
+  it('el portafolio de Confluence: contenidos, cumplimiento, Sence, AI Studio y Roleplay, sin lo que está en desarrollo', () => {
+    for (const key of ['aprendizaje_contenidos', 'aprendizaje_cumplimiento', 'aprendizaje_sence', 'aprendizaje_ai_studio', 'seleccion_roleplay']) {
+      assert.ok(UBITS_PRODUCTS.some((p) => p.key === key), key);
+    }
+    const names = UBITS_PRODUCTS.map((p) => `${p.name} ${p.pitch}`).join(' ');
+    assert.doesNotMatch(names, /Agente de Idiomas|Hunter|SuccessFactors/);
+    assert.match(UBITS_PRODUCTS.find((p) => p.key === 'aprendizaje_sence')?.caution ?? '', /no prometas un curso puntual/);
+  });
+
+  it('cada señal apunta a productos que existen', () => {
+    const keys = new Set(UBITS_PRODUCTS.map((p) => p.key));
+    for (const play of UBITS_SIGNAL_PLAYS) {
+      assert.ok(play.productKeys.length > 0, play.key);
+      for (const k of play.productKeys) assert.ok(keys.has(k), `${play.key} → ${k}`);
+    }
+  });
+
+  it('las instrucciones llevan las señales, los temas y los avisos, y prohíben nombrar cursos', () => {
+    const library = renderLibraryForPrompt();
+    assert.match(library, /De la señal de la empresa al producto/);
+    assert.match(library, /Gestión del riesgo: continuidad del negocio, riesgo financiero y LAFT/);
+    assert.match(library, /NO inventes ni nombres cursos/);
+    assert.match(library, /Cuidado: Es del plan Executive/);
+    assert.match(buildResearchSystemPrompt(), /Empresa en Chile → aprendizaje_sence/);
+    assert.ok(UBITS_CATALOG_TOPICS.length >= 30);
   });
 });
 
