@@ -29,6 +29,8 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
 import { allApplicableApproaches, recommendApproach } from './approaches';
+import { researchContact } from './contact-research';
+import type { ContactInsight } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
 import {
@@ -46,6 +48,7 @@ import {
   buildResearchSystemPrompt,
   buildResearchUserMessage,
   buildResearchWebSearchTool,
+  RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY,
   type ResearchDocument,
 } from './research-prompt';
 import { newsToDocuments, numberDocuments, readOfficialSite, type NewsSearchOutput } from './research-documents';
@@ -215,9 +218,12 @@ function sourcesFrom(documents: readonly ResearchDocument[], facts: readonly Res
 
 // ── Investigación ────────────────────────────────────────────────────────────
 
-async function gatherNews(context: InternalContext, deps: RunFirstCallDeps): Promise<{ documents: ResearchDocument[]; credits: number }> {
+async function gatherNews(
+  context: InternalContext,
+  deps: RunFirstCallDeps,
+): Promise<{ documents: ResearchDocument[]; credits: number; tavilyUnavailable: boolean }> {
   const budget = await deps.checkBudget('tavily');
-  if (!budget.allowed) return { documents: [], credits: 0 };
+  if (!budget.allowed) return { documents: [], credits: 0, tavilyUnavailable: true };
   const { account } = context;
   const name = account.name;
   const queries: Array<{ query: string; topic: 'news' | 'general'; step: string }> = [
@@ -253,6 +259,8 @@ async function gatherNews(context: InternalContext, deps: RunFirstCallDeps): Pro
   return {
     documents: newsToDocuments(outputs.flatMap((o) => o.results), account.domain),
     credits: outputs.reduce((sum, o) => sum + (o.credits ?? 0), 0),
+    // Sin llave o con todas las búsquedas en error (p. ej. sin créditos del mes): va el respaldo.
+    tavilyUnavailable: outputs.every((o) => o.skipped || !!o.error),
   };
 }
 
@@ -311,7 +319,12 @@ async function research(
       model: models.extractionModel,
       max_tokens: RESEARCH_MAX_OUTPUT_TOKENS,
       system: [{ type: 'text', text: buildResearchSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-      tools: webSearchAllowed ? [buildResearchWebSearchTool(), buildResearchSubmitTool()] : [buildResearchSubmitTool()],
+      tools: webSearchAllowed
+        ? [
+            buildResearchWebSearchTool(news.tavilyUnavailable ? RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY : undefined),
+            buildResearchSubmitTool(),
+          ]
+        : [buildResearchSubmitTool()],
       messages: [
         {
           role: 'user',
@@ -324,6 +337,7 @@ async function research(
             internalFacts,
             documents,
             webSearchAllowed,
+            tavilyUnavailable: news.tavilyUnavailable,
           }),
         },
       ],
@@ -350,6 +364,7 @@ async function research(
         site_pages: site.pagesRead,
         news_documents: news.documents.length,
         web_search_allowed: webSearchAllowed,
+        tavily_unavailable: news.tavilyUnavailable,
       },
     });
 
@@ -438,11 +453,21 @@ export function factsForWriting(briefFacts: readonly ResearchFact[], internal: I
   return [...briefFacts, ...buildRequestFacts(internal).map((fact, i) => ({ id: `F${next + i}`, ...fact }))];
 }
 
-/** ¿La ficha tiene una señal reciente con fecha de los últimos 90 días? (para recomendar el enfoque) */
+/** Los datos del decisor van después de los de la ficha, con ids que siguen la numeración. */
+export function withContactFacts(facts: readonly ResearchFact[], contactFacts: ReadonlyArray<Omit<ResearchFact, 'id'>>): ResearchFact[] {
+  const used = facts.map((f) => Number(f.id.replace(/^F/, ''))).filter((n) => Number.isFinite(n));
+  const next = (used.length > 0 ? Math.max(...used) : 0) + 1;
+  return [...facts, ...contactFacts.map((fact, i) => ({ id: `F${next + i}`, ...fact }))];
+}
+
+/**
+ * ¿Hay una señal reciente con fecha de los últimos 90 días? (para recomendar el enfoque)
+ * También cuenta un dato fechado del decisor (llegó hace poco al cargo).
+ */
 export function hasRecentSignal(facts: readonly ResearchFact[], nowMs: number): boolean {
   return facts.some(
     (f) =>
-      f.topic === 'recent_signal' &&
+      (f.topic === 'recent_signal' || (f.topic === 'decision_maker' && f.sourceKind !== 'sellup')) &&
       !!f.publishedOn &&
       nowMs - Date.parse(`${f.publishedOn}T12:00:00Z`) <= RECENT_SIGNAL_MAX_DAYS * 24 * 60 * 60 * 1000,
   );
@@ -499,13 +524,20 @@ async function writeForTarget(params: {
   brief: WritableBrief;
   models: { apiKey: string; writerModel: string };
   deps: RunFirstCallDeps;
+  /** Lo verificado del decisor (investigación del contacto), sin ids. */
+  contactFacts?: ReadonlyArray<Omit<ResearchFact, 'id'>>;
+  /** Gancho, prioridades probables y lo que no se confirmó del decisor. */
+  contactInsight?: ContactInsight | null;
 }): Promise<WrittenForTarget> {
   const { request, context, target, brief, models, deps } = params;
   const internal: InternalContext = { ...context.internal, decisionMaker: target };
   const channels = request.channels;
-  const facts = factsForWriting(brief.facts, internal);
+  // Un dato del vendedor sobre OTRO decisor no entra en la preparación de éste.
+  const briefFacts = brief.facts.filter((f) => !f.contactId || f.contactId === target?.id);
+  const facts = withContactFacts(factsForWriting(briefFacts, internal), params.contactFacts ?? []);
   const nowMs = deps.now();
-  const recentSignal = hasRecentSignal(brief.facts, nowMs);
+  // Un nombramiento reciente del decisor también es un evento para abrir.
+  const recentSignal = hasRecentSignal(facts, nowMs);
   const recommendedApproach = recommendApproach({
     title: target?.title ?? null,
     hasRecentSignal: recentSignal,
@@ -552,6 +584,7 @@ async function writeForTarget(params: {
           gaps: brief.gaps,
           hubspotWarning: hubspotWarning(internal.hubspot),
           regenerationReason: request.regenerationReason,
+          contactInsight: params.contactInsight ?? null,
         }),
       },
     ],
@@ -658,10 +691,73 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   if (reuse) await deps.updateBrief(briefId, { progressStage: 'writing' });
 
   const targets: Array<DecisionMaker | null> = context.decisionMakers.length > 0 ? context.decisionMakers : [null];
+  const account = context.internal.account;
+  // La investigación del decisor (Tavily, o Claude si Tavily no está): nunca rompe la preparación.
+  const researchAndLogContact = async (
+    target: DecisionMaker,
+  ): Promise<{ facts: Array<Omit<ResearchFact, 'id'>>; insight: ContactInsight | null }> => {
+    const startedAt = deps.now();
+    const found = await researchContact({
+      target,
+      companyName: account.name,
+      countryName: account.country,
+      countryCode: account.countryCode,
+      apiKey: models.apiKey,
+      model: models.extractionModel,
+      today: isoDay(deps.now()),
+      deps,
+    });
+    if (found.tavily.ran) {
+      await deps.logUsage({
+        providerKey: 'tavily',
+        operationKey: 'contact_research_search',
+        agentStep: 'contacto_busqueda',
+        model: null,
+        usage: null,
+        costUsd: null,
+        credits: found.tavily.credits,
+        status: found.tavily.error ? 'error' : 'success',
+        errorCode: found.tavily.error,
+        durationMs: deps.now() - startedAt,
+        countryCode: account.countryCode,
+        resultsReturned: found.tavily.results,
+        metadata: { account_id: account.id, contact_id: target.id },
+      });
+    }
+    if (found.usage) {
+      await deps.logUsage({
+        providerKey: 'anthropic',
+        operationKey: 'contact_research',
+        agentStep: 'investigar_contacto',
+        model: models.extractionModel,
+        usage: found.usage,
+        costUsd: costOf(found.usage, models.extractionModel),
+        credits: null,
+        status: found.errorCode ? 'error' : 'success',
+        errorCode: found.errorCode,
+        durationMs: deps.now() - startedAt,
+        countryCode: account.countryCode,
+        resultsReturned: found.facts.length,
+        metadata: {
+          account_id: account.id,
+          contact_id: target.id,
+          source: found.source,
+          leads_training: found.insight.leadsTraining,
+          has_hook: found.insight.hook !== null,
+          // El respaldo: Tavily no respondió (sin llave, sin presupuesto o sin créditos).
+          tavily_unavailable: !found.tavily.ran || !!found.tavily.error,
+        },
+      });
+    }
+    // Sin datos ni nada que decir del decisor, la tarjeta no muestra la pestaña.
+    const hasInsight = found.facts.length > 0 || found.insight.priorities.length > 0 || found.insight.unknowns.length > 0;
+    return { facts: found.facts, insight: hasInsight ? found.insight : null };
+  };
   // Lo que se escribe y se guarda para un decisor (aquí `context` y `models` ya están comprobados).
   const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
+    const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null };
     const startedAt = deps.now();
-    const written = await writeForTarget({ request, context, target, brief, models, deps });
+    const written = await writeForTarget({ request, context, target, brief, models, deps, contactFacts: contact.facts, contactInsight: contact.insight });
     const costUsd = costOf(written.usage, models.writerModel);
     const missingChannels = request.channels.filter((c) => !written.submission?.messages[c]?.text);
     await deps.logUsage({
@@ -707,7 +803,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         channel,
         goals: request.goals,
         productFocus: content?.productKey ?? (request.productKeys.length > 0 ? request.productKeys.join(',') : null),
-        content: status === 'failed' ? null : content,
+        content: status === 'failed' || !content ? null : contact.insight ? { ...content, contactInsight: contact.insight } : content,
         facts: written.facts,
         status,
         verifierIssues: issues,

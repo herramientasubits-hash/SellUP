@@ -13,6 +13,15 @@ import type { FirstCallState } from '@/modules/speech/actions';
 import { isBriefFresh } from '@/modules/speech/first-call-state';
 import { buildCoverage, missingSelection, type CoverageRow } from '@/modules/speech/first-contact-wizard';
 import { channelTabs, visibleClosedPacks } from '@/modules/speech/first-contact-tab-view';
+import { toast } from 'sonner';
+import { getFirstContactRunsStore, newFirstContactRunId } from '@/modules/speech/first-contact-runs-client';
+import {
+  buildFirstContactRequestBody,
+  firstContactRunDetail,
+  preparationsCount,
+  type FirstContactSelection,
+} from '@/modules/speech/first-contact-wizard';
+import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
 import { Tabs, TabsBadge, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   FIRST_CALL_CHANNELS,
@@ -23,6 +32,8 @@ import {
 } from '@/server/agents/first-call/types';
 import { FirstCallLauncher, type FirstCallContactOption, type FirstContactLaunchRequest } from './first-call-launcher';
 import { FirstCallPackCard } from './first-call-pack-card';
+import { ContactInsightPanel, contactFactsOf } from './contact-insight-panel';
+import { SellerAnswersForm } from './seller-answers-form';
 import type { FirstContactOutcome } from '@/server/agents/first-call/approaches';
 import { ResearchBriefDetails } from './research-brief-view';
 
@@ -183,24 +194,29 @@ function ChannelTabs({
   value,
   onValueChange,
   renderPack,
+  aboutTab,
 }: {
   packs: readonly FirstCallPack[];
-  value: FirstCallChannel | undefined;
-  onValueChange: (channel: FirstCallChannel) => void;
+  value: string | undefined;
+  onValueChange: (value: string) => void;
   renderPack: (pack: FirstCallPack) => React.ReactNode;
+  /** «Sobre {decisor}»: una pestaña más, al lado de los canales (dueña 18-10). */
+  aboutTab?: { label: string; content: React.ReactNode } | null;
 }) {
   const tabs = channelTabs(packs);
   if (tabs.length === 0) return null;
-  const current = tabs.some((t) => t.channel === value) ? value! : tabs[0].channel;
+  const values = [...tabs.map((t) => t.channel as string), ...(aboutTab ? [ABOUT_TAB] : [])];
+  const current = value && values.includes(value) ? value : tabs[0].channel;
   return (
-    <Tabs value={current} onValueChange={(next) => onValueChange(next as FirstCallChannel)} className="gap-4">
-      <TabsList aria-label="Canales" className="w-full sm:w-fit">
+    <Tabs value={current} onValueChange={(next) => onValueChange(String(next))} className="gap-4">
+      <TabsList aria-label="Canales" className="w-full overflow-x-auto sm:w-fit">
         {tabs.map((tab) => (
           <TabsTrigger key={tab.channel} value={tab.channel}>
             {FIRST_CALL_CHANNEL_LABELS[tab.channel]}
             {tab.packs.length > 1 && <TabsBadge count={tab.packs.length} tone="neutral" />}
           </TabsTrigger>
         ))}
+        {aboutTab && <TabsTrigger value={ABOUT_TAB}>{aboutTab.label}</TabsTrigger>}
       </TabsList>
       {tabs.map((tab) => (
         <TabsContent key={tab.channel} value={tab.channel} className="space-y-4">
@@ -211,9 +227,16 @@ function ChannelTabs({
           ))}
         </TabsContent>
       ))}
+      {aboutTab && (
+        <TabsContent value={ABOUT_TAB}>
+          <SurfaceCard>{aboutTab.content}</SurfaceCard>
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
+
+const ABOUT_TAB = 'sobre';
 
 /**
  * «Primer contacto»: la investigación y las preparaciones de la empresa en un solo
@@ -251,7 +274,7 @@ export function FirstCallTab({
   const coverage = React.useMemo(() => buildCoverage(state.packs, contacts), [state.packs, contacts]);
   const missing = React.useMemo(() => missingSelection(coverage), [coverage]);
   // La pestaña de canal elegida en cada decisor (la celda de la tabla también la cambia).
-  const [channelByGroup, setChannelByGroup] = React.useState<Record<string, FirstCallChannel>>({});
+  const [channelByGroup, setChannelByGroup] = React.useState<Record<string, string>>({});
   const openCell = (groupKey: string, channel: FirstCallChannel, packId: string) => {
     setChannelByGroup((prev) => ({ ...prev, [groupKey]: channel }));
     // Tras pintar la pestaña: abrir la sección del decisor y bajar a la preparación.
@@ -286,6 +309,67 @@ export function FirstCallTab({
   }
 
   const expired = !!brief && !fresh;
+  // Lo que el vendedor agregó: se rehacen los textos de las preparaciones vigentes (de un
+  // decisor, si la respuesta era sobre él), en segundo plano y con el aviso al terminar.
+  const rewriteWithAnswers = (contactId: string | null) => {
+    const reload = onChanged ?? (() => router.refresh());
+    const store = getFirstContactRunsStore();
+    const targets = contactId ? active.filter((p) => p.contactId === contactId) : active;
+    if (!store || !enabled || targets.length === 0) {
+      toast.success('Agregado a la investigación.', { description: 'Lo usará la próxima preparación.' });
+      reload();
+      return;
+    }
+    const latest = [...targets].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    const selection: FirstContactSelection = {
+      contactIds: [...new Set(targets.map((p) => p.contactId).filter((id): id is string => !!id))],
+      channels: [...new Set(targets.map((p) => p.channel))],
+      goals: latest.goals,
+      productKeys: (latest.productFocus ?? '').split(',').filter((k) => UBITS_PRODUCTS.some((p) => p.key === k)),
+      approaches: [],
+      referralNote: null,
+    };
+    toast.success('Agregado a la investigación.', { description: 'Rehaciendo los textos con lo nuevo: lo ves en el Centro de procesos.' });
+    void store.startRun({
+      id: newFirstContactRunId(),
+      accountId,
+      accountName: accountName ?? 'la empresa',
+      title: firstContactRunDetail(selection, contacts),
+      expected: preparationsCount(selection),
+      body: buildFirstContactRequestBody({ accountId, selection, refreshResearch: false }),
+    });
+    reload();
+  };
+  // «Sobre {decisor}»: lo de la preparación más reciente que trae su investigación, y lo
+  // que no se pudo confirmar, para responderlo y rehacer sus textos.
+  const aboutTabFor = (group: { key: string; name: string; packs: FirstCallPack[] }) => {
+    const latest = group.packs.find((p) => contactFactsOf(p.facts).length > 0 || p.content?.contactInsight) ?? null;
+    const contactId = group.key === 'sin-decisor' ? null : group.key;
+    if (!latest || !contactId) return null;
+    const answered = (brief?.facts ?? []).filter((f) => f.sourceKind === 'seller' && f.contactId === contactId);
+    const answeredQuestions = new Set(answered.map((f) => f.quote));
+    const unknowns = (latest.content?.contactInsight?.unknowns ?? []).filter((u) => !answeredQuestions.has(u));
+    const firstName = group.name.split(/\s+/)[0] || group.name;
+    return {
+      label: `Sobre ${firstName}`,
+      content: (
+        <ContactInsightPanel
+          facts={contactFactsOf(latest.facts)}
+          insight={latest.content?.contactInsight}
+          unknownsSlot={
+            unknowns.length > 0 || answered.length > 0 ? (
+              <SellerAnswersForm
+                questions={unknowns.map((u) => ({ question: u, gapIndex: null, contactId }))}
+                answered={answered}
+                briefId={enabled && brief ? brief.id : null}
+                onSaved={() => rewriteWithAnswers(contactId)}
+              />
+            ) : undefined
+          }
+        />
+      ),
+    };
+  };
   const groups = groupByTarget(active);
   const cardProps = { accountId, accountName, contacts, hasFreshBrief: fresh, canMoveToReady, enabled, onChanged, onRequestFirstContact, countryCode };
 
@@ -335,7 +419,7 @@ export function FirstCallTab({
           defaultOpen={state.packs.length === 0}
           testId="first-contact-research"
         >
-          <ResearchBriefDetails brief={brief} compact />
+          <ResearchBriefDetails brief={brief} compact canAddFacts={enabled} onAnswersSaved={() => rewriteWithAnswers(null)} />
         </Section>
       )}
 
@@ -378,8 +462,9 @@ export function FirstCallTab({
           <ChannelTabs
             packs={group.packs}
             value={channelByGroup[group.key]}
-            onValueChange={(channel) => setChannelByGroup((prev) => ({ ...prev, [group.key]: channel }))}
+            onValueChange={(next) => setChannelByGroup((prev) => ({ ...prev, [group.key]: next }))}
             renderPack={(pack) => <FirstCallPackCard pack={pack} grouped {...cardProps} />}
+            aboutTab={aboutTabFor(group)}
           />
         </Section>
       ))}

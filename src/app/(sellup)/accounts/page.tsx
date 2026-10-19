@@ -92,7 +92,7 @@ async function AccountsPanel() {
         title={EMPRESAS_VIEW_TITLES.empresas}
         description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
         actions={
-          <AccountsScreenActions users={users} currentUserId={currentUserId} generateAgent={generateAgent} />
+          <AccountsScreenActions users={users} currentUserId={currentUserId} generateAgent={generateAgent} firstCallEnabled={isAgent3FirstCallEnabled()} />
         }
       >
         <AccountsDataTableClient

@@ -199,7 +199,8 @@ describe('runFirstCall — investigar y preparar', () => {
 
     assert.equal(result.ok, true);
     assert.deepEqual(calls.fetched, ['https://andina.example', 'https://andina.example/trabaja-con-nosotros']);
-    assert.equal(calls.news.length, 2, 'una búsqueda de noticias y una de talento');
+    assert.equal(calls.news.length, 4, 'noticias, talento y dos del decisor');
+    assert.ok(calls.news.includes('general:"María Pérez" "Distribuidora Andina"'), 'la del decisor va con su nombre y la empresa');
     // Con noticias y página de empleo, la investigación no necesita búsqueda web pagada.
     const researchBody = calls.conversations[0];
     assert.equal((researchBody.tools as Array<{ type?: string }>).some((t) => t.type === 'web_search_20250305'), false);
@@ -217,7 +218,8 @@ describe('runFirstCall — investigar y preparar', () => {
     assert.equal(calls.packs[0].contactId, 'c1');
 
     const steps = calls.logs.map((l) => `${l.providerKey}:${l.agentStep}`).sort();
-    assert.deepEqual(steps, ['anthropic:investigar_empresa', 'anthropic:redactar_llamada', 'tavily:noticias', 'tavily:talento']);
+    // La búsqueda del decisor no nombró a María: no hace falta pedirle nada a Claude.
+    assert.deepEqual(steps, ['anthropic:investigar_empresa', 'anthropic:redactar_llamada', 'tavily:contacto_busqueda', 'tavily:noticias', 'tavily:talento']);
     assert.ok(calls.logs.every((l) => l.status === 'success'));
     // El gasto se filtra por país en Uso de IA: todas las filas llevan el de la empresa.
     assert.ok(calls.logs.every((l) => l.countryCode === 'CO'));
@@ -259,7 +261,9 @@ describe('runFirstCall — investigar y preparar', () => {
     assert.equal(result.ok && result.reusedBrief, true);
     assert.equal(calls.briefsCreated, 0);
     assert.deepEqual(calls.fetched, []);
-    assert.deepEqual(calls.news, []);
+    // Ni el sitio ni las noticias de la empresa: sólo las dos búsquedas del decisor.
+    assert.equal(calls.news.length, 2);
+    assert.ok(calls.news.every((q) => q.includes('"María Pérez"')));
     assert.equal(calls.conversations.length, 1);
     assert.equal(calls.packs[0].briefId, 'brief-old');
   });
@@ -380,14 +384,37 @@ describe('runFirstCall — correcciones de la revisión', () => {
   });
 });
 
+describe('runFirstCall — respaldo cuando Tavily no está', () => {
+  it('sin presupuesto de Tavily (o sin créditos del mes): Claude busca hasta 3 veces, primero noticias con fecha', async () => {
+    const { deps, calls } = harness({ budget: { tavily: false, anthropic: true } });
+    await runFirstCall(REQUEST, deps);
+    assert.deepEqual(calls.news, [], 'no se llama a Tavily');
+    const researchBody = calls.conversations[0];
+    const web = (researchBody.tools as Array<{ type?: string; max_uses?: number }>).find((t) => t.type === 'web_search_20250305');
+    assert.equal(web?.max_uses, 3);
+    assert.match(researchBody.messages[0].content as string, /no respondió hoy/);
+    const research = calls.logs.find((l) => l.agentStep === 'investigar_empresa');
+    assert.equal(research?.metadata.tavily_unavailable, true);
+  });
+
+  it('Tavily con error en todas las búsquedas cuenta como no disponible', async () => {
+    const { deps, calls } = harness();
+    deps.searchNews = async () => ({ results: [], credits: null, skipped: false, error: 'tavily_http_432' });
+    await runFirstCall(REQUEST, deps);
+    const web = (calls.conversations[0].tools as Array<{ type?: string; max_uses?: number }>).find((t) => t.type === 'web_search_20250305');
+    assert.equal(web?.max_uses, 3);
+  });
+});
+
 describe('runFirstCall — créditos de Tavily', () => {
   it('si Tavily no informa créditos, cada búsqueda básica cuenta 1 (nunca queda vacío)', async () => {
     const { deps, calls } = harness();
     deps.searchNews = async () => ({ results: [], credits: null, skipped: false, error: null });
     await runFirstCall(REQUEST, deps);
     const tavily = calls.logs.filter((l) => l.providerKey === 'tavily');
-    assert.equal(tavily.length, 2);
-    assert.ok(tavily.every((l) => l.credits === 1), 'créditos con respaldo');
+    assert.equal(tavily.length, 3, 'noticias, talento y el decisor (una fila por sus dos búsquedas)');
+    assert.ok(tavily.filter((l) => l.agentStep !== 'contacto_busqueda').every((l) => l.credits === 1), 'créditos con respaldo');
+    assert.equal(tavily.find((l) => l.agentStep === 'contacto_busqueda')?.credits, 2);
     assert.ok(tavily.every((l) => l.costUsd === null), 'el costo en dólares lo pone la capa real con la tarifa (null = desconocido)');
   });
 

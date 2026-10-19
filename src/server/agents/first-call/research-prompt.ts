@@ -93,8 +93,11 @@ export function buildResearchSubmitTool() {
   } as const;
 }
 
-export function buildResearchWebSearchTool() {
-  return { type: 'web_search_20250305', name: 'web_search', max_uses: RESEARCH_MAX_WEB_SEARCHES };
+/** Sin Tavily (sin llave, sin presupuesto o sin créditos del mes), Claude busca un poco más. */
+export const RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY = 3;
+
+export function buildResearchWebSearchTool(maxUses: number = RESEARCH_MAX_WEB_SEARCHES) {
+  return { type: 'web_search_20250305', name: 'web_search', max_uses: maxUses };
 }
 
 export function buildResearchSystemPrompt(): string {
@@ -140,6 +143,8 @@ export function buildResearchUserMessage(params: {
   internalFacts: readonly Pick<ResearchFact, 'id' | 'statement'>[];
   documents: readonly ResearchDocument[];
   webSearchAllowed: boolean;
+  /** Tavily no respondió (respaldo con Claude). */
+  tavilyUnavailable?: boolean;
 }): string {
   const internal = params.internalFacts.length
     ? params.internalFacts.map((f) => `- ${f.id}: ${f.statement}`).join('\n')
@@ -157,7 +162,9 @@ export function buildResearchUserMessage(params: {
     `Cargo del decisor: ${params.decisionMakerTitle ?? 'no indicado'}`,
     `Fecha de hoy: ${params.today}`,
     params.webSearchAllowed
-      ? `Puedes hacer hasta ${RESEARCH_MAX_WEB_SEARCHES} búsquedas web si faltan señales recientes o datos de talento.`
+      ? params.tavilyUnavailable
+        ? `El buscador de noticias no respondió hoy: haz hasta ${RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY} búsquedas web. Primero noticias de la empresa de los últimos 12 meses (con fecha), después empleo y talento.`
+        : `Puedes hacer hasta ${RESEARCH_MAX_WEB_SEARCHES} búsquedas web si faltan señales recientes o datos de talento.`
       : 'No tienes búsqueda web: trabaja sólo con los documentos.',
     '',
     'Lo que SellUp ya sabe (puedes citarlo en fact_refs, no lo repitas como hecho):',

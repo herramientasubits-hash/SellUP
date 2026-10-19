@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Brain, ExternalLink, Lightbulb, Search, ShieldAlert } from '@/icons';
+import { Brain, ExternalLink, Lightbulb, ShieldAlert } from '@/icons';
+import { SellerAnswersForm } from './seller-answers-form';
 import { formatInAppZone } from '@/lib/format-date';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { StatusBadge } from '@/components/data-display';
@@ -109,12 +110,26 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
 }
 
 /** Los datos de la investigación por pregunta, las hipótesis y lo que no se encontró (sin el encabezado). */
-export function ResearchBriefDetails({ brief, compact = false }: { brief: ResearchBrief; compact?: boolean }) {
+export function ResearchBriefDetails({
+  brief,
+  compact = false,
+  canAddFacts = false,
+  onAnswersSaved,
+}: {
+  brief: ResearchBrief;
+  compact?: boolean;
+  /** Responder lo que no se encontró y agregarlo a la investigación (con el agente encendido). */
+  canAddFacts?: boolean;
+  /** Se guardaron respuestas: quien lo monta rehace los textos. */
+  onAnswersSaved?: (added: number) => void;
+}) {
+  // Lo que agregó el vendedor sobre la empresa va con «Lo que no se encontró», no en los temas.
+  const sellerAnswers = brief.facts.filter((f) => f.sourceKind === 'seller' && !f.contactId);
   return (
     <div className="space-y-4">
       <div className={compact ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>
         {RESEARCH_TOPICS.map((topic) => {
-          const facts = brief.facts.filter((f) => f.topic === topic);
+          const facts = brief.facts.filter((f) => f.topic === topic && f.sourceKind !== 'seller');
           if (facts.length === 0) return null;
           return (
             <SurfaceCard key={topic}>
@@ -129,7 +144,7 @@ export function ResearchBriefDetails({ brief, compact = false }: { brief: Resear
         })}
       </div>
 
-      {(brief.hypotheses.length > 0 || brief.gaps.length > 0) && (
+      {(brief.hypotheses.length > 0 || brief.gaps.length > 0 || sellerAnswers.length > 0) && (
         <div className={compact ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>
           {brief.hypotheses.length > 0 && (
             <SurfaceCard>
@@ -157,17 +172,18 @@ export function ResearchBriefDetails({ brief, compact = false }: { brief: Resear
               </ul>
             </SurfaceCard>
           )}
-          {brief.gaps.length > 0 && (
+          {(brief.gaps.length > 0 || sellerAnswers.length > 0) && (
             <SurfaceCard>
-              <SurfaceCardHeader title="Lo que no se encontró" description="Buenas preguntas para la llamada." />
-              <ul className="space-y-2">
-                {brief.gaps.map((gap, i) => (
-                  <li key={i} className="flex gap-2 text-sm">
-                    <Search className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    {gap}
-                  </li>
-                ))}
-              </ul>
+              <SurfaceCardHeader
+                title="Lo que no se encontró"
+                description={canAddFacts ? 'Buenas preguntas para la llamada. Si sabes alguna, respóndela y la agregamos.' : 'Buenas preguntas para la llamada.'}
+              />
+              <SellerAnswersForm
+                questions={brief.gaps.map((gap, i) => ({ question: gap, gapIndex: i, contactId: null }))}
+                answered={sellerAnswers}
+                briefId={canAddFacts ? brief.id : null}
+                onSaved={onAnswersSaved}
+              />
             </SurfaceCard>
           )}
         </div>

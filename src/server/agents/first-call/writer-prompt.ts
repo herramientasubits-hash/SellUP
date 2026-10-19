@@ -21,6 +21,7 @@ import {
 } from './types';
 import { UBITS_OBJECTIONS, UBITS_PRODUCTS, renderLibraryForPrompt } from './ubits-messaging-library';
 import { APPROACH_DEFINITIONS, FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
+import type { ContactInsight } from './types';
 
 export const WRITER_SUBMIT_TOOL = 'submit_first_call_pack';
 export const WRITER_MAX_OUTPUT_TOKENS = 2_500;
@@ -255,6 +256,9 @@ export function buildWriterSystemPrompt(): string {
     '- Los dolores de la empresa NO son hechos: escríbelos como pregunta o hipótesis («¿cómo están resolviendo…?», «suele pasar que…»).',
     '- No afirmes experiencia, clientes ni resultados de UBITS que no estén en la biblioteca: nada de «trabajamos con bancos como ustedes», «nuestros clientes logran…» ni casos de éxito. Sólo ofrece lo que está en «Lo que se puede ofrecer».',
     '- No nombres herramientas, proveedores ni sistemas de la empresa (SAP, Moodle…) que no estén en la ficha.',
+    '- Si la ficha trae datos del DECISOR con fuente (llegó hace poco al cargo, habló en público de formación o talento, de qué es responsable), úsalos para personalizar: un nombramiento reciente es un buen motivo para escribir. Dilo con naturalidad («vi que asumió hace poco…»), nunca «estuve investigándolo», y nada personal.',
+    '- Si los datos del decisor muestran que no lleva la formación, el objetivo pasa a pedirle a quién dirigirse.',
+    '- Un hecho con fuente «Dato del vendedor» lo aportó el vendedor: úsalo, pero no lo cites como algo público («vi que…» o «leí que…»).',
     '- Menciona productos de UBITS sólo de la biblioteca y sólo si conectan con un hecho. Si piden productos, usa el que mejor conecte entre ellos y dilo en product_key; si no piden, elige tú.',
     '- objections: elige de la biblioteca las 2 a 4 objeciones más probables para esta empresa y este cargo. Responde con pausa, acuerdo y una pregunta; nunca critiques al proveedor actual.',
     '- if_no: siempre un próximo paso con fecha, un permiso o una referencia; nunca terminar sin nada. Insistir como máximo dos veces.',
@@ -294,6 +298,8 @@ export interface WriterInput {
   gaps: readonly string[];
   hubspotWarning: string | null;
   regenerationReason: string | null;
+  /** La investigación del decisor: gancho, prioridades probables (hipótesis) y lo que no se confirmó. */
+  contactInsight?: ContactInsight | null;
 }
 
 function renderFact(fact: ResearchFact): string {
@@ -325,6 +331,11 @@ export function buildWriterUserMessage(input: WriterInput): string {
       ? 'Ojo: la investigación quedó PARCIAL. Sé más general y dilo en cautions.'
       : null,
     input.regenerationReason ? `El vendedor pidió rehacerlo porque: «${input.regenerationReason}»` : null,
+    input.contactInsight?.hook ? `Mejor gancho para este decisor (de su investigación): ${input.contactInsight.hook}` : null,
+    input.contactInsight && input.contactInsight.priorities.length > 0
+      ? `Prioridades probables del decisor (HIPÓTESIS, escríbelas como pregunta): ${input.contactInsight.priorities.join(' · ')}`
+      : null,
+    input.contactInsight?.leadsTraining === 'no' ? 'Ojo: las fuentes indican que este decisor NO lleva la formación: pídele a quién dirigirte.' : null,
     '',
     `Resumen: ${input.summary ?? '(sin resumen)'}`,
     '',

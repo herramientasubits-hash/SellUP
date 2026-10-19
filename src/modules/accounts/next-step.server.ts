@@ -2,17 +2,18 @@ import 'server-only';
 
 /**
  * Los datos para el «siguiente paso» de cada empresa de la lista, en lotes: contactos,
- * la última corrida del Agente 2 y las preparaciones del Agente 3 con su resultado.
+ * la última corrida del Agente 2, si el Agente 3 está trabajando y si ya preparó.
  * Con el cliente de la sesión (RLS): sólo lo que la persona puede ver. Si una tabla no
  * responde, se sigue sin ese dato: la lista nunca se rompe por esto.
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { resolveAccountNextStep, type AccountNextStepKey, type AccountNextStepPack } from './next-step';
+import { resolveAccountNextStep, type AccountNextStepKey } from './next-step';
 import type { AccountListItem } from './types';
 
 const BATCH_SIZE = 100;
 const PAGE_SIZE = 1000;
+const IN_PROGRESS_MAX_AGE_MS = 10 * 60 * 1000;
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -38,7 +39,7 @@ async function readAll<T>(query: (from: number, to: number) => PromiseLike<{ dat
 }
 
 async function readBatch(supabase: Supabase, ids: string[]) {
-  const [contacts, runs, packs] = await Promise.all([
+  const [contacts, runs, packs, running] = await Promise.all([
     readAll<{ account_id: string }>(
       (from, to) => supabase.from('contacts').select('account_id').in('account_id', ids).order('id').range(from, to),
       'contacts',
@@ -53,18 +54,33 @@ async function readBatch(supabase: Supabase, ids: string[]) {
           .range(from, to),
       'contact_enrichment_runs',
     ),
-    readAll<{ account_id: string; status: string; created_at: string; outcome: { result?: unknown } | null }>(
+    readAll<{ account_id: string }>(
       (from, to) =>
         supabase
           .from('first_call_packs')
-          .select('account_id, status, created_at, outcome:pack->outcome')
+          .select('account_id')
           .in('account_id', ids)
+          .in('status', ['draft', 'needs_review', 'used'])
           .order('id')
           .range(from, to),
       'first_call_packs',
     ),
+    // El Agente 3 trabajando ahora: una investigación «en curso» reciente (las caídas
+    // se cierran a los 5 minutos; con margen, no se cuenta una de hace más de 10).
+    readAll<{ account_id: string }>(
+      (from, to) =>
+        supabase
+          .from('account_research_briefs')
+          .select('account_id')
+          .in('account_id', ids)
+          .eq('status', 'running')
+          .gte('created_at', new Date(Date.now() - IN_PROGRESS_MAX_AGE_MS).toISOString())
+          .order('id')
+          .range(from, to),
+      'account_research_briefs',
+    ),
   ]);
-  return { contacts, runs, packs };
+  return { contacts, runs, packs, running };
 }
 
 /** El siguiente paso de cada empresa de la lista (por id). */
@@ -74,7 +90,8 @@ export async function loadAccountNextSteps(accounts: readonly AccountListItem[])
   const supabase = await createClient();
   const contactsTotal = new Map<string, number>();
   const lastRun = new Map<string, string>();
-  const packs = new Map<string, AccountNextStepPack[]>();
+  const prepared = new Set<string>();
+  const inProgress = new Set<string>();
 
   try {
     const batches = await Promise.all(chunk(accounts.map((a) => a.id), BATCH_SIZE).map((ids) => readBatch(supabase, ids)));
@@ -82,11 +99,8 @@ export async function loadAccountNextSteps(accounts: readonly AccountListItem[])
       for (const row of batch.contacts) contactsTotal.set(row.account_id, (contactsTotal.get(row.account_id) ?? 0) + 1);
       // Vienen de la más reciente a la más antigua: la primera por empresa manda.
       for (const row of batch.runs) if (!lastRun.has(row.account_id)) lastRun.set(row.account_id, row.status);
-      for (const row of batch.packs) {
-        const list = packs.get(row.account_id) ?? [];
-        const outcome = typeof row.outcome?.result === 'string' ? row.outcome.result : null;
-        packs.set(row.account_id, [...list, { status: row.status, createdAt: row.created_at, outcome }]);
-      }
+      for (const row of batch.packs) prepared.add(row.account_id);
+      for (const row of batch.running) inProgress.add(row.account_id);
     }
   } catch (error) {
     console.error('[accounts next-step] load failed:', error instanceof Error ? error.message : error);
@@ -97,7 +111,8 @@ export async function loadAccountNextSteps(accounts: readonly AccountListItem[])
       archived: account.pipeline_status === 'archived',
       contactsTotal: contactsTotal.get(account.id) ?? 0,
       lastEnrichmentStatus: lastRun.get(account.id) ?? null,
-      packs: packs.get(account.id) ?? [],
+      firstContactInProgress: inProgress.has(account.id),
+      firstContactPrepared: prepared.has(account.id),
     });
   }
   return result;

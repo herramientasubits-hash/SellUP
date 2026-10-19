@@ -19,17 +19,34 @@ const SIZE: Record<NonNullable<ChatMarkProps["size"]>, string> = {
   lg: "size-14",
 };
 
-/** El destello de cuatro puntas, en una caja de 24. */
-const SPARK =
-  "M12 1.5C12.7 7.4 16.6 11.3 22.5 12C16.6 12.7 12.7 16.6 12 22.5C11.3 16.6 7.4 12.7 1.5 12C7.4 11.3 11.3 7.4 12 1.5Z";
-/** El destello pequeño que lo acompaña, arriba a la derecha. */
-const SPARK_SMALL =
-  "M19 2.5C19.25 4.4 20.1 5.25 22 5.5C20.1 5.75 19.25 6.6 19 8.5C18.75 6.6 17.9 5.75 16 5.5C17.9 5.25 18.75 4.4 19 2.5Z";
+/**
+ * Rumbo (dueña 18-10): una brújula cuya aguja es una flecha que sube — el agente
+ * que te dice qué sigue con cada empresa. En una caja de 24, girada hacia «arriba y
+ * adelante». La aguja va llena; la cola, más tenue.
+ */
+const COMPASS_NEEDLE = "M12 3.6 L15.4 12.6 L12 10.7 L8.6 12.6 Z";
+const COMPASS_TAIL = "M12 20.4 L10.3 14.9 L12 15.9 L13.7 14.9 Z";
+/** El nombre del agente (también el título de su panel). */
+export const AGENT_NAME = "Rumbo";
+
+/** La brújula de Rumbo sola, para botones e íconos (toma el color y el tamaño del texto). */
+export function RumboIcon({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" data-icon="rumbo" className={cn("size-4", className)} {...props}>
+      <circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" strokeWidth="1.9" />
+      <g transform="rotate(32 12 12)">
+        <path d={COMPASS_NEEDLE} />
+        <path d={COMPASS_TAIL} opacity="0.55" />
+      </g>
+      <circle cx="12" cy="12" r="1.2" />
+    </svg>
+  );
+}
 
 /**
- * La marca del agente (Thema · `ChatMark`): un destello de cuatro puntas en
- * blanco sobre una baldosa con el gradiente de IA del tema. Va donde el agente
- * habla: junto a cada respuesta, en la cabecera del panel y en el saludo.
+ * La marca del agente, Rumbo (Thema · `ChatMark`): la brújula con la flecha que
+ * sube, en blanco sobre una baldosa con el gradiente de IA del tema. Va donde el
+ * agente habla: junto a cada respuesta, en la cabecera del panel y en el saludo.
  */
 export function ChatMark({ size = "sm", motion = "still", className, ...props }: ChatMarkProps) {
   return (
@@ -47,9 +64,13 @@ export function ChatMark({ size = "sm", motion = "still", className, ...props }:
       )}
       {...props}
     >
-      <svg viewBox="0 0 24 24" className="size-[62%]" fill="currentColor">
-        <path d={SPARK} />
-        <path d={SPARK_SMALL} opacity="0.75" />
+      <svg viewBox="0 0 24 24" className="size-[66%]" fill="currentColor" data-mark="rumbo">
+        <circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" strokeWidth="1.9" />
+        <g transform="rotate(32 12 12)">
+          <path d={COMPASS_NEEDLE} />
+          <path d={COMPASS_TAIL} opacity="0.55" />
+        </g>
+        <circle cx="12" cy="12" r="1.2" />
       </svg>
     </span>
   );

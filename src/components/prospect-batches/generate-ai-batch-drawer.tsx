@@ -316,9 +316,11 @@ type GenerateAIBatchDrawerProps = {
    */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
+  onBack?: () => void;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, open: controlledOpen, onOpenChange }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, open: controlledOpen, onOpenChange, onBack }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const agentRuns = useAgentRuns();
   const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;
@@ -616,6 +618,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         <ChatPanel
           open={isOpen}
           onOpenChange={(v) => !v && handleClose()}
+          onBack={onBack}
           subtitle="Búsqueda de empresas no disponible"
           markMotion="still"
         >
@@ -668,6 +671,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
         <ChatPanel
           open={isOpen}
           onOpenChange={(v) => !v && handleClose()}
+          onBack={onBack}
           subtitle="Generar empresas candidatas"
           onNewConversation={() => {
             // Con una corrida en vuelo (o abierta desde el Centro de procesos) el

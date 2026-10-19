@@ -115,7 +115,7 @@ const ACCOUNTS = [
   account({ id: 'a1', name: 'Acme', pipeline_status: 'new', next_step: 'find_contacts' }),
   account({ id: 'a2', name: 'Beta', pipeline_status: 'ready_for_research', country_code: 'MX', domain: null, next_step: 'prepare_first_contact' }),
   account({ id: 'a3', name: 'Gamma', pipeline_status: 'ready_for_outreach', country_code: null, industry: null, owner_name: null, owner_id: null, next_step: 'make_first_contact' }),
-  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1', next_step: 'review_and_contact' }),
+  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1', next_step: 'make_first_contact' }),
 ];
 
 before(async () => {
@@ -151,17 +151,17 @@ describe('Empresas — los indicadores son filtros de un toque', () => {
     const group = within(indicators());
     assert.match(group.getByRole('button', { name: /Buscar contactos/ }).textContent ?? '', /1/);
     assert.match(group.getByRole('button', { name: /Preparar primer contacto/ }).textContent ?? '', /1/);
-    assert.match(group.getByRole('button', { name: /Por contactar/ }).textContent ?? '', /2/);
+    assert.match(group.getByRole('button', { name: /Hacer el primer contacto/ }).textContent ?? '', /2/);
   });
 
   it('pulsar uno deja solo esas empresas; pulsarlo otra vez las devuelve todas', () => {
     renderTable();
-    const button = () => within(indicators()).getByRole('button', { name: /Por contactar/ });
+    const button = () => within(indicators()).getByRole('button', { name: /Hacer el primer contacto/ });
 
     fireEvent.click(button());
     assert.deepEqual(rowNames(), ['Gamma', 'Delta']);
     assert.equal(button().getAttribute('aria-pressed'), 'true');
-    assert.ok(screen.getByText('Empresas · Por contactar'));
+    assert.ok(screen.getByText('Empresas · Hacer el primer contacto'));
 
     fireEvent.click(button());
     assert.equal(rowNames().length, 4);
@@ -218,13 +218,13 @@ describe('Empresas — celdas', () => {
     assert.equal(detailOpenFor, null);
   });
 
-  it('solo el siguiente paso va en chip, con el agente que lo hace; la fuente es texto', () => {
+  it('solo el siguiente paso va en chip (sin el agente al lado); la fuente es texto', () => {
     renderTable();
 
     const row = screen.getByRole('button', { name: 'Delta' }).closest('tr');
     assert.ok(row);
-    assert.equal(within(row).getByText('Revisar y contactar').getAttribute('data-slot'), 'badge');
-    assert.ok(within(row).getByText('Agente 3'));
+    assert.equal(within(row).getByText('Hacer el primer contacto').getAttribute('data-slot'), 'badge');
+    assert.equal(within(row).queryByText(/Agente \d/), null);
     assert.equal(row.querySelectorAll('[data-slot="badge"]').length, 1);
   });
 
