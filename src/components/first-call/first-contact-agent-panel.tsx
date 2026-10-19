@@ -6,8 +6,7 @@ import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types';
 import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { Stepper } from '@/components/navigation/stepper';
-import { getFirstCallProgress } from '@/modules/speech/actions';
-import { getFirstContactRunsStore, newFirstContactRunId, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { fetchFirstContactLive, getFirstContactRunsStore, newFirstContactRunId, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
 import { FIRST_CONTACT_DETACHED_CODE } from '@/modules/speech/first-contact-runs-store';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
@@ -222,7 +221,8 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const current = await getFirstCallProgress(accountId);
+        const live = await fetchFirstContactLive([{ runId: 'panel', accountId, sinceIso: null }]);
+        const current = live.panel?.stage ?? null;
         if (!cancelled && current) setStage(current);
       } catch {
         // El avance es cosmético: si una lectura falla, la siguiente lo intenta.

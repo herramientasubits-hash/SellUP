@@ -1080,6 +1080,10 @@
   .chat-mark--thinking .chat-mark-needle {
     animation: chat-mark-needle-spin 1.6s linear infinite;
   }
+  /* El cargador de IA («Analizando…»): la brújula de Rumbo con la aguja girando. */
+  .ai-rumbo-thinking .chat-mark-needle {
+    animation: chat-mark-needle-spin 1.6s linear infinite;
+  }
 
   /* ── La caja de escribir ── */
   .chat-composer {
@@ -1247,6 +1251,7 @@
     .chat-mark--breathing,
     .chat-mark--thinking,
     .chat-mark-tile .chat-mark-needle,
+    .ai-rumbo-thinking .chat-mark-needle,
     .chat-send-halo,
     .chat-caret::after,
     .chat-shimmer,

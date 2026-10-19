@@ -16,3 +16,8 @@ export function isBriefFresh(
     Date.parse(brief.expiresAt) > nowMs
   );
 }
+
+/** Lo mismo, con la hora de ahora (para las páginas del servidor, que no leen el reloj al pintar). */
+export function isBriefFreshNow(brief: Pick<ResearchBrief, 'status' | 'expiresAt'> | null): boolean {
+  return isBriefFresh(brief, Date.now());
+}

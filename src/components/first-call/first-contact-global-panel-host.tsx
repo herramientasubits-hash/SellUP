@@ -10,18 +10,41 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { firstCallHref } from '@/modules/speech/first-call-links';
+import { getFirstContactLaunchData } from '@/modules/speech/actions';
 import { FIRST_CONTACT_PANEL_OPEN_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { FirstContactPanelHost, type FirstContactTarget } from './first-contact-panel-host';
 
 export function FirstContactGlobalPanelHost() {
   const router = useRouter();
   const [target, setTarget] = React.useState<FirstContactTarget | null>(null);
-  const close = React.useCallback(() => setTarget(null), []);
+  // La última apertura: si se cierra (o se abre otra) antes de que lleguen los decisores,
+  // esa respuesta ya no vuelve a abrir el panel.
+  const latest = React.useRef(0);
+  const close = React.useCallback(() => {
+    latest.current += 1;
+    setTarget(null);
+  }, []);
 
   React.useEffect(() => {
     const open = (event: Event) => {
-      const accountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
-      if (accountId) setTarget({ kind: 'account', accountId });
+      const detail = (event as CustomEvent<{ accountId?: string; accountName?: string }>).detail;
+      const accountId = detail?.accountId;
+      if (!accountId) return;
+      latest.current += 1;
+      const ticket = latest.current;
+      // Se abre YA con lo que hay (para la espera basta la empresa) y los decisores
+      // llegan después: «Abrir» no espera al servidor.
+      setTarget({
+        kind: 'request',
+        request: { accountId, accountName: detail?.accountName ?? 'la empresa', contacts: [], hasFreshBrief: true },
+      });
+      void getFirstContactLaunchData(accountId)
+        .then((data) => {
+          if (data && ticket === latest.current) setTarget({ kind: 'request', request: data });
+        })
+        .catch(() => {
+          // Sin los decisores, el panel igual muestra el avance.
+        });
     };
     window.addEventListener(FIRST_CONTACT_PANEL_OPEN_EVENT, open);
     return () => window.removeEventListener(FIRST_CONTACT_PANEL_OPEN_EVENT, open);
