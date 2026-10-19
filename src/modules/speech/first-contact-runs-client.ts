@@ -64,6 +64,19 @@ export function requestOpenFirstContactPanel(accountId: string, accountName?: st
   window.dispatchEvent(new window.CustomEvent(FIRST_CONTACT_PANEL_OPEN_EVENT, { detail: { accountId, accountName } }));
 }
 
+/**
+ * «Ver el resultado» de una preparación (dueña 19-10: al terminar se cierra Rumbo y queda
+ * la ficha de la empresa en «Primer contacto»). La pantalla que puede mostrarlo en su
+ * lugar (Empresas abre su ficha) cancela el evento; si nadie lo hace, se va a la página.
+ */
+export const FIRST_CONTACT_VIEW_RESULT_EVENT = 'sellup:agent3:view-result';
+
+/** `true` si una pantalla mostró el resultado (abrió su ficha); `false` si hay que navegar. */
+export function requestViewFirstContactResult(accountId: string): boolean {
+  const event = new window.CustomEvent(FIRST_CONTACT_VIEW_RESULT_EVENT, { detail: { accountId }, cancelable: true });
+  return !window.dispatchEvent(event);
+}
+
 /** Evento para que quien muestra la empresa recargue sus preparaciones al terminar. */
 export const FIRST_CONTACT_RUN_SETTLED_EVENT = 'sellup:agent3-run:settled';
 

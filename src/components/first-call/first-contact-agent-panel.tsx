@@ -258,6 +258,30 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     openRef.current = open;
   }, [open]);
 
+  // Una preparación que este panel MUESTRA pero no lanzó (se abrió con «Abrir» desde el
+  // Centro de procesos, o se volvió a abrir tras minimizar). Al terminar hace lo mismo
+  // que la propia (dueña 19-10): se cierra y lleva al resultado; si falló, lo dice.
+  const foreignRunId = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (activeRun && activeRun.id !== runId) foreignRunId.current = activeRun.id;
+  }, [activeRun, runId]);
+  React.useEffect(() => {
+    const id = foreignRunId.current;
+    if (!id) return;
+    const finished = allRuns.find((r) => r.id === id);
+    if (!finished || finished.status === 'running') return;
+    foreignRunId.current = null;
+    if (!openRef.current) return;
+    if (finished.status === 'failed') {
+      setError(finished.message ?? 'No pudimos preparar el primer contacto. Vuelve a intentarlo.');
+      setPhase('error');
+      return;
+    }
+    onDone?.();
+    onOpenChange(false);
+    onViewResult?.();
+  }, [allRuns, onDone, onOpenChange, onViewResult]);
+
   const run = async (refresh: boolean, reason: string | null) => {
     const store = getFirstContactRunsStore();
     if (!store) return;

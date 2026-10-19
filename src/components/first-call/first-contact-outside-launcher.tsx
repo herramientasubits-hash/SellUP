@@ -9,6 +9,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { firstCallHref } from '@/modules/speech/first-call-links';
+import { requestViewFirstContactResult } from '@/modules/speech/first-contact-runs-client';
 import { FirstContactCompanyPicker } from './first-contact-company-picker';
 import { FirstContactPanelHost, type FirstContactTarget } from './first-contact-panel-host';
 
@@ -52,7 +53,9 @@ export function FirstContactOutsideLauncher({
         onClose={close}
         onReady={handOff}
         onDone={() => router.refresh()}
-        onViewResult={(accountId) => router.push(firstCallHref(accountId))}
+        onViewResult={(accountId) => {
+          if (!requestViewFirstContactResult(accountId)) router.push(firstCallHref(accountId));
+        }}
       />
     </>
   );
