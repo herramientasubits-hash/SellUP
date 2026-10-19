@@ -261,6 +261,13 @@ describe('verificador · reglas del manual', () => {
     assert.deepEqual(unsupportedNumbers('En los próximos 14 días o en 12 horas.', []), []);
   });
 
+  it('Asdeporte (19-10): «trabajo con empresas…» y «otros líderes me comentan» también son clientes inventados', () => {
+    for (const claim of ['Trabajo con empresas que tienen equipos en varias ciudades.', 'Otros equipos de RR. HH. me comentan lo mismo.']) {
+      const issues = emailIssues(`Asunto: Equipos\nLaura, ${claim} ¿Le sirve?`);
+      assert.ok(issues.some((i) => i.includes('UBITS que la biblioteca no respalda')), `${claim} → ${issues.join(' | ')}`);
+    }
+  });
+
   it('Asdeporte (18-10): no promete «sin costo» ni da por hecha una llamada', () => {
     const free = emailIssues('Asunto: Diagnóstico\nLaura, le ofrezco un diagnóstico rápido, sin costo ni compromiso. ¿Le sirve?');
     assert.ok(free.some((i) => i.includes('gratis o sin costo')), free.join(' | '));
@@ -301,7 +308,7 @@ describe('verificador · reglas del manual', () => {
     );
     const issues = verifyPack(contentForChannel(submission, 'whatsapp'), FACTS, 'whatsapp', { nowMs: NOW });
     assert.ok(issues.some((i) => i.includes('cómo ha estado')), issues.join(' | '));
-    assert.ok(issues.some((i) => i.includes('clientes o casos de UBITS')));
+    assert.ok(issues.some((i) => i.includes('«Por el problema»') && i.includes('clientes de UBITS')), issues.join(' | '));
     assert.ok(issues.some((i) => i.includes('confirmar la reunión')));
   });
 });

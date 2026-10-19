@@ -11,7 +11,7 @@ import type { AnthropicContentBlock } from '../prospecting-toolkit/claude-classi
 import { unsupportedNumbers } from './numbers';
 import type { ApproachVariant, FirstCallChannel, FirstCallPackContent, PackObjection, PackTextWithRefs, ResearchFact } from './types';
 import { BANNED_PHRASES, UBITS_CLAIMS, UBITS_OBJECTIONS, UBITS_PRODUCTS } from './ubits-messaging-library';
-import { FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
+import { APPROACH_DEFINITIONS, FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
 import {
   CALL_SCRIPT_MAX_WORDS,
   CALL_SCRIPT_MIN_WORDS,
@@ -248,6 +248,10 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\bnuestros clientes\b/,
   /\bcasos? de [eé]xito\b/,
   /\b(otros|muchos) (bancos|clientes) (ya )?(nos usan|usan ubits|trabajan con nosotros)/,
+  // Asdeporte (19-10): «trabajo con empresas que…», «otros equipos de RR. HH. me comentan».
+  /\btrabajo con (muchas |varias |otras )?(empresas|compa[nñ]ias|equipos|organizaciones|clientes)\b/,
+  // Sin cortar en los puntos de «RR. HH.»: hasta 40 caracteres de la misma frase.
+  /\botr[oa]s (equipos|lideres|líderes|empresas|clientes|gerentes|directores)[^?!\n]{0,40}\b(me (comentan|cuentan|dicen)|lo resuelven|lo resolvieron|ya lo hacen)\b/,
 ];
 
 /** «Gratis», «sin costo»…: ninguna oferta de la biblioteca lo promete. */
@@ -447,7 +451,15 @@ export function verifyPack(
   const variantText = normalizeForBan([...variants.flatMap((v) => [v.text, v.voicemail ?? '']), pack.meetingAsk ?? '', pack.confirmation ?? ''].join(' '));
   const bannedExtra = BANNED_PHRASES.filter((p) => variantText.includes(normalizeForBan(p)) && !banned.includes(p));
   if (bannedExtra.length > 0) issues.push(`Usa frases que no conviene decir: «${bannedExtra.join('», «')}».`);
-  if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(variantText)) && !UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
+  // Dice en qué versiones (la corrección automática necesita saber cuáles rehacer).
+  const claimingVariants = variants.filter((v) =>
+    UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(normalizeForBan(`${v.text} ${v.voicemail ?? ''}`))),
+  );
+  if (claimingVariants.length > 0) {
+    issues.push(
+      `Las versiones «${claimingVariants.map((v) => APPROACH_DEFINITIONS[v.approach].label).join('», «')}» afirman experiencia o clientes de UBITS que la biblioteca no respalda («trabajamos con…», «otros líderes me comentan…»).`,
+    );
+  } else if (UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(variantText)) && !UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(said))) {
     issues.push('Afirma experiencia, clientes o casos de UBITS que la biblioteca no respalda.');
   }
   const variantNumbers = [

@@ -56,6 +56,8 @@ export interface DecisionMaker {
   name: string;
   title: string | null;
   department: string | null;
+  /** Su perfil de LinkedIn en SellUp (lo trae el Agente 2): ancla la investigación a ESTA persona. */
+  linkedinUrl?: string | null;
 }
 
 export interface InternalContext {

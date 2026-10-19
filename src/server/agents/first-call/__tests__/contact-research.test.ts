@@ -6,7 +6,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { EMPTY_USAGE, type AnthropicContentBlock, type AnthropicRequestBody } from '../../prospecting-toolkit/claude-classifier/anthropic-messages-client';
-import { CONTACT_RESEARCH_TOOL, contactDocuments, mentionsPerson, researchContact, type ContactResearchDeps } from '../contact-research';
+import {
+  CONTACT_RESEARCH_TOOL,
+  buildContactResearchSystemPrompt,
+  contactDocuments,
+  contactSearchQueries,
+  mentionsPerson,
+  normalizeLinkedinUrl,
+  researchContact,
+  type ContactResearchDeps,
+} from '../contact-research';
 import type { NewsSearchOutput } from '../research-documents';
 
 const TARGET = { id: 'c1', name: 'Liliana Reyes', title: 'Human Resources Director', department: null };
@@ -145,5 +154,26 @@ describe('investigación del decisor', () => {
     const found = await researchContact({ ...base, deps: d });
     assert.deepEqual(found.facts, []);
     assert.equal(found.errorCode, 'http_529');
+  });
+
+  it('Asdeporte (19-10): con su LinkedIn de SellUp busca también su perfil y lo reconoce como suyo', async () => {
+    assert.equal(normalizeLinkedinUrl('https://www.linkedin.com/in/Liliana-Reyes-123/?trk=x'), 'linkedin.com/in/liliana-reyes-123');
+    assert.equal(contactSearchQueries('Liliana Reyes', 'Asdeporte').length, 2);
+    assert.match(contactSearchQueries('Liliana Reyes', 'Asdeporte', 'https://linkedin.com/in/x')[2], /site:linkedin\.com\/in/);
+    const docs = contactDocuments(
+      [{ url: 'https://mx.linkedin.com/in/liliana-reyes-123', title: 'Liliana Reyes - Asdeporte', content: 'Liliana Reyes. Directora de Recursos Humanos en Asdeporte desde 2024.', publishedOn: null }],
+      'Liliana Reyes',
+      'https://www.linkedin.com/in/liliana-reyes-123/',
+    );
+    assert.equal(docs[0].label, 'LinkedIn · su perfil (el de SellUp)');
+
+    const { d, bodies, searches } = deps();
+    await researchContact({ ...base, target: { ...TARGET, linkedinUrl: 'https://www.linkedin.com/in/liliana-reyes-123/' }, deps: d });
+    assert.equal(searches.length, 3);
+    assert.match(bodies[0].messages[0].content as string, /Su perfil de LinkedIn \(en SellUp\)/);
+  });
+
+  it('con sólo homónimos, no los menciona: lo dice el sistema', () => {
+    assert.match(buildContactResearchSystemPrompt(), /homónimos, NO los menciones/);
   });
 });
