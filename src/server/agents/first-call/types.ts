@@ -240,6 +240,11 @@ export interface FirstCallPackContent {
   confirmation?: string;
   /** La investigación del decisor: gancho, prioridades probables y lo que no se confirmó. */
   contactInsight?: ContactInsight;
+  /**
+   * Lo verificado del decisor en SU investigación, con la fecha en que se investigó: es lo
+   * único que se reutiliza los días siguientes (nunca los datos de la ficha de la empresa).
+   */
+  contactResearch?: { facts: ResearchFact[]; researchedAt: string };
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;

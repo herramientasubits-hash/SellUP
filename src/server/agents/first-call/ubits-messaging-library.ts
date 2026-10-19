@@ -626,6 +626,21 @@ export const BANNED_PHRASES: readonly string[] = [
   'revolucionario',
   'tiene 15 minutos',
   'tienes 15 minutos',
+  // Estudio de estilo del primer contacto (19-10-2026): suenan a plantilla, a folleto o a IA.
+  'me encantaría',
+  'sinergia',
+  'solución integral',
+  'soluciones integrales',
+  'al siguiente nivel',
+  'no dude en',
+  'espero que se encuentre bien',
+  'espero que esté bien',
+  'llamada rápida',
+  'reunión rápida',
+  'sabía usted que',
+  'hace sentido',
+  'hacer sentido',
+  'apalancar',
 ];
 
 /** Texto de la biblioteca para las instrucciones del modelo (va en caché). */

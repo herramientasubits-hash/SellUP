@@ -16,11 +16,14 @@ import type { AnthropicContentBlock, AnthropicRequestBody, AnthropicUsageTotals 
 import { extractCitedTextsByUrl } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
 import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
+import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/latam-curated/latam-curated-rows';
+import { curatedCoreName, isDistinctiveCore } from './curated-match';
 import type { DecisionMaker } from './internal-facts';
+import type { NewsSearchInput } from './news-search';
 import type { NewsResult, NewsSearchOutput } from './research-documents';
 import type { ResearchDocument } from './research-prompt';
 import { verifyResearch, type RawResearchSubmission } from './research-verifier';
-import { CONTACT_FACT_CATEGORIES, type ContactFactCategory, type ContactInsight, type ResearchFact } from './types';
+import { CONTACT_FACT_CATEGORIES, type ContactFactCategory, type ContactInsight, type FirstCallPackContent, type ResearchFact } from './types';
 
 export const CONTACT_RESEARCH_TOOL = 'submit_contact_findings';
 /** Datos del decisor que pasan al redactor: pocos y buenos (3x3 de Vidyard, «relevancia sobre volumen»). */
@@ -32,18 +35,46 @@ const MAX_PRIORITIES = 3;
 const MAX_UNKNOWNS = 3;
 const HOOK_MAX_CHARS = 280;
 
+export interface ContactSearch {
+  query: string;
+  includeDomains?: readonly string[];
+  /** Sólo sirven los resultados que nombran también a la empresa (fuentes con muchos homónimos). */
+  requireCompany?: boolean;
+}
+
 /**
- * Las dos búsquedas del decisor: quién es y qué hace en la empresa (cargo, cuándo
- * llegó, trayectoria) y su voz pública o un nombramiento reciente.
+ * Las búsquedas del decisor: quién es y qué hace en la empresa (cargo, cuándo llegó,
+ * trayectoria) y su voz pública o un nombramiento reciente. Con su LinkedIn en SellUp,
+ * una más en LinkedIn (sólo el fragmento del buscador; Tavily no admite `site:`). Con
+ * fuentes del país (dueña 19-10), una más en la prensa y los medios de RR. HH. donde
+ * salen los nombramientos y los ponentes, que tiene que nombrar a la persona Y a la empresa.
  */
-export function contactSearchQueries(name: string, companyName: string, linkedinUrl: string | null = null): string[] {
+export function contactSearchPlan(
+  name: string,
+  companyName: string,
+  linkedinUrl: string | null = null,
+  sourceDomains: readonly string[] = [],
+): ContactSearch[] {
   return [
-    `"${name}" "${companyName}"`,
-    `"${name}" entrevista OR podcast OR panel OR webinar OR nombramiento OR designado OR asume`,
-    // Con su LinkedIn en SellUp, una búsqueda más en su perfil público (Asdeporte, 19-10: un
-    // homónimo tapó a la persona y no quedó ningún dato).
-    ...(linkedinUrl ? [`"${name}" "${companyName}" site:linkedin.com/in`] : []),
+    { query: `"${name}" "${companyName}"` },
+    { query: `"${name}" entrevista OR podcast OR panel OR webinar OR nombramiento OR designado OR asume` },
+    // Asdeporte, 19-10: un homónimo tapó a la persona y no quedó ningún dato.
+    ...(linkedinUrl ? [{ query: `"${name}" "${companyName}"`, includeDomains: ['linkedin.com'] }] : []),
+    ...(sourceDomains.length > 0 ? [{ query: `"${name}"`, includeDomains: sourceDomains, requireCompany: true }] : []),
   ];
+}
+
+/** Compatibilidad: sólo las consultas. */
+export function contactSearchQueries(name: string, companyName: string, linkedinUrl: string | null = null): string[] {
+  return contactSearchPlan(name, companyName, linkedinUrl).map((q) => q.query);
+}
+
+/** ¿El texto nombra a la empresa? (por el núcleo de su nombre, sin «Grupo», «Banco» ni el país). */
+export function mentionsCompany(text: string, companyName: string): boolean {
+  // Con un núcleo que es palabra común («BANCO», «EXITO») se exige el nombre entero.
+  const core = curatedCoreName(companyName);
+  const target = isDistinctiveCore(core) ? core : normalizeLatamCuratedName(companyName);
+  return target.length > 0 && ` ${normalizeLatamCuratedName(text)} `.includes(` ${target} `);
 }
 
 /** El perfil de LinkedIn sin variantes (http/https, www, barra final, parámetros). */
@@ -264,9 +295,40 @@ export function verifyContactFindings(params: {
   };
 }
 
+/**
+ * Lo investigado del decisor se reutiliza estos días (dueña 19-10): la persona no cambia
+ * de una semana a otra y cada búsqueda cuesta. «Investigar de nuevo» lo vuelve a buscar.
+ */
+export const CONTACT_RESEARCH_TTL_DAYS = 14;
+
+/**
+ * Lo del decisor que dejó una preparación anterior, para reutilizarlo. Sólo lo que guardó
+ * SU investigación (`contactResearch`), con la fecha en que se investigó, y sólo si encontró
+ * datos: un «no encontré nada» se vuelve a intentar. Los datos de la ficha de la empresa
+ * sobre el área nunca cuentan como investigación de la persona (revisión 19-10).
+ */
+export function cachedContactResearch(
+  content: Pick<FirstCallPackContent, 'contactResearch' | 'contactInsight'> | null,
+  sinceIso: string,
+): { facts: Array<Omit<ResearchFact, 'id'>>; insight: ContactInsight; researchedAt: string } | null {
+  const research = content?.contactResearch;
+  if (!research || research.researchedAt < sinceIso) return null;
+  const facts = research.facts.map((fact) => {
+    const { id, ...rest } = fact;
+    void id;
+    return rest;
+  });
+  if (facts.length === 0) return null;
+  return {
+    facts,
+    insight: content?.contactInsight ?? { hook: null, priorities: [], unknowns: [], leadsTraining: 'unknown' },
+    researchedAt: research.researchedAt,
+  };
+}
+
 export interface ContactResearchDeps {
   checkBudget: (providerKey: 'tavily' | 'anthropic') => Promise<{ allowed: boolean }>;
-  searchNews: (input: { query: string; countryCode: string | null; topic: 'news' | 'general' }) => Promise<NewsSearchOutput>;
+  searchNews: (input: NewsSearchInput) => Promise<NewsSearchOutput>;
   runConversation: (body: AnthropicRequestBody, apiKey: string) => Promise<{ content: readonly AnthropicContentBlock[]; usage: AnthropicUsageTotals }>;
 }
 
@@ -295,6 +357,8 @@ export async function researchContact(params: {
   apiKey: string;
   model: string;
   today: string;
+  /** Prensa y medios de RR. HH. del país donde buscar a la persona (vacío = sólo la web abierta). */
+  sourceDomains?: readonly string[];
   deps: ContactResearchDeps;
 }): Promise<ContactResearchResult> {
   const { target, deps } = params;
@@ -314,9 +378,15 @@ export async function researchContact(params: {
   let tavily = none.tavily;
   const tavilyBudget = await deps.checkBudget('tavily').catch(() => ({ allowed: false }));
   if (tavilyBudget.allowed) {
+    const plan = contactSearchPlan(target.name, params.companyName, target.linkedinUrl ?? null, params.sourceDomains ?? []);
     const outputs = await Promise.all(
-      contactSearchQueries(target.name, params.companyName, target.linkedinUrl ?? null).map((query) =>
-        deps.searchNews({ query, countryCode: params.countryCode, topic: 'general' }),
+      plan.map((search) =>
+        deps.searchNews({
+          query: search.query,
+          countryCode: params.countryCode,
+          topic: 'general',
+          ...(search.includeDomains ? { includeDomains: search.includeDomains } : {}),
+        }),
       ),
     );
     const ran = outputs.filter((o) => !o.skipped);
@@ -327,7 +397,12 @@ export async function researchContact(params: {
       error: ran.length > 0 && ran.every((o) => !!o.error) ? ran[0].error : null,
       results: outputs.reduce((sum, o) => sum + o.results.length, 0),
     };
-    documents = contactDocuments(outputs.flatMap((o) => o.results), target.name, target.linkedinUrl ?? null);
+    const results = outputs.flatMap((o, i) =>
+      plan[i].requireCompany
+        ? o.results.filter((r) => mentionsCompany([r.title, r.content].filter(Boolean).join(' '), params.companyName))
+        : o.results,
+    );
+    documents = contactDocuments(results, target.name, target.linkedinUrl ?? null);
   }
   // Sin Tavily (sin llave, sin presupuesto o sin créditos): Claude busca en la web.
   const tavilyWorked = tavily.ran && !tavily.error;

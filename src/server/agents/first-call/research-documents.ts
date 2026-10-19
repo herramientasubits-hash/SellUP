@@ -10,6 +10,7 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
 import { DOC_TEXT_MAX_CHARS, type ResearchDocument } from './research-prompt';
+import { SEARCH_STEP_DOC_LABEL, type ResearchSearchStep } from './research-catalog';
 import { MAX_SITE_PAGES, SITE_PAGE_LABELS, pickSitePages, type SitePageKind } from './site-pages';
 
 /** Menos texto que esto = página vacía o bloqueada: no se manda al modelo. */
@@ -103,15 +104,43 @@ export async function readOfficialSite(
 /** Sitios que no son fuente útil de una noticia sobre la empresa. */
 const NOISE_HOSTS = /(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|pinterest|computrabajo|indeed|glassdoor|wikipedia)\.[a-z.]+$/i;
 
-/** Noticias como documentos: sin redes, sin portales de empleo prohibidos y sin competidores. */
-export function newsToDocuments(results: readonly NewsResult[], companyDomain: string | null): ResearchDocument[] {
+/**
+ * LinkedIn sólo por el fragmento del buscador (nunca se abre la página) y sólo la página
+ * de la empresa (`/company/`): `/posts/` y `/pulse/` suelen ser de personas (de un
+ * empleado o de un homónimo), y perfiles y empleos tampoco.
+ */
+const LINKEDIN_COMPANY_PATH = /linkedin\.com\/company\//i;
+
+/** El host de una URL sin `www.` (o `null`). */
+export function hostOfUrl(url: string): string | null {
+  return normalizeDomain(url);
+}
+
+/** Filtro para quedarse con la primera aparición de cada URL (varias búsquedas traen la misma). */
+export function firstOfEachUrl(): (doc: ResearchDocument) => boolean {
+  const seen = new Set<string>();
+  return (doc) => {
+    if (seen.has(doc.url)) return false;
+    seen.add(doc.url);
+    return true;
+  };
+}
+
+/**
+ * Resultados de búsqueda como documentos: sin redes, sin portales de empleo prohibidos y
+ * sin competidores. `step` dice de qué búsqueda vienen (cambia la etiqueta y, en la de
+ * LinkedIn, deja pasar sólo las páginas de empresa y sus publicaciones).
+ */
+export function newsToDocuments(results: readonly NewsResult[], companyDomain: string | null, step: ResearchSearchStep = 'noticias'): ResearchDocument[] {
   const own = companyDomain ? normalizeDomain(companyDomain) : null;
   const seen = new Set<string>();
   const documents: ResearchDocument[] = [];
   for (const result of results) {
     const host = normalizeDomain(result.url);
     const text = [result.title, result.content].filter(Boolean).join('\n').trim();
-    if (!host || NOISE_HOSTS.test(host) || isUbitsCompetitorDomain(result.url)) continue;
+    if (!host || isUbitsCompetitorDomain(result.url)) continue;
+    const isLinkedIn = /(^|\.)linkedin\.com$/i.test(host);
+    if (step === 'linkedin' ? !isLinkedIn || !LINKEDIN_COMPANY_PATH.test(result.url) : NOISE_HOSTS.test(host)) continue;
     if (text.length < 80 || seen.has(result.url)) continue;
     seen.add(result.url);
     // Un subdominio de la empresa (ir.empresa.com, blog.empresa.com) es la empresa hablando.
@@ -120,7 +149,13 @@ export function newsToDocuments(results: readonly NewsResult[], companyDomain: s
     documents.push({
       docId: '',
       url: result.url,
-      label: isOwn ? (isReport ? 'Sitio oficial · Informe' : 'Sitio oficial · Publicación') : `Noticia · ${host}`,
+      label: isOwn
+        ? isReport
+          ? 'Sitio oficial · Informe'
+          : 'Sitio oficial · Publicación'
+        : step === 'linkedin'
+          ? 'LinkedIn · fragmento del buscador'
+          : `${SEARCH_STEP_DOC_LABEL[step]} · ${host}`,
       kind: isOwn ? 'official_site' : 'news',
       text: text.slice(0, DOC_TEXT_MAX_CHARS),
       publishedOn: result.publishedOn,

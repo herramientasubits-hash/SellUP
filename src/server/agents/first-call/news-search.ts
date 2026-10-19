@@ -17,7 +17,18 @@ export interface NewsSearchInput {
   query: string;
   countryCode: string | null;
   topic: 'news' | 'general';
+  /** Buscar sólo en estos sitios (Tavily no admite `site:`). */
+  includeDomains?: readonly string[];
+  /** Nunca en estos (redes, portales de empleo, directorios de datos). */
+  excludeDomains?: readonly string[];
+  /** Resultados (por defecto 6; Tavily admite hasta 20). */
+  maxResults?: number;
 }
+
+/** Tavily acepta hasta 300 sitios incluidos y 150 excluidos. */
+const TAVILY_MAX_INCLUDE_DOMAINS = 300;
+const TAVILY_MAX_EXCLUDE_DOMAINS = 150;
+const TAVILY_MAX_RESULTS = 20;
 
 export function buildNewsSearchBody(input: NewsSearchInput): Record<string, unknown> {
   // Tavily sólo admite `country` en el modo general.
@@ -27,10 +38,12 @@ export function buildNewsSearchBody(input: NewsSearchInput): Record<string, unkn
     topic: input.topic,
     time_range: 'year',
     search_depth: 'basic',
-    max_results: NEWS_MAX_RESULTS,
+    max_results: Math.min(Math.max(1, input.maxResults ?? NEWS_MAX_RESULTS), TAVILY_MAX_RESULTS),
     include_raw_content: false,
     include_usage: true,
     ...(targeting.country ? { country: targeting.country } : {}),
+    ...(input.includeDomains?.length ? { include_domains: input.includeDomains.slice(0, TAVILY_MAX_INCLUDE_DOMAINS) } : {}),
+    ...(input.excludeDomains?.length ? { exclude_domains: input.excludeDomains.slice(0, TAVILY_MAX_EXCLUDE_DOMAINS) } : {}),
   };
 }
 

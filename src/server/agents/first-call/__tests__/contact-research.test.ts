@@ -8,9 +8,12 @@ import assert from 'node:assert/strict';
 import { EMPTY_USAGE, type AnthropicContentBlock, type AnthropicRequestBody } from '../../prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
   CONTACT_RESEARCH_TOOL,
+  cachedContactResearch,
   buildContactResearchSystemPrompt,
   contactDocuments,
+  contactSearchPlan,
   contactSearchQueries,
+  mentionsCompany,
   mentionsPerson,
   normalizeLinkedinUrl,
   researchContact,
@@ -159,7 +162,10 @@ describe('investigación del decisor', () => {
   it('Asdeporte (19-10): con su LinkedIn de SellUp busca también su perfil y lo reconoce como suyo', async () => {
     assert.equal(normalizeLinkedinUrl('https://www.linkedin.com/in/Liliana-Reyes-123/?trk=x'), 'linkedin.com/in/liliana-reyes-123');
     assert.equal(contactSearchQueries('Liliana Reyes', 'Asdeporte').length, 2);
-    assert.match(contactSearchQueries('Liliana Reyes', 'Asdeporte', 'https://linkedin.com/in/x')[2], /site:linkedin\.com\/in/);
+    // Tavily no admite `site:`: la búsqueda en LinkedIn va con include_domains.
+    const withLinkedin = contactSearchPlan('Liliana Reyes', 'Asdeporte', 'https://linkedin.com/in/x');
+    assert.deepEqual(withLinkedin[2], { query: '"Liliana Reyes" "Asdeporte"', includeDomains: ['linkedin.com'] });
+    assert.equal(withLinkedin.some((q) => q.query.includes('site:')), false);
     const docs = contactDocuments(
       [{ url: 'https://mx.linkedin.com/in/liliana-reyes-123', title: 'Liliana Reyes - Asdeporte', content: 'Liliana Reyes. Directora de Recursos Humanos en Asdeporte desde 2024.', publishedOn: null }],
       'Liliana Reyes',
@@ -175,5 +181,70 @@ describe('investigación del decisor', () => {
 
   it('con sólo homónimos, no los menciona: lo dice el sistema', () => {
     assert.match(buildContactResearchSystemPrompt(), /homónimos, NO los menciones/);
+  });
+});
+
+describe('lo del decisor guardado en una preparación', () => {
+  const fact = (id: string, topic: string, sourceKind: string) =>
+    ({ id, topic, statement: 's', quote: 'q', sourceKind, sourceUrl: null, sourceLabel: '', publishedOn: null }) as never;
+
+  it('reutiliza sólo lo que guardó SU investigación, con su fecha y sin ids', () => {
+    const content = { contactResearch: { facts: [fact('C1', 'decision_maker', 'news')], researchedAt: '2026-10-10T00:00:00Z' }, contactInsight: undefined };
+    const cached = cachedContactResearch(content, '2026-10-05T00:00:00Z');
+    assert.equal(cached?.facts.length, 1);
+    assert.equal('id' in (cached!.facts[0] as object), false);
+    assert.equal(cached?.researchedAt, '2026-10-10T00:00:00Z');
+    assert.equal(cached?.insight.leadsTraining, 'unknown');
+  });
+
+  it('vencida (investigada antes del corte) no sirve, aunque la preparación sea nueva', () => {
+    const content = { contactResearch: { facts: [fact('C1', 'decision_maker', 'news')], researchedAt: '2026-09-01T00:00:00Z' } };
+    assert.equal(cachedContactResearch(content, '2026-10-05T00:00:00Z'), null);
+  });
+
+  it('sin investigación propia de la persona no hay caché (los datos de la ficha de la empresa no cuentan)', () => {
+    assert.equal(cachedContactResearch({ contactInsight: { hook: null, priorities: [], unknowns: [], leadsTraining: 'unknown' } }, '2026-10-05T00:00:00Z'), null);
+    assert.equal(cachedContactResearch({ contactResearch: { facts: [], researchedAt: '2026-10-10T00:00:00Z' } }, '2026-10-05T00:00:00Z'), null);
+    assert.equal(cachedContactResearch(null, '2026-10-05T00:00:00Z'), null);
+  });
+});
+
+describe('el decisor en la prensa y los medios de RR. HH. de su país (dueña 19-10)', () => {
+  it('con fuentes del país suma una búsqueda ahí, que tiene que nombrar a la persona y a la empresa', async () => {
+    const plan = contactSearchPlan('Liliana Reyes', 'Asdeporte', null, ['expansion.mx', 'amedirh.com.mx']);
+    assert.deepEqual(plan[2], { query: '"Liliana Reyes"', includeDomains: ['expansion.mx', 'amedirh.com.mx'], requireCompany: true });
+
+    const inputs: Array<{ query: string; includeDomains?: readonly string[] }> = [];
+    const { d, bodies } = deps();
+    const base2 = d.searchNews;
+    d.searchNews = async (input) => {
+      inputs.push(input);
+      if (!input.includeDomains) return base2(input);
+      return {
+        results: [
+          // Nombra a la persona y a la empresa: sirve.
+          { url: 'https://expansion.mx/carrera/rh', title: 'Nombramientos', content: NOMBRAMIENTO.replace('https', ''), publishedOn: '2026-09-21' },
+          // Una homónima en otra empresa: fuera, aunque sea un medio del país.
+          { url: 'https://amedirh.com.mx/ponentes', title: 'Ponentes', content: 'Liliana Reyes, directora de talento de Grupo Bimbo, habló en el congreso de este año.', publishedOn: null },
+        ],
+        credits: 1,
+        skipped: false,
+        error: null,
+      };
+    };
+    const found = await researchContact({ ...base, sourceDomains: ['expansion.mx', 'amedirh.com.mx'], deps: d });
+    assert.equal(inputs.length, 3);
+    assert.deepEqual(inputs[2].includeDomains, ['expansion.mx', 'amedirh.com.mx']);
+    const message = bodies[0].messages[0].content as string;
+    assert.match(message, /expansion\.mx\/carrera\/rh/);
+    assert.doesNotMatch(message, /Grupo Bimbo/);
+    assert.equal(found.tavily.credits, 3);
+  });
+
+  it('la empresa se reconoce por el núcleo del nombre, no por una palabra suelta', () => {
+    assert.ok(mentionsCompany('El Banco Davivienda nombró a su nueva vicepresidenta de talento', 'Davivienda Colombia'));
+    assert.ok(mentionsCompany('Grupo LALA anunció', 'Grupo LALA'));
+    assert.equal(mentionsCompany('Daviplata lanzó una app', 'Davivienda Colombia'), false);
+    assert.equal(mentionsCompany('El grupo anunció', 'Grupo LALA'), false);
   });
 });

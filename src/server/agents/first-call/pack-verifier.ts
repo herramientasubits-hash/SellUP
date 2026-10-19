@@ -7,8 +7,10 @@
  * fallando, el paquete queda «para revisar» con los motivos a la vista.
  */
 
+import { foreignWordsIn } from './country-style';
+import { stripTrainingNormIds } from './country-training-context';
 import type { AnthropicContentBlock } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
-import { unsupportedNumbers } from './numbers';
+import { unsupportedNumbers as unsupportedNumbersIn } from './numbers';
 import type { ApproachVariant, FirstCallChannel, FirstCallPackContent, PackObjection, PackTextWithRefs, ResearchFact } from './types';
 import { BANNED_PHRASES, UBITS_CLAIMS, UBITS_OBJECTIONS, UBITS_PRODUCTS } from './ubits-messaging-library';
 import { APPROACH_DEFINITIONS, FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
@@ -292,6 +294,10 @@ export interface VerifyPackOptions {
   decisionMakerName?: string | null;
   /** Hoy (ms): con el enfoque «evento reciente», la noticia citada debe ser de los últimos 90 días. */
   nowMs?: number;
+  /** País de la empresa: marca las palabras que allí suenan a otro país (dueña 19-10). */
+  countryCode?: string | null;
+  /** Nombre de la empresa: no se revisa como tuteo ni como palabra de otro país («Aldeas Infantiles SOS»). */
+  companyName?: string | null;
 }
 
 /** Una noticia para «Por un evento reciente» sirve hasta 90 días. */
@@ -303,7 +309,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** El primer contacto va sin enlaces ni calendario. */
 const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
 /** Tuteo (ya normalizado, sin tildes): en el primer contacto va «usted». */
-const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo)\b/;
+const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo|vos|tenes|podes|queres|contame|decime)\b/;
+
+/** Una pregunta o exclamación sin su signo de apertura (marca de texto traducido). */
+function missingOpeningSign(text: string): boolean {
+  const count = (re: RegExp) => (text.match(re) ?? []).length;
+  return count(/\?/g) > count(/¿/g) || count(/!/g) > count(/¡/g);
+}
 
 /** «Asunto: …» y el cuerpo, sin la línea para dejar de recibir correos. */
 export function splitEmail(text: string): { subject: string | null; body: string } {
@@ -324,6 +336,8 @@ export function verifyPack(
   options: VerifyPackOptions = {},
 ): string[] {
   const issues: string[] = [];
+  // Nombrar una norma del país («NOM-035») no es una cifra sin fuente; sus otras cifras sí.
+  const unsupportedNumbers = (text: string, sources: readonly string[]) => unsupportedNumbersIn(stripTrainingNormIds(text, options.countryCode), sources);
   const factIds = new Set(facts.map((f) => f.id));
   const isCall = channel === 'call';
 
@@ -462,11 +476,25 @@ export function verifyPack(
     ['la confirmación', [pack.confirmation ?? '']],
     ['las otras versiones', variants.flatMap((v) => [v.text, v.voicemail ?? ''])],
   ];
+  // Los nombres propios no cuentan: «Aldeas Infantiles SOS» no es voseo (revisión 19-10).
+  const properNames = [options.companyName, options.decisionMakerName].filter((n): n is string => !!n && n.trim().length > 0);
+  const withoutNames = (text: string) =>
+    properNames.reduce((acc, name) => acc.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' '), text);
   const informalIn = sellerTexts
-    .filter(([, texts]) => texts.some((t) => INFORMAL.test(normalizeForBan(t))))
+    .filter(([, texts]) => texts.some((t) => INFORMAL.test(normalizeForBan(withoutNames(t)))))
     .map(([where]) => where);
   if (informalIn.length > 0) {
     issues.push(`Tutea al decisor en ${informalIn.join(', ')}: en el primer contacto va «usted».`);
+  }
+
+  // Estilo del país (dueña 19-10): palabras que allí suenan a otro país y signos de apertura.
+  const sellerSaid = sellerTexts.flatMap(([, texts]) => texts).filter(Boolean);
+  if (options.countryCode !== undefined) {
+    const foreign = [...new Set(sellerSaid.flatMap((t) => foreignWordsIn(withoutNames(t), options.countryCode)))];
+    if (foreign.length > 0) issues.push(`Usa palabras que en este país suenan a otro: «${foreign.join('», «')}».`);
+  }
+  if ([pack.callScript.text, pack.shortMessage.text, ...variants.map((v) => v.text)].some((t) => t && missingOpeningSign(t))) {
+    issues.push('A una pregunta o exclamación le falta el signo de apertura («¿», «¡»).');
   }
 
   const variantText = normalizeForBan([...variants.flatMap((v) => [v.text, v.voicemail ?? '']), pack.meetingAsk ?? '', pack.confirmation ?? ''].join(' '));

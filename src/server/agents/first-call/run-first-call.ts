@@ -30,7 +30,7 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
 import { allApplicableApproaches, recommendApproach } from './approaches';
-import { researchContact } from './contact-research';
+import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
@@ -52,7 +52,9 @@ import {
   RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY,
   type ResearchDocument,
 } from './research-prompt';
-import { newsToDocuments, numberDocuments, readOfficialSite, type NewsSearchOutput } from './research-documents';
+import { firstOfEachUrl, hostOfUrl, newsToDocuments, numberDocuments, readOfficialSite, type NewsSearchOutput } from './research-documents';
+import type { NewsSearchInput } from './news-search';
+import { buildResearchSearchPlan, decisionMakerSourcesFor } from './research-catalog';
 import {
   extractResearchSubmission,
   isResearchSufficient,
@@ -82,6 +84,22 @@ export const TAVILY_BASIC_SEARCH_CREDITS = 1;
 
 /** Páginas de búsqueda que se descargan para comprobar citas que no se pudieron ver. */
 const MAX_VERIFY_FETCHES = 3;
+/** Documentos de búsqueda por consulta y en total para la investigación (banco 19-10). */
+export const DOCS_PER_SEARCH = 6;
+export const MAX_SEARCH_DOCUMENTS = 24;
+
+function countBy(values: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const v of values) out[v] = (out[v] ?? 0) + 1;
+  return out;
+}
+
+/** De qué tipo de fuente era un dato descartado («Prensa», «Sitio oficial», «web»…). */
+function sourceGroupOf(url: string | null, documents: readonly ResearchDocument[]): string {
+  if (!url) return 'sin_fuente';
+  const doc = documents.find((d) => d.url === url);
+  return doc ? doc.label.split(' · ')[0] : 'web';
+}
 
 export interface FirstCallContext {
   internal: InternalContext;
@@ -154,7 +172,12 @@ export interface RunFirstCallDeps {
   resolveModels: () => Promise<{ apiKey: string; writerModel: string; extractionModel: string } | { error: string }>;
   checkBudget: (providerKey: 'anthropic' | 'tavily') => Promise<{ allowed: boolean; reason?: string | null }>;
   fetchPage: (url: string) => Promise<SafePageFetchResult>;
-  searchNews: (input: { query: string; countryCode: string | null; topic: 'news' | 'general' }) => Promise<NewsSearchOutput>;
+  searchNews: (input: NewsSearchInput) => Promise<NewsSearchOutput>;
+  /**
+   * Buscar también en las fuentes elegidas por país e industria, en el sitio propio y en
+   * la página de LinkedIn (dueña 19-10). Sin él, las dos búsquedas abiertas de siempre.
+   */
+  extendedResearch?: boolean;
   runConversation: (body: AnthropicRequestBody, apiKey: string) => Promise<AnthropicConversationResult>;
   /** Reserva la investigación de la empresa; `null` si otra ya está en curso (índice único). */
   createBrief: (accountId: string) => Promise<string | null>;
@@ -163,6 +186,15 @@ export interface RunFirstCallDeps {
   /** Avanza el estado de la empresa (nunca retrocede; ver `nextAgent3Status`). */
   advanceAccountStatus: (accountId: string, target: Agent3StatusTarget) => Promise<void>;
   logUsage: (entry: UsageLogInput) => Promise<void>;
+  /**
+   * Lo investigado de este decisor en una preparación desde `sinceIso` (o `null`).
+   * Opcional: sin él siempre se investiga.
+   */
+  readCachedContactResearch?: (
+    accountId: string,
+    contactId: string,
+    sinceIso: string,
+  ) => Promise<{ facts: Array<Omit<ResearchFact, 'id'>>; insight: ContactInsight; researchedAt: string } | null>;
   now: () => number;
 }
 
@@ -226,20 +258,30 @@ async function gatherNews(
   const budget = await deps.checkBudget('tavily');
   if (!budget.allowed) return { documents: [], credits: 0, tavilyUnavailable: true };
   const { account } = context;
-  const name = account.name;
-  const queries: Array<{ query: string; topic: 'news' | 'general'; step: string }> = [
-    { query: `"${name}" ${account.country ?? ''}`.trim(), topic: 'news', step: 'noticias' },
-    { query: `"${name}" empleo formación talento cultura`, topic: 'general', step: 'talento' },
-  ];
+  const queries = buildResearchSearchPlan({
+    name: account.name,
+    country: account.country,
+    countryCode: account.countryCode,
+    industry: account.industry,
+    domain: account.domain ?? account.website,
+    extended: deps.extendedResearch === true,
+  });
   const outputs = await Promise.all(
     queries.map(async (q) => {
       const startedAt = deps.now();
-      const output = await deps.searchNews({ query: q.query, countryCode: account.countryCode, topic: q.topic });
+      const output = await deps.searchNews({
+        query: q.query,
+        countryCode: account.countryCode,
+        topic: q.topic,
+        ...(q.includeDomains ? { includeDomains: q.includeDomains } : {}),
+        ...(q.excludeDomains ? { excludeDomains: q.excludeDomains } : {}),
+        ...(q.maxResults ? { maxResults: q.maxResults } : {}),
+      });
       // Sin llave de Tavily no hubo consulta: nada que registrar.
       if (output.skipped) return output;
       await deps.logUsage({
         providerKey: 'tavily',
-        operationKey: q.topic === 'news' ? 'account_research_news' : 'account_research_talent',
+        operationKey: q.operationKey,
         agentStep: q.step,
         model: null,
         usage: null,
@@ -252,13 +294,25 @@ async function gatherNews(
         durationMs: deps.now() - startedAt,
         countryCode: account.countryCode,
         resultsReturned: output.results.length,
-        metadata: { account_id: account.id, results: output.results.length, skipped: output.skipped },
+        metadata: {
+          account_id: account.id,
+          results: output.results.length,
+          skipped: output.skipped,
+          // Diagnóstico (dueña 19-10): de qué sitios y de qué fecha salió cada resultado.
+          hosts: output.results.map((r) => hostOfUrl(r.url)).filter((h): h is string => !!h),
+          dated: output.results.filter((r) => !!r.publishedOn).length,
+          ...(q.includeDomains ? { include_domains: q.includeDomains.length } : {}),
+        },
       });
       return output;
     }),
   );
   return {
-    documents: newsToDocuments(outputs.flatMap((o) => o.results), account.domain),
+    // Tope por búsqueda y en total: más documentos no dieron más datos y sí más descartes (banco 19-10).
+    documents: queries
+      .flatMap((q, i) => newsToDocuments(outputs[i].results, account.domain, q.step).slice(0, DOCS_PER_SEARCH))
+      .filter(firstOfEachUrl())
+      .slice(0, MAX_SEARCH_DOCUMENTS),
     credits: outputs.reduce((sum, o) => sum + (o.credits ?? 0), 0),
     // Sin llave o con todas las búsquedas en error (p. ej. sin créditos del mes): va el respaldo.
     tavilyUnavailable: outputs.every((o) => o.skipped || !!o.error),
@@ -310,7 +364,8 @@ async function research(
     const news = await gatherNews(internal, deps);
 
     const documents = numberDocuments([...site.documents, ...news.documents]);
-    const hasNews = news.documents.length > 0;
+    // Lo que cuenta es una noticia CON FECHA: un fragmento sin fecha no es una señal reciente.
+    const hasNews = news.documents.some((d) => !!d.publishedOn);
     const hasTalentPage = site.pageKinds.includes('careers');
     const webSearchAllowed = !(hasNews && hasTalentPage);
 
@@ -346,29 +401,6 @@ async function research(
     const startedAt = deps.now();
     const run = await runResearchConversation({ body, apiKey: models.apiKey, deps });
     const costUsd = costOf(run.usage, models.extractionModel);
-    await deps.logUsage({
-      providerKey: 'anthropic',
-      operationKey: 'account_research',
-      agentStep: 'investigar_empresa',
-      model: models.extractionModel,
-      usage: run.usage,
-      costUsd,
-      credits: null,
-      status: run.errorCode ? 'error' : 'success',
-      errorCode: run.errorCode,
-      durationMs: deps.now() - startedAt,
-      countryCode: account.countryCode,
-      metadata: {
-        account_id: account.id,
-        brief_id: briefId,
-        documents: documents.length,
-        site_pages: site.pagesRead,
-        news_documents: news.documents.length,
-        web_search_allowed: webSearchAllowed,
-        tavily_unavailable: news.tavilyUnavailable,
-      },
-    });
-
     const submission = run.conversation ? extractResearchSubmission(run.conversation.content) : null;
     const citedTextsByUrl = run.conversation ? extractCitedTextsByUrl(run.conversation.content) : new Map<string, string[]>();
     const baseSources = { documents, citedTextsByUrl, fetchedTexts: new Map<string, string>() };
@@ -405,6 +437,35 @@ async function research(
       sources: { ...baseSources, fetchedTexts },
       today,
     });
+    await deps.logUsage({
+      providerKey: 'anthropic',
+      operationKey: 'account_research',
+      agentStep: 'investigar_empresa',
+      model: models.extractionModel,
+      usage: run.usage,
+      costUsd,
+      credits: null,
+      status: run.errorCode ? 'error' : 'success',
+      errorCode: run.errorCode,
+      durationMs: deps.now() - startedAt,
+      countryCode: account.countryCode,
+      metadata: {
+        account_id: account.id,
+        brief_id: briefId,
+        documents: documents.length,
+        site_pages: site.pagesRead,
+        news_documents: news.documents.length,
+        dated_news_documents: news.documents.filter((d) => !!d.publishedOn).length,
+        web_search_allowed: webSearchAllowed,
+        tavily_unavailable: news.tavilyUnavailable,
+        // Diagnóstico (dueña 19-10): cuántos datos propuso Claude y por qué se descartaron, y de qué fuente.
+        proposed_facts: Array.isArray(submission?.facts) ? submission!.facts.length : 0,
+        rejected_by_reason: countBy(verified.rejected.map((r) => r.reason)),
+        rejected_by_source: countBy(verified.rejected.map((r) => sourceGroupOf(r.sourceUrl, documents))),
+        verified_by_source: countBy(verified.facts.filter((f) => f.sourceKind !== 'sellup').map((f) => f.sourceLabel.split(' · ')[0])),
+      },
+    });
+
     const status: ResearchBriefStatus = isResearchSufficient(verified.facts) ? 'sufficient' : 'partial';
     const completedAt = new Date(deps.now()).toISOString();
     await deps.updateBrief(briefId, {
@@ -499,10 +560,12 @@ function verifyAll(
   channels: readonly FirstCallChannel[],
   decisionMakerName: string | null,
   nowMs: number,
+  countryCode: string | null,
+  companyName: string | null,
 ): Partial<Record<FirstCallChannel, string[]>> {
   const result: Partial<Record<FirstCallChannel, string[]>> = {};
   for (const channel of channels) {
-    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName, nowMs });
+    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName, nowMs, countryCode, companyName });
   }
   return result;
 }
@@ -619,6 +682,7 @@ async function writeForTarget(params: {
   };
 
   const dmName = target?.name ?? null;
+  const countryCode = internal.account.countryCode;
   let usage = EMPTY_USAGE;
   let shape: Record<string, string> = {};
   let submission: WriterSubmission | null = null;
@@ -635,7 +699,7 @@ async function writeForTarget(params: {
     shape = describeSubmissionShape(raw);
     if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview() };
     submission = parseWriterSubmission(raw, channels);
-    issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
+    issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name);
     const issues = combinedIssues(issuesByChannel, channels);
     if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
 
@@ -668,7 +732,7 @@ async function writeForTarget(params: {
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
-      issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
+      issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name);
     }
     return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
   } catch (err) {
@@ -679,6 +743,20 @@ async function writeForTarget(params: {
     if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons, rawPreview: preview() };
     return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons, rawPreview: preview() };
   }
+}
+
+/** La preparación con lo investigado del decisor: su gancho y, si encontró datos, esos datos con su fecha. */
+function withContactResearch(
+  content: FirstCallPackContent,
+  contact: { facts: ReadonlyArray<Omit<ResearchFact, 'id'>>; insight: ContactInsight | null; researchedAt: string },
+): FirstCallPackContent {
+  return {
+    ...content,
+    ...(contact.insight ? { contactInsight: contact.insight } : {}),
+    ...(contact.facts.length > 0 && contact.researchedAt
+      ? { contactResearch: { facts: contact.facts.map((fact, i) => ({ id: `C${i + 1}`, ...fact })), researchedAt: contact.researchedAt } }
+      : {}),
+  };
 }
 
 /** Corre `task` sobre cada elemento con un tope de tareas a la vez, conservando el orden. */
@@ -771,7 +849,14 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   // La investigación del decisor (Tavily, o Claude si Tavily no está): nunca rompe la preparación.
   const researchAndLogContact = async (
     target: DecisionMaker,
-  ): Promise<{ facts: Array<Omit<ResearchFact, 'id'>>; insight: ContactInsight | null }> => {
+  ): Promise<{ facts: Array<Omit<ResearchFact, 'id'>>; insight: ContactInsight | null; researchedAt: string }> => {
+    // Lo de la persona de los últimos días se reutiliza, salvo «Investigar de nuevo». Los
+    // días se cuentan desde que se investigó, no desde la última preparación.
+    if (!request.refreshResearch && deps.readCachedContactResearch) {
+      const since = new Date(deps.now() - CONTACT_RESEARCH_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const cached = await deps.readCachedContactResearch(account.id, target.id, since).catch(() => null);
+      if (cached) return { facts: cached.facts, insight: cached.insight, researchedAt: cached.researchedAt };
+    }
     const startedAt = deps.now();
     const found = await researchContact({
       target,
@@ -781,6 +866,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
       apiKey: models.apiKey,
       model: models.extractionModel,
       today: isoDay(deps.now()),
+      sourceDomains: deps.extendedResearch === true ? decisionMakerSourcesFor(account.countryCode) : [],
       deps,
     });
     if (found.tavily.ran) {
@@ -831,11 +917,11 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     }
     // Sin datos ni nada que decir del decisor, la tarjeta no muestra la pestaña.
     const hasInsight = found.facts.length > 0 || found.insight.priorities.length > 0 || found.insight.unknowns.length > 0;
-    return { facts: found.facts, insight: hasInsight ? found.insight : null };
+    return { facts: found.facts, insight: hasInsight ? found.insight : null, researchedAt: new Date(startedAt).toISOString() };
   };
   // Lo que se escribe y se guarda para un decisor (aquí `context` y `models` ya están comprobados).
   const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
-    const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null };
+    const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null, researchedAt: '' };
     const startedAt = deps.now();
     const byChannel = await writeEachChannel({ request, context, target, brief, models, deps, contactFacts: contact.facts, contactInsight: contact.insight });
     const writtenList = request.channels.map((c) => byChannel[c]).filter((w): w is WrittenForTarget => !!w);
@@ -898,7 +984,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         channel,
         goals: request.goals,
         productFocus: content?.productKey ?? (request.productKeys.length > 0 ? request.productKeys.join(',') : null),
-        content: status === 'failed' || !content ? null : contact.insight ? { ...content, contactInsight: contact.insight } : content,
+        content: status === 'failed' || !content ? null : withContactResearch(content, contact),
         facts: written?.facts ?? [],
         status,
         verifierIssues: issues,

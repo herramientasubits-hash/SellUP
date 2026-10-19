@@ -20,11 +20,13 @@ import { CLAUDE_PAGE_MAX_HTML_BYTES } from '../prospecting-toolkit/claude-classi
 import { checkHubSpotCompanyCommercialStatus } from '../prospecting-toolkit/hubspot-commercial-checker';
 import { fetchSafePageHtml } from '../prospecting-toolkit/website-verifier';
 import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/latam-curated/latam-curated-rows';
+import { curatedCoreName, curatedNamesMatch, isDistinctiveCore } from './curated-match';
 import type { PipelineStatus } from '@/modules/accounts/types';
 import { nextAgent3Status, type Agent3StatusTarget } from './account-status';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
-import { curatedListLabels, mapBriefRow, readPriorClassification } from './row-mappers';
+import { cachedContactResearch } from './contact-research';
+import { curatedListLabels, mapBriefRow, mapPackRow, readPriorClassification } from './row-mappers';
 import type { BriefPatch, FirstCallContext, PackInsert, RunFirstCallDeps, UsageLogInput } from './run-first-call';
 import { AGENT3_USAGE_AGENT_KEY, AGENT3_VERSION, type FirstCallRequest } from './types';
 
@@ -43,21 +45,35 @@ const RUN_DEADLINE_MS = 250_000;
 
 const CURATED_SOURCE_KEY = 'latam_curated_directory';
 
+/** La búsqueda ampliada sólo se apaga a propósito: `off`, `false` o `0`. */
+export function isAgent3ExtendedResearchEnabled(value: string | undefined): boolean {
+  return !/^(off|false|0|no)$/i.test(value?.trim() ?? '');
+}
+/** Preparaciones recientes del decisor que se revisan para reutilizar lo investigado. */
+const CACHED_CONTACT_PACKS_READ = 8;
+
 async function readCuratedLists(account: { name: string; domain: string | null; country_code: string | null }): Promise<string[]> {
   if (!account.country_code) return [];
   const admin = createSupabaseAdminClient();
   const base = () =>
     admin
       .from('source_company_snapshots')
-      .select('raw_data')
+      .select('raw_data, normalized_legal_name')
       .eq('source_key', CURATED_SOURCE_KEY)
-      .eq('country_code', account.country_code!.toUpperCase())
-      .limit(3);
-  const queries = [base().eq('normalized_legal_name', normalizeLatamCuratedName(account.name))];
-  if (account.domain) queries.push(base().eq('raw_data->>website_domain', account.domain.replace(/^www\./, '')));
+      .eq('country_code', account.country_code!.toUpperCase());
+  const queries = [base().eq('normalized_legal_name', normalizeLatamCuratedName(account.name)).limit(3)];
+  if (account.domain) queries.push(base().eq('raw_data->>website_domain', account.domain.replace(/^www\./, '')).limit(3));
+  // Por el núcleo del nombre («Davivienda Colombia» = «BANCO DAVIVIENDA»): se traen los que
+  // lo contienen y se quedan sólo los que tienen el MISMO núcleo (ver curated-match.ts).
+  const core = curatedCoreName(account.name);
+  if (isDistinctiveCore(core)) queries.push(base().ilike('normalized_legal_name', `%${core}%`).limit(25));
   try {
     const results = await Promise.all(queries);
-    const labels = results.flatMap((r) => (r.data ?? []).flatMap((row) => curatedListLabels((row as { raw_data: unknown }).raw_data)));
+    const labels = results.flatMap((r, i) =>
+      ((r.data ?? []) as Array<{ raw_data: unknown; normalized_legal_name: string | null }>)
+        .filter((row) => i < queries.length - 1 || !isDistinctiveCore(core) || curatedNamesMatch(account.name, row.normalized_legal_name))
+        .flatMap((row) => curatedListLabels(row.raw_data)),
+    );
     return [...new Set(labels)];
   } catch {
     return [];
@@ -260,9 +276,20 @@ async function logUsage(entry: UsageLogInput, userId: string): Promise<void> {
   });
 }
 
+/** Cómo se lee la empresa: con la sesión de quien pide (la app) o directo (el banco de evaluación). */
+export interface FirstCallContextOptions {
+  readAccount?: (accountId: string) => Promise<Awaited<ReturnType<typeof getAccountById>>>;
+  /** El banco de evaluación no consulta HubSpot. */
+  skipHubSpot?: boolean;
+}
+
 /** Contexto de la empresa para quien la pide. `null` si no existe o está fuera de su cartera. */
-export async function loadFirstCallContext(request: FirstCallRequest, userId: string): Promise<FirstCallContext | null> {
-  const account = await getAccountById(request.accountId);
+export async function loadFirstCallContext(
+  request: FirstCallRequest,
+  userId: string,
+  options: FirstCallContextOptions = {},
+): Promise<FirstCallContext | null> {
+  const account = await (options.readAccount ?? getAccountById)(request.accountId);
   if (!account || account.pipeline_status === 'archived') return null;
   const metadata =
     account.metadata && typeof account.metadata === 'object' && !Array.isArray(account.metadata)
@@ -274,7 +301,7 @@ export async function loadFirstCallContext(request: FirstCallRequest, userId: st
     readOriginClassification(account.id, metadata).catch(() => null),
     readCuratedLists(account),
     readRelations(account.id),
-    readHubSpot(account),
+    options.skipHubSpot ? Promise.resolve(null) : readHubSpot(account),
     readDecisionMakers(account.id, request.contactIds),
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
@@ -369,6 +396,8 @@ export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
       }
     },
     fetchPage: (url) => fetchSafePageHtml(url, PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES),
+    // Encendida por defecto (dueña 19-10); `AGENT3_EXTENDED_RESEARCH=off` vuelve a las dos búsquedas de antes.
+    extendedResearch: isAgent3ExtendedResearchEnabled(process.env.AGENT3_EXTENDED_RESEARCH),
     searchNews: async (input) => runTavilyNewsSearch(input, await getTavilyApiKey()),
     runConversation: (body, apiKey) =>
       runAnthropicConversation({ apiKey, body, timeoutMs: ANTHROPIC_TIMEOUT_MS, deadlineAtMs }),
@@ -412,6 +441,23 @@ export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
       return (data as { id: string }).id;
     },
     logUsage: (entry) => logUsage(entry, userId),
+    readCachedContactResearch: async (accountId, contactId, sinceIso) => {
+      const { data, error } = await admin
+        .from('first_call_packs')
+        .select('pack, status')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .neq('status', 'failed')
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(CACHED_CONTACT_PACKS_READ);
+      if (error || !data) return null;
+      for (const row of data as Array<Record<string, unknown>>) {
+        const cached = cachedContactResearch(mapPackRow({ ...row, id: '', account_id: accountId, created_at: sinceIso }).content, sinceIso);
+        if (cached) return cached;
+      }
+      return null;
+    },
     now: () => Date.now(),
   };
 }
