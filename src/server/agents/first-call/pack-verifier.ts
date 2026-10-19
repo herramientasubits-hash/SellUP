@@ -273,6 +273,11 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\bmuchas (empresas|compa[nñ]ias|organizaciones|areas de talento)\b[^?!\n]{0,50}\b(usan|ya usan|eligen|prefieren|confian)\b/,
   // Sin cortar en los puntos de «RR. HH.»: hasta 40 caracteres de la misma frase.
   /\botr[oa]s (equipos|lideres|líderes|empresas|clientes|gerentes|directores)[^?!\n]{0,40}\b(me (comentan|cuentan|dicen)|lo resuelven|lo resolvieron|ya lo hacen)\b/,
+  // Davivienda en Prod (19-10): «otros bancos de la región lo han resuelto», «otros bancos
+  // están capacitando…», «trabajo con bancos…», «ayudando a otros bancos…».
+  /\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|equipos|lideres|clientes)\b[^?!\n]{0,60}\b(han resuelto|resolvieron|lo resuelven|estan resolviendo|lo estan haciendo|lo hacen|estan (capacitando|acelerando|alineando|formando|usando))\b/,
+  /\b(trabajo|trabajamos) con (bancos|lideres|aseguradoras|cadenas|retailers|equipos de|areas de)\b/,
+  /\bayud(o|amos|ando|amos a|ando a) (a )?(otr[oa]s )?(bancos|empresas|compa[nñ]ias|aseguradoras)\b/,
 ];
 
 /** «Gratis», «sin costo»…: ninguna oferta de la biblioteca lo promete. */

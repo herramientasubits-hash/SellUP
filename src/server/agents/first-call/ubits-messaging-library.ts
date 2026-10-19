@@ -545,7 +545,9 @@ export const UBITS_OBJECTIONS: readonly UbitsObjection[] = [
     key: 'internal_platform',
     objection: 'Tenemos una plataforma propia.',
     response:
-      'Muy bien. ¿Qué tal les va con el contenido y con que la gente lo use? Muchas empresas con plataforma propia nos usan para el catálogo y la medición, sin cambiar lo que ya tienen.',
+      // Antes: «Muchas empresas con plataforma propia nos usan…»: afirmaba clientes que la
+      // biblioteca no respalda y el verificador lo marcaba en cada preparación (Prod 19-10).
+      'Muy bien. ¿Qué tal les va con el contenido y con que la gente lo use? UBITS se puede sumar con el catálogo y la medición, sin cambiar lo que ya tienen.',
   },
   {
     key: 'wrong_person',

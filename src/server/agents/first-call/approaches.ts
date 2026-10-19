@@ -68,7 +68,7 @@ export const APPROACH_DEFINITIONS: Readonly<Record<FirstContactApproach, Approac
     label: 'Directo y con permiso',
     bestFor: 'Ejecutivos con poco tiempo. Llamada (y la única forma en Perú).',
     rule:
-      'Di quién eres, reconoce que el contacto es inesperado y pide permiso para explicar el motivo en 30 segundos («¿me regala 30 segundos y usted decide si seguimos?»). Nada de «¿lo agarro en mal momento?».',
+      'Di quién eres, reconoce que el contacto es inesperado y pide permiso para explicar el motivo en 30 segundos («¿me regala 30 segundos y usted decide si seguimos?»). Nada de «¿lo agarro en mal momento?». El motivo es un hecho de SU empresa, no tu experiencia: nunca «trabajo con empresas como la suya» ni «otras empresas lo resolvieron».',
   },
   referral: {
     label: 'Por referencia',

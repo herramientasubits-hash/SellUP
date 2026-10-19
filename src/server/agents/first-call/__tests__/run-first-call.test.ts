@@ -810,3 +810,21 @@ describe('runFirstCall — búsqueda ampliada por país, industria y fuentes pro
     assert.match(message, /LinkedIn · fragmento del buscador/);
   });
 });
+
+describe('runFirstCall — un canal sin lo común lo toma de otro del mismo decisor (Davivienda Prod, 19-10)', () => {
+  it('el LinkedIn que llegó sólo con el mensaje queda con preguntas, objeciones y cierre', async () => {
+    const MINIMAL = {
+      reason_to_call: { text: 'Están buscando 40 asesores para nuevas sedes.', fact_refs: ['F5'] },
+      angle: 'Que cada asesor nuevo llegue listo.',
+      short_message: { text: 'María, vi que están contratando 40 asesores para sus nuevas sedes. Me gustaría seguir lo que publica sobre talento.', fact_refs: ['F5'] },
+    };
+    const { deps, calls } = harness({ writer: [GOOD_PACK, MINIMAL, MINIMAL, MINIMAL, MINIMAL] });
+    await runFirstCall({ ...REQUEST, channels: ['call', 'linkedin'] }, deps);
+    const linkedin = calls.packs.find((p) => p.channel === 'linkedin')!;
+    const content = linkedin.content as { questions: string[]; objections: unknown[]; nextStep: string };
+    assert.ok(content.questions.length >= 3, 'preguntas del otro canal');
+    assert.ok(content.objections.length > 0, 'objeciones del otro canal');
+    assert.ok(content.nextStep, 'cierre del otro canal');
+    assert.equal(linkedin.verifierIssues.some((i) => /preguntas|objeciones|siguiente paso/.test(i)), false, linkedin.verifierIssues.join(' | '));
+  });
+});
