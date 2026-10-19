@@ -11,7 +11,7 @@
  */
 
 import * as React from 'react';
-import { Bot, CheckCircle2, FileCheck2, Sparkles, XCircle, type LucideIcon } from '@/icons';
+import { CheckCircle2, FileCheck2, Sparkles, XCircle, type LucideIcon, Rumbo } from '@/icons';
 import { Badge } from '@/components/ui/badge';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { DrawerSection } from '@/components/shared/drawer-section';
@@ -59,7 +59,7 @@ export function ContactTraceabilityPanel({
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {/* Card 1 — Origen */}
-      <TraceCard icon={Bot} title="Origen del contacto">
+      <TraceCard icon={Rumbo} title="Origen del contacto">
         <TraceRow label="Origen">
           <span className="flex items-center gap-1.5">
             {vm.hasSourceCandidate ? (

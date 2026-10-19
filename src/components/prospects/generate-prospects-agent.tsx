@@ -1,7 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { AlertCircle, Sparkles } from '@/icons';
+import { AlertCircle } from '@/icons';
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 
 import { RailScreenActions, type RailActionSpec } from '@/components/action-rail';
 
@@ -53,8 +55,8 @@ export function useGenerateProspectsAgentAction(isGenerateAvailable: boolean, on
       isGenerateAvailable
         ? {
             id: 'generate-with-ai',
-            label: 'Generar con IA',
-            icon: <Sparkles aria-hidden="true" />,
+            label: RUMBO_ACTION_LABELS.generate,
+            icon: <RumboIcon />,
             scope: ['screen'],
             variant: 'ai',
             onSelect: () => onOpenRef.current(),

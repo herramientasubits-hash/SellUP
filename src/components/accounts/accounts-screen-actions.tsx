@@ -11,7 +11,8 @@ import { CreateAccountDrawer } from './create-account-drawer';
 import { FirstContactOutsideLauncher } from '@/components/first-call/first-contact-outside-launcher';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { AccountsAgentChooser, type AccountsAgentFlow } from './accounts-agent-chooser';
-import { AGENT_NAME, RumboIcon } from '@/components/chat';
+import { RumboIcon } from '@/components/chat';
+import { RUMBO_IA } from '@/components/ai/rumbo-labels';
 
 type InternalUserOption = React.ComponentProps<typeof CreateAccountDrawer>['users'][number];
 
@@ -64,7 +65,7 @@ export function AccountsScreenActions({
   const agentAction = React.useMemo<RailActionSpec>(
     () => ({
       id: 'accounts-agent',
-      label: AGENT_NAME,
+      label: RUMBO_IA,
       icon: <RumboIcon />,
       scope: ['screen'],
       variant: 'ai',

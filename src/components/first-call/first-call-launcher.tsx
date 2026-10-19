@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { PhoneCall, RefreshCw } from '@/icons';
+import { RefreshCw } from '@/icons';
 import { Button } from '@/components/ui/button';
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
 import type { FirstContactSelection } from '@/modules/speech/first-contact-wizard';
@@ -55,13 +57,16 @@ interface FirstCallLauncherProps {
   hideTrigger?: boolean;
 }
 
+/** Es una acción de IA: el peso que pide quien lo monta, con el estilo de IA (dueña 19-10). */
+const AI_VARIANT = { default: 'ai', outline: 'ai-outline', ghost: 'ai-ghost' } as const;
+
 /**
  * El nombre del botón: la primera vez prepara el primer contacto; con preparaciones
  * hechas, lo que hace es otra preparación (otro decisor, canal o enfoque).
  */
 export function launcherLabel({ regenerate, prepared }: { regenerate: boolean; prepared: boolean }): string {
-  if (regenerate) return 'Otra versión';
-  return prepared ? 'Nueva preparación' : 'Preparar primer contacto';
+  if (regenerate) return RUMBO_ACTION_LABELS.anotherVersion;
+  return prepared ? RUMBO_ACTION_LABELS.newPreparation : RUMBO_ACTION_LABELS.prepareFirstContact;
 }
 
 /**
@@ -113,8 +118,8 @@ export function FirstCallLauncher({
   return (
     <>
       {!hideTrigger && (
-        <Button type="button" size={size} variant={variant} onClick={handleClick}>
-          {regenerate ? <RefreshCw aria-hidden="true" /> : <PhoneCall aria-hidden="true" />}
+        <Button type="button" size={size} variant={AI_VARIANT[variant]} onClick={handleClick}>
+          {regenerate ? <RefreshCw aria-hidden="true" /> : <RumboIcon />}
           {triggerLabel}
         </Button>
       )}

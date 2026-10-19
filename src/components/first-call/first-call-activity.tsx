@@ -1,4 +1,4 @@
-import { Bot, PhoneCall } from '@/icons';
+import { PhoneCall, Rumbo } from '@/icons';
 import { formatInAppZone } from '@/lib/format-date';
 import { Timeline, TimelineItem } from '@/components/data-display';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -38,7 +38,7 @@ export function FirstCallActivity({ state, kind, title = 'Agente 3 · Primer con
           <TimelineItem
             key={event.id}
             tone={event.tone}
-            icon={event.kind === 'run' ? <Bot /> : <PhoneCall />}
+            icon={event.kind === 'run' ? <Rumbo /> : <PhoneCall />}
             title={event.title}
             time={formatDateTime(event.at)}
             description={event.description ?? undefined}

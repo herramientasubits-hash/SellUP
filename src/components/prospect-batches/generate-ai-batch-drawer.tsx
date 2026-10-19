@@ -74,6 +74,7 @@ import {
 import { Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1080,7 +1081,7 @@ function DrawerFooter({
             disabled={!canSubmit}
             loading={generating}
           >
-            {generating ? 'Generando…' : 'Generar con IA'}
+            {generating ? 'Generando…' : RUMBO_ACTION_LABELS.generate}
           </AIButton>
         </div>
       </div>

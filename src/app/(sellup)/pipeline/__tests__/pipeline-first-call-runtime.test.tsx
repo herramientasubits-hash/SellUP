@@ -116,7 +116,7 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
       assert.ok(!stage(id).hasAttribute('data-invitation'), id);
       assert.ok(rtl.within(stage(id)).getByText('Próximamente'), id);
     }
-    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
   });
 
   it('encendido y sin nada hecho, las dos etapas invitan con el botón del agente', () => {
@@ -127,7 +127,7 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
       assert.ok(card.hasAttribute('data-invitation'));
       assert.ok(card.querySelector('[aria-expanded]') === null, 'una invitación no se pliega');
       assert.ok(rtl.within(card).getByText('Agente 3'));
-      assert.ok(rtl.within(card).getByRole('button', { name: 'Preparar primer contacto' }));
+      assert.ok(rtl.within(card).getByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }));
     }
     assert.ok(rtl.within(research).getByText(/Aún no se ha investigado Globex/));
     assert.ok(rtl.within(prep).getByText(/Aún no se ha preparado el primer contacto con Globex/));
@@ -171,7 +171,7 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
   it('una empresa archivada no ofrece preparar el primer contacto', () => {
     const journey = applyFirstCallToJourney(buildJourney({ pipeline_status: 'archived' }), EMPTY);
     rtl.render(h(PipelineStageCards, { journey }));
-    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
+    assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
     assert.ok(rtl.within(stage('inteligencia')).getByText(/la empresa está archivada/));
   });
 });
@@ -248,9 +248,9 @@ describe('Pipeline · barra de acciones', () => {
   it('con el agente presente ofrece «Preparar primer contacto» y la abre', () => {
     let opened = 0;
     renderActions({ agent3: EMPTY, onPrepare: () => (opened += 1) });
-    assert.ok(labels().includes('Preparar primer contacto'));
+    assert.ok(labels().includes('Preparar primer contacto con Rumbo IA'));
     const button = Array.from((rtl.screen.getByRole('toolbar') as HTMLElement).querySelectorAll<HTMLElement>('button')).find(
-      (candidate) => candidate.getAttribute('aria-label') === 'Preparar primer contacto',
+      (candidate) => candidate.getAttribute('aria-label') === 'Preparar primer contacto con Rumbo IA',
     ) as HTMLElement;
     rtl.fireEvent.click(button);
     assert.equal(opened, 1);
@@ -258,9 +258,9 @@ describe('Pipeline · barra de acciones', () => {
 
   it('sin el agente en el recorrido, o con la empresa archivada, no se ofrece', () => {
     renderActions({ agent3: null, onPrepare: () => {} });
-    assert.ok(!labels().includes('Preparar primer contacto'));
+    assert.ok(!labels().includes('Preparar primer contacto con Rumbo IA'));
     rtl.cleanup();
     renderActions({ agent3: EMPTY, archived: true, onPrepare: () => {} });
-    assert.ok(!labels().includes('Preparar primer contacto'));
+    assert.ok(!labels().includes('Preparar primer contacto con Rumbo IA'));
   });
 });

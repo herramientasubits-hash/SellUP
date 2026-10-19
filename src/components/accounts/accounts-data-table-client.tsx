@@ -17,8 +17,9 @@ import {
   Sparkles,
   SendHorizonal,
   UserPlus,
-  PhoneCall,
 } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS, withRumbo } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -433,16 +434,18 @@ export function AccountsDataTableClient({
             ? [
                 {
                   id: 'first-call',
-                  label: 'Preparar primer contacto',
-                  icon: PhoneCall,
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: RumboIcon,
+                  variant: 'ai' as const,
                   onClick: () => setFirstContact({ kind: 'account', accountId: row.id }),
                 },
               ]
             : []),
           {
             id: 'enrich-contacts',
-            label: 'Buscar contactos de esta empresa',
-            icon: UserSearch,
+            label: RUMBO_ACTION_LABELS.findContacts,
+            icon: RumboIcon,
+            variant: 'ai',
             onClick: () => setEnrichCompany({
               name: row.name,
               domain: row.domain,
@@ -518,8 +521,9 @@ export function AccountsDataTableClient({
               id: 'first-call',
               // Una empresa a la vez: cada una gasta su propia investigación.
               scope: ['single'] as ('single' | 'bulk')[],
-              label: 'Preparar primer contacto',
-              icon: PhoneCall,
+              label: RUMBO_ACTION_LABELS.prepareFirstContact,
+              icon: RumboIcon,
+              variant: 'ai' as const,
               disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
               onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
             },
@@ -575,8 +579,9 @@ export function AccountsDataTableClient({
       },
       {
         id: 'bulk-enrich-contacts',
-        label: 'Buscar contactos en lote',
-        icon: UserSearch,
+        label: withRumbo('Buscar contactos en lote'),
+        icon: RumboIcon,
+        variant: 'ai',
         disabled: (rows) => rows.length === 0,
         onClick: (rows) => {
           if (rows.length === 1) {

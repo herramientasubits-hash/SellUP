@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Brain, ExternalLink, Lightbulb, ShieldAlert } from '@/icons';
+import { ExternalLink, Lightbulb, ShieldAlert, Rumbo } from '@/icons';
 import { SellerAnswersForm } from './seller-answers-form';
 import { formatInAppZone } from '@/lib/format-date';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -62,7 +62,7 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
     const running = brief?.status === 'running';
     return (
       <EmptyState
-        icon={Brain}
+        icon={Rumbo}
         title={running ? 'Investigando esta empresa…' : 'Aún no hay inteligencia comercial de esta empresa'}
         description={
           running

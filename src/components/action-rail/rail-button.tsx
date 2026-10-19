@@ -10,7 +10,8 @@ import { useRailIsVertical, useRailPopoutSide } from "./rail-preferences";
 const STAGGER_STEP_MS = 100;
 
 /** Clases del botón-icono de la barra (40×40); las comparten todos sus botones. */
-export function railIconButtonClass(tone: "default" | "danger", isActive = false): string {
+/** `ai`: una acción de Rumbo (IA); el ícono va en el color de IA (dueña 19-10). */
+export function railIconButtonClass(tone: "default" | "danger" | "ai", isActive = false): string {
   return cn(
     "su-dock-item relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5",
     "focus-visible:outline-none focus-visible:ring-2",
@@ -19,6 +20,7 @@ export function railIconButtonClass(tone: "default" | "danger", isActive = false
       ? "text-destructive hover:bg-destructive/15 focus-visible:ring-destructive/40"
       : "text-nav-foreground/60 hover:bg-nav-foreground/10 hover:text-nav-foreground focus-visible:ring-nav-foreground/30 aria-disabled:hover:text-nav-foreground/60",
     isActive && (tone === "danger" ? "bg-destructive/15" : "bg-nav-foreground/10 text-nav-foreground"),
+    tone === "ai" && "su-ai-icons",
   );
 }
 
@@ -47,7 +49,7 @@ export function RailButton({
   onClick: () => void;
   /** Explica por qué la acción no está disponible; con valor, el botón se apaga. */
   blockedReason?: string | null;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
 }) {
   const isBlocked = blockedReason != null;
   const side = useRailPopoutSide();

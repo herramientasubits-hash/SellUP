@@ -256,7 +256,7 @@ describe('§ A — el estado exacto del FAIL: Lusha health_pharma, 6 disponibles
     renderSummary();
     const cta = screen.getByTestId('lusha-preview-run') as HTMLButtonElement;
     assert.equal(cta.disabled, false);
-    assert.match(cta.textContent ?? '', /Buscar con IA/);
+    assert.match(cta.textContent ?? '', /Buscar con Rumbo IA/);
   });
 });
 

@@ -30,6 +30,12 @@ const buttonVariants = cva(
         ghost:
           "text-foreground hover:bg-surface-muted aria-expanded:bg-surface-muted dark:hover:bg-muted/60",
         link: "text-primary underline-offset-4 hover:underline font-semibold",
+        // Acciones de IA (Rumbo): se distinguen de las demás en toda la plataforma.
+        // Primario = relleno degradado; secundario = borde degradado; terciario = sin borde.
+        // En los dos últimos el ícono va en el color de IA.
+        ai: "su-ai-gradient border-0 font-semibold text-primary-foreground shadow-card hover:opacity-90",
+        "ai-outline": "su-ai-border su-ai-icons font-semibold text-foreground hover:opacity-85",
+        "ai-ghost": "su-ai-ghost su-ai-icons text-foreground",
       },
       size: {
         default: "h-10 px-4",

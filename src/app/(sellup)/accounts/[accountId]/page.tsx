@@ -49,7 +49,12 @@ import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-c
 import { resolveHubSpotPresentation } from '@/modules/accounts/hubspot-company-sync-presentation';
 import { getFirstCallState } from '@/modules/speech/actions';
 import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
-import { FirstCallTab, hasFreshBrief, toFirstCallContactOptions } from '@/components/first-call/first-call-tab';
+import { FirstCallTab } from '@/components/first-call/first-call-tab';
+// Funciones puras desde sus módulos: esta página corre en el servidor y no puede llamar
+// funciones de un archivo 'use client' (Prod 19-10: «Attempted to call
+// toFirstCallContactOptions() from the server», la ficha de cualquier empresa caía).
+import { toFirstCallContactOptions } from '@/modules/speech/first-call-contacts';
+import { isBriefFresh } from '@/modules/speech/first-call-state';
 import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
 import { FirstCallActivity } from '@/components/first-call/first-call-activity';
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
@@ -143,7 +148,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
       accountId={account.id}
       accountName={account.name}
       contacts={firstCallContacts}
-      hasFreshBrief={hasFreshBrief(firstCall)}
+      hasFreshBrief={isBriefFresh(firstCall.brief, Date.now())}
       defaultContactId={preselectedContactId}
     />
   ) : null;
