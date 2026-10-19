@@ -484,6 +484,8 @@ interface WrittenForTarget {
   errorCode: string | null;
   /** Qué campos trajo la última entrega y de qué tipo (sin contenido), para diagnosticar. */
   shape: Record<string, string>;
+  /** Por qué terminó Claude cada respuesta (`end_turn`, `max_tokens`…), para diagnosticar. */
+  stopReasons: string[];
 }
 
 function verifyAll(
@@ -516,7 +518,10 @@ function combinedIssues(byChannel: Partial<Record<FirstCallChannel, string[]>>, 
   return out;
 }
 
-/** Una llamada al redactor para un decisor (o sin decisor), con todos los canales pedidos. */
+/**
+ * Una llamada al redactor para un decisor (o sin decisor) y los canales que se le pasen.
+ * Quien la usa la llama una vez POR CANAL (ver `writeEachChannel`).
+ */
 async function writeForTarget(params: {
   request: FirstCallRequest;
   context: FirstCallContext;
@@ -595,16 +600,18 @@ async function writeForTarget(params: {
   let shape: Record<string, string> = {};
   let submission: WriterSubmission | null = null;
   let issuesByChannel: Partial<Record<FirstCallChannel, string[]>> = {};
+  const stopReasons: string[] = [];
   try {
     const first = await deps.runConversation(body, models.apiKey);
     usage = first.usage;
+    stopReasons.push(first.stopReason ?? 'unknown');
     const raw = extractWriterSubmission(first.content);
     shape = describeSubmissionShape(raw);
-    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape };
+    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons };
     submission = parseWriterSubmission(raw, channels);
     issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     const issues = combinedIssues(issuesByChannel, channels);
-    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape };
+    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons };
 
     const second = await deps.runConversation(
       {
@@ -629,20 +636,21 @@ async function writeForTarget(params: {
       models.apiKey,
     );
     usage = sumUsage(usage, second.usage);
+    stopReasons.push(second.stopReason ?? 'unknown');
     const retried = extractWriterSubmission(second.content);
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null, shape };
+    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
     usage = sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE);
     // Si falló la CORRECCIÓN, el primer borrador sigue sirviendo: queda para revisar.
-    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape };
-    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape };
+    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons };
+    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons };
   }
 }
 
@@ -658,6 +666,23 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, task
   });
   await Promise.all(workers);
   return results;
+}
+
+/**
+ * Un redactor por canal, en paralelo (Prod 19-10, Davivienda): pedir los 4 canales con
+ * los 8 tipos de mensaje en UNA respuesta era demasiado para Haiku. A veces cortaba solo
+ * tras el enfoque (507 tokens, sin mensajes) y la corrección, que rehacía todo, pasaba
+ * los 11.000 tokens y no se podía leer. Por canal cada respuesta pesa ~3.000 tokens y el
+ * total termina antes. Cada canal trae su propia entrega; los consumos se suman.
+ */
+async function writeEachChannel(
+  params: Parameters<typeof writeForTarget>[0],
+): Promise<Partial<Record<FirstCallChannel, WrittenForTarget>>> {
+  const channels = params.request.channels;
+  const results = await Promise.all(
+    channels.map((channel) => writeForTarget({ ...params, request: { ...params.request, channels: [channel] } })),
+  );
+  return Object.fromEntries(channels.map((channel, i) => [channel, results[i]])) as Partial<Record<FirstCallChannel, WrittenForTarget>>;
 }
 
 // ── Entrada ──────────────────────────────────────────────────────────────────
@@ -761,22 +786,25 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
     const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null };
     const startedAt = deps.now();
-    const written = await writeForTarget({ request, context, target, brief, models, deps, contactFacts: contact.facts, contactInsight: contact.insight });
-    const costUsd = costOf(written.usage, models.writerModel);
-    const missingChannels = request.channels.filter((c) => !written.submission?.messages[c]?.text);
+    const byChannel = await writeEachChannel({ request, context, target, brief, models, deps, contactFacts: contact.facts, contactInsight: contact.insight });
+    const writtenList = request.channels.map((c) => byChannel[c]).filter((w): w is WrittenForTarget => !!w);
+    const usage = writtenList.reduce((acc, w) => sumUsage(acc, w.usage), EMPTY_USAGE);
+    const costUsd = costOf(usage, models.writerModel);
+    const errorCode = writtenList.find((w) => w.errorCode)?.errorCode ?? null;
+    const missingChannels = request.channels.filter((c) => !byChannel[c]?.submission?.messages[c]?.text);
     await deps.logUsage({
       providerKey: 'anthropic',
       operationKey: 'first_call_pack',
       agentStep: 'redactar_llamada',
       model: models.writerModel,
-      usage: written.usage,
+      usage,
       costUsd,
       credits: null,
-      status: written.errorCode ? 'error' : 'success',
-      errorCode: written.errorCode,
+      status: errorCode && missingChannels.length === request.channels.length ? 'error' : 'success',
+      errorCode,
       durationMs: deps.now() - startedAt,
       countryCode: context.internal.account.countryCode,
-      resultsReturned: written.submission ? request.channels.length : 0,
+      resultsReturned: request.channels.length - missingChannels.length,
       metadata: {
         account_id: request.accountId,
         brief_id: briefId,
@@ -784,8 +812,13 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         channels: request.channels,
         product_keys: request.productKeys,
         regeneration: request.regenerateFromPackId !== null,
-        // Sólo si algún canal quedó sin mensaje: qué trajo la entrega (campos y tipos, sin texto).
-        ...(missingChannels.length > 0 ? { missing_channels: missingChannels, submission_shape: written.shape } : {}),
+        // Un redactor por canal: por qué terminó cada respuesta (`max_tokens` = se cortó).
+        writer_calls: request.channels.length,
+        stop_reasons: Object.fromEntries(request.channels.map((c) => [c, byChannel[c]?.stopReasons ?? []])),
+        // Sólo si algún canal quedó sin mensaje: qué trajo esa entrega (campos y tipos, sin texto).
+        ...(missingChannels.length > 0
+          ? { missing_channels: missingChannels, submission_shape: Object.fromEntries(missingChannels.map((c) => [c, byChannel[c]?.shape ?? {}])) }
+          : {}),
       },
     });
 
@@ -793,8 +826,9 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     const share = costUsd / request.channels.length;
     const inserted: Array<{ id: string; status: FirstCallPackStatus }> = [];
     for (const channel of request.channels) {
-      const content = written.submission ? contentForChannel(written.submission, channel) : null;
-      const issues = written.issuesByChannel[channel] ?? [];
+      const written = byChannel[channel];
+      const content = written?.submission ? contentForChannel(written.submission, channel) : null;
+      const issues = written?.issuesByChannel[channel] ?? [];
       // Una llamada con guion sirve aunque falte el mensaje de voz: queda «para revisar».
       const usable = !!content && (!!content.shortMessage.text || (channel === 'call' && !!content.callScript.text));
       const status: FirstCallPackStatus = !usable ? 'failed' : issues.length > 0 ? 'needs_review' : 'draft';
@@ -808,14 +842,14 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         goals: request.goals,
         productFocus: content?.productKey ?? (request.productKeys.length > 0 ? request.productKeys.join(',') : null),
         content: status === 'failed' || !content ? null : contact.insight ? { ...content, contactInsight: contact.insight } : content,
-        facts: written.facts,
+        facts: written?.facts ?? [],
         status,
         verifierIssues: issues,
         regeneratedFromId: request.regenerateFromPackId,
         regenerationReason: request.regenerationReason,
         costUsd: share,
         model: models.writerModel,
-        errorCode: written.errorCode ?? (status === 'failed' ? 'no_message_for_channel' : null),
+        errorCode: written?.errorCode ?? (status === 'failed' ? 'no_message_for_channel' : null),
       });
       inserted.push({ id, status });
     }

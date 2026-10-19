@@ -10,7 +10,11 @@ import { describe, it, before, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 mock.module('@/modules/speech/actions', {
-  namedExports: { getFirstCallProgress: async () => 'reading_news' },
+  namedExports: { getFirstCallProgress: async () => 'reading_news', getFirstContactRunsLive: async () => ({}) },
+});
+const pushed: string[] = [];
+mock.module('next/navigation', {
+  namedExports: { useRouter: () => ({ push: (href: string) => pushed.push(href), refresh: () => {}, replace: () => {} }) },
 });
 
 let rtl: typeof import('@testing-library/react');
@@ -66,6 +70,61 @@ describe('Agente 3 · panel mientras trabaja', () => {
     assert.ok(rtl.screen.getByTestId('chat-panel-minimize'));
   });
 
+  it('cerrar mientras trabaja es como minimizar: abre el Centro de procesos (dueña 19-10)', async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as typeof fetch;
+    const closed: boolean[] = [];
+    let centerOpened = 0;
+    const { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } = await import('@/components/prospect-batches/agent-runs-tray/agent-runs-tray');
+    const onCenter = () => (centerOpened += 1);
+    window.addEventListener(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT, onCenter);
+    try {
+      rtl.render(
+        React.createElement(FirstContactAgentPanel, {
+          open: true,
+          onOpenChange: (open: boolean) => closed.push(open),
+          accountId: '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f',
+          accountName: 'Grupo Ciisa',
+          contacts: CONTACTS,
+          hasFreshBrief: false,
+        }),
+      );
+      for (let i = 0; i < 5; i += 1) clickButton('Continuar');
+      clickButton(/^Preparar\s*Con lo que elegiste/);
+      await rtl.screen.findByTestId('first-contact-running');
+      rtl.fireEvent.click(rtl.screen.getByRole('button', { name: /Cerrar/ }));
+      assert.deepEqual(closed, [false]);
+      assert.equal(centerOpened, 1);
+    } finally {
+      window.removeEventListener(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT, onCenter);
+    }
+  });
+
+  it('si se pierde la respuesta (recarga, red), no muestra error: sigue esperando y toma el final del registro', async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
+    rtl.render(
+      React.createElement(FirstContactAgentPanel, {
+        open: true,
+        onOpenChange: () => {},
+        accountId: '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f',
+        accountName: 'Grupo Ciisa',
+        contacts: CONTACTS,
+        hasFreshBrief: false,
+      }),
+    );
+    for (let i = 0; i < 5; i += 1) clickButton('Continuar');
+    clickButton(/^Preparar\s*Con lo que elegiste/);
+    await rtl.screen.findByTestId('first-contact-running');
+    const { getFirstContactRunsStore } = await import('@/modules/speech/first-contact-runs-client');
+    const store = getFirstContactRunsStore()!;
+    await rtl.waitFor(() => assert.equal(store.getSnapshot()[0]?.detached, true));
+    assert.ok(rtl.screen.getByTestId('first-contact-running'), 'sigue esperando, sin error');
+    assert.equal(rtl.screen.queryByText(/No pudimos conectar/), null);
+    rtl.act(() => store.settleDetached(store.getSnapshot()[0].id, { status: 'succeeded', packStatuses: ['draft', 'draft'] }));
+    await rtl.screen.findByText('¿Qué hacemos ahora?');
+  });
+
   it('al terminar cierra el panel y lleva al resultado (como el Agente 1)', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ ok: true, packIds: ['a', 'b'], packStatuses: ['draft', 'needs_review'], reusedBrief: false }), {
@@ -92,5 +151,41 @@ describe('Agente 3 · panel mientras trabaja', () => {
     await rtl.waitFor(() => assert.equal(viewed, 1));
     assert.equal(done, 1);
     assert.deepEqual(closed, [false]);
+  });
+});
+
+describe('Centro de procesos · «Abrir» una preparación (dueña 19-10)', () => {
+  const RUN = {
+    id: 'r1',
+    accountId: '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f',
+    accountName: 'Davivienda Colombia',
+    title: 'Fabian Martinez · Llamada',
+    expected: 1,
+    startedAtMs: Date.now(),
+    finishedAtMs: null,
+    packStatuses: [],
+    message: null,
+    detached: false,
+  };
+
+  it('en curso abre el panel de Rumbo con el avance, sin cambiar de página; terminada lleva a su página', async () => {
+    const { FirstContactRunRows } = await import('../first-contact-run-rows');
+    const { FIRST_CONTACT_PANEL_OPEN_EVENT } = await import('@/modules/speech/first-contact-runs-client');
+    const opened: string[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent<{ accountId: string }>).detail.accountId);
+    window.addEventListener(FIRST_CONTACT_PANEL_OPEN_EVENT, onOpen);
+    pushed.length = 0;
+    try {
+      const view = rtl.render(React.createElement(FirstContactRunRows, { runs: [{ ...RUN, status: 'running' as const }], onNavigate: () => {} }));
+      rtl.fireEvent.click(rtl.screen.getByRole('button', { name: /^Abrir/ }));
+      assert.deepEqual(opened, [RUN.accountId]);
+      assert.deepEqual(pushed, []);
+      view.rerender(React.createElement(FirstContactRunRows, { runs: [{ ...RUN, status: 'succeeded' as const, packStatuses: ['draft'] }], onNavigate: () => {} }));
+      rtl.fireEvent.click(rtl.screen.getByRole('button', { name: /^Ver/ }));
+      assert.equal(pushed.length, 1);
+      assert.match(pushed[0], /\/accounts\/7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f\?tab=primer-contacto/);
+    } finally {
+      window.removeEventListener(FIRST_CONTACT_PANEL_OPEN_EVENT, onOpen);
+    }
   });
 });

@@ -480,13 +480,19 @@ describe('runFirstCall — cascada con varias selecciones', () => {
     ],
   };
 
-  it('investiga una vez, redacta una vez por decisor y guarda una preparación por decisor y canal', async () => {
-    const { deps, calls } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] }, writer: [MULTI, MULTI] });
+  it('investiga una vez, redacta una vez por decisor y canal (en paralelo) y guarda una preparación por decisor y canal', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] }, writer: [MULTI, MULTI, MULTI, MULTI] });
     const result = await runFirstCall({ ...REQUEST, contactIds: ['c1', 'c2'], channels: ['call', 'email'] }, deps);
     assert.equal(result.ok, true);
     assert.equal(calls.briefsCreated, 1);
     const writerCalls = calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
-    assert.equal(writerCalls.length, 2);
+    // Davivienda (19-10): un redactor por canal, para que ninguna respuesta se corte.
+    assert.equal(writerCalls.length, 4);
+    for (const call of writerCalls) {
+      const tool = (call.tools as Array<{ name?: string; input_schema?: { properties?: { messages?: { items?: { properties?: { channel?: { enum?: string[] } } } } } } }>)
+        .find((t) => t.name === WRITER_SUBMIT_TOOL);
+      assert.equal(tool?.input_schema?.properties?.messages?.items?.properties?.channel?.enum?.length, 1);
+    }
     assert.deepEqual(
       calls.packs.map((p) => `${p.contactId}:${p.channel}`).sort(),
       ['c1:call', 'c1:email', 'c2:call', 'c2:email'],
@@ -494,9 +500,11 @@ describe('runFirstCall — cascada con varias selecciones', () => {
     assert.equal(calls.packs.find((p) => p.contactId === 'c2')?.targetTitle, 'Gerente General');
     assert.equal(calls.packs.find((p) => p.channel === 'email')?.content?.callScript.text, '');
     assert.equal(result.ok && result.packIds.length, 4);
-    // El costo de cada llamada al redactor se reparte entre sus canales.
+    // Un registro de uso por decisor (suma sus canales), repartido entre sus preparaciones.
     const writerLogs = calls.logs.filter((l) => l.operationKey === 'first_call_pack');
     assert.equal(writerLogs.length, 2);
+    assert.equal(writerLogs[0].metadata.writer_calls, 2);
+    assert.deepEqual(Object.keys(writerLogs[0].metadata.stop_reasons as object).sort(), ['call', 'email']);
     const c1Cost = calls.packs.filter((p) => p.contactId === 'c1').reduce((sum, p) => sum + p.costUsd, 0);
     assert.ok(Math.abs(c1Cost - (writerLogs[0].costUsd ?? 0)) < 1e-9);
   });
@@ -554,7 +562,7 @@ describe('runFirstCall — cascada con varias selecciones', () => {
 describe('runFirstCall — entrega incompleta del redactor (Grupo Ciisa, 18-10)', () => {
   it('una llamada con guion queda «para revisar» aunque falte el mensaje de voz; los otros canales sin mensaje fallan y el registro dice qué faltó', async () => {
     const incomplete = { ...GOOD_PACK, short_message: undefined, messages: [] };
-    const { deps, calls } = harness({ writer: [incomplete, incomplete] });
+    const { deps, calls } = harness({ writer: [incomplete, incomplete, incomplete, incomplete] });
     const result = await runFirstCall({ ...REQUEST, channels: ['call', 'email'] }, deps);
     assert.equal(result.ok, true);
     const call = calls.packs.find((p) => p.channel === 'call')!;
@@ -564,6 +572,8 @@ describe('runFirstCall — entrega incompleta del redactor (Grupo Ciisa, 18-10)'
     assert.equal(email.status, 'failed');
     const log = calls.logs.find((l) => l.operationKey === 'first_call_pack')!;
     assert.deepEqual(log.metadata.missing_channels, ['call', 'email']);
-    assert.equal((log.metadata.submission_shape as Record<string, string>).messages, 'array(0)');
+    const shapes = log.metadata.submission_shape as Record<string, Record<string, string>>;
+    assert.equal(shapes.call.messages, 'array(0)');
+    assert.equal(shapes.email.messages, 'array(0)');
   });
 });

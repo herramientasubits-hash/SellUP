@@ -13,14 +13,14 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Text } from '@/components/typography';
 import { cn } from '@/lib/utils';
-import { getFirstCallProgress, getFirstContactRunPacks } from '@/modules/speech/actions';
+import { getFirstContactRunsLive } from '@/modules/speech/actions';
 import { firstCallHref } from '@/modules/speech/first-call-links';
-import { getFirstContactRunsStore } from '@/modules/speech/first-contact-runs-client';
+import { getFirstContactRunsStore, requestOpenFirstContactPanel } from '@/modules/speech/first-contact-runs-client';
 import type { FirstContactRun } from '@/modules/speech/first-contact-runs-store';
 import { FIRST_CONTACT_STAGE_PERCENT, firstContactDoneToast } from '@/modules/speech/first-contact-wizard';
 import { RESEARCH_PROGRESS_LABELS, type ResearchProgressStage } from '@/server/agents/first-call/types';
 
-const POLL_MS = 2_500;
+const POLL_MS = 4_000;
 
 /** El avance de cada preparación en curso y el cierre de las desligadas (tras recargar). */
 function useFirstContactLive(runs: readonly FirstContactRun[]): Record<string, ResearchProgressStage | null> {
@@ -35,19 +35,24 @@ function useFirstContactLive(runs: readonly FirstContactRun[]): Record<string, R
     const tick = async () => {
       const store = getFirstContactRunsStore();
       store?.expireStaleDetached();
-      for (const run of active) {
-        try {
-          const stage = await getFirstCallProgress(run.accountId);
-          if (!cancelled) setLive((prev) => ({ ...prev, [run.id]: stage }));
-          if (run.detached) {
-            const packs = await getFirstContactRunPacks(run.accountId, new Date(run.startedAtMs).toISOString());
-            if (packs && packs.length >= Math.max(1, run.expected)) {
-              store?.settleDetached(run.id, { status: 'succeeded', packStatuses: packs });
-            }
+      try {
+        // Una sola consulta para todas las que siguen en curso.
+        const live = await getFirstContactRunsLive(
+          active.map((run) => ({
+            runId: run.id,
+            accountId: run.accountId,
+            sinceIso: run.detached ? new Date(run.startedAtMs).toISOString() : null,
+          })),
+        );
+        if (!cancelled) setLive((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(live).map(([id, l]) => [id, l.stage])) }));
+        for (const run of active) {
+          const packs = live[run.id]?.packStatuses;
+          if (run.detached && packs && packs.length >= Math.max(1, run.expected)) {
+            store?.settleDetached(run.id, { status: packs.some((s) => s !== 'failed') ? 'succeeded' : 'failed', packStatuses: packs, message: packs.some((s) => s !== 'failed') ? null : 'No pudimos escribir la preparación. Vuelve a intentarlo.' });
           }
-        } catch {
-          // Sin red un momento: se reintenta en el siguiente ciclo.
         }
+      } catch {
+        // Sin red un momento: se reintenta en el siguiente ciclo.
       }
       if (!cancelled) timer = setTimeout(tick, POLL_MS);
     };
@@ -123,7 +128,9 @@ export function FirstContactRunRows({ runs, onNavigate }: { runs: readonly First
               aria-label={`${run.status === 'running' ? 'Abrir' : 'Ver'} ${title}`}
               onClick={() => {
                 onNavigate();
-                router.push(firstCallHref(run.accountId));
+                // En curso: el panel de Rumbo con el avance. Terminada: su página.
+                if (run.status === 'running') requestOpenFirstContactPanel(run.accountId);
+                else router.push(firstCallHref(run.accountId));
               }}
             >
               {run.status === 'running' ? 'Abrir' : 'Ver'}

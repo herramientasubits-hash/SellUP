@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  FIRST_CONTACT_DETACHED_CODE,
   FIRST_CONTACT_DETACHED_STALE_MS,
   FIRST_CONTACT_RUNS_STORAGE_KEY,
   createFirstContactRunsStore,
@@ -60,12 +61,29 @@ describe('registro de preparaciones del Agente 3', () => {
     assert.equal(calls, 1);
   });
 
-  it('sin red: queda fallida con un mensaje claro', async () => {
+  it('sin red (o la página se recargó): NO es un fallo, queda desligada y el Centro la cierra (Prod 19-10)', async () => {
     const store = createFirstContactRunsStore({ execute: () => Promise.reject(new Error('offline')) });
     const response = await store.startRun({ id: 'r1', ...START });
     assert.equal(response.ok, false);
+    assert.equal(!response.ok && response.code, FIRST_CONTACT_DETACHED_CODE);
+    assert.equal(store.getSnapshot()[0].status, 'running');
+    assert.equal(store.getSnapshot()[0].detached, true);
+    store.settleDetached('r1', { status: 'succeeded', packStatuses: ['draft'] });
+    assert.equal(store.getSnapshot()[0].status, 'succeeded');
+  });
+
+  it('una respuesta que no se pudo leer (el servidor cortó la conexión) también queda desligada', async () => {
+    const store = createFirstContactRunsStore({ execute: async () => ({ ok: false, code: 'bad_response', message: 'x' }) });
+    await store.startRun({ id: 'r1', ...START });
+    assert.equal(store.getSnapshot()[0].status, 'running');
+    assert.equal(store.getSnapshot()[0].detached, true);
+  });
+
+  it('un «no» del servidor sí es un fallo', async () => {
+    const store = createFirstContactRunsStore({ execute: async () => ({ ok: false, code: 'budget_blocked', message: 'Sin presupuesto' }) });
+    await store.startRun({ id: 'r1', ...START });
     assert.equal(store.getSnapshot()[0].status, 'failed');
-    assert.match(store.getSnapshot()[0].message ?? '', /conectar con el servidor/);
+    assert.equal(store.getSnapshot()[0].message, 'Sin presupuesto');
   });
 
   it('al recargar: la que corría queda desligada; la vieja, vencida', () => {

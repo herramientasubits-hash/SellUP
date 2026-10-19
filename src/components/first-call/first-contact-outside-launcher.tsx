@@ -24,16 +24,25 @@ export function FirstContactOutsideLauncher({
 }) {
   const router = useRouter();
   const [target, setTarget] = React.useState<FirstContactTarget | null>(null);
-  const close = React.useCallback(() => setTarget(null), []);
+  // Si el panel no pudo abrirse (avisa con un toast), el buscador tampoco queda esperando.
+  const close = React.useCallback(() => {
+    setTarget(null);
+    onOpenChange(false);
+  }, [onOpenChange]);
+  // El buscador sigue abierto («Abriendo…») hasta que el panel de Rumbo tiene sus datos;
+  // entonces se cambian en el mismo instante, sin un momento sin panel (dueña 19-10).
+  const handOff = React.useCallback(() => onOpenChange(false), [onOpenChange]);
 
   return (
     <>
       <FirstContactCompanyPicker
-        open={open && target === null}
-        onOpenChange={onOpenChange}
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) setTarget(null);
+          onOpenChange(next);
+        }}
         onBack={onBack}
         onResolved={(accountId) => {
-          onOpenChange(false);
           setTarget({ kind: 'account', accountId });
           router.refresh();
         }}
@@ -41,6 +50,7 @@ export function FirstContactOutsideLauncher({
       <FirstContactPanelHost
         target={target}
         onClose={close}
+        onReady={handOff}
         onDone={() => router.refresh()}
         onViewResult={(accountId) => router.push(firstCallHref(accountId))}
       />
