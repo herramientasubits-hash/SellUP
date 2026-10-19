@@ -744,6 +744,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
           source: found.source,
           leads_training: found.insight.leadsTraining,
           has_hook: found.insight.hook !== null,
+          // Diagnóstico: qué le llegó a Claude y cuánto se descartó (homónimos, citas que no estaban).
+          documents: found.documents,
+          rejected_facts: found.rejected,
+          has_linkedin: !!target.linkedinUrl,
           // El respaldo: Tavily no respondió (sin llave, sin presupuesto o sin créditos).
           tavily_unavailable: !found.tavily.ran || !!found.tavily.error,
         },

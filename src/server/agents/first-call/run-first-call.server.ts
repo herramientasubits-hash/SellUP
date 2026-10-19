@@ -124,17 +124,25 @@ async function readDecisionMakers(accountId: string, contactIds: readonly string
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from('contacts')
-    .select('id, full_name, first_name, last_name, job_title, department')
+    .select('id, full_name, first_name, last_name, job_title, department, linkedin_url')
     .in('id', [...contactIds])
     .eq('account_id', accountId);
-  type Row = { id: string; full_name: string | null; first_name: string | null; last_name: string | null; job_title: string | null; department: string | null };
+  type Row = {
+    id: string;
+    full_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    job_title: string | null;
+    department: string | null;
+    linkedin_url: string | null;
+  };
   const byId = new Map(((data ?? []) as Row[]).map((row) => [row.id, row]));
   return contactIds
     .map((id) => byId.get(id))
     .filter((row): row is Row => row !== undefined)
     .map((row) => {
       const name = row.full_name ?? [row.first_name, row.last_name].filter(Boolean).join(' ');
-      return { id: row.id, name: name || 'Contacto', title: row.job_title, department: row.department };
+      return { id: row.id, name: name || 'Contacto', title: row.job_title, department: row.department, linkedinUrl: row.linkedin_url };
     });
 }
 
