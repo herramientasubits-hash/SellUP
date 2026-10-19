@@ -14,6 +14,7 @@
 import {
   AnthropicApiError,
   EMPTY_USAGE,
+  type AnthropicContentBlock,
   type AnthropicConversationResult,
   type AnthropicRequestBody,
   type AnthropicUsageTotals,
@@ -486,6 +487,10 @@ interface WrittenForTarget {
   shape: Record<string, string>;
   /** Por qué terminó Claude cada respuesta (`end_turn`, `max_tokens`…), para diagnosticar. */
   stopReasons: string[];
+  /** Si faltó el mensaje: el comienzo de lo que entregó Claude (para ver la causa). */
+  rawPreview?: string;
+  /** Salió del intento simple (solo la versión principal). */
+  fallback?: boolean;
 }
 
 function verifyAll(
@@ -518,6 +523,21 @@ function combinedIssues(byChannel: Partial<Record<FirstCallChannel, string[]>>, 
   return out;
 }
 
+/** Tope de lo que se guarda de una entrega sin mensaje, para diagnosticar. */
+const RAW_PREVIEW_MAX_CHARS = 1_500;
+
+/** El comienzo de lo que entregó Claude: los bloques y la entrega del formulario. */
+export function writerRawPreview(content: readonly AnthropicContentBlock[]): string {
+  const parts = content.map((block) =>
+    block.type === 'tool_use'
+      ? `tool_use ${JSON.stringify((block as { input?: unknown }).input ?? null)}`
+      : block.type === 'text'
+        ? `text ${String((block as { text?: unknown }).text ?? '')}`
+        : block.type,
+  );
+  return parts.join(' | ').slice(0, RAW_PREVIEW_MAX_CHARS);
+}
+
 /**
  * Una llamada al redactor para un decisor (o sin decisor) y los canales que se le pasen.
  * Quien la usa la llama una vez POR CANAL (ver `writeEachChannel`).
@@ -533,6 +553,8 @@ async function writeForTarget(params: {
   contactFacts?: ReadonlyArray<Omit<ResearchFact, 'id'>>;
   /** Gancho, prioridades probables y lo que no se confirmó del decisor. */
   contactInsight?: ContactInsight | null;
+  /** Intento simple: sólo la versión principal, sin las de los otros enfoques. */
+  singleVersion?: boolean;
 }): Promise<WrittenForTarget> {
   const { request, context, target, brief, models, deps } = params;
   const internal: InternalContext = { ...context.internal, decisionMaker: target };
@@ -550,7 +572,7 @@ async function writeForTarget(params: {
     countryCode: internal.account.countryCode,
   });
   // Sin enfoques elegidos: una versión con cada uno que aplique, el recomendado como principal.
-  const approaches =
+  const allApproaches =
     request.approaches.length > 0
       ? request.approaches
       : allApplicableApproaches(recommendedApproach, {
@@ -558,6 +580,7 @@ async function writeForTarget(params: {
           hasReferral: !!request.referralNote,
           countryCode: internal.account.countryCode,
         });
+  const approaches = params.singleVersion ? allApproaches.slice(0, 1) : allApproaches;
   // En la llamada cada versión es el guion completo más el mensaje de voz (pesa como tres mensajes).
   const extraVersions = Math.max(0, approaches.length - 1) * (channels.length + (channels.includes('call') ? 2 : 0));
   const body: AnthropicRequestBody = {
@@ -601,17 +624,20 @@ async function writeForTarget(params: {
   let submission: WriterSubmission | null = null;
   let issuesByChannel: Partial<Record<FirstCallChannel, string[]>> = {};
   const stopReasons: string[] = [];
+  let lastContent: readonly AnthropicContentBlock[] = [];
+  const preview = () => (lastContent.length > 0 ? writerRawPreview(lastContent) : undefined);
   try {
     const first = await deps.runConversation(body, models.apiKey);
     usage = first.usage;
+    lastContent = first.content;
     stopReasons.push(first.stopReason ?? 'unknown');
     const raw = extractWriterSubmission(first.content);
     shape = describeSubmissionShape(raw);
-    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons };
+    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview() };
     submission = parseWriterSubmission(raw, channels);
     issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     const issues = combinedIssues(issuesByChannel, channels);
-    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons };
+    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
 
     const second = await deps.runConversation(
       {
@@ -637,20 +663,21 @@ async function writeForTarget(params: {
     );
     usage = sumUsage(usage, second.usage);
     stopReasons.push(second.stopReason ?? 'unknown');
+    lastContent = second.content;
     const retried = extractWriterSubmission(second.content);
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons };
+    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
     usage = sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE);
     // Si falló la CORRECCIÓN, el primer borrador sigue sirviendo: queda para revisar.
-    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons };
-    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons };
+    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons, rawPreview: preview() };
+    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons, rawPreview: preview() };
   }
 }
 
@@ -679,10 +706,34 @@ async function writeEachChannel(
   params: Parameters<typeof writeForTarget>[0],
 ): Promise<Partial<Record<FirstCallChannel, WrittenForTarget>>> {
   const channels = params.request.channels;
-  const results = await Promise.all(
-    channels.map((channel) => writeForTarget({ ...params, request: { ...params.request, channels: [channel] } })),
+  const forChannel = (channel: FirstCallChannel, singleVersion = false) =>
+    writeForTarget({ ...params, singleVersion, request: { ...params.request, channels: [channel] } });
+  const results = await Promise.all(channels.map((channel) => forChannel(channel)));
+  // Davivienda (19-10, ya por canal): Haiku a veces entrega sólo el enfoque y el motivo
+  // (4 campos, `tool_use`), también al corregir. Un canal sin mensaje se intenta una
+  // vez más, simple: sólo la versión principal. Mejor una versión usable que ninguna.
+  const retried = await Promise.all(
+    channels.map(async (channel, i) => {
+      const first = results[i];
+      if (writtenHasContent(first, channel)) return first;
+      const simple = await forChannel(channel, true);
+      return {
+        ...(writtenHasContent(simple, channel) ? simple : first),
+        usage: sumUsage(first.usage, simple.usage),
+        stopReasons: [...first.stopReasons, ...simple.stopReasons],
+        fallback: writtenHasContent(simple, channel),
+        rawPreview: first.rawPreview,
+      };
+    }),
   );
-  return Object.fromEntries(channels.map((channel, i) => [channel, results[i]])) as Partial<Record<FirstCallChannel, WrittenForTarget>>;
+  return Object.fromEntries(channels.map((channel, i) => [channel, retried[i]])) as Partial<Record<FirstCallChannel, WrittenForTarget>>;
+}
+
+/** ¿Hay algo usable para ese canal? (La llamada vale con el guion aunque falte el mensaje de voz.) */
+function writtenHasContent(written: WrittenForTarget, channel: FirstCallChannel): boolean {
+  const submission = written.submission;
+  if (!submission) return false;
+  return !!submission.messages[channel]?.text || (channel === 'call' && !!submission.shared.callScript.text);
 }
 
 // ── Entrada ──────────────────────────────────────────────────────────────────
@@ -814,10 +865,16 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         regeneration: request.regenerateFromPackId !== null,
         // Un redactor por canal: por qué terminó cada respuesta (`max_tokens` = se cortó).
         writer_calls: request.channels.length,
+        // Canales que salieron del intento simple (sólo la versión principal).
+        fallback_channels: request.channels.filter((c) => byChannel[c]?.fallback),
         stop_reasons: Object.fromEntries(request.channels.map((c) => [c, byChannel[c]?.stopReasons ?? []])),
         // Sólo si algún canal quedó sin mensaje: qué trajo esa entrega (campos y tipos, sin texto).
         ...(missingChannels.length > 0
-          ? { missing_channels: missingChannels, submission_shape: Object.fromEntries(missingChannels.map((c) => [c, byChannel[c]?.shape ?? {}])) }
+          ? {
+              missing_channels: missingChannels,
+              submission_shape: Object.fromEntries(missingChannels.map((c) => [c, byChannel[c]?.shape ?? {}])),
+              raw_preview: Object.fromEntries(missingChannels.map((c) => [c, byChannel[c]?.rawPreview ?? null])),
+            }
           : {}),
       },
     });

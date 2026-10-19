@@ -15,6 +15,7 @@ import {
   type FirstContactRunResponse,
   type FirstContactRunsStore,
 } from './first-contact-runs-store';
+import { FIRST_CONTACT_LIVE_PATH, type FirstContactLiveEntry, type FirstContactLiveItem } from './first-contact-live';
 
 async function executeFirstContactRun(body: unknown): Promise<FirstContactRunResponse> {
   const response = await fetch('/api/agent3/first-call', {
@@ -31,6 +32,23 @@ async function executeFirstContactRun(body: unknown): Promise<FirstContactRunRes
   return parsed ?? { ok: false, code: 'bad_response', message: 'Algo falló al preparar el primer contacto. Vuelve a intentarlo.' };
 }
 
+/**
+ * El avance de varias preparaciones en UNA consulta, por una ruta y no por una acción
+ * del servidor: las acciones van una a la vez y las navegaciones esperan detrás de
+ * ellas (Prod 19-10: Empresas se quedaba cargando con los sondeos).
+ */
+export async function fetchFirstContactLive(items: readonly FirstContactLiveItem[]): Promise<Record<string, FirstContactLiveEntry>> {
+  if (items.length === 0) return {};
+  const response = await fetch(FIRST_CONTACT_LIVE_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`live ${response.status}`);
+  return (await response.json()) as Record<string, FirstContactLiveEntry>;
+}
+
 /** Un id para una corrida nueva (se llama al lanzarla, nunca al pintar). */
 export function newFirstContactRunId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -42,8 +60,8 @@ export function newFirstContactRunId(): string {
  */
 export const FIRST_CONTACT_PANEL_OPEN_EVENT = 'sellup:agent3-panel:open';
 
-export function requestOpenFirstContactPanel(accountId: string): void {
-  window.dispatchEvent(new window.CustomEvent(FIRST_CONTACT_PANEL_OPEN_EVENT, { detail: { accountId } }));
+export function requestOpenFirstContactPanel(accountId: string, accountName?: string): void {
+  window.dispatchEvent(new window.CustomEvent(FIRST_CONTACT_PANEL_OPEN_EVENT, { detail: { accountId, accountName } }));
 }
 
 /** Evento para que quien muestra la empresa recargue sus preparaciones al terminar. */

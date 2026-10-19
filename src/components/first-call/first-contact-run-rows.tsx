@@ -13,9 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Text } from '@/components/typography';
 import { cn } from '@/lib/utils';
-import { getFirstContactRunsLive } from '@/modules/speech/actions';
 import { firstCallHref } from '@/modules/speech/first-call-links';
-import { getFirstContactRunsStore, requestOpenFirstContactPanel } from '@/modules/speech/first-contact-runs-client';
+import { fetchFirstContactLive, getFirstContactRunsStore, requestOpenFirstContactPanel } from '@/modules/speech/first-contact-runs-client';
 import type { FirstContactRun } from '@/modules/speech/first-contact-runs-store';
 import { FIRST_CONTACT_STAGE_PERCENT, firstContactDoneToast } from '@/modules/speech/first-contact-wizard';
 import { RESEARCH_PROGRESS_LABELS, type ResearchProgressStage } from '@/server/agents/first-call/types';
@@ -37,7 +36,7 @@ function useFirstContactLive(runs: readonly FirstContactRun[]): Record<string, R
       store?.expireStaleDetached();
       try {
         // Una sola consulta para todas las que siguen en curso.
-        const live = await getFirstContactRunsLive(
+        const live = await fetchFirstContactLive(
           active.map((run) => ({
             runId: run.id,
             accountId: run.accountId,
@@ -129,7 +128,7 @@ export function FirstContactRunRows({ runs, onNavigate }: { runs: readonly First
               onClick={() => {
                 onNavigate();
                 // En curso: el panel de Rumbo con el avance. Terminada: su página.
-                if (run.status === 'running') requestOpenFirstContactPanel(run.accountId);
+                if (run.status === 'running') requestOpenFirstContactPanel(run.accountId, run.accountName);
                 else router.push(firstCallHref(run.accountId));
               }}
             >

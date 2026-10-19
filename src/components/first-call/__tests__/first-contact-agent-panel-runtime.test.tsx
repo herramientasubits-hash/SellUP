@@ -10,7 +10,12 @@ import { describe, it, before, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 mock.module('@/modules/speech/actions', {
-  namedExports: { getFirstCallProgress: async () => 'reading_news', getFirstContactRunsLive: async () => ({}) },
+  namedExports: {
+    getFirstCallProgress: async () => 'reading_news',
+    getFirstContactRunsLive: async () => ({}),
+    // El servidor tarda: «Abrir» no lo espera.
+    getFirstContactLaunchData: () => new Promise(() => {}),
+  },
 });
 const pushed: string[] = [];
 mock.module('next/navigation', {
@@ -187,5 +192,19 @@ describe('Centro de procesos · «Abrir» una preparación (dueña 19-10)', () =
     } finally {
       window.removeEventListener(FIRST_CONTACT_PANEL_OPEN_EVENT, onOpen);
     }
+  });
+});
+
+describe('Centro de procesos · el panel se abre al instante (dueña 19-10)', () => {
+  it('«Abrir» muestra el panel de Rumbo con la espera sin esperar al servidor', async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as typeof fetch;
+    const { FirstContactGlobalPanelHost } = await import('../first-contact-global-panel-host');
+    const { getFirstContactRunsStore, requestOpenFirstContactPanel } = await import('@/modules/speech/first-contact-runs-client');
+    const accountId = '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f';
+    void getFirstContactRunsStore()!.startRun({ id: 'r1', accountId, accountName: 'Davivienda Colombia', title: 'Fabian · Llamada', expected: 1, body: {} });
+    rtl.render(React.createElement(FirstContactGlobalPanelHost));
+    rtl.act(() => requestOpenFirstContactPanel(accountId, 'Davivienda Colombia'));
+    assert.ok(await rtl.screen.findByTestId('first-contact-running'));
+    assert.ok(rtl.screen.getByText(/Davivienda Colombia/));
   });
 });

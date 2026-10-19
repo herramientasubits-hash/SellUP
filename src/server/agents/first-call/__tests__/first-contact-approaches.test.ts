@@ -21,7 +21,7 @@ import { hubspotActivityDay } from '../internal-facts';
 import { unsupportedNumbers } from '../numbers';
 import { mapPackRow } from '../row-mappers';
 import { allApplicableApproaches } from '../approaches';
-import { channelTabs, visibleClosedPacks } from '../../../../modules/speech/first-contact-tab-view';
+import { channelTabs, currentPacks, visibleClosedPacks } from '../../../../modules/speech/first-contact-tab-view';
 import { hasRecentSignal } from '../run-first-call';
 import type { ResearchFact } from '../types';
 import { BANNED_PHRASES, UBITS_CLAIMS, UBITS_OFFERS, addressFormFor, renderLibraryForPrompt } from '../ubits-messaging-library';
@@ -461,14 +461,25 @@ describe('pestaña «Primer contacto»', () => {
   const pack = (id: string, channel: string, status: string, createdAt: string, contactId = 'c1') =>
     ({ id, channel, status, createdAt, contactId }) as unknown as Parameters<typeof channelTabs>[0][number];
 
-  it('una pestaña por canal, en el orden de siempre y la más nueva primero', () => {
+  it('una pestaña por canal, en el orden de siempre, con SOLO la preparación más nueva (dueña 19-10)', () => {
     const tabs = channelTabs([
       pack('a', 'linkedin', 'draft', '2026-10-18T01:00:00Z'),
       pack('b', 'call', 'draft', '2026-10-17T01:00:00Z'),
       pack('c', 'call', 'needs_review', '2026-10-18T01:00:00Z'),
     ]);
     assert.deepEqual(tabs.map((t) => t.channel), ['call', 'linkedin']);
-    assert.deepEqual(tabs[0].packs.map((p) => p.id), ['c', 'b']);
+    assert.deepEqual(tabs[0].packs.map((p) => p.id), ['c']);
+  });
+
+  it('vigentes: una por decisor y canal, la más reciente usable (las de otras corridas no cuentan)', () => {
+    const current = currentPacks([
+      pack('call-old', 'call', 'draft', '2026-10-18T01:00:00Z'),
+      pack('call-new', 'call', 'needs_review', '2026-10-19T11:44:00Z'),
+      pack('call-failed', 'call', 'failed', '2026-10-19T12:00:00Z'),
+      pack('email-c2', 'email', 'draft', '2026-10-18T01:00:00Z', 'c2'),
+      pack('email-c1', 'email', 'used', '2026-10-17T01:00:00Z'),
+    ]);
+    assert.deepEqual(current.map((p) => p.id).sort(), ['call-new', 'email-c1', 'email-c2']);
   });
 
   it('esconde la fallida que ya tiene una preparación más nueva del mismo decisor y canal', () => {

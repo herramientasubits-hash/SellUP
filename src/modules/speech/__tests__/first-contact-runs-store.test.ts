@@ -109,3 +109,25 @@ describe('registro de preparaciones del Agente 3', () => {
     assert.deepEqual(store.getSnapshot().map((r) => r.id), ['r2']);
   });
 });
+
+describe('avance por ruta, no por acción del servidor (Prod 19-10: Empresas se quedaba cargando)', () => {
+  it('valida lo que pide el navegador y corta en 12', async () => {
+    const { parseLiveItems } = await import('../first-contact-live');
+    assert.equal(parseLiveItems(null), null);
+    assert.equal(parseLiveItems({ items: [{ runId: 1, accountId: 'a' }] }), null);
+    const items = Array.from({ length: 20 }, (_, i) => ({ runId: `r${i}`, accountId: 'a', sinceIso: i === 0 ? '2026-10-19T11:43:00Z' : 7 }));
+    const parsed = parseLiveItems({ items })!;
+    assert.equal(parsed.length, 12);
+    assert.equal(parsed[0].sinceIso, '2026-10-19T11:43:00Z');
+    assert.equal(parsed[1].sinceIso, null);
+  });
+
+  it('el panel y el Centro de procesos ya no consultan con acciones del servidor', async () => {
+    const { readFileSync } = await import('node:fs');
+    for (const file of ['src/components/first-call/first-contact-agent-panel.tsx', 'src/components/first-call/first-contact-run-rows.tsx']) {
+      const source = readFileSync(file, 'utf8');
+      assert.doesNotMatch(source, /getFirstCallProgress|getFirstContactRunPacks|getFirstContactRunsLive/, file);
+      assert.match(source, /fetchFirstContactLive/, file);
+    }
+  });
+});

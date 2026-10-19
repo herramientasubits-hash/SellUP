@@ -12,7 +12,7 @@ import { SurfaceCard } from '@/components/shared/surface-card';
 import type { FirstCallState } from '@/modules/speech/actions';
 import { isBriefFresh } from '@/modules/speech/first-call-state';
 import { buildCoverage, missingSelection, type CoverageRow } from '@/modules/speech/first-contact-wizard';
-import { channelTabs, visibleClosedPacks } from '@/modules/speech/first-contact-tab-view';
+import { channelTabs, currentPacks, visibleClosedPacks } from '@/modules/speech/first-contact-tab-view';
 import { toast } from 'sonner';
 import { getFirstContactRunsStore, newFirstContactRunId } from '@/modules/speech/first-contact-runs-client';
 import {
@@ -22,7 +22,7 @@ import {
   type FirstContactSelection,
 } from '@/modules/speech/first-contact-wizard';
 import { UBITS_PRODUCTS } from '@/server/agents/first-call/ubits-messaging-library';
-import { Tabs, TabsBadge, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   FIRST_CALL_CHANNELS,
   FIRST_CALL_CHANNEL_LABELS,
@@ -213,7 +213,6 @@ function ChannelTabs({
         {tabs.map((tab) => (
           <TabsTrigger key={tab.channel} value={tab.channel}>
             {FIRST_CALL_CHANNEL_LABELS[tab.channel]}
-            {tab.packs.length > 1 && <TabsBadge count={tab.packs.length} tone="neutral" />}
           </TabsTrigger>
         ))}
         {aboutTab && <TabsTrigger value={ABOUT_TAB}>{aboutTab.label}</TabsTrigger>}
@@ -269,7 +268,8 @@ export function FirstCallTab({
   const fresh = hasFreshBrief(state);
   const enabled = state.enabled && !archived;
   const brief = state.brief;
-  const active = state.packs.filter((p) => p.status !== 'discarded' && p.status !== 'failed');
+  // Una por decisor y canal: la más reciente (las anteriores no se apilan).
+  const active = currentPacks(state.packs);
   const closed = visibleClosedPacks(state.packs);
   const coverage = React.useMemo(() => buildCoverage(state.packs, contacts), [state.packs, contacts]);
   const missing = React.useMemo(() => missingSelection(coverage), [coverage]);

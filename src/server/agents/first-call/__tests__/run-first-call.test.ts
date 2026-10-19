@@ -524,7 +524,8 @@ describe('runFirstCall — cascada con varias selecciones', () => {
   });
 
   it('si no sale ninguna preparación, el estado no cambia (no queda «en curso» para siempre)', async () => {
-    const { deps, calls } = harness({ writer: [{}, {}] });
+    // Entrega y corrección, y el intento simple con su corrección: todas vacías.
+    const { deps, calls } = harness({ writer: [{}, {}, {}, {}] });
     const result = await runFirstCall(REQUEST, deps);
     assert.equal(result.ok, false);
     assert.deepEqual(calls.statuses, []);
@@ -562,7 +563,8 @@ describe('runFirstCall — cascada con varias selecciones', () => {
 describe('runFirstCall — entrega incompleta del redactor (Grupo Ciisa, 18-10)', () => {
   it('una llamada con guion queda «para revisar» aunque falte el mensaje de voz; los otros canales sin mensaje fallan y el registro dice qué faltó', async () => {
     const incomplete = { ...GOOD_PACK, short_message: undefined, messages: [] };
-    const { deps, calls } = harness({ writer: [incomplete, incomplete, incomplete, incomplete] });
+    // Por canal: entrega + corrección, y el intento simple del canal que siga sin mensaje.
+    const { deps, calls } = harness({ writer: [incomplete, incomplete, incomplete, incomplete, incomplete, incomplete] });
     const result = await runFirstCall({ ...REQUEST, channels: ['call', 'email'] }, deps);
     assert.equal(result.ok, true);
     const call = calls.packs.find((p) => p.channel === 'call')!;
@@ -575,5 +577,36 @@ describe('runFirstCall — entrega incompleta del redactor (Grupo Ciisa, 18-10)'
     const shapes = log.metadata.submission_shape as Record<string, Record<string, string>>;
     assert.equal(shapes.call.messages, 'array(0)');
     assert.equal(shapes.email.messages, 'array(0)');
+  });
+});
+
+describe('runFirstCall — intento simple cuando un canal queda sin mensaje (Davivienda, 19-10)', () => {
+  // Lo que entregó Haiku en Prod, dos veces seguidas: el enfoque y el motivo, nada más.
+  const FOUR_FIELDS = { approach: 'problem', approach_reason: 'Por el problema', reason_to_call: 'Integración', fact_refs: ['F5'] };
+
+  it('reintenta ese canal con SOLO la versión principal y deja una preparación usable', async () => {
+    const { deps, calls } = harness({ writer: [FOUR_FIELDS, FOUR_FIELDS, GOOD_PACK] });
+    const result = await runFirstCall({ ...REQUEST, channels: ['call'], approaches: [] }, deps);
+    assert.equal(result.ok, true);
+    const writerCalls = calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
+    assert.equal(writerCalls.length, 3);
+    // El intento simple no pide las versiones de los otros enfoques.
+    const lastTool = (writerCalls[2].tools as Array<{ name?: string; input_schema?: { properties?: Record<string, unknown> } }>).find((t) => t.name === WRITER_SUBMIT_TOOL);
+    assert.equal(lastTool?.input_schema?.properties?.call_script_variants, undefined);
+    assert.notEqual(calls.packs[0].status, 'failed');
+    const log = calls.logs.find((l) => l.operationKey === 'first_call_pack')!;
+    assert.deepEqual(log.metadata.fallback_channels, ['call']);
+    assert.equal(log.metadata.missing_channels, undefined);
+  });
+
+  it('si tampoco sale, queda fallida y el registro guarda el comienzo de lo que entregó Claude', async () => {
+    const { deps, calls } = harness({ writer: [FOUR_FIELDS, FOUR_FIELDS, FOUR_FIELDS, FOUR_FIELDS] });
+    await runFirstCall({ ...REQUEST, channels: ['linkedin'] }, deps);
+    assert.equal(calls.packs[0].status, 'failed');
+    const log = calls.logs.find((l) => l.operationKey === 'first_call_pack')!;
+    assert.deepEqual(log.metadata.missing_channels, ['linkedin']);
+    const preview = (log.metadata.raw_preview as Record<string, string>).linkedin;
+    assert.match(preview, /^tool_use /);
+    assert.match(preview, /reason_to_call/);
   });
 });
