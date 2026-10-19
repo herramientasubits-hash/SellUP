@@ -304,3 +304,32 @@ describe('investigación · lo que salió mal en Davivienda', () => {
     assert.deepEqual(extractNumbers(companySizeStatement('25000')).map((t) => t.digits), extractNumbers('25000').map((t) => t.digits));
   });
 });
+
+describe('formulario plano del redactor (Prod 19-10, Davivienda: «<parameter name="text">»)', () => {
+  it('reason_to_call y call_script son texto plano con sus citas aparte (sin objetos anidados)', () => {
+    const tool = buildWriterSubmitTool(['call', 'email'], ['problem', 'trigger']);
+    const props = tool.input_schema.properties as Record<string, { type?: string }>;
+    assert.equal(props.reason_to_call.type, 'string');
+    assert.equal(props.reason_to_call_refs.type, 'array');
+    assert.equal(props.call_script.type, 'string');
+    assert.equal(props.call_script_refs.type, 'array');
+    assert.ok(tool.input_schema.required.includes('reason_to_call_refs'));
+  });
+
+  it('lee la forma plana, la de antes y limpia la etiqueta que dejó Haiku', () => {
+    const flat = parseWriterSubmission(
+      { reason_to_call: 'Integración de Scotiabank', reason_to_call_refs: ['F6'], call_script: 'Buenos días…', call_script_refs: ['F6'], messages: [] },
+      ['call'],
+    );
+    assert.deepEqual(flat.shared.reasonToCall, { text: 'Integración de Scotiabank', factRefs: ['F6'] });
+    assert.deepEqual(flat.shared.callScript, { text: 'Buenos días…', factRefs: ['F6'] });
+    const old = parseWriterSubmission({ reason_to_call: { text: 'Motivo', fact_refs: ['F1'] }, messages: [] }, ['call']);
+    assert.deepEqual(old.shared.reasonToCall, { text: 'Motivo', factRefs: ['F1'] });
+    // Lo que entregó Haiku en Prod: la etiqueta dentro del texto y las citas sueltas arriba.
+    const broken = parseWriterSubmission(
+      { approach: 'problem', reason_to_call: '\n<parameter name="text">Tras la integración de Scotiabank…', fact_refs: ['F6'], messages: [] },
+      ['call'],
+    );
+    assert.deepEqual(broken.shared.reasonToCall, { text: 'Tras la integración de Scotiabank…', factRefs: ['F6'] });
+  });
+});

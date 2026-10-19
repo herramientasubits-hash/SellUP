@@ -11,7 +11,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import { getFirstContactLaunchData } from '@/modules/speech/actions';
-import { FIRST_CONTACT_PANEL_OPEN_EVENT } from '@/modules/speech/first-contact-runs-client';
+import { FIRST_CONTACT_PANEL_OPEN_EVENT, requestViewFirstContactResult } from '@/modules/speech/first-contact-runs-client';
 import { FirstContactPanelHost, type FirstContactTarget } from './first-contact-panel-host';
 
 export function FirstContactGlobalPanelHost() {
@@ -55,7 +55,9 @@ export function FirstContactGlobalPanelHost() {
       target={target}
       onClose={close}
       onDone={() => router.refresh()}
-      onViewResult={(accountId) => router.push(firstCallHref(accountId))}
+      onViewResult={(accountId) => {
+        if (!requestViewFirstContactResult(accountId)) router.push(firstCallHref(accountId));
+      }}
     />
   );
 }

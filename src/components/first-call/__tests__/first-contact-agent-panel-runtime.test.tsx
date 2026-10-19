@@ -208,3 +208,55 @@ describe('Centro de procesos · el panel se abre al instante (dueña 19-10)', ()
     assert.ok(rtl.screen.getByText(/Davivienda Colombia/));
   });
 });
+
+describe('al terminar, Rumbo se cierra y queda la empresa en «Primer contacto» (dueña 19-10)', () => {
+  it('un panel que muestra una preparación que NO lanzó se cierra y lleva al resultado al terminar', async () => {
+    let finish: (value: Response) => void = () => {};
+    globalThis.fetch = ((input: RequestInfo | URL) =>
+      String(input).includes('/live')
+        ? new Promise(() => {})
+        : new Promise<Response>((resolve) => {
+            finish = resolve;
+          })) as typeof fetch;
+    const { getFirstContactRunsStore } = await import('@/modules/speech/first-contact-runs-client');
+    const accountId = '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f';
+    // La lanzó otro panel (o el mismo antes de minimizar).
+    void getFirstContactRunsStore()!.startRun({ id: 'r-ajena', accountId, accountName: 'Davivienda Colombia', title: 'Fabian · Llamada', expected: 1, body: {} });
+    const closed: boolean[] = [];
+    let viewed = 0;
+    rtl.render(
+      React.createElement(FirstContactAgentPanel, {
+        open: true,
+        onOpenChange: (open: boolean) => closed.push(open),
+        accountId,
+        accountName: 'Davivienda Colombia',
+        contacts: CONTACTS,
+        hasFreshBrief: true,
+        onViewResult: () => (viewed += 1),
+      }),
+    );
+    assert.ok(rtl.screen.getByTestId('first-contact-running'));
+    await rtl.act(async () => {
+      finish(new Response(JSON.stringify({ ok: true, packIds: ['a'], packStatuses: ['draft'], reusedBrief: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    });
+    await rtl.waitFor(() => assert.equal(viewed, 1));
+    assert.deepEqual(closed, [false]);
+  });
+
+  it('el resultado se muestra donde la pantalla lo atienda (Empresas abre su ficha); si nadie, hay que navegar', async () => {
+    const { FIRST_CONTACT_VIEW_RESULT_EVENT, requestViewFirstContactResult } = await import('@/modules/speech/first-contact-runs-client');
+    assert.equal(requestViewFirstContactResult('a1'), false);
+    const handled: string[] = [];
+    const listener = (event: Event) => {
+      event.preventDefault();
+      handled.push((event as CustomEvent<{ accountId: string }>).detail.accountId);
+    };
+    window.addEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, listener);
+    try {
+      assert.equal(requestViewFirstContactResult('a1'), true);
+      assert.deepEqual(handled, ['a1']);
+    } finally {
+      window.removeEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, listener);
+    }
+  });
+});

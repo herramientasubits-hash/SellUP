@@ -84,14 +84,28 @@ function strList(value: unknown, max: number): string[] {
 }
 
 /** Un texto con sus hechos citados; si llega sólo el texto, sin citas. */
-function withRefs(value: unknown): PackTextWithRefs {
-  if (typeof value === 'string') return { text: value.trim(), factRefs: [] };
+/**
+ * Restos del otro formato de herramientas que Haiku a veces mete dentro del texto
+ * (`<parameter name="text">…</parameter>`): no son parte del mensaje.
+ */
+const PARAMETER_TAG = /<\/?parameter(?:\s+name="[^"]*")?\s*>/g;
+
+export function cleanToolText(value: string): string {
+  return value.replace(PARAMETER_TAG, '').trim();
+}
+
+function refsFrom(value: unknown): string[] {
+  return [...new Set(list(value).filter((r): r is string => typeof r === 'string').map((r) => r.trim()))];
+}
+
+/**
+ * Un texto con sus citas. La forma nueva es plana (el texto y, aparte, `refs`); la de
+ * antes, un objeto `{text, fact_refs}` — las preparaciones guardadas siguen leyéndose.
+ */
+function withRefs(value: unknown, refs?: unknown): PackTextWithRefs {
+  if (typeof value === 'string') return { text: cleanToolText(value), factRefs: refsFrom(refs) };
   const record = (value ?? {}) as Record<string, unknown>;
-  const refs = list(record.fact_refs);
-  return {
-    text: str(record.text),
-    factRefs: [...new Set(refs.filter((r): r is string => typeof r === 'string').map((r) => r.trim()))],
-  };
+  return { text: cleanToolText(str(record.text)), factRefs: refsFrom(record.fact_refs ?? refs) };
 }
 
 /**
@@ -125,9 +139,10 @@ export function parsePackSubmission(raw: Record<string, unknown>): FirstCallPack
     meetingAsk: str(raw.meeting_ask),
     ifNo: str(raw.if_no),
     confirmation: str(raw.confirmation),
-    reasonToCall: withRefs(raw.reason_to_call),
+    // `fact_refs` suelto arriba: lo que dejó la entrega rota de Davivienda (19-10).
+    reasonToCall: withRefs(raw.reason_to_call, raw.reason_to_call_refs ?? raw.fact_refs),
     angle: str(raw.angle),
-    callScript: withRefs(raw.call_script),
+    callScript: withRefs(raw.call_script, raw.call_script_refs),
     shortMessage: withRefs(raw.short_message),
     questions: strList(raw.questions, MAX_QUESTIONS),
     objections,
@@ -148,10 +163,10 @@ function variantsFrom(value: unknown, exclude: FirstContactApproach | null | und
   for (const item of list(value)) {
     const record = (item ?? {}) as Record<string, unknown>;
     const approach = str(record.approach);
-    const text = str(record.text);
+    const text = cleanToolText(str(record.text));
     if (!isApproach(approach) || !text || approach === exclude || seen.has(approach)) continue;
     seen.add(approach);
-    const voicemail = str(record.voicemail);
+    const voicemail = cleanToolText(str(record.voicemail));
     out.push({ approach, text, factRefs: withRefs(record).factRefs, ...(voicemail ? { voicemail } : {}) });
   }
   return out;

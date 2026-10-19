@@ -48,15 +48,13 @@ export const MAX_QUESTIONS = 5;
 export const MAX_OBJECTIONS = 4;
 export const MAX_CAUTIONS = 5;
 
-const textWithRefs = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['text', 'fact_refs'],
-  properties: {
-    text: { type: 'string' },
-    fact_refs: { type: 'array', items: { type: 'string' }, description: 'IDs de los hechos usados (F1…).' },
-  },
-} as const;
+/**
+ * Las citas de un texto van en un campo APARTE, plano (Prod 19-10, Davivienda): con
+ * `reason_to_call` como objeto `{text, fact_refs}`, Haiku escribía
+ * `"reason_to_call":"<parameter name="text">…` (otro formato de herramientas), la
+ * entrega se cerraba ahí y se perdían el guion, los mensajes y lo demás.
+ */
+const factRefs = { type: 'array', items: { type: 'string' }, description: 'IDs de los hechos usados (F1…).' } as const;
 
 const CHANNEL_FORMAT: Readonly<Record<FirstCallChannel, string>> = {
   call: 'el mensaje de voz para dejar si no contesta: menos de 30 segundos, sólo contexto, remite al correo y NO pide que devuelva la llamada; es OTRO texto, nunca el guion copiado',
@@ -129,9 +127,11 @@ export function buildWriterSubmitTool(
     'approach',
     'approach_reason',
     'reason_to_call',
+    'reason_to_call_refs',
     'angle',
     'product_key',
     'call_script',
+    'call_script_refs',
     ...(withCallVariants ? ['call_script_variants'] : []),
     'messages',
     'meeting_ask',
@@ -145,7 +145,7 @@ export function buildWriterSubmitTool(
   return {
     name: WRITER_SUBMIT_TOOL,
     description:
-      'Entrega la preparación del primer contacto con este decisor. Llámalo UNA vez, al final, con TODOS los campos: cada lista como lista JSON (no como texto) y un mensaje por canal pedido.',
+      'Entrega la preparación del primer contacto con este decisor. Llámalo UNA vez, al final, con TODOS los campos: cada texto como texto JSON simple (nunca etiquetas como <parameter>), cada lista como lista JSON (no como texto) y un mensaje por canal pedido.',
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -157,18 +157,20 @@ export function buildWriterSubmitTool(
           description: 'El enfoque de la versión principal.',
         },
         approach_reason: { type: 'string', description: 'Por qué ese enfoque para este decisor, en una frase.' },
-        reason_to_call: { ...textWithRefs, description: 'La razón concreta para contactarlo HOY, en una frase, basada en un hecho.' },
+        reason_to_call: { type: 'string', description: 'La razón concreta para contactarlo HOY, en una frase, basada en un hecho. Texto plano.' },
+        reason_to_call_refs: { ...factRefs, description: 'IDs de los hechos en los que se basa reason_to_call (F1…).' },
         angle: { type: 'string', description: 'Qué conversación abrir con este cargo y por qué, en una frase.' },
         product_key: {
           anyOf: [{ type: 'string', enum: productKeys }, { type: 'null' }],
           description: 'El producto de UBITS que usas para este decisor (uno de los pedidos si los hay).',
         },
         call_script: {
-          ...textWithRefs,
+          type: 'string',
           description: wantsCall
-            ? `Guion de llamada de ${CALL_SCRIPT_MIN_WORDS} a ${CALL_SCRIPT_MAX_WORDS} palabras con el enfoque principal.`
-            : 'No se pidió llamada: deja text vacío y fact_refs vacío.',
+            ? `Guion de llamada de ${CALL_SCRIPT_MIN_WORDS} a ${CALL_SCRIPT_MAX_WORDS} palabras con el enfoque principal. Texto plano.`
+            : 'No se pidió llamada: déjalo vacío ("").',
         },
+        call_script_refs: { ...factRefs, description: wantsCall ? 'IDs de los hechos usados en el guion.' : 'No se pidió llamada: lista vacía.' },
         ...(withCallVariants
           ? {
               call_script_variants: {

@@ -146,6 +146,13 @@ export function AccountDetailSheet({
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
   const [tab, setTab] = React.useState(normalizeAccountTab(initialTab) ?? 'resumen');
+  // Otra empresa en el mismo panel abierto (p. ej. terminó la preparación de otra): empieza
+  // en la pestaña pedida, no en la que tenía la anterior (ajuste durante el render).
+  const [shownAccountId, setShownAccountId] = React.useState(accountId);
+  if (accountId !== shownAccountId) {
+    setShownAccountId(accountId);
+    setTab(normalizeAccountTab(initialTab) ?? 'resumen');
+  }
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
@@ -213,7 +220,11 @@ export function AccountDetailSheet({
   React.useEffect(() => {
     const onSettled = (event: Event) => {
       const settledId = (event as CustomEvent<{ accountId: string }>).detail?.accountId;
-      if (open && accountId && settledId === accountId) void loadData(accountId);
+      if (open && accountId && settledId === accountId) {
+        void loadData(accountId);
+        // Terminó la de esta empresa: se ve el resultado (dueña 19-10).
+        setTab(FIRST_CALL_TAB_ID);
+      }
     };
     window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
     return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);

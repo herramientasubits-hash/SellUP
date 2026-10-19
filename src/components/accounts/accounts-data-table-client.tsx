@@ -66,6 +66,7 @@ import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
+import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -228,6 +229,19 @@ export function AccountsDataTableClient({
     setDetailAccountId(id);
     setDetailOpen(true);
   }, []);
+
+  // Una preparación de Rumbo terminó (aunque se haya abierto desde el Centro de
+  // procesos): en Empresas el resultado se ve en la ficha, en «Primer contacto».
+  React.useEffect(() => {
+    const onViewResult = (event: Event) => {
+      const accountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+      if (!accountId) return;
+      event.preventDefault();
+      openDetail(accountId, FIRST_CALL_TAB_ID);
+    };
+    window.addEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, onViewResult);
+    return () => window.removeEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, onViewResult);
+  }, [openDetail]);
 
 
   // Los responsables que aparecen en la lista, para el embudo de la columna
