@@ -213,7 +213,16 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
     ifNo: text(pack['ifNo']) ?? undefined,
     confirmation: text(pack['confirmation']) ?? undefined,
     contactInsight: contactInsightFrom(pack['contactInsight']),
+    contactResearch: contactResearchFrom(pack['contactResearch']),
   };
+}
+
+/** Lo investigado del decisor guardado con la preparación (o `undefined`). */
+function contactResearchFrom(value: unknown): FirstCallPackContent['contactResearch'] {
+  const record = asRecord(value);
+  const researchedAt = text(record?.['researchedAt']);
+  if (!record || !researchedAt || Number.isNaN(Date.parse(researchedAt))) return undefined;
+  return { facts: factsFrom(record['facts']), researchedAt };
 }
 
 function approachFrom(value: unknown): FirstContactApproach | null {

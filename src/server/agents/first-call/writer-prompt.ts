@@ -9,6 +9,8 @@
  * paga sólo la parte nueva (la ficha y el decisor).
  */
 
+import { renderCountryStyle } from './country-style';
+import { renderTrainingContext } from './country-training-context';
 import {
   RESEARCH_TOPIC_LABELS,
   FIRST_CALL_CHANNEL_LABELS,
@@ -244,11 +246,14 @@ export function buildWriterSystemPrompt(): string {
     '- Es el primer contacto: no digas «llamé», «como le comenté» ni des por hecho una conversación anterior. Sólo el mensaje de voz puede remitir al correo.',
     '- reason_to_call: una razón CONCRETA y verificable, basada en un hecho de la ficha (mejor una señal de los últimos 90 días o un dato de talento). Dar el motivo duplica las llamadas exitosas.',
     '- Enfoques: escribe la versión principal con el enfoque indicado y una versión por cada enfoque extra pedido. Cada enfoque tiene su regla (ver «Enfoques pedidos»). Cada versión es completa y se puede usar sola: en la llamada, el guion entero y el mensaje si no contesta, no sólo la apertura.',
-    `- call_script (sólo si piden llamada): entre ${CALL_SCRIPT_MIN_WORDS} y ${CALL_SCRIPT_MAX_WORDS} palabras. Orden: (1) nombre y empresa; (2) reconoce que la llamada es inesperada y pide permiso para 30 segundos («¿me regala 30 segundos y usted decide si seguimos?»); (3) el motivo de hoy y el problema, sin vender la plataforma; (4) UNA pregunta abierta; (5) si hay interés, pedir la reunión con dos horarios y callar.`,
+    `- call_script (sólo si piden llamada): entre ${CALL_SCRIPT_MIN_WORDS} y ${CALL_SCRIPT_MAX_WORDS} palabras. Orden: (1) nombre y empresa; (2) reconoce que la llamada es inesperada y pide permiso para 30 segundos con la frase del país (ver «Estilo para…»: en Colombia «¿me regala 30 segundos…?», en México «¿me permite 30 segundos…?»); (3) el motivo de hoy y el problema, sin vender la plataforma; (4) UNA pregunta abierta; (5) si hay interés, pedir la reunión con dos horarios y callar.`,
     '- Nunca abras con «¿cómo ha estado?» (falsa confianza con alguien que no lo conoce), «¿lo agarro en mal momento?», «¿tiene un minuto?» ni «¿tiene 15 minutos?» antes de dar el motivo.',
     `- messages: uno por canal pedido, todos con el mismo ángulo. Formatos: ${(Object.keys(CHANNEL_FORMAT) as FirstCallChannel[]).map((c) => `${FIRST_CALL_CHANNEL_LABELS[c]}: ${CHANNEL_FORMAT[c]}`).join('; ')}.`,
     '- Por escrito, el primer mensaje pide INTERÉS («¿Le sirve que le comparta…?»), no día y hora: en frío, pedir horario agenda la mitad. El horario va en meeting_ask, para cuando haya interés.',
     '- Un solo pedido por mensaje. Nada de plantillas traducidas («espero que este correo lo encuentre bien», «pregunta rápida»), jerga en inglés para RR. HH. («ROI», «pipeline») ni superlativos («revolucionaria», «número uno»).',
+    '- Que suene a persona y no a plantilla ni a IA (dueña 19-10): un hecho concreto de la empresa en la primera o segunda frase, frases de 8 a 18 palabras, sin tripletes de adjetivos («innovadora, integral y personalizada»), sin rayas (—) encadenadas y sin elogios genéricos. Nada de «me encantaría», «sinergias», «solución integral», «llevar al siguiente nivel», «no dude en contactarme», «llamada rápida» ni «¿sabía usted que…?».',
+    '- Ortografía del español: abre siempre las preguntas y exclamaciones («¿…?», «¡…!»), coma antes del nombre («Hola, Andrea») y, en el correo, dos puntos tras el saludo («Estimada Andrea:»). El asunto, en minúscula salvo la primera palabra y los nombres.',
+    '- Cada país tiene su forma (ver «Estilo para…» en el mensaje): qué tan directo, cuánta cortesía antes del motivo, los títulos y las palabras que allí suenan a otro país. Respétala en TODAS las versiones.',
     '- Si el país es Perú, la apertura de la llamada SÓLO pide permiso para contarle de UBITS; no ofrece nada hasta que diga que sí (ley de datos de Perú).',
     '- Si hay varios objetivos, encadénalos en ese orden: el mensaje y next_step piden el primero y, si no se da, pasan al siguiente; si se pide «Saber quién decide», cierra preguntando quién lleva la formación y el talento.',
     '- El ángulo depende del cargo del decisor: a cada cargo háblale de lo que le importa (ver «Enfoque para este cargo»). A un CEO o CHRO, ofrécele un dato o una comparación con su sector, no una reunión.',
@@ -320,6 +325,8 @@ export function buildWriterUserMessage(input: WriterInput): string {
   return [
     `Empresa: ${input.companyName}`,
     `País: ${input.countryName ?? 'desconocido'} · Tratamiento: ${input.addressForm} (primer contacto)`,
+    renderCountryStyle(input.countryCode, input.countryName),
+    renderTrainingContext(input.countryCode, input.countryName),
     `Vendedor: ${input.sellerName ?? '[tu nombre]'}, de UBITS`,
     `Decisor: ${input.decisionMaker.name ?? '[nombre]'}${input.decisionMaker.title ? `, ${input.decisionMaker.title}` : ''}`,
     `Enfoque para este cargo: ${input.decisionMaker.roleFocus}`,

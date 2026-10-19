@@ -610,3 +610,141 @@ describe('runFirstCall — intento simple cuando un canal queda sin mensaje (Dav
     assert.match(preview, /reason_to_call/);
   });
 });
+
+describe('runFirstCall — lo investigado del decisor se reutiliza (dueña 19-10)', () => {
+  const CACHED = {
+    facts: [
+      {
+        topic: 'decision_maker' as const,
+        statement: 'Asumió la gerencia de talento en agosto.',
+        quote: 'María Pérez asumió la gerencia de talento',
+        sourceKind: 'news' as const,
+        sourceUrl: 'https://diario.example/maria',
+        sourceLabel: 'Web · diario.example',
+        publishedOn: '2026-08-02',
+        category: 'new_in_role' as const,
+      },
+    ],
+    insight: { hook: 'Llegó hace poco al cargo.', priorities: [], unknowns: [], leadsTraining: 'yes' as const },
+    researchedAt: '2026-10-08T10:00:00.000Z',
+  };
+
+  it('con algo reciente de la persona no la vuelve a buscar y el redactor lo recibe', async () => {
+    const { deps, calls } = harness();
+    const asked: string[] = [];
+    deps.readCachedContactResearch = async (accountId, contactId, sinceIso) => {
+      asked.push(`${accountId}:${contactId}:${sinceIso.slice(0, 10)}`);
+      return CACHED;
+    };
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    assert.deepEqual(asked, [`${ACCOUNT_ID}:c1:2026-10-02`], 'mira los últimos 14 días');
+    assert.equal(calls.news.some((q) => q.includes('"María Pérez"')), false, 'no gasta en buscar a la persona');
+    assert.equal(calls.logs.some((l) => l.agentStep === 'contacto_busqueda' || l.agentStep === 'investigar_contacto'), false);
+    const writerMessage = calls.conversations.at(-1)!.messages[0].content as string;
+    assert.match(writerMessage, /asumió la gerencia de talento/);
+    assert.deepEqual((calls.packs[0].content as { contactInsight?: unknown }).contactInsight, CACHED.insight);
+    // Se vuelve a guardar con la fecha ORIGINAL: los 14 días no se renuevan solos.
+    assert.equal((calls.packs[0].content as { contactResearch?: { researchedAt: string } }).contactResearch?.researchedAt, CACHED.researchedAt);
+  });
+
+  it('lo que se investiga hoy se guarda aparte, con su fecha, para reutilizarlo', async () => {
+    const { deps, calls } = harness();
+    deps.searchNews = async (input) =>
+      input.query.includes('"María Pérez"')
+        ? {
+            results: [{ url: 'https://diario.example/maria', title: 'Nombramiento', content: 'Distribuidora Andina nombró a María Pérez gerente de talento en agosto de 2026.', publishedOn: '2026-08-02' }],
+            credits: 1,
+            skipped: false,
+            error: null,
+          }
+        : { results: [], credits: 1, skipped: false, error: null };
+    const base = deps.runConversation;
+    deps.runConversation = async (body, key) => {
+      const tool = (body.tools as Array<{ name?: string }>).find((t) => t.name === 'submit_contact_findings');
+      if (!tool) return base(body, key);
+      return {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'submit_contact_findings',
+            input: {
+              facts: [{ category: 'new_in_role', doc_id: 'D1', source_url: null, quote: 'Distribuidora Andina nombró a María Pérez gerente de talento', statement: 'Es gerente de talento desde agosto.', published_on: '2026-08-02' }],
+              leads_training: 'yes',
+              best_hook: 'Llegó hace poco.',
+              likely_priorities: [],
+              unknowns: [],
+            },
+          } as never,
+        ],
+        stopReason: 'tool_use',
+        usage: usage(),
+        requests: 1,
+      };
+    };
+    await runFirstCall(REQUEST, deps);
+    const saved = (calls.packs[0].content as { contactResearch?: { facts: unknown[]; researchedAt: string } }).contactResearch;
+    assert.equal(saved?.facts.length, 1);
+    assert.equal(saved?.researchedAt, new Date(NOW).toISOString());
+  });
+
+  it('«Investigar de nuevo» la vuelve a buscar aunque haya algo guardado', async () => {
+    const { deps, calls } = harness();
+    let read = 0;
+    deps.readCachedContactResearch = async () => {
+      read += 1;
+      return CACHED;
+    };
+    await runFirstCall({ ...REQUEST, refreshResearch: true }, deps);
+    assert.equal(read, 0);
+    assert.ok(calls.news.some((q) => q.includes('"María Pérez"')));
+  });
+
+  it('si leer lo guardado falla, investiga como siempre', async () => {
+    const { deps, calls } = harness();
+    deps.readCachedContactResearch = async () => {
+      throw new Error('db down');
+    };
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    assert.ok(calls.news.some((q) => q.includes('"María Pérez"')));
+  });
+});
+
+describe('runFirstCall — búsqueda ampliada por país, industria y fuentes propias (dueña 19-10)', () => {
+  it('busca en las fuentes elegidas, registra cada búsqueda aparte con sus sitios y junta los resultados sin repetir', async () => {
+    const { deps, calls } = harness();
+    const inputs: Array<{ query: string; includeDomains?: readonly string[] }> = [];
+    const base = deps.searchNews;
+    deps.extendedResearch = true;
+    deps.searchNews = async (input) => {
+      inputs.push(input);
+      if (input.includeDomains?.includes('linkedin.com')) {
+        return {
+          results: [{ url: 'https://www.linkedin.com/company/andina/', title: 'Distribuidora Andina', content: 'Distribuidora Andina abrió su academia de líderes de tienda para 300 supervisores.', publishedOn: null }],
+          credits: 1,
+          skipped: false,
+          error: null,
+        };
+      }
+      if (input.includeDomains?.includes('larepublica.co')) {
+        // La misma nota que trae la búsqueda de noticias: entra una vez.
+        return base({ ...input, topic: 'news' });
+      }
+      return base(input);
+    };
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const companySteps = calls.logs.filter((l) => l.providerKey === 'tavily' && l.agentStep !== 'contacto_busqueda').map((l) => l.agentStep);
+    assert.deepEqual(companySteps.sort(), ['linkedin', 'medios_talento', 'noticias', 'prensa', 'sitio_propio', 'talento']);
+    const press = calls.logs.find((l) => l.agentStep === 'prensa')!;
+    assert.equal(press.operationKey, 'account_research_press');
+    assert.deepEqual(press.metadata.hosts, ['diario.example']);
+    assert.ok((press.metadata.include_domains as number) > 0);
+    assert.ok(inputs.some((i) => i.includeDomains?.length === 1 && i.includeDomains[0] === 'andina.example'), 'busca en su propio sitio');
+    const message = calls.conversations[0].messages[0].content as string;
+    assert.equal(message.split('https://diario.example/andina').length - 1, 1, 'la nota repetida va una sola vez');
+    assert.match(message, /LinkedIn · fragmento del buscador/);
+  });
+});
