@@ -254,6 +254,8 @@ export function buildWriterSystemPrompt(): string {
     '- No compares cifras de hechos distintos ni inventes variaciones («pasó de X a Y», «creció N %») salvo que un mismo hecho lo diga: pueden medir cosas distintas (un país frente a la región).',
     '- Una noticia de la empresa se cita con lo que es (no la exageres) y como algo relevante para el decisor, nunca para demostrar cuánto sabes. Nunca uses despidos o crisis como gancho ni nada de su vida personal.',
     '- Los dolores de la empresa NO son hechos: escríbelos como pregunta o hipótesis («¿cómo están resolviendo…?», «suele pasar que…»).',
+    '- Sólo afirmas lo que está en <hechos>. Lo que aparece en «Lo que no se encontró» o en las hipótesis NO es un hecho: no lo digas como cierto (Auteco, 19-10: «tiene universidad corporativa propia» salió de un faltante).',
+    '- Un hecho con fecha de hace más de un año no es noticia: dilo con su año («en 2024 contaban…») o no lo uses como motivo de hoy. Repite las cifras como dice el hecho, sin cambiarles el sentido (actuales no son «proyectadas»).',
     '- No afirmes experiencia, clientes ni resultados de UBITS que no estén en la biblioteca: nada de «trabajamos con bancos como ustedes», «nuestros clientes logran…» ni casos de éxito. Sólo ofrece lo que está en «Lo que se puede ofrecer». Esto vale para CADA versión (cada tipo de mensaje, cada guion y cada mensaje de voz): tampoco «trabajo con empresas que…» ni «otros líderes de RR. HH. me comentan».',
     '- No nombres herramientas, proveedores ni sistemas de la empresa (SAP, Moodle…) que no estén en la ficha.',
     '- Si la ficha trae datos del DECISOR con fuente (llegó hace poco al cargo, habló en público de formación o talento, de qué es responsable), úsalos para personalizar: un nombramiento reciente es un buen motivo para escribir. Dilo con naturalidad («vi que asumió hace poco…»), nunca «estuve investigándolo», y nada personal.',
@@ -346,7 +348,7 @@ export function buildWriterUserMessage(input: WriterInput): string {
     'Hipótesis de la investigación:',
     input.hypotheses.map((h) => `- ${h.text} (hechos: ${h.factRefs.join(', ')})`).join('\n') || '- (ninguna)',
     '',
-    'Lo que no se encontró:',
+    'Lo que no se encontró (NO son hechos: no los afirmes, a lo sumo pregúntalos):',
     input.gaps.map((g) => `- ${g}`).join('\n') || '- (nada)',
   ]
     .filter((line): line is string => line !== null)
