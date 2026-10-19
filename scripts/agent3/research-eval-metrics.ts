@@ -34,6 +34,20 @@ export interface ResearchMetrics {
   versionsByChannel: Partial<Record<FirstCallChannel, number>>;
   costUsd: number;
   tavilyCredits: number;
+  /** Preparaciones listas («draft») y «para revisar», y por qué quedaron para revisar. */
+  packsReady: number;
+  packsNeedsReview: number;
+  issueKinds: Record<string, number>;
+}
+
+/** El motivo de un aviso del verificador, agrupado (para comparar el redactor). */
+export function issueKind(issue: string): string {
+  if (/experiencia, clientes o casos/.test(issue)) return 'afirma_clientes';
+  if (/cifras/.test(issue)) return 'cifras_sin_fuente';
+  if (/pasa de \d+ caracteres|es muy largo|es largo/.test(issue)) return 'largo';
+  if (/^Falta|Hacen falta/.test(issue)) return 'faltan_partes';
+  if (/Tutea|suenan a otro|signo de apertura|frases que no conviene/.test(issue)) return 'estilo';
+  return 'otro';
 }
 
 export interface EvalCompanyResult {
@@ -128,6 +142,15 @@ export function computeResearchMetrics(input: {
     channelsFailed,
     fallbackChannels,
     versionsByChannel,
+    packsReady: input.packs.filter((p) => p.status === 'draft').length,
+    packsNeedsReview: input.packs.filter((p) => p.status === 'needs_review').length,
+    issueKinds: input.packs
+      .flatMap((p) => p.verifierIssues ?? [])
+      .reduce<Record<string, number>>((acc, issue) => {
+        const kind = issueKind(issue);
+        acc[kind] = (acc[kind] ?? 0) + 1;
+        return acc;
+      }, {}),
     costUsd: Math.round(input.logs.reduce((sum, l) => sum + (l.costUsd ?? 0), 0) * 10_000) / 10_000,
     tavilyCredits: input.logs.filter((l) => l.providerKey === 'tavily').reduce((sum, l) => sum + (l.credits ?? 0), 0),
   };
@@ -168,6 +191,13 @@ export function compareRuns(a: EvalRun, b: EvalRun | null): string {
       faltantes: ms.reduce((s, m) => s + m.gaps, 0),
       decisorConDatos: ms.filter((m) => m.contactFacts > 0).length,
       canalesFallidos: ms.reduce((s, m) => s + m.channelsFailed.length, 0),
+      listas_para_usar: ms.reduce((s, m) => s + (m.packsReady ?? 0), 0),
+      para_revisar: ms.reduce((s, m) => s + (m.packsNeedsReview ?? 0), 0),
+      aviso_afirma_clientes: ms.reduce((s, m) => s + (m.issueKinds?.afirma_clientes ?? 0), 0),
+      aviso_cifras: ms.reduce((s, m) => s + (m.issueKinds?.cifras_sin_fuente ?? 0), 0),
+      aviso_largo: ms.reduce((s, m) => s + (m.issueKinds?.largo ?? 0), 0),
+      aviso_faltan_partes: ms.reduce((s, m) => s + (m.issueKinds?.faltan_partes ?? 0), 0),
+      aviso_estilo: ms.reduce((s, m) => s + (m.issueKinds?.estilo ?? 0), 0),
       costo: Math.round(ms.reduce((s, m) => s + m.costUsd, 0) * 1000) / 1000,
       creditos: ms.reduce((s, m) => s + m.tavilyCredits, 0),
     };

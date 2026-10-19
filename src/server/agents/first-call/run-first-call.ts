@@ -80,7 +80,7 @@ import {
   type ResearchSource,
 } from './types';
 import { addressFormFor, roleFocusFor } from './ubits-messaging-library';
-import { WRITER_MAX_OUTPUT_TOKENS, WRITER_SUBMIT_TOOL, buildWriterSubmitTool, buildWriterSystemPrompt, buildWriterUserMessage } from './writer-prompt';
+import { MIN_QUESTIONS, WRITER_MAX_OUTPUT_TOKENS, WRITER_SUBMIT_TOOL, buildWriterSubmitTool, buildWriterSystemPrompt, buildWriterUserMessage } from './writer-prompt';
 
 /** Tavily cobra 1 crédito por búsqueda básica (la que usa el agente). */
 export const TAVILY_BASIC_SEARCH_CREDITS = 1;
@@ -818,7 +818,54 @@ async function writeEachChannel(
       };
     }),
   );
-  return Object.fromEntries(channels.map((channel, i) => [channel, retried[i]])) as Partial<Record<FirstCallChannel, WrittenForTarget>>;
+  const completed = completeSharedParts(retried, channels, params);
+  return Object.fromEntries(channels.map((channel, i) => [channel, completed[i]])) as Partial<Record<FirstCallChannel, WrittenForTarget>>;
+}
+
+/** Lo común de la preparación de un decisor: igual para todos sus canales. */
+const SHARED_PARTS = ['questions', 'objections', 'nextStep', 'meetingAsk', 'ifNo', 'confirmation', 'cautions'] as const;
+
+function missingSharedParts(shared: FirstCallPackContent): boolean {
+  return (
+    shared.questions.length < MIN_QUESTIONS ||
+    shared.objections.length === 0 ||
+    !shared.nextStep ||
+    !shared.meetingAsk ||
+    !shared.ifNo ||
+    !shared.confirmation
+  );
+}
+
+/**
+ * Davivienda en Prod (19-10): el LinkedIn de un decisor salió del intento simple con el
+ * mensaje pero sin preguntas, objeciones ni cierre, aunque sus otros canales sí los traían.
+ * Lo común se completa con lo de otro canal del MISMO decisor y se vuelve a verificar.
+ */
+function completeSharedParts(
+  written: WrittenForTarget[],
+  channels: readonly FirstCallChannel[],
+  params: Parameters<typeof writeForTarget>[0],
+): WrittenForTarget[] {
+  const donor = written.find((w) => w.submission && !missingSharedParts(w.submission.shared))?.submission?.shared;
+  if (!donor) return written;
+  return written.map((w, i) => {
+    if (!w.submission || !missingSharedParts(w.submission.shared)) return w;
+    const shared = { ...w.submission.shared };
+    for (const part of SHARED_PARTS) {
+      const value = shared[part];
+      const empty = Array.isArray(value) ? value.length === 0 || (part === 'questions' && value.length < MIN_QUESTIONS) : !value;
+      if (empty) (shared as Record<string, unknown>)[part] = donor[part];
+    }
+    const submission = { ...w.submission, shared };
+    const channel = channels[i];
+    const issues = verifyPack(contentForChannel(submission, channel), w.facts, channel, {
+      decisionMakerName: params.target?.name ?? null,
+      nowMs: params.deps.now(),
+      countryCode: params.context.internal.account.countryCode,
+      companyName: params.context.internal.account.name,
+    });
+    return { ...w, submission, issuesByChannel: { ...w.issuesByChannel, [channel]: issues } };
+  });
 }
 
 /** ¿Hay algo usable para ese canal? (La llamada vale con el guion aunque falte el mensaje de voz.) */

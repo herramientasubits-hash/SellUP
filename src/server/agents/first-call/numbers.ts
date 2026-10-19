@@ -27,6 +27,9 @@ const GENERIC_NUMBERS = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9
  */
 const AGENDA_UNIT = /^\s?(minutos?|min\b|horas?|d[ií]as|semanas|de la (mañana|tarde|noche)|a\.?\s?m\.?|p\.?\s?m\.?|hrs?\b|h\b)/i;
 
+const WEEKDAY_BEFORE = /(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+$/i;
+const MONTH_AFTER = /^\s?de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/i;
+
 export function extractNumbers(text: string): NumberToken[] {
   const tokens: NumberToken[] = [];
   const re = /\d[\d.,]*\d|\d/g;
@@ -34,10 +37,16 @@ export function extractNumbers(text: string): NumberToken[] {
   while ((match = re.exec(text)) !== null) {
     const raw = match[0];
     const after = text.slice(match.index + raw.length, match.index + raw.length + 16);
+    const before = text.slice(Math.max(0, match.index - 14), match.index);
     tokens.push({
       digits: raw.replace(/[.,]/g, ''),
       isPercent: /^\s?(%|por ciento)/i.test(after),
-      isAgenda: AGENDA_UNIT.test(after) || /^\s?a\s\d+\s?(minutos?|d[ií]as|semanas)/i.test(after),
+      isAgenda:
+        AGENDA_UNIT.test(after) ||
+        /^\s?a\s\d+\s?(minutos?|d[ií]as|semanas)/i.test(after) ||
+        // Una fecha para la reunión («el jueves 17», «20 de enero») no es un dato de la empresa.
+        WEEKDAY_BEFORE.test(before) ||
+        MONTH_AFTER.test(after),
       raw,
     });
   }

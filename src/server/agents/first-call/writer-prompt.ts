@@ -22,7 +22,7 @@ import {
   type ResearchHypothesis,
 } from './types';
 import { UBITS_OBJECTIONS, UBITS_PRODUCTS, renderLibraryForPrompt } from './ubits-messaging-library';
-import { APPROACH_DEFINITIONS, FIRST_CONTACT_APPROACHES, type FirstContactApproach } from './approaches';
+import { APPROACH_DEFINITIONS, FIRST_CONTACT_APPROACHES, isApproachAvailable, type FirstContactApproach } from './approaches';
 import type { ContactInsight } from './types';
 
 export const WRITER_SUBMIT_TOOL = 'submit_first_call_pack';
@@ -59,11 +59,11 @@ export const MAX_CAUTIONS = 5;
 const factRefs = { type: 'array', items: { type: 'string' }, description: 'IDs de los hechos usados (F1…).' } as const;
 
 const CHANNEL_FORMAT: Readonly<Record<FirstCallChannel, string>> = {
-  call: 'el mensaje de voz para dejar si no contesta: menos de 30 segundos, sólo contexto, remite al correo y NO pide que devuelva la llamada; es OTRO texto, nunca el guion copiado',
+  call: 'el mensaje de voz para dejar si no contesta: menos de 30 segundos (como máximo 55 palabras), sólo contexto, remite al correo y NO pide que devuelva la llamada; es OTRO texto, nunca el guion copiado',
   whatsapp:
-    'sólo si ya hubo contacto: 2 a 4 líneas; si es el primer contacto, SÓLO pide permiso para escribir por ahí («¿Le puedo escribir por aquí?»), sin ofrecer nada; nunca enlaces ni adjuntos',
+    'sólo si ya hubo contacto: 2 a 4 líneas (como máximo 40 palabras); si es el primer contacto, SÓLO pide permiso para escribir por ahí («¿Le puedo escribir por aquí?»), sin ofrecer nada; nunca enlaces ni adjuntos',
   email: `primera línea «Asunto: …» de 1 a ${EMAIL_SUBJECT_MAX_WORDS} palabras; cuerpo de 50 a ${EMAIL_BODY_MAX_WORDS} palabras, frases cortas, un solo pedido de INTERÉS («¿Le sirve que…?»), sin enlace de calendario ni enlaces`,
-  linkedin: `nota de conexión de menos de ${SHORT_MESSAGE_MAX_CHARS.linkedin} caracteres con el motivo, SIN vender ni pedir reunión`,
+  linkedin: `nota de conexión de menos de ${SHORT_MESSAGE_MAX_CHARS.linkedin} caracteres (como máximo 40 palabras) con el motivo, SIN vender ni pedir reunión`,
 };
 
 const approachVariant = {
@@ -264,6 +264,9 @@ export function buildWriterSystemPrompt(): string {
     '- Sólo afirmas lo que está en <hechos>. Lo que aparece en «Lo que no se encontró» o en las hipótesis NO es un hecho: no lo digas como cierto (Auteco, 19-10: «tiene universidad corporativa propia» salió de un faltante).',
     '- Un hecho con fecha de hace más de un año no es noticia: dilo con su año («en 2024 contaban…») o no lo uses como motivo de hoy. Repite las cifras como dice el hecho, sin cambiarles el sentido (actuales no son «proyectadas»).',
     '- No afirmes experiencia, clientes ni resultados de UBITS que no estén en la biblioteca: nada de «trabajamos con bancos como ustedes», «nuestros clientes logran…» ni casos de éxito. Sólo ofrece lo que está en «Lo que se puede ofrecer». Esto vale para CADA versión (cada tipo de mensaje, cada guion y cada mensaje de voz): tampoco «trabajo con empresas que…» ni «otros líderes de RR. HH. me comentan».',
+    '- Cómo hablar del sector SIN inventar clientes (Davivienda en Prod, 19-10: lo más marcado). Prohibido (con bancos, empresas, compañías o equipos de cualquier sector): «otros bancos de la región lo han resuelto», «otras empresas lo resolvieron en 20 minutos», «otras empresas lo están resolviendo», «muchas empresas como ustedes nos usan», «muchas empresas con plataforma propia usan…», «trabajo con equipos de talento en…», «ayudamos a bancos…», «casos de otros bancos que pasaron por lo mismo». Las respuestas a objeciones de la biblioteca se adaptan SIN agregar clientes. Permitido: el patrón del proceso como algo que suele pasar («en integraciones así suele pasar que…», «en procesos así lo que más cuesta es…»), una cifra de la biblioteca con su fuente, y la oferta tal como está escrita («una demo con casos de su sector»).',
+    '- Cifras: repite cada cifra EXACTA como dice el hecho (653, nunca «650» ni «más de 600») y no compares dos cifras («pasó de 509 a 653») salvo que un mismo hecho lo diga.',
+    '- Horarios: en meeting_ask y confirmation propón día de la semana y hora SIN número de día ni mes («el martes a las 10 o el jueves a las 3»); la fecha exacta la pone el vendedor.',
     '- No nombres herramientas, proveedores ni sistemas de la empresa (SAP, Moodle…) que no estén en la ficha.',
     '- Si la ficha trae datos del DECISOR con fuente (llegó hace poco al cargo, habló en público de formación o talento, de qué es responsable), úsalos para personalizar: un nombramiento reciente es un buen motivo para escribir. Dilo con naturalidad («vi que asumió hace poco…»), nunca «estuve investigándolo», y nada personal.',
     '- Si los datos del decisor muestran que no lleva la formación, el objetivo pasa a pedirle a quién dirigirse.',
@@ -279,7 +282,11 @@ export function buildWriterSystemPrompt(): string {
     `- Termina SIEMPRE llamando a ${WRITER_SUBMIT_TOOL}, una sola vez.`,
     '',
     '# Enfoques disponibles',
-    FIRST_CONTACT_APPROACHES.map((a) => `- ${a} | ${APPROACH_DEFINITIONS[a].label}: ${APPROACH_DEFINITIONS[a].rule}`).join('\n'),
+    // Sólo los disponibles: la regla de «Pares del sector» («cuenta qué hicieron empresas
+    // parecidas») invitaba a inventar clientes aunque el enfoque esté apagado (Prod 19-10).
+    FIRST_CONTACT_APPROACHES.filter((a) => isApproachAvailable(a))
+      .map((a) => `- ${a} | ${APPROACH_DEFINITIONS[a].label}: ${APPROACH_DEFINITIONS[a].rule}`)
+      .join('\n'),
     '',
     renderLibraryForPrompt(),
   ].join('\n');
