@@ -208,9 +208,9 @@ describe('Detalle de empresa — pie', () => {
     const requested: unknown[] = [];
     renderSheet((company) => requested.push(company));
 
-    const primary = await screen.findByRole('button', { name: 'Buscar contactos' });
+    const primary = await screen.findByRole('button', { name: 'Buscar contactos con Rumbo IA' });
     const more = screen.getByRole('button', { name: 'Más acciones de la empresa' });
-    assert.equal(primary.getAttribute('data-variant'), 'default');
+    assert.equal(primary.getAttribute('data-variant'), 'ai');
     assert.ok(
       more.compareDocumentPosition(primary) & window.Node.DOCUMENT_POSITION_FOLLOWING,
       'el menú va antes que la primaria',
@@ -225,7 +225,7 @@ describe('Detalle de empresa — pie', () => {
     renderSheet();
 
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
-    assert.equal(screen.queryByRole('button', { name: 'Buscar contactos' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Buscar contactos con Rumbo IA' }), null);
   });
 });
 
@@ -233,18 +233,18 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
   it('con la bandera apagada no ofrece nada: ni botón ni pestaña con acción', async () => {
     renderSheet();
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
-    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
   });
 
   it('con la bandera encendida ofrece «Preparar primer contacto» en el pie como principal, al final, y «Buscar contactos» como secundaria', async () => {
     firstCallState = { enabled: true, brief: null, packs: [] };
     renderSheet();
 
-    const prepare = await screen.findByRole('button', { name: 'Preparar primer contacto' });
-    const search = screen.getByRole('button', { name: 'Buscar contactos' });
+    const prepare = await screen.findByRole('button', { name: 'Preparar primer contacto con Rumbo IA' });
+    const search = screen.getByRole('button', { name: 'Buscar contactos con Rumbo IA' });
     assert.ok(search.compareDocumentPosition(prepare) & window.Node.DOCUMENT_POSITION_FOLLOWING);
-    assert.equal(prepare.getAttribute('data-variant'), 'default');
-    assert.equal(search.getAttribute('data-variant'), 'outline');
+    assert.equal(prepare.getAttribute('data-variant'), 'ai');
+    assert.equal(search.getAttribute('data-variant'), 'ai-outline');
     const more = screen.getByRole('button', { name: 'Más acciones de la empresa' });
     assert.ok(more.compareDocumentPosition(search) & window.Node.DOCUMENT_POSITION_FOLLOWING);
     // Las tres en el mismo grupo, alineado a la derecha.
@@ -265,8 +265,8 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
     };
     renderSheet();
 
-    assert.ok(await screen.findByRole('button', { name: 'Nueva preparación' }));
-    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
+    assert.ok(await screen.findByRole('button', { name: 'Nueva preparación con Rumbo IA' }));
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
   });
 
   it('una empresa archivada no ofrece preparar el primer contacto', async () => {
@@ -275,7 +275,7 @@ describe('Detalle de empresa — Agente 3 (primera llamada)', () => {
     renderSheet();
 
     await screen.findByRole('region', { name: 'Resumen de la empresa' });
-    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
   });
 });
 

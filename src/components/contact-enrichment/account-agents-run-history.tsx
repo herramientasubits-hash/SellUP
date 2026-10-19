@@ -16,7 +16,7 @@
 
 import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
-import { Bot, Calendar, ChevronDown, ChevronUp, Info, XCircle } from "@/icons";
+import { Calendar, ChevronDown, ChevronUp, Info, XCircle, Rumbo } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -330,7 +330,7 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
       {runs.length === 0 ? (
         <EmptyState
           variant="plain"
-          icon={Bot}
+          icon={Rumbo}
           title="Todavía no hay runs de enriquecimiento para esta cuenta."
         />
       ) : (

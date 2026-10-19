@@ -15,7 +15,7 @@ export interface RailActionSpec {
   label: string
   icon: React.ReactNode
   scope: readonly RailActionScope[]
-  tone?: "default" | "danger"
+  tone?: "default" | "danger" | "ai"
   /** La acción rellena del final. Solo una, y solo con `scope: ["screen"]`. */
   primary?: boolean
   /**
@@ -63,7 +63,7 @@ export interface RailMenuItemSpec {
   id: string
   label: string
   icon: React.ReactNode
-  tone?: "default" | "danger"
+  tone?: "default" | "danger" | "ai"
   blockedReason?: string | null
   onSelect?: () => void
 }

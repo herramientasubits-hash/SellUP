@@ -18,7 +18,8 @@ export interface RowAction {
   id: string;
   label: string;
   icon?: React.ReactNode;
-  tone?: "default" | "danger";
+  /** `ai`: una acción de Rumbo; el ícono va en el color de IA. */
+  tone?: "default" | "danger" | "ai";
   /** Por qué no se puede ahora. La deja a la vista, apagada y explicada. */
   blockedReason?: string | null;
   /** Apagada sin explicación propia. */
@@ -81,6 +82,7 @@ export function RowActionsMenu({ actions, rowLabel, className }: RowActionsMenuP
               disabled={action.disabled || Boolean(action.blockedReason)}
               title={action.blockedReason ?? undefined}
               variant={action.tone === "danger" ? "destructive" : "default"}
+              className={action.tone === "ai" ? "su-ai-icons" : undefined}
               onClick={() => action.onSelect?.()}
             >
               {action.icon}

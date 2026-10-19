@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Activity,
-  Bot,
   Building2,
   Check,
   ChevronDown,
@@ -18,6 +17,7 @@ import {
   Target,
   UserCheck,
   Users,
+  Rumbo,
 } from "@/icons";
 import { cn } from "@/lib/utils";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-date";
@@ -713,7 +713,7 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
 const EVENT_ICON: Record<JourneyEvent["kind"], ReactNode> = {
   audit: <Building2 />,
   approval: <Check />,
-  run: <Bot />,
+  run: <Rumbo />,
 };
 
 export function PipelineHistory({ history }: { history: readonly JourneyEvent[] }) {

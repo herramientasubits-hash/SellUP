@@ -26,7 +26,7 @@ interface FabEntry {
   id: string;
   label: string;
   icon: React.ReactNode;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
   /** `ai`: su pastilla lleva el degradado de IA (el agente de la pantalla). */
   variant?: "default" | "ai";
   blockedReason?: string | null;
@@ -201,7 +201,7 @@ function FabRow({
   children,
 }: {
   label: string;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
   variant?: "default" | "ai";
   blockedReason?: string | null;
   onClick: () => void;
@@ -227,7 +227,7 @@ function FabRow({
         data-variant={variant}
         className={cn(
           "flex size-11 items-center justify-center rounded-full shadow-rail [&_svg]:size-5",
-          variant === "ai"
+          variant === "ai" || tone === "ai"
             ? "bg-ai-gradient text-primary-foreground"
             : cn("bg-card ring-1 ring-border", tone === "danger" ? "text-destructive" : "text-foreground"),
         )}

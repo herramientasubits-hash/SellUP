@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { UserSearch } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import { Button } from '@/components/ui/button';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -22,7 +23,7 @@ interface AccountEnrichContactsButtonProps {
    * `default` cuando es LA acción del panel en el que vive.
    */
   variant?: 'outline' | 'default';
-  /** Texto del botón. Por defecto, «Enriquecer contactos». */
+  /** Texto del botón. Por defecto, «Buscar contactos con Rumbo IA». */
   label?: string;
 }
 
@@ -31,7 +32,7 @@ export function AccountEnrichContactsButton({
   disabled,
   onRequestOpen,
   variant = 'outline',
-  label = 'Enriquecer contactos',
+  label = RUMBO_ACTION_LABELS.findContacts,
 }: AccountEnrichContactsButtonProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -47,8 +48,8 @@ export function AccountEnrichContactsButton({
 
   return (
     <>
-      <Button type="button" size="sm" variant={variant} onClick={handleClick}>
-        <UserSearch aria-hidden="true" />
+      <Button type="button" size="sm" variant={variant === 'default' ? 'ai' : 'ai-outline'} onClick={handleClick}>
+        <RumboIcon />
         {label}
       </Button>
 

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users, PhoneCall } from "@/icons";
+import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import { MAX_CONTACTS_PER_RUN } from '@/server/agents/first-call/types';
@@ -437,8 +439,9 @@ export function ContactsDataTableClient({
             ? [
                 {
                   id: 'first-call',
-                  label: 'Preparar primer contacto',
-                  icon: PhoneCall,
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: RumboIcon,
+                  variant: 'ai' as const,
                   // Lleva a la empresa con este contacto ya elegido como decisor.
                   onClick: () =>
                     setFirstContact({ kind: 'account', accountId: row.account_id!, initialSelection: { contactIds: [row.id] } }),
@@ -519,8 +522,9 @@ export function ContactsDataTableClient({
               id: 'first-call',
               // Varios decisores de UNA misma empresa (hasta 5): una investigación, una
               // preparación por decisor. De empresas distintas no: cada una gasta la suya.
-              label: 'Preparar primer contacto',
-              icon: PhoneCall,
+              label: RUMBO_ACTION_LABELS.prepareFirstContact,
+              icon: RumboIcon,
+              variant: 'ai' as const,
               disabled: (rows: Row[]) =>
                 rows.length === 0 ||
                 rows.length > MAX_CONTACTS_PER_RUN ||

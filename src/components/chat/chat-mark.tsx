@@ -1,13 +1,15 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { Rumbo, RUMBO_NEEDLE_PATH, RUMBO_TAIL_PATH } from "@/icons";
 
 export interface ChatMarkProps extends React.HTMLAttributes<HTMLSpanElement> {
   /** `xs` 20px para una fila, `sm` 24px junto a un mensaje, `md` 36px en cabeceras, `lg` 56px en el saludo. */
   size?: "xs" | "sm" | "md" | "lg";
   /**
-   * `still` quieta; `breathing` late despacio (en reposo);
-   * `thinking` gira y late rápido (mientras prepara la respuesta).
+   * `still` quieta; `breathing` la aguja oscila despacio y la baldosa late (en reposo);
+   * `thinking` la aguja da vueltas continuas (mientras prepara la respuesta).
+   * Las dos son cíclicas: el final de cada vuelta coincide con el inicio, sin saltos.
    */
   motion?: "still" | "breathing" | "thinking";
 }
@@ -24,23 +26,14 @@ const SIZE: Record<NonNullable<ChatMarkProps["size"]>, string> = {
  * que te dice qué sigue con cada empresa. En una caja de 24, girada hacia «arriba y
  * adelante». La aguja va llena; la cola, más tenue.
  */
-const COMPASS_NEEDLE = "M12 3.6 L15.4 12.6 L12 10.7 L8.6 12.6 Z";
-const COMPASS_TAIL = "M12 20.4 L10.3 14.9 L12 15.9 L13.7 14.9 Z";
+const COMPASS_NEEDLE = RUMBO_NEEDLE_PATH;
+const COMPASS_TAIL = RUMBO_TAIL_PATH;
 /** El nombre del agente (también el título de su panel). */
 export const AGENT_NAME = "Rumbo";
 
 /** La brújula de Rumbo sola, para botones e íconos (toma el color y el tamaño del texto). */
 export function RumboIcon({ className, ...props }: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" data-icon="rumbo" className={cn("size-4", className)} {...props}>
-      <circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" strokeWidth="1.9" />
-      <g transform="rotate(32 12 12)">
-        <path d={COMPASS_NEEDLE} />
-        <path d={COMPASS_TAIL} opacity="0.55" />
-      </g>
-      <circle cx="12" cy="12" r="1.2" />
-    </svg>
-  );
+  return <Rumbo aria-hidden="true" className={cn("size-4", className)} {...(props as Record<string, unknown>)} />;
 }
 
 /**
@@ -66,9 +59,12 @@ export function ChatMark({ size = "sm", motion = "still", className, ...props }:
     >
       <svg viewBox="0 0 24 24" className="size-[66%]" fill="currentColor" data-mark="rumbo">
         <circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" strokeWidth="1.9" />
-        <g transform="rotate(32 12 12)">
-          <path d={COMPASS_NEEDLE} />
-          <path d={COMPASS_TAIL} opacity="0.55" />
+        {/* El aro queda quieto; lo que se mueve es la aguja (en ciclo, sin saltos). */}
+        <g className="chat-mark-needle">
+          <g transform="rotate(32 12 12)">
+            <path d={COMPASS_NEEDLE} />
+            <path d={COMPASS_TAIL} opacity="0.55" />
+          </g>
         </g>
         <circle cx="12" cy="12" r="1.2" />
       </svg>

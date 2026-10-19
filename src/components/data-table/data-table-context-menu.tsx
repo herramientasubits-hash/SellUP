@@ -14,7 +14,8 @@ export interface DataTableContextMenuItem {
   id: string;
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
-  variant?: "default" | "destructive";
+  /** `ai`: una acción de Rumbo (IA), con el ícono en el color de IA. */
+  variant?: "default" | "destructive" | "ai";
   onClick: () => void | Promise<void>;
   disabled?: boolean;
   separator?: boolean;
@@ -51,9 +52,9 @@ export function DataTableContextMenu({ items, children }: DataTableContextMenuPr
             {item.separator && i > 0 && <ContextMenuSeparator />}
             <ContextMenuItem
               disabled={item.disabled}
-              variant={item.variant}
+              variant={item.variant === "destructive" ? "destructive" : "default"}
               onClick={item.onClick}
-              className="text-xs"
+              className={item.variant === "ai" ? "su-ai-icons text-xs" : "text-xs"}
             >
               {item.icon && <item.icon className="h-4 w-4" />}
               {item.label}

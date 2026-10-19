@@ -127,15 +127,15 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
   it('la primaria sigue siendo «Crear empresa» y el agente cierra la barra', () => {
     renderAccounts();
 
-    assert.deepEqual(toolbarLabels(), ['Crear empresa', 'Rumbo']);
-    assert.equal(screen.getByRole('button', { name: 'Rumbo' }).getAttribute('data-variant'), 'ai');
+    assert.deepEqual(toolbarLabels(), ['Crear empresa', 'Rumbo IA']);
+    assert.equal(screen.getByRole('button', { name: 'Rumbo IA' }).getAttribute('data-variant'), 'ai');
     assert.equal(screen.queryByText(/sin controlar/), null, 'los paneles se montan controlados, sin su botón');
   });
 
   it('el agente pregunta qué hacer y cada respuesta abre su flujo; la barra se recoge', () => {
     renderAccounts();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['qué hacer']);
     assert.equal(railState(), 'blocked');
 
@@ -145,12 +145,12 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
     assert.deepEqual(openDialogs(), []);
     assert.equal(railState(), 'expanded');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     fireEvent.click(screen.getByRole('button', { name: 'Buscar contactos' }));
     assert.deepEqual(openDialogs(), ['buscar contactos']);
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar buscar contactos' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     fireEvent.click(screen.getByRole('button', { name: 'Preparar el primer contacto' }));
     assert.deepEqual(openDialogs(), ['primer contacto']);
   });
@@ -163,7 +163,7 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
       ['Buscar contactos', 'buscar contactos'],
       ['Preparar el primer contacto', 'primer contacto'],
     ] as const) {
-      fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
       fireEvent.click(screen.getByRole('button', { name: option }));
       assert.deepEqual(openDialogs(), [panel]);
       fireEvent.click(screen.getByRole('button', { name: `Volver desde ${panel}` }));
@@ -184,7 +184,7 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
   it('🔴 sin búsqueda disponible, «Prospectar» abre la explicación (nunca la búsqueda)', () => {
     renderAccounts(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     fireEvent.click(screen.getByRole('button', { name: 'Prospectar (unavailable)' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
   });
@@ -192,7 +192,7 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
   it('si el servidor no pudo resolver la búsqueda, el agente sigue (contactos y primer contacto) sin prospectar', () => {
     renderAccounts(null);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     assert.equal(screen.queryByRole('button', { name: /Prospectar/ }), null);
     assert.ok(screen.getByRole('button', { name: 'Buscar contactos' }));
   });
@@ -200,7 +200,7 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
   it('con el Agente 3 apagado no se ofrece preparar el primer contacto', () => {
     renderAccounts(true, false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     assert.equal(screen.queryByRole('button', { name: 'Preparar el primer contacto' }), null);
   });
 
@@ -211,9 +211,9 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
     assert.equal(screen.queryByRole('toolbar'), null);
     assert.deepEqual(
       screen.getAllByRole('button').map((button) => button.textContent),
-      ['Crear empresa', 'Rumbo'],
+      ['Crear empresa', 'Rumbo IA'],
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Rumbo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['qué hacer']);
   });
 });
@@ -222,8 +222,8 @@ describe('Descartadas — el agente «Generar con IA»', () => {
   it('la barra lleva solo el agente, a un clic', () => {
     renderDiscarded();
 
-    assert.deepEqual(toolbarLabels(), ['Generar con IA']);
-    fireEvent.click(screen.getByRole('button', { name: 'Generar con IA' }));
+    assert.deepEqual(toolbarLabels(), ['Generar con Rumbo IA']);
+    fireEvent.click(screen.getByRole('button', { name: 'Generar con Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
   });
 
@@ -231,7 +231,7 @@ describe('Descartadas — el agente «Generar con IA»', () => {
     renderDiscarded(false);
 
     assert.deepEqual(toolbarLabels(), ['Búsqueda no disponible']);
-    assert.equal(screen.queryByText('Generar con IA'), null);
+    assert.equal(screen.queryByText('Generar con Rumbo IA'), null);
     fireEvent.click(screen.getByRole('button', { name: 'Búsqueda no disponible' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
   });

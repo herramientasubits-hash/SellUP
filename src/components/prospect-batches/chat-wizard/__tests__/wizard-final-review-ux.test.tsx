@@ -10,10 +10,10 @@
  *     Lusha") — Q3F-5BB.10A: we never promise a fixed credit count.
  *   - Banned copy is gone: no "Preview read-only", no "proceder a generar".
  *   - Read-only intent stays via the recap note + credit banner (max 2 banners).
- *   - Action hierarchy: exactly one primary "Buscar con IA"; "Editar búsqueda"
+ *   - Action hierarchy: exactly one primary "Buscar con Rumbo IA"; "Editar búsqueda"
  *     secondary; "Comenzar de nuevo" present but de-emphasized; no "Cerrar".
  *   - No source tabs / separate Lusha selector.
- *   - NO auto-run: Lusha fires only on the explicit "Buscar con IA" click.
+ *   - NO auto-run: Lusha fires only on the explicit "Buscar con Rumbo IA" click.
  * The server action module is mocked (no network / DB / credit).
  */
 
@@ -297,9 +297,9 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     assert.match(notice, /costo real/i, 'real cost reported later');
   });
 
-  it('has one primary CTA "Buscar con IA"; edit secondary; restart de-emphasized; no Cerrar', () => {
+  it('has one primary CTA "Buscar con Rumbo IA"; edit secondary; restart de-emphasized; no Cerrar', () => {
     renderFinalReview();
-    const searchButtons = screen.getAllByRole('button', { name: /Buscar con IA/i });
+    const searchButtons = screen.getAllByRole('button', { name: /Buscar con Rumbo IA/i });
     assert.equal(searchButtons.length, 1, 'exactly one primary CTA');
     assert.ok(screen.getByTestId('lusha-preview-run'));
     assert.ok(screen.getByRole('button', { name: /Editar búsqueda/i }));

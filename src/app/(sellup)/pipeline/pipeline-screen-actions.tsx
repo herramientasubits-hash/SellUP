@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRightCircle, ExternalLink, GitBranch, PhoneCall, Sparkles } from "@/icons";
+import { ArrowRightCircle, ExternalLink, GitBranch } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import {
   RailScreenActions,
   useActionRailReserveSide,
@@ -78,8 +80,9 @@ export function PipelineScreenActions({
     if (onPrepareFirstCall && journey?.agent3 && !isArchived) {
       list.push({
         id: "prepare-first-call",
-        label: "Preparar primer contacto",
-        icon: <PhoneCall aria-hidden="true" />,
+        label: RUMBO_ACTION_LABELS.prepareFirstContact,
+        icon: <RumboIcon />,
+        tone: "ai",
         scope: ["screen"],
         onSelect: onPrepareFirstCall,
       });
@@ -108,8 +111,8 @@ export function PipelineScreenActions({
     if (!accountId || !onSearchContacts) return null;
     return {
       id: "search-contacts-ai",
-      label: "Buscar contactos con IA",
-      icon: <Sparkles aria-hidden="true" />,
+      label: RUMBO_ACTION_LABELS.findContacts,
+      icon: <RumboIcon />,
       scope: ["screen"],
       variant: "ai",
       blockedReason: isArchived ? ARCHIVED_AGENT_REASON : null,

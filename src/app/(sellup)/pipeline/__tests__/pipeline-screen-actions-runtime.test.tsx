@@ -109,18 +109,18 @@ function setInline() {
 }
 
 describe('Pipeline · barra de acciones con una empresa elegida', () => {
-  it('la barra trae «Ver empresa», «Cambiar etapa» y el agente «Buscar contactos con IA»', () => {
+  it('la barra trae «Ver empresa», «Cambiar etapa» y el agente «Buscar contactos con Rumbo IA»', () => {
     renderActions();
 
     assert.equal((toolbar() as HTMLElement).getAttribute('aria-label'), 'Acciones del pipeline');
-    assert.deepEqual(railLabels(), ['Ver empresa', 'Cambiar etapa', 'Buscar contactos con IA']);
-    assert.equal(document.querySelector('[data-slot="rail-agent"]')?.getAttribute('aria-label'), 'Buscar contactos con IA');
+    assert.deepEqual(railLabels(), ['Ver empresa', 'Cambiar etapa', 'Buscar contactos con Rumbo IA']);
+    assert.equal(document.querySelector('[data-slot="rail-agent"]')?.getAttribute('aria-label'), 'Buscar contactos con Rumbo IA');
   });
 
   it('el agente abre el buscador de contactos y «Ver empresa» lleva a su ficha', () => {
     const { log } = renderActions();
 
-    fireEvent.click(railButton('Buscar contactos con IA'));
+    fireEvent.click(railButton('Buscar contactos con Rumbo IA'));
     fireEvent.click(railButton('Ver empresa'));
     assert.equal(log.search, 1);
     assert.deepEqual(log.viewed, ['globex']);
@@ -227,7 +227,7 @@ describe('Pipeline · cambiar de etapa desde la barra', () => {
 
   it('sin acción de mover no se ofrece «Cambiar etapa»', () => {
     renderActions({ onChangeStage: undefined });
-    assert.deepEqual(railLabels(), ['Ver empresa', 'Buscar contactos con IA']);
+    assert.deepEqual(railLabels(), ['Ver empresa', 'Buscar contactos con Rumbo IA']);
   });
 });
 
@@ -238,7 +238,7 @@ describe('Pipeline · empresa archivada', () => {
   it('no se ofrece «Cambiar etapa» y el agente queda bloqueado con su motivo', () => {
     const { log } = renderActions({ journey: archived() });
 
-    assert.deepEqual(railLabels(), ['Ver empresa', 'Buscar contactos con IA']);
+    assert.deepEqual(railLabels(), ['Ver empresa', 'Buscar contactos con Rumbo IA']);
     const agent = document.querySelector('[data-slot="rail-agent"]') as HTMLElement;
     assert.equal(agent.getAttribute('aria-disabled'), 'true');
     fireEvent.click(agent);
@@ -256,7 +256,7 @@ describe('Pipeline · acciones «En la pantalla»', () => {
     const header = document.querySelector('[data-slot="screen-header-actions"]') as HTMLElement;
     assert.deepEqual(
       Array.from(header.querySelectorAll('button'), (button) => button.textContent),
-      ['Ver empresa', 'Cambiar etapa', 'Buscar contactos con IA'],
+      ['Ver empresa', 'Cambiar etapa', 'Buscar contactos con Rumbo IA'],
     );
     assert.ok(gap() === null, 'sin barra no se reserva hueco');
   });
@@ -265,7 +265,7 @@ describe('Pipeline · acciones «En la pantalla»', () => {
     const { log } = renderActions();
     setInline();
 
-    const agent = screen.getByRole('button', { name: 'Buscar contactos con IA' });
+    const agent = screen.getByRole('button', { name: 'Buscar contactos con Rumbo IA' });
     assert.match(agent.className, /su-ai-gradient/);
     fireEvent.click(agent);
     assert.equal(log.search, 1);
@@ -290,7 +290,7 @@ describe('Pipeline · acciones «En la pantalla»', () => {
     });
     setInline();
 
-    assert.equal((screen.getByRole('button', { name: 'Buscar contactos con IA' }) as HTMLButtonElement).disabled, true);
+    assert.equal((screen.getByRole('button', { name: 'Buscar contactos con Rumbo IA' }) as HTMLButtonElement).disabled, true);
     assert.ok(screen.queryByRole('button', { name: /Cambiar etapa/ }) === null);
   });
 });

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { FIRST_CONTACT_RUN_SETTLED_EVENT } from '@/modules/speech/first-contact-runs-client';
-import { Archive, Brain, ChevronDown, PhoneCall, Table2, Users } from '@/icons';
+import { Archive, ChevronDown, PhoneCall, Table2, Users, Rumbo } from '@/icons';
 import { formatInAppZone } from '@/lib/format-date';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -415,7 +415,7 @@ export function FirstCallTab({
         <Section
           title="Investigación de la empresa"
           meta={`Qué hace, tamaño, qué le pasa ahora, talento${brief.hypotheses.length > 0 ? ` · ${brief.hypotheses.length} hipótesis para UBITS` : ''}`}
-          icon={Brain}
+          icon={Rumbo}
           defaultOpen={state.packs.length === 0}
           testId="first-contact-research"
         >

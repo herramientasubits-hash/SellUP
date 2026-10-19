@@ -3,7 +3,7 @@
 
 import type { ReactNode } from 'react';
 import { formatInAppZone } from '@/lib/format-date';
-import { Activity, Bot, Plug, Users } from '@/icons';
+import { Activity, Plug, Users, Rumbo } from '@/icons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge, TableShell } from '@/components/data-display';
 import { InfoHint } from '@/components/shared/info-hint';
@@ -116,7 +116,7 @@ export function AgentUsageSection({ agents, showMoney = true }: { agents: AgentS
       emptyState={
         <EmptyState
           variant="plain"
-          icon={Bot}
+          icon={Rumbo}
           title="Ningún agente ha trabajado todavía"
           description="Cuando alguien busque prospectos con IA, aquí verás cuántos se generaron y cuántos se aprobaron. Si tienes filtros puestos, prueba a quitarlos."
         />
@@ -139,7 +139,7 @@ export function AgentUsageSection({ agents, showMoney = true }: { agents: AgentS
               <TableRow key={agent.agent_key}>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Bot aria-hidden className="size-4 shrink-0 text-primary" />
+                    <Rumbo aria-hidden className="size-4 shrink-0 text-primary" />
                     <span className="font-medium text-foreground">
                       {agentLabel(agent.agent_key, agent.agent_name)}
                     </span>

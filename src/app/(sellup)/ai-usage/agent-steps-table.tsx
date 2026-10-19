@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot } from '@/icons';
+import { Rumbo } from '@/icons';
 import { cn } from '@/lib/utils';
 import { DataTable, DataTableColumnHeader } from '@/components/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -181,7 +181,7 @@ export function AgentStepsTable({ agents, steps, moneyVisible, onSelectAgent, se
         emptyState={
           <EmptyState
             variant="plain"
-            icon={Bot}
+            icon={Rumbo}
             title="Ningún agente consultó a un proveedor"
             description="Si tienes filtros puestos, prueba a quitarlos."
           />

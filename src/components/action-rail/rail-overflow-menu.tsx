@@ -15,7 +15,7 @@ export interface RailOverflowSubItem {
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
   /** Explica por qué el ítem no está disponible; con valor, la fila se apaga. */
   blockedReason?: string | null;
 }
@@ -25,7 +25,7 @@ export interface RailOverflowItem {
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
   /** Explica por qué el ítem no está disponible; con valor, la fila se apaga. */
   blockedReason?: string | null;
   /**
@@ -48,7 +48,7 @@ function RowBody({
 }: {
   icon: React.ReactNode;
   label: string;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "ai";
   hasSubItems?: boolean;
   /** Por qué está apagada: se lee bajo el rótulo, sin depender del cursor. */
   hint?: string | null;
@@ -60,7 +60,9 @@ function RowBody({
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors [&_svg]:size-4",
           tone === "danger"
             ? "bg-destructive/10 text-destructive"
-            : "bg-nav-foreground/5 text-nav-foreground/70 group-hover:bg-nav-foreground/10 group-hover:text-nav-foreground",
+            : tone === "ai"
+              ? "su-ai-gradient"
+              : "bg-nav-foreground/5 text-nav-foreground/70 group-hover:bg-nav-foreground/10 group-hover:text-nav-foreground",
         )}
       >
         {icon}

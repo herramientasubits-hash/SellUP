@@ -6,7 +6,6 @@ import {
   Building2,
   Users,
   Activity,
-  Bot,
   Globe,
   MapPin,
   Tag,
@@ -16,6 +15,7 @@ import {
   Briefcase,
   GitBranch,
   PhoneCall,
+  Rumbo,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -255,7 +255,6 @@ export function AccountDetailSheet({
               />
               <AccountEnrichContactsButton
                 variant={firstCallOffered ? 'outline' : 'default'}
-                label="Buscar contactos"
                 preloadedCompany={{
                   name: data.account.name,
                   domain: data.account.domain,
@@ -339,7 +338,7 @@ export function AccountDetailSheet({
                     <TabsTrigger value="contactos"><Users className="h-4 w-4" /> Contactos</TabsTrigger>
                     <TabsTrigger value={FIRST_CALL_TAB_ID}><PhoneCall className="h-4 w-4" /> Primer contacto</TabsTrigger>
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
-                    <TabsTrigger value="agentes"><Bot className="h-4 w-4" /> Agentes</TabsTrigger>
+                    <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
                     <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
                   </TabsList>
 
