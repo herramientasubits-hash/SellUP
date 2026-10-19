@@ -25,6 +25,8 @@
  *   --out=<dir>                  dónde guardar el informe (por defecto, la carpeta temporal:
  *                                trae nombres reales y mensajes, nunca dentro del repositorio)
  *   --confirm-spend              confirma el gasto real en Tavily y Claude
+ *   --tavily=off                 simula que Tavily no responde (mide el respaldo con Claude)
+ *   --extraction-model=<modelo>  otro modelo para investigar (p. ej. claude-sonnet-4-6)
  *
  * Gasto aproximado por empresa: investigación ~US$0,08 + 2–6 créditos de Tavily; con el
  * redactor de 4 canales y todos los tipos de mensaje, ~US$0,15 más.
@@ -92,7 +94,18 @@ async function readAccountDirect(accountId: string) {
 }
 
 /** Las dependencias reales, sin una sola escritura: todo lo que se guardaría queda en `captured`. */
-function evalDeps(userId: string, opts: { writer: boolean; record: string | null; replay: string | null }) {
+interface EvalOptions {
+  writer: boolean;
+  channels: FirstCallChannel[];
+  record: string | null;
+  replay: string | null;
+  /** Simula que Tavily no responde (sin créditos del mes): mide el respaldo con Claude. */
+  tavilyOff: boolean;
+  /** Otro modelo para investigar (empresa y decisor); el redactor sigue con el activo. */
+  extractionModel: string | null;
+}
+
+function evalDeps(userId: string, opts: EvalOptions) {
   const live = buildLiveFirstCallDeps(userId);
   const captured = { patches: [] as BriefPatch[], packs: [] as PackInsert[], logs: [] as UsageLogInput[], statuses: [] as string[] };
   const store = (dir: string, kind: string, parts: unknown, value: unknown) => {
@@ -106,6 +119,11 @@ function evalDeps(userId: string, opts: { writer: boolean; record: string | null
   const deps: RunFirstCallDeps = {
     ...live,
     loadContext: (request) => loadFirstCallContext(request, userId, { readAccount: readAccountDirect, skipHubSpot: true }),
+    checkBudget: async (provider) => (opts.tavilyOff && provider === 'tavily' ? { allowed: false } : live.checkBudget(provider)),
+    resolveModels: async () => {
+      const models = await live.resolveModels();
+      return 'error' in models || !opts.extractionModel ? models : { ...models, extractionModel: opts.extractionModel };
+    },
     createBrief: async () => `eval-${Date.now()}`,
     updateBrief: async (_id, patch) => {
       captured.patches.push(patch);
@@ -149,7 +167,7 @@ function evalDeps(userId: string, opts: { writer: boolean; record: string | null
   return { deps, captured };
 }
 
-async function evaluateCompany(entry: { name: string; contact: string }, userId: string, opts: { writer: boolean; channels: FirstCallChannel[]; record: string | null; replay: string | null }): Promise<EvalCompanyResult> {
+async function evaluateCompany(entry: { name: string; contact: string }, userId: string, opts: EvalOptions): Promise<EvalCompanyResult> {
   const found = await findAccount(entry.name, entry.contact);
   if (!found) return { name: entry.name, contact: entry.contact, error: 'no_encontrada' } as EvalCompanyResult;
   const { deps, captured } = evalDeps(userId, opts);
@@ -204,7 +222,14 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const opts = { writer, channels, record: arg('record'), replay: arg('replay') };
+  const opts: EvalOptions = {
+    writer,
+    channels,
+    record: arg('record'),
+    replay: arg('replay'),
+    tavilyOff: arg('tavily') === 'off',
+    extractionModel: arg('extraction-model'),
+  };
   // Sin respuestas guardadas o con el redactor, se gasta de verdad: se confirma a propósito.
   const spends = !opts.replay || writer;
   if (spends && !process.argv.includes('--confirm-spend')) {

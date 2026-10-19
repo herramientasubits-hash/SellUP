@@ -25,6 +25,7 @@ import {
   canonicalUrl,
   extractCitedTextsByUrl,
   extractSearchResultUrls,
+  extractWebFetchTexts,
 } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
@@ -48,15 +49,17 @@ import {
   buildResearchSubmitTool,
   buildResearchSystemPrompt,
   buildResearchUserMessage,
+  buildResearchWebFetchTool,
   buildResearchWebSearchTool,
   RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY,
   type ResearchDocument,
 } from './research-prompt';
 import { firstOfEachUrl, hostOfUrl, newsToDocuments, numberDocuments, readOfficialSite, type NewsSearchOutput } from './research-documents';
 import type { NewsSearchInput } from './news-search';
-import { buildResearchSearchPlan, decisionMakerSourcesFor } from './research-catalog';
+import { RESEARCH_NOISE_DOMAINS, buildResearchSearchPlan, decisionMakerSourcesFor, sourcesForAccount } from './research-catalog';
 import {
   extractResearchSubmission,
+  extractSearchResultDates,
   isResearchSufficient,
   unverifiedSearchUrls,
   verifyResearch,
@@ -84,6 +87,8 @@ export const TAVILY_BASIC_SEARCH_CREDITS = 1;
 
 /** Páginas de búsqueda que se descargan para comprobar citas que no se pudieron ver. */
 const MAX_VERIFY_FETCHES = 3;
+/** Sin Tavily casi todo sale de la búsqueda de Claude: se comprueban más citas descargando la página. */
+const MAX_VERIFY_FETCHES_WITHOUT_TAVILY = 6;
 /** Documentos de búsqueda por consulta y en total para la investigación (banco 19-10). */
 export const DOCS_PER_SEARCH = 6;
 export const MAX_SEARCH_DOCUMENTS = 24;
@@ -375,12 +380,16 @@ async function research(
       model: models.extractionModel,
       max_tokens: RESEARCH_MAX_OUTPUT_TOKENS,
       system: [{ type: 'text', text: buildResearchSystemPrompt(), cache_control: { type: 'ephemeral' } }],
-      tools: webSearchAllowed
-        ? [
-            buildResearchWebSearchTool(news.tavilyUnavailable ? RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY : undefined),
-            buildResearchSubmitTool(),
-          ]
-        : [buildResearchSubmitTool()],
+      tools: !webSearchAllowed
+        ? [buildResearchSubmitTool()]
+        : news.tavilyUnavailable
+          ? // Sin Tavily, Claude hace su trabajo: más búsquedas, sin ruido, y lee los mejores artículos.
+            [
+              buildResearchWebSearchTool(RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY, RESEARCH_NOISE_DOMAINS),
+              buildResearchWebFetchTool(),
+              buildResearchSubmitTool(),
+            ]
+          : [buildResearchWebSearchTool(), buildResearchSubmitTool()],
       messages: [
         {
           role: 'user',
@@ -394,6 +403,7 @@ async function research(
             documents,
             webSearchAllowed,
             tavilyUnavailable: news.tavilyUnavailable,
+            fallbackSources: news.tavilyUnavailable ? sourcesForAccount(account.countryCode, account.industry) : undefined,
           }),
         },
       ],
@@ -403,7 +413,11 @@ async function research(
     const costUsd = costOf(run.usage, models.extractionModel);
     const submission = run.conversation ? extractResearchSubmission(run.conversation.content) : null;
     const citedTextsByUrl = run.conversation ? extractCitedTextsByUrl(run.conversation.content) : new Map<string, string[]>();
-    const baseSources = { documents, citedTextsByUrl, fetchedTexts: new Map<string, string>() };
+    // Lo que Claude leyó entero (web_fetch) sirve para comprobar sus citas, y la fecha de
+    // cada resultado de su búsqueda (`page_age`) dice si una señal es de los últimos 12 meses.
+    const claudeFetched = run.conversation ? extractWebFetchTexts(run.conversation.content) : new Map<string, string>();
+    const searchDates = run.conversation ? extractSearchResultDates(run.conversation.content, today) : new Map<string, string>();
+    const baseSources = { documents, citedTextsByUrl, fetchedTexts: claudeFetched, searchDates };
 
     // Una cita de búsqueda que no se pudo ver: la descargamos NOSOTROS y volvemos a mirar.
     // Sólo URLs que DEVOLVIÓ la búsqueda web (nunca una que el modelo escribió por su
@@ -418,8 +432,8 @@ async function research(
         const key = canonicalUrl(url);
         return key !== null && searchResultKeys.has(key);
       })
-      .slice(0, MAX_VERIFY_FETCHES);
-    const fetchedTexts = new Map<string, string>();
+      .slice(0, news.tavilyUnavailable ? MAX_VERIFY_FETCHES_WITHOUT_TAVILY : MAX_VERIFY_FETCHES);
+    const fetchedTexts = new Map<string, string>(claudeFetched);
     await Promise.all(
       toFetch.map(async (url) => {
         try {

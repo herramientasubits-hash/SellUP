@@ -31,6 +31,35 @@ Total por empresa: hasta 6 créditos de Tavily, frente a 2 de antes.
 
 **Merco y GPTW:** la empresa se reconoce aunque el nombre no sea idéntico. Por ejemplo, «Davivienda Colombia» coincide con «BANCO DAVIVIENDA». Se compara el núcleo del nombre, sin el país ni prefijos como «Banco» o «Grupo», y nunca por una sola palabra suelta.
 
+## Cuando no hay Tavily (créditos agotados, sin llave o sin presupuesto)
+
+Claude hace el trabajo de Tavily con su búsqueda web.
+
+**Empresa:**
+- Hasta 5 búsquedas, sin redes ni portales de empleo, siguiendo el mismo plan de preguntas, con los medios del país por nombre.
+- Lee enteros hasta 5 artículos (`web_fetch`).
+- Antes de entregar, escribe lo encontrado citando los resultados. Así cada cita (`cited_text`) se puede comprobar.
+- La fecha de cada resultado sale de su `page_age`.
+
+**Decisor:**
+- 3 búsquedas y 2 lecturas.
+- Una frase de su propio perfil de LinkedIn vale aunque no repita su nombre.
+- Los directorios de datos personales (rocketreach y similares) nunca son fuente.
+
+Medido el 19-10 en 10 empresas reales, sin escribir nada en Producción:
+
+| | Con Tavily | Sin Tavily (antes) | Sin Tavily (ahora, Haiku) | Sin Tavily (Sonnet) |
+|---|---|---|---|---|
+| Datos verificados | 70 | 28 | 45–51 | 30 |
+| Con fecha | 39 | 11 | 27–32 | 16 |
+| Empresas con señal reciente | 8 | 1 | 6 | 4 |
+| Empresas con datos del decisor | 5 | 0 | 1 | 0 |
+| Costo de investigar | US$0,62 + créditos | US$1,27 | US$2,10–2,46 | US$3,87 |
+
+- **Sonnet no ayuda:** busca menos, entrega menos y cuesta casi el doble. Se queda Haiku.
+- **El decisor sigue débil sin Tavily:** casi nunca hay nada público de la persona fuera de LinkedIn, y Tavily sí busca dentro de LinkedIn.
+- **Para comparar el respaldo:** `--tavily=off` en el banco (`scripts/agent3/research-eval.mts`); `--extraction-model` prueba otro modelo.
+
 ## Catálogo por país
 
 El catálogo está en `src/server/agents/first-call/research-catalog-data.ts`. Los dominios salen de las investigaciones del 19-10-2026. Cada uno se abrió y estaba activo; la gran mayoría mostró una nota fechada en 2025 o 2026, y unos pocos gremios, activos pero sin fecha visible, quedaron marcados en los informes.

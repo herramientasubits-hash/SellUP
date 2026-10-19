@@ -93,11 +93,58 @@ export function buildResearchSubmitTool() {
   } as const;
 }
 
-/** Sin Tavily (sin llave, sin presupuesto o sin créditos del mes), Claude busca un poco más. */
-export const RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY = 3;
+/**
+ * Sin Tavily (sin llave, sin presupuesto o sin créditos del mes), Claude hace el trabajo
+ * de las búsquedas de Tavily (dueña 19-10: «que se acerque a Tavily»): las mismas cinco
+ * preguntas, y lee los mejores artículos enteros para poder citarlos palabra por palabra.
+ */
+export const RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY = 5;
+export const RESEARCH_MAX_WEB_FETCHES_WITHOUT_TAVILY = 5;
+/** Tope de texto por artículo leído (~24 KB): alcanza para una nota de prensa. */
+export const RESEARCH_WEB_FETCH_MAX_CONTENT_TOKENS = 6_000;
 
-export function buildResearchWebSearchTool(maxUses: number = RESEARCH_MAX_WEB_SEARCHES) {
-  return { type: 'web_search_20250305', name: 'web_search', max_uses: maxUses };
+export function buildResearchWebSearchTool(maxUses: number = RESEARCH_MAX_WEB_SEARCHES, blockedDomains: readonly string[] = []) {
+  return {
+    type: 'web_search_20250305',
+    name: 'web_search',
+    max_uses: maxUses,
+    // Redes, portales de empleo y directorios de datos no aportan un dato verificable.
+    ...(blockedDomains.length > 0 ? { blocked_domains: [...blockedDomains] } : {}),
+  };
+}
+
+/** La lectura web de Claude: lee un artículo entero (sólo URLs que ya aparecieron en la búsqueda). */
+export function buildResearchWebFetchTool(maxUses: number = RESEARCH_MAX_WEB_FETCHES_WITHOUT_TAVILY) {
+  return { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: maxUses, max_content_tokens: RESEARCH_WEB_FETCH_MAX_CONTENT_TOKENS };
+}
+
+/**
+ * El plan de búsqueda para Claude cuando no hay Tavily: lo mismo que pregunta Tavily
+ * (noticias con fecha, prensa del país, talento, rankings de empleadores y su sitio),
+ * con los medios del país por nombre de dominio para orientar las consultas.
+ */
+export function renderFallbackSearchPlan(params: {
+  companyName: string;
+  countryName: string | null;
+  website: string | null;
+  press: readonly string[];
+  hrMedia: readonly string[];
+}): string {
+  const name = `"${params.companyName}"`;
+  const country = params.countryName ?? '';
+  const press = params.press.slice(0, 6).join(', ');
+  const hr = params.hrMedia.slice(0, 5).join(', ');
+  return [
+    `El buscador de noticias no respondió hoy: haz hasta ${RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY} búsquedas web, en este orden (una por pregunta; salta la que ya esté respondida):`,
+    `1. Noticias de los últimos 12 meses: ${name} ${country} 2026.`,
+    press ? `2. En la prensa de negocios y del sector de ${country || 'su país'}: ${name} con el nombre de uno de estos medios (${press}).` : `2. En la prensa de negocios de ${country || 'su país'}: ${name} empresa.`,
+    `3. Talento y formación: ${name} empleo OR formación OR capacitación OR cultura.`,
+    hr ? `4. Premios y rankings de empleadores: ${name} Merco OR "Great Place to Work" OR "Top Employers" (medios de talento: ${hr}).` : `4. Premios y rankings de empleadores: ${name} Merco OR "Great Place to Work".`,
+    params.website ? `5. Lo que la empresa publica en su sitio: ${name} ${params.website} noticias OR blog OR comunicado.` : `5. Lo que la empresa publica: ${name} noticias OR comunicado.`,
+    `Después lee con web_fetch los ${RESEARCH_MAX_WEB_FETCHES_WITHOUT_TAVILY} artículos más útiles (de preferencia con fecha de los últimos 12 meses).`,
+    'IMPORTANTE (cómo se comprueban las citas): antes de entregar, escribe en texto, en pocas líneas, lo que encontraste, citando los resultados de tu búsqueda (así queda la frase citada de cada fuente). Cada quote que entregues tiene que ser una frase de un documento de arriba, de una página que leíste con web_fetch o de lo que citaste en ese texto, copiada tal cual. Lo que no puedas citar así, no lo entregues.',
+    'Cuidado con homónimos: que coincida el país o el sector.',
+  ].join('\n');
 }
 
 export function buildResearchSystemPrompt(): string {
@@ -151,6 +198,8 @@ export function buildResearchUserMessage(params: {
   webSearchAllowed: boolean;
   /** Tavily no respondió (respaldo con Claude). */
   tavilyUnavailable?: boolean;
+  /** Sin Tavily: los medios del país y de talento que orientan las búsquedas de Claude. */
+  fallbackSources?: { press: readonly string[]; hrMedia: readonly string[] };
 }): string {
   const internal = params.internalFacts.length
     ? params.internalFacts.map((f) => `- ${f.id}: ${f.statement}`).join('\n')
@@ -169,7 +218,13 @@ export function buildResearchUserMessage(params: {
     `Fecha de hoy: ${params.today}`,
     params.webSearchAllowed
       ? params.tavilyUnavailable
-        ? `El buscador de noticias no respondió hoy: haz hasta ${RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY} búsquedas web. Primero noticias de la empresa de los últimos 12 meses (con fecha), después empleo y talento.`
+        ? renderFallbackSearchPlan({
+            companyName: params.companyName,
+            countryName: params.countryName,
+            website: params.website,
+            press: params.fallbackSources?.press ?? [],
+            hrMedia: params.fallbackSources?.hrMedia ?? [],
+          })
         : `Puedes hacer hasta ${RESEARCH_MAX_WEB_SEARCHES} búsquedas web si faltan señales recientes o datos de talento.`
       : 'No tienes búsqueda web: trabaja sólo con los documentos.',
     '',

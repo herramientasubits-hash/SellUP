@@ -88,8 +88,16 @@ export function computeResearchMetrics(input: {
 
   // Lo del decisor viaja en cada preparación: se mira la primera que trae contenido.
   const withContent = input.packs.find((p) => p.content);
-  const contactFacts = (withContent?.facts ?? []).filter((f) => f.topic === 'decision_maker' && f.sourceKind !== 'sellup').length;
-  const insight = (withContent?.content as { contactInsight?: { hook?: string | null } } | null | undefined)?.contactInsight;
+  // Sin redactor (--writer=off) no hay preparación con contenido: lo del decisor sale del registro.
+  const contactLog = input.logs.find((l) => l.operationKey === 'contact_research');
+  const contactFacts = withContent
+    ? (withContent.facts ?? []).filter((f) => f.topic === 'decision_maker' && f.sourceKind !== 'sellup').length
+    : (contactLog?.resultsReturned ?? 0);
+  const insight = withContent
+    ? (withContent.content as { contactInsight?: { hook?: string | null } } | null | undefined)?.contactInsight
+    : contactLog?.metadata.has_hook
+      ? { hook: 'sí' }
+      : undefined;
 
   const channelsOk = input.packs.filter((p) => p.status !== 'failed').map((p) => p.channel);
   const channelsFailed = input.packs.filter((p) => p.status === 'failed').map((p) => p.channel);

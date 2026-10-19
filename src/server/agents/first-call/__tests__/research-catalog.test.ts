@@ -203,3 +203,16 @@ describe('resultados como documentos según la búsqueda', () => {
     assert.equal([doc, { ...doc }, { ...doc, url: 'https://a.co/y' }].filter(firstOfEachUrl()).length, 2);
   });
 });
+
+describe('fecha de un resultado de la búsqueda web de Claude (page_age)', () => {
+  it('lee fechas absolutas y relativas; lo dudoso queda sin fecha', async () => {
+    const { parsePageAge } = await import('../research-verifier');
+    assert.equal(parsePageAge('October 15, 2026', '2026-10-19'), '2026-10-15');
+    assert.equal(parsePageAge('2026-09-02T10:00:00Z', '2026-10-19'), '2026-09-02');
+    assert.equal(parsePageAge('3 days ago', '2026-10-19'), '2026-10-16');
+    assert.equal(parsePageAge('2 weeks ago', '2026-10-19'), '2026-10-05');
+    assert.equal(parsePageAge('hace poco', '2026-10-19'), null);
+    assert.equal(parsePageAge(null, '2026-10-19'), null);
+    assert.equal(parsePageAge('Smarch 3, 2026', '2026-10-19'), null);
+  });
+});

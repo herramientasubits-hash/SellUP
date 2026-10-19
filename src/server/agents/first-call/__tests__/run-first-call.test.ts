@@ -385,14 +385,23 @@ describe('runFirstCall — correcciones de la revisión', () => {
 });
 
 describe('runFirstCall — respaldo cuando Tavily no está', () => {
-  it('sin presupuesto de Tavily (o sin créditos del mes): Claude busca hasta 3 veces, primero noticias con fecha', async () => {
+  it('sin presupuesto de Tavily (o sin créditos del mes): Claude hace el trabajo de Tavily (dueña 19-10)', async () => {
     const { deps, calls } = harness({ budget: { tavily: false, anthropic: true } });
     await runFirstCall(REQUEST, deps);
     assert.deepEqual(calls.news, [], 'no se llama a Tavily');
     const researchBody = calls.conversations[0];
-    const web = (researchBody.tools as Array<{ type?: string; max_uses?: number }>).find((t) => t.type === 'web_search_20250305');
-    assert.equal(web?.max_uses, 3);
-    assert.match(researchBody.messages[0].content as string, /no respondió hoy/);
+    const tools = researchBody.tools as Array<{ type?: string; max_uses?: number; blocked_domains?: string[] }>;
+    const web = tools.find((t) => t.type === 'web_search_20250305');
+    assert.equal(web?.max_uses, 5, 'las mismas preguntas que Tavily');
+    assert.ok(web?.blocked_domains?.includes('computrabajo.com'), 'sin portales de empleo ni redes');
+    const fetchTool = tools.find((t) => t.type === 'web_fetch_20250910');
+    assert.equal(fetchTool?.max_uses, 5, 'lee los mejores artículos enteros para citarlos');
+    assert.match(researchBody.messages[0].content as string, /escribe en texto, en pocas líneas, lo que encontraste/);
+    const message = researchBody.messages[0].content as string;
+    assert.match(message, /no respondió hoy/);
+    // Colombia y Retail: los medios del país orientan las búsquedas.
+    assert.match(message, /larepublica\.co/);
+    assert.match(message, /Merco OR "Great Place to Work"/);
     const research = calls.logs.find((l) => l.agentStep === 'investigar_empresa');
     assert.equal(research?.metadata.tavily_unavailable, true);
   });
@@ -402,7 +411,60 @@ describe('runFirstCall — respaldo cuando Tavily no está', () => {
     deps.searchNews = async () => ({ results: [], credits: null, skipped: false, error: 'tavily_http_432' });
     await runFirstCall(REQUEST, deps);
     const web = (calls.conversations[0].tools as Array<{ type?: string; max_uses?: number }>).find((t) => t.type === 'web_search_20250305');
-    assert.equal(web?.max_uses, 3);
+    assert.equal(web?.max_uses, 5);
+  });
+
+  it('con Tavily funcionando, Claude sólo busca un poco y no lee páginas', async () => {
+    const { deps, calls } = harness({ context: { internal: { ...INTERNAL, account: { ...INTERNAL.account, website: null, domain: null } } } });
+    await runFirstCall(REQUEST, deps);
+    const tools = calls.conversations[0].tools as Array<{ type?: string; max_uses?: number }>;
+    assert.equal(tools.find((t) => t.type === 'web_search_20250305')?.max_uses, 2);
+    assert.equal(tools.some((t) => t.type === 'web_fetch_20250910'), false);
+  });
+
+  it('una cita de un artículo que Claude leyó entero se verifica contra ese texto, con la fecha del resultado', async () => {
+    const { deps, calls } = harness({
+      budget: { tavily: false, anthropic: true },
+      research: async () => ({
+        content: [
+          {
+            type: 'web_search_tool_result',
+            tool_use_id: 'ws1',
+            content: [{ type: 'web_search_result', url: 'https://www.larepublica.co/andina', title: 'Andina', page_age: 'September 20, 2026', encrypted_content: 'x' }],
+          },
+          {
+            type: 'web_fetch_tool_result',
+            tool_use_id: 'wf1',
+            content: {
+              type: 'web_fetch_result',
+              url: 'https://www.larepublica.co/andina',
+              content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'Distribuidora Andina abrirá 15 tiendas en la costa durante el próximo año, anunció su gerente.' } },
+            },
+          },
+          {
+            type: 'tool_use',
+            id: 'tu_r',
+            name: RESEARCH_SUBMIT_TOOL,
+            input: {
+              summary: 'x',
+              facts: [
+                { ref: 'W1', topic: 'recent_signal', statement: 'Abrirá 15 tiendas en la costa.', quote: 'Distribuidora Andina abrirá 15 tiendas en la costa', doc_id: null, source_url: 'https://www.larepublica.co/andina', published_on: null },
+              ],
+              hypotheses: [],
+              gaps: [],
+            },
+          },
+        ] as never,
+        stopReason: 'tool_use',
+        usage: usage(),
+        requests: 1,
+      }),
+    });
+    await runFirstCall(REQUEST, deps);
+    const final = calls.briefPatches.find((p) => p.status !== undefined)!;
+    const fact = final.facts!.find((f) => f.sourceUrl === 'https://www.larepublica.co/andina');
+    assert.ok(fact, 'la cita está en lo que Claude leyó');
+    assert.equal(fact!.publishedOn, '2026-09-20', 'la fecha sale del resultado de la búsqueda');
   });
 });
 

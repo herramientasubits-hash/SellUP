@@ -94,6 +94,48 @@ interface SourceTexts {
   citedTextsByUrl: ReadonlyMap<string, readonly string[]>;
   /** Páginas que descargamos nosotros para comprobar una cita, por URL canónica. */
   fetchedTexts: ReadonlyMap<string, string>;
+  /** Fecha de cada resultado de la búsqueda web de Claude (`page_age`), por URL canónica. */
+  searchDates?: ReadonlyMap<string, string>;
+}
+
+const MONTHS_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/**
+ * La fecha de un resultado de la búsqueda web de Claude (`page_age`): «October 15, 2026»,
+ * «2026-10-15» o «3 days ago». `null` si no se puede leer con certeza.
+ */
+export function parsePageAge(value: unknown, today: string): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const text = value.trim().toLowerCase();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (iso) return isoDate(`${iso[1]}-${iso[2]}-${iso[3]}`);
+  const relative = /^(\d+)\s+(hour|day|week|month)s?\s+ago$/.exec(text);
+  if (relative) {
+    const days = Number(relative[1]) * { hour: 0, day: 1, week: 7, month: 30 }[relative[2] as 'hour' | 'day' | 'week' | 'month'];
+    return new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
+  }
+  const named = /^([a-z]+)\s+(\d{1,2}),\s+(\d{4})$/.exec(text);
+  if (named) {
+    const month = MONTHS_EN.indexOf(named[1]);
+    if (month < 0) return null;
+    return isoDate(`${named[3]}-${String(month + 1).padStart(2, '0')}-${named[2].padStart(2, '0')}`);
+  }
+  return null;
+}
+
+/** Fechas de los resultados de la búsqueda web de Claude, por URL canónica. */
+export function extractSearchResultDates(content: readonly AnthropicContentBlock[], today: string): Map<string, string> {
+  const dates = new Map<string, string>();
+  for (const block of content) {
+    if (block.type !== 'web_search_tool_result' || !Array.isArray(block.content)) continue;
+    for (const result of block.content as Array<Record<string, unknown>>) {
+      if (result?.type !== 'web_search_result' || typeof result.url !== 'string') continue;
+      const key = canonicalUrl(result.url);
+      const day = parsePageAge(result.page_age, today);
+      if (key && day) dates.set(key, day);
+    }
+  }
+  return dates;
 }
 
 type Located = { url: string; label: string; kind: ResearchFact['sourceKind']; texts: string[]; publishedOn: string | null };
@@ -113,7 +155,7 @@ function locateSource(raw: RawResearchFact, sources: SourceTexts): Located | nul
   const doc = sources.documents.find((d) => canonicalUrl(d.url) === key);
   if (doc) return { url: doc.url, label: doc.label, kind: doc.kind, texts: [doc.text], publishedOn: doc.publishedOn };
   const texts = [...(sources.citedTextsByUrl.get(key) ?? []), ...(sources.fetchedTexts.has(key) ? [sources.fetchedTexts.get(key)!] : [])];
-  return { url, label: hostLabel(url), kind: 'web_search', texts, publishedOn: null };
+  return { url, label: hostLabel(url), kind: 'web_search', texts, publishedOn: sources.searchDates?.get(key) ?? null };
 }
 
 /** URLs de búsqueda cuyas citas no se pudieron comprobar: vale la pena descargarlas. */

@@ -9,6 +9,8 @@ import { EMPTY_USAGE, type AnthropicContentBlock, type AnthropicRequestBody } fr
 import {
   CONTACT_RESEARCH_TOOL,
   cachedContactResearch,
+  isOwnLinkedinProfile,
+  verifyContactFindings,
   buildContactResearchSystemPrompt,
   contactDocuments,
   contactSearchPlan,
@@ -132,12 +134,15 @@ describe('investigación del decisor', () => {
     assert.equal(found.insight.hook, null, 'un gancho sin datos que lo respalden no se ofrece');
   });
 
-  it('sin Tavily (presupuesto o créditos del mes): Claude busca una vez en la web', async () => {
+  it('sin Tavily (presupuesto o créditos del mes): Claude busca y lee en la web', async () => {
     const { d, bodies, searches } = deps({ checkBudget: async (p) => ({ allowed: p !== 'tavily' }) });
     await researchContact({ ...base, deps: d });
     assert.deepEqual(searches, [], 'no se llama a Tavily');
-    const web = (bodies[0].tools as Array<{ type?: string; max_uses?: number }>).find((t) => t.type === 'web_search_20250305');
-    assert.equal(web?.max_uses, 2);
+    const tools = bodies[0].tools as Array<{ type?: string; max_uses?: number; blocked_domains?: string[] }>;
+    const web = tools.find((t) => t.type === 'web_search_20250305');
+    assert.equal(web?.max_uses, 3);
+    assert.ok(web?.blocked_domains?.includes('facebook.com'), 'sin redes personales');
+    assert.equal(tools.find((t) => t.type === 'web_fetch_20250910')?.max_uses, 2);
     assert.equal(bodies[0].tool_choice, undefined, 'con búsqueda web el modelo decide cuándo entregar');
   });
 
@@ -246,5 +251,70 @@ describe('el decisor en la prensa y los medios de RR. HH. de su país (dueña 19
     assert.ok(mentionsCompany('Grupo LALA anunció', 'Grupo LALA'));
     assert.equal(mentionsCompany('Daviplata lanzó una app', 'Davivienda Colombia'), false);
     assert.equal(mentionsCompany('El grupo anunció', 'Grupo LALA'), false);
+  });
+});
+
+describe('respaldo con Claude: citas que se pueden comprobar (dueña 19-10)', () => {
+  it('si Claude escribe lo encontrado y se detiene, se le pide la entrega y valen sus citas del texto', async () => {
+    const bodies: AnthropicRequestBody[] = [];
+    const cited = 'Liliana Reyes asumió la dirección de Recursos Humanos de Asdeporte en septiembre de 2026.';
+    const d: ContactResearchDeps = {
+      checkBudget: async (p) => ({ allowed: p !== 'tavily' }),
+      searchNews: async () => ({ results: [], credits: null, skipped: true, error: null }),
+      runConversation: async (body) => {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Encontré su nombramiento.',
+                citations: [{ type: 'web_search_result_location', url: 'https://noticias.example/rh', title: 'x', cited_text: cited, encrypted_index: 'e' }],
+              } as unknown as AnthropicContentBlock,
+            ],
+            usage: USAGE,
+          };
+        }
+        return {
+          content: submit([{ category: 'new_in_role', doc_id: null, source_url: 'https://noticias.example/rh', quote: cited, statement: 'Asumió la dirección de RR. HH. en septiembre.', published_on: '2026-09-01' }]),
+          usage: USAGE,
+        };
+      },
+    };
+    const found = await researchContact({ ...base, deps: d });
+    assert.equal(bodies.length, 2, 'un segundo turno para entregar');
+    assert.deepEqual(bodies[1].tool_choice, { type: 'tool', name: CONTACT_RESEARCH_TOOL });
+    assert.equal(found.facts.length, 1, 'la cita del texto se comprueba');
+    assert.equal(found.usage?.inputTokens, USAGE.inputTokens * 2, 'se suman los dos turnos');
+  });
+});
+
+describe('su propio perfil de LinkedIn y los directorios de datos (Teamcore, 19-10)', () => {
+  it('una frase de su propio perfil vale aunque no repita su nombre; la de otro perfil no', () => {
+    assert.equal(isOwnLinkedinProfile('https://www.linkedin.com/in/cali-munaylla/', 'Cali Munaylla'), true);
+    assert.equal(isOwnLinkedinProfile('https://mx.linkedin.com/in/cali-munaylla/en', 'Cali Munaylla'), true);
+    assert.equal(isOwnLinkedinProfile('https://www.linkedin.com/in/otra-persona/', 'Cali Munaylla'), false);
+    assert.equal(isOwnLinkedinProfile('https://www.linkedin.com/company/teamcore/', 'Cali Munaylla'), false);
+    assert.equal(isOwnLinkedinProfile(null, 'Cali Munaylla'), false);
+
+    const quote = 'En Teamcore, creemos que el verdadero impacto nace de nuestra gente';
+    const content = [
+      {
+        type: 'text',
+        text: 'Comparte sobre talento.',
+        citations: [{ type: 'web_search_result_location', url: 'https://www.linkedin.com/in/cali-munaylla/', cited_text: `${quote}. Hoy queremos reconocer…`, title: 'x', encrypted_index: 'e' }],
+      },
+      ...submit([{ category: 'public_voice', doc_id: null, source_url: 'https://www.linkedin.com/in/cali-munaylla/', quote, statement: 'Habla de reconocer al equipo.', published_on: null }]),
+    ] as unknown as AnthropicContentBlock[];
+    const verified = verifyContactFindings({ content, documents: [], fullName: 'Cali Munaylla', today: '2026-10-19' });
+    assert.equal(verified.facts.length, 1);
+  });
+
+  it('los directorios de datos personales (rocketreach…) nunca son documentos de la persona', () => {
+    const docs = contactDocuments(
+      [{ url: 'https://rocketreach.co/cali-munaylla-email_1', title: 'Cali Munaylla Email & Phone', content: 'Cali Munaylla, Chief People Officer @ Teamcore. Email y teléfono.', publishedOn: null }],
+      'Cali Munaylla',
+    );
+    assert.equal(docs.length, 0);
   });
 });
