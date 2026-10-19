@@ -13,7 +13,7 @@
  */
 
 import type { AnthropicContentBlock, AnthropicRequestBody, AnthropicUsageTotals } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
-import { extractCitedTextsByUrl } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
+import { extractCitedTextsByUrl, extractWebFetchTexts } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
 import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
 import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/latam-curated/latam-curated-rows';
@@ -22,15 +22,28 @@ import type { DecisionMaker } from './internal-facts';
 import type { NewsSearchInput } from './news-search';
 import type { NewsResult, NewsSearchOutput } from './research-documents';
 import type { ResearchDocument } from './research-prompt';
-import { verifyResearch, type RawResearchSubmission } from './research-verifier';
+import { extractSearchResultDates, verifyResearch, type RawResearchSubmission } from './research-verifier';
 import { CONTACT_FACT_CATEGORIES, type ContactFactCategory, type ContactInsight, type FirstCallPackContent, type ResearchFact } from './types';
 
 export const CONTACT_RESEARCH_TOOL = 'submit_contact_findings';
 /** Datos del decisor que pasan al redactor: pocos y buenos (3x3 de Vidyard, «relevancia sobre volumen»). */
 export const MAX_CONTACT_FACTS = 5;
-/** El respaldo con Claude: dos búsquedas web, las mismas dos preguntas que en Tavily. */
-export const CONTACT_WEB_SEARCHES = 2;
+/**
+ * El respaldo con Claude cuando Tavily no está: tres búsquedas (quién es en la empresa,
+ * su voz pública o nombramiento, y su perfil) y hasta dos artículos leídos enteros.
+ */
+export const CONTACT_WEB_SEARCHES = 3;
+export const CONTACT_WEB_FETCHES = 2;
 const CONTACT_MAX_OUTPUT_TOKENS = 1_800;
+const CONTACT_WEB_FETCH_MAX_CONTENT_TOKENS = 5_000;
+/** Directorios de datos personales (correos y teléfonos de la gente): nunca fuente de la persona. */
+const DATA_BROKER_DOMAINS = ['rocketreach.co', 'zoominfo.com', 'lusha.com', 'apollo.io', 'signalhire.com', 'contactout.com'];
+/** Redes personales, portales de empleo y directorios de datos: nunca fuente de un dato profesional de la persona. */
+const CONTACT_BLOCKED_DOMAINS = [
+  'facebook.com', 'instagram.com', 'tiktok.com', 'x.com', 'twitter.com', 'pinterest.com', 'computrabajo.com', 'indeed.com',
+  // Directorios de datos personales (correos y teléfonos): nunca fuente de la persona.
+  ...DATA_BROKER_DOMAINS,
+];
 const MAX_PRIORITIES = 3;
 const MAX_UNKNOWNS = 3;
 const HOOK_MAX_CHARS = 280;
@@ -88,6 +101,10 @@ const DOC_TEXT_MAX_CHARS = 1_500;
 /** Redes personales: nunca son fuente de un dato profesional. LinkedIn sí (perfil público). */
 const PERSONAL_HOSTS = /(^|\.)(facebook|instagram|twitter|x|tiktok|pinterest|youtube)\.[a-z.]+$/i;
 
+function isDataBroker(host: string): boolean {
+  return DATA_BROKER_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
 function normalize(text: string): string {
   return text
     .normalize('NFD')
@@ -109,6 +126,18 @@ export function mentionsPerson(text: string, fullName: string): boolean {
   return nameTokens(fullName).some((t) => new RegExp(`\\b${t}\\b`).test(haystack));
 }
 
+/**
+ * ¿La fuente es el perfil de LinkedIn de esta persona? (`/in/<slug>` con su apellido). Lo
+ * que ella publica en su perfil no repite su nombre en cada frase («En Teamcore creemos…»),
+ * pero la página es suya: ahí la cita no necesita nombrarla (Teamcore, 19-10, sin Tavily).
+ */
+export function isOwnLinkedinProfile(url: string | null | undefined, fullName: string): boolean {
+  const profile = normalizeLinkedinUrl(url);
+  if (!profile) return false;
+  const slug = normalize(profile.replace(/^linkedin\.com\/in\//, ''));
+  return nameTokens(fullName).some((t) => slug.split(/[^a-z]+/).includes(t));
+}
+
 /** Los resultados de la búsqueda del decisor como documentos: sólo los que lo nombran. */
 export function contactDocuments(results: readonly NewsResult[], fullName: string, linkedinUrl: string | null = null): ResearchDocument[] {
   const ownProfile = normalizeLinkedinUrl(linkedinUrl);
@@ -117,7 +146,7 @@ export function contactDocuments(results: readonly NewsResult[], fullName: strin
   for (const result of results) {
     const host = normalizeDomain(result.url);
     const text = [result.title, result.content].filter(Boolean).join('\n').trim();
-    if (!host || PERSONAL_HOSTS.test(host) || isUbitsCompetitorDomain(result.url)) continue;
+    if (!host || PERSONAL_HOSTS.test(host) || isDataBroker(host) || isUbitsCompetitorDomain(result.url)) continue;
     if (seen.has(result.url) || text.length < 60 || !mentionsPerson(text, fullName)) continue;
     seen.add(result.url);
     documents.push({
@@ -226,7 +255,7 @@ export function buildContactResearchUserMessage(input: {
     input.documents.length > 0 ? `# Resultados de búsqueda\n${docs}` : '# Resultados de búsqueda\n(ninguno)',
     '',
     input.webSearchAllowed
-      ? `Puedes hacer hasta ${CONTACT_WEB_SEARCHES} búsquedas web: «"${input.name}" ${input.companyName}» y otra por su voz pública o un nombramiento reciente.`
+      ? `Puedes hacer hasta ${CONTACT_WEB_SEARCHES} búsquedas web: «"${input.name}" ${input.companyName}», otra por su voz pública o un nombramiento reciente («"${input.name}" entrevista OR nombramiento OR asume») y otra por su cargo en LinkedIn. Lee con web_fetch hasta ${CONTACT_WEB_FETCHES} artículos que lo nombren. Antes de entregar, escribe en texto, en pocas líneas, lo que encontraste de la persona citando los resultados (así queda la frase citada); cada quote sale de una página que leíste o de lo que citaste en ese texto, copiada tal cual.`
       : 'No hay búsqueda web: usa sólo estos resultados.',
     `Entrega el resultado con ${CONTACT_RESEARCH_TOOL}.`,
   ].join('\n');
@@ -260,7 +289,13 @@ export function verifyContactFindings(params: {
   const verified = verifyResearch({
     submission,
     internalFacts: [],
-    sources: { documents: params.documents, citedTextsByUrl: extractCitedTextsByUrl(params.content), fetchedTexts: new Map() },
+    sources: {
+      documents: params.documents,
+      citedTextsByUrl: extractCitedTextsByUrl(params.content),
+      // Lo que Claude leyó entero y la fecha de cada resultado de su búsqueda.
+      fetchedTexts: extractWebFetchTexts(params.content),
+      searchDates: extractSearchResultDates(params.content, params.today),
+    },
     today: params.today,
   });
   // La categoría no pasa por el verificador: se recupera por la cita.
@@ -268,7 +303,7 @@ export function verifyContactFindings(params: {
     rawFacts.map((f) => [typeof f.quote === 'string' ? f.quote.trim() : '', f.category as ContactFactCategory]),
   );
   const facts = verified.facts
-    .filter((f) => f.quote && mentionsPerson(f.quote, params.fullName))
+    .filter((f) => f.quote && (mentionsPerson(f.quote, params.fullName) || isOwnLinkedinProfile(f.sourceUrl, params.fullName)))
     .map((fact) => {
       const { id, ...rest } = fact;
       void id;
@@ -323,6 +358,17 @@ export function cachedContactResearch(
     facts,
     insight: content?.contactInsight ?? { hook: null, priorities: [], unknowns: [], leadsTraining: 'unknown' },
     researchedAt: research.researchedAt,
+  };
+}
+
+function addUsage(a: AnthropicUsageTotals, b: AnthropicUsageTotals): AnthropicUsageTotals {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
+    webSearchRequests: a.webSearchRequests + b.webSearchRequests,
+    webFetchRequests: a.webFetchRequests + b.webFetchRequests,
   };
 }
 
@@ -415,7 +461,12 @@ export async function researchContact(params: {
     max_tokens: CONTACT_MAX_OUTPUT_TOKENS,
     system: [{ type: 'text', text: buildContactResearchSystemPrompt() }],
     tools: [
-      ...(webSearchAllowed ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: CONTACT_WEB_SEARCHES }] : []),
+      ...(webSearchAllowed
+        ? [
+            { type: 'web_search_20250305', name: 'web_search', max_uses: CONTACT_WEB_SEARCHES, blocked_domains: [...CONTACT_BLOCKED_DOMAINS] },
+            { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: CONTACT_WEB_FETCHES, max_content_tokens: CONTACT_WEB_FETCH_MAX_CONTENT_TOKENS },
+          ]
+        : []),
       buildContactResearchTool(),
     ],
     // Con búsqueda web el modelo decide cuándo entregar; sin ella, entrega de una.
@@ -437,7 +488,24 @@ export async function researchContact(params: {
   } as AnthropicRequestBody;
 
   try {
-    const conversation = await deps.runConversation(body, params.apiKey);
+    let conversation = await deps.runConversation(body, params.apiKey);
+    // Con búsqueda web Claude primero escribe lo que encontró (con sus citas) y a veces se
+    // detiene ahí: se le pide la entrega en un segundo turno, juntando todo lo citado.
+    if (webSearchAllowed && !submissionFrom(conversation.content)) {
+      const second = await deps.runConversation(
+        {
+          ...body,
+          tool_choice: { type: 'tool', name: CONTACT_RESEARCH_TOOL },
+          messages: [
+            ...body.messages,
+            { role: 'assistant', content: conversation.content },
+            { role: 'user', content: `Entrega ahora con ${CONTACT_RESEARCH_TOOL}: sólo citas que estén en las fuentes, copiadas tal cual.` },
+          ],
+        } as AnthropicRequestBody,
+        params.apiKey,
+      );
+      conversation = { content: [...conversation.content, ...second.content], usage: addUsage(conversation.usage, second.usage) };
+    }
     const verified = verifyContactFindings({ content: conversation.content, documents, fullName: target.name, today: params.today });
     return {
       facts: verified.facts,
