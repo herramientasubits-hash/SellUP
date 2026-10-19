@@ -36,6 +36,16 @@ export function newFirstContactRunId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * «Abrir» una preparación en curso desde el Centro de procesos (dueña 19-10): abre el
+ * panel de Rumbo de esa empresa con el avance, en la pantalla en la que se esté.
+ */
+export const FIRST_CONTACT_PANEL_OPEN_EVENT = 'sellup:agent3-panel:open';
+
+export function requestOpenFirstContactPanel(accountId: string): void {
+  window.dispatchEvent(new window.CustomEvent(FIRST_CONTACT_PANEL_OPEN_EVENT, { detail: { accountId } }));
+}
+
 /** Evento para que quien muestra la empresa recargue sus preparaciones al terminar. */
 export const FIRST_CONTACT_RUN_SETTLED_EVENT = 'sellup:agent3-run:settled';
 

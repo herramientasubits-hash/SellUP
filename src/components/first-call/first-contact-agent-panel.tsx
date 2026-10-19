@@ -8,6 +8,7 @@ import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { Stepper } from '@/components/navigation/stepper';
 import { getFirstCallProgress } from '@/modules/speech/actions';
 import { getFirstContactRunsStore, newFirstContactRunId, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { FIRST_CONTACT_DETACHED_CODE } from '@/modules/speech/first-contact-runs-store';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
 import type { FirstCallContactOption } from '@/modules/speech/first-call-contacts';
 import {
@@ -189,7 +190,8 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
 
   // Una preparación de esta empresa que sigue en curso (se lanzó, se minimizó y se
   // volvió a abrir): el panel muestra la espera en vez de las preguntas.
-  const activeRun = useFirstContactRuns().find((r) => r.accountId === accountId && r.status === 'running') ?? null;
+  const allRuns = useFirstContactRuns();
+  const activeRun = allRuns.find((r) => r.accountId === accountId && r.status === 'running') ?? null;
   const working = phase === 'running' || activeRun !== null;
 
   // Cada vez que se abre, empieza con lo que llega marcado (ajuste de estado al cambiar
@@ -232,6 +234,20 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     };
   }, [working, accountId]);
 
+  // La corrida lanzada desde este panel. Si quedó desligada, su final llega por el
+  // registro (el Centro de procesos la cierra cuando aparecen sus preparaciones).
+  const [runId, setRunId] = React.useState<string | null>(null);
+  const trackedRun = runId ? allRuns.find((r) => r.id === runId) ?? null : null;
+  if (phase === 'running' && trackedRun && trackedRun.status !== 'running') {
+    setPhase(trackedRun.status === 'succeeded' ? 'done' : 'error');
+    setStage(null);
+    if (trackedRun.status === 'succeeded') {
+      setResult({ total: trackedRun.packStatuses.length, toReview: trackedRun.packStatuses.filter((s) => s === 'needs_review').length });
+    } else {
+      setError(trackedRun.message ?? 'No pudimos preparar el primer contacto. Vuelve a intentarlo.');
+    }
+  }
+
   // Lo último que se pidió: «Reintentar» lo repite igual (investigar de nuevo, motivo).
   const [lastRun, setLastRun] = React.useState<{ refresh: boolean; reason: string | null }>({ refresh: false, reason: null });
 
@@ -251,8 +267,10 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
     setPhase('running');
     setError(null);
     setStage(research ? 'reading_sellup' : 'writing');
+    const id = newFirstContactRunId();
+    setRunId(id);
     const body = await store.startRun({
-      id: newFirstContactRunId(),
+      id,
       accountId,
       accountName,
       title: firstContactRunDetail(selection, contacts),
@@ -265,6 +283,9 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
         regenerationReason: reason,
       }),
     });
+    // Se perdió la respuesta (recarga, red): la preparación sigue en el servidor. El
+    // panel sigue esperando y toma el resultado del registro cuando el Centro lo cierra.
+    if (!body.ok && body.code === FIRST_CONTACT_DETACHED_CODE) return;
     setStage(null);
     if (!body.ok) {
       setError(body.message);
@@ -287,7 +308,7 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   /** «Minimizar»: el panel se va y la preparación sigue en el Centro de procesos. */
   const minimize = () => {
     onOpenChange(false);
-    window.dispatchEvent(new Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
+    window.dispatchEvent(new window.Event(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
   };
 
   const advance = (patch: Partial<FirstContactSelection>) => {
@@ -504,7 +525,9 @@ export function FirstContactAgentPanel(props: FirstContactAgentPanelProps) {
   return (
     <ChatPanel
       open={open}
-      onOpenChange={onOpenChange}
+      // Cerrar mientras trabaja es como minimizar (dueña 19-10): la preparación sigue y
+      // queda a la vista en el Centro de procesos.
+      onOpenChange={(next) => (!next && working ? minimize() : onOpenChange(next))}
       subtitle={`Primer contacto · ${accountName}`}
       markMotion={working ? 'thinking' : 'breathing'}
       onNewConversation={reset}

@@ -43,6 +43,7 @@ import {
 } from './agent-runs-tray-copy';
 import { openAgentRun } from './agent-run-opener';
 import { FirstContactRunRows } from '@/components/first-call/first-contact-run-rows';
+import { FirstContactGlobalPanelHost } from '@/components/first-call/first-contact-global-panel-host';
 import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
@@ -286,6 +287,9 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   };
 
   return (
+    <>
+    {/* «Abrir» una preparación del Agente 3 en curso abre su panel aquí mismo. */}
+    <FirstContactGlobalPanelHost />
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
@@ -412,5 +416,6 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
         )}
       </PopoverContent>
     </Popover>
+    </>
   );
 }

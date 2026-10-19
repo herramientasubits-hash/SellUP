@@ -18,13 +18,19 @@ interface FirstContactPanelHostProps {
   onDone?: () => void;
   /** «Ver el primer contacto» de esa empresa. */
   onViewResult?: (accountId: string) => void;
+  /**
+   * El panel tiene sus datos y se abre en este render. Quien venía mostrando otro
+   * panel (el buscador de empresa) lo cierra AHORA: así no hay un hueco en el que no
+   * se ve ninguno (dueña 19-10: «se cierra por un momento el drawer y vuelve a salir»).
+   */
+  onReady?: () => void;
 }
 
 /**
  * Monta el Agente 3 para una empresa elegida en una lista (menú de la fila, barra de
  * selección, Contactos, Pipeline). Si sólo llega el id, carga lo necesario primero.
  */
-export function FirstContactPanelHost({ target, onClose, onDone, onViewResult }: FirstContactPanelHostProps) {
+export function FirstContactPanelHost({ target, onClose, onDone, onViewResult, onReady }: FirstContactPanelHostProps) {
   // Lo cargado para una empresa (cuando sólo llega su id), recordando para cuál.
   const [loaded, setLoaded] = React.useState<{ target: FirstContactTarget; request: FirstContactLaunchRequest } | null>(null);
   const request =
@@ -52,6 +58,13 @@ export function FirstContactPanelHost({ target, onClose, onDone, onViewResult }:
       cancelled = true;
     };
   }, [target, onClose]);
+
+  const readyFor = React.useRef<FirstContactLaunchRequest | null>(null);
+  React.useEffect(() => {
+    if (!request || readyFor.current === request) return;
+    readyFor.current = request;
+    onReady?.();
+  }, [request, onReady]);
 
   if (!request) return null;
   return (

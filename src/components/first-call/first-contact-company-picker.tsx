@@ -66,6 +66,16 @@ export function FirstContactCompanyPicker({
     setAnswers([]);
   }, []);
 
+  // Cada vez que se abre empieza de cero (lo cierra quien lo monta al pasar a Rumbo).
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setStep({ id: 'ask' });
+      setAnswers([]);
+    }
+  }
+
   const say = (question: string, answer: string) =>
     setAnswers((prev) => [
       ...prev,
@@ -99,7 +109,9 @@ export function FirstContactCompanyPicker({
       return;
     }
     if (result.created) toast.success('Empresa creada en SellUp.', { description: HUBSPOT_NOTE[result.hubspot] });
-    reset();
+    // Sigue a la vista («Abriendo…») hasta que el panel de Rumbo lo reemplaza: quien lo
+    // monta lo cierra en el mismo instante en que el otro se abre, sin hueco.
+    setStep({ id: 'resolving', label: 'Abriendo el primer contacto' });
     onResolved(result.accountId);
   };
 

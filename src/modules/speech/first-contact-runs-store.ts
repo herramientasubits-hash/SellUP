@@ -46,7 +46,16 @@ const MAX_KEPT = 12;
 /** Una invocación vive como mucho 300 s: desligada y sin cerrar después de esto, ya no corre. */
 export const FIRST_CONTACT_DETACHED_STALE_MS = 6 * 60 * 1000;
 const STALE_MESSAGE = 'No pudimos seguirla después de recargar la página. Revisa la pestaña «Primer contacto» de la empresa.';
-const NETWORK_MESSAGE = 'No pudimos conectar con el servidor. Revisa tu conexión y vuelve a intentarlo.';
+/**
+ * Se perdió la respuesta (la página se recargó, se cayó la red o el servidor cortó la
+ * conexión) pero el servidor puede seguir escribiendo (dueña 19-10: «No pudimos conectar
+ * con el servidor» al recargar tras un deploy). No es un fallo: la corrida queda
+ * desligada y el Centro de procesos la cierra cuando aparecen sus preparaciones.
+ */
+export const FIRST_CONTACT_DETACHED_CODE = 'detached';
+const DETACHED_MESSAGE = 'Perdimos la conexión con la preparación, pero sigue en el servidor: la verás en el Centro de procesos.';
+/** Respuestas que no dicen cómo terminó (no son un «no» del servidor). */
+const LOST_RESPONSE_CODES: ReadonlySet<string> = new Set(['bad_response', 'network']);
 
 export interface FirstContactRunsStore {
   getSnapshot(): readonly FirstContactRun[];
@@ -139,9 +148,14 @@ export function createFirstContactRunsStore(deps: FirstContactRunsDeps): FirstCo
       };
       runs = [run, ...runs.filter((r) => r.id !== id)].slice(0, MAX_KEPT);
       emit();
+      const detach = (): FirstContactRunResponse => {
+        update(id, { detached: true });
+        return { ok: false, code: FIRST_CONTACT_DETACHED_CODE, message: DETACHED_MESSAGE };
+      };
       const promise = deps
         .execute(body)
         .then((response) => {
+          if (!response.ok && LOST_RESPONSE_CODES.has(response.code)) return detach();
           update(
             id,
             response.ok
@@ -150,10 +164,7 @@ export function createFirstContactRunsStore(deps: FirstContactRunsDeps): FirstCo
           );
           return response;
         })
-        .catch((): FirstContactRunResponse => {
-          update(id, { status: 'failed', finishedAtMs: now(), message: NETWORK_MESSAGE });
-          return { ok: false, code: 'network', message: NETWORK_MESSAGE };
-        })
+        .catch(detach)
         .finally(() => inFlight.delete(id));
       inFlight.set(id, promise);
       return promise;

@@ -134,6 +134,56 @@ export async function getFirstContactRunPacks(accountId: string, sinceIso: strin
   return ((data ?? []) as { status: string }[]).map((row) => row.status);
 }
 
+/** Tope de preparaciones que se miran en una sola consulta del Centro de procesos. */
+const RUNS_LIVE_MAX = 12;
+
+export interface FirstContactRunLive {
+  stage: ResearchProgressStage | null;
+  /** Estados de las preparaciones creadas desde que empezó (sólo si se pidió con `sinceIso`). */
+  packStatuses: string[] | null;
+}
+
+/**
+ * El avance de TODAS las preparaciones en curso en UNA consulta (Prod 19-10: el Centro
+ * de procesos hacía dos por preparación cada 2,5 s y se veían ráfagas de llamadas).
+ * Para las desligadas (`sinceIso`) trae también los estados de sus preparaciones.
+ */
+export async function getFirstContactRunsLive(
+  items: ReadonlyArray<{ runId: string; accountId: string; sinceIso: string | null }>,
+): Promise<Record<string, FirstContactRunLive>> {
+  const list = (Array.isArray(items) ? items : []).slice(0, RUNS_LIVE_MAX);
+  const out: Record<string, FirstContactRunLive> = {};
+  const admin = createSupabaseAdminClient();
+  await Promise.all(
+    list.map(async (item) => {
+      if (typeof item?.runId !== 'string' || typeof item?.accountId !== 'string') return;
+      if (!(await getAccountById(item.accountId))) return;
+      const [progress, packs] = await Promise.all([
+        admin
+          .from('account_research_briefs')
+          .select('progress_stage')
+          .eq('account_id', item.accountId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        item.sinceIso && !Number.isNaN(Date.parse(item.sinceIso))
+          ? admin
+              .from('first_call_packs')
+              .select('status')
+              .eq('account_id', item.accountId)
+              .gte('created_at', new Date(Date.parse(item.sinceIso) - 5_000).toISOString())
+              .limit(50)
+          : Promise.resolve({ data: null }),
+      ]);
+      out[item.runId] = {
+        stage: ((progress.data as { progress_stage: ResearchProgressStage | null } | null)?.progress_stage) ?? null,
+        packStatuses: packs.data ? (packs.data as { status: string }[]).map((row) => row.status) : null,
+      };
+    }),
+  );
+  return out;
+}
+
 /** Un dato que el vendedor agrega sobre algo que la investigación no encontró. */
 const SELLER_FACT_MIN_CHARS = 3;
 const SELLER_FACT_MAX_CHARS = 400;

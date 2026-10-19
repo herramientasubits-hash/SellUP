@@ -71,4 +71,23 @@ describe('Agente 3 · elegir la empresa desde afuera', () => {
     await rtl.waitFor(() => assert.deepEqual(resolved, ['acc-new']));
     assert.equal((resolveCalls[0] as { candidate: { hubspotCompanyId: string } }).candidate.hubspotCompanyId, '123456789');
   });
+
+  it('al elegir, queda «Abriendo el primer contacto» (no vuelve a preguntar ni se cierra solo) hasta que Rumbo lo reemplaza', async () => {
+    candidates = [{ source: 'hubspot', hubspotCompanyId: '123456789', name: 'Grupo Ciisa', domain: 'grupociisa.com', country: 'Costa Rica', matchConfidence: 0.9 }];
+    const resolved: string[] = [];
+    const openChanges: boolean[] = [];
+    rtl.render(
+      React.createElement(FirstContactCompanyPicker, {
+        open: true,
+        onOpenChange: (open: boolean) => openChanges.push(open),
+        onResolved: (id: string) => resolved.push(id),
+      }),
+    );
+    answerText('Grupo Ciisa');
+    rtl.fireEvent.click(await rtl.screen.findByRole('button', { name: /^Grupo Ciisa/ }));
+    await rtl.waitFor(() => assert.deepEqual(resolved, ['acc-new']));
+    assert.ok(rtl.screen.getByTestId('first-contact-company-working'));
+    assert.ok(rtl.screen.getByText('Abriendo el primer contacto'));
+    assert.deepEqual(openChanges, [], 'quien lo monta lo cierra al abrir Rumbo, no el buscador');
+  });
 });
