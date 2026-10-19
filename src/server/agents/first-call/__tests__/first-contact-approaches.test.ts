@@ -261,6 +261,16 @@ describe('verificador · reglas del manual', () => {
     assert.deepEqual(unsupportedNumbers('En los próximos 14 días o en 12 horas.', []), []);
   });
 
+  it('Auteco (19-10): citar la fuente por nombre («… Report 2025») no es una cifra sin fuente', () => {
+    const issues = emailIssues(
+      'Asunto: Un dato\nLaura, según el LinkedIn Workplace Learning Report 2025, el 88 % de las organizaciones está preocupado por retener talento. ¿Le sirve que le cuente más?',
+    );
+    assert.ok(!issues.some((i) => i.includes('cifras sin fuente')), issues.join(' | '));
+    // Un año que no está en ninguna fuente sigue marcándose.
+    const invented = emailIssues('Asunto: Un dato\nLaura, en 2019 abrieron 7 sedes nuevas. ¿Le sirve?');
+    assert.ok(invented.some((i) => i.includes('2019')), invented.join(' | '));
+  });
+
   it('Asdeporte (19-10): «trabajo con empresas…» y «otros líderes me comentan» también son clientes inventados', () => {
     for (const claim of ['Trabajo con empresas que tienen equipos en varias ciudades.', 'Otros equipos de RR. HH. me comentan lo mismo.']) {
       const issues = emailIssues(`Asunto: Equipos\nLaura, ${claim} ¿Le sirve?`);

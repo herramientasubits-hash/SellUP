@@ -235,7 +235,9 @@ function factNumberText(fact: ResearchFact): string {
 export function numberSources(facts: readonly ResearchFact[]): string[] {
   return [
     ...facts.map(factNumberText),
-    ...UBITS_CLAIMS.map((c) => c.text),
+    // El dato y su fuente por nombre: «según el LinkedIn Workplace Learning Report 2025» no es
+    // una cifra sin fuente (Auteco, 19-10: el año del informe marcaba 3 de 4 preparaciones).
+    ...UBITS_CLAIMS.map((c) => `${c.text} ${c.source}`),
     ...UBITS_OBJECTIONS.map((o) => o.response),
   ];
 }
