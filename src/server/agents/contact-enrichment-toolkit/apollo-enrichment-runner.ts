@@ -36,6 +36,7 @@ import {
   type ContactRelevanceStatus,
 } from './contact-relevance-classifier';
 import { checkCompanyConsistency } from './company-consistency-checker';
+import { isAlreadyKnownContact } from './known-contact-precheck';
 import {
   completeContactWithApollo,
   isActionableContactCandidate,
@@ -343,6 +344,8 @@ interface RelevanceFilterSummary {
 
 /** Resumen del completado selectivo de contactos (Hito 17A.3C/17A.6A/17A.8B). */
 interface ContactCompletionSummary {
+  /** AGENT2-KNOWN-CONTACT-PRECHECK-1 — no completados porque ya eran contacto de la empresa. */
+  skipped_already_known_count: number;
   eligible_count: number;
   /** Perfiles insufficient_data prometedores que entraron a completion (Hito 17A.8B). */
   eligible_from_insufficient_data_count: number;
@@ -955,7 +958,14 @@ export async function executeContactEnrichmentApolloRun(
   );
 
   // Pool total para completion: revisables primero, luego prometedores insuficientes.
-  const allForCompletion = [...selected, ...selectedInsufficients];
+  // AGENT2-KNOWN-CONTACT-PRECHECK-1 — quien ya es contacto de la empresa (nombre de pila + apellido
+  // que encaja, aunque Apollo lo mande oculto) no se completa: pagaríamos 1 crédito para que el
+  // deduplicador lo descarte después como duplicado exacto.
+  const poolForCompletion = [...selected, ...selectedInsufficients];
+  const allForCompletion = poolForCompletion.filter(
+    (item) => !isAlreadyKnownContact(item.contact, dedupSnapshot.existingContactNames),
+  );
+  const skippedAlreadyKnown = poolForCompletion.length - allForCompletion.length;
 
   // Actualizar relevance_filter con los insufficient enviados a completion.
   relevanceFilter.sent_to_completion_from_insufficient_count = selectedInsufficients.length;
@@ -980,6 +990,7 @@ export async function executeContactEnrichmentApolloRun(
   let creditsPhone = 0;
 
   const completionSummary: ContactCompletionSummary = {
+    skipped_already_known_count: skippedAlreadyKnown,
     eligible_count: selected.length,
     eligible_from_insufficient_data_count: selectedInsufficients.length,
     attempted_count: 0,

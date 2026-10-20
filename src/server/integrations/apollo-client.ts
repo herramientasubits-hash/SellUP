@@ -116,6 +116,8 @@ export interface ApolloPerson {
   state?: string | null;
   country?: string | null;
   email_status?: string | null;
+  /** People API Search (gratis) devuelve el apellido oculto: «Go***z». */
+  last_name_obfuscated?: string | null;
 }
 
 // ============================================================

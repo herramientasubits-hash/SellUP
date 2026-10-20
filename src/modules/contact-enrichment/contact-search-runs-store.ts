@@ -68,7 +68,8 @@ export function contactsFound(result: RunAutomaticContactEnrichmentForRequestRes
     (created.lusha ?? 0) +
     (result.reusedExistingCandidates ?? 0) +
     (result.hubspotFirstCandidates ?? 0) +
-    (result.contactBankCandidates ?? 0)
+    (result.contactBankCandidates ?? 0) +
+    (result.companySiteCandidates ?? 0)
   );
 }
 
