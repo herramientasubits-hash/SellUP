@@ -176,7 +176,13 @@ export async function approveAndConvertPendingReviewCandidateAction(
     // 5. Delegate the conversion to the canonical action. This is the SINGLE
     //    source of truth for account creation + HubSpot best-effort + audit +
     //    idempotency. The wrapper adds no parallel write.
-    const result = await approveAndConvertCandidateAction(candidateId);
+    //    AGENT1-AUDIT-WS4 — la acción canónica vuelve a aplicar la MISMA política
+    //    (admin, needs_review, confirmaciones), así que se le pasan las
+    //    confirmaciones humanas que este envoltorio ya validó.
+    const result = await approveAndConvertCandidateAction(candidateId, {
+      confirmPossibleDuplicate: options.confirmPossibleDuplicate,
+      confirmHubSpotMatch: options.confirmHubSpotMatch,
+    });
 
     if (!result.success) {
       // The canonical action already logged detail; surface a safe generic

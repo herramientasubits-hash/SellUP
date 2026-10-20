@@ -28,6 +28,7 @@ import {
   extractDomainFromWebsite,
   normalizeTaxIdentifier,
 } from './normalization';
+import { isNationalPortalWithEntityPaths, readNationalPortalEntity } from './national-portal-entity';
 
 export interface ProspectCandidateIdentityInput {
   name?: string | null;
@@ -72,7 +73,14 @@ export function buildProspectCandidateIdentityKey(
   // 2. Dominio normalizado (del campo domain o derivado del website).
   const normalizedDomain =
     normalizeDomain(input.domain ?? '') ?? extractDomainFromWebsite(input.website);
-  if (normalizedDomain) {
+  // AUDIT-HARDENING-1 — un ministerio que vive como ruta del portal nacional
+  // (`gob.pe/minsa`) se identifica por portal + entidad. Con `domain:gob.pe` todos
+  // compartían clave y, desde la segunda corrida, se saltaban como «ya vistos».
+  if (normalizedDomain && isNationalPortalWithEntityPaths(normalizedDomain)) {
+    const portalEntity = readNationalPortalEntity(input.website);
+    if (portalEntity) return `domain:${portalEntity.key}`;
+    // La portada del portal sin entidad no identifica a nadie: sigue por las señales de abajo.
+  } else if (normalizedDomain) {
     return `domain:${normalizedDomain}`;
   }
 

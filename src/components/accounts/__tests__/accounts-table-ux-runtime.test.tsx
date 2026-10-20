@@ -54,7 +54,6 @@ let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
 let within: (typeof import('@testing-library/react'))['within'];
 let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
-let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
 mock.module('next/navigation', {
@@ -111,15 +110,16 @@ function account(overrides: Partial<AccountListItem>): AccountListItem {
   };
 }
 
+// El siguiente paso lo calcula la página (dueña 18-10: «Nueva» en casi todas no decía nada).
 const ACCOUNTS = [
-  account({ id: 'a1', name: 'Acme', pipeline_status: 'new' }),
-  account({ id: 'a2', name: 'Beta', pipeline_status: 'ready_for_research', country_code: 'MX', domain: null }),
-  account({ id: 'a3', name: 'Gamma', pipeline_status: 'ready_for_outreach', country_code: null, industry: null, owner_name: null, owner_id: null }),
-  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1' }),
+  account({ id: 'a1', name: 'Acme', pipeline_status: 'new', next_step: 'find_contacts' }),
+  account({ id: 'a2', name: 'Beta', pipeline_status: 'ready_for_research', country_code: 'MX', domain: null, next_step: 'prepare_first_contact' }),
+  account({ id: 'a3', name: 'Gamma', pipeline_status: 'ready_for_outreach', country_code: null, industry: null, owner_name: null, owner_id: null, next_step: 'make_first_contact' }),
+  account({ id: 'a4', name: 'Delta', pipeline_status: 'ready_for_outreach', source: 'agent_1', next_step: 'make_first_contact' }),
 ];
 
 before(async () => {
-  ({ render, screen, within, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
+  ({ render, screen, within, fireEvent, cleanup } = await import('@testing-library/react'));
   ({ AccountsDataTableClient } = await import('../accounts-data-table-client'));
 });
 
@@ -145,23 +145,23 @@ function renderTable(accounts: AccountListItem[] = ACCOUNTS, emptyActions?: Reac
 }
 
 describe('Empresas — los indicadores son filtros de un toque', () => {
-  it('cada estado clave es un botón con su recuento', () => {
+  it('cada siguiente paso clave es un botón con su recuento', () => {
     renderTable();
 
     const group = within(indicators());
-    assert.match(group.getByRole('button', { name: /Nuevas/ }).textContent ?? '', /1/);
-    assert.match(group.getByRole('button', { name: /Listas para investigar/ }).textContent ?? '', /1/);
-    assert.match(group.getByRole('button', { name: /Listas para contacto/ }).textContent ?? '', /2/);
+    assert.match(group.getByRole('button', { name: /Buscar contactos/ }).textContent ?? '', /1/);
+    assert.match(group.getByRole('button', { name: /Preparar primer contacto/ }).textContent ?? '', /1/);
+    assert.match(group.getByRole('button', { name: /Hacer el primer contacto/ }).textContent ?? '', /2/);
   });
 
   it('pulsar uno deja solo esas empresas; pulsarlo otra vez las devuelve todas', () => {
     renderTable();
-    const button = () => within(indicators()).getByRole('button', { name: /Listas para contacto/ });
+    const button = () => within(indicators()).getByRole('button', { name: /Hacer el primer contacto/ });
 
     fireEvent.click(button());
     assert.deepEqual(rowNames(), ['Gamma', 'Delta']);
     assert.equal(button().getAttribute('aria-pressed'), 'true');
-    assert.ok(screen.getByText('Empresas · Listas para contacto'));
+    assert.ok(screen.getByText('Empresas · Hacer el primer contacto'));
 
     fireEvent.click(button());
     assert.equal(rowNames().length, 4);
@@ -188,8 +188,8 @@ describe('Empresas — vacíos', () => {
   it('un indicador sin filas lo dice y ofrece quitarlo', () => {
     renderTable(ACCOUNTS.slice(1));
 
-    fireEvent.click(within(indicators()).getByRole('button', { name: /Nuevas/ }));
-    assert.ok(screen.getByText('Nada en «Nuevas»'));
+    fireEvent.click(within(indicators()).getByRole('button', { name: /Buscar contactos/ }));
+    assert.ok(screen.getByText('Nada en «Buscar contactos»'));
     assert.equal(screen.queryByText('Todavía no hay empresas'), null, 'no se hace pasar por lista vacía');
 
     fireEvent.click(screen.getByRole('button', { name: 'Quitar filtro' }));
@@ -218,12 +218,13 @@ describe('Empresas — celdas', () => {
     assert.equal(detailOpenFor, null);
   });
 
-  it('solo el estado va en chip: la fuente es texto', () => {
+  it('solo el siguiente paso va en chip (sin el agente al lado); la fuente es texto', () => {
     renderTable();
 
     const row = screen.getByRole('button', { name: 'Delta' }).closest('tr');
     assert.ok(row);
-    assert.equal(within(row).getByText('Lista para contacto').getAttribute('data-slot'), 'badge');
+    assert.equal(within(row).getByText('Hacer el primer contacto').getAttribute('data-slot'), 'badge');
+    assert.equal(within(row).queryByText(/Agente \d/), null);
     assert.equal(row.querySelectorAll('[data-slot="badge"]').length, 1);
   });
 
@@ -235,26 +236,24 @@ describe('Empresas — celdas', () => {
   });
 });
 
-describe('Empresas — el menú dice a qué estado pasa', () => {
-  it('ofrece una entrada por estado posible, nunca el actual, y aplica el elegido', async () => {
+describe('Empresas — el estado no se cambia a mano', () => {
+  it('el menú de la fila no ofrece cambiar el estado: lo mueven los agentes', async () => {
     // «Menú en cada fila» (Configurar tabla): las mismas entradas que el clic derecho.
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ rowControl: 'menu' }));
     renderTable();
 
     fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme' }));
 
-    const target = await screen.findByRole('menuitem', { name: 'Marcar como «Lista para contacto»' });
-    assert.ok(screen.getByRole('menuitem', { name: 'Marcar como «Lista para investigar»' }));
-    assert.equal(screen.queryByRole('menuitem', { name: 'Marcar como «Nueva»' }), null);
+    await screen.findByRole('menuitem', { name: 'Editar empresa' });
+    assert.equal(screen.queryByRole('menuitem', { name: /Marcar como/ }), null);
     assert.equal(screen.queryByRole('menuitem', { name: 'Cambiar estado' }), null);
-
-    fireEvent.click(target);
-    await waitFor(() => assert.deepEqual(statusChanges, [{ id: 'a1', status: 'ready_for_outreach' }]));
+    assert.ok(screen.getByRole('menuitem', { name: 'Archivar empresa' }));
+    assert.deepEqual(statusChanges, []);
   });
 });
 
 describe('Empresas — vista «Lista»', () => {
-  it('pinta cada empresa como fila de lista con su estado', () => {
+  it('pinta cada empresa como fila de lista con su siguiente paso', () => {
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ view: 'list' }));
     renderTable();
 
@@ -264,7 +263,32 @@ describe('Empresas — vista «Lista»', () => {
     const first = within(items[0]);
     assert.ok(first.getByRole('button', { name: 'Acme' }));
     assert.ok(first.getByText('Colombia · Tecnología · acme.co'));
-    assert.ok(first.getByText('Nueva'));
+    assert.ok(first.getByText('Buscar contactos'));
     assert.ok(first.getByRole('checkbox', { name: 'Seleccionar Acme' }));
   });
 });
+
+describe('Rumbo desde la barra: «¿Qué hacemos?» con las empresas marcadas (dueña 20-10)', () => {
+  it('con una empresa ofrece buscar sus contactos y preparar el primer contacto', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    const copy = chooserCopy([{ name: 'Davivienda' }], 'none', true);
+    assert.match(copy.intro, /¿Qué hacemos con Davivienda\?/);
+    assert.deepEqual(copy.options.map((o) => o.value), ['contacts', 'first-contact']);
+  });
+
+  it('con varias, sólo buscar contactos en lote; sin Agente 3, sin primer contacto', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    const many = chooserCopy([{ name: 'A' }, { name: 'B' }], 'none', true);
+    assert.deepEqual(many.options.map((o) => o.value), ['contacts']);
+    assert.match(many.options[0].description, /2 empresas, en lote/);
+    const off = chooserCopy([{ name: 'A' }], 'none', false);
+    assert.deepEqual(off.options.map((o) => o.value), ['contacts']);
+    assert.equal(off.intro.includes('primer contacto'), false);
+  });
+
+  it('sin nada marcado, el de siempre (prospectar, contactos, primer contacto)', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    assert.deepEqual(chooserCopy(undefined, 'available', true).options.map((o) => o.value), ['prospect', 'contacts', 'first-contact']);
+  });
+});
+

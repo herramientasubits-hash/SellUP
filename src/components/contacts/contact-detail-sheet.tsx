@@ -2,6 +2,7 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import Link from 'next/link';
 import {
   Mail,
@@ -20,6 +21,7 @@ import {
   AlertCircle,
   UserX,
   Pencil,
+  PhoneCall,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +51,8 @@ import { ContactRowActions } from './contact-row-actions';
 import { ContactTraceabilityPanel, TraceCard, TraceRow } from './contact-traceability-panel';
 import { EditContactDrawer } from './edit-contact-drawer';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
+import { getFirstCallEnabled } from '@/modules/speech/actions';
+import { firstCallHref } from '@/modules/speech/first-call-links';
 import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
 import {
   HUBSPOT_AUTO_SYNC_BLOCKED_LABELS,
@@ -127,6 +131,8 @@ interface ContactDetailSheetProps {
 }
 
 export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, onClose);
   const [contact, setContact] = React.useState<Contact | null>(null);
   const [auditLog, setAuditLog] = React.useState<ContactAuditEntry[]>([]);
   const [account, setAccount] = React.useState<AccountWithOwner | null>(null);
@@ -134,6 +140,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
   // ningún número viaja al navegador hasta que el operador abre el disclosure.
   const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
+  // Agente 3: ¿se ofrece «Preparar primer contacto»? Complementario: si no se puede saber, no se ofrece.
+  const [firstCallEnabled, setFirstCallEnabled] = React.useState(false);
   // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
   // Sin este estado, «no encontrado» y «la lectura falló» eran indistinguibles de «todavía
   // cargando», y las tres se pintaban como el mismo spinner que nunca se iba.
@@ -167,16 +175,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       // `catch` un tropiezo leyendo teléfonos adicionales dejaría el drawer entero en «no se
       // pudo cargar el contacto» con el contacto ya cargado. Fail-closed hacia «no ofrecer el
       // CTA»: se pierde un botón, nunca la ficha.
-      const [log, acc, storedPhones] = await Promise.all([
+      const [log, acc, storedPhones, firstCall] = await Promise.all([
         getContactAudit(id).catch(() => [] as ContactAuditEntry[]),
         getAccountById(c.account_id).catch(() => null),
         getOfficialContactStoredPhoneSummaryAction({ contactId: id }).catch(() => ({
           additionalCount: 0,
         })),
+        getFirstCallEnabled().catch(() => false),
       ]);
       setAuditLog(log);
       setAccount(acc);
       setAdditionalPhoneCount(storedPhones.additionalCount);
+      setFirstCallEnabled(firstCall);
     } catch (caught) {
       // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Tragarlo aquí convertiría
       // una sesión caducada en «no se pudo cargar el contacto» en vez de llevar al login.
@@ -265,6 +275,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
               placement="drawer"
               onActionComplete={() => loadData(contact.id)}
             />
+            {firstCallEnabled && account && contact.contact_status === 'active' && (
+              <Button asChild type="button" size="sm" variant="outline">
+                <Link href={firstCallHref(account.id, contact.id)}>
+                  <PhoneCall aria-hidden="true" />
+                  Preparar primer contacto
+                </Link>
+              </Button>
+            )}
             <Button type="button" size="sm" onClick={() => setEditOpen(true)}>
               <Pencil aria-hidden="true" />
               Editar contacto

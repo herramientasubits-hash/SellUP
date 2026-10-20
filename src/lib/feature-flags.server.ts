@@ -1187,9 +1187,9 @@ export const HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG = 'ENABLE_HUBSPOT_FREE_POOL_
 /**
  * Al APROBAR una empresa que estaba libre en HubSpot, ¿la toma el vendedor de SellUp
  * en HubSpot? Decisión de la dueña (15-10): dueño = vendedor, estado de lead «New»
- * (deja de verse libre y el ciclo de 120 días vuelve a empezar), Fecha Asignación =
- * hoy, y los contactos de la empresa pasan al vendedor (salvo los de otro vendedor
- * activo). Antes de escribir se vuelve a comprobar que siga libre; si alguien la tomó
+ * (deja de verse libre y el ciclo de 120 días vuelve a empezar) y los contactos de
+ * la empresa pasan al vendedor (salvo los de otro vendedor activo). HubSpot pone solo
+ * la Fecha Asignación al cambiar el dueño. Antes de escribir se vuelve a comprobar que siga libre; si alguien la tomó
  * por HubSpot, no se toca.
  *
  * Es ESCRITURA en HubSpot de Producción: requiere autorización explícita de la dueña
@@ -1199,4 +1199,24 @@ export const HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG = 'ENABLE_HUBSPOT_FREE_POOL_
  */
 export function isHubSpotFreePoolOwnerWritebackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[HUBSPOT_FREE_POOL_OWNER_WRITEBACK_FLAG]);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agente 3 · Primera llamada (AGENT3-FIRST-CALL-1)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT3_FIRST_CALL_FLAG = 'ENABLE_AGENT3_FIRST_CALL';
+
+/**
+ * ¿Está el botón «Preparar primera llamada»? El agente investiga la empresa (sitio
+ * oficial, noticias de Tavily, búsqueda web de Claude con tope) y redacta el guion.
+ * Gasta Claude y créditos de Tavily, siempre detrás del tope de «Presupuesto y
+ * créditos», y sólo cuando alguien pulsa el botón. No escribe en HubSpot.
+ *
+ * Necesita la migración 153 aplicada.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent3FirstCallEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT3_FIRST_CALL_FLAG]);
 }

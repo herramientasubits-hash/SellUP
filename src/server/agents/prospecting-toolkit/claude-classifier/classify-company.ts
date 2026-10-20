@@ -11,6 +11,7 @@
 import type { SafePageFetchResult } from '../website-verifier';
 import {
   AnthropicApiError,
+  EMPTY_USAGE,
   runAnthropicConversation,
   type AnthropicConversationResult,
   type AnthropicRequestBody,
@@ -56,7 +57,21 @@ export type ClassifyCompanyDeps = {
   fetchPage: (websiteOrDomain: string) => Promise<SafePageFetchResult>;
   runConversation: (body: AnthropicRequestBody) => Promise<AnthropicConversationResult>;
   now: () => number;
+  /**
+   * AUDIT-A1-WS7 — instante (ms epoch) en que esta empresa tiene que haber
+   * terminado: derivado del tope de la corrida. Pasado, no se empieza ningún paso
+   * más (turno forzado, descargas de fuentes) y la conversación se corta.
+   */
+  deadlineAtMs?: number;
 };
+
+/** ¿Queda tiempo para empezar otro paso de esta empresa? */
+function hasTimeLeft(deps: Pick<ClassifyCompanyDeps, 'now' | 'deadlineAtMs'>, reserveMs = 0): boolean {
+  return deps.deadlineAtMs === undefined || deps.deadlineAtMs - deps.now() > reserveMs;
+}
+
+/** Margen mínimo para que valga la pena un paso extra (turno forzado o una descarga). */
+const STEP_MIN_TIME_MS = 5_000;
 
 export type ClassifyCompanyParams = {
   company: ClassifierCompanyInput;
@@ -150,8 +165,15 @@ export async function classifyCompany(
   const body = buildClassifierRequestBody(params, officialUrl, ownPageUsable ? ownText : null);
   let conversation: AnthropicConversationResult;
   try {
+    if (!hasTimeLeft(deps, STEP_MIN_TIME_MS)) {
+      throw new AnthropicApiError(null, 'deadline_exceeded', 'company deadline reached before the model call', EMPTY_USAGE);
+    }
     conversation = await deps.runConversation(body);
-    if (!extractSubmission(conversation.content) && conversation.stopReason === 'end_turn') {
+    if (
+      !extractSubmission(conversation.content) &&
+      conversation.stopReason === 'end_turn' &&
+      hasTimeLeft(deps, STEP_MIN_TIME_MS)
+    ) {
       conversation = await forceSubmission(body, conversation, deps);
     }
   } catch (err) {
@@ -281,27 +303,46 @@ export async function forceSubmission(
   toolName: string = SUBMIT_TOOL_NAME,
   instruction: string = `Entrega ahora tu resultado con ${SUBMIT_TOOL_NAME}. Sin fuente, deja el dato en null.`,
 ): Promise<AnthropicConversationResult> {
-  const second = await deps.runConversation({
-    ...body,
-    tool_choice: { type: 'tool', name: toolName },
-    messages: [
-      ...body.messages,
-      { role: 'assistant', content: first.content },
-      { role: 'user', content: instruction },
-    ],
-  });
+  let second: AnthropicConversationResult;
+  try {
+    second = await deps.runConversation({
+      ...body,
+      tool_choice: { type: 'tool', name: toolName },
+      messages: [
+        ...body.messages,
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: instruction },
+      ],
+    });
+  } catch (err) {
+    // El primer turno ya se cobró (tokens y búsquedas web): si el turno forzado
+    // falla, el error lleva la suma para que la fila del gasto no quede en ~US$0.
+    if (err instanceof AnthropicApiError) {
+      throw new AnthropicApiError(err.status, err.code, err.message, sumUsage(first.usage, err.partialUsage));
+    }
+    throw new AnthropicApiError(
+      null,
+      'unexpected_error',
+      err instanceof Error ? err.message : String(err),
+      first.usage,
+    );
+  }
   return {
     content: [...first.content, ...second.content],
     stopReason: second.stopReason,
-    usage: {
-      inputTokens: first.usage.inputTokens + second.usage.inputTokens,
-      outputTokens: first.usage.outputTokens + second.usage.outputTokens,
-      cacheReadInputTokens: first.usage.cacheReadInputTokens + second.usage.cacheReadInputTokens,
-      cacheCreationInputTokens: first.usage.cacheCreationInputTokens + second.usage.cacheCreationInputTokens,
-      webSearchRequests: first.usage.webSearchRequests + second.usage.webSearchRequests,
-      webFetchRequests: first.usage.webFetchRequests + second.usage.webFetchRequests,
-    },
+    usage: sumUsage(first.usage, second.usage),
     requests: first.requests + second.requests,
+  };
+}
+
+function sumUsage(a: AnthropicUsageTotals, b: AnthropicUsageTotals): AnthropicUsageTotals {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
+    webSearchRequests: a.webSearchRequests + b.webSearchRequests,
+    webFetchRequests: a.webFetchRequests + b.webFetchRequests,
   };
 }
 
@@ -314,6 +355,8 @@ async function fetchUnverifiedSources(
     .map((f) => f!.sourceUrl);
   const texts = new Map<string, string>();
   for (const url of [...new Set(urls)]) {
+    // AUDIT-A1-WS7 — sin tiempo, la fuente queda como `source_listed`.
+    if (!hasTimeLeft(deps, STEP_MIN_TIME_MS)) break;
     const key = canonicalUrl(url);
     if (!key) continue;
     try {
@@ -330,10 +373,18 @@ async function fetchUnverifiedSources(
 export function buildLiveClassifyCompanyDeps(
   apiKey: string,
   fetchPage: ClassifyCompanyDeps['fetchPage'],
+  options: { deadlineAtMs?: number } = {},
 ): ClassifyCompanyDeps {
   return {
     fetchPage,
-    runConversation: (body) => runAnthropicConversation({ apiKey, body, timeoutMs: ANTHROPIC_REQUEST_TIMEOUT_MS }),
+    runConversation: (body) =>
+      runAnthropicConversation({
+        apiKey,
+        body,
+        timeoutMs: ANTHROPIC_REQUEST_TIMEOUT_MS,
+        ...(options.deadlineAtMs !== undefined ? { deadlineAtMs: options.deadlineAtMs } : {}),
+      }),
     now: () => Date.now(),
+    ...(options.deadlineAtMs !== undefined ? { deadlineAtMs: options.deadlineAtMs } : {}),
   };
 }

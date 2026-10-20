@@ -11,6 +11,7 @@ import { OptionTile } from "@/components/selection/option-tile";
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from "@/modules/accounts/types";
 import { getPipelineStage, resolveCurrentStage } from "@/modules/pipeline/stages";
 import { STAGE_NOTE_MIN_LENGTH, isStageNoteTextValid } from "@/modules/pipeline/stage-notes";
+import { FIRST_CALL_AGENT_LABEL, isFirstCallStage } from "@/modules/pipeline/journey-first-call";
 import { STAGE_MOVE_COPY } from "./pipeline-copy";
 
 /** Lo que devuelve mover una empresa de etapa (la forma de `updateAccount`). */
@@ -47,6 +48,11 @@ export interface StageMoveDialogProps {
   canUseAi?: boolean;
   /** Quien monta el diálogo puede abrir el alta de contactos de esa empresa. */
   canUploadContacts?: boolean;
+  /**
+   * El Agente 3 está encendido: «Lista para investigar», «Investigación en curso» y «Lista
+   * para contacto» ofrecen «Que lo haga la IA» (investigar la empresa y preparar la llamada).
+   */
+  firstCallEnabled?: boolean;
 }
 
 function confirmLabel(choice: Choice | null, outside: OutsideChoice | null): string {
@@ -73,6 +79,7 @@ export function StageMoveDialog({
   onCancel,
   canUseAi = false,
   canUploadContacts = false,
+  firstCallEnabled = false,
 }: StageMoveDialogProps) {
   const isOpen = accountName !== null && toStatus !== null;
   const [choice, setChoice] = React.useState<Choice | null>(null);
@@ -96,7 +103,8 @@ export function StageMoveDialog({
 
   const stageId = toStatus ? resolveCurrentStage(toStatus).stageId : null;
   const stage = stageId ? getPipelineStage(stageId) : null;
-  const stageHasAgent = stage?.phase === "hecho";
+  const firstCallStage = firstCallEnabled && isFirstCallStage(stageId);
+  const stageHasAgent = stage?.phase === "hecho" || firstCallStage;
   const aiBlockedReason = !stageHasAgent ? STAGE_MOVE_COPY.aiSoon : !canUseAi ? STAGE_MOVE_COPY.aiUnavailable : null;
   const contactsBlockedReason = canUploadContacts ? null : STAGE_MOVE_COPY.contactsUnavailable;
 
@@ -154,7 +162,7 @@ export function StageMoveDialog({
               value: "ai",
               label: STAGE_MOVE_COPY.ai,
               badge: aiBlockedReason ? undefined : STAGE_MOVE_COPY.aiBadge,
-              description: aiBlockedReason ?? (stage ? STAGE_MOVE_COPY.aiDescription(stage.agent) : undefined),
+              description: aiBlockedReason ?? (stage ? STAGE_MOVE_COPY.aiDescription(firstCallStage ? FIRST_CALL_AGENT_LABEL : stage.agent) : undefined),
               icon: Sparkles,
               disabled: aiBlockedReason !== null,
             }}

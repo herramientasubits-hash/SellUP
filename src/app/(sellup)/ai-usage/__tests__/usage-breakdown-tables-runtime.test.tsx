@@ -62,6 +62,8 @@ import type {
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
+let fireEvent: (typeof import('@testing-library/react'))['fireEvent'];
+let drilldown: typeof import('../agent-drilldown');
 let agentSteps: typeof import('../agent-steps-table');
 let countryTools: typeof import('../country-tools-table');
 let roleGroups: typeof import('../role-group-tables');
@@ -149,8 +151,9 @@ const SEARCH: SearchBatchRow = {
 };
 
 before(async () => {
-  ({ render, screen, cleanup } = await import('@testing-library/react'));
+  ({ render, screen, cleanup, fireEvent } = await import('@testing-library/react'));
   agentSteps = await import('../agent-steps-table');
+  drilldown = await import('../agent-drilldown');
   countryTools = await import('../country-tools-table');
   roleGroups = await import('../role-group-tables');
   searches = await import('../search-batches-table');
@@ -176,6 +179,64 @@ describe('Por agente', () => {
     assert.equal(has('Costo estimado'), false);
     assert.equal(has('Costo por resultado'), false);
     assert.ok(has('12.000 tokens'));
+  });
+});
+
+describe('Por agente · elegir un agente (el Agente 1 ya no tiene pestaña propia)', () => {
+  const AGENT3: AgentSummaryRow = { agentKey: 'agent3', calls: 4, errors: 0, credits: 2, costUsd: 0.1, hasUnknownCost: false, steps: 4 };
+  const STEP3: AgentStepRow = {
+    ...STEP,
+    id: 'agent3:redactar_llamada',
+    agentKey: 'agent3',
+    agentStep: 'redactar_llamada',
+    resultMetric: null,
+    resultCount: null,
+    costPerResultUsd: null,
+  };
+  const PANEL = h('p', null, 'Panel propio del Agente 1');
+
+  function renderDrilldown(initialAgent?: string) {
+    render(
+      h(drilldown.AgentDrilldown, {
+        agents: [AGENT, AGENT3],
+        steps: [STEP, STEP3],
+        moneyVisible: true,
+        initialAgent,
+        details: { agent1: PANEL },
+      }),
+    );
+  }
+
+  it('con «Todos» muestra los pasos de todos los agentes y ningún panel propio', () => {
+    renderDrilldown();
+    assert.ok(has('Buscar la web de una descartada (Claude)'));
+    assert.ok(has('Preparar el primer contacto (Claude)'));
+    assert.equal(has('Panel propio del Agente 1'), false);
+  });
+
+  it('al elegir el Agente 1 muestra sólo sus pasos y su panel (lo que era la pestaña «Agente 1»)', () => {
+    renderDrilldown();
+    fireEvent.click(screen.getByRole('button', { name: /Agente 1 · Empresas/ , pressed: false }));
+    assert.ok(has('Panel propio del Agente 1'));
+    assert.ok(has('Buscar la web de una descartada (Claude)'));
+    assert.equal(has('Preparar el primer contacto (Claude)'), false);
+  });
+
+  it('abre con el agente que dice la URL y una tarjeta también lo elige', () => {
+    renderDrilldown('agent3');
+    assert.ok(has('Preparar el primer contacto (Claude)'));
+    assert.equal(has('Buscar la web de una descartada (Claude)'), false);
+    const card = screen.getAllByRole('button', { pressed: true }).find((b) => b.tagName === 'BUTTON' && b.title.includes('Agente 3'));
+    assert.ok(card, 'la tarjeta del agente elegido queda marcada');
+  });
+
+  it('un agente desconocido (o una clave del prototipo) en la URL abre «Todos»', () => {
+    renderDrilldown('constructor');
+    assert.ok(has('Preparar el primer contacto (Claude)'));
+    cleanup();
+    renderDrilldown('agent9');
+    assert.ok(has('Buscar la web de una descartada (Claude)'));
+    assert.ok(has('Preparar el primer contacto (Claude)'));
   });
 });
 

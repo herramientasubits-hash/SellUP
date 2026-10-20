@@ -50,6 +50,8 @@ export const TAVILY_STATIC_EXCLUDE_DOMAINS: readonly string[] = Object.freeze([
   'dateas.com', 'licitador.co', 'elhospital.com',
   // AGENT1-TAVILY-FIRST-5 — fichas de empresas de terceros (Prod 02-10, 2fc07f4a).
   'perulicitaciones.com', 'universidadperu.com', 'datosperu.org',
+  // AUDIT-A1-WS7 — directorios que el filtro de ruido descartaba sin excluirlos aquí.
+  'bnamericas.com', 'cybo.com', 'rues.org.co',
 ]);
 
 export type TavilyExcludeDomainsInput = {
@@ -113,6 +115,19 @@ export function countryJobBoardDomains(countryCode: string | null | undefined): 
   return COUNTRY_JOB_BOARD_BRANDS.flatMap((brand) => [`${brand}.com.${code}`, `${brand}.${code}`]);
 }
 
+/**
+ * AUDIT-A1-WS7 — directorios con dominio por país (`doctoralia.com.co`,
+ * `tripadvisor.com.mx`, `mercadolibre.cl`…), en las terminaciones del país de la
+ * corrida. El filtro de ruido los descarta por marca en cualquier país.
+ */
+const COUNTRY_DIRECTORY_BRANDS: readonly string[] = Object.freeze(['doctoralia', 'tripadvisor', 'mercadolibre']);
+
+export function countryDirectoryDomains(countryCode: string | null | undefined): string[] {
+  const code = countryCode?.trim().toLowerCase() ?? '';
+  if (!/^[a-z]{2}$/.test(code)) return [];
+  return COUNTRY_DIRECTORY_BRANDS.flatMap((brand) => [`${brand}.com.${code}`, `${brand}.${code}`]);
+}
+
 export type TavilyExcludeDomainsResult = {
   domains: string[];
   staticCount: number;
@@ -146,7 +161,9 @@ export function buildTavilyExcludeDomains(input: TavilyExcludeDomainsInput): Tav
   };
 
   const staticCount =
-    addAll(TAVILY_STATIC_EXCLUDE_DOMAINS) + addAll(countryJobBoardDomains(input.countryCode));
+    addAll(TAVILY_STATIC_EXCLUDE_DOMAINS) +
+    addAll(countryJobBoardDomains(input.countryCode)) +
+    addAll(countryDirectoryDomains(input.countryCode));
   const seenThisRunCount = addAll(input.seenThisRun);
   const cellDomainsCount = addAll(input.cellDomains ?? []);
   const negativeMemoryCount = addAll(prioritizeCountryDomains(input.negativeMemory, input.countryCode));

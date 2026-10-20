@@ -16,7 +16,9 @@ export type HubSpotAccountCreatedFrom =
   | 'contact_enrichment_approval'
   | 'contact_enrichment_request'
   // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: «Reasignar empresa» en la ficha del candidato.
-  | 'contact_candidate_reassignment';
+  | 'contact_candidate_reassignment'
+  // Agente 3: «Preparar primer contacto» para una empresa elegida desde HubSpot.
+  | 'first_contact_request';
 
 export function normalizeAccountName(name: string): string {
   return name

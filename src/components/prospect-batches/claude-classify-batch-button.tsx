@@ -26,6 +26,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   quota_exhausted: 'La cuota mensual configurada para Anthropic está agotada.',
   catalog_unavailable: 'No se pudo leer el catálogo de industrias.',
   candidates_unavailable: 'No se pudieron leer los candidatos del lote.',
+  // AUDIT-HARDENING-1 — candado por lote (WS2 § 11): un segundo clic no paga dos veces.
+  in_progress: 'Ya hay una clasificación con Claude en curso para este lote. Espera a que termine.',
+  lock_unavailable: 'No se pudo comprobar si ya hay una clasificación en curso. Inténtalo en un momento.',
 };
 
 function describeResult(result: ClaudeClassifierActionResult): string {

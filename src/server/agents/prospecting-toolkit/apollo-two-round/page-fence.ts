@@ -42,11 +42,17 @@ export const APOLLO_PAGE_FENCE_METADATA_KEY = 'apollo_two_round_page_fence' as c
 export const APOLLO_PAGE_FENCE_CONTRACT_VERSION = 1 as const;
 
 /**
- * Techo del documento serializado. Deliberadamente más chico que el del
- * checkpoint de ronda (64 KiB): esta valla es ESCRATCH transitorio de UNA
- * ronda en vuelo, nunca el acumulado de la corrida entera.
+ * Techo del documento serializado. Esta valla es ESCRATCH transitorio de la
+ * ronda en vuelo, nunca el acumulado de la corrida entera (las rondas cuya
+ * búsqueda ya es durable en el checkpoint se limpian).
+ *
+ * WS6 · F3 — sube de 32 KiB al mismo techo que el checkpoint de ronda (64 KiB).
+ * Con 32 KiB, UNA página de 100 organizaciones en forma slim (~2-3 KiB cada
+ * una) ya no cabía y la compactación la vaciaba: el reintento adoptaba páginas
+ * PAGADAS con 0 empresas. Con la compactación escalonada de abajo, 5 páginas ×
+ * 100 organizaciones en forma de identidad (~110 B) caben en ~55 KiB.
  */
-export const APOLLO_PAGE_FENCE_MAX_SERIALIZED_BYTES = 32 * 1024;
+export const APOLLO_PAGE_FENCE_MAX_SERIALIZED_BYTES = 64 * 1024;
 
 const MAX_TEXT_CHARS = 300;
 const MAX_ARRAY_ELEMENTS = 10;
@@ -125,14 +131,27 @@ export function toApolloPageFenceOrganization(
 }
 
 /**
+ * WS6 · F3 — forma ALMACENADA de una organización de la valla. Puede ser la
+ * slim completa o una compactada (sólo identidad + sector, o sólo identidad):
+ * la compactación por tamaño omite claves en vez de vaciar la página entera.
+ * El id de Apollo es lo único que nunca falta.
+ */
+export type ApolloPageFenceStoredOrganization = Pick<
+  ApolloPageFenceOrganization,
+  'provider_organization_id'
+> &
+  Partial<Omit<ApolloPageFenceOrganization, 'provider_organization_id'>>;
+
+/**
  * Reconstruye una `NormalizedApolloOrganization` a partir de la forma slim.
  *
  * Los campos que la valla no conserva (`phone`, `foundedYear`,
- * `filledFromAccountFields`) vuelven en su valor neutro: exactamente lo que ya
- * tolera el resto del pipeline para organizaciones sin ese dato.
+ * `filledFromAccountFields`) —y los que la compactación omitió— vuelven en su
+ * valor neutro: exactamente lo que ya tolera el resto del pipeline para
+ * organizaciones sin ese dato.
  */
 export function fromApolloPageFenceOrganization(
-  slim: ApolloPageFenceOrganization,
+  slim: ApolloPageFenceStoredOrganization,
 ): NormalizedApolloOrganization {
   return {
     providerReference: {
@@ -140,27 +159,65 @@ export function fromApolloPageFenceOrganization(
       providerOrganizationId: slim.provider_organization_id,
       providerAccountId: null,
     },
-    name: slim.name,
-    primaryDomain: slim.primary_domain,
-    normalizedDomains: slim.normalized_domains,
-    websiteUrl: slim.website_url,
-    linkedinUrl: slim.linkedin_url,
+    name: slim.name ?? null,
+    primaryDomain: slim.primary_domain ?? null,
+    normalizedDomains: slim.normalized_domains ?? [],
+    websiteUrl: slim.website_url ?? null,
+    linkedinUrl: slim.linkedin_url ?? null,
     phone: null,
     foundedYear: null,
-    country: slim.country,
-    city: slim.city,
-    industry: slim.industry,
-    industries: slim.industries,
-    keywords: slim.keywords,
-    organizationKeywords: slim.organization_keywords,
-    estimatedNumEmployees: slim.estimated_num_employees,
-    shortDescription: slim.short_description,
-    seoDescription: slim.seo_description,
-    description: slim.description,
+    country: slim.country ?? null,
+    city: slim.city ?? null,
+    industry: slim.industry ?? null,
+    industries: slim.industries ?? [],
+    keywords: slim.keywords ?? [],
+    organizationKeywords: slim.organization_keywords ?? [],
+    estimatedNumEmployees: slim.estimated_num_employees ?? null,
+    shortDescription: slim.short_description ?? null,
+    seoDescription: slim.seo_description ?? null,
+    description: slim.description ?? null,
     technologies: [],
     filledFromAccountFields: [],
   };
 }
+
+/** Copia sólo las claves pedidas que tienen valor (ni null ni lista vacía). */
+function pickPresent(
+  organization: ApolloPageFenceStoredOrganization,
+  keys: readonly (keyof ApolloPageFenceOrganization)[],
+): ApolloPageFenceStoredOrganization {
+  const out: Record<string, unknown> = {
+    provider_organization_id: organization.provider_organization_id,
+  };
+  for (const key of keys) {
+    const value = organization[key];
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    out[key] = value;
+  }
+  return out as ApolloPageFenceStoredOrganization;
+}
+
+/** Nivel 1 — identidad + evidencia de sector/tamaño/país (sin textos largos). */
+const COMPACT_SECTOR_KEYS = [
+  'name',
+  'primary_domain',
+  'industry',
+  'industries',
+  'country',
+  'estimated_num_employees',
+] as const satisfies readonly (keyof ApolloPageFenceOrganization)[];
+
+/** Nivel 2 — sólo identidad: id + nombre + dominio. */
+const COMPACT_IDENTITY_KEYS = [
+  'name',
+  'primary_domain',
+] as const satisfies readonly (keyof ApolloPageFenceOrganization)[];
+
+/** Nivel 3 — identidad mínima: id + dominio (el dominio es la llave de dedupe). */
+const COMPACT_DOMAIN_KEYS = [
+  'primary_domain',
+] as const satisfies readonly (keyof ApolloPageFenceOrganization)[];
 
 // ─── Entradas y documento ──────────────────────────────────────────────────────
 
@@ -172,7 +229,7 @@ export type ApolloPageFenceEntry = {
   page: number;
   status: ApolloPageFenceStatus;
   /** `[]` para `request_started`/`indeterminate`. */
-  organizations: ApolloPageFenceOrganization[];
+  organizations: ApolloPageFenceStoredOrganization[];
   credits: number;
   results_returned: number;
   total_pages: number | null;
@@ -233,6 +290,27 @@ export function mergeApolloPageFenceEntries(
   );
 }
 
+/**
+ * WS6 · F2 — cierra como «sin cobro» la valla de UNA página.
+ *
+ * Quita la entrada SÓLO si sigue en `request_started`: es el estado que deja
+ * `beforeRequest` y que, sin desenlace, bloquea el plan para siempre. Un
+ * `succeeded` o un `indeterminate` nunca se tocan — perderlos abriría un doble
+ * cobro. Se QUITA en vez de añadir un estado terminal nuevo porque la fusión
+ * por rango (`pickBetterEntry`) es conmutativa: un estado «fallido sin cobro»
+ * por encima de `request_started` impediría que un reintento POSTERIOR de esa
+ * misma página volviera a quedar protegido por su `request_started`.
+ */
+export function releaseApolloPageFenceNotChargedEntry(
+  entries: readonly ApolloPageFenceEntry[],
+  target: Pick<ApolloPageFenceEntry, 'round_number' | 'search_plan_fingerprint' | 'page'>,
+): ApolloPageFenceEntry[] {
+  const key = entryKey(target);
+  return entries.filter(
+    (entry) => !(entryKey(entry) === key && entry.status === 'request_started'),
+  );
+}
+
 /** Quita todas las entradas de UNA ronda. Se llama cuando esa ronda ya cerró. */
 export function clearApolloPageFenceRound(
   entries: readonly ApolloPageFenceEntry[],
@@ -278,15 +356,22 @@ export function readApolloPageFenceDocument(
 // ─── Compactación por tamaño ───────────────────────────────────────────────────
 
 /**
- * Si el documento excede el techo, vacía `organizations` de las entradas
- * `succeeded` (empezando por la de MÁS organizaciones) hasta caber, marcando
+ * Si el documento excede el techo, compacta las entradas `succeeded`
+ * (empezando por la de MÁS organizaciones) hasta caber, marcando
  * `compacted: true`.
  *
+ * WS6 · F3 — compactación ESCALONADA. Antes el único paso era vaciar
+ * `organizations` de la página entera: con 32 KiB eso pasaba ya con UNA página
+ * de 100, y el reintento adoptaba una página PAGADA con 0 empresas. Ahora, por
+ * niveles y sobre todas las entradas antes de pasar al siguiente:
+ *
+ *   1. identidad + sector/tamaño/país (sin descripciones ni keywords);
+ *   2. sólo identidad (id + nombre + dominio);
+ *   3. identidad mínima (id + dominio);
+ *   4. vaciar `organizations` (el comportamiento previo, último recurso).
+ *
  * El `page` y el `status` de la entrada NUNCA se tocan: eso es lo que
- * garantiza que una página compactada siga sin poder re-pedirse. Lo único que
- * se pierde, en el peor caso, son las organizaciones de esa página concreta —
- * el reintento las tratará como si esa página hubiera vuelto vacía en cuanto a
- * candidatos recuperables, nunca como si no se hubiera pedido.
+ * garantiza que una página compactada siga sin poder re-pedirse.
  */
 export function compactApolloPageFenceForSize(
   document: ApolloPageFenceDocumentV1,
@@ -303,15 +388,28 @@ export function compactApolloPageFenceForSize(
     .filter((item) => item.size > 0)
     .sort((a, b) => b.size - a.size);
 
-  let compacted = false;
-  for (const item of order) {
-    const nextEntries = working.entries.map((entry, index) =>
-      index === item.index ? { ...entry, organizations: [] } : entry,
-    );
-    working = { ...working, entries: nextEntries, compacted: true };
-    compacted = true;
-    serializedBytes = Buffer.byteLength(JSON.stringify(working), 'utf8');
-    if (serializedBytes <= maxBytes) break;
+  const levels: Array<
+    (orgs: readonly ApolloPageFenceStoredOrganization[]) => ApolloPageFenceStoredOrganization[]
+  > = [
+    (orgs) => orgs.map((org) => pickPresent(org, COMPACT_SECTOR_KEYS)),
+    (orgs) => orgs.map((org) => pickPresent(org, COMPACT_IDENTITY_KEYS)),
+    (orgs) => orgs.map((org) => pickPresent(org, COMPACT_DOMAIN_KEYS)),
+    () => [],
+  ];
+
+  for (const compactOrganizations of levels) {
+    for (const item of order) {
+      const nextEntries = working.entries.map((entry, index) =>
+        index === item.index
+          ? { ...entry, organizations: compactOrganizations(entry.organizations) }
+          : entry,
+      );
+      working = { ...working, entries: nextEntries, compacted: true };
+      serializedBytes = Buffer.byteLength(JSON.stringify(working), 'utf8');
+      if (serializedBytes <= maxBytes) {
+        return { document: working, serializedBytes, withinLimit: true };
+      }
+    }
   }
 
   return { document: working, serializedBytes, withinLimit: serializedBytes <= maxBytes };

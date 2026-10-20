@@ -6,6 +6,11 @@ import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
 import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
+import { firstCallHref } from '@/modules/speech/first-call-links';
+import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
+import { MAX_CONTACTS_PER_RUN } from '@/server/agents/first-call/types';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -120,6 +125,8 @@ interface ContactsDataTableClientProps {
    * crear uno). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
+  /** Agente 3 encendido: la fila ofrece «Preparar primer contacto» a ese decisor. */
+  firstCallEnabled?: boolean;
 }
 
 export function ContactsDataTableClient({
@@ -127,8 +134,12 @@ export function ContactsDataTableClient({
   accountOwners,
   scopeFilterOptions,
   emptyActions,
+  firstCallEnabled = false,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
+  // Agente 3: el panel del agente para la empresa de los decisores elegidos.
+  const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
+  const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
   const [detailContactId, setDetailContactId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [editingContact, setEditingContact] = React.useState<ContactListItem | null>(null);
@@ -424,6 +435,19 @@ export function ContactsDataTableClient({
             icon: Pencil,
             onClick: () => openEdit(row),
           },
+          ...(firstCallEnabled && row.contact_status === 'active' && row.account_id
+            ? [
+                {
+                  id: 'first-call',
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: RumboIcon,
+                  variant: 'ai' as const,
+                  // Lleva a la empresa con este contacto ya elegido como decisor.
+                  onClick: () =>
+                    setFirstContact({ kind: 'account', accountId: row.account_id!, initialSelection: { contactIds: [row.id] } }),
+                },
+              ]
+            : []),
           {
             id: 'go-account',
             label: 'Abrir la empresa',
@@ -468,7 +492,7 @@ export function ContactsDataTableClient({
         return items;
       },
     }),
-    [openDetail, openEdit],
+    [openDetail, openEdit, firstCallEnabled, router],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -492,6 +516,29 @@ export function ContactsDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => openEdit(rows[0]),
       },
+      ...(firstCallEnabled
+        ? [
+            {
+              id: 'first-call',
+              // Varios decisores de UNA misma empresa (hasta 5): una investigación, una
+              // preparación por decisor. De empresas distintas no: cada una gasta la suya.
+              label: RUMBO_ACTION_LABELS.prepareFirstContact,
+              icon: RumboIcon,
+              variant: 'ai' as const,
+              disabled: (rows: Row[]) =>
+                rows.length === 0 ||
+                rows.length > MAX_CONTACTS_PER_RUN ||
+                !rows[0].account_id ||
+                rows.some((r) => r.contact_status !== 'active' || r.account_id !== rows[0].account_id),
+              onClick: (rows: Row[]) =>
+                setFirstContact({
+                  kind: 'account',
+                  accountId: rows[0].account_id!,
+                  initialSelection: { contactIds: rows.map((r) => r.id) },
+                }),
+            },
+          ]
+        : []),
       {
         id: 'go-accounts',
         // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
@@ -523,7 +570,7 @@ export function ContactsDataTableClient({
         onClick: (rows) => setArchiving(rows[0]),
       },
     ],
-    [openDetail, openEdit],
+    [openDetail, openEdit, firstCallEnabled, router],
   );
 
   // ── Vista de lista ────────────────────────────────────────────
@@ -590,6 +637,12 @@ export function ContactsDataTableClient({
 
   return (
     <>
+      <FirstContactPanelHost
+        target={firstContact}
+        onClose={closeFirstContact}
+        onDone={() => router.refresh()}
+        onViewResult={(accountId) => router.push(firstCallHref(accountId))}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {contacts.length > 0 && !isWide && (
           <QuickFilterStrip

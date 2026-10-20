@@ -13,6 +13,7 @@ import {
   isNonCorporateDomain,
   normalizeWebsiteHost,
 } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
+import { isPlatformHostByLabel } from '@/server/agents/prospecting-toolkit/shared-hosts';
 
 /** Proveedores de internet de Nicaragua (el dominio es del proveedor, no de la empresa). */
 export const NI_NON_CORPORATE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
@@ -23,16 +24,12 @@ export const NI_NON_CORPORATE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
 const FREE_MAIL_LABEL = /^(gmail|gmaill|googlemail|hotmail|outlook|live|msn|yahoo|ymail|aol|icloud|me|mail|protonmail|proton|zoho|gmx)$/;
 
 /**
- * Redes sociales, enlaces y alojamiento gratuito: la «web» es de la plataforma, no de
- * la empresa («facebook.com/CrediFacilNic», «x.wixsite.com», «sites.google.com/…»).
+ * ¿Host de una red social o de un alojamiento gratuito («facebook.com/CrediFacilNic»,
+ * «x.wixsite.com», «sites.google.com/…»)? La lista vive en UN solo sitio
+ * (`shared-hosts.ts`, AGENT1-SHARED-HOSTS-1): antes era una copia local.
  */
-const PLATFORM_HOST =
-  /(^|\.)(facebook|fb|instagram|twitter|x|tiktok|youtube|youtu|linkedin|whatsapp|wa|linktr|google|goo|blogspot|blogger|wordpress|wixsite|wix|weebly|jimdo|jimdofree|site123|webnode|godaddysites|carrd|bit|tinyurl)\.[a-z.]+$/;
-
-/** ¿Host de una red social o de un alojamiento gratuito? */
 export function isNicaraguaPlatformHost(host: string): boolean {
-  const lower = host.toLowerCase();
-  return PLATFORM_HOST.test(lower) || /(^|\.)(linktr\.ee|wa\.me|bit\.ly|business\.site|negocio\.site)$/.test(lower);
+  return isPlatformHostByLabel(host);
 }
 
 /** Dominios del Estado de Nicaragua (`.gob.ni`, `.mil.ni`). */

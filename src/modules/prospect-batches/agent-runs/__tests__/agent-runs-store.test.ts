@@ -144,7 +144,9 @@ describe('almacén de corridas', () => {
       batchId: null, redirectPath: null, candidateCount: null, message: null, detached: true,
     };
     const storage = memoryStorage({ [AGENT_RUNS_STORAGE_KEY]: JSON.stringify([run]) });
-    const store = createAgentRunsStore({ execute: async () => ok('b', 1), storage });
+    // AGENT1-AUDIT-WS2 § 8 — reloj fijo cerca del arranque: con el reloj real una
+    // desligada de `startedAtMs: 1` ya está caducada al restaurar.
+    const store = createAgentRunsStore({ execute: async () => ok('b', 1), storage, nowMs: () => 1_000 });
     store.settleDetached(ID_A, { status: 'succeeded', batchId: 'batch-z' });
     const settled = store.getSnapshot()[0];
     assert.equal(settled.status, 'succeeded');

@@ -5,7 +5,8 @@
 
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot } from '@/icons';
+import { Rumbo } from '@/icons';
+import { cn } from '@/lib/utils';
 import { DataTable, DataTableColumnHeader } from '@/components/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { MetricCard } from '@/components/shared/metric-card';
@@ -21,6 +22,10 @@ interface AgentStepsTableProps {
   agents: AgentSummaryRow[];
   steps: AgentStepRow[];
   moneyVisible: boolean;
+  /** Con él, cada tarjeta de agente es un botón que lo elige (o lo suelta). */
+  onSelectAgent?: (agentKey: string | null) => void;
+  /** El agente elegido (valor del selector), para marcar su tarjeta. */
+  selectedAgent?: string | null;
 }
 
 function unitsLabel(row: AgentStepRow): string {
@@ -30,7 +35,7 @@ function unitsLabel(row: AgentStepRow): string {
   return '0';
 }
 
-export function AgentStepsTable({ agents, steps, moneyVisible }: AgentStepsTableProps) {
+export function AgentStepsTable({ agents, steps, moneyVisible, onSelectAgent, selectedAgent = null }: AgentStepsTableProps) {
   const columns: ColumnDef<AgentStepRow, unknown>[] = React.useMemo(() => {
     const base: ColumnDef<AgentStepRow, unknown>[] = [
       {
@@ -115,28 +120,47 @@ export function AgentStepsTable({ agents, steps, moneyVisible }: AgentStepsTable
     <div className="space-y-4">
       {agents.length > 0 && (
         <section aria-label="Totales por agente" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {agents.map((agent) => (
-            <MetricCard
-              key={agent.agentKey ?? 'sin-agente'}
-              compact
-              tone="brand"
-              title={agentDimensionLabel(agent.agentKey)}
-              description={`${formatCount(agent.calls)} consultas · ${formatCount(agent.steps)} pasos · ${formatCount(agent.errors)} errores`}
-              value={
-                moneyVisible && agent.costUsd !== null ? (
-                  <CostValue
-                    display={resolveCostDisplay({
-                      valueUsd: agent.costUsd,
-                      costTruth: toCostTruth(agent.hasUnknownCost),
-                      formatUsd: (value) => formatUsd(value),
-                    })}
-                  />
-                ) : (
-                  `${formatCount(agent.credits)} créditos`
-                )
-              }
-            />
-          ))}
+          {agents.map((agent) => {
+            const card = (
+              <MetricCard
+                compact
+                tone="brand"
+                title={agentDimensionLabel(agent.agentKey)}
+                description={`${formatCount(agent.calls)} consultas · ${formatCount(agent.steps)} pasos · ${formatCount(agent.errors)} errores`}
+                value={
+                  moneyVisible && agent.costUsd !== null ? (
+                    <CostValue
+                      display={resolveCostDisplay({
+                        valueUsd: agent.costUsd,
+                        costTruth: toCostTruth(agent.hasUnknownCost),
+                        formatUsd: (value) => formatUsd(value),
+                      })}
+                    />
+                  ) : (
+                    `${formatCount(agent.credits)} créditos`
+                  )
+                }
+              />
+            );
+            if (!onSelectAgent) return <React.Fragment key={agent.agentKey ?? 'sin-agente'}>{card}</React.Fragment>;
+            const value = agent.agentKey ?? 'sin-agente';
+            const pressed = selectedAgent === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={pressed}
+                title={`Ver el detalle de ${agentDimensionLabel(agent.agentKey)}`}
+                onClick={() => onSelectAgent(agent.agentKey)}
+                className={cn(
+                  'rounded-2xl text-left transition-shadow focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+                  pressed && 'ring-2 ring-primary/60',
+                )}
+              >
+                {card}
+              </button>
+            );
+          })}
         </section>
       )}
       <DataTable
@@ -157,7 +181,7 @@ export function AgentStepsTable({ agents, steps, moneyVisible }: AgentStepsTable
         emptyState={
           <EmptyState
             variant="plain"
-            icon={Bot}
+            icon={Rumbo}
             title="Ningún agente consultó a un proveedor"
             description="Si tienes filtros puestos, prueba a quitarlos."
           />

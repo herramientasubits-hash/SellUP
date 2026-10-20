@@ -18,7 +18,6 @@ import {
   TeamUsageSection,
 } from './usage-tables';
 import { AgentUsageCharts, ProviderUsageCharts, TeamUsageCharts } from './usage-charts';
-import { AgentStepsTable } from './agent-steps-table';
 import {
   BreakdownSkeleton,
   CountryBreakdownSection,
@@ -40,8 +39,11 @@ import {
   resolveUsagePeopleScope,
 } from '@/modules/ai-usage/queries';
 import type { FilterOptions, UsageFilters } from '@/modules/ai-usage/queries';
+import { getAiUsageBreakdowns } from '@/modules/ai-usage/breakdown-queries';
+import { withAgent1CompanyOutcomes } from '@/modules/ai-usage/usage-breakdowns';
 import { resolvePeriodStart } from '@/modules/ai-usage/usage-filter-semantics';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
+import { AgentDrilldown } from './agent-drilldown';
 
 // Q3F-5AY.7B — post-backfill UI parity.
 //
@@ -60,10 +62,10 @@ export const dynamic = 'force-dynamic';
 const RECENT_LOGS_LIMIT = 25;
 
 // Las pestañas de la página. La primera es la de por defecto y no va en la URL.
+// El Agente 1 ya no tiene pestaña propia: vive en «Por agente» (`?agente=agent1`).
 const USAGE_TABS: readonly UrlTab[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'por-agente', label: 'Por agente' },
-  { id: 'agente-1', label: 'Agente 1' },
   { id: 'por-pais', label: 'Por país' },
   { id: 'proveedores', label: 'Proveedores' },
   { id: 'equipo', label: 'Equipo' },
@@ -126,6 +128,10 @@ function readParam(value: string | string[] | undefined): string {
 
 export default async function AIUsagePage({ searchParams }: PageProps) {
   const params = await searchParams;
+  // Enlaces viejos a la pestaña «Agente 1» abren «Por agente» con el Agente 1 elegido.
+  const requestedTab = readParam(params.tab);
+  const initialTab = requestedTab === 'agente-1' ? 'por-agente' : requestedTab;
+  const initialAgent = requestedTab === 'agente-1' ? 'agent1' : readParam(params.agente);
 
   const filters: UsageFilters = {
     period: (params.period as UsageFilters['period']) || undefined,
@@ -143,10 +149,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
   // Todas las cifras salen de una sola lectura del universo filtrado (KPIs,
   // agentes, proveedores, personas y últimas consultas), así cuadran entre sí.
-  const [overview, filterOptionsResult, agent1Filters] = await Promise.all([
+  const [overview, filterOptionsResult, agent1Filters, breakdowns] = await Promise.all([
     getAiUsageOverview(filters, RECENT_LOGS_LIMIT),
     loadFilterOptions(),
     buildAgent1Filters(filters),
+    // En caché por petición: las secciones de abajo reutilizan la misma lectura.
+    getAiUsageBreakdowns(filters),
   ]);
 
   const header = (
@@ -176,8 +184,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     );
   }
 
-  const { summary, agentStats, providerStats, userConsumption, recentLogs, agentSteps, moneyVisible, dataQuality } =
-    overview;
+  const { summary, providerStats, userConsumption, recentLogs, agentSteps, moneyVisible, dataQuality } = overview;
+  const agentStats = withAgent1CompanyOutcomes(
+    overview.agentStats,
+    breakdowns && !breakdowns.dataQuality.readError ? breakdowns.countryTools : null,
+  );
   const filterOptions = filterOptionsResult === 'error' ? null : filterOptionsResult;
   const readError = dataQuality.readError || filterOptionsResult === 'error';
 
@@ -299,28 +310,32 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         ))}
       </section>
 
-      <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={readParam(params.tab)}>
+      <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={initialTab}>
         <TabsContent value="resumen" className="space-y-6">
           {moneyVisible && <AgentUsageCharts agents={agentStats} />}
           <AgentUsageSection agents={agentStats} showMoney={moneyVisible} />
         </TabsContent>
 
         <TabsContent value="por-agente" className="space-y-6">
-          <AgentStepsTable agents={agentSteps.agents} steps={agentSteps.steps} moneyVisible={moneyVisible} />
-        </TabsContent>
-
-        <TabsContent value="agente-1">
-          {moneyVisible ? (
-            <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
-              <Agent1EffectivenessPanel filters={agent1Filters} />
-            </Suspense>
-          ) : (
-            <EmptyState
-              icon={Lock}
-              title="Este panel es de costos"
-              description="Las cifras en dólares las ven líderes y administración. Lo que entregó el Agente 1 lo tienes en «Por país» y «Por búsqueda»."
-            />
-          )}
+          <AgentDrilldown
+            agents={agentSteps.agents}
+            steps={agentSteps.steps}
+            moneyVisible={moneyVisible}
+            initialAgent={initialAgent}
+            details={{
+              agent1: moneyVisible ? (
+                <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
+                  <Agent1EffectivenessPanel filters={agent1Filters} />
+                </Suspense>
+              ) : (
+                <EmptyState
+                  icon={Lock}
+                  title="El panel del Agente 1 es de costos"
+                  description="Las cifras en dólares las ven líderes y administración. Lo que entregó el Agente 1 lo tienes en «Por país» y «Por búsqueda»."
+                />
+              ),
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="por-pais" className="space-y-6">

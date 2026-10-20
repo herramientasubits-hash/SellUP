@@ -58,6 +58,29 @@ export const WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT = 10;
  */
 export const APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION = 1;
 
+/**
+ * WS6 · F1 — páginas que paga UNA invocación de búsqueda CON paginación
+ * net-new (`netNewTarget` + evaluador de aceptación).
+ *
+ * El defecto que cierra: el camino por defecto del wizard (modalidad de dos
+ * rondas APAGADA) pasa por `incremental-search.ts`, que SIEMPRE inyecta
+ * `netNewTarget` + evaluador para Apollo. Con eso el provider construye su
+ * presupuesto sin `maxPages` explícito y cae al default de
+ * `createApolloPaginationBudget` (min(10, 5) = 5 páginas), mientras la reserva
+ * (`resolveApolloRunCreditBreakdown`) seguía multiplicando por
+ * `APOLLO_LEGACY_MAX_PAGES_PER_INVOCATION` (1). Es exactamente el descuadre que
+ * el comentario de arriba prohíbe: la corrida podía gastar 5× lo reservado.
+ *
+ * Ahora las DOS cifras salen de esta constante: el provider la pasa como
+ * `maxPages` explícito en la rama net-new y la reserva la multiplica por el
+ * número de invocaciones. Mismo valor que ya regía en runtime — no se sube el
+ * techo de gasto, sólo se deja de reservar por debajo de él.
+ */
+export const APOLLO_NET_NEW_MAX_PAGES_PER_INVOCATION = Math.min(
+  WIZARD_APOLLO_MAX_SEARCH_CREDITS_DEFAULT,
+  WIZARD_APOLLO_MAX_PAGES_HARD_CAP,
+);
+
 /** Presupuesto temporal por ejecución de búsqueda Apollo. */
 export const WIZARD_APOLLO_TIMEOUT_BUDGET_MS = 60_000;
 

@@ -30,6 +30,11 @@ export const CLAUDE_MODEL_PRICES: ReadonlyArray<readonly [prefix: string, price:
   ['claude-opus-4-8', { inputPerMillion: 5, outputPerMillion: 25 }],
   ['claude-opus-4-1', { inputPerMillion: 15, outputPerMillion: 75 }],
   ['claude-opus-4-2', { inputPerMillion: 15, outputPerMillion: 75 }],
+  ['claude-opus-4-0', { inputPerMillion: 15, outputPerMillion: 75 }],
+  ['claude-3-opus', { inputPerMillion: 15, outputPerMillion: 75 }],
+  ['claude-3-7-sonnet', { inputPerMillion: 3, outputPerMillion: 15 }],
+  ['claude-3-sonnet', { inputPerMillion: 3, outputPerMillion: 15 }],
+  ['claude-3-haiku', { inputPerMillion: 0.25, outputPerMillion: 1.25 }],
 ];
 
 /** Precio para un modelo que no está en la tabla: el de Sonnet (conservador para clasificar). */

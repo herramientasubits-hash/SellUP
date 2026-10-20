@@ -111,6 +111,26 @@ const NAME_HEADER_HINTS = [
   'company', 'companies', 'account', 'accounts', 'organization', 'name',
 ];
 
+/**
+ * AGENT1-AUDIT-WS5-IMPORT-HEADER-HINTS-1 — el encabezado es una PISTA para los
+ * números: «Teléfono»/«Celular» nunca es identificador fiscal aunque sus valores
+ * tengan 10 dígitos, y «NIT»/«RUT»/«RUC»… gana sobre otra columna numérica que
+ * aparezca antes (antes ganaba la primera columna: el teléfono quedaba como NIT
+ * y el NIT real se perdía).
+ */
+const PHONE_HEADER = /^(tel|tel\.|telefono|telefonos|celular|cel|movil|phone|mobile|whatsapp|fax)(\s|$|[.:#])/;
+const TAX_HEADER = /(^|[\s(/])(nit|rut|ruc|rfc|cuit|cnpj|cif|nif|rtn|rif)($|[\s).:#/])|identificacion fiscal|numero fiscal|tax id/;
+
+type HeaderHint = 'tax' | 'phone' | null;
+
+function headerHint(header: string | undefined): HeaderHint {
+  const folded = fold(header ?? '');
+  if (!folded) return null;
+  if (TAX_HEADER.test(folded)) return 'tax';
+  if (PHONE_HEADER.test(folded)) return 'phone';
+  return null;
+}
+
 const KIND_TO_FIELD: Partial<Record<ValueKind, ImportFieldKey>> = {
   linkedin: 'linkedin_url',
   email: 'contact_email',
@@ -176,11 +196,22 @@ export function parseMatrixByContent(matrix: string[][]): FreeFormParse | null {
 
   const fields: Array<ImportFieldKey | null> = Array.from({ length: width }, () => null);
   const used = new Set<ImportFieldKey>();
-  kinds.forEach(({ kind, share }, i) => {
+  const hints = Array.from({ length: width }, (_, i) => headerHint(header[i]));
+  const assign = (i: number) => {
+    const { kind, share } = kinds[i];
     const field = KIND_TO_FIELD[kind];
     if (!field || share < COLUMN_KIND_MIN_SHARE || used.has(field)) return;
+    // Un teléfono nunca es identificador fiscal.
+    if (field === 'tax_identifier' && hints[i] === 'phone') return;
     fields[i] = field;
     used.add(field);
+  };
+  // Primero las columnas cuyo encabezado dice que son identificador fiscal.
+  kinds.forEach((_, i) => {
+    if (hints[i] === 'tax') assign(i);
+  });
+  kinds.forEach((_, i) => {
+    if (fields[i] === null && hints[i] !== 'tax') assign(i);
   });
 
   // La columna de nombres: la de texto corto; si el encabezado lo dice, ésa.

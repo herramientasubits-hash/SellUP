@@ -6,6 +6,8 @@
  */
 
 import type { DuplicateCheckInput } from './types';
+import { isSharedPlatformHost } from './shared-hosts';
+import { isNationalPortalWithEntityPaths } from './national-portal-entity';
 
 // ============================================================
 // Sufijos legales a remover (LatAm + globales comunes)
@@ -51,6 +53,55 @@ export function normalizeCompanyName(name: string): string {
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   return normalized;
+}
+
+// ============================================================
+// normalizeStoredCompanyName / buildNormalizedNameLookupVariants
+// ============================================================
+
+/**
+ * AGENT1-NORMALIZED-NAME-LOOKUP-1 — la normalización con la que SE GUARDA
+ * `normalized_name` (writer de Agente 1 `normalizeName`, importación y cuentas
+ * `normalizeText`): minúsculas, sin tildes, puntuación a espacio, espacios
+ * compactados — y SIN quitar el sufijo legal.
+ *
+ * 🔴 Debe seguir siendo idéntica a `normalizeName` de
+ * `candidate-writer-pure-gates.ts`; la prueba `normalized-name-lookup` lo fija.
+ *
+ * @example normalizeStoredCompanyName('Acme S.A.S.') → 'acme s a s'
+ */
+export function normalizeStoredCompanyName(name: string | null | undefined): string {
+  if (typeof name !== 'string') return '';
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Las formas en que `normalized_name` puede estar guardado para este nombre.
+ *
+ * Antes las búsquedas por nombre comparaban `normalizeCompanyName` («acme», sin
+ * sufijo) contra la columna guardada con `normalizeName` («acme s a s»): una
+ * empresa con sufijo legal NUNCA coincidía consigo misma. Se buscan las dos
+ * formas; la columna no se reescribe.
+ */
+export function buildNormalizedNameLookupVariants(name: string | null | undefined): string[] {
+  if (typeof name !== 'string') return [];
+  const variants = [normalizeCompanyName(name), normalizeStoredCompanyName(name)];
+  return [...new Set(variants.filter((value) => value.length > 0))];
+}
+
+/**
+ * AGENT1-ILIKE-ESCAPE-1 — escapa los comodines de `ilike` (`%`, `_` y la barra de
+ * escape) para que un nombre como «100% Natural» o «Acme_Co» se busque LITERAL y
+ * no como patrón que coincide con cualquier cosa.
+ */
+export function escapeIlikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 // ============================================================
@@ -112,6 +163,43 @@ export function normalizeDomain(urlOrDomain: string): string | null {
   if (hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
 
   return hostname;
+}
+
+// ============================================================
+// normalizeIdentityDomain
+// ============================================================
+
+/**
+ * AGENT1-SHARED-HOSTS-1 — el dominio como señal de IDENTIDAD de empresa.
+ *
+ * Igual que `normalizeDomain` (que sigue intacto para sus otros usos: enviar el
+ * dominio a un proveedor, mostrarlo, etc.), más dos reglas:
+ *   · un host COMPARTIDO (`sites.google.com`, `facebook.com`, `linktr.ee`,
+ *     `gmail.com`… ver `shared-hosts.ts`) NO identifica a ninguna empresa y
+ *     devuelve `null`. Antes dos empresas con su página en Google Sites salían
+ *     con el MISMO dominio y la segunda quedaba «duplicada» de la primera;
+ *   · el punto final del FQDN (`acme.com.`) no parte la identidad.
+ *
+ * `null` siempre significa «no hay dominio de identidad», nunca «no coincide».
+ *
+ * @example
+ * normalizeIdentityDomain('https://www.siigo.com/co')        → 'siigo.com'
+ * normalizeIdentityDomain('https://sites.google.com/view/x') → null
+ * normalizeIdentityDomain('acme.com.')                       → 'acme.com'
+ */
+export function normalizeIdentityDomain(urlOrDomain: string | null | undefined): string | null {
+  if (typeof urlOrDomain !== 'string') return null;
+  const domain = normalizeDomain(urlOrDomain);
+  if (!domain) return null;
+  const withoutTrailingDot = domain.replace(/\.+$/, '');
+  if (!withoutTrailingDot.includes('.') || withoutTrailingDot.length < 4) return null;
+  if (isSharedPlatformHost(withoutTrailingDot)) return null;
+  // AUDIT-HARDENING-1 — el portal nacional del Estado (`gob.pe`, `gob.mx`…) aloja a
+  // TODOS los ministerios como rutas (`gob.pe/minsa`): no es la identidad de
+  // ninguno. Como dominio de identidad haría que el primer ministerio reclamara
+  // `domain:gob.pe` y todos los demás chocaran con él.
+  if (isNationalPortalWithEntityPaths(withoutTrailingDot)) return null;
+  return withoutTrailingDot;
 }
 
 // ============================================================
@@ -213,10 +301,14 @@ export function buildCompanySearchTerms(input: DuplicateCheckInput): {
     ? normalizeCompanyName(input.legalName)
     : null;
 
-  // Prefer explicit domain; fall back to extracting from website
+  // Prefer explicit domain; fall back to extracting from website.
+  // AGENT1-SHARED-HOSTS-1 — con la normalización de IDENTIDAD: buscar en SellUp o
+  // HubSpot por `facebook.com` o `sites.google.com` encontraba a OTRA empresa con la
+  // misma plataforma y la daba por «ya existe» (y un dominio así tampoco sirve para
+  // decir que es nueva).
   const domain =
-    normalizeDomain(input.domain ?? '') ??
-    extractDomainFromWebsite(input.website);
+    normalizeIdentityDomain(input.domain ?? '') ??
+    normalizeIdentityDomain(input.website);
 
   const normalizedTaxId = input.taxIdentifier
     ? normalizeTaxIdentifier(input.taxIdentifier)

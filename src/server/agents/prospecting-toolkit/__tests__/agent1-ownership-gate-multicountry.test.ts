@@ -117,3 +117,30 @@ describe('§ 4 — lo que sigue rechazándose a propósito', () => {
     });
   }
 });
+
+// ─── § 5 · AGENT1-COUNTRY-IDENTITY-1 ──────────────────────────────────────────
+
+describe('§ 5 — universidades y gremios con segundo nivel `.edu`, `.ac`, `.org`', () => {
+  // Medido el 16-10 sobre main 53889026: los diez salían bloqueados porque el
+  // dominio conservaba `.edu` / `.ac` / `.org` y la regla de siglas no lo veía.
+  for (const [name, domain] of [
+    ['Pontificia Universidad Católica del Perú', 'pucp.edu.pe'],
+    ['Universidad de Buenos Aires', 'uba.edu.ar'],
+    ['Universidad de Costa Rica', 'ucr.ac.cr'],
+    ['Universidad Francisco Marroquín', 'ufm.edu'],
+    ['Universidad Católica Andrés Bello', 'ucab.edu.ve'],
+    ['Universidad San Francisco de Quito', 'usfq.edu.ec'],
+    ['Universidad Católica Boliviana', 'ucb.edu.bo'],
+    ['Universidad del Valle de Guatemala', 'uvg.edu.gt'],
+    ['Cámara de Comercio de Lima', 'camaralima.org.pe'],
+    ['Ministerio de Educación Pública', 'mep.go.cr'],
+  ] as const) {
+    it(`${name} / ${domain} ⇒ no se bloquea`, () => {
+      assert.equal(verdict(name, domain).blocked, false);
+    });
+  }
+
+  it('una sigla que no corresponde sigue bloqueada aunque el dominio sea `.edu.pe`', () => {
+    assert.equal(verdict('Pontificia Universidad Católica del Perú', 'usil.edu.pe').blocked, true);
+  });
+});

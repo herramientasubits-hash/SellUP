@@ -18,6 +18,8 @@ export async function completeConvertedAccount(input: {
   nowIso: string;
   /** ALWAYS-OWNER-ON-CREATE-1 — true si la aprobación acaba de crear la empresa. */
   ownerIsProvisional?: boolean;
+  /** AUDIT-HARDENING-1 — empresa libre en HubSpot cuya toma no se escribió. */
+  ignoreHubSpotOwner?: boolean;
 }): Promise<void> {
   try {
     await syncAccountFromHubSpotProfile(createSupabaseAdminClient(), input);

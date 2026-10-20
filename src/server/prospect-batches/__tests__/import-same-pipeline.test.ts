@@ -74,7 +74,10 @@ describe('cableado de la importación (guardas estáticas)', () => {
   });
 
   it('sólo las filas en revisión reclaman la empresa', () => {
-    assert.match(route, /candidateStatus === 'needs_review'\) createdCandidateIds\.push/);
+    // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — la inserción ahora es en bloque: el
+    // filtro «sólo needs_review» se aplica sobre el resultado del bloque.
+    assert.match(route, /statusByRowNumber\.set\(rowNumber, candidateStatus\)/);
+    assert.match(route, /createdCandidateIds = insertOutcome\.inserted\s*\.filter\(\(r\) => statusByRowNumber\.get\(r\.rowNumber\) === 'needs_review'\)/);
   });
 
   it('la importación agenda el rescate de Claude después del enriquecimiento', () => {

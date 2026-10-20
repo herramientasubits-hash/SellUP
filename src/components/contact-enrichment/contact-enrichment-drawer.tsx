@@ -1,7 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { ChatPanel } from '@/components/chat';
+import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
+import { CONTACT_SEARCH_REVIEW_HREF } from '@/modules/contact-enrichment/contact-search-runs-client';
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { ContactEnrichmentWizard } from './contact-enrichment-wizard';
 import { ContactEnrichmentHubSpotIdBatch } from './contact-enrichment-hubspot-id-batch';
@@ -23,6 +26,8 @@ interface ContactEnrichmentDrawerProps {
   onOpenChange: (open: boolean) => void;
   preloadedCompany?: ContactEnrichmentInitialCompany | null;
   onCreateManualContact?: (ctx: ManualContactContext) => void;
+  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
+  onBack?: () => void;
 }
 
 /**
@@ -36,6 +41,7 @@ export function ContactEnrichmentDrawer({
   onOpenChange,
   preloadedCompany,
   onCreateManualContact,
+  onBack,
 }: ContactEnrichmentDrawerProps) {
   const wizardRef = React.useRef<ContactEnrichmentChatWizardHandle>(null);
   const [busy, setBusy] = React.useState(false);
@@ -43,6 +49,19 @@ export function ContactEnrichmentDrawer({
   // HubSpot»; volver a pulsarlo regresa al asistente de una empresa.
   const [mode, setMode] = React.useState<EnrichmentPanelMode>('single');
   const isBatch = mode === 'hubspot_id_batch';
+  const router = useRouter();
+  // Minimizar: el panel se cierra y la búsqueda sigue en el Centro de procesos.
+  const minimize = () => {
+    setMode('single');
+    onOpenChange(false);
+    window.dispatchEvent(new window.CustomEvent(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
+  };
+  // Dueña 20-10: al terminar con contactos, «Por revisar» con lo encontrado (como con empresas).
+  const showFoundContacts = () => {
+    onOpenChange(false);
+    router.push(CONTACT_SEARCH_REVIEW_HREF);
+    router.refresh();
+  };
 
   const singleSubtitle = preloadedCompany?.name
     ? `Enriquecer contactos · ${preloadedCompany.name}`
@@ -50,6 +69,7 @@ export function ContactEnrichmentDrawer({
 
   return (
     <ChatPanel
+      onBack={onBack}
       open={open}
       onOpenChange={(next) => {
         // Al cerrar el panel se vuelve al asistente normal para la próxima vez.
@@ -75,6 +95,7 @@ export function ContactEnrichmentDrawer({
           data-testid="chat-panel-hubspot-id-batch"
         />
       }
+      onMinimize={minimize}
       onNewConversation={() => wizardRef.current?.reset()}
       newConversationDisabled={busy}
     >
@@ -88,6 +109,7 @@ export function ContactEnrichmentDrawer({
           onBusyChange={setBusy}
           initialCompany={preloadedCompany ?? undefined}
           onCreateManualContact={onCreateManualContact}
+          onFoundContacts={showFoundContacts}
         />
       )}
     </ChatPanel>

@@ -6,7 +6,7 @@
  * evitando gastar créditos Tavily en resultados que novelty bloqueará de todas formas.
  *
  * Solo hace SELECTs — sin writes, sin LLM, sin proveedores externos.
- * Si Supabase no está disponible, devuelve memoria vacía (graceful fallback).
+ * Si Supabase no está disponible, devuelve memoria vacía marcada `degraded: true`.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -18,6 +18,7 @@ import { deriveRecordOriginClassification } from '@/modules/agent1-effectiveness
 // local aquí; dos listas del mismo concepto habrían divergido en el primer corte
 // que tocara una sola de ellas.
 import { NON_DELIVERY_RECORD_ORIGINS } from './apollo-prepaid-historical-parity';
+import { selectAllRows, type PageableQuery } from './paginated-select';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -43,6 +44,13 @@ export type DiscoveryNegativeMemory = {
   previousCandidateCount: number;
   previousBatchCount: number;
   scope: DiscoveryNegativeMemoryScope;
+  /**
+   * AGENT1-SELECT-NO-SILENT-CAP-1 — `true` cuando la memoria NO se pudo leer: está
+   * vacía porque no se sabe, no porque no haya nada. Ausente/`false` ⇒ completa.
+   * La memoria negativa es sólo un ahorro previo (Tavily/Apollo); la novedad y
+   * los reclamos globales siguen decidiendo al escribir.
+   */
+  degraded?: boolean;
 };
 
 // ─── Helpers públicos ─────────────────────────────────────────────────────────
@@ -139,7 +147,11 @@ type CandidateRow = {
  * permita sin perder filas). Todos los candidatos recientes son relevantes porque
  * compiten por el mismo universo de empresas que el discovery intenta encontrar.
  *
- * Graceful fallback: devuelve emptyNegativeMemory ante cualquier error de Supabase.
+ * Ante un error de Supabase devuelve la memoria vacía MARCADA `degraded: true` y
+ * lo registra (antes era vacía sin marca, indistinguible de «nada sugerido»).
+ *
+ * AGENT1-SELECT-NO-SILENT-CAP-1 — la lectura se completa entera: los candidatos
+ * de 30 días pasan de 1.000 filas y PostgREST cortaba el resto sin avisar.
  */
 export async function loadDiscoveryNegativeMemory(
   supabase: SupabaseClient,
@@ -154,18 +166,22 @@ export async function loadDiscoveryNegativeMemory(
 
   // Una sola consulta, sobre la tabla que ES el libro de entregas. Sin filtro de
   // `source` y sin join al lote: la procedencia se juzga por fila.
-  const { data: candidateRows, error: candidateError } = await client
-    .from('prospect_candidates')
-    .select(
-      'batch_id, domain, name, status, duplicate_status, source_primary, review_notes, metadata',
-    )
-    .gte('created_at', lookbackIso);
+  const { rows: candidateRows, error: candidateError } = await selectAllRows<CandidateRow>(
+    () =>
+      client
+        .from('prospect_candidates')
+        .select(
+          'batch_id, domain, name, status, duplicate_status, source_primary, review_notes, metadata',
+        )
+        .gte('created_at', lookbackIso) as unknown as PageableQuery<CandidateRow>,
+  );
 
-  if (candidateError || !candidateRows) {
-    return emptyNegativeMemory(scope);
+  if (candidateError) {
+    console.error('[discovery-negative-memory] lectura fallida: memoria degradada');
+    return { ...emptyNegativeMemory(scope), degraded: true };
   }
 
-  const rows = (candidateRows as CandidateRow[]).filter((row) => {
+  const rows = candidateRows.filter((row) => {
     const classification = deriveRecordOriginClassification({
       status: row.status ?? null,
       duplicate_status: row.duplicate_status ?? null,

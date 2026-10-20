@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Check, ChevronDown, ChevronUp, Search } from "@/icons";
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Search } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -49,9 +49,24 @@ export interface ChatQuestionPanelProps {
   /** Ref al encabezado, para llevar el foco a la pregunta nueva. */
   titleRef?: React.Ref<HTMLHeadingElement>;
   filterPlaceholder?: string;
+  /** Texto del botón que envía lo marcado o lo escrito. Por defecto «Enviar». */
+  submitLabel?: string;
+  /**
+   * «Volver»: regresa a la pregunta anterior sin perder lo ya elegido. Si no se
+   * pasa, se usa el de `ChatQuestionBackContext` (un asistente lo pone una vez
+   * para todas sus preguntas); `null` lo quita aunque haya contexto.
+   */
+  onBack?: (() => void) | null;
+  backLabel?: string;
   className?: string;
   "aria-label"?: string;
 }
+
+/**
+ * El «Volver» de un asistente para todas sus preguntas (el Agente 1 lo pone en su
+ * paso activo). `null` = no hay pregunta anterior.
+ */
+export const ChatQuestionBackContext = React.createContext<(() => void) | null>(null);
 
 function toDetail(option: ChatQuestionOption): ChatQuestionOptionDetail {
   return typeof option === "string" ? { value: option, label: option } : option;
@@ -104,6 +119,9 @@ export function ChatQuestionPanel({
   skipLabel = "Omitir",
   footerNotice,
   titleRef,
+  submitLabel = "Enviar",
+  onBack: onBackProp,
+  backLabel = "Volver",
   filterPlaceholder = "Filtrar opciones",
   className,
   ...props
@@ -124,6 +142,8 @@ export function ChatQuestionPanel({
     );
   }, [all, filter]);
 
+  const contextBack = React.useContext(ChatQuestionBackContext);
+  const onBack = onBackProp === undefined ? contextBack : onBackProp;
   const isMultiple = mode === "multiple";
   const selectedSet = React.useMemo(() => new Set(selected), [selected]);
   const atMax = isMultiple && typeof max === "number" && selected.length >= max;
@@ -337,7 +357,7 @@ export function ChatQuestionPanel({
 
         {footerNotice && <div className="px-4 pt-2">{footerNotice}</div>}
 
-        {(onSkip || canOther || isMultiple) && (
+        {(onSkip || canOther || isMultiple || onBack) && (
           <footer className="flex items-center justify-between gap-2 px-4 pb-3 pt-3">
             {isMultiple && typeof max === "number" ? (
               <span
@@ -350,6 +370,12 @@ export function ChatQuestionPanel({
               <span />
             )}
             <div className="flex items-center gap-2">
+              {onBack && (
+                <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+                  <ArrowLeft aria-hidden="true" />
+                  {backLabel}
+                </Button>
+              )}
               {onSkip && (
                 <Button
                   type="button"
@@ -367,13 +393,13 @@ export function ChatQuestionPanel({
                   disabled={!canSubmit}
                   onClick={submit}
                 >
-                  Enviar
+                  {submitLabel}
                 </Button>
               )}
             </div>
           </footer>
         )}
-        {!(onSkip || canOther || isMultiple) && <div className="h-3" />}
+        {!(onSkip || canOther || isMultiple || onBack) && <div className="h-3" />}
       </div>
     </section>
   );

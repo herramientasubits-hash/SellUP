@@ -152,11 +152,20 @@ function makeFakeSupabase(): unknown {
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: async () => ({ data: [], error: null }),
-          insert: (row: Record<string, unknown>) => {
-            spy.candidateInserts.push({ ...row });
-            const id = `cand-${spy.candidateInserts.length}`;
+          // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — la ruta inserta en bloque
+          // (array + `.select()` sin `.single()`); se aceptan las dos formas.
+          insert: (rowOrRows: Record<string, unknown> | Array<Record<string, unknown>>) => {
+            const rows = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
+            const created = rows.map((row) => {
+              spy.candidateInserts.push({ ...row });
+              return { id: `cand-${spy.candidateInserts.length}`, status: row.status, metadata: row.metadata };
+            });
+            const result = { data: Array.isArray(rowOrRows) ? created : created[0], error: null };
             return {
-              select: () => ({ single: async () => ({ data: { id }, error: null }) }),
+              select: () => ({
+                single: async () => ({ data: created[0], error: null }),
+                then: (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(result).then(ok, ko),
+              }),
             };
           },
         };

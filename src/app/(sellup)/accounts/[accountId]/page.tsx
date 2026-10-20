@@ -2,7 +2,6 @@ import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import {
   Building2,
-  Brain,
   Users,
   Activity,
   Globe,
@@ -48,10 +47,22 @@ import { RollbackBanner } from '@/components/accounts/rollback-banner';
 import { readPendingHubSpotMatch } from '@/modules/accounts/hubspot-company-resolution-state';
 import { HubSpotCompanyMatchReviewBanner } from '@/components/accounts/hubspot-company-match-review-banner';
 import { resolveHubSpotPresentation } from '@/modules/accounts/hubspot-company-sync-presentation';
+import { getFirstCallState } from '@/modules/speech/actions';
+import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
+import { FirstCallTab } from '@/components/first-call/first-call-tab';
+// Funciones puras desde sus módulos: esta página corre en el servidor y no puede llamar
+// funciones de un archivo 'use client' (Prod 19-10: «Attempted to call
+// toFirstCallContactOptions() from the server», la ficha de cualquier empresa caía).
+import { toFirstCallContactOptions } from '@/modules/speech/first-call-contacts';
+import { isBriefFreshNow } from '@/modules/speech/first-call-state';
+import { currentPacks } from '@/modules/speech/first-contact-tab-view';
+import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
+import { FirstCallActivity } from '@/components/first-call/first-call-activity';
+import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<{ tab?: string | string[]; contacto?: string | string[] }>;
 }
 
 const PIPELINE_STATUS_TYPE: Record<PipelineStatus, StatusType> = {
@@ -100,15 +111,16 @@ const AUDIT_PRESENTATION: Record<AccountAuditAction, AuditPresentation> = {
 const FALLBACK_AUDIT: AuditPresentation = { title: 'Cambio registrado', icon: Activity, tone: 'default' };
 
 export default async function AccountDetailPage({ params, searchParams }: AccountDetailPageProps) {
-  const [{ accountId }, { tab }] = await Promise.all([params, searchParams]);
+  const [{ accountId }, { tab, contacto }] = await Promise.all([params, searchParams]);
 
-  const [account, auditLog, users, contacts, contactsSummary, contactEnrichmentRuns] = await Promise.all([
+  const [account, auditLog, users, contacts, contactsSummary, contactEnrichmentRuns, firstCall] = await Promise.all([
     getAccountById(accountId),
     getAccountAudit(accountId),
     getActiveUsers(),
     getContactsByAccount(accountId),
     getContactsSummary(accountId),
     getContactEnrichmentRunsByAccountId(accountId),
+    getFirstCallState(accountId),
   ]);
 
   if (!account) notFound();
@@ -126,12 +138,31 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
   const location = [account.city, account.region, account.country].filter(Boolean).join(', ');
   const ownerName = account.owner?.full_name ?? account.owner?.email ?? null;
 
+  const isArchived = account.pipeline_status === 'archived';
+  const firstCallContacts = toFirstCallContactOptions(contacts);
+  const firstCallEnabled = firstCall.enabled && !isArchived;
+  // Desde la ficha de un contacto («Preparar primer contacto») llega ya elegido.
+  const preselectedContactId =
+    typeof contacto === 'string' && firstCallContacts.some((c) => c.id === contacto) ? contacto : null;
+  const firstCallLauncher = firstCallEnabled ? (
+    <FirstCallLauncher
+      accountId={account.id}
+      accountName={account.name}
+      contacts={firstCallContacts}
+      hasFreshBrief={isBriefFreshNow(firstCall.brief)}
+      defaultContactId={preselectedContactId}
+    />
+  ) : null;
+  // La pestaña «Agentes» cuenta también lo que el Agente 3 investigó y preparó.
+  const agent3RunsCount = buildFirstCallEvents(firstCall.brief, firstCall.packs).filter((e) => e.kind === 'run').length;
+  const activePacks = currentPacks(firstCall.packs).length;
+
   const tabs: UrlTab[] = [
     { id: 'resumen', label: 'Resumen' },
     { id: 'contactos', label: 'Contactos', count: contacts.length },
-    { id: 'inteligencia', label: 'Inteligencia' },
+    { id: FIRST_CALL_TAB_ID, label: 'Primer contacto', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
-    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length },
+    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length + agent3RunsCount },
   ];
 
   return (
@@ -155,6 +186,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
         }
         actions={
           <>
+            {firstCallLauncher}
             <AccountEnrichContactsButton
               preloadedCompany={{
                 name: account.name,
@@ -168,7 +200,6 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             />
             <AccountDetailActions
               accountId={account.id}
-              currentStatus={account.pipeline_status}
               users={users}
             />
           </>
@@ -229,7 +260,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
       <UrlTabs
         ariaLabel="Secciones de la empresa"
         tabs={tabs}
-        initialTab={typeof tab === 'string' ? tab : undefined}
+        initialTab={normalizeAccountTab(typeof tab === 'string' ? tab : undefined)}
       >
         {/* ── Resumen ─────────────────────────────────────────── */}
         <TabsContent value="resumen">
@@ -327,12 +358,17 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
           />
         </TabsContent>
 
-        {/* ── Inteligencia ─────────────────────────────────────── */}
-        <TabsContent value="inteligencia">
-          <EmptyState
-            icon={Brain}
-            title="Aún no hay inteligencia comercial de esta empresa"
-            description="Cuando esté disponible verás aquí su estructura, sus señales de negocio y sus noticias recientes. Mientras tanto, empieza por sus contactos."
+        {/* ── Primer contacto (Agente 3): investigación y preparaciones ── */}
+        <TabsContent value={FIRST_CALL_TAB_ID}>
+          <FirstCallTab
+            accountId={account.id}
+            accountName={account.name}
+            state={firstCall}
+            contacts={firstCallContacts}
+            archived={isArchived}
+            defaultContactId={preselectedContactId}
+            canMoveToReady={account.pipeline_status !== 'ready_for_outreach'}
+            countryCode={account.country_code}
           />
         </TabsContent>
 
@@ -373,11 +409,15 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
               </Timeline>
             )}
           </SurfaceCard>
+          <div className="mt-4">
+            <FirstCallActivity state={firstCall} kind="events" />
+          </div>
         </TabsContent>
 
         {/* ── Agentes ──────────────────────────────────────────── */}
-        <TabsContent value="agentes">
+        <TabsContent value="agentes" className="space-y-4">
           <AccountAgentsRunHistory runs={contactEnrichmentRuns} />
+          <FirstCallActivity state={firstCall} kind="runs" />
         </TabsContent>
       </UrlTabs>
     </div>

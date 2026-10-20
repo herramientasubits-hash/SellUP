@@ -336,6 +336,16 @@ const COUNTRY_QUERY_TERMS: Record<string, string> = {
   VE: 'Venezuela',
   US: 'United States',
   ES: 'Spain',
+  // AGENT1-COUNTRY-IDENTITY-1 — los 8 países del mago que faltaban (nombre como
+  // lo escribe LinkedIn en la ubicación de la página).
+  BR: 'Brazil',
+  GT: 'Guatemala',
+  HN: 'Honduras',
+  SV: 'El Salvador',
+  NI: 'Nicaragua',
+  CR: 'Costa Rica',
+  PA: 'Panama',
+  DO: 'Dominican Republic',
 };
 
 export type LinkedInSearchQueryOptions = {

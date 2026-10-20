@@ -29,6 +29,7 @@
 import { domainMatchesCompanyName } from '../dgcp-rd/do-dgcp-domain';
 import { registrableDomain } from '../rns-argentina/ar-sipro-domain';
 import { ecCompanyNameAlias, normalizeEcCompanyCore } from './ec-company-name-core';
+import { SHARED_PLATFORM_HOSTS } from '@/server/agents/prospecting-toolkit/shared-hosts';
 
 /** Origen que se guarda junto al dominio en `raw_data.website_domain_source`. */
 export const EC_SERCOP_DOMAIN_SOURCE = 'sercop_ocds_contact_url' as const;
@@ -36,12 +37,15 @@ export const EC_SERCOP_DOMAIN_SOURCE = 'sercop_ocds_contact_url' as const;
 /** Un dominio en tantos RUC distintos o más no es de ninguno de ellos. */
 export const EC_SERCOP_SHARED_DOMAIN_MIN_RUCS = 3;
 
-/** Hosts que nunca son el sitio propio de una compañía. */
+/**
+ * Hosts que nunca son el sitio propio de una compañía: la lista compartida
+ * (`shared-hosts.ts`, AGENT1-SHARED-HOSTS-1) más lo propio de Ecuador (el portal
+ * de compras públicas y una errata frecuente de Facebook en SERCOP).
+ */
 export const EC_NON_CORPORATE_HOSTS: ReadonlySet<string> = new Set([
-  'facebook.com', 'faceboook.com', 'fb.com', 'instagram.com', 'twitter.com', 'x.com', 'linkedin.com',
-  'youtube.com', 'tiktok.com', 'wa.me', 'whatsapp.com', 'google.com', 'sites.google.com', 'gmail.com',
-  'hotmail.com', 'outlook.com', 'yahoo.com', 'blogspot.com', 'wordpress.com', 'wixsite.com', 'wix.com',
-  'jimdo.com', 'weebly.com', 'bit.ly', 'linktr.ee', 'compraspublicas.gob.ec',
+  ...SHARED_PLATFORM_HOSTS,
+  'faceboook.com',
+  'compraspublicas.gob.ec',
 ]);
 
 const GOVERNMENT_DOMAIN = /\.(gob|gov|mil)\.ec$/;

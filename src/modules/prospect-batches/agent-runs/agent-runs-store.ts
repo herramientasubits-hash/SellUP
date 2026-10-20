@@ -70,6 +70,28 @@ export const AGENT_RUNS_STORAGE_KEY = 'sellup:agent-runs:v1';
 const NOT_STARTED_AFTER_RELOAD =
   'No llegó a iniciarse porque la página se recargó. Vuelve a lanzarla desde el Agente IA.';
 
+/**
+ * AGENT1-AUDIT-WS2 § 8 — una corrida desligada (lanzada en otra carga de la página)
+ * que lleva más de esto sin cerrarse ya no está corriendo: una invocación vive como
+ * mucho 300 s. Antes se quedaba «En curso» para siempre —si su lote quedó en
+ * `draft`/`generating`, o nunca nació— y ocupaba uno de los tres lugares.
+ */
+export const DETACHED_RUN_STALE_AFTER_MS = 10 * 60 * 1000;
+
+export const DETACHED_RUN_STALE_MESSAGE =
+  'Esta búsqueda dejó de dar noticias. Revisa el lote por si dejó empresas, o vuelve a lanzarla.';
+
+/** AGENT1-AUDIT-WS2 § 5 — la pausa de Apollo no se pudo dejar en cola. */
+export const CONTINUATION_NOT_QUEUED_MESSAGE =
+  'Apollo no alcanzó a revisar todas las empresas y no se pudo dejar en cola para terminar. Revisa el lote: lo encontrado sí quedó guardado.';
+
+/** ¿La corrida desligada ya lleva demasiado sin cerrarse? Puro. */
+export function isDetachedRunStale(run: AgentRun, nowMs: number): boolean {
+  if (run.status !== 'running' || !run.detached) return false;
+  const since = run.startedAtMs ?? run.createdAtMs;
+  return Number.isFinite(since) && nowMs - since > DETACHED_RUN_STALE_AFTER_MS;
+}
+
 export type AgentRunsStore = {
   getSnapshot(): readonly AgentRun[];
   subscribe(listener: () => void): () => void;
@@ -82,6 +104,13 @@ export type AgentRunsStore = {
   reconcile(clientRequestId: string, outcome: { status: 'succeeded' | 'failed'; batchId?: string | null; candidateCount?: number | null; message?: string | null }): void;
   /** Cierra una corrida lanzada en otra carga de la página (la bandeja la consultó). */
   settleDetached(clientRequestId: string, outcome: { status: 'succeeded' | 'failed'; batchId?: string | null; message?: string | null }): void;
+  /**
+   * AGENT1-AUDIT-WS2 § 8 — cierra como fallidas las corridas desligadas que ya no
+   * pueden estar corriendo (`isDetachedRunStale`). La bandeja lo llama en cada
+   * sondeo; también corre al restaurar.
+   */
+  expireStaleDetached(): void;
+  /** Quita una fila terminada, o una desligada (la persona deja de seguirla). */
   dismiss(clientRequestId: string): void;
   dismissFinished(): void;
 };
@@ -93,13 +122,33 @@ function isFinished(run: AgentRun): boolean {
 function summarize(
   result: WizardExecutionActionResult,
 ): Pick<AgentRun, 'status' | 'batchId' | 'redirectPath' | 'candidateCount' | 'message' | 'continuationPending'> {
-  if (result.ok) {
+  if (result.ok && result.apolloContinuationFailure !== undefined) {
+    // AGENT1-AUDIT-WS2 § 5 — la pausa no quedó en cola: nadie la retomará. Pide
+    // atención (con enlace al lote, que sí tiene lo encontrado), no «en pausa».
     return {
-      status: 'succeeded',
-      continuationPending: result.apolloContinuation !== undefined,
+      status: 'failed',
+      continuationPending: false,
       batchId: result.batchId ?? null,
       redirectPath: result.redirectPath ?? null,
       candidateCount: typeof result.candidateCount === 'number' ? result.candidateCount : null,
+      message: CONTINUATION_NOT_QUEUED_MESSAGE,
+    };
+  }
+  if (result.ok) {
+    return {
+      status: 'succeeded',
+      // AGENT1-AUDIT-WS2 § 5 — «en pausa» sólo con la continuación DE VERDAD en cola.
+      continuationPending: result.apolloContinuation?.enqueued === true,
+      batchId: result.batchId ?? null,
+      redirectPath: result.redirectPath ?? null,
+      // AGENT1-AUDIT-WS2 § F — «Terminada: N empresas» cuenta lo REVISABLE cuando
+      // el servidor lo pudo medir (sin duplicadas ni descartadas).
+      candidateCount:
+        typeof result.reviewableCandidateCount === 'number'
+          ? result.reviewableCandidateCount
+          : typeof result.candidateCount === 'number'
+            ? result.candidateCount
+            : null,
       message: null,
     };
   }
@@ -135,7 +184,13 @@ function readStored(storage: AgentRunsStorage | null | undefined): AgentRun[] {
  */
 export function restoreAgentRuns(stored: readonly AgentRun[], nowMs: number): AgentRun[] {
   return stored.map((run) => {
-    if (run.status === 'running') return { ...run, detached: true };
+    if (run.status === 'running') {
+      const detached: AgentRun = { ...run, detached: true };
+      // AGENT1-AUDIT-WS2 § 8 — lanzada hace más de lo que puede vivir: no sigue en curso.
+      return isDetachedRunStale(detached, nowMs)
+        ? { ...detached, status: 'failed', finishedAtMs: nowMs, detached: false, message: DETACHED_RUN_STALE_MESSAGE }
+        : detached;
+    }
     if (run.status === 'queued') {
       return { ...run, status: 'failed', finishedAtMs: nowMs, message: NOT_STARTED_AFTER_RELOAD, detached: false };
     }
@@ -276,11 +331,28 @@ export function createAgentRunsStore(deps: AgentRunsStoreDeps): AgentRunsStore {
         message: outcome.message ?? null,
       });
     },
+    expireStaleDetached() {
+      const nowMs = now();
+      const stale = runs.filter((run) => isDetachedRunStale(run, nowMs));
+      if (stale.length === 0) return;
+      const ids = new Set(stale.map((run) => run.clientRequestId));
+      runs = runs.map((run) =>
+        ids.has(run.clientRequestId)
+          ? { ...run, status: 'failed', finishedAtMs: nowMs, detached: false, message: DETACHED_RUN_STALE_MESSAGE }
+          : run,
+      );
+      emit();
+      // Se liberó lugar: lo que esperaba puede arrancar.
+      pump();
+    },
     dismiss(clientRequestId) {
       const run = runs.find((r) => r.clientRequestId === clientRequestId);
-      if (!run || !isFinished(run)) return;
+      // AGENT1-AUDIT-WS2 § 8 — también una desligada: su respuesta ya no llega a
+      // esta página, y sin esto una fila trabada no se podía quitar nunca.
+      if (!run || !(isFinished(run) || (run.status === 'running' && run.detached))) return;
       runs = runs.filter((r) => r.clientRequestId !== clientRequestId);
       emit();
+      pump();
     },
     dismissFinished() {
       runs = runs.filter((run) => !isFinished(run));

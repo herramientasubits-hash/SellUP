@@ -21,6 +21,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 import { colombiaOfficialTaxProvider, checkIsColombiaProviderConfigured, SocrataDebugInfo } from './tax-identifier-providers/colombia';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -180,6 +181,8 @@ async function isHubSpotConnected(): Promise<boolean> {
   }
 }
 
+const HUBSPOT_FISCAL_READ_TIMEOUT_MS = 10_000;
+
 const HS_FISCAL_PROPERTIES = [
   'name',
   'identificacion_fiscal',
@@ -216,12 +219,18 @@ async function readHubSpotCompanyFiscalProperties(
 
   try {
     const propsParam = HS_FISCAL_PROPERTIES.join(',');
-    const url = `https://api.hubapi.com/crm/v3/objects/companies/${companyId}?properties=${propsParam}`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) return null;
+    const url = `https://api.hubapi.com/crm/v3/objects/companies/${encodeURIComponent(companyId)}?properties=${propsParam}`;
+    // AUDIT-HARDENING-1 — con tiempo máximo y reintento ante 429 (antes un fetch sin
+    // plazo podía colgar la búsqueda de NIT hasta el límite de la función).
+    const response = await fetchHubSpotWithRetry(
+      url,
+      { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
+      HUBSPOT_FISCAL_READ_TIMEOUT_MS,
+    );
+    if (!response.ok) {
+      console.warn(`[tax-identifier-lookup] HubSpot respondió ${response.status} al leer la ficha ${companyId}`);
+      return null;
+    }
     const data = await response.json();
     return (data?.properties ?? null) as HsCompanyFiscalProps | null;
   } catch {

@@ -59,6 +59,97 @@ const FISCAL_LABEL_PREFIX = /^(NIT|RFC|RUC|RUT|CUIT|CNPJ|RNC|RTN)(?:[\s.:#-]+|(?
  */
 const CO_CHECK_DIGIT_SUFFIX = /-\d{1,2}$/;
 
+// ─── AGENT1-FISCAL-CHECK-DIGIT-VARIANTS-1 — dígito de verificación por país ───
+//
+// 🔴 Compatibilidad: los reclamos globales y las comparaciones guardadas en
+// Producción usan la forma canónica que este módulo YA producía. Aquí NO cambia
+// la salida de ninguna entrada que ya llegaba a esa forma; sólo se llevan a ella
+// las variantes que antes divergían:
+//
+//   · CO: `9001234567` (NIT empresarial de 9 dígitos con su DV pegado, sin guion)
+//         → `900123456`, la misma forma que `900.123.456-7` y `900123456`.
+//   · CL: `76123456` (RUT empresarial SIN DV) → `761234567`, la misma forma que
+//         `76.123.456-7` y `761234567`.
+//   · PY: `80012345` (RUC empresarial SIN DV) → `800123456`, la misma forma que
+//         `80012345-6` y `800123456`.
+//
+// Sólo se toca la variante cuando el DV CALCULADO la respalda y el número cae en
+// el rango de personas JURÍDICAS de ese país (CO 8xx/9xx de 9 dígitos, CL cuerpo
+// ≥ 50.000.000, PY 80xxxxxx). Una cédula de persona (CO 10 dígitos que empieza por
+// 1, CL < 50 millones) no se reinterpreta nunca: ahí no hay forma de saber si el
+// último dígito es DV o parte del número.
+
+/** DV de un NIT colombiano (DIAN), el mismo cálculo que `calculateColombianCheckDigit`. */
+export function computeColombiaNitCheckDigit(base: string): number {
+  const weights = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+  let sum = 0;
+  for (let i = 0; i < base.length; i++) {
+    sum += Number(base.charAt(base.length - 1 - i)) * weights[i];
+  }
+  const remainder = sum % 11;
+  return remainder > 1 ? 11 - remainder : remainder;
+}
+
+/** DV de un RUT chileno (módulo 11, pesos 2..7): `'0'`–`'9'` o `'k'`. */
+export function computeChileRutCheckDigit(body: string): string {
+  let sum = 0;
+  let weight = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    sum += Number(body.charAt(i)) * weight;
+    weight = weight === 7 ? 2 : weight + 1;
+  }
+  const dv = 11 - (sum % 11);
+  if (dv === 11) return '0';
+  if (dv === 10) return 'k';
+  return String(dv);
+}
+
+/** DV de un RUC paraguayo (SET, módulo 11 con base 11). */
+export function computeParaguayRucCheckDigit(body: string): number {
+  let sum = 0;
+  let weight = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    if (weight > 11) weight = 2;
+    sum += Number(body.charAt(i)) * weight;
+    weight += 1;
+  }
+  const remainder = sum % 11;
+  return remainder > 1 ? 11 - remainder : 0;
+}
+
+/** NIT empresarial colombiano de 9 dígitos con su DV pegado (sin guion). */
+const CO_COMPANY_NIT_WITH_GLUED_DV = /^[89]\d{9}$/;
+/** Cuerpo de RUT chileno de persona jurídica (≥ 50.000.000) sin DV. */
+const CL_COMPANY_RUT_BODY = /^[5-9]\d{7}$/;
+/** Cuerpo de RUC paraguayo de persona jurídica (80xxxxxx) sin DV. */
+const PY_COMPANY_RUC_BODY = /^80\d{6}$/;
+
+/**
+ * Lleva a la forma canónica EXISTENTE las variantes de DV que antes divergían.
+ * `value` ya viene sin etiqueta, sin puntuación y en minúsculas; `hadSeparator`
+ * dice si la entrada traía un separador explícito antes del DV.
+ */
+function alignCheckDigitVariant(value: string, namespace: string, hadSeparator: boolean): string {
+  if (hadSeparator) return value;
+  if (namespace === 'CO' && CO_COMPANY_NIT_WITH_GLUED_DV.test(value)) {
+    const base = value.slice(0, 9);
+    return computeColombiaNitCheckDigit(base) === Number(value.charAt(9)) ? base : value;
+  }
+  if (namespace === 'CL' && CL_COMPANY_RUT_BODY.test(value)) {
+    // Si las 8 cifras ya son «7 de cuerpo + DV» válidos, se dejan como están: es la
+    // lectura que ya se guardaba y no se adivina otra.
+    const asBodyAndDv = computeChileRutCheckDigit(value.slice(0, 7)) === value.charAt(7);
+    return asBodyAndDv ? value : `${value}${computeChileRutCheckDigit(value)}`;
+  }
+  if (namespace === 'PY' && PY_COMPANY_RUC_BODY.test(value)) {
+    // Sin la salvaguarda de Chile a propósito: «7 de cuerpo + DV» que empiece por
+    // 80 sería una cédula ≥ 8.000.000, numeración que Paraguay no ha emitido; las
+    // 8 cifras 80xxxxxx son el cuerpo de un RUC de persona jurídica.
+    return `${value}${computeParaguayRucCheckDigit(value)}`;
+  }
+  return value;
+}
+
 /** Clave de identidad fiscal con ámbito de país: `<PAÍS>:<canónico>`. */
 export type FiscalIdentityKey = string;
 
@@ -97,7 +188,8 @@ export function resolveFiscalCountryScope(
  * canonicalizeFiscalIdentifier('900.123.456', 'CO')     → '900123456'
  * canonicalizeFiscalIdentifier('NIT 900.123.456', 'CO') → '900123456'
  * canonicalizeFiscalIdentifier('900123456-7', 'CO')     → '900123456'   // DV derivado
- * canonicalizeFiscalIdentifier('9001234567', 'CO')      → '9001234567'  // sin guion: no se adivina DV
+ * canonicalizeFiscalIdentifier('8909039388', 'CO')      → '890903938'   // DV pegado que el cálculo respalda
+ * canonicalizeFiscalIdentifier('1012345678', 'CO')      → '1012345678'  // cédula: no se adivina DV
  * canonicalizeFiscalIdentifier('ABC-123456-AB1', 'MX')  → 'abc123456ab1'
  * canonicalizeFiscalIdentifier('12', 'CO')              → null
  * canonicalizeFiscalIdentifier(null)                    → null
@@ -121,9 +213,12 @@ export function canonicalizeFiscalIdentifier(
     v = v.replace(/[\s.]/g, '').replace(/[–—]/g, '-').replace(CO_CHECK_DIGIT_SUFFIX, '');
   }
 
+  // AGENT1-FISCAL-CHECK-DIGIT-VARIANTS-1 — ¿la entrada separaba el DV? (`-7`, `-K`).
+  const hadSeparator = /[-–—]\s*[0-9kK]$/.test(v);
+
   v = v.replace(/[^a-z0-9]/gi, '').toLowerCase();
   if (v.length < MIN_CANONICAL_FISCAL_LENGTH) return null;
-  return v;
+  return scope ? alignCheckDigitVariant(v, scope.namespace, hadSeparator) : v;
 }
 
 /**
@@ -245,8 +340,20 @@ function fiscalRepresentationVariants(
   countryCode?: string | null,
 ): string[] {
   const scope = resolveFiscalCountryScope(countryCode);
+  if (scope?.namespace === 'CL' || scope?.namespace === 'PY') {
+    // AGENT1-FISCAL-CHECK-DIGIT-VARIANTS-1 — el canónico ya lleva el DV pegado;
+    // el prefiltro también tiene que alcanzar la fila guardada con guion
+    // (`76123456-7`), que es como la publican el SII y la SET.
+    return canonical.length >= 6 ? [`${canonical.slice(0, -1)}-${canonical.slice(-1)}`] : [];
+  }
   if (scope?.namespace !== 'CO') return [];
-  return Array.from({ length: 10 }, (_, digit) => `${canonical}-${digit}`);
+  const variants = Array.from({ length: 10 }, (_, digit) => `${canonical}-${digit}`);
+  // AGENT1-FISCAL-CHECK-DIGIT-VARIANTS-1 — y el NIT empresarial guardado con su
+  // DV PEGADO (`9001234567`), que ahora canonicaliza igual que `900123456`.
+  if (/^[89]\d{8}$/.test(canonical)) {
+    variants.push(`${canonical}${computeColombiaNitCheckDigit(canonical)}`);
+  }
+  return variants;
 }
 
 /**

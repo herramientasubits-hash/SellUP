@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { ShellAgentPanelSlot } from "@/components/layout/shell-agent-panel-slot";
+import { useExclusivePanel } from "@/lib/exclusive-panels";
 
 import {
   AGENT_PANEL_DURATION_MS,
@@ -44,6 +45,9 @@ export interface AiAgentDrawerProps {
  */
 export function AiAgentDrawer({ open, onOpenChange, customPanel }: AiAgentDrawerProps) {
   const surfaceRef = React.useRef<HTMLDivElement>(null);
+  // Un solo panel abierto: éste cierra la ficha de detalle y cualquier otro panel de IA.
+  const closeSelf = React.useCallback(() => onOpenChange(false), [onOpenChange]);
+  useExclusivePanel("agent", open, closeSelf);
 
   // Lo de dentro sigue pintado mientras el hueco se cierra y se va al terminar.
   const [present, setPresent] = React.useState(open);

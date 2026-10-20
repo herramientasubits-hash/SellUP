@@ -41,6 +41,8 @@ export function buildLiveCompetitorJudge(userId: string): LiveCompetitorJudge {
           ...(input.batchId ? { batch_id: input.batchId } : {}),
           provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
           operation_key: COMPETITOR_JUDGE_OPERATION_KEY,
+          agent_key: 'agent1',
+          agent_step: 'competidores_juez',
           model: outcome.usage.model,
           input_tokens: outcome.usage.inputTokens,
           output_tokens: outcome.usage.outputTokens,

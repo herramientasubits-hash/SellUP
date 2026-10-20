@@ -37,6 +37,8 @@ export type RescueChainDecision =
 export function decideRescueContinuation(step: RescueChainStep): RescueChainDecision {
   const { summary } = step;
   if (!summary.ok) return { continue: false, reason: 'failed' };
+  // AUDIT-A1-WS7 — el tope acumulado del lote ya se alcanzó (entre todas las corridas).
+  if (summary.batchBudgetReached) return { continue: false, reason: 'cost_cap' };
   const pending = summary.remaining + summary.failed;
   if (pending <= 0) return { continue: false, reason: 'done' };
   if (step.continuationsDone >= RESCUE_CHAIN_MAX_CONTINUATIONS) return { continue: false, reason: 'max_continuations' };

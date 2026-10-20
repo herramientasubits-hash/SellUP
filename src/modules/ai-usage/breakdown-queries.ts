@@ -15,6 +15,7 @@ import {
   IN_FILTER_CHUNK_SIZE,
 } from '@/lib/supabase/paginated-read';
 import { flattenOrgGroups } from '@/modules/access/group-tree';
+import { agentKeyFromRunKey } from '@/modules/usage-tracking/usage-dimensions';
 import { resolvePeriodStart } from './usage-filter-semantics';
 import { batchMatchesDimensionFilters } from './usage-dimension-scope';
 import {
@@ -26,6 +27,7 @@ import {
   type CompanyDiscardRow,
 } from './company-outcomes';
 import {
+  scopeCompanyOutcomes,
   aggregateCountryTools,
   aggregateRoleGroups,
   aggregateSearchBatches,
@@ -211,14 +213,21 @@ const loadBreakdowns = cache(async (key: string): Promise<UsageBreakdowns | null
     const bankIds = new Set(
       bankRead.rows.map((r) => r.assigned_candidate_id).filter((id): id is string => Boolean(id)),
     );
-    const outcomes = resolveCompanyOutcomes(candidatesRead.rows, batchesById, bankIds);
-    const discards: ResolvedDiscard[] = discardsRead.rows
-      .filter((d) => isProductionDiscard(d, batchesById.get(d.batch_id)))
-      .map((d) => ({
-        countryCode:
-          (d.country_code ?? batchesById.get(d.batch_id)?.country_code ?? null)?.trim().toUpperCase() || null,
-        tool: candidateTool(d.source_primary, false),
-      }));
+    const companyFilters = {
+      providerKey: filters.provider || null,
+      agentKey: agentKeyFromRunKey(filters.agent || null),
+    };
+    const outcomes = scopeCompanyOutcomes(resolveCompanyOutcomes(candidatesRead.rows, batchesById, bankIds), companyFilters);
+    const discards: ResolvedDiscard[] = scopeCompanyOutcomes(
+      discardsRead.rows
+        .filter((d) => isProductionDiscard(d, batchesById.get(d.batch_id)))
+        .map((d) => ({
+          countryCode:
+            (d.country_code ?? batchesById.get(d.batch_id)?.country_code ?? null)?.trim().toUpperCase() || null,
+          tool: candidateTool(d.source_primary, false),
+        })),
+      companyFilters,
+    );
 
     // Una búsqueda sale si entregó alguna empresa real o gastó algo: un lote de
     // QA vacío y gratis no es una búsqueda.
@@ -230,7 +239,7 @@ const loadBreakdowns = cache(async (key: string): Promise<UsageBreakdowns | null
     const searches = aggregateSearchBatches(searchBatches, outcomes, data.logsInScope);
     const result: UsageBreakdowns = {
       moneyVisible,
-      countryTools: aggregateCountryTools(outcomes, discards, data.logsInScope),
+      countryTools: aggregateCountryTools(outcomes, discards, data.logsInScope, new Set(batchIds)),
       roles: roleGroups.roles,
       groups: roleGroups.groups,
       people: roleGroups.people,

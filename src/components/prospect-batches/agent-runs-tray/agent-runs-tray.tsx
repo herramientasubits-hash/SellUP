@@ -42,6 +42,12 @@ import {
   type ProcessState,
 } from './agent-runs-tray-copy';
 import { openAgentRun } from './agent-run-opener';
+import { useRefreshOnFinishedRuns } from './finished-runs';
+import { FirstContactRunRows } from '@/components/first-call/first-contact-run-rows';
+import { FirstContactGlobalPanelHost } from '@/components/first-call/first-contact-global-panel-host';
+import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { ContactSearchRunRows } from '@/components/contact-enrichment/contact-search-run-rows';
+import { getContactSearchRunsStore, useContactSearchRuns } from '@/modules/contact-enrichment/contact-search-runs-client';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -60,6 +66,9 @@ export function useLiveProgress(runs: readonly AgentRun[]): Record<string, LiveP
     const ids = key.split(',');
 
     const tick = async () => {
+      // AGENT1-AUDIT-WS2 § 8 — las desligadas que ya no pueden estar corriendo
+      // (más de 10 min) se cierran, haya red o no: antes ocupaban un lugar para siempre.
+      getAgentRunsStore()?.expireStaleDetached();
       try {
         const statuses = await fetchAgentRunsStatus(ids);
         if (cancelled) return;
@@ -234,6 +243,10 @@ export const AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT = 'sellup:agent-runs:open-proc
 export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const runs = useAgentRuns();
   const live = useLiveProgress(runs);
+  // Las preparaciones del Agente 3 también viven aquí (dueña 18-10).
+  const firstContactRuns = useFirstContactRuns();
+  // Y las búsquedas de contactos con Rumbo (dueña 20-10).
+  const contactSearchRuns = useContactSearchRuns();
   const [open, setOpen] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [continuationActive, setContinuationActive] = React.useState(false);
@@ -254,12 +267,23 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   for (const run of runs) counts[agentRunProcessState(run)] += 1;
   // La corrida a medias también es trabajo en curso.
   if (continuationActive) counts.running += 1;
+  for (const run of firstContactRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
+  for (const run of contactSearchRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
   const running = counts.running;
   const finished = counts.done + counts.failed;
-  const isEmpty = runs.length === 0 && !continuationActive;
+  const isEmpty = runs.length === 0 && firstContactRuns.length === 0 && contactSearchRuns.length === 0 && !continuationActive;
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
   const router = useRouter();
+  // Terminó una búsqueda (aunque el asistente esté minimizado): se recarga para verla.
+  const refreshScreen = React.useCallback(() => router.refresh(), [router]);
+  useRefreshOnFinishedRuns(runs, refreshScreen);
+  // Igual con las búsquedas de contactos: «Por revisar» muestra lo nuevo sin recargar a mano.
+  const contactSearchStates = React.useMemo(
+    () => contactSearchRuns.map((run) => ({ clientRequestId: run.id, status: run.status })),
+    [contactSearchRuns],
+  );
+  useRefreshOnFinishedRuns(contactSearchStates, refreshScreen);
   const close = () => setOpen(false);
   const openRun = (clientRequestId: string) => {
     close();
@@ -278,6 +302,9 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   };
 
   return (
+    <>
+    {/* «Abrir» una preparación del Agente 3 en curso abre su panel aquí mismo. */}
+    <FirstContactGlobalPanelHost />
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
@@ -362,6 +389,8 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             pausedRunSignal={pausedRunSignal}
             onActiveChange={setContinuationActive}
           />
+          <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
+          <ContactSearchRunRows runs={contactSearchRuns} onNavigate={close} />
           {runs.map((run) => (
             <ProcessRow
               key={run.clientRequestId}
@@ -382,7 +411,11 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             </Text>
             <div className="-mr-2 flex shrink-0 items-center gap-1">
               {finished > 0 && (
-                <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => store?.dismissFinished()}>
+                <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => {
+                    store?.dismissFinished();
+                    getFirstContactRunsStore()?.dismissFinished();
+                    getContactSearchRunsStore()?.dismissFinished();
+                  }}>
                   {AGENT_RUNS_TRAY_COPY.clearFinished}
                 </Button>
               )}
@@ -400,5 +433,6 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
         )}
       </PopoverContent>
     </Popover>
+    </>
   );
 }

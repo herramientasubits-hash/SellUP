@@ -2,12 +2,11 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import {
   Building2,
-  Brain,
   Users,
   Activity,
-  Bot,
   Globe,
   MapPin,
   Tag,
@@ -16,6 +15,8 @@ import {
   User,
   Briefcase,
   GitBranch,
+  PhoneCall,
+  Rumbo,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -50,6 +51,13 @@ import { AccountEnrichContactsButton } from './account-enrich-contacts-button';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
 import { ContactDetailSheet } from '@/components/contacts/contact-detail-sheet';
+import { getFirstCallState, type FirstCallState } from '@/modules/speech/actions';
+import { FirstCallLauncher } from '@/components/first-call/first-call-launcher';
+import { FIRST_CONTACT_RUN_SETTLED_EVENT } from '@/modules/speech/first-contact-runs-client';
+import { FirstCallTab, hasFreshBrief, toFirstCallContactOptions } from '@/components/first-call/first-call-tab';
+import type { FirstContactLaunchRequest } from '@/components/first-call/first-call-launcher';
+import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
+import { FirstCallActivity } from '@/components/first-call/first-call-activity';
 import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/peru-sunat-legal-validation-block';
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
@@ -101,6 +109,10 @@ interface AccountDetailSheetProps {
    * is responsible for closing this sheet before opening the enrichment drawer.
    */
   onRequestEnrich?: (company: ContactEnrichmentInitialCompany) => void;
+  /** Abre el Agente 3 fuera del panel (quien lo monta cierra el panel primero, como «Buscar contactos»). */
+  onRequestFirstContact?: (request: FirstContactLaunchRequest) => void;
+  /** Pestaña con la que se abre el panel (p. ej. «primer-contacto» desde el menú de la fila). */
+  initialTab?: string;
 }
 
 interface SheetData {
@@ -110,9 +122,25 @@ interface SheetData {
   contactsSummary: ContactsSummary;
   users: InternalUserOption[];
   contactEnrichmentRuns: AccountContactEnrichmentRun[];
+  /** Agente 3: investigación y preparaciones del primer contacto (apagado si la bandera lo está). */
+  firstCall: FirstCallState;
+  /** ¿La investigación sigue vigente? Se calcula al cargar, no al pintar. */
+  freshBrief: boolean;
 }
 
-export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }: AccountDetailSheetProps) {
+/** Si el Agente 3 no se puede leer (p. ej. migración sin aplicar), el panel sigue sirviendo. */
+const FIRST_CALL_UNAVAILABLE: FirstCallState = { enabled: false, brief: null, packs: [] };
+
+export function AccountDetailSheet({
+  accountId,
+  open,
+  onClose,
+  onRequestEnrich,
+  onRequestFirstContact,
+  initialTab = 'resumen',
+}: AccountDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, onClose);
   const [data, setData] = React.useState<SheetData | null>(null);
   const [loading, setLoading] = React.useState(false);
   // Antes, si la empresa no se podía leer, el panel se quedaba girando para
@@ -120,6 +148,14 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
+  const [tab, setTab] = React.useState(normalizeAccountTab(initialTab) ?? 'resumen');
+  // Otra empresa en el mismo panel abierto (p. ej. terminó la preparación de otra): empieza
+  // en la pestaña pedida, no en la que tenía la anterior (ajuste durante el render).
+  const [shownAccountId, setShownAccountId] = React.useState(accountId);
+  if (accountId !== shownAccountId) {
+    setShownAccountId(accountId);
+    setTab(normalizeAccountTab(initialTab) ?? 'resumen');
+  }
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
@@ -130,14 +166,24 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
         setLoadFailed(true);
         return;
       }
-      const [auditLog, contacts, contactsSummary, users, contactEnrichmentRuns] = await Promise.all([
+      const [auditLog, contacts, contactsSummary, users, contactEnrichmentRuns, firstCall] = await Promise.all([
         getAccountAudit(id),
         getContactsByAccount(id),
         getContactsSummary(id),
         getActiveUsers(),
         getContactEnrichmentRunsByAccountId(id),
+        getFirstCallState(id).catch(() => FIRST_CALL_UNAVAILABLE),
       ]);
-      setData({ account, auditLog, contacts, contactsSummary, users, contactEnrichmentRuns });
+      setData({
+        account,
+        auditLog,
+        contacts,
+        contactsSummary,
+        users,
+        contactEnrichmentRuns,
+        firstCall,
+        freshBrief: hasFreshBrief(firstCall),
+      });
     } catch {
       setLoadFailed(true);
     } finally {
@@ -157,14 +203,38 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
       queueMicrotask(() => {
         setData(null);
         setLoadFailed(false);
+        setTab(normalizeAccountTab(initialTab) ?? 'resumen');
       });
     }
-  }, [open, accountId, loadData]);
+  }, [open, accountId, loadData, initialTab]);
+
+  /** Tras preparar o cambiar una preparación: recarga el panel y lleva a «Primer contacto». */
+  function afterFirstCall(id: string, goToTab: boolean) {
+    void loadData(id);
+    if (goToTab) setTab(FIRST_CALL_TAB_ID);
+  }
 
   function openContactDetail(cId: string) {
     setContactSheetId(cId);
     setContactSheetOpen(true);
   }
+
+  // Una preparación que terminó con el panel cerrado: si es de esta empresa, recarga.
+  React.useEffect(() => {
+    const onSettled = (event: Event) => {
+      const settledId = (event as CustomEvent<{ accountId: string }>).detail?.accountId;
+      if (open && accountId && settledId === accountId) {
+        void loadData(accountId);
+        // Terminó la de esta empresa: se ve el resultado (dueña 19-10).
+        setTab(FIRST_CALL_TAB_ID);
+      }
+    };
+    window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+    return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
+  }, [open, accountId, loadData]);
+
+  // Con el Agente 3 disponible, preparar el contacto es la acción principal del pie.
+  const firstCallOffered = !!data && data.firstCall.enabled && data.account.pipeline_status !== 'archived';
 
   return (
     <>
@@ -186,21 +256,19 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
           ) : undefined
         }
         loading={loading && !data}
-        // Pie: lo secundario (editar, cambiar estado, archivar) a la izquierda y
-        // la acción principal del panel a la derecha.
+        // Pie: todas las acciones a la derecha; la principal (el Agente 3) al final y
+        // «Buscar contactos» como secundaria (dueña 18-10).
         actions={
           data ? (
-            <>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2" data-testid="account-sheet-actions">
               <AccountDetailActions
                 accountId={data.account.id}
-                currentStatus={data.account.pipeline_status}
                 users={data.users}
                 onChanged={() => loadData(data.account.id)}
                 onArchived={onClose}
               />
               <AccountEnrichContactsButton
-                variant="default"
-                label="Buscar contactos"
+                variant={firstCallOffered ? 'outline' : 'default'}
                 preloadedCompany={{
                   name: data.account.name,
                   domain: data.account.domain,
@@ -212,7 +280,19 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                 disabled={data.account.pipeline_status === 'archived'}
                 onRequestOpen={onRequestEnrich}
               />
-            </>
+              {firstCallOffered && (
+                <FirstCallLauncher
+                  accountId={data.account.id}
+                  accountName={data.account.name}
+                  contacts={toFirstCallContactOptions(data.contacts)}
+                  hasFreshBrief={data.freshBrief}
+                  prepared={data.firstCall.packs.some((p) => p.status !== 'failed' && p.status !== 'discarded')}
+                  onDone={() => afterFirstCall(data.account.id, true)}
+                  onViewResult={() => setTab(FIRST_CALL_TAB_ID)}
+                  onRequestOpen={onRequestFirstContact}
+                />
+              )}
+            </div>
           ) : undefined
         }
       >
@@ -266,13 +346,13 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
 
           {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
               sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más). */}
-          <Tabs defaultValue="resumen">
+          <Tabs value={tab} onValueChange={setTab}>
                   <TabsList variant="segmented" className="mb-2 max-w-full overflow-x-auto">
                     <TabsTrigger value="resumen"><Building2 className="h-4 w-4" /> Resumen</TabsTrigger>
                     <TabsTrigger value="contactos"><Users className="h-4 w-4" /> Contactos</TabsTrigger>
-                    <TabsTrigger value="inteligencia"><Brain className="h-4 w-4" /> Inteligencia</TabsTrigger>
+                    <TabsTrigger value={FIRST_CALL_TAB_ID}><PhoneCall className="h-4 w-4" /> Primer contacto</TabsTrigger>
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
-                    <TabsTrigger value="agentes"><Bot className="h-4 w-4" /> Agentes</TabsTrigger>
+                    <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
                     <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
                   </TabsList>
 
@@ -397,12 +477,18 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                     />
                   </TabsContent>
 
-                  {/* Inteligencia */}
-                  <TabsContent value="inteligencia">
-                    <EmptyState
-                      icon={Brain}
-                      title="Todavía no hay inteligencia comercial"
-                      description="Aquí verás el árbol empresarial, las señales de negocio y los competidores de esta empresa cuando estén disponibles."
+                  {/* Primer contacto (Agente 3): la investigación y las preparaciones juntas */}
+                  <TabsContent value={FIRST_CALL_TAB_ID}>
+                    <FirstCallTab
+                      accountId={data.account.id}
+                      accountName={data.account.name}
+                      state={data.firstCall}
+                      contacts={toFirstCallContactOptions(data.contacts)}
+                      archived={data.account.pipeline_status === 'archived'}
+                      canMoveToReady={data.account.pipeline_status !== 'ready_for_outreach'}
+                      onChanged={() => afterFirstCall(data.account.id, false)}
+                      onRequestFirstContact={onRequestFirstContact}
+                      countryCode={data.account.country_code}
                     />
                   </TabsContent>
 
@@ -438,11 +524,15 @@ export function AccountDetailSheet({ accountId, open, onClose, onRequestEnrich }
                         </Timeline>
                       )}
                     </DrawerSection>
+                    <div className="mt-4">
+                      <FirstCallActivity state={data.firstCall} kind="events" />
+                    </div>
                   </TabsContent>
 
                   {/* Agentes */}
-                  <TabsContent value="agentes">
+                  <TabsContent value="agentes" className="space-y-4">
                     <AccountAgentsRunHistory runs={data.contactEnrichmentRuns} />
+                    <FirstCallActivity state={data.firstCall} kind="runs" />
                   </TabsContent>
 
                   {/* AGENT1-CORPORATE-TREE-4 — su árbol: grupo, filiales y otros países. */}

@@ -556,6 +556,19 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
       // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '150_public_procurement_supplier_links.sql',
+      // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+      // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+      // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+      // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+      // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4. No contienen un solo
+      // `DELETE`: no borran filas de contactos, no nombran `mobile_phone` y no tocan la erasure que
+      // esta suite protege. AUTORADAS y NO APLICADAS.
+      '151_claim_enrichment_jobs_hardening.sql',
+      '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -668,7 +681,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 150);
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
+    // de CUT3B4. AUTORADAS y NO APLICADAS.
+    assert.equal(numbered[numbered.length - 1], 153);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

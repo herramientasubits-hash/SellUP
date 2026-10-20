@@ -30,6 +30,7 @@
 
 import type { LogProviderUsageInput, ProviderUsageStatus } from '@/modules/usage-tracking/types';
 import { creditsForApolloOperation } from './apollo-operation-pricing';
+import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import {
   realLogApolloOrgsUsage,
   type ApolloOrgsUsageLogResult,
@@ -304,7 +305,9 @@ export function buildApolloEnrichmentUsageLogInput(
     agent_run_id: input.agentRunId ?? undefined,
     credits_used: accounting.creditsUsed,
     results_returned: accounting.resultsReturned,
-    estimated_cost_usd: input.unitCostUsd ?? null,
+    // Dólares = créditos × tarifa: sin coincidencia (0 créditos) no cuesta, y un
+    // cobro desconocido (créditos NULL) queda como costo desconocido.
+    estimated_cost_usd: creditCostUsd(accounting.creditsUsed, input.unitCostUsd),
     status: accounting.status,
     error_code: accounting.errorCode,
     error_message: input.errorMessage ? input.errorMessage.slice(0, 200) : undefined,

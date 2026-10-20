@@ -80,6 +80,13 @@ export type PublicEntityRow = {
   isHead: boolean;
 };
 
+/**
+ * Entidades candidatas con aviso de tope: `truncated` = había más candidatas que las que
+ * se leyeron. Elegir de una lista cortada podría dar OTRA entidad ⇒ el paso no corre
+ * (`ambiguous_entity`, fail-closed).
+ */
+export type PublicEntityLookup = { rows: PublicEntityRow[]; truncated: boolean };
+
 export type PublicBuyerRelationship = {
   taxId: string;
   name: string;
@@ -99,12 +106,20 @@ export type PublicBuyerStepOutcome =
   | { executed: false; reason: PublicBuyerStepSkipReason | string }
   | {
       executed: true;
-      buyer: { taxId: string; name: string; matchedBy: 'exact' | 'prefix' };
+      buyer: {
+        taxId: string;
+        name: string;
+        matchedBy: 'exact' | 'prefix';
+        /** La sigla con la que se nombró a la entidad («ICBF»), cuando la referencia era una sigla conocida. */
+        viaAlias?: string;
+      };
       sourceKey: string;
       tableVersion: string;
       read: number;
       outsideIndustry: number;
       publicEntitiesExcluded: number;
+      /** Consorcios y uniones temporales (no son la empresa a prospectar): no se ofrecen. */
+      consortiaExcluded?: number;
       /** Con tamaño oficial menor que `PUBLIC_BUYER_MIN_OFFICIAL_WORKERS`: no se ofrecen. */
       knownSmallExcluded?: number;
       offered: number;
@@ -130,8 +145,18 @@ export type PublicBuyerStepDeps = {
   taxIdentifierType?: CountrySourceCompany['taxIdentifierType'];
   /** Cómo normaliza el país el nombre del comprador (Chile quita «I»/«Ilustre»). */
   normalizeName?: (raw: string) => string;
-  /** Entidades públicas del país cuyo nombre es o empieza por el normalizado. */
-  findPublicEntities: (normalizedName: string) => Promise<PublicEntityRow[]>;
+  /**
+   * AUDIT-HARDENING-1 — si la referencia ES una sigla conocida de una entidad pública
+   * («ICBF», «SENA», «DIAN»), el nombre oficial al que se traduce; `null` si no. Sólo
+   * cambia el texto que se busca: la elección sigue siendo `pickPublicBuyer` (una sola
+   * entidad o ninguna). Ausente ⇒ el país no tiene tabla de siglas y todo sigue igual.
+   */
+  resolveReferenceAlias?: (reference: string) => string | null;
+  /**
+   * Entidades públicas del país cuyo nombre es o empieza por el normalizado. Si la
+   * consulta tiene tope, debe avisar con `truncated` cuando lo alcanza (ver `PublicEntityLookup`).
+   */
+  findPublicEntities: (normalizedName: string) => Promise<PublicEntityRow[] | PublicEntityLookup>;
   listSuppliers: (input: { buyerTaxId: string; macroIndustryKey: string; nowIso: string }) => Promise<PublicBuyerSuppliersResult>;
   /** NIT que son entidades públicas y NO empresas del registro mercantil. */
   listPublicOnlyTaxIds: (taxIds: readonly string[]) => Promise<ReadonlySet<string>>;
@@ -149,6 +174,25 @@ export function normalizePublicEntityName(raw: string): string {
     .replace(/[^A-Z0-9Ñ ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Consorcios y uniones temporales: asociaciones armadas para UN contrato, no la empresa a
+ * prospectar (muchas sin número fiscal propio; sus socios salen por su cuenta). Antes sólo
+ * los sacaban algunos lectores al cargar (PE/PY/HN/GT); ahora el paso los saca en todos
+ * los países. Se mira el nombre ya normalizado (sin tildes ni comillas: «Unión Temporal»,
+ * «Consórcio», «"CONSORCIO X"»).
+ */
+const CONSORTIUM_NAME_PATTERNS: readonly RegExp[] = [
+  /^CONSORCIO\b/, // «CONSORCIO VIAL 2025», «Consórcio …» (Brasil)
+  /^UTE\b/, // «UTE …» (unión temporal de empresas)
+  /\bUNION TEMPORAL\b/, // «UNIÓN TEMPORAL SALUD 2024», «… UNION TEMPORAL»
+];
+
+/** ¿El nombre es de un consorcio o una unión temporal? */
+export function isConsortiumSupplierName(raw: string | null | undefined): boolean {
+  const name = normalizePublicEntityName(raw ?? '');
+  return CONSORTIUM_NAME_PATTERNS.some((pattern) => pattern.test(name));
 }
 
 function uniqueByTaxId(rows: readonly PublicEntityRow[]): PublicEntityRow[] {
@@ -253,8 +297,15 @@ export async function runPublicBuyerSupplierStep(
     return { executed: false, reason: 'country_not_supported' };
   }
   const normalize = deps.normalizeName ?? normalizePublicEntityName;
-  const normalized = normalize(input.referenceCompanyName);
-  const picked = pickPublicBuyer(input.referenceCompanyName, await deps.findPublicEntities(normalized), normalize);
+  // Una sigla conocida se busca por el nombre oficial de su entidad (ver `resolveReferenceAlias`).
+  const aliasOfficialName = deps.resolveReferenceAlias?.(input.referenceCompanyName) ?? null;
+  const searchedName = aliasOfficialName ?? input.referenceCompanyName;
+  const normalized = normalize(searchedName);
+  const found = await deps.findPublicEntities(normalized);
+  const lookup: PublicEntityLookup = Array.isArray(found) ? { rows: found, truncated: false } : found;
+  // Con tope alcanzado la lista está cortada: lo que se elija de ella podría ser otra entidad.
+  if (lookup.truncated) return { executed: false, reason: 'ambiguous_entity' };
+  const picked = pickPublicBuyer(searchedName, lookup.rows, normalize);
   if (picked.entity === null) return { executed: false, reason: picked.reason };
   const buyer = picked.entity;
 
@@ -265,8 +316,11 @@ export async function runPublicBuyerSupplierStep(
   });
   if (!listed.ok) return { executed: false, reason: listed.reason };
 
-  const publicOnly = listed.suppliers.length > 0 ? await deps.listPublicOnlyTaxIds(listed.suppliers.map((s) => s.taxId)) : new Set<string>();
-  const notPublic = listed.suppliers.filter((s) => !publicOnly.has(s.taxId));
+  // Común a todos los países: fuera consorcios y uniones temporales.
+  const consortia = listed.suppliers.filter((s) => isConsortiumSupplierName(s.name));
+  const companies = listed.suppliers.filter((s) => !isConsortiumSupplierName(s.name));
+  const publicOnly = companies.length > 0 ? await deps.listPublicOnlyTaxIds(companies.map((s) => s.taxId)) : new Set<string>();
+  const notPublic = companies.filter((s) => !publicOnly.has(s.taxId));
   const knownSmall = notPublic.filter(isKnownSmall);
   const offered = prioritizeLargeSuppliers(notPublic.filter((s) => !isKnownSmall(s))).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
   const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
@@ -286,12 +340,18 @@ export async function runPublicBuyerSupplierStep(
   const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
   return {
     executed: true,
-    buyer: { taxId: buyer.taxId, name: buyer.normalizedLegalName, matchedBy: picked.matchedBy },
+    buyer: {
+      taxId: buyer.taxId,
+      name: buyer.normalizedLegalName,
+      matchedBy: picked.matchedBy,
+      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
+    },
     sourceKey: deps.sourceKey,
     tableVersion: listed.tableVersion,
     read: listed.read,
     outsideIndustry: listed.outsideIndustry,
-    publicEntitiesExcluded: listed.suppliers.filter((s) => publicOnly.has(s.taxId)).length,
+    publicEntitiesExcluded: companies.filter((s) => publicOnly.has(s.taxId)).length,
+    consortiaExcluded: consortia.length,
     knownSmallExcluded: knownSmall.length,
     offered: offered.length,
     written: write.written,

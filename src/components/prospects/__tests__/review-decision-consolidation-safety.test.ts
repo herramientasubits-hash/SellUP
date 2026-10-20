@@ -300,24 +300,16 @@ describe('HF1 — three-dot row menu neutralized on the Prospectos surface', () 
     assert.ok(ROW_ACTIONS_SRC.includes('onApproveOverride'));
   });
 
-  it('with the override set, the row-menu Aprobar uses it instead of the convert flow', () => {
-    // The enabled Aprobar entry must delegate to the override when present, so
-    // handleApproveClick (the only caller of approveAndConvertCandidateAction)
-    // is unreachable on the Prospectos surface.
-    assert.ok(
-      ROW_ACTIONS_SRC.includes('onClick={onApproveOverride ?? handleApproveClick}'),
-      'the enabled Aprobar entry must prefer onApproveOverride over handleApproveClick',
-    );
+  // AGENT1-AUDIT-WS4 — antes estos casos fijaban que la vía heredada
+  // (approveAndConvertCandidateAction vía handleApproveClick) seguía viva en el
+  // componente compartido sin override. Era el defecto: el componente cliente
+  // publicaba la server action al navegador. Ahora el override es obligatorio.
+  it('the row-menu Aprobar always uses the override (no legacy convert flow)', () => {
+    assert.ok(ROW_ACTIONS_SRC.includes('onClick={onApproveOverride}'));
+    assert.equal(ROW_ACTIONS_SRC.includes('handleApproveClick'), false);
   });
 
-  it('approveAndConvertCandidateAction stays reachable ONLY via handleApproveClick (legacy prospect-batches surface)', () => {
-    // Defense-in-depth: the convert action must have exactly one caller, and it
-    // must be the click handler that onApproveOverride bypasses. No other call
-    // site may exist in the shared component.
-    const convertCalls = ROW_ACTIONS_SRC.split('approveAndConvertCandidateAction(').length - 1;
-    assert.equal(convertCalls, 1, 'expected a single approveAndConvertCandidateAction call site');
-    const doApproveIdx = ROW_ACTIONS_SRC.indexOf('async function doApprove()');
-    const callIdx = ROW_ACTIONS_SRC.indexOf('approveAndConvertCandidateAction(');
-    assert.ok(doApproveIdx > -1 && callIdx > doApproveIdx, 'the call must live inside doApprove()');
+  it('the shared component never references approveAndConvertCandidateAction', () => {
+    assert.equal(ROW_ACTIONS_SRC.includes('approveAndConvertCandidateAction'), false);
   });
 });

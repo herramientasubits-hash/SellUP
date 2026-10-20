@@ -129,6 +129,15 @@ export function validateImportFile(file: File): { ext: 'csv' | 'xlsx' | 'txt' } 
   return { ext };
 }
 
+/**
+ * Las filas de la vista previa que se clasifican: solo las válidas o con
+ * advertencia, en orden. La clasificación numera ESTA lista (`rowNumber` =
+ * posición + 1), no la vista previa completa.
+ */
+export function getClassifiablePreviewRows(previewData: ImportPreview): ImportRow[] {
+  return previewData.rows.filter((r) => r.status === 'valid' || r.status === 'warning');
+}
+
 /** Las filas que se envían a clasificar: solo las válidas o con advertencia. */
 export function buildClassifiableRows(
   previewData: ImportPreview,
@@ -138,8 +147,7 @@ export function buildClassifiableRows(
   const origIndustryCol = mappings.find((m) => m.targetField === 'industry')?.sourceColumn ?? null;
   const origSubindustryCol = mappings.find((m) => m.targetField === 'subindustry')?.sourceColumn ?? null;
 
-  return previewData.rows
-    .filter((r) => r.status === 'valid' || r.status === 'warning')
+  return getClassifiablePreviewRows(previewData)
     .map((r) => {
       function rawValueForColumn(sourceColumn: string | null): string | undefined {
         if (!sourceColumn) return undefined;
@@ -209,17 +217,41 @@ export function buildDuplicateCheckItems(built: ImportPreview) {
   }));
 }
 
+/** Corrección manual de la revisión, por índice de la fila en la vista previa. */
+export interface ImportIndustryOverride {
+  industryId: string;
+  subindustryId: string | null;
+}
+
 /**
  * Los candidatos que se envían a crear el lote. `subindustriesEnabled` decide
  * si viaja la subindustria; sin él, el campo no se envía.
+ *
+ * AGENT1-AUDIT-WS5-IMPORT-OVERRIDES-1 — la industria viaja con la MISMA
+ * normalización que se usó al clasificar (antes se enviaba cruda y el
+ * servidor clasificaba otra cosa) y, si el vendedor la corrigió en la
+ * revisión, con el id de catálogo elegido (`industry_id`), que el servidor
+ * valida contra el catálogo vivo.
  */
-export function buildImportCandidates(rows: ImportRow[], subindustriesEnabled: boolean) {
+export function buildImportCandidates(
+  rows: ImportRow[],
+  subindustriesEnabled: boolean,
+  overrides?: ReadonlyMap<number, ImportIndustryOverride>,
+) {
   return rows.map((r) => ({
     company_name: r.raw.company_name,
     country: r.raw.country,
     country_code: r.resolved_country_code ?? r.raw.country_code,
-    industry: r.raw.industry,
-    subindustry: subindustriesEnabled ? r.raw.subindustry : undefined,
+    industry: normalizeIndustryRaw(r.raw.industry),
+    subindustry: subindustriesEnabled ? normalizeSubindustryRaw(r.raw.subindustry) : undefined,
+    ...(overrides?.get(r.index)
+      ? {
+          industry_id: overrides.get(r.index)!.industryId,
+          ...(subindustriesEnabled && overrides.get(r.index)!.subindustryId
+            ? { subindustry_id: overrides.get(r.index)!.subindustryId! }
+            : {}),
+        }
+      : {}),
     website: r.raw.website,
     city: r.raw.city,
     region: r.raw.region,
@@ -237,6 +269,68 @@ export function buildImportCandidates(rows: ImportRow[], subindustriesEnabled: b
     source_evidence: r.raw.source_evidence,
     confidence: r.raw.confidence,
   }));
+}
+
+/**
+ * Las filas elegidas en la revisión, emparejadas con su fila de la vista
+ * previa (por posición en la lista clasificable, no por índice global: con
+ * filas con error antes, el índice global apuntaba a la fila equivocada), y
+ * las correcciones manuales a enviar.
+ */
+export function selectClassifiedRowsForImport(
+  previewData: ImportPreview,
+  classificationRows: readonly ImportClassificationPreviewRow[],
+  selectedRowNumbers: ReadonlySet<number>,
+): { rows: ImportRow[]; overrides: Map<number, ImportIndustryOverride> } {
+  const classifiable = getClassifiablePreviewRows(previewData);
+  const rows: ImportRow[] = [];
+  const overrides = new Map<number, ImportIndustryOverride>();
+  for (const classified of classificationRows) {
+    if (!selectedRowNumbers.has(classified.rowNumber)) continue;
+    const previewRow = classifiable[classified.rowNumber - 1];
+    if (!previewRow) continue;
+    rows.push(previewRow);
+    if (classified.correctionSource === 'manual' && classified.industryCanonicalId) {
+      overrides.set(previewRow.index, {
+        industryId: classified.industryCanonicalId,
+        subindustryId: classified.subindustryCanonicalId ?? null,
+      });
+    }
+  }
+  return { rows, overrides };
+}
+
+export type CreateImportBatchOutcome =
+  | {
+      ok: true;
+      batchId: string;
+      candidatesCreated: number;
+      stats: ImportBatchStats | null;
+      pendingRevalidationCount: number;
+    }
+  | { ok: false; message: string };
+
+/**
+ * Lee la respuesta de `create-import-batch` sin suponer éxito: un 4xx/5xx o un
+ * cuerpo sin `batchId` es un error con el mensaje del servidor (antes se
+ * mostraba «Se importaron undefined candidatos» y se cerraba el drawer).
+ */
+export function readCreateImportBatchResponse(httpOk: boolean, body: unknown): CreateImportBatchOutcome {
+  const data = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const serverMessage =
+    (typeof data.message === 'string' && data.message) ||
+    (typeof data.error === 'string' && data.error) ||
+    null;
+  if (!httpOk || data.success === false || typeof data.batchId !== 'string' || typeof data.candidatesCreated !== 'number') {
+    return { ok: false, message: serverMessage ?? 'No se pudo importar. Intenta de nuevo.' };
+  }
+  return {
+    ok: true,
+    batchId: data.batchId,
+    candidatesCreated: data.candidatesCreated,
+    stats: (data.stats as ImportBatchStats | undefined) ?? null,
+    pendingRevalidationCount: typeof data.pendingRevalidationCount === 'number' ? data.pendingRevalidationCount : 0,
+  };
 }
 
 /** Recuenta los estados de las filas clasificadas. */

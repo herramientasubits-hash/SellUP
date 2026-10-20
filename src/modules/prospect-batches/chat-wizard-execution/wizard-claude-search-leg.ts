@@ -25,7 +25,12 @@ export type ClaudeSearchLegSkipReason =
   | 'tavily_first_reviewable_met'
   | 'target_met'
   | 'not_enough_time'
-  | 'run_start_unknown';
+  | 'run_start_unknown'
+  /**
+   * AGENT1-AUDIT-WS2 § F — el lote ya está en el tope de entrega (máximo 10 por
+   * búsqueda): nada de lo que Claude encontrara cabría, y se pagaría igual.
+   */
+  | 'lot_at_delivery_cap';
 
 export type ClaudeSearchLegDecision =
   | { run: true; phaseMs: number; missing: number }
@@ -38,11 +43,17 @@ export function decideClaudeSearchLeg(input: {
   acceptedSoFar: number;
   /** ms desde que empezó la acción del asistente; null = no se sabe. */
   elapsedMs: number | null;
+  /**
+   * AGENT1-AUDIT-WS2 § F — ¿el lote ya llegó al tope de entrega? Ausente ⇒ `false`
+   * (sin tope configurado o sin conteo: se sigue como antes).
+   */
+  lotAtDeliveryCap?: boolean;
 }): ClaudeSearchLegDecision {
   if (!input.enabled) return { run: false, reason: 'flag_disabled' };
   if (input.tavilyFirstSatisfied) return { run: false, reason: 'tavily_first_reviewable_met' };
   const missing = input.target - input.acceptedSoFar;
   if (missing <= 0) return { run: false, reason: 'target_met' };
+  if (input.lotAtDeliveryCap === true) return { run: false, reason: 'lot_at_delivery_cap' };
   if (input.elapsedMs === null) return { run: false, reason: 'run_start_unknown' };
   const remaining = WIZARD_FUNCTION_LIMIT_MS - input.elapsedMs;
   if (remaining < CLAUDE_SEARCH_LEG_MIN_REMAINING_MS) return { run: false, reason: 'not_enough_time' };

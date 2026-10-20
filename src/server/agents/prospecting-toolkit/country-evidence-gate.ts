@@ -60,6 +60,9 @@ const AR_URL_SIGNALS = [
   '.net.ar',
   '.org.ar',
   '.gov.ar',
+  // AGENT1-COUNTRY-IDENTITY-1 — el Estado argentino usa `.gob.ar`
+  // (argentina.gob.ar, buenosaires.gob.ar), no sólo `.gov.ar`.
+  '.gob.ar',
   '.edu.ar',
   '/argentina',
   '/ar-es',

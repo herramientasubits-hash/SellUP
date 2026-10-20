@@ -84,9 +84,18 @@ export async function runAnthropicConversation(params: {
   body: AnthropicRequestBody;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  /**
+   * AUDIT-A1-WS7 — instante (ms epoch) en el que la conversación ENTERA tiene que
+   * haber terminado, continuaciones incluidas. Cada petición se recorta a lo que
+   * queda; sin tiempo, no se empieza otra (`deadline_exceeded`).
+   */
+  deadlineAtMs?: number;
+  /** Reloj inyectable para pruebas. */
+  now?: () => number;
 }): Promise<AnthropicConversationResult> {
   const fetchImpl = params.fetchImpl ?? (fetch as FetchLike);
   const timeoutMs = params.timeoutMs ?? 90_000;
+  const now = params.now ?? Date.now;
   let messages = params.body.messages;
   let usage = EMPTY_USAGE;
   let content: AnthropicContentBlock[] = [];
@@ -94,46 +103,58 @@ export async function runAnthropicConversation(params: {
   let requests = 0;
 
   for (let attempt = 0; attempt <= MAX_PAUSE_TURN_CONTINUATIONS; attempt++) {
+    const remaining = params.deadlineAtMs === undefined ? timeoutMs : params.deadlineAtMs - now();
+    if (remaining <= 0) {
+      throw new AnthropicApiError(null, 'deadline_exceeded', 'conversation deadline reached', usage);
+    }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
+    // AUDIT-A1-WS7 — el temporizador sigue activo mientras se LEE el cuerpo
+    // (antes se apagaba antes de `response.json()` y un cuerpo lento no tenía tope).
+    const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, remaining));
     try {
-      response = await fetchImpl(ANTHROPIC_MESSAGES_URL, {
+      const data = await runOneRequest();
+      const turnContent = Array.isArray(data.content) ? data.content : [];
+      usage = addUsage(usage, data.usage);
+      content = [...content, ...turnContent];
+      stopReason = data.stop_reason ?? null;
+      if (stopReason !== 'pause_turn') break;
+      messages = [...messages, { role: 'assistant', content: turnContent }];
+    } finally {
+      clearTimeout(timer);
+    }
+
+    async function runOneRequest(): Promise<{ content?: AnthropicContentBlock[]; stop_reason?: string; usage?: unknown }> {
+      let response: Response;
+      try {
+        response = await fetchImpl(ANTHROPIC_MESSAGES_URL, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           'x-api-key': params.apiKey,
           'anthropic-version': ANTHROPIC_VERSION,
         },
-        body: JSON.stringify({ ...params.body, messages }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      const isAbort = err instanceof Error && err.name === 'AbortError';
-      throw new AnthropicApiError(null, isAbort ? 'timeout' : 'network_error', String(err), usage);
-    } finally {
-      clearTimeout(timer);
+          body: JSON.stringify({ ...params.body, messages }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        throw new AnthropicApiError(null, isAbort ? 'timeout' : 'network_error', String(err), usage);
+      }
+      requests += 1;
+
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => '');
+        const code = response.status === 429 ? 'rate_limited' : `http_${response.status}`;
+        throw new AnthropicApiError(response.status, code, bodyText.slice(0, 300), usage);
+      }
+
+      try {
+        return (await response.json()) as { content?: AnthropicContentBlock[]; stop_reason?: string; usage?: unknown };
+      } catch (err) {
+        const isAbort = controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
+        throw new AnthropicApiError(response.status, isAbort ? 'timeout' : 'invalid_json', String(err), usage);
+      }
     }
-    requests += 1;
-
-    if (!response.ok) {
-      const bodyText = await response.text().catch(() => '');
-      const code = response.status === 429 ? 'rate_limited' : `http_${response.status}`;
-      throw new AnthropicApiError(response.status, code, bodyText.slice(0, 300), usage);
-    }
-
-    const data = (await response.json()) as {
-      content?: AnthropicContentBlock[];
-      stop_reason?: string;
-      usage?: unknown;
-    };
-    const turnContent = Array.isArray(data.content) ? data.content : [];
-    usage = addUsage(usage, data.usage);
-    content = [...content, ...turnContent];
-    stopReason = data.stop_reason ?? null;
-
-    if (stopReason !== 'pause_turn') break;
-    messages = [...messages, { role: 'assistant', content: turnContent }];
   }
 
   return { content, stopReason, usage, requests };

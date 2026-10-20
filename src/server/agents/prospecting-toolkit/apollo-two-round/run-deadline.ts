@@ -110,3 +110,21 @@ export function downstreamReserveMs(pendingEnrichments: number): number {
   const enrichments = Math.max(0, pendingEnrichments);
   return enrichments * ENRICHMENT_WORST_CASE_MS + PERSISTENCE_WORST_CASE_MS;
 }
+
+/**
+ * AGENT1-AUDIT-WS2 § 1 — el instante desde el que cuenta el plazo de una
+ * invocación.
+ *
+ * El plazo es de la INVOCACIÓN (la acción del asistente o el conductor del cron),
+ * no de la etapa de Apollo: lo que corrió antes ya se comió parte de los 300 s.
+ * Un inicio ausente o ilegible cae a «ahora» (el comportamiento previo); uno en el
+ * futuro —relojes desalineados— también, porque nunca puede dar MÁS tiempo del que
+ * queda.
+ */
+export function resolveInvocationStartedAtMs(
+  startedAtMs: number | null | undefined,
+  nowMs: number,
+): number {
+  if (typeof startedAtMs !== 'number' || !Number.isFinite(startedAtMs)) return nowMs;
+  return Math.min(startedAtMs, nowMs);
+}

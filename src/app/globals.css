@@ -660,6 +660,17 @@
     background-clip: text;
   }
 
+  /* Acciones de IA (dueña 19-10: «todo lo que tenga IA debe poder diferenciarse»).
+     Tres pesos, como los botones normales: primario = su-ai-gradient (relleno);
+     secundario = su-ai-border + su-ai-icons; terciario = su-ai-ghost + su-ai-icons. */
+  .su-ai-icons svg {
+    color: var(--su-ai-stop-2);
+  }
+  .su-ai-ghost:hover,
+  .su-ai-ghost[aria-expanded="true"] {
+    background-color: var(--su-ai-surface);
+  }
+
   /* Soft surface — tinted background for AI cards and sections */
   .su-ai-surface {
     background-color: var(--su-ai-surface);
@@ -940,14 +951,18 @@
   initial-value: 0deg;
 }
 
+/* Rumbo: la baldosa late y la aguja se mueve; cada ciclo termina donde empieza (dueña
+   19-10: la vuelta de 0° a 90° volvía a 0° de golpe y se veía cortada). */
 @keyframes chat-mark-breathe {
-  0%, 100% { transform: scale(1) rotate(0deg); }
-  50% { transform: scale(1.08) rotate(8deg); }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
-@keyframes chat-mark-think {
-  0% { transform: scale(0.94) rotate(0deg); }
-  50% { transform: scale(1.06) rotate(45deg); }
-  100% { transform: scale(0.94) rotate(90deg); }
+@keyframes chat-mark-needle-sway {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(10deg); }
+}
+@keyframes chat-mark-needle-spin {
+  to { transform: rotate(360deg); }
 }
 @keyframes chat-spin {
   to { transform: rotate(360deg); }
@@ -1051,9 +1066,23 @@
     animation: chat-mark-breathe 3.2s ease-in-out infinite;
     transform-origin: center;
   }
+  .chat-mark-needle {
+    transform-box: view-box;
+    transform-origin: 12px 12px;
+  }
+  .chat-mark--breathing .chat-mark-needle {
+    animation: chat-mark-needle-sway 3.2s ease-in-out infinite;
+  }
   .chat-mark--thinking {
-    animation: chat-mark-think 1.4s ease-in-out infinite;
+    animation: chat-mark-breathe 1.6s ease-in-out infinite;
     transform-origin: center;
+  }
+  .chat-mark--thinking .chat-mark-needle {
+    animation: chat-mark-needle-spin 1.6s linear infinite;
+  }
+  /* El cargador de IA («Analizando…»): la brújula de Rumbo con la aguja girando. */
+  .ai-rumbo-thinking .chat-mark-needle {
+    animation: chat-mark-needle-spin 1.6s linear infinite;
   }
 
   /* ── La caja de escribir ── */
@@ -1221,6 +1250,8 @@
   @media (prefers-reduced-motion: reduce) {
     .chat-mark--breathing,
     .chat-mark--thinking,
+    .chat-mark-tile .chat-mark-needle,
+    .ai-rumbo-thinking .chat-mark-needle,
     .chat-send-halo,
     .chat-caret::after,
     .chat-shimmer,

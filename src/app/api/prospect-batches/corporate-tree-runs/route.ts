@@ -16,8 +16,12 @@ import { buildLiveCorporateTreeDeps } from '@/server/prospect-batches/corporate-
  */
 export const maxDuration = 300;
 
-/** Desde el inicio: última escritura que se empieza; deja tiempo para sellar el lote. */
-const CORPORATE_TREE_WRITE_DEADLINE_MS = 240_000;
+/**
+ * Desde el inicio: última escritura que se empieza; deja tiempo para sellar el lote.
+ * AUDIT-HARDENING-1 — 220 s (antes 240): una escritura con chequeos de HubSpot que
+ * empezaba en el segundo 239 podía pasar de los 300 s y dejar el lote sin sellar.
+ */
+const CORPORATE_TREE_WRITE_DEADLINE_MS = 220_000;
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 

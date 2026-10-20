@@ -231,6 +231,37 @@ export function publicLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | 
   };
 }
 
+/**
+ * AGENT1-AUDIT-WS2 § A — compras públicas SÍ encontró proveedores (`offered > 0`) pero
+ * no escribió ninguno: todos ya eran de alguien (Por revisar, cuenta o de otro
+ * vendedor). Antes `publicLegOf` devolvía `null`, Claude tampoco corría (hay
+ * proveedores ⇒ 0 rondas) y la corrida terminaba en «No se pudo completar… Inténtalo de
+ * nuevo» con el lote `failed`, invitando a repetir algo que daría lo mismo. Es una
+ * ronda que corrió sin novedades: `no_new_candidates` con su desglose.
+ */
+export function publicNothingNewLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | null {
+  if (!step?.executed || step.offered <= 0 || publicLegOf(step) !== null) return null;
+  return {
+    executed: true,
+    persistedCandidates: 0,
+    completeValidCandidates: 0,
+    acceptedIdentities: [],
+    estimatedCostUsd: 0,
+    proposed: step.offered,
+    passedPreFilter: 0,
+  };
+}
+
+/** AGENT1-AUDIT-WS2 § A — el desglose de «sin novedades» de compras públicas. */
+export function buildPublicStepNoNewBreakdown(step: Extract<PublicBuyerStepOutcome, { executed: true }>) {
+  return buildCompetitorNoNewBreakdown({
+    reviewable: 0,
+    hubspotDuplicates: 0,
+    // Lo ofrecido que no se escribió ni quedó sin web: ya estaba reclamado en SellUp.
+    sellupDuplicates: Math.max(0, step.offered - step.written - step.recordedWithoutWebsite),
+  });
+}
+
 /** El bloque del lote: qué hizo el paso, sin las frases de prueba (van en cada candidato). */
 export function publicStepMetadata(step: PublicBuyerStepOutcome, tagged: number | null): Record<string, unknown> {
   if (!step.executed) return { executed: false, reason: step.reason };
@@ -401,11 +432,13 @@ export async function executeSupplierSearchRun(
     ? { executed: false, reason: 'public_buyer_suppliers_found' }
     : await runRound(0, resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()));
   const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: firstRound }];
+  // AGENT1-AUDIT-WS2 § A — compras públicas corrió sin novedades: ronda ejecutada en 0.
+  const publicNothingNewLeg = publicNothingNewLegOf(publicStep);
   let leg: ClaudeSearchLegOutcome = firstRound.executed
     ? publicLeg
       ? combineCompetitorRounds(publicLeg, firstRound)
       : firstRound
-    : (publicLeg ?? firstRound);
+    : (publicLeg ?? publicNothingNewLeg ?? firstRound);
   if (firstRound.executed) batchOutcome = await readOutcome();
 
   // 4a. AGENT1-SUPPLIER-SEARCH-4 — 2.ª ronda: sólo si faltan nuevas y queda tiempo. Una
@@ -559,7 +592,11 @@ export async function executeSupplierSearchRun(
   return {
     ok: true,
     status: nothingNew ? 'no_new_candidates' : acceptedForTarget.targetReached ? 'success_target_reached' : 'success_partial',
-    ...(batchOutcome && reviewable === 0 ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) } : {}),
+    ...(batchOutcome && reviewable === 0
+      ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) }
+      : nothingNew && publicNothingNewLeg !== null && publicStep?.executed
+        ? { noNewCandidatesBreakdown: buildPublicStepNoNewBreakdown(publicStep) }
+        : {}),
     batchId,
     batchStatus: persisted > 0 ? 'ready_for_review' : 'nothing_to_write',
     // AGENT1-SUPPLIER-SEARCH-5 — las que llegan a Por revisar, como «Competidores»: con

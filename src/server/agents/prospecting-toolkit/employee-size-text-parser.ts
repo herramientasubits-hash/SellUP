@@ -17,9 +17,13 @@
 
 // Keywords that must appear adjacent to the number to trigger parsing.
 // Without one of these, bare numbers (prices, client counts, area…) are ignored.
+//
+// AUDIT-A1-WS7 (16-10) — fuera `people`, `personas` y `equipo`: no hablan de
+// empleo. «Beneficiamos a 10.000 personas» (una ONG) salía 10001+ y pasaba el
+// ICP; «un equipo de 30» no dice cuánta gente trabaja en la empresa.
 const EMPLOYEE_KW =
-  '(?:employees?|workers?|staff|team\\s+members?|people' +
-  '|empleados?|colaboradores?|trabajadores?|personas|equipo)\\b';
+  '(?:employees?|workers?|staff|team\\s+members?' +
+  '|empleados?|colaboradores?|trabajadores?)\\b';
 
 // Number pattern: digits with optional thousand separators (`,` or `.`).
 const NUM = '(\\d[\\d.,]*)';
@@ -132,4 +136,24 @@ export function parseEmployeeSizeFromText(text: string | null | undefined): stri
   }
 
   return null;
+}
+
+/**
+ * AUDIT-A1-WS7 (16-10) — quita del texto las frases de cantidad de empleados que
+ * `parseEmployeeSizeFromText` leería. Para textos que escribió un modelo (la
+ * «evidencia» de Claude busca empresas): no es una fuente de tamaño, y como
+ * snippet se convertía en el tamaño de la empresa. El resto del texto se conserva.
+ */
+export function stripEmployeeCountClaims(text: string | null | undefined): string | null {
+  if (text == null) return null;
+  const patterns = [
+    `(?:entre|between)\\s+${NUM}\\s+(?:y|and)\\s+${NUM}\\s*${EMPLOYEE_KW}`,
+    `(?:más de|over|more than)\\s+${NUM}\\s*${EMPLOYEE_KW}`,
+    `${NUM}\\s*\\+\\s*${EMPLOYEE_KW}`,
+    `${NUM}\\s*[-–]\\s*${NUM}\\s*${EMPLOYEE_KW}`,
+    `${NUM}\\s+${EMPLOYEE_KW}`,
+  ];
+  let out = text;
+  for (const pattern of patterns) out = out.replace(new RegExp(pattern, 'gi'), '');
+  return out.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').trim();
 }

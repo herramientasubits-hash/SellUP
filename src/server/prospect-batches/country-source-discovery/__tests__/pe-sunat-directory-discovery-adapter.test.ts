@@ -262,6 +262,12 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
     return { client: client as unknown as SupabaseClient, calls };
   }
 
+  // AUDIT-A1-WS7 — la lectura ahora también pregunta qué ya conoce SellUp (otras
+  // tablas; este doble no las soporta y la lectura sigue fail-open). Aquí sólo
+  // importan las consultas a la fuente; la ventana por páginas se prueba en
+  // audit-ws7-free-layer-fresh-window.test.ts.
+  const snapshotQueries = (calls: Call[][]) => calls.filter((q) => q[0]?.args[0] === 'source_company_snapshots');
+
   const dbRow = (n: number, rawData: Record<string, unknown>, priority: unknown = 1200 - n) => ({
     record_identity_key: `tax:${ruc(n)}`,
     normalized_tax_id: ruc(n),
@@ -299,7 +305,7 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
     assert.equal(rows[1].employees, null);
     assert.equal(rows[1].metrics_year, null);
 
-    for (const query of calls) {
+    for (const query of snapshotQueries(calls)) {
       assert.deepEqual(query[0], { method: 'from', args: ['source_company_snapshots'] });
       assert.deepEqual(query.filter((c) => c.method === 'eq').map((c) => c.args), [
         ['source_key', 'pe_sunat_directory'],
@@ -320,11 +326,12 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
     ]);
     const rows = await buildPeSunatDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'government', limit: 5 });
     assert.deepEqual(rows.map((r) => r.ruc), [ruc(1), ruc(2)]);
-    assert.equal(calls.length, 2);
-    assert.deepEqual(calls[0].find((c) => c.method === 'not')?.args, ['raw_data->>website_domain', 'is', null]);
-    assert.deepEqual(calls[0].at(-1), { method: 'limit', args: [5] });
-    assert.deepEqual(calls[1].find((c) => c.method === 'is')?.args, ['raw_data->>website_domain', null]);
-    assert.deepEqual(calls[1].at(-1), { method: 'limit', args: [4] });
+    const source = snapshotQueries(calls);
+    assert.equal(source.length, 2);
+    assert.deepEqual(source[0].find((c) => c.method === 'not')?.args, ['raw_data->>website_domain', 'is', null]);
+    assert.deepEqual(source[0].at(-1), { method: 'limit', args: [5] });
+    assert.deepEqual(source[1].find((c) => c.method === 'is')?.args, ['raw_data->>website_domain', null]);
+    assert.deepEqual(source[1].at(-1), { method: 'limit', args: [4] });
   });
 
   it('si las que traen web llenan el tope, no se lee el resto', async () => {
@@ -333,7 +340,7 @@ describe('lectura de producción (buildPeSunatDirectoryDiscoveryReads)', () => {
     ]);
     const rows = await buildPeSunatDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'government', limit: 2 });
     assert.equal(rows.length, 2);
-    assert.equal(calls.length, 1);
+    assert.equal(snapshotQueries(calls).length, 1);
   });
 
   it('con límite 0 no consulta; un error o una excepción en cualquiera de las dos lecturas devuelven vacío', async () => {

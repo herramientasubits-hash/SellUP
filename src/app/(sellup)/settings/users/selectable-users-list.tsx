@@ -435,7 +435,12 @@ export function SelectableUsersList({
             {pending.action.requiresGroup && (
               <div className="space-y-1.5">
                 <FieldLabel className="block leading-none">Grupo organizacional</FieldLabel>
-                <Select value={groupId || undefined} onValueChange={v => setGroupId(v ?? '')}>
+                <Select
+                  value={groupId || null}
+                  onValueChange={v => setGroupId(v ?? '')}
+                  // Sin `items`, Base UI muestra el id (UUID) en vez del nombre.
+                  items={{ [NO_GROUP]: 'Sin grupo (desasignar)', ...Object.fromEntries(groups.map(g => [g.id, formatGroupDisplayName(g)])) }}
+                >
                   <SelectTrigger className="w-full" aria-label="Grupo organizacional">
                     <SelectValue placeholder="Sin grupo (desasignar)" />
                   </SelectTrigger>

@@ -8,7 +8,12 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { DuplicateCheckInput, DuplicateMatch, DuplicateStatus } from './types';
-import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
+import {
+  buildCompanySearchTerms,
+  buildNormalizedNameLookupVariants,
+  escapeIlikePattern,
+  normalizeCompanyName,
+} from './normalization';
 import { buildFiscalLookupNeedles, resolveFiscalCountryScope } from './fiscal-identity';
 import { classifyFiscalDuplicateIdentity } from './fiscal-duplicate-classification';
 
@@ -26,6 +31,33 @@ function getAdminClient() {
 // ============================================================
 // Tipos internos
 // ============================================================
+
+/**
+ * AGENT1-SELLUP-CHECK-ERRORS-PROPAGATE-1 — una lectura fallida de `accounts` NO
+ * es «no existe en SellUp».
+ *
+ * 🔴 El defecto que cierra: cada consulta leía sólo `data` e ignoraba `error`.
+ * Un fallo de red, un plazo o un permiso devolvía `data = null` y la empresa
+ * seguía al siguiente eje como si no hubiera coincidencia, hasta terminar en
+ * `new_candidate`. Ahora se lanza (sólo con el código, sin el mensaje del
+ * driver) y el orquestador deja el resultado en `error`, nunca en nuevo.
+ */
+export class SellUpDuplicateCheckError extends Error {
+  readonly axis: string;
+  readonly code: string | null;
+  constructor(axis: string, code: string | null) {
+    super(`La lectura de SellUp (${axis}) falló${code ? ` [${code}]` : ''}`);
+    this.name = 'SellUpDuplicateCheckError';
+    this.axis = axis;
+    this.code = code;
+  }
+}
+
+function failOnReadError(axis: string, error: unknown): void {
+  if (!error) return;
+  const code = (error as { code?: unknown }).code;
+  throw new SellUpDuplicateCheckError(axis, typeof code === 'string' && code.length > 0 ? code : null);
+}
 
 interface AccountRow {
   id: string;
@@ -81,12 +113,13 @@ export async function checkSellUpDuplicates(
 
   // ── 1. Domain exacto ─────────────────────────────────────────
   if (domain) {
-    const { data } = await admin
+    const { data, error } = await admin
       .from('accounts')
       .select(SELECT)
       .eq('domain', domain)
       .is('archived_at', null)
       .limit(5);
+    failOnReadError('domain', error);
 
     if (data && data.length > 0) {
       for (const row of data as AccountRow[]) {
@@ -145,7 +178,8 @@ export async function checkSellUpDuplicates(
               .join(','),
           );
 
-    const { data } = await query;
+    const { data, error } = await query;
+    failOnReadError('tax_identifier', error);
 
     if (data && data.length > 0) {
       for (const row of data as AccountRow[]) {
@@ -179,11 +213,18 @@ export async function checkSellUpDuplicates(
   }
 
   // ── 3. normalized_name + countryCode exacto ──────────────────
+  //
+  // AGENT1-NORMALIZED-NAME-LOOKUP-1 — `accounts.normalized_name` se guarda SIN
+  // quitar el sufijo legal («acme s a s»); comparar sólo contra
+  // `normalizeCompanyName` («acme») nunca encontraba a una empresa con sufijo.
   if (normalizedName && normalizedName.length >= 3) {
+    const nameVariants = buildNormalizedNameLookupVariants(input.name).filter(
+      (variant) => variant.length >= 3,
+    );
     let query = admin
       .from('accounts')
       .select(SELECT)
-      .eq('normalized_name', normalizedName)
+      .in('normalized_name', nameVariants.length > 0 ? nameVariants : [normalizedName])
       .is('archived_at', null)
       .limit(5);
 
@@ -191,7 +232,8 @@ export async function checkSellUpDuplicates(
       query = query.eq('country_code', countryCode);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    failOnReadError('normalized_name', error);
 
     if (data && data.length > 0) {
       for (const row of data as AccountRow[]) {
@@ -213,12 +255,14 @@ export async function checkSellUpDuplicates(
 
   // ── 4. Nombre parcial / contenido ────────────────────────────
   if (normalizedName && normalizedName.length >= 4) {
-    const { data } = await admin
+    // AGENT1-ILIKE-ESCAPE-1 — «100% Natural» o «Acme_Co» se buscan literales.
+    const { data, error } = await admin
       .from('accounts')
       .select(SELECT)
-      .ilike('name', `%${input.name.trim()}%`)
+      .ilike('name', `%${escapeIlikePattern(input.name.trim())}%`)
       .is('archived_at', null)
       .limit(10);
+    failOnReadError('name_contains', error);
 
     if (data && data.length > 0) {
       for (const row of data as AccountRow[]) {

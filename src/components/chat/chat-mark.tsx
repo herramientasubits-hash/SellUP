@@ -1,13 +1,15 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { Rumbo, RUMBO_NEEDLE_PATH, RUMBO_TAIL_PATH } from "@/icons";
 
 export interface ChatMarkProps extends React.HTMLAttributes<HTMLSpanElement> {
   /** `xs` 20px para una fila, `sm` 24px junto a un mensaje, `md` 36px en cabeceras, `lg` 56px en el saludo. */
   size?: "xs" | "sm" | "md" | "lg";
   /**
-   * `still` quieta; `breathing` late despacio (en reposo);
-   * `thinking` gira y late rápido (mientras prepara la respuesta).
+   * `still` quieta; `breathing` la aguja oscila despacio y la baldosa late (en reposo);
+   * `thinking` la aguja da vueltas continuas (mientras prepara la respuesta).
+   * Las dos son cíclicas: el final de cada vuelta coincide con el inicio, sin saltos.
    */
   motion?: "still" | "breathing" | "thinking";
 }
@@ -19,17 +21,25 @@ const SIZE: Record<NonNullable<ChatMarkProps["size"]>, string> = {
   lg: "size-14",
 };
 
-/** El destello de cuatro puntas, en una caja de 24. */
-const SPARK =
-  "M12 1.5C12.7 7.4 16.6 11.3 22.5 12C16.6 12.7 12.7 16.6 12 22.5C11.3 16.6 7.4 12.7 1.5 12C7.4 11.3 11.3 7.4 12 1.5Z";
-/** El destello pequeño que lo acompaña, arriba a la derecha. */
-const SPARK_SMALL =
-  "M19 2.5C19.25 4.4 20.1 5.25 22 5.5C20.1 5.75 19.25 6.6 19 8.5C18.75 6.6 17.9 5.75 16 5.5C17.9 5.25 18.75 4.4 19 2.5Z";
+/**
+ * Rumbo (dueña 18-10): una brújula cuya aguja es una flecha que sube — el agente
+ * que te dice qué sigue con cada empresa. En una caja de 24, girada hacia «arriba y
+ * adelante». La aguja va llena; la cola, más tenue.
+ */
+const COMPASS_NEEDLE = RUMBO_NEEDLE_PATH;
+const COMPASS_TAIL = RUMBO_TAIL_PATH;
+/** El nombre del agente (también el título de su panel). */
+export const AGENT_NAME = "Rumbo";
+
+/** La brújula de Rumbo sola, para botones e íconos (toma el color y el tamaño del texto). */
+export function RumboIcon({ className, ...props }: React.SVGProps<SVGSVGElement>) {
+  return <Rumbo aria-hidden="true" className={cn("size-4", className)} {...(props as Record<string, unknown>)} />;
+}
 
 /**
- * La marca del agente (Thema · `ChatMark`): un destello de cuatro puntas en
- * blanco sobre una baldosa con el gradiente de IA del tema. Va donde el agente
- * habla: junto a cada respuesta, en la cabecera del panel y en el saludo.
+ * La marca del agente, Rumbo (Thema · `ChatMark`): la brújula con la flecha que
+ * sube, en blanco sobre una baldosa con el gradiente de IA del tema. Va donde el
+ * agente habla: junto a cada respuesta, en la cabecera del panel y en el saludo.
  */
 export function ChatMark({ size = "sm", motion = "still", className, ...props }: ChatMarkProps) {
   return (
@@ -47,9 +57,16 @@ export function ChatMark({ size = "sm", motion = "still", className, ...props }:
       )}
       {...props}
     >
-      <svg viewBox="0 0 24 24" className="size-[62%]" fill="currentColor">
-        <path d={SPARK} />
-        <path d={SPARK_SMALL} opacity="0.75" />
+      <svg viewBox="0 0 24 24" className="size-[66%]" fill="currentColor" data-mark="rumbo">
+        <circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" strokeWidth="1.9" />
+        {/* El aro queda quieto; lo que se mueve es la aguja (en ciclo, sin saltos). */}
+        <g className="chat-mark-needle">
+          <g transform="rotate(32 12 12)">
+            <path d={COMPASS_NEEDLE} />
+            <path d={COMPASS_TAIL} opacity="0.55" />
+          </g>
+        </g>
+        <circle cx="12" cy="12" r="1.2" />
       </svg>
     </span>
   );

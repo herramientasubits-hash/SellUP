@@ -1220,7 +1220,13 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 150, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
+    // de CUT3B4. AUTORADAS y NO APLICADAS.
+    assert.equal(numbered[numbered.length - 1], 153, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

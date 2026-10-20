@@ -5,10 +5,14 @@ import { Plus } from '@/icons';
 
 import { RailScreenActions, type RailActionSpec } from '@/components/action-rail';
 import {
-  useGenerateProspectsAgentAction,
   type GenerateProspectsAgent,
 } from '@/components/prospects/generate-prospects-agent';
 import { CreateAccountDrawer } from './create-account-drawer';
+import { FirstContactOutsideLauncher } from '@/components/first-call/first-contact-outside-launcher';
+import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
+import { AccountsAgentChooser, type AccountsAgentFlow } from './accounts-agent-chooser';
+import { RumboIcon } from '@/components/chat';
+import { RUMBO_IA } from '@/components/ai/rumbo-labels';
 
 type InternalUserOption = React.ComponentProps<typeof CreateAccountDrawer>['users'][number];
 
@@ -21,9 +25,11 @@ interface AccountsScreenActionsProps {
    * «Por revisar». Sin él (no se pudo resolver) la pantalla no ofrece agente.
    */
   generateAgent?: GenerateProspectsAgent | null;
+  /** Agente 3 encendido: «Preparar primer contacto» para cualquier empresa (la elige o la crea). */
+  firstCallEnabled?: boolean;
 }
 
-type OpenPanel = 'create' | 'generate' | null;
+type OpenPanel = 'create' | 'choose' | 'generate' | 'contacts' | 'first-contact' | null;
 
 /**
  * Lo que se puede hacer en «Empresas» sin nada marcado: crear una empresa (la
@@ -36,6 +42,7 @@ export function AccountsScreenActions({
   users,
   currentUserId = null,
   generateAgent = null,
+  firstCallEnabled = false,
 }: AccountsScreenActionsProps) {
   const [openPanel, setOpenPanel] = React.useState<OpenPanel>(null);
 
@@ -53,9 +60,23 @@ export function AccountsScreenActions({
     [],
   );
 
-  const agentAction = useGenerateProspectsAgentAction(generateAgent?.isGenerateAvailable ?? false, () =>
-    setOpenPanel('generate'),
+  // El agente de Empresas pregunta primero qué hacer: prospectar, buscar contactos o
+  // preparar el primer contacto (dueña 18-10).
+  const agentAction = React.useMemo<RailActionSpec>(
+    () => ({
+      id: 'accounts-agent',
+      label: RUMBO_IA,
+      icon: <RumboIcon />,
+      scope: ['screen'],
+      variant: 'ai',
+      onSelect: () => setOpenPanel('choose'),
+    }),
+    [],
   );
+  const prospect = !generateAgent ? 'none' : generateAgent.isGenerateAvailable ? 'available' : 'unavailable';
+  const choose = (flow: AccountsAgentFlow) => setOpenPanel(flow === 'prospect' ? 'generate' : flow);
+  // «Volver» desde cualquiera de los tres caminos: otra vez «¿Qué quieres hacer?».
+  const backToChooser = () => setOpenPanel('choose');
 
   const closeIf = (panel: OpenPanel) => (isOpen: boolean) => {
     if (isOpen) setOpenPanel(panel);
@@ -66,9 +87,20 @@ export function AccountsScreenActions({
     <>
       <RailScreenActions
         actions={actions}
-        agent={generateAgent ? agentAction : null}
+        agent={agentAction}
         isBlocked={openPanel !== null}
       />
+      <AccountsAgentChooser
+        open={openPanel === 'choose'}
+        onOpenChange={closeIf('choose')}
+        onChoose={choose}
+        prospect={prospect}
+        firstContactAvailable={firstCallEnabled}
+      />
+      <ContactsEnrichmentCTA open={openPanel === 'contacts'} onOpenChange={closeIf('contacts')} onBack={backToChooser} />
+      {firstCallEnabled && (
+        <FirstContactOutsideLauncher open={openPanel === 'first-contact'} onOpenChange={closeIf('first-contact')} onBack={backToChooser} />
+      )}
       <CreateAccountDrawer
         users={users}
         currentUserId={currentUserId}
@@ -79,6 +111,7 @@ export function AccountsScreenActions({
         React.cloneElement(generateAgent.generateDrawer, {
           open: openPanel === 'generate',
           onOpenChange: closeIf('generate'),
+          onBack: backToChooser,
         })}
     </>
   );

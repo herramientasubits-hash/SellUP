@@ -30,12 +30,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { ensureNode20WebSocketShim } from '../peru/ensure-node20-websocket-shim';
 
 import {
-  buildCoPublicEntityRows,
+  buildCoPublicEntityRowsWithReport,
   CO_PUBLIC_ENTITIES_SOURCE_KEY,
   type ChipEntityRow,
   type CoPublicEntitySnapshotRow,
   type SigepEntityRow,
 } from '../../src/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
+import type { NitCollisionReport } from '../../src/server/source-catalog/connectors/co-public-entities/co-sigep-nit-collisions';
 import { RECORD_IDENTITY_ON_CONFLICT } from '../../src/server/source-catalog/record-identity';
 import { assertLargeImportAllowed } from '../../src/server/source-catalog/large-import-guardrail';
 
@@ -80,6 +81,24 @@ async function replaceSource(client: SupabaseClient, rows: readonly (CoPublicEnt
   return upserted;
 }
 
+/** NIT que el SIGEP comparte entre entidades distintas y qué se hizo con cada una (co-sigep-nit-collisions.ts). */
+function printNitCollisions(collisions: readonly NitCollisionReport[]): void {
+  console.log(`  NIT compartidos por entidades distintas en el SIGEP: ${collisions.length}`);
+  for (const c of collisions) {
+    if (c.resolution === 'correccion_manual') {
+      console.log(`    ${c.nit} CORRECCIÓN MANUAL: ${c.name} (${c.workers})${c.movedTo ? ` → ${c.movedTo}` : ' se descarta'} · ${c.reason}`);
+      continue;
+    }
+    if (c.resolution === 'sin_resolver') {
+      console.log(`    ${c.nit} SIN RESOLVER (${c.reason}) · CHIP «${c.chipName ?? '—'}» · ${c.names.join(' | ')}`);
+      continue;
+    }
+    const moved = c.moved.map((m) => `${m.name} → ${m.toNit} (${m.workers})`);
+    const dropped = c.dropped.map((d) => `${d.name} (${d.workers}, ${d.reason})`);
+    console.log(`    ${c.nit} se queda «${c.kept}»${moved.length ? ` · pasa: ${moved.join('; ')}` : ''}${dropped.length ? ` · se descarta: ${dropped.join('; ')}` : ''}`);
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const apply = argv.includes('--apply');
@@ -91,7 +110,8 @@ async function main(): Promise<void> {
   const chip = readJsonArray<ChipEntityRow>(chipPath, 'chip');
   const sigep = readJsonArray<SigepEntityRow>(sigepPath, 'sigep');
   const importedAt = new Date().toISOString();
-  const rows = buildCoPublicEntityRows(chip, sigep).map((row) => ({ ...row, imported_at: importedAt }));
+  const build = buildCoPublicEntityRowsWithReport(chip, sigep);
+  const rows = build.rows.map((row) => ({ ...row, imported_at: importedAt }));
 
   const withDomain = rows.filter((r) => r.raw_data.website_domain !== null).length;
   const withWorkers = rows.filter((r) => r.raw_data.workers !== null).length;
@@ -104,6 +124,8 @@ async function main(): Promise<void> {
   for (const row of [...offered].sort((a, b) => b.priority_score - a.priority_score).slice(0, 8)) {
     console.log(`    ${row.tax_id} ${row.legal_name} · ${row.priority_score} servidores · ${row.raw_data.website_domain ?? 'sin web'}`);
   }
+
+  printNitCollisions(build.nitCollisions);
 
   if (apply) {
     assertLargeImportAllowed({ sourceKey: CO_PUBLIC_ENTITIES_SOURCE_KEY, countryCode: 'CO', estimatedRows: rows.length, isDryRun: false });

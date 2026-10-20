@@ -106,6 +106,16 @@ const STRIP_TLDS = [
   '.com.gt', '.gob.hn', '.com.hn', '.gob.sv', '.com.sv', '.gob.ni', '.com.ni',
   '.go.cr', '.co.cr', '.gob.pa', '.com.pa', '.gob.do', '.gov.do', '.com.do',
   '.gob.es', '.com.es', '.gov', '.us',
+  // AGENT1-COUNTRY-IDENTITY-1 — universidades y gremios. Sin estos, `pucp.edu.pe`
+  // quedaba en `pucp.edu` y la regla de siglas (5) no veía «PUCP»: la mitad de
+  // las universidades de una muestra real salía bloqueada. `.edu` desnudo es el
+  // de EE. UU. (y unas pocas latinas anteriores a la regla, como ufm.edu).
+  '.edu', '.edu.pe', '.edu.ar', '.edu.br', '.edu.ec', '.edu.uy', '.edu.py',
+  '.edu.bo', '.edu.ve', '.edu.gt', '.edu.sv', '.edu.hn', '.edu.ni', '.edu.pa',
+  '.edu.do', '.edu.cl', '.edu.es', '.ac.cr', '.ed.cr', '.fi.cr', '.or.cr',
+  '.org.mx', '.org.pe', '.org.ar', '.org.ec', '.org.uy', '.org.py', '.org.bo',
+  '.org.ve', '.org.gt', '.org.sv', '.org.hn', '.org.ni', '.org.pa', '.org.do',
+  '.org.es', '.net.mx', '.net.pe', '.net.ar', '.net.br', '.mil',
 ];
 
 function stripTLD(domain: string): string {
@@ -140,6 +150,10 @@ const COMPANY_SUFFIXES = [
   ' de espana', ' espana', ' usa', ' uruguay', ' paraguay', ' bolivia',
   ' venezuela', ' guatemala', ' honduras', ' el salvador', ' nicaragua',
   ' costa rica', ' panama', ' dominicana',
+  // AGENT1-COUNTRY-IDENTITY-1 — formas que faltaban: EIRL (PE), C.A. (VE),
+  // S. de R.L. (HN/GT), C. por A. (DO), Ltd/PLC, ME/EPP (BR), SAECA (PY).
+  ' eirl', ' e i r l', ' c a', ' s de rl', ' s de r l', ' c por a', ' cxa',
+  ' ltd', ' plc', ' ltda me', ' ltda epp', ' saeca',
 ];
 
 function stripCompanySuffixes(name: string): string {

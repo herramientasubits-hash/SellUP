@@ -22,7 +22,7 @@ export function DataTableRowActions({ items, rowLabel, className }: DataTableRow
     id: item.id,
     label: item.label,
     icon: item.icon ? <item.icon className="size-4" /> : undefined,
-    tone: item.variant === "destructive" ? "danger" : "default",
+    tone: item.variant === "destructive" ? "danger" : item.variant === "ai" ? "ai" : "default",
     disabled: item.disabled,
     separatorBefore: item.separator,
     onSelect: () => void item.onClick(),

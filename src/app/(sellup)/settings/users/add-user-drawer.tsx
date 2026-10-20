@@ -224,7 +224,12 @@ export function AddUserDrawer({
             <FieldLabel className="block leading-none">
               Rol base <span className="text-destructive">*</span>
             </FieldLabel>
-            <Select value={roleId || undefined} onValueChange={v => setRoleId(v ?? '')}>
+            <Select
+              value={roleId || null}
+              onValueChange={v => setRoleId(v ?? '')}
+              // Sin `items`, Base UI muestra el id (UUID) en vez del nombre.
+              items={Object.fromEntries(roles.map(r => [r.id, r.name]))}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Seleccionar rol" />
               </SelectTrigger>
@@ -248,7 +253,14 @@ export function AddUserDrawer({
             <FieldLabel className="block leading-none">
               Líder inmediato <span className="text-xs text-muted-foreground">(opcional)</span>
             </FieldLabel>
-            <Select value={managerId || undefined} onValueChange={v => setManagerId(v ?? '')}>
+            <Select
+              value={managerId || null}
+              onValueChange={v => setManagerId(v ?? '')}
+              items={{
+                [NO_MANAGER]: 'Sin líder asignado',
+                ...Object.fromEntries(activeUsers.map(u => [u.id, u.full_name ?? u.email])),
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin líder asignado" />
               </SelectTrigger>
@@ -277,7 +289,11 @@ export function AddUserDrawer({
             <FieldLabel className="block leading-none">
               Grupo <span className="text-xs text-muted-foreground">(opcional)</span>
             </FieldLabel>
-            <Select value={groupId || undefined} onValueChange={v => setGroupId(v ?? '')}>
+            <Select
+              value={groupId || null}
+              onValueChange={v => setGroupId(v ?? '')}
+              items={{ [NO_GROUP]: 'Sin grupo asignado', ...Object.fromEntries(groups.map(g => [g.id, g.name])) }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sin grupo asignado" />
               </SelectTrigger>

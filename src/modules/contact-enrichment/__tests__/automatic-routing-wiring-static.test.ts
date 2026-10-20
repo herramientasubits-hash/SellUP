@@ -22,6 +22,8 @@ const ROOT = process.cwd();
 const FILES = {
   manualActions: join(ROOT, 'src/modules/contact-enrichment/actions.ts'),
   wizard: join(ROOT, 'src/components/contact-enrichment/contact-enrichment-chat-wizard.tsx'),
+  searchRunsClient: join(ROOT, 'src/modules/contact-enrichment/contact-search-runs-client.ts'),
+  searchRoute: join(ROOT, 'src/app/api/contact-enrichment/requests/[id]/search/route.ts'),
   automaticActions: join(ROOT, 'src/modules/contact-enrichment/automatic-routing-actions.ts'),
   automaticCore: join(ROOT, 'src/modules/contact-enrichment/automatic-routing-action-core.ts'),
   apolloRunner: join(ROOT, 'src/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner.ts'),
@@ -31,6 +33,8 @@ const FILES = {
 const sources = {
   manualActions: readFileSync(FILES.manualActions, 'utf-8'),
   wizard: readFileSync(FILES.wizard, 'utf-8'),
+  searchRunsClient: readFileSync(FILES.searchRunsClient, 'utf-8'),
+  searchRoute: readFileSync(FILES.searchRoute, 'utf-8'),
   automaticActions: readFileSync(FILES.automaticActions, 'utf-8'),
   automaticCore: readFileSync(FILES.automaticCore, 'utf-8'),
   apolloRunner: readFileSync(FILES.apolloRunner, 'utf-8'),
@@ -47,9 +51,18 @@ describe('Manual per-provider actions stay untouched by automatic routing', () =
 });
 
 describe('Wizard CTA is wired to the automatic-routing action (AGENT2-ROUTING-WIRE-1)', () => {
-  it('wizard imports and calls the automatic-routing action', () => {
-    assert.match(sources.wizard, /runAutomaticContactEnrichmentForRequestAction/);
-    assert.match(sources.wizard, /automatic-routing-actions/);
+  // Dueña 20-10: la búsqueda corre por ruta (en segundo plano, varias a la vez). El
+  // asistente la lanza con el registro del navegador; la ruta llama al MISMO núcleo.
+  it('wizard launches the search through the browser store, which posts to the search route', () => {
+    assert.match(sources.wizard, /getContactSearchRunsStore/);
+    assert.match(sources.wizard, /contact-search-runs-client/);
+    assert.match(sources.searchRunsClient, /contactSearchRunPath/);
+  });
+
+  it('the search route runs the automatic-routing core with the session user', () => {
+    assert.match(sources.searchRoute, /runAutomaticContactEnrichmentForRequestCore/);
+    assert.match(sources.searchRoute, /activeInternalUserIdForRoute/);
+    assert.doesNotMatch(sources.searchRoute, /runContactEnrichmentApolloForRequestAction|runContactEnrichmentLushaForRequestAction/);
   });
 
   it('wizard no longer calls the manual per-provider request actions from the CTA', () => {

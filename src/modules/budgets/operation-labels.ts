@@ -15,6 +15,12 @@ const PROVIDER_OPERATION_LABELS: Record<string, Record<string, string>> = {
   tavily: {
     web_search: 'Búsqueda web',
     linkedin_search: 'Búsqueda en LinkedIn',
+    account_research_news: 'Noticias de la empresa (Agente 3)',
+    account_research_talent: 'Empleo y talento de la empresa (Agente 3)',
+  },
+  anthropic: {
+    account_research: 'Investigar la empresa (Agente 3)',
+    first_call_pack: 'Preparar el primer contacto (Agente 3)',
   },
 };
 

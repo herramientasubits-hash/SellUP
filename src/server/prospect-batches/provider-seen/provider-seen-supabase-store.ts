@@ -100,10 +100,108 @@ function toRecord(
   };
 }
 
+/**
+ * WS6 · A — páginas de `limit` filas que se recorren como máximo para llenar la
+ * memoria de UN país. Acotado: la carga sigue siendo de lectura y barata.
+ */
+export const PROVIDER_SEEN_SCOPED_SCAN_PAGES = 5;
+/** Ids de lote por consulta `in (...)` (URL de PostgREST acotada). */
+const SCOPE_BATCH_CHUNK = 100;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const PERSISTED_COLUMNS =
+  'provider, provider_entity_type, provider_entity_id, normalized_domain, ' +
+  'first_seen_at, last_seen_at, first_seen_correlation, last_seen_correlation';
+
+/**
+ * WS6 · A — país de cada lote citado como correlación. Un fallo de lectura deja
+ * el mapa incompleto: esas filas quedan «desconocidas» y se CONSERVAN (nunca se
+ * borra memoria sin prueba).
+ */
+async function loadBatchCountries(
+  client: SupabaseClient,
+  batchIds: readonly string[],
+): Promise<Map<string, string | null>> {
+  const countries = new Map<string, string | null>();
+  for (let start = 0; start < batchIds.length; start += SCOPE_BATCH_CHUNK) {
+    const chunk = batchIds.slice(start, start + SCOPE_BATCH_CHUNK);
+    try {
+      const { data, error } = await client
+        .from('prospect_batches')
+        .select('id, country_code')
+        .in('id', chunk);
+      if (error || !data) continue;
+      for (const row of data as Array<{ id: string; country_code: string | null }>) {
+        countries.set(row.id, row.country_code?.trim().toUpperCase() || null);
+      }
+    } catch {
+      // Ver arriba: sin prueba, la fila se conserva.
+    }
+  }
+  return countries;
+}
+
 function readCount(payload: unknown, key: string): number {
   if (payload === null || typeof payload !== 'object') return 0;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * WS6 · A — carga con alcance de país. Mismo orden determinista que la carga
+ * global; recorre como máximo `PROVIDER_SEEN_SCOPED_SCAN_PAGES` páginas y aparta
+ * sólo las filas cuya última corrida es un lote de OTRO país. Una correlación que
+ * no es un lote, o un lote que no se pudo leer o sin país ⇒ la fila se conserva.
+ * Un error de lectura de la tabla LANZA, igual que la carga global.
+ */
+async function loadScoped(
+  client: SupabaseClient,
+  provider: ProviderSeenProvider,
+  entityType: ProviderSeenEntityType,
+  limit: number,
+  scopeCountry: string,
+): Promise<readonly ProviderSeenRecord[]> {
+  const records: ProviderSeenRecord[] = [];
+  const batchCountry = new Map<string, string | null>();
+  for (let page = 0; page < PROVIDER_SEEN_SCOPED_SCAN_PAGES && records.length < limit; page++) {
+    const from = page * limit;
+    const { data, error } = await client
+      .from(PROVIDER_SEEN_TABLE)
+      .select(PERSISTED_COLUMNS)
+      .eq('provider', provider)
+      .eq('provider_entity_type', entityType)
+      .order('last_seen_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, from + limit - 1);
+    if (error) throw new Error(`provider_seen_load_failed: ${error.message ?? 'unknown'}`);
+    if (!data) throw new Error('provider_seen_load_failed: no_data');
+    const rows = data as unknown as PersistedRow[];
+
+    const unresolved = [
+      ...new Set(
+        rows
+          .map((row) => row.last_seen_correlation)
+          .filter((id): id is string => typeof id === 'string' && UUID_PATTERN.test(id))
+          .filter((id) => !batchCountry.has(id)),
+      ),
+    ];
+    if (unresolved.length > 0) {
+      const resolved = await loadBatchCountries(client, unresolved);
+      for (const [id, country] of resolved) batchCountry.set(id, country);
+    }
+
+    for (const row of rows) {
+      if (records.length >= limit) break;
+      const correlation = row.last_seen_correlation;
+      const rowCountry =
+        typeof correlation === 'string' ? (batchCountry.get(correlation) ?? null) : null;
+      if (rowCountry !== null && rowCountry !== scopeCountry) continue;
+      const record = toRecord(row, provider, entityType);
+      if (record !== null) records.push(record);
+    }
+    if (rows.length < limit) break;
+  }
+  return records;
 }
 
 /**
@@ -121,6 +219,11 @@ export function createSupabaseProviderSeenStore(client: SupabaseClient): Provide
       // capa gratuita en la parte cara de la corrida.
       const limit = Math.max(0, Math.trunc(query.limit));
       if (limit === 0) return [];
+
+      const scopeCountry = query.scope?.countryCode?.trim().toUpperCase() || null;
+      if (scopeCountry !== null) {
+        return loadScoped(client, query.provider, entityType, limit, scopeCountry);
+      }
 
       try {
         const { data, error } = await client

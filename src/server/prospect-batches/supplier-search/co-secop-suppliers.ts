@@ -68,8 +68,15 @@ function buildUrl(params: Record<string, string>): string {
   return `${CO_SECOP_CONTRACTS_URL}?${search.toString()}`;
 }
 
+/**
+ * Contratos firmados de la entidad en el periodo, sin los cancelados (`estado_contrato`
+ * «Cancelado»: no hubo compra; la DGCP de RD se filtra igual). Sin estado ⇒ cuenta.
+ */
 function baseWhere(buyerTaxId: string, sinceDate: string): string {
-  return `nit_entidad=${soqlLiteral(buyerTaxId)} AND tipodocproveedor='NIT' AND fecha_de_firma >= ${soqlLiteral(sinceDate)}`;
+  return (
+    `nit_entidad=${soqlLiteral(buyerTaxId)} AND tipodocproveedor='NIT' AND fecha_de_firma >= ${soqlLiteral(sinceDate)}` +
+    ` AND (estado_contrato IS NULL OR upper(estado_contrato) != 'CANCELADO')`
+  );
 }
 
 export function buildCoSecopAggregateUrl(input: {
@@ -88,6 +95,11 @@ export function buildCoSecopAggregateUrl(input: {
   });
 }
 
+/**
+ * `supplierTaxIds` = los valores CRUDOS de `documento_proveedor` tal como los devolvió la
+ * consulta agregada («900123456», «900.123.456-7», «9001234567»): el `in(...)` compara
+ * texto exacto, con el NIT normalizado no coincidirían.
+ */
 export function buildCoSecopFamiliesUrl(input: { buyerTaxId: string; sinceDate: string; supplierTaxIds: readonly string[] }): string {
   return buildUrl({
     $select: 'documento_proveedor,codigo_de_categoria_principal,sum(valor_del_contrato) as total',
@@ -127,25 +139,50 @@ export function parseUnspscCode(raw: unknown): string | null {
   return /^\d{2,8}$/.test(code) ? code : null;
 }
 
-type AggregateRow = { taxId: string; name: string; totalAmount: number; contractCount: number; lastSignedAt: string | null };
+type AggregateRow = {
+  taxId: string;
+  name: string;
+  totalAmount: number;
+  contractCount: number;
+  lastSignedAt: string | null;
+  /** Formas crudas de `documento_proveedor` vistas para este NIT (para las consultas siguientes). */
+  rawTaxIds: string[];
+};
 
+/**
+ * Filas agregadas por `documento_proveedor` CRUDO ⇒ una por NIT normalizado (sin dígito de
+ * verificación). El mismo proveedor puede venir escrito de varias formas («900123456»,
+ * «900.123.456-7», «9001234567»): se suman montos y contratos, se toma la última firma y el
+ * nombre de la forma con más monto, y se guardan todas las formas crudas. Orden: monto.
+ */
 export function parseCoSecopAggregate(rows: unknown): AggregateRow[] {
   if (!Array.isArray(rows)) return [];
-  const out: AggregateRow[] = [];
+  const byTaxId = new Map<string, AggregateRow>();
   for (const raw of rows) {
     const row = asRecord(raw);
-    const taxId = normalizeEntityNit(asText(row?.documento_proveedor));
+    const rawTaxId = asText(row?.documento_proveedor);
+    const taxId = normalizeEntityNit(rawTaxId);
     const name = asText(row?.proveedor);
-    if (!row || !taxId || !name) continue;
-    out.push({
+    if (!row || !rawTaxId || !taxId || !name) continue;
+    const totalAmount = asAmount(row.total);
+    const contractCount = Math.max(0, Math.trunc(asAmount(row.n)));
+    const lastSignedAt = asText(row.ultima)?.slice(0, 10) ?? null;
+    const seen = byTaxId.get(taxId);
+    if (!seen) {
+      byTaxId.set(taxId, { taxId, name, totalAmount, contractCount, lastSignedAt, rawTaxIds: [rawTaxId] });
+      continue;
+    }
+    byTaxId.set(taxId, {
       taxId,
-      name,
-      totalAmount: asAmount(row.total),
-      contractCount: Math.max(0, Math.trunc(asAmount(row.n))),
-      lastSignedAt: asText(row.ultima)?.slice(0, 10) ?? null,
+      name: totalAmount > seen.totalAmount ? name : seen.name,
+      totalAmount: seen.totalAmount + totalAmount,
+      contractCount: seen.contractCount + contractCount,
+      lastSignedAt: seen.lastSignedAt === null || (lastSignedAt !== null && lastSignedAt > seen.lastSignedAt) ? lastSignedAt : seen.lastSignedAt,
+      rawTaxIds: seen.rawTaxIds.includes(rawTaxId) ? seen.rawTaxIds : [...seen.rawTaxIds, rawTaxId],
     });
   }
-  return out;
+  // `sort` es estable: a igual monto se queda el orden de la fuente.
+  return [...byTaxId.values()].sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
 /** NIT → { familia UNSPSC (4 dígitos) → monto }. */
@@ -202,7 +239,9 @@ export async function fetchCoSecopSuppliers(
   if (aggregate.length === 0) {
     return { ok: true, suppliers: [], read: 0, outsideIndustry: 0, tableVersion: PY_DNCP_MACRO_TABLE_VERSION };
   }
-  const supplierTaxIds = aggregate.map((row) => row.taxId);
+  // Las formas crudas (con puntos o dígito de verificación) para que el `in(...)` las encuentre;
+  // las respuestas se juntan por NIT normalizado al leerlas.
+  const supplierTaxIds = aggregate.flatMap((row) => row.rawTaxIds);
   const query = { buyerTaxId: input.buyerTaxId, sinceDate, supplierTaxIds };
   // La evidencia es un extra: si falla, el proveedor sale igual sin enlace.
   const [familiesRaw, evidenceRaw] = await Promise.all([
@@ -220,7 +259,11 @@ export async function fetchCoSecopSuppliers(
     if (!macro || macro.macroIndustryKey !== input.macroIndustryKey) continue;
     const topFamily = Object.entries(byFamily).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     suppliers.push({
-      ...row,
+      taxId: row.taxId,
+      name: row.name,
+      totalAmount: row.totalAmount,
+      contractCount: row.contractCount,
+      lastSignedAt: row.lastSignedAt,
       macroIndustryKey: macro.macroIndustryKey,
       macroShare: macro.share,
       rubro: resolvePyUnspscRubro(topFamily),

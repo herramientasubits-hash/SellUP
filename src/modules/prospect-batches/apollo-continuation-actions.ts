@@ -71,18 +71,23 @@ const RETRY_AFTER_FAILURE_MS = 30_000;
  * Devuelve el estado para que el wizard lo pinte y decida si volver a llamar.
  */
 export async function continueApolloRound(batchId: string): Promise<ContinueApolloRoundResult> {
-  await requireActiveUser();
+  const { internalUserId } = await requireActiveUser();
 
   // ── Autorización sobre el LOTE, en servidor ────────────────────────────────
   //
   // Se consulta con el cliente de la PERSONA, no con el de servicio: si RLS no
-  // le deja ver el lote, aquí no hay fila y la acción termina. Es la misma
-  // puerta que usa el resto de Prospectos; no se abre una segunda.
+  // le deja ver el lote, aquí no hay fila y la acción termina.
+  //
+  // 🔴 AGENT1-AUDIT-WS1 — y además el lote tiene que ser SUYO (`created_by`). La
+  // RLS de `prospect_batches` deja ver los lotes a cualquier usuario activo
+  // (migración 040), así que «lo puede ver» no basta: sin este filtro una
+  // persona podía reanudar —y gastar en— la corrida de otra.
   const supabase = await createClient();
   const { data: batch } = await supabase
     .from('prospect_batches')
     .select('id')
     .eq('id', batchId)
+    .eq('created_by', internalUserId)
     .maybeSingle();
 
   if (!batch) {
@@ -154,12 +159,12 @@ export type PendingApolloContinuationResult = {
  * 🔴 No crea corridas. Devuelve un lote que YA tiene trabajo encolado, o nada.
  * No hay ninguna rama aquí capaz de lanzar una búsqueda nueva.
  *
- * El orden es: candidatos por la cola (servicio) → filtro por lo que la persona
- * puede ver (RLS) → estado del primero visible. Nunca al revés: publicar la
- * lista de la cola antes de filtrar revelaría lotes ajenos.
+ * El orden es: candidatos por la cola (servicio) → filtro por los lotes que
+ * creó la persona (RLS + `created_by`) → estado del primero. Nunca al revés:
+ * publicar la lista de la cola antes de filtrar revelaría lotes ajenos.
  */
 export async function findPendingApolloContinuation(): Promise<PendingApolloContinuationResult> {
-  await requireActiveUser();
+  const { internalUserId } = await requireActiveUser();
 
   // AGENT1-STUCK-RUNS-CLOSE-1 — antes de mostrar nada, se cierra lo que ya no
   // va a avanzar (intentos agotados, abandonado, lote quieto). Así el Centro de
@@ -167,14 +172,21 @@ export async function findPendingApolloContinuation(): Promise<PendingApolloCont
   const sweepClient = stuckRunsClient();
   if (sweepClient) await closeStuckAgentRuns(sweepClient);
 
-  const candidateBatchIds = await listOpenContinuationBatchIds();
+  // AGENT1-AUDIT-WS2 (extra de WS1) — sólo la cola de los lotes de ESTA persona:
+  // con los 10 más recientes de todos, una corrida propia quedaba tapada por ajenas.
+  const candidateBatchIds = await listOpenContinuationBatchIds(undefined, undefined, {
+    createdBy: internalUserId,
+  });
   if (candidateBatchIds.length === 0) return null;
 
+  // 🔴 AGENT1-AUDIT-WS1 — sólo SUS lotes (`created_by`): la RLS deja ver los de
+  // todos, y sin este filtro la bandeja de una persona retomaba la corrida de otra.
   const supabase = await createClient();
   const { data: visible } = await supabase
     .from('prospect_batches')
     .select('id')
-    .in('id', candidateBatchIds);
+    .in('id', candidateBatchIds)
+    .eq('created_by', internalUserId);
 
   const visibleIds = new Set(
     (Array.isArray(visible) ? visible : [])

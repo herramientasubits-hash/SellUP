@@ -34,6 +34,7 @@ import {
   isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { estimateProviderCreditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import {
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
@@ -266,10 +267,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (error) throw new Error(error.message);
       },
       logUsage: async (entry: WebhookUsageLogEntry): Promise<void> => {
+        // El aviso no trae sesión: el gasto se atribuye a quien pidió el
+        // revelado (phone_revealed_by, escrito al iniciarlo) para que cuente en
+        // Usuario/Rol/Grupo y en los presupuestos por persona.
+        const { data: requester } = await admin
+          .from('contact_enrichment_candidates')
+          .select('phone_revealed_by')
+          .eq('id', entry.metadata.candidate_id)
+          .maybeSingle();
         await logProviderUsage({
           provider_key: entry.provider,
           operation_key: entry.operationKey,
           credits_used: entry.creditsUsed ?? undefined,
+          estimated_cost_usd: await estimateProviderCreditCostUsd(entry.provider, entry.creditsUsed),
+          triggered_by:
+            (requester as { phone_revealed_by: string | null } | null)?.phone_revealed_by ?? undefined,
           status: entry.status,
           // FIX 3: código mecánico del bloqueo / de la comprobación no verificable.
           error_code: entry.errorCode ?? undefined,

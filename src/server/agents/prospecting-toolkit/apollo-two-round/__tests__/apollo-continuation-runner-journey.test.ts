@@ -754,12 +754,17 @@ describe('§ G8 — aislamiento Apollo-only y encolado que falla', () => {
 
     assert.equal(outcome.assessmentDeadlineReached, true);
     assert.equal(outcome.continuationEnqueued, false, 'no se declara encolado lo que no se encoló');
+    assert.equal(typeof outcome.continuationEnqueueFailure, 'string', 'y se dice por qué');
     assert.equal(journey.queue.length, 0);
     assert.ok(
       (journey.store.storedCheckpoint()?.pending_organizations.length ?? 0) > 0,
       '🔴 el trabajo pendiente sobrevive aunque la cola no esté disponible',
     );
-    assert.equal(journey.world.writerCalls, 0, 'tampoco finaliza');
+    // 🔴 AGENT1-AUDIT-WS2 § 5 — esta guarda fijaba el defecto: «tampoco finaliza».
+    // Sin continuación encolada nadie retoma la pausa, y no escribir nada dejaba lo
+    // evaluado (y pagado) fuera del lote para siempre, con el lote «en pausa». Ahora
+    // se escribe lo evaluado; las pendientes siguen en el checkpoint.
+    assert.equal(journey.world.writerCalls, 1, 'escribe lo ya evaluado');
   });
 
   test('todo el recorrido es Apollo: ni una llamada a otro proveedor', async () => {

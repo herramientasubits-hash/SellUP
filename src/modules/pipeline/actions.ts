@@ -177,7 +177,7 @@ export async function getAccountJourney(accountId: string): Promise<AccountJourn
   if (!account) return null;
 
   const supabase = await createClient();
-  const [audit, contacts, runs, origin] = await Promise.all([
+  const [audit, contacts, runs, origin, prepared] = await Promise.all([
     getAccountAudit(accountId),
     getContactsByAccount(accountId),
     getContactEnrichmentRunsByAccountId(accountId),
@@ -186,9 +186,18 @@ export async function getAccountJourney(accountId: string): Promise<AccountJourn
       accountId,
       readConvertedFromCandidateId(safeAccountMetadata(account.metadata)),
     ),
+    readFirstContactPrepared(supabase, [accountId]),
   ]);
 
-  return buildAccountJourney({ account, origin, contacts, runs, audit, now: new Date() });
+  return buildAccountJourney({
+    account,
+    origin,
+    contacts,
+    runs,
+    audit,
+    now: new Date(),
+    firstContactPrepared: prepared.has(accountId),
+  });
 }
 
 // ============================================================
@@ -203,6 +212,40 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 
 const BATCH_SIZE = 100;
 
+/** Estados de una preparación del Agente 3 que cuentan como «preparada». */
+const USABLE_PACK_STATUSES = ['draft', 'needs_review', 'used'] as const;
+const PREPARED_PAGE_SIZE = 1000;
+
+/**
+ * Empresas con al menos una preparación usable del Agente 3. Sin la migración 153
+ * (o sin permiso) la tabla no responde: se trata como «ninguna», nunca rompe el Pipeline.
+ */
+async function readFirstContactPrepared(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountIds: readonly string[],
+): Promise<Set<string>> {
+  const prepared = new Set<string>();
+  if (accountIds.length === 0) return prepared;
+  // Una empresa puede tener muchas preparaciones (decisor × canal, otras versiones): se pagina
+  // para no perder empresas por el tope de filas de PostgREST.
+  for (let from = 0; ; from += PREPARED_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('first_call_packs')
+      .select('account_id')
+      .in('account_id', [...accountIds])
+      .in('status', [...USABLE_PACK_STATUSES])
+      .order('id')
+      .range(from, from + PREPARED_PAGE_SIZE - 1);
+    if (error) {
+      console.error('[pipeline] first_call_packs read failed:', error.message);
+      return prepared;
+    }
+    const rows = (data ?? []) as Array<{ account_id: string }>;
+    for (const row of rows) prepared.add(row.account_id);
+    if (rows.length < PREPARED_PAGE_SIZE) return prepared;
+  }
+}
+
 export async function getPipelineOverview(): Promise<PipelineOverview> {
   await requireActiveUser();
   const [accounts, summary] = await Promise.all([getAccountsList(), getAccountsSummary()]);
@@ -215,7 +258,7 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
     const supabase = await createClient();
     await Promise.all(
       chunk(ids, BATCH_SIZE).map(async (batchIds) => {
-        const [audit, contacts, runs, hubspot] = await Promise.all([
+        const [audit, contacts, runs, hubspot, prepared] = await Promise.all([
           supabase
             .from('account_audit')
             .select('account_id, created_at')
@@ -233,6 +276,7 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
           // Solo las columnas de HubSpot, y solo para ids que `getAccountsList`
           // ya devolvió con el alcance aplicado.
           supabase.from('accounts').select('id, hubspot_company_id, metadata').in('id', batchIds),
+          readFirstContactPrepared(supabase, batchIds),
         ]);
         if (audit.error) throw new Error(`getPipelineOverview audit: ${audit.error.message}`);
         if (contacts.error) throw new Error(`getPipelineOverview contacts: ${contacts.error.message}`);
@@ -265,6 +309,10 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
           seenRun.add(row.account_id);
           const current = facts.get(row.account_id);
           if (current) facts.set(row.account_id, { ...current, lastRunStatus: row.status });
+        }
+        for (const id of prepared) {
+          const current = facts.get(id);
+          if (current) facts.set(id, { ...current, firstContactPrepared: true });
         }
         for (const row of hubspot.data ?? []) {
           const current = facts.get(row.id);

@@ -86,9 +86,17 @@ export function decideStoredReassignment(input: StoredReassignInput): ReassignDe
   };
 }
 
-/** `icp_size_gate.decision === 'pass'` en la metadata del candidato. */
+/**
+ * `icp_size_gate.decision === 'pass'` en la metadata del candidato.
+ *
+ * AUDIT-A1-WS7 — un «pass» que sólo se apoyó en el snippet de búsqueda
+ * (`employee_size_resolution.selected_source = 'source_snippet'`) no cuenta: es
+ * una regex sobre texto libre y no debe impedir que Claude descarte con evidencia.
+ */
 export function icpGatePassed(metadata: Metadata | null): boolean {
-  return asObject(metadata?.icp_size_gate)?.decision === 'pass';
+  if (asObject(metadata?.icp_size_gate)?.decision !== 'pass') return false;
+  const resolution = asObject(asObject(asObject(metadata?.rich_profile)?.size)?.employee_size_resolution);
+  return resolution?.selected_source !== 'source_snippet';
 }
 
 /** Columnas de tamaño desde la clasificación guardada (sólo si superó el umbral). */

@@ -93,6 +93,14 @@ import type { CountrySourceAdapter, CountrySourceCompany } from './country-sourc
 export type ListKnownExclusionDomains = (input: {
   countryCode: string;
   limit: number;
+  /**
+   * WS6 · F5 — macro de la corrida. Con macro conocida, el lector aparta las
+   * cuentas cuya industria resuelve a OTRA macro: ocupaban la lista de
+   * exclusión (tope 500) con empresas que esta búsqueda nunca iba a devolver.
+   * `null`/ausente ⇒ todas, como antes. Fail-closed hacia la exclusión: una
+   * cuenta sin industria reconocible se queda.
+   */
+  macroIndustryKey?: string | null;
 }) => Promise<readonly (string | null)[]>;
 
 export type PrePaidNoveltyGateDeps = {
@@ -177,6 +185,7 @@ const EMPTY_EXCLUSION_PLAN: ProviderExclusionDomainPlan = {
 async function loadProviderSeen(
   provider: ProviderSeenProvider,
   store: ProviderSeenStore,
+  countryCode: string | null = null,
 ): Promise<{
   summary: ProviderSeenLoadSummary;
   ids: readonly string[];
@@ -199,6 +208,8 @@ async function loadProviderSeen(
       provider,
       entityType: 'company',
       limit: PROVIDER_SEEN_LOAD_LIMIT,
+      // WS6 · A — la memoria se llena con lo visto en ESTE país (ver el store).
+      scope: { countryCode },
     });
     if (records.length === 0) {
       // 🔴 CUT-2 § 12 — la tabla estaba VACÍA y la lectura funcionó. `loaded` sigue
@@ -250,6 +261,7 @@ async function listSellupKnownDomains(
       // Se lee un poco por encima del tope para que el recorte determinista
       // tenga de dónde elegir y `omittedDueToCap` diga la verdad.
       limit: PREPAID_EXCLUSION_DOMAIN_CAP * 2,
+      macroIndustryKey: input.macroIndustryKey,
     });
   } catch {
     // Sin dominios conocidos la supresión queda más corta y la corrida ADMITE
@@ -312,7 +324,7 @@ export async function runPrePaidNoveltyGate(
     }
 
     const [providerSeen, sellupKnownDomains] = await Promise.all([
-      loadProviderSeen(input.provider, store),
+      loadProviderSeen(input.provider, store, input.countryCode),
       listSellupKnownDomains(input, deps),
     ]);
 

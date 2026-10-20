@@ -72,6 +72,13 @@ export type BankFirstDrawInput = {
   /** El lote de la búsqueda, resuelto perezosamente (sólo si hay algo que escribir). */
   resolveBatchId: () => Promise<string>;
   /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda. Viajan a la entrada del
+   * escritor para que una empresa genérica del banco NO cuente para la meta sin
+   * confirmar la subindustria (antes iba `subindustries: []` y el banco cerraba la
+   * meta con empresas de la macro). Ausente ⇒ búsqueda sectorial de siempre.
+   */
+  subindustries?: readonly string[];
+  /**
    * «Competidores de una empresa» — cuántas sacar del banco para elegir (en vez
    * del tope de entrega): se saca más porque sólo unas pocas le compiten a la
    * referencia; las no elegidas vuelven al banco.
@@ -107,6 +114,8 @@ export type BankFirstWriteInput = {
   requestedTarget: number;
   requestedByUserId: string;
   metadata: Record<string, unknown>;
+  /** AUDIT-A1-WS7 — subindustrias pedidas por la búsqueda (ver `BankFirstDrawInput`). */
+  subindustries?: readonly string[];
   /**
    * AGENT1-DELIVERY-CAP-HARD-1 — origen de estas filas: `'apollo'` (escritas como
    * de Apollo, como siempre) o `null` (sobrante de una búsqueda web: Tavily o Claude).
@@ -235,6 +244,12 @@ export function buildBankPipelineOutput(input: {
    * Ausente ⇒ Apollo, como siempre.
    */
   provider?: 'apollo_organizations' | 'tavily';
+  /**
+   * AUDIT-A1-WS7 — subindustrias que pidió la búsqueda: el escritor las lee de aquí
+   * (`requestedSubindustriesForTarget`) para no contar hacia la meta lo que no la
+   * confirma. Ausente ⇒ `[]` (búsqueda sectorial), como antes.
+   */
+  subindustries?: readonly string[];
 }): ProspectingPipelineOutput {
   const provider = input.provider ?? 'apollo_organizations';
   return {
@@ -245,7 +260,7 @@ export function buildBankPipelineOutput(input: {
       webSearchProvider: provider,
       mode: 'multi_query',
       targetCount: input.requestedTarget,
-      subindustries: [],
+      subindustries: [...(input.subindustries ?? [])],
     },
     catalogContext: getCatalogContext({
       country: input.countryName,
@@ -406,20 +421,31 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     { provenance: null, candidates: withIdentity.filter((_, i) => provenanceOf[i] !== 'apollo') },
   ];
   const outputs: CandidateWriterOutput[] = [];
+  let writeError: string | null = null;
   for (const group of groups) {
     if (group.candidates.length === 0) continue;
-    outputs.push(
-      await deps.write({
-        batchId,
-        candidates: group.candidates,
-        countryCode: input.countryCode,
-        countryName: input.countryName,
-        requestedTarget: input.requestedTarget,
-        requestedByUserId: input.requestedByUserId,
-        metadata,
-        candidateProvenance: group.provenance,
-      }),
-    );
+    // AUDIT-HARDENING-1 — si el escritor lanza, lo tomado del banco NO se queda
+    // reservado hasta vencer: se corta aquí y el cierre de abajo lo liquida contra
+    // lo que de verdad quedó en la base (lo no escrito vuelve al banco).
+    try {
+      outputs.push(
+        await deps.write({
+          batchId,
+          candidates: group.candidates,
+          countryCode: input.countryCode,
+          countryName: input.countryName,
+          requestedTarget: input.requestedTarget,
+          requestedByUserId: input.requestedByUserId,
+          metadata,
+          candidateProvenance: group.provenance,
+          ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
+        }),
+      );
+    } catch (err) {
+      writeError = err instanceof Error ? err.message.slice(0, 200) : String(err);
+      console.error('[company-bank-first] la escritura falló; se liquida lo que quedó en la base:', writeError);
+      break;
+    }
   }
   const written = combineBankWrites(outputs);
 
@@ -452,6 +478,11 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
     batchId,
     drawn.map((entry) => entry.domain),
   );
+  // AUDIT-HARDENING-1 — si el escritor lanzó, lo que no quedó en la base no fue
+  // rechazado por inválido: no llegó a escribirse. Vuelve al banco (`released`),
+  // no se invalida.
+  const releaseUnwrittenOnWriteError = (item: CompanyBankSettleItem): CompanyBankSettleItem =>
+    writeError !== null && item.outcome === 'invalidated' ? { id: item.id, outcome: 'released' } : item;
   const settleItems: CompanyBankSettleItem[] = [
     ...closing,
     ...(persistedByDomain === null
@@ -465,7 +496,7 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
               .map((company) => (company.domain ? normalizeDomain(company.domain) : null))
               .filter((domain): domain is string => domain !== null),
           ),
-        })),
+        }).map(releaseUnwrittenOnWriteError)),
   ];
   const settled = settleItems.length > 0 ? await port.store.settle(drawId, settleItems) : null;
 
@@ -479,6 +510,9 @@ async function drawBankFirst(deps: BankFirstDeps, input: BankFirstDrawInput): Pr
       accepted_for_target: acceptedCount,
       claude_reviewed: claudeReviewed,
       accepted_after_claude: acceptedAfterClaude,
+      // El estado sigue diciendo `error` (contrato de siempre), pero ahora lo tomado
+      // ya quedó liquidado en `settle` en vez de esperar a vencer.
+      ...(writeError ? { status: 'error', write_error: writeError } : {}),
       settle: settled?.status === 'ok'
         ? { assigned: settled.assigned, released: settled.released, invalidated: settled.invalidated, ignored: settled.ignored }
         : settled === null
@@ -538,6 +572,7 @@ export function resolveProductionBankFirstDrawer(
           requestedTarget: writeInput.requestedTarget,
           candidates: writeInput.candidates,
           provider: writeInput.candidateProvenance === 'apollo' ? 'apollo_organizations' : 'tavily',
+          ...(writeInput.subindustries ? { subindustries: writeInput.subindustries } : {}),
         }),
         triggeredByUserId: writeInput.requestedByUserId,
         ownerId: writeInput.requestedByUserId,

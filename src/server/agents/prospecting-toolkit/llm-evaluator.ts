@@ -36,6 +36,7 @@ import {
   type LLMEvaluatorUsage,
 } from './llm-evaluator-types';
 import { getAiProviderCredential } from '../../services/ai-connection';
+import { resolveModelPrice } from './claude-classifier/cost';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,15 @@ export function estimateLLMCost(
   outputTokens: number,
   model: string
 ): number {
+  // Claude: la misma tabla por familia que el clasificador (un ID con fecha o
+  // una versión nueva no cae en el precio por defecto).
+  if (model.startsWith('claude-')) {
+    const { price } = resolveModelPrice(model);
+    return (
+      (inputTokens / 1_000_000) * price.inputPerMillion +
+      (outputTokens / 1_000_000) * price.outputPerMillion
+    );
+  }
   const pricing = KNOWN_MODEL_PRICING[model] ?? {
     inputCostPerMillion: 1.0,
     outputCostPerMillion: 5.0,
@@ -200,12 +210,17 @@ export function selectTopEvaluatedCandidates(
 
 // ─── Anthropic API call ───────────────────────────────────────────────────────
 
+/** AUDIT-A1-WS7 — tope por llamada al evaluador. */
+export const LLM_EVALUATOR_TIMEOUT_MS = 60_000;
+
 async function callAnthropicEvaluator(
   prompt: string,
   apiKey: string,
   model: string
 ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
+  // AUDIT-A1-WS7 — sin tope de tiempo una llamada colgada retenía la función entera.
   const response = await fetch('https://api.anthropic.com/v1/messages', {
+    signal: AbortSignal.timeout(LLM_EVALUATOR_TIMEOUT_MS),
     method: 'POST',
     headers: {
       'x-api-key': apiKey,

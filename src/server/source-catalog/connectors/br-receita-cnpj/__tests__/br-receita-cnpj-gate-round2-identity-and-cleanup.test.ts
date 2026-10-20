@@ -691,7 +691,13 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // today ChileCompra monthly purchase orders), RLS enabled with NO policies: only service_role
     // reads and writes. Not phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT
     // APPLIED.
-    assert.equal(highest, 150, 'the repository ceiling is 150 — AGENT1-SUPPLIER-SEARCH-CL-1, not CUT A');
+    // AGENT1-AUDIT-HARDENING-1 moves the ceiling to 152: the 151 hardens `claim_enrichment_jobs`
+    // (fixed search_path, recovers expired `processing` jobs of `prospect_enrichment_jobs`, EXECUTE
+    // only to service_role) and the 152 cross-checks NIT/domain/LinkedIn in the identity claims
+    // (`agent1_company_identity_claims`) and releases the claims of an archived batch. Not phone
+    // chain 109–117, not catalog, not BR, not CUT3B4. Neither is a BR migration; each gets its own
+    // authorship check further down. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 153, 'the repository ceiling is 153 — AGENT3-FIRST-CALL-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],
@@ -773,7 +779,17 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     assert.deepEqual(
       files.filter((f) => f.startsWith('150')),
       ['150_public_procurement_supplier_links.sql'],
-      'AGENT1-SUPPLIER-SEARCH-CL-1 owns exactly one migration, and it is the ceiling',
+      'AGENT1-SUPPLIER-SEARCH-CL-1 owns exactly one migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('151')),
+      ['151_claim_enrichment_jobs_hardening.sql'],
+      'AGENT1-AUDIT-HARDENING-1 owns exactly one 151 migration',
+    );
+    assert.deepEqual(
+      files.filter((f) => f.startsWith('152')),
+      ['152_agent1_identity_claims_crosscheck.sql'],
+      'AGENT1-AUDIT-HARDENING-1 owns exactly one 152 migration, and it is the ceiling',
     );
     assert.deepEqual(
       files.filter((f) => f.startsWith('133')),
@@ -899,6 +915,24 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
         'utf8',
       );
       assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql150), false, '150 must not be authored by a BR round');
+    }
+    // The 151 (AGENT1-AUDIT-HARDENING-1) only hardens `claim_enrichment_jobs`: it must not be a BR
+    // round and must not name CNPJ at all.
+    {
+      const sql151 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/151_claim_enrichment_jobs_hardening.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql151), false, '151 must not be authored by a BR round');
+    }
+    // The 152 (AGENT1-AUDIT-HARDENING-1) only cross-checks NIT/domain/LinkedIn in the identity
+    // claims: it must not be a BR round and must not name CNPJ at all.
+    {
+      const sql152 = fs.readFileSync(
+        new URL('../../../../../../supabase/migrations/152_agent1_identity_claims_crosscheck.sql', import.meta.url),
+        'utf8',
+      );
+      assert.equal(/BR-SOURCE|RECEITA|CNPJ/i.test(sql152), false, '152 must not be authored by a BR round');
     }
 
     // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE

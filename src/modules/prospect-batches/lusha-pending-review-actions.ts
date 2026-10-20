@@ -59,10 +59,12 @@ import {
   buildLushaFenceUnavailableBlock,
 } from '@/server/prospect-batches/lusha-fenced-prospecting-search';
 import { resolveLushaRequestFenceStore } from '@/server/prospect-batches/lusha-request-fence-store';
+import { readWizardReservationState } from '@/server/prospect-batches/lusha-reservation-state';
 import {
   resolveLushaProspectingOperation,
   LUSHA_OPERATION_SIGNATURE_VERSION,
   LUSHA_OPERATION_UNAVAILABLE_CODE,
+  LUSHA_DOMAIN_EXCLUSION_SIGNATURE_VERSION,
   type LushaProspectingOperationStore,
 } from '@/server/prospect-batches/lusha-prospecting-operation';
 import { resolveLushaPageCursorContext } from '@/server/prospect-batches/lusha-page-cursor';
@@ -517,6 +519,11 @@ async function runGenerateLushaPendingReviewBatch(
       subIndustryId: parsed.data.subIndustryId ?? null,
       sizeBandKey: parsed.data.sizeBandKey ?? null,
       searchText: parsed.data.searchText ?? null,
+      // WS6 · F10 — con la exclusión de dominios encendida las páginas son otras:
+      // el cursor no puede heredar el historial de la consulta sin filtro.
+      domainExclusionVersion: isAgent1LushaDomainExclusionEnabled()
+        ? LUSHA_DOMAIN_EXCLUSION_SIGNATURE_VERSION
+        : null,
     },
     // TRAZA de correlación. NO participa en la identidad.
     clientRequestId,
@@ -1027,10 +1034,19 @@ async function reserveLushaRunCredits(input: {
     };
   }
 
+  // WS6 · E — con `already_reserved`, se LEE el estado de esa reserva para que
+  // el guardia no ejecute contra una ya liquidada. Sólo SELECT; un fallo deja el
+  // estado en `null` y el guardia bloquea (fail-closed).
+  const reservationState =
+    rpcResult.status === 'already_reserved'
+      ? await readWizardReservationState(budgetClient, record.id)
+      : undefined;
+
   return {
     status: rpcResult.status,
     reservationId: record.id,
     creditsReserved: record.credits_reserved,
+    ...(reservationState !== undefined ? { reservationState } : {}),
   };
 }
 
@@ -1233,9 +1249,22 @@ async function runLushaSearchWithReservation(args: {
       return { status: 'already_terminal' };
     }
 
+    // WS6 · F6 — se liquida con el importe que incluye el contractual de las
+    // páginas despachadas sin importe reportado (ver `settlementCreditsTotal`).
+    // Sólo cambia CUÁNTO se confirma de la reserva ya existente; la reserva, su
+    // liberación y la RPC no cambian.
+    // AUDIT-HARDENING-1 — la parte ESTIMADA (contractual) nunca confirma más de lo
+    // reservado; un cobro REPORTADO por Lusha se confirma tal cual, como siempre.
+    const reportedCharged = result?.creditsChargedTotal ?? null;
+    const settlementWithEstimate =
+      result?.settlementCreditsTotal !== undefined ? result.settlementCreditsTotal : reportedCharged;
+    const boundedSettlement =
+      typeof settlementWithEstimate === 'number' && typeof reportedCharged === 'number'
+        ? Math.max(reportedCharged, Math.min(settlementWithEstimate, reservation.creditsReserved))
+        : settlementWithEstimate;
     const actualCreditsConsumed = decideLushaCreditsToConfirm({
       creditsReserved: reservation.creditsReserved,
-      creditsChargedTotal: result?.creditsChargedTotal ?? null,
+      creditsChargedTotal: boundedSettlement,
     });
 
     const confirmed = await confirmWizardPilotCredits(
@@ -1346,6 +1375,9 @@ async function runLushaSearchWithReservation(args: {
         run: {
           status: result?.status ?? 'error',
           creditsChargedTotal: result?.creditsChargedTotal ?? null,
+          ...(result?.settlementCreditsTotal !== undefined
+            ? { settlementCreditsTotal: result.settlementCreditsTotal }
+            : {}),
           resultsReturned: result?.resultsReturned ?? null,
           rawResultsTotal: result?.rawResultsTotal ?? null,
           pagesRequested: result?.pagesRequested ?? null,

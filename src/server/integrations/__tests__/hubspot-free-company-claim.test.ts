@@ -2,7 +2,7 @@
  * Tests — tomar una empresa libre en HubSpot (HUBSPOT-FREE-POOL-SOURCE-1).
  *
  * Decisión de la dueña (15-10): al tomarla, dueño = vendedor, estado de lead «New»,
- * Fecha Asignación = hoy, y los contactos pasan al vendedor salvo los de OTRO
+ * y los contactos pasan al vendedor salvo los de OTRO
  * vendedor activo. Sin red: HubSpot simulado.
  */
 
@@ -31,11 +31,10 @@ const owners = buildHubSpotOwnerDirectory(
 );
 
 describe('propiedades al tomarla', () => {
-  it('dueño, estado «New» y Fecha Asignación de hoy', () => {
-    assert.deepEqual(buildHubSpotClaimProperties('seller', NOW), {
+  it('dueño y estado «New»; la Fecha Asignación la pone HubSpot', () => {
+    assert.deepEqual(buildHubSpotClaimProperties('seller'), {
       hubspot_owner_id: 'seller',
       hs_lead_status: 'New',
-      fecha_asignacion: '2026-10-15',
     });
   });
 
@@ -47,7 +46,7 @@ describe('propiedades al tomarla', () => {
     );
     assert.equal(before.free, true);
     const after = classifyHubSpotCompanyAvailability(
-      { ...buildHubSpotClaimProperties('seller', NOW), lifecyclestage: 'lead', hs_num_open_deals: '0', hs_last_sales_activity_timestamp: null },
+      { ...buildHubSpotClaimProperties('seller'), lifecyclestage: 'lead', hs_num_open_deals: '0', hs_last_sales_activity_timestamp: null },
       owners,
       NOW,
     );
@@ -80,7 +79,23 @@ describe('qué contactos pasan al vendedor', () => {
 
 type Call = { method: string; url: string; body: unknown };
 
-function fakeHubSpot(opts: { patchStatus?: number; contactsUpdateStatus?: number; associationsStatus?: number } = {}) {
+type CompanyNow = Record<string, unknown>;
+
+// AGENT1-AUDIT-WS4 — antes la ficha simulada sólo traía `hubspot_owner_id: 'prev'`
+// (un vendedor ACTIVO) y la toma se la quitaba igual: era justo el defecto. Ahora
+// la toma vuelve a aplicar la regla con las propiedades frescas, así que el caso
+// feliz es una ficha LIBRE (reciclada) cuyo dueño anterior es 'prev'.
+const FREE_RECYCLED: CompanyNow = {
+  hubspot_owner_id: 'prev',
+  hs_lead_status: 'Recycled',
+  lifecyclestage: 'lead',
+  hs_num_open_deals: '0',
+  hs_last_sales_activity_timestamp: null,
+};
+
+function fakeHubSpot(
+  opts: { patchStatus?: number; contactsUpdateStatus?: number; associationsStatus?: number; companyNow?: CompanyNow; ownersStatus?: number } = {},
+) {
   const calls: Call[] = [];
   const fetchFn = (async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -88,6 +103,7 @@ function fakeHubSpot(opts: { patchStatus?: number; contactsUpdateStatus?: number
     calls.push({ method, url, body });
     const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
     if (url.includes('/crm/v3/owners')) {
+      if (opts.ownersStatus) return json({}, opts.ownersStatus);
       return json({
         results: url.includes('archived=true')
           ? [{ id: 'gone', firstName: 'Ya', lastName: 'Noestá' }]
@@ -100,7 +116,7 @@ function fakeHubSpot(opts: { patchStatus?: number; contactsUpdateStatus?: number
       });
     }
     if (method === 'GET' && url.includes('/crm/v3/objects/companies/555?properties=hubspot_owner_id')) {
-      return json({ properties: { hubspot_owner_id: 'prev' } });
+      return json({ properties: opts.companyNow ?? FREE_RECYCLED });
     }
     if (method === 'PATCH') return json({}, opts.patchStatus ?? 200);
     if (url.includes('/associations/contacts')) {
@@ -126,13 +142,13 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot();
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, true);
     assert.equal(out.previousOwnerId, 'prev');
     const patch = hs.calls.find((c) => c.method === 'PATCH');
-    assert.deepEqual(patch?.body, { properties: { hubspot_owner_id: 'seller', hs_lead_status: 'New', fecha_asignacion: '2026-10-15' } });
+    assert.deepEqual(patch?.body, { properties: { hubspot_owner_id: 'seller', hs_lead_status: 'New' } });
     const update = hs.calls.find((c) => c.url.endsWith('/contacts/batch/update'));
     assert.deepEqual(update?.body, {
       inputs: [
@@ -147,7 +163,7 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot({ patchStatus: 403 });
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, false);
@@ -159,7 +175,7 @@ describe('tomar la empresa en HubSpot', () => {
     resetHubSpotOwnerDirectoryCache();
     const hs = fakeHubSpot({ contactsUpdateStatus: 500 });
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => 't' },
     );
     assert.equal(out.companyWritten, true);
@@ -168,10 +184,61 @@ describe('tomar la empresa en HubSpot', () => {
     assert.equal(out.contacts.error, 'contacts_update_http_500');
   });
 
+  it('otro vendedor la tomó entre medio ⇒ taken_now: ni PATCH ni contactos', async () => {
+    resetHubSpotOwnerDirectoryCache();
+    const hs = fakeHubSpot({
+      companyNow: { ...FREE_RECYCLED, hubspot_owner_id: 'other', hs_lead_status: 'New' },
+    });
+    const out = await claimHubSpotCompanyForOwner(
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
+      { fetchFn: hs.fetchFn, resolveToken: async () => 't', now: NOW },
+    );
+    assert.equal(out.companyWritten, false);
+    assert.equal(out.abortedReason, 'taken_now');
+    assert.equal(out.takenReasonNow, 'active_owner');
+    assert.equal(out.previousOwnerId, 'other');
+    assert.equal(hs.calls.some((c) => c.method === 'PATCH'), false);
+    assert.equal(hs.calls.some((c) => c.url.includes('/contacts/')), false);
+  });
+
+  it('abrieron un negocio entre medio ⇒ taken_now (open_deal)', async () => {
+    resetHubSpotOwnerDirectoryCache();
+    const hs = fakeHubSpot({ companyNow: { ...FREE_RECYCLED, hs_num_open_deals: '1' } });
+    const out = await claimHubSpotCompanyForOwner(
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
+      { fetchFn: hs.fetchFn, resolveToken: async () => 't', now: NOW },
+    );
+    assert.equal(out.abortedReason, 'taken_now');
+    assert.equal(out.takenReasonNow, 'open_deal');
+    assert.equal(hs.calls.some((c) => c.method === 'PATCH'), false);
+  });
+
+  it('sin directorio de dueños no se puede comprobar ⇒ no se toca', async () => {
+    resetHubSpotOwnerDirectoryCache();
+    const hs = fakeHubSpot({ ownersStatus: 500 });
+    const out = await claimHubSpotCompanyForOwner(
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
+      { fetchFn: hs.fetchFn, resolveToken: async () => 't', now: NOW },
+    );
+    assert.equal(out.abortedReason, 'availability_unknown');
+    assert.equal(hs.calls.some((c) => c.method === 'PATCH'), false);
+  });
+
+  it('ya es del vendedor ⇒ no se reescribe', async () => {
+    resetHubSpotOwnerDirectoryCache();
+    const hs = fakeHubSpot({ companyNow: { ...FREE_RECYCLED, hubspot_owner_id: 'seller' } });
+    const out = await claimHubSpotCompanyForOwner(
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
+      { fetchFn: hs.fetchFn, resolveToken: async () => 't', now: NOW },
+    );
+    assert.equal(out.abortedReason, 'already_owner');
+    assert.equal(hs.calls.some((c) => c.method === 'PATCH'), false);
+  });
+
   it('sin credencial ⇒ nada se escribe', async () => {
     const hs = fakeHubSpot();
     const out = await claimHubSpotCompanyForOwner(
-      { hubspotCompanyId: '555', newOwnerId: 'seller', now: NOW },
+      { hubspotCompanyId: '555', newOwnerId: 'seller' },
       { fetchFn: hs.fetchFn, resolveToken: async () => null },
     );
     assert.equal(out.companyError, 'token_unavailable');

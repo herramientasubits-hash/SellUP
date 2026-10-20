@@ -4,7 +4,7 @@
  *
  * Lectura: el chequeo de duplicados de HubSpot de siempre y la regla leída en ese
  * momento. Escritura (sólo con `ENABLE_HUBSPOT_FREE_POOL_OWNER_WRITEBACK`): dueño,
- * estado de lead, Fecha Asignación y contactos. Nunca lanza: HubSpot nunca rompe la
+ * estado de lead y contactos. Nunca lanza: HubSpot nunca rompe la
  * aprobación en SellUp.
  */
 
@@ -93,12 +93,22 @@ export async function claimFreePoolCompanyForSeller(input: {
     sellerHubSpotOwnerId,
   });
   if (!decision.write) return { ...base, owner_written: false, owner_skip_reason: decision.reason };
-  // Dueño + estado de lead «New» + Fecha Asignación, y los contactos al vendedor.
+  // Dueño + estado de lead «New», y los contactos al vendedor.
   const claim = await claimHubSpotCompanyForOwner({
     hubspotCompanyId: input.link.hubspotCompanyId,
     newOwnerId: decision.hubspotOwnerId,
-    now: new Date(input.nowIso),
   });
+  if (claim.abortedReason) {
+    // AGENT1-AUDIT-WS4 — comprobada justo antes de escribir, ya no estaba libre
+    // (o no se pudo saber): no se cambió el dueño ni los contactos.
+    return {
+      ...base,
+      owner_written: false,
+      owner_skip_reason: claim.abortedReason,
+      taken_reason_now: claim.takenReasonNow,
+      previous_owner_id: claim.previousOwnerId,
+    };
+  }
   return {
     ...base,
     owner_written: claim.companyWritten,

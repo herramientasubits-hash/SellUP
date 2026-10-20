@@ -61,6 +61,7 @@
 
 import { stripWebHostPrefix } from './normalization';
 import type { WebSearchResult } from './types';
+import { readNationalPortalEntity } from './national-portal-entity';
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -252,7 +253,28 @@ const GENERIC_DIRECTORY_DOMAINS = new Set([
   'genealog.cl',
   'mercantil.com',
   'boletinoficial.com',
+  // AUDIT-A1-WS7 — directorios que se colaban (el resto va por marca: ver
+  // `DIRECTORY_BRAND_LABELS`, que cubre las terminaciones de cada país).
+  'rues.org.co',
+  'bnamericas.com',
+  'cybo.com',
+  'informacolombia.com',
 ]);
+
+/**
+ * AUDIT-A1-WS7 — marcas de directorio con un dominio por país (doctoralia.com.co,
+ * tripadvisor.com.mx, mercadolibre.cl, mercadolivre.com.br, guialocal.com.co,
+ * infoempresa.com.pe…). Se reconocen por la etiqueta que precede al sufijo.
+ */
+const DIRECTORY_BRAND_LABELS = [
+  'doctoralia', 'tripadvisor', 'mercadolibre', 'mercadolivre', 'bnamericas', 'cybo',
+  'informacolombia', 'guialocal', 'infoempresa',
+];
+const DIRECTORY_BRAND_PATTERN = new RegExp(`(?:^|\\.)(?:${DIRECTORY_BRAND_LABELS.join('|')})\\.(?:(?:com?|org|net)\\.)?[a-z]{2,3}$`);
+
+export function isDirectoryBrandDomain(domain: string): boolean {
+  return DIRECTORY_BRAND_PATTERN.test(domain.toLowerCase());
+}
 
 /**
  * Bases de datos financieras y empresariales comerciales.
@@ -513,8 +535,10 @@ type InstitutionalContentVerdict =
   | { kind: 'public_portal'; reason: string }
   | null;
 
-function classifyInstitutionalContent(domain: string): InstitutionalContentVerdict {
-  if (NATIONAL_GOVERNMENT_PORTAL_DOMAINS.has(domain.replace(/^www\./, ''))) {
+function classifyInstitutionalContent(domain: string, url: string): InstitutionalContentVerdict {
+  // AUDIT-A1-WS7 — `gob.pe/minsa`, `gob.mx/sep`, `argentina.gob.ar/salud`… son una
+  // entidad (ruta del portal), no el portal: no se descartan aquí.
+  if (NATIONAL_GOVERNMENT_PORTAL_DOMAINS.has(domain.replace(/^www\./, '')) && !readNationalPortalEntity(url)) {
     return { kind: 'public_portal', reason: `Portal nacional del Estado (${domain}) — agrupa entidades, no es una` };
   }
   if (domainMatchesSet(domain, PUBLIC_PROCUREMENT_DOMAINS)) {
@@ -900,7 +924,7 @@ export function isProspectableCompanyResult(result: {
 
   // 3b. AGENT1-TAVILY-V2-1 § 2 — el dominio de gobierno o de educación YA NO
   // descarta: la institución es cliente. Sólo sale el documento o el portal.
-  const institutionalContent = classifyInstitutionalContent(domain);
+  const institutionalContent = classifyInstitutionalContent(domain, result.url);
   if (institutionalContent) {
     return {
       isProspectable: false,
@@ -958,7 +982,7 @@ export function isProspectableCompanyResult(result: {
   }
 
   // 7c. Directorios genéricos (por dominio)
-  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
+  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS) || isDirectoryBrandDomain(domain)) {
     return {
       isProspectable: false,
       reason: `Directorio empresarial (${domain}) — no empresa prospectable`,
@@ -1193,7 +1217,7 @@ export function classifySearchResult(result: {
   }
 
   // 7. Directorios genéricos (por dominio)
-  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS)) {
+  if (domainMatchesSet(domain, GENERIC_DIRECTORY_DOMAINS) || isDirectoryBrandDomain(domain)) {
     return {
       resultType: 'directory',
       shouldKeep: false,
@@ -1259,7 +1283,7 @@ export function classifySearchResult(result: {
   // 9b. AGENT1-TAVILY-V2-1 § 2 — antes: `.gov.co`/`.gob.co` ⇒ descarte. Las
   // entidades del Estado SÍ son clientes de UBITS; sólo sale el documento o el
   // portal de datos/contratación.
-  const institutionalContent = classifyInstitutionalContent(domain);
+  const institutionalContent = classifyInstitutionalContent(domain, result.url);
   if (institutionalContent) {
     return {
       resultType: institutionalContent.kind === 'academic_document' ? 'academic_source' : 'non_prospectable_source',

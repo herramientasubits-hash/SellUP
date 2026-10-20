@@ -504,7 +504,16 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    const CEILING = '150_public_procurement_supplier_links.sql';
+    const PROCUREMENT_SUPPLIER_LINKS_150 = '150_public_procurement_supplier_links.sql';
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es de CUT3B4: no mencionan `AGENT1-CUT3B4`, no reutilizan `identity_epoch` ni tocan
+    // la valla de admisión, y el barrido explícito de abajo se ENSANCHA para incluir la 150, el
+    // techo anterior. AUTORADAS y NO APLICADAS.
+    const ENRICHMENT_JOBS_HARDENING_151 = '151_claim_enrichment_jobs_hardening.sql';
+    const CEILING = '153_agent3_first_call_prep.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -529,6 +538,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       USAGE_LOG_DIMENSIONS_147,
       COMPANY_RELATIONSHIPS_148,
       USAGE_SEARCH_MODE_149,
+      PROCUREMENT_SUPPLIER_LINKS_150,
+      ENRICHMENT_JOBS_HARDENING_151,
       CEILING,
     ]) {
       assert.equal(
@@ -553,7 +564,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-CORPORATE-TREE-1 añade la 148 y el conteo sube con ella.
     // AGENT1-CORPORATE-TREE-2 añade la 149 y el conteo sube con ella.
     // AGENT1-SUPPLIER-SEARCH-CL-1 añade la 150 y el conteo sube con ella.
-    assert.equal(migrations.length, 150);
+    // AGENT1-AUDIT-HARDENING-1 añade la 151 y la 152, y el conteo sube con las dos.
+    assert.equal(migrations.length, 153);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

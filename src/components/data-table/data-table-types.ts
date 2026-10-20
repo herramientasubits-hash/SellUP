@@ -8,7 +8,8 @@ export interface DataTableBulkAction<TData> {
   id: string;
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
-  variant?: "default" | "destructive";
+  /** `ai`: una acción de Rumbo (IA), con el ícono en el color de IA. */
+  variant?: "default" | "destructive" | "ai";
   /** Ignored when `items` is set — a grouped action has no direct click target. */
   onClick?: (rows: TData[]) => void | Promise<void>;
   loading?: boolean;

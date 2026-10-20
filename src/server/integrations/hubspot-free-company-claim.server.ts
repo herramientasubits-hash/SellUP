@@ -3,7 +3,8 @@
  * libre (HUBSPOT-FREE-POOL-SOURCE-1). Sólo la llama la aprobación, y sólo con
  * `ENABLE_HUBSPOT_FREE_POOL_OWNER_WRITEBACK` (decisión de la dueña, 15-10):
  *
- *   · empresa: dueño = vendedor, estado de lead «New», Fecha Asignación = hoy;
+ *   · empresa: dueño = vendedor y estado de lead «New» (HubSpot pone solo la Fecha
+ *     Asignación al cambiar el dueño);
  *   · contactos asociados: pasan al vendedor los sin dueño, de bolsa, de dueño
  *     desactivado o del dueño anterior; los de OTRO vendedor activo no se tocan.
  *
@@ -13,9 +14,12 @@
 
 import { getHubSpotToken } from './hubspot-company-create';
 import {
+  HUBSPOT_FREE_POLICY_PROPERTIES,
   buildHubSpotClaimProperties,
+  classifyHubSpotCompanyAvailability,
   selectContactsToReassign,
   type HubSpotContactOwner,
+  type HubSpotTakenReason,
 } from './hubspot-free-company-policy';
 import { loadHubSpotOwnerDirectory, type HubSpotFetch } from './hubspot-free-company-pool.server';
 import { fetchHubSpotWithRetry } from './hubspot-rate-limit';
@@ -30,6 +34,14 @@ export type HubSpotClaimResult = {
   companyWritten: boolean;
   companyError: string | null;
   previousOwnerId: string | null;
+  /**
+   * AGENT1-AUDIT-WS4 — por qué NO se tomó aunque al empezar la aprobación
+   * estaba libre: `taken_now` (otro vendedor la tomó entre medio),
+   * `availability_unknown` (no se pudo comprobar justo antes: no se toca),
+   * `already_owner` (ya es del vendedor). `null` si se intentó tomar.
+   */
+  abortedReason: 'taken_now' | 'availability_unknown' | 'already_owner' | null;
+  takenReasonNow: HubSpotTakenReason | null;
   contacts: {
     associated: number;
     reassigned: number;
@@ -46,16 +58,29 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
-async function readCompanyOwner(token: string, companyId: string, fetchFn: HubSpotFetch): Promise<string | null> {
+/**
+ * AGENT1-AUDIT-WS4 — lee EN ESTE MOMENTO todo lo que la regla de «libre»
+ * necesita (no sólo el dueño): justo antes del PATCH se vuelve a decidir.
+ */
+async function readCompanyPolicyProperties(
+  token: string,
+  companyId: string,
+  fetchFn: HubSpotFetch,
+): Promise<Record<string, unknown>> {
   const res = await fetchHubSpotWithRetry(
-    `${HUBSPOT_API}/crm/v3/objects/companies/${encodeURIComponent(companyId)}?properties=hubspot_owner_id`,
+    `${HUBSPOT_API}/crm/v3/objects/companies/${encodeURIComponent(companyId)}?properties=${HUBSPOT_FREE_POLICY_PROPERTIES.join(',')}`,
     { headers: { Authorization: `Bearer ${token}` } },
     TIMEOUT_MS,
     { fetchFn },
   );
   if (!res.ok) throw new Error(`company_read_http_${res.status}`);
-  const body = (await res.json()) as { properties?: { hubspot_owner_id?: string | null } };
-  const owner = body.properties?.hubspot_owner_id;
+  const body = (await res.json()) as { properties?: Record<string, unknown> };
+  return body.properties ?? {};
+}
+
+function ownerIdOf(properties: Record<string, unknown>): string | null {
+  const owner = properties.hubspot_owner_id;
+  if (typeof owner === 'number') return String(owner);
   return typeof owner === 'string' && owner.trim() !== '' ? owner.trim() : null;
 }
 
@@ -125,27 +150,48 @@ async function updateContactOwners(
 
 /** Toma la empresa en HubSpot para el vendedor. Nunca lanza. */
 export async function claimHubSpotCompanyForOwner(
-  input: { hubspotCompanyId: string; newOwnerId: string; now: Date },
-  options: { fetchFn?: HubSpotFetch; resolveToken?: () => Promise<string | null> } = {},
+  input: { hubspotCompanyId: string; newOwnerId: string },
+  options: { fetchFn?: HubSpotFetch; resolveToken?: () => Promise<string | null>; now?: Date } = {},
 ): Promise<HubSpotClaimResult> {
   const fetchFn = options.fetchFn ?? fetch;
   const result: HubSpotClaimResult = {
     companyWritten: false,
     companyError: null,
     previousOwnerId: null,
+    abortedReason: null,
+    takenReasonNow: null,
     contacts: { associated: 0, reassigned: 0, keptOtherActiveOwner: 0, alreadyOwned: 0, failed: 0, error: null },
   };
   const token = await (options.resolveToken ?? getHubSpotToken)().catch(() => null);
   if (!token) return { ...result, companyError: 'token_unavailable' };
 
   try {
-    result.previousOwnerId = await readCompanyOwner(token, input.hubspotCompanyId, fetchFn);
+    const properties = await readCompanyPolicyProperties(token, input.hubspotCompanyId, fetchFn);
+    result.previousOwnerId = ownerIdOf(properties);
+    // AGENT1-AUDIT-WS4 — antes se leía el dueño y se hacía el PATCH sin comparar
+    // con la disponibilidad leída al empezar la aprobación: si otro vendedor la
+    // tomó en esos segundos, se le quitaba. Ahora se vuelve a aplicar la regla
+    // con las propiedades frescas: si ya no está libre, NO se toca (ni empresa
+    // ni contactos).
+    if (result.previousOwnerId === input.newOwnerId) {
+      return { ...result, abortedReason: 'already_owner' };
+    }
+    const ownersNow = await loadHubSpotOwnerDirectory(token, { fetchFn });
+    if (!ownersNow) return { ...result, abortedReason: 'availability_unknown' };
+    const verdict = classifyHubSpotCompanyAvailability(properties, ownersNow, options.now ?? new Date());
+    if (!verdict.free) {
+      console.warn('[hubspot-free-pool] la empresa dejó de estar libre antes de tomarla; no se toca:', {
+        hubspotCompanyId: input.hubspotCompanyId,
+        reason: verdict.reason,
+      });
+      return { ...result, abortedReason: 'taken_now', takenReasonNow: verdict.reason };
+    }
     const res = await fetchHubSpotWithRetry(
       `${HUBSPOT_API}/crm/v3/objects/companies/${encodeURIComponent(input.hubspotCompanyId)}`,
       {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: buildHubSpotClaimProperties(input.newOwnerId, input.now) }),
+        body: JSON.stringify({ properties: buildHubSpotClaimProperties(input.newOwnerId) }),
       },
       TIMEOUT_MS,
       { fetchFn },

@@ -65,7 +65,12 @@ interface RoleSelectProps {
 
 function RoleSelect({ roles, value, onChange }: RoleSelectProps) {
   return (
-    <Select value={value || undefined} onValueChange={(v) => onChange(v || '')}>
+    <Select
+      value={value || null}
+      onValueChange={(v) => onChange(v || '')}
+      // Sin `items`, Base UI muestra el id (UUID) en vez del nombre.
+      items={Object.fromEntries(roles.map((role) => [role.id, role.name]))}
+    >
       <SelectTrigger className="w-full" aria-label="Rol">
         <SelectValue placeholder="Seleccionar rol" />
       </SelectTrigger>
@@ -89,7 +94,14 @@ interface ManagerSelectProps {
 
 function ManagerSelect({ managers, value, onChange, placeholder }: ManagerSelectProps) {
   return (
-    <Select value={value || undefined} onValueChange={(v) => onChange(v || '')}>
+    <Select
+      value={value || null}
+      onValueChange={(v) => onChange(v || '')}
+      items={{
+        [SELF_MANAGER_VALUE]: 'Sin jefe directo',
+        ...Object.fromEntries(managers.map((u) => [u.id, u.full_name ?? u.email])),
+      }}
+    >
       <SelectTrigger className="w-full" aria-label="Jefe directo">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

@@ -67,8 +67,8 @@ describe('Wizard CTA runs automatic routing', () => {
     assert.match(wizardSource, /Buscar contactos con IA/);
   });
 
-  it('the CTA is wired to the automatic-routing action + reducer actions', () => {
-    assert.match(wizardSource, /runAutomaticContactEnrichmentForRequestAction/);
+  it('the CTA is wired to the automatic routing (browser store → search route) + reducer actions', () => {
+    assert.match(wizardSource, /getContactSearchRunsStore/);
     assert.match(wizardSource, /AUTOMATIC_ROUTING_START/);
     assert.match(wizardSource, /AUTOMATIC_ROUTING_SETTLED/);
   });

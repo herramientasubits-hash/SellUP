@@ -13,6 +13,7 @@ import {
   Building2,
   Calendar,
   UserSearch,
+  PhoneCall,
 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -45,6 +46,7 @@ import {
 import { ContactRowActions } from '@/components/contacts/contact-row-actions';
 import { ContactHubSpotSyncBadge } from '@/components/contacts/contact-hubspot-sync-badge';
 import { describeContactAuditDetails } from './audit-details';
+import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 
 interface ContactDetailPageProps {
   params: Promise<{ contactId: string }>;
@@ -160,7 +162,19 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
             )}
           </>
         }
-        actions={<ContactRowActions contact={contact} />}
+        actions={
+          <>
+            {isAgent3FirstCallEnabled() && account && contact.contact_status === 'active' && (
+              <Button asChild size="sm">
+                <Link href={`/accounts/${account.id}?tab=primera-llamada&contacto=${contact.id}`}>
+                  <PhoneCall aria-hidden="true" />
+                  Preparar primer contacto
+                </Link>
+              </Button>
+            )}
+            <ContactRowActions contact={contact} />
+          </>
+        }
       />
 
       {/* Lo esencial del contacto, de un vistazo y antes de las pestañas. */}

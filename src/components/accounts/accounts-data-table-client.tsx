@@ -9,17 +9,17 @@ import { toast } from 'sonner';
 import {
   Eye,
   Pencil,
-  Tag,
   Archive,
   Building2,
   ExternalLink,
   UserSearch,
   Globe,
-  Search,
   Sparkles,
   SendHorizonal,
   UserPlus,
 } from "@/icons";
+import { RumboIcon } from '@/components/chat/chat-mark';
+import { RUMBO_ACTION_LABELS, RUMBO_IA } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -49,19 +49,28 @@ import {
   countryName,
 } from '@/components/shared/table-cells';
 import {
-  PIPELINE_STATUS_LABELS,
+  ACCOUNT_NEXT_STEPS,
+  ACCOUNT_NEXT_STEP_ORDER,
+  resolveAccountNextStep,
+  type AccountNextStepKey,
+} from '@/modules/accounts/next-step';
+import {
   INDUSTRIES,
   LATAM_COUNTRIES,
   type AccountListItem,
   type InternalUserOption,
-  type PipelineStatus,
 } from '@/modules/accounts/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import { archiveAccounts, assignAccountsToUser, updateAccount } from '@/modules/accounts/actions';
+import { archiveAccounts, assignAccountsToUser } from '@/modules/accounts/actions';
 import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
+import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
+import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
+import { readOpenAccountParam } from './open-account-link';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
+import { AccountsAgentChooser } from './accounts-agent-chooser';
+import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
 
@@ -69,56 +78,68 @@ import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bul
 
 type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
-const STATUS_VARIANT: Record<PipelineStatus, BadgeVariant> = {
-  new: 'neutral',
-  ready_for_research: 'brand',
-  research_in_progress: 'warning',
-  ready_for_outreach: 'positive',
-  archived: 'neutral',
-};
+/** El siguiente paso de una fila (la página lo calcula; sin dato, el primero del recorrido). */
+function nextStepOf(account: AccountListItem): AccountNextStepKey {
+  return (
+    account.next_step ??
+    resolveAccountNextStep({
+      archived: account.pipeline_status === 'archived',
+      contactsTotal: 0,
+      lastEnrichmentStatus: null,
+      firstContactInProgress: false,
+      firstContactPrepared: false,
+    })
+  );
+}
+
+function NextStepBadge({ step }: { step: AccountNextStepKey }) {
+  const def = ACCOUNT_NEXT_STEPS[step];
+  return <Badge variant={def.tone as BadgeVariant}>{def.label}</Badge>;
+}
 
 // ── Indicadores que filtran ────────────────────────────────────
-// Los mismos tres estados que antes eran tarjetas de métricas: ahora son
-// botones de la franja y pulsarlos deja en la tabla solo esas empresas.
+// Lo que toca hacer (dueña 18-10: el estado guardado decía «Nueva» en casi todas):
+// pulsarlos deja en la tabla sólo esas empresas.
+
+const stepIn =
+  (...keys: AccountNextStepKey[]) =>
+  (account: AccountListItem) =>
+    keys.includes(nextStepOf(account));
 
 const ACCOUNT_QUICK_FILTERS: readonly QuickFilterDefinition<AccountListItem>[] = [
   {
-    id: 'new',
-    label: 'Nuevas',
-    icon: Sparkles,
+    id: 'find_contacts',
+    label: 'Buscar contactos',
+    icon: UserSearch,
     tone: 'neutral',
-    predicate: (account) => account.pipeline_status === 'new',
+    predicate: stepIn('find_contacts', 'finding_contacts'),
   },
   {
-    id: 'ready_for_research',
-    label: 'Listas para investigar',
-    icon: Search,
+    id: 'review_contacts',
+    label: 'Revisar contactos',
+    icon: Eye,
+    tone: 'warning',
+    predicate: stepIn('review_contacts'),
+  },
+  {
+    id: 'prepare_first_contact',
+    label: 'Preparar primer contacto',
+    icon: Sparkles,
     tone: 'brand',
-    predicate: (account) => account.pipeline_status === 'ready_for_research',
+    predicate: stepIn('prepare_first_contact', 'preparing_first_contact'),
   },
   {
-    id: 'ready_for_outreach',
-    label: 'Listas para contacto',
+    id: 'make_first_contact',
+    label: 'Hacer el primer contacto',
     icon: SendHorizonal,
     tone: 'positive',
-    predicate: (account) => account.pipeline_status === 'ready_for_outreach',
+    predicate: stepIn('make_first_contact'),
   },
-];
-
-/** Los estados a los que se puede pasar una empresa desde su menú. */
-const ACTIVE_PIPELINE_STATUSES: PipelineStatus[] = [
-  'new',
-  'ready_for_research',
-  'research_in_progress',
-  'ready_for_outreach',
 ];
 
 // ── Filter options ─────────────────────────────────────────────
 
-const STATUS_FILTER_OPTIONS = Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
+const NEXT_STEP_FILTER_OPTIONS = ACCOUNT_NEXT_STEP_ORDER.map((value) => ({ value, label: ACCOUNT_NEXT_STEPS[value].label }));
 
 const INDUSTRY_FILTER_OPTIONS = INDUSTRIES.map((i) => ({ value: i, label: i }));
 
@@ -152,6 +173,8 @@ interface AccountsDataTableClientProps {
    * revisar prospectos). Lo arma la página, que es la que tiene los drawers.
    */
   emptyActions?: React.ReactNode;
+  /** Agente 3 encendido: la fila ofrece «Preparar primer contacto». */
+  firstCallEnabled?: boolean;
 }
 
 export function AccountsDataTableClient({
@@ -159,14 +182,24 @@ export function AccountsDataTableClient({
   users,
   scopeFilterOptions,
   emptyActions,
+  firstCallEnabled = false,
 }: AccountsDataTableClientProps) {
   const router = useRouter();
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  // Con qué pestaña se abre el panel: «Resumen», salvo al volver del Agente 3 («Primer contacto»).
+  const [detailTab, setDetailTab] = React.useState('resumen');
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
+  // Las empresas con las que se abrió Rumbo desde la barra (su panel «¿Qué hacemos?»).
+  const [rumboRows, setRumboRows] = React.useState<Row[]>([]);
+  // Para «Volver» desde buscar contactos a «¿Qué hacemos?» con las mismas empresas.
+  const [rumboOrigin, setRumboOrigin] = React.useState<Row[] | null>(null);
+  // Agente 3: el panel del agente, abierto desde el menú, la barra o el panel de la empresa.
+  const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
+  const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
   // AGENT1-CORPORATE-TREE-1 — «Buscar en árbol» desde la fila.
   const corporateTree = useCorporateTreeAction();
   const corporateTreeMenuItem = corporateTree.menuItem;
@@ -197,20 +230,36 @@ export function AccountsDataTableClient({
     onToggle: toggleQuickFilter,
   };
 
-  const openDetail = React.useCallback((id: string) => {
+  const openDetail = React.useCallback((id: string, tab: string = 'resumen') => {
+    setDetailTab(tab);
     setDetailAccountId(id);
     setDetailOpen(true);
   }, []);
 
-  const handleStatusChange = React.useCallback(async (accountId: string, status: PipelineStatus) => {
-    const result = await updateAccount(accountId, { pipeline_status: status });
-    if (result.success) {
-      router.refresh();
-      toast.success(`Estado cambiado a «${PIPELINE_STATUS_LABELS[status]}»`);
-    } else {
-      toast.error(result.error);
-    }
-  }, [router]);
+  // `/accounts?abrir=<id>` (p. ej. al aprobar una empresa en «Por revisar»): se abre su
+  // ficha y se quita el parámetro, para que recargar no la vuelva a abrir.
+  React.useEffect(() => {
+    const { accountId, rest } = readOpenAccountParam(window.location.search);
+    if (!accountId) return;
+    // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openDetail(accountId);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+  }, [openDetail]);
+
+  // Una preparación de Rumbo terminó (aunque se haya abierto desde el Centro de
+  // procesos): en Empresas el resultado se ve en la ficha, en «Primer contacto».
+  React.useEffect(() => {
+    const onViewResult = (event: Event) => {
+      const accountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+      if (!accountId) return;
+      event.preventDefault();
+      openDetail(accountId, FIRST_CALL_TAB_ID);
+    };
+    window.addEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, onViewResult);
+    return () => window.removeEventListener(FIRST_CONTACT_VIEW_RESULT_EVENT, onViewResult);
+  }, [openDetail]);
+
 
   // Los responsables que aparecen en la lista, para el embudo de la columna
   // cuando no hay opciones de equipo (si no, saldrían identificadores). La
@@ -315,26 +364,21 @@ export function AccountsDataTableClient({
         meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
       },
       {
-        id: 'pipeline_status',
-        accessorKey: 'pipeline_status',
+        id: 'next_step',
+        accessorFn: (account) => nextStepOf(account),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Estado" />
+          <DataTableColumnHeader column={column} title="Siguiente paso" />
         ),
-        cell: ({ row }) => {
-          const status = row.original.pipeline_status;
-          return (
-            <Badge variant={STATUS_VARIANT[status]}>
-              {PIPELINE_STATUS_LABELS[status]}
-            </Badge>
-          );
-        },
-        size: 140,
-        minSize: 120,
+        cell: ({ row }) => <NextStepBadge step={nextStepOf(row.original)} />,
+        sortingFn: (a, b) =>
+          ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(a.original)) - ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(b.original)),
+        size: 220,
+        minSize: 180,
         filterFn: 'arrIncludesSome',
         meta: {
-          label: 'Estado',
-          popoverTitle: 'Estado',
-          filterOptions: STATUS_FILTER_OPTIONS,
+          label: 'Siguiente paso',
+          popoverTitle: 'Siguiente paso',
+          filterOptions: NEXT_STEP_FILTER_OPTIONS,
         },
       },
       {
@@ -417,10 +461,22 @@ export function AccountsDataTableClient({
             icon: UserPlus,
             onClick: () => setAssignRows([row]),
           },
+          ...(firstCallEnabled && row.pipeline_status !== 'archived'
+            ? [
+                {
+                  id: 'first-call',
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: RumboIcon,
+                  variant: 'ai' as const,
+                  onClick: () => setFirstContact({ kind: 'account', accountId: row.id }),
+                },
+              ]
+            : []),
           {
             id: 'enrich-contacts',
-            label: 'Buscar contactos de esta empresa',
-            icon: UserSearch,
+            label: RUMBO_ACTION_LABELS.findContacts,
+            icon: RumboIcon,
+            variant: 'ai',
             onClick: () => setEnrichCompany({
               name: row.name,
               domain: row.domain,
@@ -437,20 +493,6 @@ export function AccountsDataTableClient({
           accountId: row.id,
         });
         if (treeItem) items.push(treeItem);
-
-        // Antes había un único «Cambiar estado» que saltaba al siguiente sin
-        // decir a cuál. Ahora cada estado posible es su propia entrada.
-        ACTIVE_PIPELINE_STATUSES.filter((status) => status !== row.pipeline_status).forEach(
-          (status, index) => {
-            items.push({
-              id: `status-${status}`,
-              label: `Marcar como «${PIPELINE_STATUS_LABELS[status]}»`,
-              icon: Tag,
-              separator: index === 0,
-              onClick: () => handleStatusChange(row.id, status),
-            });
-          },
-        );
 
         items.push({
           id: 'archive',
@@ -480,7 +522,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, handleStatusChange, corporateTreeMenuItem],
+    [openDetail, corporateTreeMenuItem, firstCallEnabled],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -503,6 +545,16 @@ export function AccountsDataTableClient({
         icon: Pencil,
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
+      },
+      {
+        // Rumbo en general (dueña 20-10): abre su panel «¿Qué hacemos?» con las empresas
+        // marcadas, como el Rumbo de la pantalla: buscar contactos o preparar el primer contacto.
+        id: 'rumbo',
+        label: RUMBO_IA,
+        icon: RumboIcon,
+        variant: 'ai',
+        disabled: (rows) => rows.length === 0,
+        onClick: (rows) => setRumboRows(rows),
       },
       {
         id: 'assign',
@@ -552,29 +604,6 @@ export function AccountsDataTableClient({
           router.refresh();
         },
       },
-      {
-        id: 'bulk-enrich-contacts',
-        label: 'Buscar contactos en lote',
-        icon: UserSearch,
-        disabled: (rows) => rows.length === 0,
-        onClick: (rows) => {
-          if (rows.length === 1) {
-            // Single selection: open individual enrichment drawer
-            const row = rows[0];
-            setEnrichCompany({
-              name: row.name,
-              domain: row.domain,
-              country: row.country,
-              countryCode: row.country_code,
-              sellupAccountId: row.id,
-            });
-            return;
-          }
-          // Multiple selection: open bulk drawer
-          setBulkEnrichAccounts(rows);
-          setBulkEnrichOpen(true);
-        },
-      },
     ],
     [openDetail, router],
   );
@@ -591,9 +620,7 @@ export function AccountsDataTableClient({
           'Sin país, industria ni dominio'
         }
         meta={
-          <Badge variant={STATUS_VARIANT[row.pipeline_status]}>
-            {PIPELINE_STATUS_LABELS[row.pipeline_status]}
-          </Badge>
+          <NextStepBadge step={nextStepOf(row)} />
         }
         actions={state.menu}
       />
@@ -685,6 +712,7 @@ export function AccountsDataTableClient({
       <AccountDetailSheet
         accountId={detailAccountId}
         open={detailOpen}
+        initialTab={detailTab}
         onClose={() => {
           setDetailOpen(false);
           setDetailAccountId(null);
@@ -694,13 +722,64 @@ export function AccountsDataTableClient({
           setDetailAccountId(null);
           setEnrichCompany(company);
         }}
+        onRequestFirstContact={(request) => {
+          setDetailOpen(false);
+          setDetailAccountId(null);
+          setFirstContact({ kind: 'request', request });
+        }}
+      />
+
+      {/* Agente 3 · Primer contacto */}
+      <FirstContactPanelHost
+        target={firstContact}
+        onClose={closeFirstContact}
+        onDone={() => router.refresh()}
+        onViewResult={(id) => openDetail(id, FIRST_CALL_TAB_ID)}
+      />
+
+      {/* Rumbo desde la barra: «¿Qué hacemos?» con las empresas marcadas. */}
+      <AccountsAgentChooser
+        open={rumboRows.length > 0}
+        onOpenChange={(v) => !v && setRumboRows([])}
+        prospect="none"
+        firstContactAvailable={firstCallEnabled && rumboRows.length === 1 && rumboRows[0].pipeline_status !== 'archived'}
+        companies={rumboRows}
+        onChoose={(flow) => {
+          const rows = rumboRows;
+          setRumboRows([]);
+          setRumboOrigin(rows);
+          if (flow === 'first-contact' && rows.length === 1) {
+            setFirstContact({ kind: 'account', accountId: rows[0].id });
+            return;
+          }
+          if (rows.length === 1) {
+            const row = rows[0];
+            setEnrichCompany({ name: row.name, domain: row.domain, country: row.country, countryCode: row.country_code, sellupAccountId: row.id });
+            return;
+          }
+          setBulkEnrichAccounts(rows);
+          setBulkEnrichOpen(true);
+        }}
       />
 
       {/* Contact enrichment sidepanel (Agente 2A) */}
       <ContactEnrichmentDrawer
         open={!!enrichCompany}
-        onOpenChange={(v) => !v && setEnrichCompany(null)}
+        onOpenChange={(v) => {
+          if (v) return;
+          setEnrichCompany(null);
+          setRumboOrigin(null);
+        }}
         preloadedCompany={enrichCompany}
+        onBack={
+          rumboOrigin
+            ? () => {
+                setEnrichCompany(null);
+                setRumboRows(rumboOrigin);
+                setRumboOrigin(null);
+              }
+            : undefined
+        }
       />
 
       <AssignOwnerDrawer

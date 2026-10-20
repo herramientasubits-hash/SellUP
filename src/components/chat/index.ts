@@ -21,11 +21,11 @@ export { ChatUserMessage, type ChatUserMessageProps } from "./chat-user-message"
 export { ChatAgentMessage, type ChatAgentMessageProps } from "./chat-agent-message";
 export { ChatThinking, type ChatThinkingProps } from "./chat-thinking";
 export { ChatQuestionCard, type ChatQuestionCardProps } from "./chat-question-card";
-export { ChatQuestionPanel, type ChatQuestionPanelProps } from "./chat-question-panel";
+export { ChatQuestionBackContext, ChatQuestionPanel, type ChatQuestionPanelProps } from "./chat-question-panel";
 export { ChatCardView, type ChatCardViewProps } from "./chat-card-view";
 export { ChatFeedbackForm, type ChatFeedbackFormProps, type ChatFeedbackPayload } from "./chat-feedback-form";
 export { ChatMarkdown, type ChatMarkdownProps } from "./chat-markdown";
-export { ChatMark, type ChatMarkProps } from "./chat-mark";
+export { AGENT_NAME, ChatMark, RumboIcon, type ChatMarkProps } from "./chat-mark";
 export { ChatGreeting, type ChatGreetingProps } from "./chat-greeting";
 export { greetingKey } from "./greeting";
 export {

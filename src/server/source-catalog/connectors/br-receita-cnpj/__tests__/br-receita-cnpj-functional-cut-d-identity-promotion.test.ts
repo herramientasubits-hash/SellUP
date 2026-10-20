@@ -1451,7 +1451,13 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // today ChileCompra monthly purchase orders), RLS enabled with NO policies: only service_role
     // reads and writes. Not phone chain 109–117, not catalog, not BR, not CUT3B4. AUTHORED and NOT
     // APPLIED.
-    assert.equal(numbered[numbered.length - 1], '150_public_procurement_supplier_links.sql');
+    // AGENT1-AUDIT-HARDENING-1 moves the ceiling to 152: 151 hardens `claim_enrichment_jobs`
+    // (fixed search_path, recovers expired `processing` jobs of `prospect_enrichment_jobs`,
+    // EXECUTE only to service_role) and 152 cross-checks NIT/domain/LinkedIn in the identity claims
+    // (`agent1_company_identity_claims`) and releases the claims of an archived batch. Neither is
+    // BR-SOURCE, Receita/CNPJ, the catalog, the phone chain 109–117 or CUT3B4. AUTHORED and NOT
+    // APPLIED.
+    assert.equal(numbered[numbered.length - 1], '153_agent3_first_call_prep.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

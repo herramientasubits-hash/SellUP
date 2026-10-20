@@ -3,7 +3,7 @@
  * tenemos (catálogos gratuitos del país, banco de empresas), cuáles compiten con la
  * empresa de referencia (puro; la conversación se inyecta).
  *
- * Una sola llamada, SIN búsqueda web: la lista va en el mensaje (nombre, actividad
+ * Sin búsqueda web (una llamada por lote de hasta 80 filas): la lista va en el mensaje (nombre, actividad
  * oficial y su código) y Claude devuelve las claves que compiten, con el motivo en
  * una línea. Así lo gratuito sirve para competidores sin mezclar «empresas de la
  * misma industria» que no le compiten a nadie (decisión de la dueña, 14-10).
@@ -14,8 +14,10 @@
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
   AnthropicApiError,
+  EMPTY_USAGE,
   type AnthropicConversationResult,
   type AnthropicRequestBody,
+  type AnthropicUsageTotals,
 } from './anthropic-messages-client';
 import { toUsage } from './classify-company';
 import type { ClassifierUsage } from './types';
@@ -50,7 +52,10 @@ export type CompetitorJudgeVerdict = { key: string; reason: string };
 export type CompetitorJudgeOutcome = {
   /** Las que compiten, en el orden en que Claude las devolvió. */
   competitors: CompetitorJudgeVerdict[];
-  /** Cuántas se le mostraron (la lista puede venir recortada al tope). */
+  /**
+   * Cuántas se juzgaron de verdad: las filas de los lotes que respondieron (la
+   * lista puede venir recortada al tope de lotes).
+   */
   judged: number;
   usage: ClassifierUsage | null;
   errorCode: string | null;
@@ -227,19 +232,54 @@ export function readCompetitorJudgeVerdicts(
   return verdicts;
 }
 
-export async function judgeCompetitors(
+/**
+ * AGENT1-SEARCH-AUDIT-1 — la lista se juzga en lotes de `COMPETITOR_JUDGE_MAX_ITEMS`
+ * (a la vez), como mucho `COMPETITOR_JUDGE_MAX_CHUNKS`. Antes sólo se juzgaban las
+ * primeras 80 y la fila 81 en adelante nunca se miraba (Prod: «1/81»).
+ */
+export const COMPETITOR_JUDGE_MAX_CHUNKS = 3;
+/** Respuesta cortada por el tope de salida: su lista vendría incompleta o vacía. */
+export const COMPETITOR_JUDGE_TRUNCATED_ERROR = 'output_truncated';
+
+type ChunkOutcome = {
+  competitors: CompetitorJudgeVerdict[];
+  judged: number;
+  usage: AnthropicUsageTotals | null;
+  errorCode: string | null;
+};
+
+function sumUsage(totals: readonly AnthropicUsageTotals[]): AnthropicUsageTotals {
+  return totals.reduce<AnthropicUsageTotals>(
+    (sum, t) => ({
+      inputTokens: sum.inputTokens + (t.inputTokens ?? 0),
+      outputTokens: sum.outputTokens + (t.outputTokens ?? 0),
+      cacheReadInputTokens: sum.cacheReadInputTokens + (t.cacheReadInputTokens ?? 0),
+      cacheCreationInputTokens: sum.cacheCreationInputTokens + (t.cacheCreationInputTokens ?? 0),
+      webSearchRequests: sum.webSearchRequests + (t.webSearchRequests ?? 0),
+      webFetchRequests: sum.webFetchRequests + (t.webFetchRequests ?? 0),
+    }),
+    { ...EMPTY_USAGE },
+  );
+}
+
+async function judgeChunk(
   input: CompetitorJudgeInput,
   model: string,
   deps: CompetitorJudgeDeps,
-): Promise<CompetitorJudgeOutcome> {
-  const judged = Math.min(input.items.length, COMPETITOR_JUDGE_MAX_ITEMS);
-  if (judged === 0) return { competitors: [], judged: 0, usage: null, errorCode: null };
+): Promise<ChunkOutcome> {
+  const judged = input.items.length;
   try {
     const conversation = await deps.runConversation(buildCompetitorJudgeRequestBody(input, model));
+    // Cortada por el tope de salida: el `tool_use` llega incompleto y se leía como
+    // «ninguna compite» con éxito (falso negativo invisible). Es un error: el lote
+    // no aporta nada y queda registrado como tal.
+    if (conversation.stopReason === 'max_tokens') {
+      return { competitors: [], judged, usage: conversation.usage, errorCode: COMPETITOR_JUDGE_TRUNCATED_ERROR };
+    }
     return {
       competitors: readCompetitorJudgeVerdicts(conversation.content, input.items),
       judged,
-      usage: toUsage(conversation.usage, model),
+      usage: conversation.usage,
       errorCode: null,
     };
   } catch (err) {
@@ -247,8 +287,49 @@ export async function judgeCompetitors(
     return {
       competitors: [],
       judged,
-      usage: apiError ? toUsage(apiError.partialUsage, model) : null,
+      usage: apiError ? apiError.partialUsage : null,
       errorCode: apiError?.code ?? 'unexpected_error',
     };
   }
+}
+
+/**
+ * Un lote que no respondió (o vino cortado) no aporta NINGUNA de las suyas; el
+ * resultado es error sólo si no respondió ninguno. `judged` cuenta sólo las filas
+ * de los lotes que sí respondieron.
+ */
+export async function judgeCompetitors(
+  input: CompetitorJudgeInput,
+  model: string,
+  deps: CompetitorJudgeDeps,
+): Promise<CompetitorJudgeOutcome> {
+  const limit = COMPETITOR_JUDGE_MAX_ITEMS * COMPETITOR_JUDGE_MAX_CHUNKS;
+  const items = input.items.slice(0, limit);
+  if (items.length === 0) return { competitors: [], judged: 0, usage: null, errorCode: null };
+  const chunks: CompetitorJudgeItem[][] = [];
+  for (let i = 0; i < items.length; i += COMPETITOR_JUDGE_MAX_ITEMS) {
+    chunks.push(items.slice(i, i + COMPETITOR_JUDGE_MAX_ITEMS));
+  }
+  const outcomes = await Promise.all(chunks.map((chunk) => judgeChunk({ ...input, items: chunk }, model, deps)));
+  const answered = outcomes.filter((o) => o.errorCode === null);
+  const usages = outcomes.flatMap((o) => (o.usage ? [o.usage] : []));
+  const usage = usages.length > 0 ? toUsage(sumUsage(usages), model) : null;
+  if (answered.length === 0) {
+    return {
+      competitors: [],
+      judged: 0,
+      usage,
+      errorCode: outcomes[0]?.errorCode ?? 'unexpected_error',
+    };
+  }
+  const seen = new Set<string>();
+  const competitors = answered
+    .flatMap((o) => o.competitors)
+    .filter((verdict) => (seen.has(verdict.key) ? false : (seen.add(verdict.key), true)));
+  return {
+    competitors,
+    judged: answered.reduce((sum, o) => sum + o.judged, 0),
+    usage,
+    errorCode: null,
+  };
 }

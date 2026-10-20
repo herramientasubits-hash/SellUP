@@ -20,7 +20,9 @@
  *
  *   · fiscal    → `./fiscal-identity` (CUT-3B1). Autoridad canónica ÚNICA de
  *     Agente 1. Aquí no se canonicaliza nada por cuenta propia.
- *   · dominio   → `normalizeDomain` / `extractDomainFromWebsite` (`./normalization`).
+ *   · dominio   → `normalizeIdentityDomain` (`./normalization`): `normalizeDomain`
+ *     más los hosts COMPARTIDOS (`sites.google.com`, `facebook.com`, `linktr.ee`…),
+ *     que no identifican a ninguna empresa y quedan `null` (AGENT1-SHARED-HOSTS-1).
  *   · LinkedIn  → `normalizeLinkedinUrl` (`./normalization`), que ya rechaza los
  *     perfiles PERSONALES (`/in/`): sólo entra identidad de EMPRESA.
  *   · nombre    → `buildIdentityKey` (`./canonical-company-identity`), el único
@@ -41,7 +43,7 @@ import {
   resolveStoredFiscalIdentity,
   type FiscalIdentityKey,
 } from './fiscal-identity';
-import { normalizeDomain, extractDomainFromWebsite, normalizeLinkedinUrl } from './normalization';
+import { normalizeIdentityDomain, normalizeLinkedinUrl } from './normalization';
 import { buildIdentityKey } from './canonical-company-identity';
 
 // ─── Contrato ─────────────────────────────────────────────────────────────────
@@ -59,7 +61,10 @@ export type CompanyIdentityEvidence = {
    * cuando las dos columnas fiscales compatibles se contradicen (fail closed).
    */
   fiscalIdentityKey: FiscalIdentityKey | null;
-  /** Dominio normalizado. `null` si no hay dominio ni web utilizable. */
+  /**
+   * Dominio normalizado de IDENTIDAD. `null` si no hay dominio ni web utilizable,
+   * o si sólo hay un host compartido (`sites.google.com`, `facebook.com`…).
+   */
   normalizedDomain: string | null;
   /**
    * Identidad nativa del proveedor, con NAMESPACE del proveedor incluido
@@ -149,8 +154,10 @@ export function buildCompanyIdentityEvidence(
     });
   }
 
+  // AGENT1-SHARED-HOSTS-1 — un host compartido no es dominio de identidad: si la
+  // columna `domain` trae uno, se prueba con la web; si los dos lo son, `null`.
   const normalizedDomain =
-    normalizeDomain(input.domain ?? '') ?? extractDomainFromWebsite(input.website);
+    normalizeIdentityDomain(input.domain) ?? normalizeIdentityDomain(input.website);
 
   const canonicalNameRaw = buildIdentityKey(input.name ?? '').trim();
 

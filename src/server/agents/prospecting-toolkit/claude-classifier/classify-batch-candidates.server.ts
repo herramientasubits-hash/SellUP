@@ -143,10 +143,15 @@ export function classifyCompanyLive(
   company: Parameters<ClassifyBatchDeps['classify']>[0],
   catalog: Parameters<ClassifyBatchDeps['classify']>[1],
   active: ActiveAnthropicModel,
+  options: Parameters<ClassifyBatchDeps['classify']>[3] = {},
 ) {
   return classifyCompany(
     { company, catalog, model: active.model },
-    buildLiveClassifyCompanyDeps(active.apiKey, (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES)),
+    buildLiveClassifyCompanyDeps(
+      active.apiKey,
+      (website) => fetchSafePageHtml(website, CLASSIFIER_PAGE_TIMEOUT_MS, CLAUDE_PAGE_MAX_HTML_BYTES),
+      options,
+    ),
   );
 }
 

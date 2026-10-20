@@ -1070,7 +1070,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
     // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
     // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-    assert.match(last, /^150_/);
+    // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+    // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+    // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+    // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+    // Ninguna es tabla ni vista del catálogo de industrias, ni de teléfono, ni de BR, ni de
+    // CUT3B4, y el barrido de abajo lo comprueba sobre su SQL. AUTORADAS y NO APLICADAS.
+    assert.match(last, /^153_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1245,6 +1251,18 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
       // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
       '150_public_procurement_supplier_links.sql',
+      // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+      // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+      // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+      // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+      // Ninguna es tabla ni vista del catálogo de industrias, y el barrido de abajo lo comprueba
+      // sobre su SQL en vez de creerle a este comentario. AUTORADAS y NO APLICADAS.
+      '151_claim_enrichment_jobs_hardening.sql',
+      '152_agent1_identity_claims_crosscheck.sql',
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

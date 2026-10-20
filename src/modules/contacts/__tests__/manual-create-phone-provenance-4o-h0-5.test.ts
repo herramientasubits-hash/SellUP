@@ -685,7 +685,16 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // públicas; hoy las órdenes de compra mensuales de ChileCompra), RLS activada SIN políticas: sólo
       // service_role lee y escribe. No es tabla ni función de la cadena de teléfono 109–117, ni del
       // catálogo, ni de BR, ni de CUT3B4. AUTORADA y NO APLICADA.
-      '150_public_procurement_supplier_links.sql',
+      // AGENT1-AUDIT-HARDENING-1 mueve el techo a la 152: la 151 endurece `claim_enrichment_jobs`
+      // (search_path fijo, recupera trabajos `processing` vencidos de `prospect_enrichment_jobs`,
+      // EXECUTE sólo a service_role) y la 152 cruza NIT/dominio/LinkedIn en los reclamos de
+      // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
+      // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no crean contacto ni
+      // escriben `phone_source`. AUTORADAS y NO APLICADAS.
+      // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
+      // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
+      // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '153_agent3_first_call_prep.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

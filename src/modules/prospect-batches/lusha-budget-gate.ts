@@ -31,7 +31,20 @@ export type LushaBudgetReservation = {
   status: 'reserved' | 'already_reserved';
   reservationId: string;
   creditsReserved: number;
+  /**
+   * WS6 · E — estado LEÍDO de la reserva (`wizard_budget_reservations.status`)
+   * cuando la RPC respondió `already_reserved`. Sólo lectura: nada aquí la
+   * modifica. Ausente ⇒ no se pudo / no hizo falta leerlo.
+   */
+  reservationState?: string | null;
 };
+
+/**
+ * WS6 · E — la reserva del mismo `client_request_id` ya está LIQUIDADA
+ * (confirmada, liberada o fallida): volver a ejecutar gastaría contra una
+ * reserva cerrada.
+ */
+export const LUSHA_BUDGET_RESERVATION_SETTLED_ERROR = 'lusha_budget_reservation_settled' as const;
 
 /** Resultado de intentar reservar. `blocked` NUNCA debe llegar al proveedor. */
 export type LushaBudgetReserveOutcome =
@@ -128,6 +141,18 @@ export async function guardLushaRunBudget<T>(
         outcome.budgetSnapshot,
         requiredCredits,
       ),
+    });
+  }
+
+  // WS6 · E — `already_reserved` sólo autoriza si la reserva SIGUE abierta. Una
+  // reserva ya liquidada (confirmada/liberada/fallida) no cubre ningún gasto
+  // nuevo: antes se ejecutaba igual. Fail-closed: sin estado legible tampoco se
+  // ejecuta. La reserva no se toca.
+  if (outcome.status === 'already_reserved' && outcome.reservationState !== 'reserved') {
+    return blocked({
+      code: LUSHA_BUDGET_RESERVATION_SETTLED_ERROR,
+      message: LUSHA_BUDGET_BLOCKED_MESSAGE,
+      budgetExceeded: null,
     });
   }
 

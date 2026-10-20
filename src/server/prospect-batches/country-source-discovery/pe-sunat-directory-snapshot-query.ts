@@ -16,6 +16,11 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 import type {
   PeSunatDirectoryDiscoveryReads,
   PeSunatDirectorySnapshotReadRow,
@@ -75,21 +80,37 @@ function toRow(row: SnapshotSelectRow): PeSunatDirectorySnapshotReadRow {
  */
 export function buildPeSunatDirectoryDiscoveryReads(client: SupabaseClient): PeSunatDirectoryDiscoveryReads {
   const read = async (macroIndustryKey: string, limit: number, withWebsite: boolean): Promise<PeSunatDirectorySnapshotReadRow[]> => {
-    const base = client
-      .from('source_company_snapshots')
-      .select(SELECTED_COLUMNS)
-      .eq('source_key', 'pe_sunat_directory')
-      .eq('country_code', 'PE')
-      .eq('raw_data->>macro_industry_key', macroIndustryKey);
-    const filtered = withWebsite
-      ? base.not('raw_data->>website_domain', 'is', null)
-      : base.is('raw_data->>website_domain', null);
-    const { data, error } = await filtered
-      .order('priority_score', { ascending: false })
-      .order('normalized_tax_id', { ascending: true })
-      .limit(limit);
-    if (error || !Array.isArray(data)) throw new Error('pe_sunat_directory_read_failed');
-    return (data as unknown as SnapshotSelectRow[]).map(toRow);
+    // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+    const buildQuery = () => {
+      const base = client
+        .from('source_company_snapshots')
+        .select(SELECTED_COLUMNS)
+        .eq('source_key', 'pe_sunat_directory')
+        .eq('country_code', 'PE')
+        .eq('raw_data->>macro_industry_key', macroIndustryKey);
+      const filtered = withWebsite
+        ? base.not('raw_data->>website_domain', 'is', null)
+        : base.is('raw_data->>website_domain', null);
+      return filtered
+        .order('priority_score', { ascending: false })
+        .order('normalized_tax_id', { ascending: true });
+    };
+    // AUDIT-A1-WS7 — por páginas y saltando lo que SellUp ya conoce: la ventana fija
+    // se agotaba tras la primera corrida (ver country-source-fresh-window.ts).
+    const rows = await readFreshSnapshotWindow<SnapshotSelectRow>({
+      size: limit,
+      countryCode: 'PE',
+      readKnown: buildReadKnownSnapshotIdentities(client),
+      taxIdOf: (row) => row.normalized_tax_id,
+      domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+      readRange: async (from, to) => {
+        const query = buildQuery();
+        const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+        if (error || !Array.isArray(data)) throw new Error('pe_sunat_directory_read_failed');
+        return data as unknown as SnapshotSelectRow[];
+      },
+    });
+    return rows.map(toRow);
   };
   return {
     async readCompaniesByMacro({ macroIndustryKey, limit }) {

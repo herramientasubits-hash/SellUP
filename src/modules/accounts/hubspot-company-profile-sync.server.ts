@@ -33,7 +33,8 @@ export async function findActiveInternalUserIdByEmail(
   const { data, error } = await admin
     .from('internal_users')
     .select('id')
-    .ilike('email', email.trim())
+    // `_` y `%` son comodines de ILIKE: «juan_perez@…» no debe casar con «juanXperez@…».
+    .ilike('email', email.trim().replace(/[\\%_]/g, (char) => `\\${char}`))
     .eq('access_status', 'active')
     .is('archived_at', null)
     .is('suspended_at', null)
@@ -96,18 +97,22 @@ export function buildAccountProfileUpdate(
   account: AccountProfileSnapshot,
   profile: Extract<HubSpotAccountProfileLoad, { status: 'found' }> | null,
   searcherUserId: string | null,
-  options: { ownerIsProvisional?: boolean } = {},
+  options: { ownerIsProvisional?: boolean; ignoreHubSpotOwner?: boolean } = {},
 ): AccountProfileUpdate {
   const fill = profile ? buildAccountFillPatch(account, profile.mapping.fields) : {};
+  // AUDIT-HARDENING-1 — una empresa que estaba LIBRE en HubSpot (Recycled, bolsa,
+  // dueño desactivado) sigue a nombre del vendedor anterior mientras la toma no se
+  // escriba. Ese dueño no manda: el responsable es quien la aprobó.
+  const hubspotOwnerUserId = options.ignoreHubSpotOwner ? null : (profile?.hubspotOwnerUserId ?? null);
   if (account.owner_id) {
-    const hubspotOwner = profile?.hubspotOwnerUserId ?? null;
+    const hubspotOwner = hubspotOwnerUserId;
     if (options.ownerIsProvisional && hubspotOwner && hubspotOwner !== account.owner_id) {
       return { patch: { ...fill, owner_id: hubspotOwner }, ownerSource: 'hubspot_owner' };
     }
     return { patch: fill, ownerSource: null };
   }
   const owner = decideAccountOwner({
-    hubspotOwnerUserId: profile?.hubspotOwnerUserId ?? null,
+    hubspotOwnerUserId,
     searcherUserId,
   });
   return {
@@ -136,6 +141,8 @@ export async function syncAccountFromHubSpotProfile(
     nowIso: string;
     /** ALWAYS-OWNER-ON-CREATE-1 — la empresa se acaba de crear con responsable provisional. */
     ownerIsProvisional?: boolean;
+    /** AUDIT-HARDENING-1 — empresa libre en HubSpot cuya toma no se escribió. */
+    ignoreHubSpotOwner?: boolean;
   },
 ): Promise<SyncAccountFromHubSpotResult> {
   const { data, error } = await admin
@@ -152,6 +159,7 @@ export async function syncAccountFromHubSpotProfile(
   const profile = load?.status === 'found' ? load : null;
   const { patch, ownerSource } = buildAccountProfileUpdate(account, profile, input.searcherUserId, {
     ownerIsProvisional: input.ownerIsProvisional === true,
+    ignoreHubSpotOwner: input.ignoreHubSpotOwner === true,
   });
   const columns = Object.keys(patch);
 

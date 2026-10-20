@@ -468,7 +468,14 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // lote: CREATE OR REPLACE y su relleno). No es de este corte; la ventana sube a la 150.
     // AGENT1-SUPPLIER-SEARCH-CL-1 declara la 150 (`public_procurement_supplier_links`: quién le vende
     // a cada entidad pública, de las compras públicas). No es de este corte; la ventana sube a la 151.
-      migrations.filter((f) => f.startsWith('151')).length,
+    // AGENT1-AUDIT-HARDENING-1 declara la 151 (`claim_enrichment_jobs` sólo service_role, con
+    // search_path fijo y recuperación de trabajos muertos) y la 152 (cruce NIT/dominio/LinkedIn de
+    // los reclamos de identidad y liberación al archivar un lote). No son de este corte; la ventana
+    // sube a la 153, y el barrido de AUTORÍA se ENSANCHA para incluir la 151 y la 152.
+      // AGENT3-FIRST-CALL-1 declara la 153 (`account_research_briefs` y `first_call_packs`: fichas y
+      // paquetes de primera llamada del Agente 3). No es de este corte; la ventana sube a la 154, y el
+      // barrido de AUTORÍA se ENSANCHA para incluir la 153.
+      migrations.filter((f) => f.startsWith('154')).length,
       0,
       'este corte no añade migración',
     );
@@ -500,7 +507,10 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('147') ||
         f.startsWith('148') ||
         f.startsWith('149') ||
-        f.startsWith('150'),
+        f.startsWith('150') ||
+        f.startsWith('151') ||
+        f.startsWith('152') ||
+        f.startsWith('153'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

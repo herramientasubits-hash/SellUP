@@ -21,6 +21,7 @@
 
 import { normalizeColombiaCompanyNameCore } from '../personas-juridicas-cc-colombia/co-company-name-core';
 import { emailDomain, isColombianInstitutionalDomain, isNonCorporateDomain, normalizeWebsiteHost } from './co-domain';
+import { resolveSigepNitCollisions, type NitCollisionReport, type SigepNitFact } from './co-sigep-nit-collisions';
 
 export const CO_PUBLIC_ENTITIES_SOURCE_KEY = 'co_public_entities' as const;
 export const CO_PUBLIC_ENTITIES_SOURCE_YEAR = 2026;
@@ -171,18 +172,45 @@ export function sigepEntityName(raw: string | null | undefined): string {
   return fixMojibake(raw).replace(/\s+\d{1,2}$/, '').trim();
 }
 
-function aggregateSigep(rows: Iterable<SigepEntityRow>): Map<string, SigepAggregate> {
-  const out = new Map<string, SigepAggregate>();
-  const best = new Map<string, number>();
+/** Una fila del SIGEP con todo lo que se necesita ya calculado (NIT normalizado, tamaño, cabeza). */
+type ParsedSigepRow = {
+  nit: string;
+  row: SigepEntityRow;
+  nameKey: string;
+  workers: number;
+  naturaleza: string;
+  macro: PublicEntityMacro;
+  head: boolean;
+  year: number | null;
+};
+
+function parseSigepRows(rows: Iterable<SigepEntityRow>): ParsedSigepRow[] {
+  const out: ParsedSigepRow[] = [];
   for (const row of rows) {
     const nit = normalizeEntityNit(row.nit);
     if (nit === null) continue;
     const workers =
       Number(row.genero_hombre ?? 0) + Number(row.genero_mujer ?? 0) + Number(row.genero_no_binario ?? 0);
-    const safeWorkers = Number.isFinite(workers) && workers >= 0 ? Math.trunc(workers) : 0;
     const naturaleza = fixMojibake(row.naturaleza_jur_dica);
     const { macro, head } = classifyNaturaleza(naturaleza);
-    const year = Number.isInteger(Number(row.a_o)) ? Number(row.a_o) : null;
+    out.push({
+      nit,
+      row,
+      nameKey: normalizeColombiaCompanyNameCore(sigepEntityName(row.nombre_de_la_entidad)),
+      workers: Number.isFinite(workers) && workers >= 0 ? Math.trunc(workers) : 0,
+      naturaleza,
+      macro,
+      head,
+      year: Number.isInteger(Number(row.a_o)) ? Number(row.a_o) : null,
+    });
+  }
+  return out;
+}
+
+function aggregateSigep(rows: Iterable<{ nit: string } & Omit<ParsedSigepRow, 'nit'>>): Map<string, SigepAggregate> {
+  const out = new Map<string, SigepAggregate>();
+  const best = new Map<string, number>();
+  for (const { nit, row, workers: safeWorkers, naturaleza, macro, head, year } of rows) {
     const current = out.get(nit);
     const total = (current?.workers ?? 0) + safeWorkers;
     // La fila «cabeza» (alcaldía, gobernación, ministerio…) da nombre y naturaleza;
@@ -222,17 +250,42 @@ function entityDomain(row: ChipEntityRow | undefined): { domain: string | null; 
   return { domain: null, source: null };
 }
 
+export type CoPublicEntityBuild = {
+  rows: CoPublicEntitySnapshotRow[];
+  /** NIT que el SIGEP comparte entre entidades distintas (ver `co-sigep-nit-collisions.ts`). */
+  nitCollisions: NitCollisionReport[];
+};
+
 /**
  * CHIP + SIGEP → una fila por NIT. Entra toda entidad que esté en alguna de las
  * dos fuentes: las que no tienen servidores en el SIGEP sirven igual para
  * encontrar el NIT por la web, pero nunca se ofrecen en el buscador (sin tamaño).
+ *
+ * Antes de fundir por NIT se separan las entidades «cabeza» distintas que el SIGEP
+ * captura con el mismo NIT (el CHIP decide a cuál pertenece): ver `nitCollisions`.
  */
-export function buildCoPublicEntityRows(
+export function buildCoPublicEntityRowsWithReport(
   chipRows: Iterable<ChipEntityRow>,
   sigepRows: Iterable<SigepEntityRow>,
-): CoPublicEntitySnapshotRow[] {
+): CoPublicEntityBuild {
   const chip = latestChipByNit(chipRows);
-  const sigep = aggregateSigep(sigepRows);
+  const parsed = parseSigepRows(sigepRows);
+  const chipNameByNit = new Map<string, string>();
+  const chipNitsByName = new Map<string, Set<string>>();
+  for (const [nit, row] of chip) {
+    const name = normalizeColombiaCompanyNameCore(row.razon_social ?? '');
+    if (name === '') continue;
+    chipNameByNit.set(nit, name);
+    chipNitsByName.set(name, (chipNitsByName.get(name) ?? new Set<string>()).add(nit));
+  }
+  const facts: SigepNitFact[] = parsed.map((p) => ({ nit: p.nit, nameKey: p.nameKey, head: p.head, workers: p.workers }));
+  const { assignment, collisions } = resolveSigepNitCollisions({ facts, chipNameByNit, chipNitsByName });
+  const sigep = aggregateSigep(
+    parsed.flatMap((p, index) => {
+      const nit = assignment[index];
+      return nit === null ? [] : [{ ...p, nit }];
+    }),
+  );
   const nits = [...new Set([...chip.keys(), ...sigep.keys()])].sort();
   const out: CoPublicEntitySnapshotRow[] = [];
   for (const nit of nits) {
@@ -274,5 +327,12 @@ export function buildCoPublicEntityRows(
       },
     });
   }
-  return out;
+  return { rows: out, nitCollisions: collisions };
+}
+
+export function buildCoPublicEntityRows(
+  chipRows: Iterable<ChipEntityRow>,
+  sigepRows: Iterable<SigepEntityRow>,
+): CoPublicEntitySnapshotRow[] {
+  return buildCoPublicEntityRowsWithReport(chipRows, sigepRows).rows;
 }

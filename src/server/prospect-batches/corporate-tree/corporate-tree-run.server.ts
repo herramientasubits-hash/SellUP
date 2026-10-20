@@ -16,6 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import { persistDiscardedDispositionRows } from '@/modules/prospect-discards/pipeline-writer.server';
 import {
   reserveWizardExecutionSlot,
@@ -77,7 +78,7 @@ import {
   fillMissingOfficialTaxIds,
 } from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import type { CorporateTreeBatchCandidate, CorporateTreeRunDeps, CorporateTreeStage } from './corporate-tree-run';
+import { settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
@@ -148,6 +149,8 @@ export function buildCorporateTreeUsageLog(
     usage_key: `${CLAUDE_COMPANY_SEARCH_OPERATION_KEY}:${context.runId}:${outcome.branch}`,
     provider_key: CLAUDE_CLASSIFIER_PROVIDER_KEY,
     operation_key: CLAUDE_COMPANY_SEARCH_OPERATION_KEY,
+    agent_key: 'agent1',
+    agent_step: 'arbol_corporativo',
     model: outcome.usage.model,
     input_tokens: outcome.usage.inputTokens,
     output_tokens: outcome.usage.outputTokens,
@@ -171,6 +174,77 @@ export function buildCorporateTreeUsageLog(
       web_search_requests: outcome.usage.webSearchRequests,
       pricing_source: outcome.usage.pricingSource,
     },
+  };
+}
+
+/**
+ * Lo más que se espera a la ficha de Apollo de la empresa de partida. `enrichApolloOrganization`
+ * no acepta `signal` (apollo-client.ts), así que la petición no se aborta: se deja de esperarla.
+ * Pasado esto el cobro queda INDETERMINADO (Apollo pudo procesarla y cobrarla) y no se reintenta.
+ */
+export const CORPORATE_TREE_APOLLO_TIMEOUT_MS = 15_000;
+
+export type CorporateTreeApolloCall<T> =
+  | { kind: 'answered'; result: T }
+  | { kind: 'indeterminate'; reason: 'timeout' | 'request_failed'; message: string };
+
+/** Una llamada a Apollo con tope de espera. Lo que no vuelve (o revienta) es cobro desconocido. */
+export async function callApolloWithinTimeout<T>(
+  call: () => Promise<T>,
+  timeoutMs: number,
+  nowMs: () => number = Date.now,
+): Promise<CorporateTreeApolloCall<T>> {
+  try {
+    const outcome = await settleBy(call(), nowMs() + timeoutMs, nowMs);
+    return outcome.settled
+      ? { kind: 'answered', result: outcome.value }
+      : { kind: 'indeterminate', reason: 'timeout', message: `Apollo no respondió en ${timeoutMs} ms` };
+  } catch (err) {
+    return { kind: 'indeterminate', reason: 'request_failed', message: (err instanceof Error ? err.message : String(err)).slice(0, 300) };
+  }
+}
+
+/**
+ * Lo que se registra en Uso de IA por la ficha de Apollo. Con respuesta: 1 crédito si encontró
+ * la empresa, 0 si no (Apollo Support 01-10 y 15-10). Sin respuesta (tiempo agotado o error de
+ * red): créditos y costo DESCONOCIDOS (NULL, `billing_state: unknown`), nunca 0.
+ */
+export function corporateTreeApolloFamilyBilling(
+  call: CorporateTreeApolloCall<Awaited<ReturnType<typeof enrichApolloOrganization>>>,
+  unitCostUsd: number | null,
+): {
+  organization: unknown;
+  usage: Pick<
+    Parameters<typeof logProviderUsage>[0],
+    'credits_used' | 'estimated_cost_usd' | 'status' | 'error_code' | 'error_message'
+  >;
+  billingIndeterminate: boolean;
+} {
+  if (call.kind === 'indeterminate') {
+    return {
+      organization: null,
+      usage: {
+        credits_used: undefined,
+        estimated_cost_usd: null,
+        status: 'error',
+        error_code: call.reason === 'timeout' ? 'apollo_timeout' : 'apollo_request_failed',
+        error_message: call.message,
+      },
+      billingIndeterminate: true,
+    };
+  }
+  const result = call.result;
+  const organization = result.success ? (result.data ?? null) : null;
+  const credits = organization ? 1 : 0;
+  return {
+    organization,
+    usage: {
+      credits_used: credits,
+      estimated_cost_usd: creditCostUsd(credits, unitCostUsd),
+      status: result.success ? 'success' : 'error',
+      error_message: result.success ? undefined : result.error?.message,
+    },
+    billingIndeterminate: false,
   };
 }
 
@@ -376,28 +450,31 @@ export function buildLiveCorporateTreeDeps(params: {
           if (!(await apolloQuota).allowed) return null;
           const unitCostUsd = await apolloCreditUnitCost();
           const startedAt = Date.now();
-          const result = await enrichApolloOrganization({ domain: rootDomain, name: rootName });
-          const organization = result.success ? result.data ?? null : null;
+          // Una sola llamada, con tope de espera y SIN reintento: lo que no vuelve queda como
+          // cobro desconocido en Uso de IA.
+          const call = await callApolloWithinTimeout(
+            () => enrichApolloOrganization({ domain: rootDomain, name: rootName }),
+            CORPORATE_TREE_APOLLO_TIMEOUT_MS,
+          );
+          const billing = corporateTreeApolloFamilyBilling(call, unitCostUsd);
+          const organization = billing.organization;
           const subsidiaries = readApolloSubsidiaries(organization);
           const rawSubs = (organization as Record<string, unknown> | null)?.['suborganizations'];
-          // 1 crédito por empresa encontrada; sin coincidencia, 0 (Apollo Support 01-10 y 15-10).
-          const credits = organization ? 1 : 0;
           await logProviderUsage({
             batch_id: ctx.batchId,
             usage_key: `corporate_tree_apollo_family:${params.clientRequestId}`,
             provider_key: 'apollo',
             operation_key: 'organization_enrichment',
-            credits_used: credits,
+            ...billing.usage,
             results_returned: subsidiaries.length,
-            estimated_cost_usd: unitCostUsd === null ? 0 : credits * unitCostUsd,
-            status: result.success ? 'success' : 'error',
-            error_message: result.success ? undefined : result.error?.message,
             duration_ms: Date.now() - startedAt,
             triggered_by: params.internalUserId,
             metadata: {
               flow: CORPORATE_TREE_USAGE_FLOW,
               search_mode: 'corporate_tree',
               root_domain: rootDomain,
+              // Cobro desconocido: Uso de IA lo muestra como pendiente, no como 0 créditos.
+              ...(billing.billingIndeterminate ? { run_correlation: { billing_state: 'unknown' } } : {}),
               // Lo que trae cada filial (no está documentado): para ajustar el paso con datos reales.
               suborganization_count: Array.isArray(rawSubs) ? rawSubs.length : 0,
               suborganization_fields:

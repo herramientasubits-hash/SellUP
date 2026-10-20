@@ -17,7 +17,11 @@ import {
 // It no longer imports the manual per-provider request actions — the user never
 // picks a provider; routing is decided by the orchestrator behind
 // ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING.
-import { runAutomaticContactEnrichmentForRequestAction } from '@/modules/contact-enrichment/automatic-routing-actions';
+// Dueña 20-10: la búsqueda corre fuera del panel (por ruta), para minimizarlo o cerrarlo,
+// hacer varias a la vez y seguirla en el Centro de procesos.
+import { getContactSearchRunsStore, newContactSearchRunId } from '@/modules/contact-enrichment/contact-search-runs-client';
+import { contactsFound } from '@/modules/contact-enrichment/contact-search-runs-store';
+import { ContactSearchLoader } from './contact-search-loader';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
   contactEnrichmentChatReducer,
@@ -117,6 +121,8 @@ interface ContactEnrichmentChatWizardProps {
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
   /** Avisa de si hay una llamada en vuelo, para no ofrecer «Nueva conversación» a medias. */
   onBusyChange?: (busy: boolean) => void;
+  /** La búsqueda terminó con contactos para revisar. */
+  onFoundContacts?: () => void;
 }
 
 export function ContactEnrichmentChatWizard({
@@ -125,6 +131,7 @@ export function ContactEnrichmentChatWizard({
   layout = 'page',
   ref,
   onBusyChange,
+  onFoundContacts,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
     contactEnrichmentChatReducer,
@@ -142,12 +149,18 @@ export function ContactEnrichmentChatWizard({
     state.step === 'searching_contacts' ||
     state.step === 'searching_apollo' ||
     state.step === 'searching_lusha';
-  const isTyping = isRevealing || isLoadingStep;
-  const showActiveRegion = !isTyping;
+  // La búsqueda de contactos corre en segundo plano: mientras tanto se ve su avance real y
+  // se puede empezar otra conversación (la búsqueda sigue en el Centro de procesos).
+  const [search, setSearch] = React.useState<{ runId: string; requestId: string; startedAtMs: number } | null>(null);
+  // La búsqueda que esta conversación espera (otra conversación la suelta sin cortarla).
+  const awaitedRunRef = React.useRef<string | null>(null);
+  const searchingInBackground = state.step === 'searching_contacts' && search !== null;
+  const isTyping = isRevealing || (isLoadingStep && !searchingInBackground);
+  const showActiveRegion = !isTyping && !searchingInBackground;
 
   React.useEffect(() => {
-    onBusyChange?.(isLoadingStep);
-  }, [isLoadingStep, onBusyChange]);
+    onBusyChange?.(isLoadingStep && !searchingInBackground);
+  }, [isLoadingStep, searchingInBackground, onBusyChange]);
 
   const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -246,8 +259,12 @@ export function ContactEnrichmentChatWizard({
   /**
    * AGENT2-ROUTING-WIRE-1 — single automatic search entry point.
    *
-   * Runs the Apollo→Lusha automatic router via the existing
-   * runAutomaticContactEnrichmentForRequestAction. The user picks nothing: the
+   * Runs the Apollo→Lusha automatic router through the browser store of contact
+   * searches (`contact-search-runs-client`), which POSTs to
+   * `/api/contact-enrichment/requests/[id]/search` — the same core the former
+   * server action called. By route, so the panel can be minimized or closed, several
+   * searches can run at once and the process center follows them (dueña 20-10). The
+   * user picks nothing: the
    * primary provider (Apollo) and the fallback provider (Lusha) are decided by
    * the orchestrator, gated by ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING.
    *
@@ -259,20 +276,33 @@ export function ContactEnrichmentChatWizard({
   async function handleSearchContacts() {
     const requestId = state.requestId;
     if (!requestId || state.step !== 'done') return;
+    const store = getContactSearchRunsStore();
+    if (!store) return;
     dispatch({ type: 'AUTOMATIC_ROUTING_START' });
+    const runId = newContactSearchRunId();
+    awaitedRunRef.current = runId;
+    setSearch({ runId, requestId, startedAtMs: Date.now() });
 
-    // Mismo contrato que los otros dos pasos (AGENT2A-PROD-INCIDENT).
-    let result: Awaited<ReturnType<typeof runAutomaticContactEnrichmentForRequestAction>>;
-    try {
-      result = await runAutomaticContactEnrichmentForRequestAction(requestId);
-    } catch {
+    // Mismo contrato que los otros dos pasos (AGENT2A-PROD-INCIDENT): el paso de carga
+    // se cierra siempre, también si se perdió la respuesta.
+    const response = await store.startRun({
+      id: runId,
+      requestId,
+      accountId: state.selectedCandidate?.sellupAccountId ?? null,
+      companyName: state.selectedCandidate?.name ?? state.query,
+    });
+    // Si se empezó otra conversación, el resultado lo avisa el Centro de procesos.
+    if (awaitedRunRef.current !== runId) return;
+    awaitedRunRef.current = null;
+    setSearch(null);
+    if (!response.ok) {
       dispatch({
         type: 'RUN_FAILED',
-        message: CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
+        message: response.code === 'detached' ? response.message : CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
       });
       return;
     }
-
+    const result = response.result;
     if (!result.success) {
       dispatch({
         type: 'RUN_FAILED',
@@ -281,10 +311,15 @@ export function ContactEnrichmentChatWizard({
       return;
     }
     dispatch({ type: 'AUTOMATIC_ROUTING_SETTLED', result });
+    // Dueña 20-10: con contactos para revisar, termina en «Por revisar», como con empresas.
+    if (contactsFound(result) > 0) onFoundContacts?.();
   }
 
   function handleReset() {
     setComposerText('');
+    // La búsqueda en curso no se corta: sigue en el Centro de procesos.
+    awaitedRunRef.current = null;
+    setSearch(null);
     dispatch({ type: 'RESET' });
   }
 
@@ -326,6 +361,14 @@ export function ContactEnrichmentChatWizard({
           isTyping={isTyping}
           typingLabel={typingLabelForStep(state.step)}
         />
+
+        {searchingInBackground && search && (
+          <ContactSearchLoader
+            requestId={search.requestId}
+            startedAtMs={search.startedAtMs}
+            companyName={state.selectedCandidate?.name ?? state.query}
+          />
+        )}
 
         {showActiveRegion && (
           <div className="space-y-3">

@@ -47,6 +47,7 @@ function MenuEntries({ items }: { items: readonly RailMenuItemSpec[] }) {
         <DropdownMenuItem
           key={item.id}
           variant={item.tone === "danger" ? "destructive" : "default"}
+          className={item.tone === "ai" ? "su-ai-icons" : undefined}
           disabled={item.blockedReason != null}
           title={item.blockedReason ?? undefined}
           onClick={() => item.onSelect?.()}
@@ -65,7 +66,13 @@ function MenuEntries({ items }: { items: readonly RailMenuItemSpec[] }) {
 /** Una acción de pantalla como botón del propio layout: misma acción, mismo bloqueo. */
 function HeaderAction({ action, isPrimary = false }: { action: RailActionSpec; isPrimary?: boolean }) {
   const isBlocked = action.blockedReason != null;
-  const variant = isPrimary ? "default" : action.tone === "danger" ? "destructive" : "outline";
+  const variant = isPrimary
+    ? "default"
+    : action.tone === "danger"
+      ? "destructive"
+      : action.tone === "ai" || action.variant === "ai"
+        ? "ai-outline"
+        : "outline";
 
   // Un grupo con nombre (o la primaria con opciones) despliega lo suyo.
   const entries: readonly RailMenuItemSpec[] | undefined =

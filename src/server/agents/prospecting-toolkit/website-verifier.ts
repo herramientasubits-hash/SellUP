@@ -9,7 +9,8 @@
  * - No modifica datos.
  * - No hace crawling profundo (solo extrae title y meta description).
  * - Máximo 3 redirects.
- * - Bloquea URLs locales, privadas, protocolos inseguros.
+ * - Bloquea URLs locales, privadas, protocolos inseguros: decide por la dirección
+ *   (ip-safety.ts) y resuelve el DNS antes de cada salto.
  * - No rompe el build si un sitio no responde.
  * - No imprime headers sensibles.
  * - No guarda HTML completo.
@@ -17,6 +18,7 @@
 
 import type { WebsiteVerificationInput, WebsiteVerificationOutput, WebsiteVerificationStatus } from './types';
 import { normalizeDomain, normalizeCompanyName } from './normalization';
+import { isBlockedHostname, isBlockedIpAddress, isIpLiteralHostname } from './ip-safety';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -40,53 +42,64 @@ const BLOCKED_PROTOCOLS = new Set(['file:', 'javascript:', 'data:', 'ftp:', 'blo
 
 /**
  * Devuelve true si el hostname apunta a una dirección local o privada.
- * Protege contra SSRF.
+ * Protege contra SSRF. Decide por la DIRECCIÓN (IPv4, IPv6, IPv4 mapeada o
+ * embebida en IPv6, ULA…), no por el texto: ver `ip-safety.ts`.
  */
 function isPrivateOrLocalHost(hostname: string): boolean {
-  if (!hostname) return true;
+  return isBlockedHostname(hostname);
+}
 
-  const lower = hostname.toLowerCase();
+// ─── Resolución DNS antes de conectar (anti-SSRF) ─────────────────────────────
 
-  // Nombres reservados
-  if (lower === 'localhost' || lower === 'localhost.localdomain') return true;
-  if (lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) return true;
+/** Direcciones IP a las que resuelve un nombre. Inyectable en pruebas. */
+export type HostLookup = (hostname: string) => Promise<string[]>;
 
-  // IPv4 loopback / link-local / privadas / APIPA
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(lower);
-  if (ipv4) {
-    const [, a, b, c, d] = ipv4.map(Number);
-    if (
-      a === 0 ||                          // 0.x.x.x
-      a === 127 ||                        // loopback
-      a === 10 ||                         // RFC 1918
-      (a === 172 && b >= 16 && b <= 31) || // RFC 1918
-      (a === 192 && b === 168) ||         // RFC 1918
-      (a === 169 && b === 254) ||         // APIPA / link-local
-      (a === 100 && b >= 64 && b <= 127) || // Carrier-grade NAT
-      a === 192 && b === 0 && c === 0 ||  // IETF protocol assignments
-      a === 198 && (b === 18 || b === 19) || // benchmark
-      a === 240                            // reserved
-    ) {
-      void d; // usado solo para desestructurar; lint safe
-      return true;
-    }
+/** Tope de la consulta DNS: un resolvedor lento no puede comerse el tiempo de la descarga. */
+const DNS_LOOKUP_TIMEOUT_MS = 3_000;
+
+const defaultHostLookup: HostLookup = async (hostname) => {
+  // Import dinámico: este módulo no debe arrastrar `node:dns` a ningún bundle de cliente.
+  const { lookup } = await import('node:dns/promises');
+  const records = await lookup(hostname, { all: true, verbatim: true });
+  return records.map((r) => r.address);
+};
+
+/**
+ * ¿El nombre resuelve a alguna dirección interna? Un nombre público que apunta a
+ * 127.0.0.1 o a 169.254.169.254 (metadatos de la nube) se bloquea igual que la IP.
+ *
+ * Si el DNS falla o tarda, NO se bloquea aquí: la descarga fallará por su cuenta
+ * con el mismo error de siempre (un dominio inexistente sigue siendo «no existe»).
+ *
+ * Queda un riesgo residual de DNS rebinding (el DNS cambia entre esta consulta y
+ * la conexión): cerrarlo exige fijar la IP en la conexión con un dispatcher propio.
+ */
+async function resolvesToBlockedAddress(hostname: string, lookupHost: HostLookup): Promise<boolean> {
+  if (isIpLiteralHostname(hostname)) return false; // ya lo juzgó isBlockedHostname
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const addresses = await Promise.race([
+      lookupHost(hostname),
+      new Promise<string[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), DNS_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+    return addresses.some((address) => isBlockedIpAddress(address));
+  } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-
-  // IPv6 loopback y variantes
-  if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true;
-  if (lower.startsWith('::ffff:127.') || lower.startsWith('[::1]') || lower.startsWith('[::ffff:127.')) return true;
-  // Link-local IPv6
-  if (lower.startsWith('fe80') || lower.startsWith('[fe80')) return true;
-
-  return false;
 }
 
 /**
  * Construye y valida la URL segura para hacer fetch.
  * Retorna null si el input es inseguro o inválido.
  */
-function buildSafeUrl(rawInput: string): { url: URL; reason?: string } | { url: null; reason: string } {
+function buildSafeUrl(
+  rawInput: string,
+  options: { upgradeHttp?: boolean } = {},
+): { url: URL; reason?: string } | { url: null; reason: string } {
   const trimmed = rawInput.trim();
   if (!trimmed) return { url: null, reason: 'empty_input' };
 
@@ -118,8 +131,11 @@ function buildSafeUrl(rawInput: string): { url: URL; reason?: string } | { url: 
     return { url: null, reason: 'blocked_private_or_local_host' };
   }
 
-  // Preferir https sobre http cuando sea posible
-  if (parsed.protocol === 'http:') {
+  // Preferir https sobre http cuando sea posible. AUDIT-A1-WS7 — sólo en la
+  // entrada: un redirect que manda EXPLÍCITAMENTE a http se respeta (antes se
+  // volvía a subir a https en cada salto y un sitio sólo-http entraba en bucle
+  // hasta agotar los redirects).
+  if (parsed.protocol === 'http:' && options.upgradeHttp !== false) {
     const httpsUrl = new URL(withProtocol.replace(/^http:\/\//, 'https://'));
     return { url: httpsUrl };
   }
@@ -279,6 +295,88 @@ function classifyStatus(params: {
   return { status: 'inferred', confidence: 40 };
 }
 
+// ─── Lectura acotada y decodificación (AUDIT-A1-WS7) ─────────────────────────
+
+/**
+ * Lee el cuerpo de a trozos y CORTA al llegar a `maxBytes` (antes se bajaba la
+ * página entera con `arrayBuffer()` y luego se recortaba: una página de 30 MB se
+ * descargaba completa para usar 50 KB).
+ */
+export async function readBodyLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const limit = Math.max(0, Math.trunc(maxBytes));
+  if (!response.body) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      const take = Math.min(value.byteLength, limit - total);
+      chunks.push(take === value.byteLength ? value : value.subarray(0, take));
+      total += take;
+    }
+  } finally {
+    // Lo que queda no se descarga.
+    await reader.cancel().catch(() => undefined);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function charsetFromContentType(contentType: string | null): string | null {
+  const match = /charset\s*=\s*["']?([\w.:-]+)/i.exec(contentType ?? '');
+  return match ? match[1].toLowerCase() : null;
+}
+
+function charsetFromMeta(bytes: Uint8Array): string | null {
+  // El <meta charset> va en el <head>: basta con los primeros KB leídos como ASCII.
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 4096));
+  const match = /<meta[^>]+charset\s*=\s*["']?([\w.:-]+)/i.exec(head);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function decodeWith(label: string, bytes: Uint8Array, fatal: boolean): string | null {
+  try {
+    // `stream: true` ⇒ un carácter multibyte cortado al final por el tope no es un error.
+    return new TextDecoder(label, { fatal }).decode(bytes, { stream: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decodifica el HTML con el charset del `Content-Type` o del `<meta charset>`; sin
+ * declaración, UTF-8, y si los bytes no son UTF-8 válido, windows-1252 (los sitios
+ * viejos de la región en latin-1 salían con «Ã±» en vez de «ñ»).
+ */
+export function decodeHtmlBytes(bytes: Uint8Array, contentType: string | null): string {
+  const declared = charsetFromContentType(contentType) ?? charsetFromMeta(bytes);
+  if (declared && declared !== 'utf-8' && declared !== 'utf8') {
+    const decoded = decodeWith(declared, bytes, false);
+    if (decoded !== null) return decoded;
+  }
+  return decodeWith('utf-8', bytes, true) ?? decodeWith('windows-1252', bytes, false) ?? decodeWith('utf-8', bytes, false) ?? '';
+}
+
+/**
+ * ¿El fallo es de CONEXIÓN o TLS (y no un timeout ni una respuesta HTTP)? Sólo
+ * entonces vale la pena reintentar por http.
+ */
+function isConnectionOrTlsError(err: unknown): boolean {
+  if (!(err instanceof Error) || err.name === 'AbortError') return false;
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } }).cause;
+  const text = `${err.message} ${typeof cause?.code === 'string' ? cause.code : ''} ${typeof cause?.message === 'string' ? cause.message : ''}`;
+  // DNS (ENOTFOUND / EAI_AGAIN) no: el host no existe tampoco por http.
+  if (/ENOTFOUND|EAI_AGAIN/.test(text)) return false;
+  return /ECONNREFUSED|ECONNRESET|EPROTO|UND_ERR_SOCKET|CERT|SSL|TLS|UNABLE_TO_VERIFY|SELF[_ -]SIGNED|HANDSHAKE/i.test(text);
+}
+
 // ─── Fetch con límite de redirects ────────────────────────────────────────────
 
 type FetchResult = {
@@ -293,6 +391,7 @@ async function fetchWithRedirectTracking(
   startUrl: URL,
   timeoutMs: number,
   maxHtmlBytes: number = MAX_HTML_BYTES,
+  lookupHost: HostLookup = defaultHostLookup,
 ): Promise<FetchResult> {
   const redirectChain: string[] = [];
   let currentUrl = startUrl.toString();
@@ -302,10 +401,24 @@ async function fetchWithRedirectTracking(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const doFetch = (url: string) =>
+    fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es,en;q=0.5',
+      },
+    });
+
   try {
     // Seguimos manualmente hasta MAX_REDIRECTS para controlar la cadena
     for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt++) {
-      const safeResult = buildSafeUrl(currentUrl);
+      // AUDIT-A1-WS7 — en los saltos se respeta el protocolo del redirect (mismas
+      // comprobaciones anti-SSRF en cada salto).
+      const safeResult = buildSafeUrl(currentUrl, { upgradeHttp: attempt === 0 });
       if (!safeResult.url) {
         return {
           httpStatus: null,
@@ -316,16 +429,33 @@ async function fetchWithRedirectTracking(
         };
       }
 
-      const response = await fetch(safeResult.url.toString(), {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': USER_AGENT,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'es,en;q=0.5',
-        },
-      });
+      // Antes de conectar: el nombre no puede resolver a una dirección interna.
+      if (await resolvesToBlockedAddress(safeResult.url.hostname, lookupHost)) {
+        return {
+          httpStatus: null,
+          finalUrl: currentUrl,
+          redirectChain,
+          html: null,
+          fetchError: attempt === 0 ? 'blocked_url:private_resolution' : 'blocked_redirect_private_resolution',
+        };
+      }
+
+      let response: Response;
+      try {
+        response = await doFetch(safeResult.url.toString());
+      } catch (err) {
+        // AUDIT-A1-WS7 — https forzado sin vuelta atrás: un sitio sólo-http o con
+        // certificado roto (frecuente en gobierno de la región) quedaba como error.
+        // Un fallo de conexión/TLS en https se reintenta UNA vez por http, con la
+        // misma validación anti-SSRF; un timeout no se reintenta.
+        if (safeResult.url.protocol !== 'https:' || !isConnectionOrTlsError(err)) throw err;
+        const httpUrl = new URL(safeResult.url.toString());
+        httpUrl.protocol = 'http:';
+        const httpSafe = buildSafeUrl(httpUrl.toString(), { upgradeHttp: false });
+        if (!httpSafe.url) throw err;
+        response = await doFetch(httpSafe.url.toString());
+        currentUrl = httpSafe.url.toString();
+      }
 
       httpStatus = response.status;
 
@@ -350,10 +480,9 @@ async function fetchWithRedirectTracking(
       if (response.status < 400) {
         const contentType = response.headers.get('content-type') ?? '';
         if (contentType.includes('text/html') || contentType.includes('text/plain')) {
-          // Leer solo los primeros MAX_HTML_BYTES para no guardar todo el HTML
-          const buffer = await response.arrayBuffer();
-          const decoder = new TextDecoder('utf-8', { fatal: false });
-          html = decoder.decode(buffer.slice(0, maxHtmlBytes));
+          // Sólo los primeros `maxHtmlBytes`: se deja de leer al llegar al tope.
+          const bytes = await readBodyLimited(response, maxHtmlBytes);
+          html = decodeHtmlBytes(bytes, contentType);
         }
       }
       break;
@@ -403,6 +532,8 @@ export async function fetchSafePageHtml(
   websiteOrDomain: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   maxHtmlBytes: number = MAX_HTML_BYTES,
+  /** `lookupHost`: resolvedor DNS (inyectable en pruebas; por defecto, el del sistema). */
+  options: { lookupHost?: HostLookup } = {},
 ): Promise<SafePageFetchResult> {
   const requestedUrl = websiteOrDomain.trim();
   const safeResult = buildSafeUrl(requestedUrl);
@@ -416,7 +547,7 @@ export async function fetchSafePageHtml(
       error: `blocked_url:${safeResult.reason}`,
     };
   }
-  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs, maxHtmlBytes);
+  const fetchResult = await fetchWithRedirectTracking(safeResult.url, timeoutMs, maxHtmlBytes, options.lookupHost);
   return {
     requestedUrl,
     finalUrl: fetchResult.finalUrl,

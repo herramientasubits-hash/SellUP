@@ -14,7 +14,6 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { LucideIcon, LucideProps } from "lucide-react";
 import {
   Activity01Icon,
-  AiBrain01Icon,
   Alert02Icon,
   AlertCircleIcon,
   Archive02Icon,
@@ -130,7 +129,6 @@ import {
   SidebarLeft01Icon,
   SidebarRight01Icon,
   SlidersHorizontalIcon,
-  SparklesIcon,
   SquareLock02Icon,
   StarIcon,
   StickyNote01Icon,
@@ -224,7 +222,6 @@ export const BarChart3 = createIcon(ChartColumnIcon, "BarChart3");
 export const Bell = createIcon(Notification03Icon, "Bell");
 export const Bot = createIcon(BotIcon, "Bot");
 export const Brain = createIcon(Brain02Icon, "Brain");
-export const BrainCircuit = createIcon(AiBrain01Icon, "BrainCircuit");
 export const Briefcase = createIcon(Briefcase01Icon, "Briefcase");
 export const Building2 = createIcon(Building03Icon, "Building2");
 export const Calculator = createIcon(Calculator01Icon, "Calculator");
@@ -352,7 +349,46 @@ export const Settings2 = createIcon(Settings04Icon, "Settings2");
 export const ShieldAlert = createIcon(SecurityWarningIcon, "ShieldAlert");
 export const ShieldCheck = createIcon(SecurityCheckIcon, "ShieldCheck");
 export const SlidersHorizontal = createIcon(SlidersHorizontalIcon, "SlidersHorizontal");
-export const Sparkles = createIcon(SparklesIcon, "Sparkles");
+/**
+ * Rumbo (dueña 18-10): la brújula cuya aguja es una flecha que sube. Es el ícono de la IA
+ * de SellUp (dueña 19-10: «donde esté lo de IA debe estar el logo de Rumbo, no el antiguo»),
+ * así que `Sparkles` — el de siempre para IA — dibuja también la brújula.
+ * Dibujo propio (no es de Hugeicons): aro, aguja llena y cola tenue, en una caja de 24.
+ */
+export const RUMBO_NEEDLE_PATH = "M12 3.6 L15.4 12.6 L12 10.7 L8.6 12.6 Z";
+export const RUMBO_TAIL_PATH = "M12 20.4 L10.3 14.9 L12 15.9 L13.7 14.9 Z";
+
+const RumboIconBase = forwardRef<SVGSVGElement, LucideProps>(
+  ({ size = 24, strokeWidth: _strokeWidth, color, absoluteStrokeWidth: _absolute, ...props }, ref) => {
+    void _strokeWidth;
+    void _absolute;
+    const paint = color ?? "currentColor";
+    return (
+      <svg
+        ref={ref}
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill={paint}
+        data-icon="rumbo"
+        {...props}
+      >
+        <circle cx="12" cy="12" r="9.6" fill="none" stroke={paint} strokeWidth={1.9} />
+        <g transform="rotate(32 12 12)">
+          <path d={RUMBO_NEEDLE_PATH} />
+          <path d={RUMBO_TAIL_PATH} opacity={0.55} />
+        </g>
+        <circle cx="12" cy="12" r="1.2" />
+      </svg>
+    );
+  },
+);
+RumboIconBase.displayName = "Rumbo";
+export const Rumbo = RumboIconBase as unknown as LucideIcon;
+export const Sparkles = Rumbo;
+/** «Uso de IA» y los ajustes de IA: la IA de SellUp es Rumbo (dueña 19-10). */
+export const BrainCircuit = Rumbo;
 export const Star = createIcon(StarIcon, "Star");
 export const StickyNote = createIcon(StickyNote01Icon, "StickyNote");
 export const Sun = createIcon(Sun03Icon, "Sun");

@@ -37,6 +37,8 @@ let onQuery: ((query: RecordedQuery) => void) | null = null;
 function buildQuery(table: string, select: string) {
   const query: RecordedQuery = { table, select, filters: [] };
   recorded.push(query);
+  // `.range(from, to)` como PostgREST: el consumo se lee paginado (tope de 1.000 filas).
+  let range: [number, number] | null = null;
 
   const chain = {
     eq(column: string, value: unknown) {
@@ -68,6 +70,10 @@ function buildQuery(table: string, select: string) {
     order() {
       return chain;
     },
+    range(from: number, to: number) {
+      range = [from, to];
+      return chain;
+    },
     maybeSingle() {
       onQuery?.(query);
       const fixture = fixtures[table];
@@ -80,9 +86,10 @@ function buildQuery(table: string, select: string) {
     ) {
       onQuery?.(query);
       const fixture = fixtures[table];
+      const rows = fixture?.rows ?? [];
       const result = fixture?.error
         ? { data: null, error: fixture.error }
-        : { data: fixture?.rows ?? [], error: null };
+        : { data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null };
       return Promise.resolve(result).then(resolve, reject);
     },
   };

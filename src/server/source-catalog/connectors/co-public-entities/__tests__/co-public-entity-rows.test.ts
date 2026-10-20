@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildCoPublicEntityRows,
+  buildCoPublicEntityRowsWithReport,
   classifyNaturaleza,
   fixMojibake,
   nitCheckDigit,
@@ -161,3 +162,85 @@ describe('buildCoPublicEntityRows', () => {
     assert.equal(rows[0].raw_data.entity_head, true);
   });
 });
+
+describe('NIT compartido por entidades distintas en el SIGEP (MinSalud / MinTrabajo)', () => {
+  // Forma real medida el 16-10-2026: el SIGEP captura el Ministerio de Salud con el NIT del
+  // Ministerio del Trabajo; éste lo trae con el dígito de verificación pegado («8301152263»).
+  const chipTrabajo = chip({ nit: '830115226:3', razon_social: 'Ministerio del Trabajo', ciudad: 'BOGOTA', p_gina_web: { url: 'https://www.mintrabajo.gov.co' } });
+  const chipSalud = chip({ nit: '900474727:4', razon_social: 'Ministerio de Salud y Protección Social', ciudad: 'BOGOTA', p_gina_web: { url: 'https://www.minsalud.gov.co' } });
+  const sigepTrabajo = sigep({ nit: '8301152263', nombre_de_la_entidad: 'MINISTERIO DEL TRABAJO', naturaleza_jur_dica: 'MINISTERIO', genero_hombre: '800', genero_mujer: '1081' });
+  const sigepSalud = sigep({ nit: '830115226', nombre_de_la_entidad: 'MINISTERIO DE SALUD Y PROTECCION SOCIAL', naturaleza_jur_dica: 'MINISTERIO', genero_hombre: '250', genero_mujer: '309' });
+
+  it('cada ministerio queda en su NIT con sus propios servidores (antes se fundían en uno)', () => {
+    const { rows, nitCollisions } = buildCoPublicEntityRowsWithReport([chipTrabajo, chipSalud], [sigepSalud, sigepTrabajo]);
+    const byNit = new Map(rows.map((r) => [r.tax_id, r]));
+    assert.equal(rows.length, 2);
+    assert.equal(byNit.get('830115226')?.normalized_legal_name, 'MINISTERIO DEL TRABAJO');
+    assert.equal(byNit.get('830115226')?.raw_data.workers, 1881);
+    assert.equal(byNit.get('900474727')?.normalized_legal_name, 'MINISTERIO DE SALUD Y PROTECCION SOCIAL');
+    assert.equal(byNit.get('900474727')?.raw_data.workers, 559);
+    assert.equal(byNit.get('900474727')?.raw_data.website_domain, 'minsalud.gov.co');
+    assert.equal(byNit.get('900474727')?.raw_data.entity_head, true);
+    assert.deepEqual(nitCollisions, [
+      {
+        nit: '830115226',
+        resolution: 'resuelto',
+        chipName: 'MINISTERIO DEL TRABAJO',
+        kept: 'MINISTERIO DEL TRABAJO',
+        moved: [{ name: 'MINISTERIO DE SALUD Y PROTECCION SOCIAL', toNit: '900474727', workers: 559 }],
+        dropped: [],
+      },
+    ]);
+  });
+
+  it('el orden de las filas del SIGEP no cambia el resultado', () => {
+    const a = buildCoPublicEntityRows([chipTrabajo, chipSalud], [sigepSalud, sigepTrabajo]);
+    const b = buildCoPublicEntityRows([chipSalud, chipTrabajo], [sigepTrabajo, sigepSalud]);
+    assert.deepEqual(a, b);
+  });
+
+  it('sin destino claro, la entidad ajena se saca del NIT (no suma servidores a la equivocada)', () => {
+    const chipMaicao = chip({ nit: '892120020', razon_social: 'Maicao', ciudad: 'MAICAO' });
+    const rows = buildCoPublicEntityRows(
+      [chipMaicao],
+      [
+        sigep({ nit: '892120020', nombre_de_la_entidad: 'ALCALDIA DE MAICAO', genero_hombre: '40', genero_mujer: '40' }),
+        sigep({ nit: '892120020', nombre_de_la_entidad: 'ALCALDIA DE BARAYA', genero_hombre: '5', genero_mujer: '5' }),
+      ],
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].legal_name, 'ALCALDIA DE MAICAO');
+    assert.equal(rows[0].raw_data.workers, 80);
+  });
+
+  it('concejo y personería de la misma alcaldía siguen sumando (no son un choque)', () => {
+    const { rows, nitCollisions } = buildCoPublicEntityRowsWithReport(
+      [chip({})],
+      [
+        sigep({}),
+        sigep({ nombre_de_la_entidad: 'CONCEJO DE IPIALES', naturaleza_jur_dica: 'CONCEJO MUNICIPAL', genero_hombre: '5', genero_mujer: '3' }),
+        sigep({ nombre_de_la_entidad: 'PERSONERIA DE IPIALES', naturaleza_jur_dica: 'PERSONERÍA MUNICIPAL', genero_hombre: '4', genero_mujer: '4' }),
+      ],
+    );
+    assert.equal(rows[0].raw_data.workers, 166);
+    assert.deepEqual(nitCollisions, []);
+  });
+
+  it('sin choques, la salida es la de siempre (mismo resultado que buildCoPublicEntityRows)', () => {
+    const rows = buildCoPublicEntityRows([chip({})], [sigep({})]);
+    assert.deepEqual(buildCoPublicEntityRowsWithReport([chip({})], [sigep({})]).rows, rows);
+  });
+
+  it('Superservicios no suma los servidores del Ejército capturado con su NIT', () => {
+    const rows = buildCoPublicEntityRows(
+      [chip({ nit: '800250984:6', razon_social: 'Superintendencia de Servicios Públicos Domiciliarios', ciudad: 'BOGOTA' })],
+      [
+        sigep({ nit: '800250984', nombre_de_la_entidad: 'SUPERINTENDENCIA DE SERVICIOS PUBLICOS DOMICILIARIOS', naturaleza_jur_dica: 'SUPERINTENDENCIA', genero_hombre: '386', genero_mujer: '438' }),
+        sigep({ nit: '8002509846', nombre_de_la_entidad: 'EJERCITO NACIONAL DE COLOMBIA 1', naturaleza_jur_dica: 'ESPECIAL', genero_hombre: '1807', genero_mujer: '2690' }),
+      ],
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].raw_data.workers, 824);
+  });
+});
+

@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
+import { loadAccountNextSteps } from '@/modules/accounts/next-step.server';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import {
   ProspectsModulePanel,
@@ -24,6 +25,7 @@ import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
+import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
@@ -77,6 +79,9 @@ async function AccountsPanel() {
     loadGenerateProspectsAgent(),
     getCurrentUser(),
   ]);
+  // El siguiente paso de cada empresa (contactos, Agente 2 y Agente 3), en lotes.
+  const nextSteps = await loadAccountNextSteps(accounts);
+  const accountsWithSteps = accounts.map((account) => ({ ...account, next_step: nextSteps[account.id] }));
   // ALWAYS-OWNER-ON-CREATE-1 — al crear una empresa, el responsable por defecto es quien la crea.
   const currentUserId = currentUser?.id ?? null;
 
@@ -87,13 +92,14 @@ async function AccountsPanel() {
         title={EMPRESAS_VIEW_TITLES.empresas}
         description={EMPRESAS_TAB_DESCRIPTIONS.empresas}
         actions={
-          <AccountsScreenActions users={users} currentUserId={currentUserId} generateAgent={generateAgent} />
+          <AccountsScreenActions users={users} currentUserId={currentUserId} generateAgent={generateAgent} firstCallEnabled={isAgent3FirstCallEnabled()} />
         }
       >
         <AccountsDataTableClient
-          accounts={accounts}
+          accounts={accountsWithSteps}
           users={users}
           scopeFilterOptions={scopeFilterOptions}
+          firstCallEnabled={isAgent3FirstCallEnabled()}
           emptyActions={
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Link

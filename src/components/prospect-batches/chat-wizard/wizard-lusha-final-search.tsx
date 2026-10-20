@@ -39,8 +39,9 @@ import {
   resolveLushaPreflightRequiredCredits,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 import { mapBudgetExceeded } from './wizard-execution-error-map';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 
-export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
+export const WIZARD_LUSHA_SEARCH_LABEL = RUMBO_ACTION_LABELS.search;
 export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
 /** Discreet traceability shown only after persistence (never a selector). */
 export const WIZARD_LUSHA_PROVIDER_LABEL = 'Lusha';

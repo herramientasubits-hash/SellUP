@@ -131,7 +131,8 @@ function fakeClient(links: unknown[], snapshots: Array<Record<string, unknown>>)
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       calls.push(call);
       const builder: Record<string, unknown> = {};
-      for (const op of ['select', 'eq', 'in', 'like', 'or', 'order', 'limit']) builder[op] = (...args: unknown[]) => (call.ops.push([op, args]), builder);
+      // `gt` y `range`: las consultas «loaded» paginan (entidades distintas, proveedores por páginas).
+      for (const op of ['select', 'eq', 'in', 'like', 'gt', 'or', 'order', 'limit', 'range']) builder[op] = (...args: unknown[]) => (call.ops.push([op, args]), builder);
       builder.then = (resolve: (v: unknown) => unknown) => {
         if (table !== 'source_company_snapshots') return resolve({ data: links, error: null });
         const keys = (call.ops.find(([op, a]) => op === 'in' && a[0] === 'source_key')?.[1][1] ?? []) as string[];

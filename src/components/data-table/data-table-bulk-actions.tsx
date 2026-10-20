@@ -135,7 +135,7 @@ export function useBulkRailActions<TData>(
                 id: item.id,
                 label: item.label,
                 icon: iconOf(item, <MousePointerClick aria-hidden="true" />),
-                tone: item.variant === "destructive" ? "danger" : "default",
+                tone: item.variant === "destructive" ? "danger" : item.variant === "ai" ? "ai" : "default",
                 blockedReason: blockedReasonOf(item, selectedRows),
                 onSelect: () => void item.onClick?.(selectedRows),
               }))
@@ -149,7 +149,7 @@ export function useBulkRailActions<TData>(
             menu ? <MoreHorizontal aria-hidden="true" /> : <MousePointerClick aria-hidden="true" />,
           ),
           scope: action.scope ?? ["single", "bulk"],
-          tone: action.variant === "destructive" ? "danger" : "default",
+          tone: action.variant === "destructive" ? "danger" : action.variant === "ai" ? "ai" : "default",
           countInLabel: action.countInLabel,
           blockedReason: menu ? null : blockedReasonOf(action, selectedRows),
           onSelect: () => handleActionClick(action),
@@ -225,7 +225,7 @@ export function DataTableInlineBulkActions<TData>({
           <Button
             key={action.id}
             size="xs"
-            variant={action.variant === "destructive" ? "destructive" : "outline"}
+            variant={action.variant === "destructive" ? "destructive" : action.variant === "ai" ? "ai-outline" : "outline"}
             disabled={isDisabled}
             title={disabledLabel}
             onClick={() => handleActionClick(action)}

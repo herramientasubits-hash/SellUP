@@ -85,8 +85,8 @@ describe('ProspectsScreenActions — la IA a un clic y dos acciones de pantalla'
   it('la barra ofrece importar, crear a mano y el agente de IA; ningún panel está abierto', () => {
     renderActions();
 
-    assert.deepEqual(toolbarLabels(), ['Importar archivo', 'Crear a mano', 'Generar con IA']);
-    assert.equal(screen.getByRole('button', { name: 'Generar con IA' }).getAttribute('data-slot'), 'rail-agent');
+    assert.deepEqual(toolbarLabels(), ['Importar archivo', 'Crear a mano', 'Generar con Rumbo IA']);
+    assert.equal(screen.getByRole('button', { name: 'Generar con Rumbo IA' }).getAttribute('data-slot'), 'rail-agent');
     assert.deepEqual(openDialogs(), []);
     assert.equal(screen.queryByText(/sin controlar/), null, 'los tres paneles se montan controlados, sin su botón');
   });
@@ -95,11 +95,11 @@ describe('ProspectsScreenActions — la IA a un clic y dos acciones de pantalla'
     renderActions();
 
     assert.equal(screen.queryByRole('button', { name: 'Agregar prospectos' }), null);
-    assert.equal(screen.getAllByRole('button', { name: /Generar con IA/ }).length, 1);
+    assert.equal(screen.getAllByRole('button', { name: /Generar con Rumbo IA/ }).length, 1);
   });
 
   for (const [action, panel] of [
-    ['Generar con IA', 'asistente de IA'],
+    ['Generar con Rumbo IA', 'asistente de IA'],
     ['Importar archivo', 'importar'],
     ['Crear a mano', 'crear a mano'],
   ] as const) {
@@ -125,8 +125,8 @@ describe('ProspectsScreenActions — búsqueda con IA no disponible', () => {
 
     const agent = screen.getByRole('button', { name: 'Búsqueda no disponible' });
     assert.equal(agent.className.includes('bg-ai-gradient'), false);
-    assert.equal(screen.queryByRole('button', { name: /Generar con IA/ }), null);
-    assert.equal(screen.queryByText('Generar con IA'), null);
+    assert.equal(screen.queryByRole('button', { name: /Generar con Rumbo IA/ }), null);
+    assert.equal(screen.queryByText('Generar con Rumbo IA'), null);
     // Importar y crear a mano no dependen de la búsqueda: siguen disponibles.
     assert.ok(screen.getByRole('button', { name: 'Importar archivo' }));
     assert.ok(screen.getByRole('button', { name: 'Crear a mano' }));
@@ -150,14 +150,14 @@ describe('ProspectsScreenActions — con las acciones «En la pantalla»', () =>
     assert.equal(screen.queryByRole('toolbar'), null);
     assert.deepEqual(
       screen.getAllByRole('button').map((button) => button.textContent),
-      ['Importar archivo', 'Crear a mano', 'Generar con IA'],
+      ['Importar archivo', 'Crear a mano', 'Generar con Rumbo IA'],
     );
   });
 
   it('cada botón abre su panel y solo ese', () => {
     renderActions();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Generar con IA' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generar con Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar asistente de IA' }));
 
@@ -168,7 +168,7 @@ describe('ProspectsScreenActions — con las acciones «En la pantalla»', () =>
   it('🔴 sin búsqueda disponible tampoco aquí se ofrece «Generar con IA»', () => {
     renderActions(false);
 
-    assert.equal(screen.queryByText('Generar con IA'), null);
+    assert.equal(screen.queryByText('Generar con Rumbo IA'), null);
     fireEvent.click(screen.getByRole('button', { name: 'Búsqueda no disponible' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
   });
