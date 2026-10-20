@@ -230,6 +230,8 @@ export function normalizeApolloPerson(
       subdepartments: person.subdepartments ?? [],
       headline: headline ?? null,
       email_status: person.email_status ?? null,
+      // AGENT2-KNOWN-CONTACT-PRECHECK-1 — sólo cuando Apollo lo manda (búsqueda gratis).
+      ...(cleanString(person.last_name_obfuscated) ? { last_name_obfuscated: cleanString(person.last_name_obfuscated) } : {}),
       organization: person.organization
         ? {
             id: person.organization.id,
