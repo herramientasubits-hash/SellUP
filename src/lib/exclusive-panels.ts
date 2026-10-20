@@ -47,7 +47,7 @@ export function useExclusivePanel(kind: ExclusivePanelKind, open: boolean, close
     };
     window.addEventListener(EXCLUSIVE_PANEL_OPEN_EVENT, onOpen);
     // Se avisa DESPUÉS de escuchar: los demás se cierran; éste no se cierra a sí mismo.
-    window.dispatchEvent(new CustomEvent<OpenDetail>(EXCLUSIVE_PANEL_OPEN_EVENT, { detail: { id, kind } }));
+    window.dispatchEvent(new window.CustomEvent<OpenDetail>(EXCLUSIVE_PANEL_OPEN_EVENT, { detail: { id, kind } }));
     return () => window.removeEventListener(EXCLUSIVE_PANEL_OPEN_EVENT, onOpen);
   }, [open, id, kind]);
 }

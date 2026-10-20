@@ -46,6 +46,8 @@ import { useRefreshOnFinishedRuns } from './finished-runs';
 import { FirstContactRunRows } from '@/components/first-call/first-contact-run-rows';
 import { FirstContactGlobalPanelHost } from '@/components/first-call/first-contact-global-panel-host';
 import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
+import { ContactSearchRunRows } from '@/components/contact-enrichment/contact-search-run-rows';
+import { getContactSearchRunsStore, useContactSearchRuns } from '@/modules/contact-enrichment/contact-search-runs-client';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -243,6 +245,8 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const live = useLiveProgress(runs);
   // Las preparaciones del Agente 3 también viven aquí (dueña 18-10).
   const firstContactRuns = useFirstContactRuns();
+  // Y las búsquedas de contactos con Rumbo (dueña 20-10).
+  const contactSearchRuns = useContactSearchRuns();
   const [open, setOpen] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [continuationActive, setContinuationActive] = React.useState(false);
@@ -264,15 +268,22 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   // La corrida a medias también es trabajo en curso.
   if (continuationActive) counts.running += 1;
   for (const run of firstContactRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
+  for (const run of contactSearchRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
   const running = counts.running;
   const finished = counts.done + counts.failed;
-  const isEmpty = runs.length === 0 && firstContactRuns.length === 0 && !continuationActive;
+  const isEmpty = runs.length === 0 && firstContactRuns.length === 0 && contactSearchRuns.length === 0 && !continuationActive;
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
   const router = useRouter();
   // Terminó una búsqueda (aunque el asistente esté minimizado): se recarga para verla.
   const refreshScreen = React.useCallback(() => router.refresh(), [router]);
   useRefreshOnFinishedRuns(runs, refreshScreen);
+  // Igual con las búsquedas de contactos: «Por revisar» muestra lo nuevo sin recargar a mano.
+  const contactSearchStates = React.useMemo(
+    () => contactSearchRuns.map((run) => ({ clientRequestId: run.id, status: run.status })),
+    [contactSearchRuns],
+  );
+  useRefreshOnFinishedRuns(contactSearchStates, refreshScreen);
   const close = () => setOpen(false);
   const openRun = (clientRequestId: string) => {
     close();
@@ -379,6 +390,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             onActiveChange={setContinuationActive}
           />
           <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
+          <ContactSearchRunRows runs={contactSearchRuns} onNavigate={close} />
           {runs.map((run) => (
             <ProcessRow
               key={run.clientRequestId}
@@ -402,6 +414,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
                 <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => {
                     store?.dismissFinished();
                     getFirstContactRunsStore()?.dismissFinished();
+                    getContactSearchRunsStore()?.dismissFinished();
                   }}>
                   {AGENT_RUNS_TRAY_COPY.clearFinished}
                 </Button>
