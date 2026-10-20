@@ -37,6 +37,8 @@ export interface PeopleSearchDiagnosticReport {
   creditsUsed: 0;
   current: PeopleSearchDiagnosticSide;
   documented: PeopleSearchDiagnosticSide;
+  /** Formato documentado filtrando por DOMINIO, sin el organization_id guardado. */
+  documentedByDomain: PeopleSearchDiagnosticSide | null;
 }
 
 function toSide(result: ApolloPeopleAdapterResult): PeopleSearchDiagnosticSide {
@@ -85,7 +87,18 @@ export async function runPeopleSearchDiagnostic(
   };
   const current = await searchApolloPeopleForCompany(input, { ...deps, resolveOrganization: knownOrg, isDocumentedPeopleSearchEnabled: () => false });
   const documented = await searchApolloPeopleForCompany(input, { ...deps, resolveOrganization: knownOrg, isDocumentedPeopleSearchEnabled: () => true });
-  return { target, creditsUsed: 0, current: toSide(current), documented: toSide(documented) };
+  // El organization_id guardado pudo salir de una búsqueda por nombre que eligió la ficha
+  // equivocada: la misma búsqueda, sólo con el dominio.
+  const byDomain = target.companyDomain
+    ? await searchApolloPeopleForCompany(input, { ...deps, resolveOrganization: async () => null, isDocumentedPeopleSearchEnabled: () => true })
+    : null;
+  return {
+    target,
+    creditsUsed: 0,
+    current: toSide(current),
+    documented: toSide(documented),
+    documentedByDomain: byDomain ? toSide(byDomain) : null,
+  };
 }
 
 /** Lo que guardó la última búsqueda de contactos de ese dominio: nombre, país y organization_id. */

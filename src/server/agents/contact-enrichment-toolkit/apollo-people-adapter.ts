@@ -652,7 +652,10 @@ export async function searchApolloPeopleForCompany(
   // dominio), sólo filtros documentados en la URL. Si no, los intentos de siempre.
   const documentedPlans = isDocumentedPeopleSearchEnabled()
     ? buildPeopleSearchV2Plans({
-        organizationId: resolvedOrgId,
+        // Una ficha encontrada SÓLO por nombre puede ser otra empresa o una ficha vacía (caso
+        // Davivienda 20-10): con dominio, se busca por el dominio; el org_id sólo si lo confirmó.
+        organizationId:
+          orgResolution?.resolutionMethod === 'domain' || !input.companyDomain?.trim() ? resolvedOrgId : null,
         companyDomain: input.companyDomain,
         personLocation: apolloLocation,
         titles: TARGET_PERSON_TITLES,

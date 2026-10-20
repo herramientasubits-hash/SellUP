@@ -125,6 +125,28 @@ describe('Apollo People Search v2 — adaptador', () => {
     assert.deepEqual(result.attempts.map((a) => a.attempt), ['v2_hr_titles_country', 'v2_hr_titles_any_country', 'v2_leadership']);
   });
 
+  it('ficha encontrada sólo por NOMBRE y hay dominio: busca por el dominio, no por esa ficha (caso Davivienda)', async () => {
+    const { deps, calls } = adapterHarness(true, []);
+    await searchApolloPeopleForCompany(INPUT, {
+      ...deps,
+      resolveOrganization: async () =>
+        ({
+          organizationId: ORG,
+          organizationName: 'Davivienda Colombia',
+          organizationDomain: 'http://www.davivienda.com',
+          resolutionStatus: 'found_by_name',
+          resolutionMethod: 'name',
+          candidatesCount: 1,
+          diagnostics: { domain_query_results: 0, name_query_results: 1 },
+        }) as never,
+    });
+    assert.ok(calls.v2.length > 0);
+    for (const query of calls.v2) {
+      assert.equal(query.organization_ids, undefined);
+      assert.deepEqual(query.q_organization_domains_list, ['davivienda.com']);
+    }
+  });
+
   it('bandera encendida pero sin org_id ni dominio: vuelve a los intentos de siempre', async () => {
     const { deps, calls } = adapterHarness(true, []);
     await searchApolloPeopleForCompany(

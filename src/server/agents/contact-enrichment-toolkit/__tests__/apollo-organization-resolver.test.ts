@@ -63,7 +63,7 @@ describe('resolveApolloOrganization', () => {
     const calls: string[] = [];
     const result = await resolveApolloOrganization('siesa.com', 'Siesa', {
       searchOrganizations: async (params) => {
-        if (params.q_organization_domains) {
+        if (params.q_organization_domains_list) {
           calls.push('domain');
           return okOrgs([org({ id: 'org-siesa-1', name: 'Siesa', website_url: 'https://siesa.com' })]);
         }
@@ -86,7 +86,7 @@ describe('resolveApolloOrganization', () => {
     const calls: string[] = [];
     const result = await resolveApolloOrganization('siesa.com', 'Siesa', {
       searchOrganizations: async (params) => {
-        if (params.q_organization_domains) {
+        if (params.q_organization_domains_list) {
           calls.push('domain');
           return emptyOrgs();
         }
@@ -146,7 +146,7 @@ describe('resolveApolloOrganization', () => {
   it('elige el mejor candidato cuando hay múltiples — prefiere coincidencia exacta de dominio', async () => {
     const result = await resolveApolloOrganization('siesa.com', 'Siesa', {
       searchOrganizations: async (params) => {
-        if (params.q_organization_domains) {
+        if (params.q_organization_domains_list) {
           return okOrgs([
             // Candidato malo: nombre diferente, sin dominio
             org({ id: 'bad-org', name: 'Otro Corp', website_url: null }),
@@ -165,7 +165,7 @@ describe('resolveApolloOrganization', () => {
   it('elige el mejor candidato por nombre cuando no hay dominio exacto', async () => {
     const result = await resolveApolloOrganization('siesa.com', 'Siesa', {
       searchOrganizations: async (params) => {
-        if (params.q_organization_domains) {
+        if (params.q_organization_domains_list) {
           return okOrgs([
             // Ambos candidatos son similares; el nombre exacto debería ganar
             org({ id: 'partial', name: 'Siesa Technologies', website_url: 'https://tech.siesa.com' }),
@@ -182,7 +182,7 @@ describe('resolveApolloOrganization', () => {
   it('diagnostics incluyen conteos correctos de ambos pasos', async () => {
     const result = await resolveApolloOrganization('noop.com', 'Target Corp', {
       searchOrganizations: async (params) => {
-        if (params.q_organization_domains) return emptyOrgs();
+        if (params.q_organization_domains_list) return emptyOrgs();
         return okOrgs([
           org({ id: 'org-a', name: 'Target Corp' }),
           org({ id: 'org-b', name: 'Target Corp SA' }),
@@ -194,5 +194,19 @@ describe('resolveApolloOrganization', () => {
     assert.equal(result.diagnostics.domain_query_results, 0);
     assert.equal(result.diagnostics.name_query_results, 2);
     assert.equal(result.diagnostics.selected_organization_id, result.organizationId);
+  });
+});
+
+describe('resolveApolloOrganization — parámetro documentado por dominio (20-10)', () => {
+  it('busca por dominio con q_organization_domains_list, nunca con el parámetro que Apollo no reconoce', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    await resolveApolloOrganization('davivienda.com', 'Davivienda Colombia', {
+      searchOrganizations: async (params) => {
+        sent.push(params as Record<string, unknown>);
+        return { success: true, data: [] };
+      },
+    });
+    assert.deepEqual(sent[0].q_organization_domains_list, ['davivienda.com']);
+    assert.equal('q_organization_domains' in sent[0], false);
   });
 });

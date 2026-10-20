@@ -72,3 +72,16 @@ general).
 - Costo: una llamada a Claude por búsqueda (unos centavos), registrada en Uso de IA como «Personas
   del sitio web de la empresa (Claude)». Sin presupuesto de IA disponible no se llama.
 - No cambia cuándo se llama a Lusha.
+
+## Identificar la empresa en Apollo por dominio (20-10)
+
+El diagnóstico con Davivienda dio 0 personas incluso con la búsqueda nueva. La causa estaba antes:
+para identificar la empresa, el Agente 2 mandaba `q_organization_domains` a Organization Search,
+un parámetro que Apollo no reconoce. Por eso 186 de 193 identificaciones salieron por **nombre**, y
+la búsqueda por nombre puede elegir una ficha equivocada o vacía («Davivienda Colombia»). Ahora:
+
+- La empresa se busca por dominio con `q_organization_domains_list`, el mismo filtro documentado
+  que usa el Agente 1. Cuesta lo mismo que antes: 1 crédito por página con resultados.
+- Con la búsqueda nueva encendida, si la empresa sólo se encontró por nombre y hay dominio, las
+  personas se buscan por el dominio y no por esa ficha.
+- El diagnóstico suma `documentedByDomain`: la búsqueda nueva sólo por dominio (0 créditos).
