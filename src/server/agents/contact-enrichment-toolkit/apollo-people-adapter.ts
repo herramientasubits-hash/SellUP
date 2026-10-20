@@ -18,11 +18,15 @@
 
 import {
   searchApolloPeople,
+  searchApolloPeopleByQuery,
   type ApolloPerson,
+  type PeopleApiSearchQuery,
   type SearchPeopleParams,
   type ApolloSearchResult,
 } from '@/server/integrations/apollo-client';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { isApolloPeopleSearchV2Enabled } from '@/lib/feature-flags.server';
+import { buildPeopleSearchV2Plans } from './apollo-people-search-v2-plans';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import { normalizeApolloPerson } from './contact-normalizer';
 import { classifyNormalizedContact } from './contact-relevance-classifier';
@@ -293,6 +297,10 @@ export interface ApolloPeopleAdapterResult {
 export interface ApolloPeopleAdapterDeps {
   isConnected?: () => Promise<boolean>;
   searchPeople?: (params: SearchPeopleParams) => Promise<ApolloSearchResult<ApolloPerson>>;
+  /** AGENT2-APOLLO-PEOPLE-SEARCH-V2-1 — búsqueda con el formato documentado (filtros en la URL). */
+  searchPeopleByQuery?: (query: PeopleApiSearchQuery) => Promise<ApolloSearchResult<ApolloPerson>>;
+  /** ¿Usar los intentos documentados? Default: bandera ENABLE_APOLLO_PEOPLE_SEARCH_V2 (apagada). */
+  isDocumentedPeopleSearchEnabled?: () => boolean;
   /**
    * Resuelve el organization_id de Apollo para la empresa antes de buscar personas.
    * Hito 17A.8A. Inyectable para tests. Default: implementación real.
@@ -359,6 +367,13 @@ interface AttemptPlan {
   name: string;
   filters: string;
   params: SearchPeopleParams;
+}
+
+/** Un intento listo para ejecutar, venga de los planes de siempre o de los documentados (v2). */
+interface ExecutablePlan {
+  name: string;
+  filters: string;
+  execute: () => Promise<ApolloSearchResult<ApolloPerson>>;
 }
 
 /**
@@ -544,6 +559,8 @@ export async function searchApolloPeopleForCompany(
   const {
     isConnected = hasApolloApiKey,
     searchPeople = searchApolloPeople,
+    searchPeopleByQuery = searchApolloPeopleByQuery,
+    isDocumentedPeopleSearchEnabled = isApolloPeopleSearchV2Enabled,
     resolveOrganization = resolveApolloOrganization,
   } = deps;
 
@@ -631,7 +648,26 @@ export async function searchApolloPeopleForCompany(
         };
 
   const perPage = DEFAULT_MAX_CANDIDATES;
-  const plans = buildAttemptPlans(input, perPage, resolvedOrgId, personLocations);
+  // AGENT2-APOLLO-PEOPLE-SEARCH-V2-1 — con la bandera encendida y la empresa acotable (org_id o
+  // dominio), sólo filtros documentados en la URL. Si no, los intentos de siempre.
+  const documentedPlans = isDocumentedPeopleSearchEnabled()
+    ? buildPeopleSearchV2Plans({
+        organizationId: resolvedOrgId,
+        companyDomain: input.companyDomain,
+        personLocation: apolloLocation,
+        titles: TARGET_PERSON_TITLES,
+        perPage,
+        maxAttempts: MAX_SEARCH_ATTEMPTS,
+      })
+    : [];
+  const plans: ExecutablePlan[] =
+    documentedPlans.length > 0
+      ? documentedPlans.map((plan) => ({ name: plan.name, filters: plan.filters, execute: () => searchPeopleByQuery(plan.query) }))
+      : buildAttemptPlans(input, perPage, resolvedOrgId, personLocations).map((plan) => ({
+          name: plan.name,
+          filters: plan.filters,
+          execute: () => searchPeople(plan.params),
+        }));
 
   const attempts: ApolloSearchAttemptMeta[] = [];
   let totalRaw = 0;
@@ -658,9 +694,9 @@ export async function searchApolloPeopleForCompany(
       break;
     }
 
-    let result: Awaited<ReturnType<typeof searchPeople>>;
+    let result: ApolloSearchResult<ApolloPerson>;
     try {
-      result = await searchPeople(plan.params);
+      result = await plan.execute();
     } catch (fetchErr) {
       const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
       return {

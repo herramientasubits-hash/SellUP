@@ -405,6 +405,18 @@ export function isContactEnrichmentContactBankEnabled(): boolean {
 }
 
 /**
+ * AGENT2-APOLLO-PEOPLE-SEARCH-V2-1 — búsqueda de personas de Apollo con el formato que documenta
+ * Apollo (filtros en la URL, sin departamento ni nombre de empresa). Sigue siendo gratis. Con
+ * esta variable en false/ausente (el DEFAULT del código; no afirma lo que Producción tenga
+ * puesto) el adaptador usa exactamente los intentos de siempre.
+ */
+export const APOLLO_PEOPLE_SEARCH_V2_FLAG = 'ENABLE_APOLLO_PEOPLE_SEARCH_V2';
+
+export function isApolloPeopleSearchV2Enabled(): boolean {
+  return isEnvFlagEnabled(process.env[APOLLO_PEOPLE_SEARCH_V2_FLAG]);
+}
+
+/**
  * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE` en este runtime?
  *
  * PRESENCIA, nunca el valor — mismo par presencia/resolución que
