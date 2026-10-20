@@ -11,7 +11,7 @@ import { resultMentionsCompany } from '../curated-match';
 import { cleanToolText, contentForChannel, genderFromTitle, parseWriterSubmission, verifyPack } from '../pack-verifier';
 import { REGIONAL_BUSINESS_PRESS, REGIONAL_HR_MEDIA, sourcesForAccount } from '../research-catalog';
 import { newsToDocuments } from '../research-documents';
-import type { FirstCallChannel, ResearchFact } from '../types';
+import type { FirstCallChannel, FirstCallPackContent, ResearchFact } from '../types';
 import { UBITS_CLAIMS } from '../ubits-messaging-library';
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
@@ -171,3 +171,34 @@ describe('«sin costo» como inciso se quita (banco 20-10)', () => {
     assert.equal(cleanToolText('El diagnóstico es gratis para ustedes.'), 'El diagnóstico es gratis para ustedes.');
   });
 });
+
+describe('Prod 20-10 (Sally Beauty, EE. UU.)', () => {
+  const base = (over: Partial<FirstCallPackContent>): FirstCallPackContent => ({
+    reasonToCall: { text: 'Implementaron una plataforma con Circana.', factRefs: ['F8'] },
+    angle: 'La formación rápida marca la diferencia.',
+    callScript: { text: '', factRefs: [] },
+    shortMessage: { text: 'Madison, vi la plataforma nueva con Circana. ¿Cómo coordinan la capacitación?', factRefs: ['F8'] },
+    questions: ['¿Cómo forman hoy?', '¿Quién decide?', '¿Cómo miden?'],
+    objections: [{ objection: 'Mándame información.', response: 'Con gusto, ¿cuál es el reto?', libraryKey: null }],
+    nextStep: 'Pedir 20 minutos.',
+    cautions: [],
+    ...over,
+  });
+  const FACTS: ResearchFact[] = [
+    { id: 'F8', topic: 'recent_signal', statement: 'Acuerdo con Circana.', quote: 'Circana', sourceKind: 'news', sourceUrl: 'https://x.example', publishedOn: '2026-03-11' } as ResearchFact,
+  ];
+
+  it('la referencia a un dato («F12») no es una cifra sin fuente', () => {
+    const issues = verifyPack(base({ angle: 'Su propia convicción (F8, F12) es lo que importa.' }), FACTS, 'whatsapp', { countryCode: 'US' });
+    assert.equal(issues.some((i) => i.startsWith('Usa cifras')), false, issues.join(' | '));
+  });
+
+  it('«La mayoría de CEOs de retail dice que…» sin fuente se marca', () => {
+    const msg = 'Madison, la mayoría de CEOs de retail con múltiples sedes dice que el reto es ejecutar igual. ¿Cómo lo resuelven?';
+    const issues = verifyPack(base({ shortMessage: { text: msg, factRefs: ['F8'] } }), FACTS, 'whatsapp', { countryCode: 'US' });
+    assert.ok(issues.includes('Atribuye una opinión a «la mayoría» sin fuente: usa un dato de la biblioteca o quítalo.'));
+    const fine = verifyPack(base({}), FACTS, 'whatsapp', { countryCode: 'US' });
+    assert.equal(fine.some((i) => i.includes('la mayoría')), false);
+  });
+});
+

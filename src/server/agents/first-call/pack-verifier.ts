@@ -278,6 +278,16 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\bayud(o|amos|ando|amos a|ando a) (a )?(otr[oa]s )?(bancos|empresas|compa[nñ]ias|aseguradoras)\b/,
 ];
 
+/** La clave de un dato de la ficha o del decisor («F12», «C3»), tal como la cita el redactor. */
+const FACT_ID_REF = /\b[FC]\d{1,3}\b/g;
+
+/**
+ * Sally Beauty en Prod (20-10): «La mayoría de CEOs de retail con múltiples sedes dice que…».
+ * Atribuir una opinión a «la mayoría» sin fuente es inventar un dato.
+ */
+const MAJORITY_CLAIM =
+  /\bla mayoria de (los |las )?(ceos?|empresas|compa[nñ]ias|organizaciones|lideres|gerentes|directores|directivos|retailers|areas de talento|equipos)\b[^?!\n]{0,80}\b(dice|dicen|coincide|coinciden|reconoce|reconocen|afirma|afirman|cree|creen|considera|consideran|asegura|aseguran)\b/;
+
 const LIBRARY_CLAIM_KEYS: ReadonlySet<string> = new Set(UBITS_CLAIMS.map((c) => c.key));
 
 /** Cargo en femenino o masculino (en español); `null` si el cargo no lo dice («Gerente», «HR Director»). */
@@ -360,7 +370,9 @@ export function verifyPack(
 ): string[] {
   const issues: string[] = [];
   // Nombrar una norma del país («NOM-035») no es una cifra sin fuente; sus otras cifras sí.
-  const unsupportedNumbers = (text: string, sources: readonly string[]) => unsupportedNumbersIn(stripTrainingNormIds(text, options.countryCode), sources);
+  // Tampoco la referencia a un dato: «(F8, F12)» no es la cifra 12 (Sally Beauty, Prod 20-10).
+  const unsupportedNumbers = (text: string, sources: readonly string[]) =>
+    unsupportedNumbersIn(stripTrainingNormIds(text, options.countryCode).replace(FACT_ID_REF, ' '), sources);
   const factIds = new Set(facts.map((f) => f.id));
   const isCall = channel === 'call';
 
@@ -448,6 +460,9 @@ export function verifyPack(
   const everything = normalizeForBan(
     [said, pack.meetingAsk ?? '', pack.ifNo ?? '', pack.confirmation ?? '', ...variantList.flatMap((v) => [v.text, v.voicemail ?? ''])].join(' '),
   );
+  if (MAJORITY_CLAIM.test(everything)) {
+    issues.push('Atribuye una opinión a «la mayoría» sin fuente: usa un dato de la biblioteca o quítalo.');
+  }
   if (FREE_PROMISE.test(everything)) {
     issues.push('Promete que algo es gratis o sin costo: la biblioteca no lo dice.');
   }
