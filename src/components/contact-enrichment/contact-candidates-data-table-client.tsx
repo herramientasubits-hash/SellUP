@@ -3,7 +3,7 @@
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Link2, Building2, Globe, Mail, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch } from "@/icons";
+import { Check, ExternalLink, Link2, Building2, Globe, Mail, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch, UserX } from "@/icons";
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,7 @@ import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
 import { hubspotCompanyUrl } from './hubspot-company-url';
 import { SEND_TO_REVIEW_LABEL, useSendRejectedToReview } from './contact-candidate-rejected-actions';
+import { BAR_REJECTION_REASONS, useRejectCandidates } from './use-reject-candidates';
 export { rejectionInfo } from './contact-candidate-rejection-info';
 import {
   EMPTY_SCOPE_FILTER,
@@ -438,6 +439,7 @@ export function ContactCandidatesDataTableClient({
   const { send: sendToReview } = useSendRejectedToReview(() =>
     dataTableRef.current?.clearSelection(),
   );
+  const { reject, rejecting } = useRejectCandidates(() => dataTableRef.current?.clearSelection());
 
   const quick = useQuickFilter(filteredCandidates, CANDIDATE_QUICK_FILTERS);
   const toggleQuickFilter = React.useCallback(
@@ -476,8 +478,47 @@ export function ContactCandidatesDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => openDetail(rows[0]),
       },
+      // Los duplicados ya tienen veredicto: su decisión (fusionar o descartar) vive en la ficha.
+      ...(queue === 'duplicates' ? [] : [
+      {
+        // Aprobar pasa por la ficha: ahí se revisan la identidad, el teléfono y los
+        // duplicados antes de crear el contacto (como «Aprobar» en Empresas por revisar).
+        id: 'approve',
+        scope: ['single'],
+        label: 'Aprobar (se abre la ficha para confirmar)',
+        icon: Check,
+        disabled: (rows) => rows.length !== 1,
+        onClick: (rows) => openDetail(rows[0]),
+      },
+      {
+        id: 'reject',
+        label: 'Rechazar',
+        icon: UserX,
+        variant: 'destructive',
+        loading: rejecting,
+        items: BAR_REJECTION_REASONS.map((reason) => ({
+          id: `reject:${reason}`,
+          label: reason,
+          variant: 'destructive' as const,
+          disabled: (rows: PendingContactCandidate[]) => rows.length === 0 || rejecting,
+          onClick: (rows: PendingContactCandidate[]) => reject(rows.map((row) => row.id), reason),
+        })),
+      },
+      {
+        id: 'open-linkedin',
+        label: 'Abrir LinkedIn',
+        icon: ExternalLink,
+        disabled: (rows) => !rows.some((row) => row.linkedin_url),
+        disabledLabel: () => 'Sin LinkedIn',
+        onClick: (rows) => {
+          for (const row of rows) {
+            if (row.linkedin_url) window.open(row.linkedin_url, '_blank', 'noopener,noreferrer');
+          }
+        },
+      },
+      ] satisfies DataTableBulkAction<PendingContactCandidate>[]),
     ],
-    [openDetail, isRejectedQueue, sendToReview],
+    [openDetail, isRejectedQueue, queue, sendToReview, reject, rejecting],
   );
 
   // Mismo gobierno que el detalle: sin flag o sin rol, la columna no ofrece el botón.

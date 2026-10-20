@@ -19,7 +19,7 @@ import {
   UserPlus,
 } from "@/icons";
 import { RumboIcon } from '@/components/chat/chat-mark';
-import { RUMBO_ACTION_LABELS, withRumbo } from '@/components/ai/rumbo-labels';
+import { RUMBO_ACTION_LABELS, RUMBO_IA } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -67,7 +67,9 @@ import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
+import { readOpenAccountParam } from './open-account-link';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
+import { AccountsAgentChooser } from './accounts-agent-chooser';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { BulkContactEnrichmentDrawer } from '@/components/contact-enrichment/bulk-contact-enrichment-drawer';
@@ -191,6 +193,10 @@ export function AccountsDataTableClient({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
+  // Las empresas con las que se abrió Rumbo desde la barra (su panel «¿Qué hacemos?»).
+  const [rumboRows, setRumboRows] = React.useState<Row[]>([]);
+  // Para «Volver» desde buscar contactos a «¿Qué hacemos?» con las mismas empresas.
+  const [rumboOrigin, setRumboOrigin] = React.useState<Row[] | null>(null);
   // Agente 3: el panel del agente, abierto desde el menú, la barra o el panel de la empresa.
   const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
   const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
@@ -229,6 +235,17 @@ export function AccountsDataTableClient({
     setDetailAccountId(id);
     setDetailOpen(true);
   }, []);
+
+  // `/accounts?abrir=<id>` (p. ej. al aprobar una empresa en «Por revisar»): se abre su
+  // ficha y se quita el parámetro, para que recargar no la vuelva a abrir.
+  React.useEffect(() => {
+    const { accountId, rest } = readOpenAccountParam(window.location.search);
+    if (!accountId) return;
+    // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openDetail(accountId);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+  }, [openDetail]);
 
   // Una preparación de Rumbo terminó (aunque se haya abierto desde el Centro de
   // procesos): en Empresas el resultado se ve en la ficha, en «Primer contacto».
@@ -529,20 +546,16 @@ export function AccountsDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
       },
-      ...(firstCallEnabled
-        ? [
-            {
-              id: 'first-call',
-              // Una empresa a la vez: cada una gasta su propia investigación.
-              scope: ['single'] as ('single' | 'bulk')[],
-              label: RUMBO_ACTION_LABELS.prepareFirstContact,
-              icon: RumboIcon,
-              variant: 'ai' as const,
-              disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
-              onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
-            },
-          ]
-        : []),
+      {
+        // Rumbo en general (dueña 20-10): abre su panel «¿Qué hacemos?» con las empresas
+        // marcadas, como el Rumbo de la pantalla: buscar contactos o preparar el primer contacto.
+        id: 'rumbo',
+        label: RUMBO_IA,
+        icon: RumboIcon,
+        variant: 'ai',
+        disabled: (rows) => rows.length === 0,
+        onClick: (rows) => setRumboRows(rows),
+      },
       {
         id: 'assign',
         label: 'Asignar a…',
@@ -591,32 +604,8 @@ export function AccountsDataTableClient({
           router.refresh();
         },
       },
-      {
-        id: 'bulk-enrich-contacts',
-        label: withRumbo('Buscar contactos en lote'),
-        icon: RumboIcon,
-        variant: 'ai',
-        disabled: (rows) => rows.length === 0,
-        onClick: (rows) => {
-          if (rows.length === 1) {
-            // Single selection: open individual enrichment drawer
-            const row = rows[0];
-            setEnrichCompany({
-              name: row.name,
-              domain: row.domain,
-              country: row.country,
-              countryCode: row.country_code,
-              sellupAccountId: row.id,
-            });
-            return;
-          }
-          // Multiple selection: open bulk drawer
-          setBulkEnrichAccounts(rows);
-          setBulkEnrichOpen(true);
-        },
-      },
     ],
-    [openDetail, router, firstCallEnabled],
+    [openDetail, router],
   );
 
   // ── Vista de lista ────────────────────────────────────────────
@@ -748,11 +737,49 @@ export function AccountsDataTableClient({
         onViewResult={(id) => openDetail(id, FIRST_CALL_TAB_ID)}
       />
 
+      {/* Rumbo desde la barra: «¿Qué hacemos?» con las empresas marcadas. */}
+      <AccountsAgentChooser
+        open={rumboRows.length > 0}
+        onOpenChange={(v) => !v && setRumboRows([])}
+        prospect="none"
+        firstContactAvailable={firstCallEnabled && rumboRows.length === 1 && rumboRows[0].pipeline_status !== 'archived'}
+        companies={rumboRows}
+        onChoose={(flow) => {
+          const rows = rumboRows;
+          setRumboRows([]);
+          setRumboOrigin(rows);
+          if (flow === 'first-contact' && rows.length === 1) {
+            setFirstContact({ kind: 'account', accountId: rows[0].id });
+            return;
+          }
+          if (rows.length === 1) {
+            const row = rows[0];
+            setEnrichCompany({ name: row.name, domain: row.domain, country: row.country, countryCode: row.country_code, sellupAccountId: row.id });
+            return;
+          }
+          setBulkEnrichAccounts(rows);
+          setBulkEnrichOpen(true);
+        }}
+      />
+
       {/* Contact enrichment sidepanel (Agente 2A) */}
       <ContactEnrichmentDrawer
         open={!!enrichCompany}
-        onOpenChange={(v) => !v && setEnrichCompany(null)}
+        onOpenChange={(v) => {
+          if (v) return;
+          setEnrichCompany(null);
+          setRumboOrigin(null);
+        }}
         preloadedCompany={enrichCompany}
+        onBack={
+          rumboOrigin
+            ? () => {
+                setEnrichCompany(null);
+                setRumboRows(rumboOrigin);
+                setRumboOrigin(null);
+              }
+            : undefined
+        }
       />
 
       <AssignOwnerDrawer

@@ -12,12 +12,58 @@ import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 
 export type AccountsAgentFlow = 'prospect' | 'contacts' | 'first-contact';
 
+/** Lo que Rumbo dice y ofrece, sin nada marcado o con empresas marcadas en la tabla. */
+export function chooserCopy(companies: readonly { name: string }[] | undefined, prospect: 'available' | 'unavailable' | 'none', firstContactAvailable: boolean) {
+  if (!companies || companies.length === 0) {
+    return {
+      intro: 'Hola, soy Rumbo. Te ayudo a decidir qué sigue: buscar empresas nuevas, encontrar a sus decisores o preparar el primer contacto. ¿Por dónde empezamos?',
+      options: [
+        ...(prospect === 'none'
+          ? []
+          : [
+              {
+                value: 'prospect',
+                label: prospect === 'available' ? 'Prospectar empresas' : 'Prospectar empresas (no disponible)',
+                description:
+                  prospect === 'available'
+                    ? 'Buscar empresas nuevas por país e industria, competidores o proveedores.'
+                    : 'La búsqueda de empresas no se puede usar ahora: te explicamos por qué.',
+              },
+            ]),
+        { value: 'contacts', label: 'Buscar contactos', description: 'Encontrar a los decisores de una empresa (esté o no en SellUp).' },
+        ...(firstContactAvailable
+          ? [{ value: 'first-contact', label: 'Preparar el primer contacto', description: 'Investigar la empresa y a su decisor y escribir qué decirle, por cada canal.' }]
+          : []),
+      ],
+    };
+  }
+  // Dueña 20-10: con empresas marcadas, el botón de Rumbo de la barra abre este mismo panel
+  // ya con ellas: buscar sus contactos o (con una sola) preparar el primer contacto.
+  const one = companies.length === 1 ? companies[0].name : null;
+  return {
+    intro: one
+      ? `Hola, soy Rumbo. ¿Qué hacemos con ${one}? Puedo encontrar a sus decisores${firstContactAvailable ? ' o preparar el primer contacto' : ''}.`
+      : `Hola, soy Rumbo. Tienes ${companies.length} empresas marcadas: puedo buscar los contactos de todas a la vez.`,
+    options: [
+      {
+        value: 'contacts',
+        label: 'Buscar contactos',
+        description: one ? `Encontrar a los decisores de ${one}.` : `Encontrar a los decisores de las ${companies.length} empresas, en lote.`,
+      },
+      ...(firstContactAvailable && one
+        ? [{ value: 'first-contact', label: 'Preparar el primer contacto', description: `Investigar ${one} y a su decisor y escribir qué decirle, por cada canal.` }]
+        : []),
+    ],
+  };
+}
+
 export function AccountsAgentChooser({
   open,
   onOpenChange,
   onChoose,
   prospect,
   firstContactAvailable,
+  companies,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,7 +75,10 @@ export function AccountsAgentChooser({
   prospect: 'available' | 'unavailable' | 'none';
   /** El Agente 3 está encendido. */
   firstContactAvailable: boolean;
+  /** Las empresas marcadas en la tabla (desde la barra de selección); sin ellas, la pantalla. */
+  companies?: readonly { name: string }[];
 }) {
+  const copy = chooserCopy(companies, prospect, firstContactAvailable);
   return (
     <ChatPanel open={open} onOpenChange={onOpenChange} subtitle="¿Qué hacemos?">
       <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="accounts-agent-chooser">
@@ -40,7 +89,7 @@ export function AccountsAgentChooser({
                 id: 'intro',
                 role: 'assistant',
                 // Rumbo: estratega sereno, va al grano y dice qué sigue (dueña 18-10).
-                content: 'Hola, soy Rumbo. Te ayudo a decidir qué sigue: buscar empresas nuevas, encontrar a sus decisores o preparar el primer contacto. ¿Por dónde empezamos?',
+                content: copy.intro,
               },
             ]}
           />
@@ -48,30 +97,7 @@ export function AccountsAgentChooser({
         <div className="shrink-0 px-4 pb-4 pt-2">
           <ChatQuestionPanel
             title="¿Qué quieres hacer?"
-            options={[
-              ...(prospect === 'none'
-                ? []
-                : [
-                    {
-                      value: 'prospect',
-                      label: prospect === 'available' ? 'Prospectar empresas' : 'Prospectar empresas (no disponible)',
-                      description:
-                        prospect === 'available'
-                          ? 'Buscar empresas nuevas por país e industria, competidores o proveedores.'
-                          : 'La búsqueda de empresas no se puede usar ahora: te explicamos por qué.',
-                    },
-                  ]),
-              { value: 'contacts', label: 'Buscar contactos', description: 'Encontrar a los decisores de una empresa (esté o no en SellUp).' },
-              ...(firstContactAvailable
-                ? [
-                    {
-                      value: 'first-contact',
-                      label: 'Preparar el primer contacto',
-                      description: 'Investigar la empresa y a su decisor y escribir qué decirle, por cada canal.',
-                    },
-                  ]
-                : []),
-            ]}
+            options={copy.options}
             onAnswer={(value) => onChoose(value as AccountsAgentFlow)}
           />
         </div>

@@ -8,6 +8,7 @@ import {
 } from '../agent-run-opener';
 import { AGENT_RUNS_TRAY_COPY, processRowAction } from '../agent-runs-tray-copy';
 import type { AgentRun } from '@/modules/prospect-batches/agent-runs/agent-runs-store';
+import { newlyFinishedRuns } from '../finished-runs';
 
 describe('abrir una corrida desde el Centro de procesos', () => {
   it('sin drawer montado, navega a Prospectos con la corrida en la URL', () => {
@@ -73,3 +74,23 @@ describe('botón de cada fila del Centro de procesos (dueña 06-10: «Ver lote»
     assert.deepEqual(processRowAction({ ...base, status: 'failed', redirectPath: null }), { kind: 'run' });
   });
 });
+
+describe('al terminar una búsqueda se recarga la pantalla (dueña 20-10)', () => {
+  const run = (id: string, status: AgentRun['status']) => ({ clientRequestId: id, status });
+
+  it('sólo cuentan las que estaban en curso y ahora terminaron', () => {
+    const previous = new Map<string, AgentRun['status']>([
+      ['a', 'running'],
+      ['b', 'queued'],
+      ['c', 'succeeded'],
+      ['d', 'running'],
+    ]);
+    const finished = newlyFinishedRuns(previous, [run('a', 'succeeded'), run('b', 'failed'), run('c', 'succeeded'), run('d', 'running')]);
+    assert.deepEqual(finished.map((r) => r.clientRequestId), ['a', 'b']);
+  });
+
+  it('lo que ya estaba terminado al abrir la página no recarga', () => {
+    assert.deepEqual(newlyFinishedRuns(new Map(), [run('x', 'succeeded')]), []);
+  });
+});
+

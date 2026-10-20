@@ -83,6 +83,7 @@ const mockApprove = mock.fn<(id: string, opts?: ConvertOptions) => Promise<Conve
   async () => ({ ok: true, status: 'converted_to_account', accountId: 'acc-1', hubSpotStatus: 'created' }),
 );
 const mockRefresh = mock.fn<() => void>();
+const mockPush = mock.fn<(href: string) => void>();
 
 mock.module('@/modules/prospect-review/approve-and-convert-actions', {
   namedExports: {
@@ -99,7 +100,7 @@ mock.module('@/modules/prospect-review/discard-actions', {
 });
 mock.module('next/navigation', {
   namedExports: {
-    useRouter: () => ({ refresh: mockRefresh, push: () => {}, replace: () => {} }),
+    useRouter: () => ({ refresh: mockRefresh, push: mockPush, replace: () => {} }),
   },
 });
 mock.module('sonner', {
@@ -132,6 +133,7 @@ before(async () => {
 beforeEach(() => {
   mockApprove.mock.resetCalls();
   mockRefresh.mock.resetCalls();
+  mockPush.mock.resetCalls();
 });
 afterEach(() => cleanup());
 
@@ -321,7 +323,9 @@ describe('ProspectReviewActions — inline confirmation flow (approve + create e
       confirmHubSpotMatch: false,
       source: 'prospectos_drawer',
     });
-    await waitFor(() => assert.equal(mockRefresh.mock.callCount(), 1));
+    // Dueña 20-10: aprobada, va a la empresa donde quedó (Empresas, con su ficha abierta).
+    await waitFor(() => assert.equal(mockPush.mock.callCount(), 1));
+    assert.equal(mockPush.mock.calls[0].arguments[0], '/accounts?abrir=acc-1');
   });
 
   it('carries confirmHubSpotMatch:true when the candidate has a matched HubSpot company', async () => {

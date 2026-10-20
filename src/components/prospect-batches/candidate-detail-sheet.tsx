@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   resolveLinkedInFieldDisplay,
@@ -128,6 +129,8 @@ export function CandidateDetailSheet({
   initialDuplicateIntent = false,
   onDuplicateIntentConsumed,
 }: CandidateDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, () => onOpenChange(false));
 
   const taxIdLookupState = useCandidateTaxIdLookup(candidate, onCandidateUpdated);
   const [activeTab, setActiveTab] = React.useState<string>('empresa');

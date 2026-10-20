@@ -2,6 +2,7 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import Link from 'next/link';
 import {
   Mail,
@@ -130,6 +131,8 @@ interface ContactDetailSheetProps {
 }
 
 export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, onClose);
   const [contact, setContact] = React.useState<Contact | null>(null);
   const [auditLog, setAuditLog] = React.useState<ContactAuditEntry[]>([]);
   const [account, setAccount] = React.useState<AccountWithOwner | null>(null);
