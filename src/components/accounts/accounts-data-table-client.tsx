@@ -543,6 +543,53 @@ export function AccountsDataTableClient({
         onClick: (rows) => setEditingId(rows[0].id),
       },
       {
+        // Rumbo en general (dueña 20-10): con una empresa, buscar sus contactos o preparar
+        // el primer contacto; con varias, buscar contactos en lote.
+        id: 'rumbo',
+        label: RUMBO_IA,
+        icon: RumboIcon,
+        variant: 'ai',
+        items: [
+          {
+            id: 'enrich-contacts',
+            label: RUMBO_ACTION_LABELS.findContacts,
+            icon: UserSearch,
+            variant: 'ai',
+            disabled: (rows) => rows.length === 0,
+            onClick: (rows) => {
+              if (rows.length === 1) {
+                const row = rows[0];
+                setEnrichCompany({
+                  name: row.name,
+                  domain: row.domain,
+                  country: row.country,
+                  countryCode: row.country_code,
+                  sellupAccountId: row.id,
+                });
+                return;
+              }
+              setBulkEnrichAccounts(rows);
+              setBulkEnrichOpen(true);
+            },
+          },
+          ...(firstCallEnabled
+            ? [
+                {
+                  id: 'first-call',
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: PhoneCall,
+                  variant: 'ai' as const,
+                  // Una empresa a la vez: cada una gasta su propia investigación.
+                  disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
+                  disabledLabel: (rows: Row[]) =>
+                    rows.length !== 1 ? 'De a una empresa' : rows[0].pipeline_status === 'archived' ? 'Empresa archivada' : undefined,
+                  onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
+                },
+              ]
+            : []),
+        ],
+      },
+      {
         id: 'assign',
         label: 'Asignar a…',
         icon: UserPlus,
@@ -589,53 +636,6 @@ export function AccountsDataTableClient({
           dataTableRef.current?.clearSelection();
           router.refresh();
         },
-      },
-      {
-        // Rumbo en general (dueña 20-10): con una empresa, buscar sus contactos o preparar
-        // el primer contacto; con varias, buscar contactos en lote.
-        id: 'rumbo',
-        label: RUMBO_IA,
-        icon: RumboIcon,
-        variant: 'ai',
-        items: [
-          {
-            id: 'enrich-contacts',
-            label: RUMBO_ACTION_LABELS.findContacts,
-            icon: UserSearch,
-            variant: 'ai',
-            disabled: (rows) => rows.length === 0,
-            onClick: (rows) => {
-              if (rows.length === 1) {
-                const row = rows[0];
-                setEnrichCompany({
-                  name: row.name,
-                  domain: row.domain,
-                  country: row.country,
-                  countryCode: row.country_code,
-                  sellupAccountId: row.id,
-                });
-                return;
-              }
-              setBulkEnrichAccounts(rows);
-              setBulkEnrichOpen(true);
-            },
-          },
-          ...(firstCallEnabled
-            ? [
-                {
-                  id: 'first-call',
-                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
-                  icon: PhoneCall,
-                  variant: 'ai' as const,
-                  // Una empresa a la vez: cada una gasta su propia investigación.
-                  disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
-                  disabledLabel: (rows: Row[]) =>
-                    rows.length !== 1 ? 'De a una empresa' : rows[0].pipeline_status === 'archived' ? 'Empresa archivada' : undefined,
-                  onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
-                },
-              ]
-            : []),
-        ],
       },
     ],
     [openDetail, router, firstCallEnabled],
