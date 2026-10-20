@@ -31,14 +31,15 @@ export function ContactSearchLoader({
 
   const found = progress.found > 0 ? ` · ${progress.found === 1 ? '1 contacto' : `${progress.found} contactos`} hasta ahora` : '';
   return (
-    <div className="flex flex-col" data-testid="contact-search-loader">
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="contact-search-loader">
       <AiAnalyzingState
+        className="flex-1"
         title={progress.label}
         progress={progress.percent}
         detail={`Buscando contactos en ${companyName}`}
         caption={`${seconds > 0 ? `${seconds} s` : 'Empezando'}${found}`}
       />
-      <p className="px-6 pb-2 pt-5 text-center text-xs leading-relaxed text-muted-foreground">{CONTACT_SEARCH_BACKGROUND_NOTE}</p>
+      <p className="px-6 pb-6 pt-5 text-center text-xs leading-relaxed text-muted-foreground">{CONTACT_SEARCH_BACKGROUND_NOTE}</p>
     </div>
   );
 }
