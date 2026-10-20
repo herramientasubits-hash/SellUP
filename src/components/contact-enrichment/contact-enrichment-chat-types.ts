@@ -52,6 +52,10 @@ export interface AutomaticRoutingUiResult {
   providerCandidatesCreated: { apollo: number | null; lusha: number | null };
   /** Sources that failed in this call (named at the end of the message). */
   failedProviders: Array<'Apollo' | 'Lusha'>;
+  /** «Primero HubSpot»: candidatos que HubSpot ya tenía y quedaron para revisar. */
+  hubspotFirstCandidates?: number;
+  /** true cuando HubSpot bastó y no se llamó a Apollo ni a Lusha. */
+  hubspotFirstSatisfied?: boolean;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────

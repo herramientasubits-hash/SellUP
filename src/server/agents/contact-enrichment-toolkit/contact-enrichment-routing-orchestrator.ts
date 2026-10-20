@@ -47,7 +47,9 @@ import {
 import {
   isLushaContactEnrichmentEnabled,
   isContactEnrichmentLocalReuseGateEnabled,
+  isContactEnrichmentHubSpotFirstEnabled,
 } from '@/lib/feature-flags.server';
+import { runHubSpotFirstStage, type HubSpotFirstStageResult } from './hubspot-first-stage.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   getContactEnrichmentRoutingConfigV1,
@@ -213,6 +215,34 @@ async function defaultEvaluateLocalCandidateReuse(requestId: string): Promise<Lo
   );
 }
 
+async function defaultRunHubSpotFirst(attemptId: string): Promise<HubSpotFirstStageResult | null> {
+  if (!isContactEnrichmentHubSpotFirstEnabled()) return null;
+  return runHubSpotFirstStage({ attemptId });
+}
+
+async function defaultMarkRunSatisfiedByHubSpot(
+  attemptId: string,
+  stage: Extract<HubSpotFirstStageResult, { status: 'done' }>,
+): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const current = await defaultReadRunSummary(attemptId);
+  await admin
+    .from('contact_enrichment_runs')
+    .update({
+      status: 'ready_for_review',
+      summary: {
+        ...current,
+        hubspot_first: {
+          satisfied: true,
+          candidates_inserted: stage.inserted,
+          relevant_with_email: stage.relevantWithEmail,
+        },
+      },
+    })
+    .eq('id', attemptId)
+    .in('status', ['pending', 'resolving', 'ready_to_enrich']);
+}
+
 async function defaultReadRunSummary(attemptId: string): Promise<Record<string, unknown>> {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
@@ -268,6 +298,11 @@ export type AutomaticRoutingOutcomeV1 =
    * SUCCESS, not a block. The outcome name is provider-neutral by design.
    */
   | 'fallback_skipped_local_reuse'
+  /**
+   * AGENT2-HUBSPOT-FIRST-1 — HubSpot ya tenía suficientes contactos relevantes de la empresa
+   * y quedaron como candidatos a revisión: no se llamó a Apollo ni a Lusha. Éxito terminal.
+   */
+  | 'hubspot_first_satisfied'
   | 'fallback_provider_unavailable'
   | 'fallback_blocked_by_budget'
   | 'attempt2_already_exists'
@@ -302,6 +337,12 @@ export interface AutomaticRoutingOrchestratorResult {
    * reuse branch creates nothing.
    */
   reusedExistingCandidates: number;
+  /**
+   * AGENT2-HUBSPOT-FIRST-1 — presente sólo cuando la etapa «Primero HubSpot» corrió (bandera
+   * encendida y la empresa tiene ID de HubSpot). `inserted` = candidatos de HubSpot dejados
+   * en la corrida; `satisfied` = bastaron y se omitieron los proveedores.
+   */
+  hubspotFirst?: { attemptId: string; inserted: number; satisfied: boolean };
 }
 
 export interface AutomaticRoutingOrchestratorDeps {
@@ -334,6 +375,14 @@ export interface AutomaticRoutingOrchestratorDeps {
    * because a hypothetical provider call would be unavailable or unaffordable.
    */
   evaluateLocalCandidateReuse?: (requestId: string) => Promise<LocalReuseGateResultV1>;
+  /**
+   * AGENT2-HUBSPOT-FIRST-1 — etapa «Primero HubSpot». Devuelve `null` cuando la bandera
+   * ENABLE_CONTACT_ENRICHMENT_HUBSPOT_FIRST está apagada (default): no se lee HubSpot ni se
+   * escribe nada. Falla abierto: ante cualquier error el flujo sigue con Apollo/Lusha.
+   */
+  runHubSpotFirst?: (attemptId: string) => Promise<HubSpotFirstStageResult | null>;
+  /** Marca la corrida como lista para revisión cuando HubSpot bastó. */
+  markRunSatisfiedByHubSpot?: (attemptId: string, stage: Extract<HubSpotFirstStageResult, { status: 'done' }>) => Promise<void>;
   /** Conservative default: null (unknown cost) — see evaluateBudgetGuardrailV1. */
   estimateFallbackCostUsd?: () => number | null;
   writeRoutingTelemetry?: (
@@ -374,6 +423,18 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps = {},
 ): Promise<AutomaticRoutingOrchestratorResult> {
+  const hubspotFirstCtx: { value: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null } = {
+    value: null,
+  };
+  const result = await runAutomaticRoutingCore(input, deps, hubspotFirstCtx);
+  return hubspotFirstCtx.value ? { ...result, hubspotFirst: hubspotFirstCtx.value } : result;
+}
+
+async function runAutomaticRoutingCore(
+  input: AutomaticRoutingOrchestratorInput,
+  deps: AutomaticRoutingOrchestratorDeps,
+  hubspotFirstCtx: { value: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null },
+): Promise<AutomaticRoutingOrchestratorResult> {
   const {
     getConfig = getContactEnrichmentRoutingConfigV1,
     resolveAttempt1 = defaultResolveAttempt1,
@@ -381,6 +442,8 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     isFallbackProviderAvailable = defaultIsFallbackProviderAvailable,
     createFallbackAttempt = defaultCreateFallbackAttempt,
     runLushaAttempt = defaultRunLushaAttempt,
+    runHubSpotFirst = defaultRunHubSpotFirst,
+    markRunSatisfiedByHubSpot = defaultMarkRunSatisfiedByHubSpot,
     evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
     estimateFallbackCostUsd = () => null,
     writeRoutingTelemetry = defaultWriteRoutingTelemetry,
@@ -417,6 +480,51 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
   const resolved1 = await resolveAttempt1(input.requestId, config.primaryProvider, input.triggeredBy);
   if (resolved1.outcome === 'rejected') {
     return notEngagedResult('attempt1_rejected', true, resolved1.reason);
+  }
+
+  // AGENT2-HUBSPOT-FIRST-1 — primero lo que HubSpot ya sabe de la empresa (gratis). Con la
+  // bandera apagada `runHubSpotFirst` devuelve null y esta rama no existe. Falla abierto.
+  const hubspotFirst = await runHubSpotFirst(resolved1.attemptId).catch(() => null);
+  if (hubspotFirst?.status === 'done') {
+    hubspotFirstCtx.value = {
+      attemptId: resolved1.attemptId,
+      inserted: hubspotFirst.inserted,
+      satisfied: hubspotFirst.satisfied,
+    };
+    if (hubspotFirst.satisfied) {
+      await markRunSatisfiedByHubSpot(resolved1.attemptId, hubspotFirst);
+      await writeRoutingTelemetry(
+        resolved1.attemptId,
+        buildRunColumns('primary', 'not_applicable'),
+        buildSummaryBlock({
+          role: 'primary',
+          policy,
+          actualProvider: config.primaryProvider,
+          wouldRecommendFallback: false,
+          fallbackReason: 'not_applicable',
+          fallbackExecuted: false,
+          fallbackAttemptRunId: null,
+          triggeredByAttemptRunId: null,
+          evaluatedAt: input.evaluatedAt,
+          evidence: {
+            hubspot_first_satisfied: true,
+            hubspot_candidates_inserted: hubspotFirst.inserted,
+            hubspot_relevant_with_email: hubspotFirst.relevantWithEmail,
+          },
+        }),
+      );
+      return {
+        outcome: 'hubspot_first_satisfied',
+        automaticRoutingEnabled: true,
+        attempt1: null,
+        attempt2: null,
+        fallbackExecuted: false,
+        wouldRecommendFallback: false,
+        fallbackReason: 'not_applicable',
+        blockedReason: null,
+        reusedExistingCandidates: 0,
+      };
+    }
   }
 
   const attempt1Result = await runApolloAttempt(resolved1.attemptId, input.triggeredBy);

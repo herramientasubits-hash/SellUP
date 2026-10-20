@@ -155,6 +155,12 @@ const MATRIX: readonly WriterEntry[] = [
     why: 'Escribe SÓLO metadata, en dos sitios: el anexo de bloqueo de workspace que persiste el motor de autosync (mismo patrón que persistContactMetadata en contact-hubspot-sync-runner.ts) y la bandera hubspot_company_review_pending cuando el contacto espera una revisión humana de empresa. Ninguno de los dos toca phone ni mobile_phone, así que el teléfono saliente no puede moverse por su causa: hacerle evaluar la regla de staleness le daría poder para marcar desactualizada una fila que ni siquiera cambió de teléfono.',
   },
   {
+    name: 'linkApprovedHubSpotCandidate — vínculo del candidato de «Primero HubSpot» (AGENT2-HUBSPOT-FIRST-1)',
+    file: 'src/modules/contact-enrichment/hubspot-first-approval-link.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO hubspot_contact_id, y sólo sobre el contacto que la aprobación acaba de crear y que todavía no tiene vínculo (`.is(hubspot_contact_id, null)`): nunca pisa uno existente. No toca phone ni mobile_phone, así que el teléfono saliente no puede moverse por su causa. Corre ANTES de la sincronización posterior a la aprobación, que es la que evalúa el estado; hacerle evaluar la regla aquí lo pondría a marcar una fila que ni siquiera cambió de teléfono.',
+  },
+  {
     name: 'webhook de Apollo phone reveal',
     file: 'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     verdict: 'N/A',
@@ -275,6 +281,9 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         // sale del gancho de aprobación hacia este módulo nuevo. Clasificado arriba: sólo
         // escribe metadata, nunca phone ni mobile_phone.
         'src/modules/contact-enrichment/hubspot-contact-approval-sync.ts',
+        // AGENT2-HUBSPOT-FIRST-1 — sólo escribe hubspot_contact_id sobre el contacto recién
+        // aprobado y sin vínculo. Clasificado arriba.
+        'src/modules/contact-enrichment/hubspot-first-approval-link.ts',
         'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
         'src/modules/contacts/actions.ts',
         // CUT-3B — el cableado de `persistSync` sale de actions.ts hacia el runner compartido,

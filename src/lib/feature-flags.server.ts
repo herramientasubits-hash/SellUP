@@ -381,6 +381,18 @@ export function isContactEnrichmentLocalReuseGateEnabled(): boolean {
 }
 
 /**
+ * AGENT2-HUBSPOT-FIRST-1 — «Primero HubSpot, luego Apollo/Lusha». Con esta variable en
+ * false/ausente (el DEFAULT del código; no afirma lo que Producción tenga puesto) el
+ * orquestador no lee HubSpot, no escribe candidatos y no cambia ninguna rama: Apollo y
+ * Lusha corren exactamente como antes.
+ */
+export const CONTACT_ENRICHMENT_HUBSPOT_FIRST_FLAG = 'ENABLE_CONTACT_ENRICHMENT_HUBSPOT_FIRST';
+
+export function isContactEnrichmentHubSpotFirstEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_HUBSPOT_FIRST_FLAG]);
+}
+
+/**
  * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE` en este runtime?
  *
  * PRESENCIA, nunca el valor — mismo par presencia/resolución que

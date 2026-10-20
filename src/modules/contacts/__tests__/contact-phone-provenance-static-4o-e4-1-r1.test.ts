@@ -609,6 +609,11 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     // bandera `hubspot_company_review_pending`) escriben SÓLO `metadata`, nunca `phone` ni
     // `phone_source` — demostrado en la prueba de abajo, igual que el runner.
     join('src', 'modules', 'contact-enrichment', 'hubspot-contact-approval-sync.ts'),
+    // AGENT2-HUBSPOT-FIRST-1 — al aprobar un candidato que ya venía de HubSpot, su contacto se
+    // vincula con el `hubspot_contact_id` del candidato ANTES del sync (así no se crea un
+    // duplicado en HubSpot). Su único UPDATE escribe SÓLO ese vínculo: nunca `phone` ni
+    // `phone_source` — demostrado en la prueba de abajo, igual que el runner.
+    join('src', 'modules', 'contact-enrichment', 'hubspot-first-approval-link.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -686,6 +691,26 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
         'triggerContactHubSpotSync sólo persiste metadata',
       );
     }
+  });
+
+  it('el vínculo de «Primero HubSpot» no puede tocar el par (phone, phone_source)', () => {
+    const link = stripComments(
+      readFileSync(join(SRC_DIR, 'modules', 'contact-enrichment', 'hubspot-first-approval-link.ts'), 'utf8'),
+    );
+    for (const forbidden of ['phone_source', 'mobile_phone_source', 'phone:', 'mobile_phone:']) {
+      assert.equal(
+        link.includes(forbidden),
+        false,
+        `${forbidden} convertiría al vínculo en un escritor de teléfono sin procedencia`,
+      );
+    }
+    const updates = link.match(/\.update\(\{[\s\S]*?\}\)/g) ?? [];
+    assert.equal(updates.length, 1, 'el vínculo hace un solo UPDATE');
+    assert.equal(
+      /\b(phone|mobile_phone|phone_source|email|full_name)\s*:/.test(updates[0]),
+      false,
+      'el vínculo sólo persiste hubspot_contact_id',
+    );
   });
 
   it('`createContact` escribe `phone` y su procedencia en el MISMO patch (4O-H0.5)', () => {

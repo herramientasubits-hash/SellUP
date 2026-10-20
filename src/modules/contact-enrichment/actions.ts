@@ -34,6 +34,7 @@ import { isNextControlFlowSignal } from './next-control-flow-signal';
 import { REVIEWABLE_CONTACT_CANDIDATE_STATUSES } from './reviewable-candidate-statuses';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
+import { linkApprovedHubSpotCandidate } from './hubspot-first-approval-link';
 import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
 import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
@@ -969,6 +970,10 @@ export async function approveContactCandidate(
     // internamente) si `createSupabaseAdminClient()` detecta configuración insegura — ese
     // rechazo NUNCA puede alcanzar a una aprobación que ya ocurrió.
     if (!result.ok) return result;
+
+    // AGENT2-HUBSPOT-FIRST-1 — un candidato que vino de HubSpot ya existe allá: se vincula
+    // ANTES del sync para que no se cree un duplicado. No-op para candidatos de Apollo/Lusha.
+    await linkApprovedHubSpotCandidate(admin, candidateId, result.contactId);
 
     try {
       await triggerContactHubSpotSync(result.contactId, internalUserId);
