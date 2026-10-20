@@ -29,6 +29,9 @@ describe('Diagnóstico de búsqueda de personas', () => {
     assert.ok(calls.v2.length > 0);
     assert.deepEqual(calls.v2[0].organization_ids, [TARGET.organizationId]);
     assert.equal(report.current.peopleReturned, 0);
+    // Tercera columna: la misma búsqueda documentada, sólo por dominio.
+    assert.ok(report.documentedByDomain);
+    assert.ok(calls.v2.some((q) => Array.isArray(q.q_organization_domains_list) && q.q_organization_domains_list[0] === 'davivienda.com'));
     assert.ok(report.documented.peopleReturned > 0);
     assert.deepEqual(report.documented.sampleTitles.slice(0, 1), ['Gerente de Gestión Humana']);
     const serialized = JSON.stringify(report);

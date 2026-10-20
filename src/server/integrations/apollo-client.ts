@@ -126,7 +126,13 @@ export interface ApolloPerson {
 
 export interface SearchOrganizationsParams {
   q_organization_name?: string;
+  /**
+   * @deprecated Organization Search no lo documenta y devuelve 0 (186 de 193 resoluciones del
+   * Agente 2 en 60 días). Usar `q_organization_domains_list`.
+   */
   q_organization_domains?: string[];
+  /** Filtro documentado por dominio, el mismo que usa el contrato del Agente 1. */
+  q_organization_domains_list?: string[];
   /**
    * @deprecated Para Organization Search usar q_organization_keyword_tags (L2.11).
    * Apollo ignora silenciosamente q_keywords en /mixed_companies/search.

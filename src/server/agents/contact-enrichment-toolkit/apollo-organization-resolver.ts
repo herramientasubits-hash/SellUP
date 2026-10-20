@@ -4,7 +4,9 @@
 // empresas grandes como Siesa o Bancolombia) usando organization_ids en su lugar.
 //
 // Flujo:
-//  A. Busca la organización por dominio: mixed_companies/search con q_organization_domains.
+//  A. Busca la organización por dominio: mixed_companies/search con q_organization_domains_list
+//     (el filtro documentado; hasta el 20-10 se mandaba `q_organization_domains`, que Apollo no
+//     reconoce, y casi todo terminaba resuelto por nombre — a veces en una ficha equivocada).
 //  B. Si no encuentra → busca por nombre: q_organization_name.
 //  C. Elige el mejor candidato por puntuación (dominio ≅ empresa + nombre ≅ nombre + país).
 //  D. Devuelve organization_id cuando existe.
@@ -119,7 +121,7 @@ const ORG_SEARCH_PER_PAGE = 5;
 /**
  * Resuelve el organization_id de Apollo para una empresa dada.
  *
- * Paso A: busca por dominio (q_organization_domains).
+ * Paso A: busca por dominio (q_organization_domains_list).
  * Paso B: si no encuentra → busca por nombre (q_organization_name).
  * Devuelve el mejor candidato o status='not_found'.
  */
@@ -158,7 +160,7 @@ export async function resolveApolloOrganization(
     let domainResult: ApolloSearchResult<ApolloOrganization>;
     try {
       domainResult = await searchOrganizations({
-        q_organization_domains: [normalizedDomain],
+        q_organization_domains_list: [normalizedDomain],
         per_page: ORG_SEARCH_PER_PAGE,
       });
     } catch (err) {
