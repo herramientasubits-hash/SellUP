@@ -69,7 +69,11 @@ const ROWS: Record<string, HubSpotIdBatchItemResult> = {
   },
 };
 
+/** Si está puesto, cada empresa espera a que se abra (para probar el corte al desmontar). */
+let itemGate: Promise<void> | null = null;
+
 const mockRunItem = mock.fn<(id: unknown) => Promise<HubSpotIdBatchItemResult>>(async (id) => {
+  if (itemGate) await itemGate;
   const key = String(id);
   return (
     ROWS[key] ?? {
@@ -129,6 +133,7 @@ before(async () => {
 });
 
 beforeEach(() => {
+  itemGate = null;
   mockRunItem.mock.resetCalls();
   mockResolve.mock.resetCalls();
   mockPush.mock.resetCalls();
@@ -231,6 +236,22 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     await send('123,abc');
     await rtl.screen.findByText(/no son HubSpot IDs válidos/, undefined, { timeout: 5000 });
     assert.equal(mockRunItem.mock.callCount(), 0);
+  });
+
+  it('si se minimiza el panel a mitad de la lista, no lanza las empresas que faltan', async () => {
+    let open!: () => void;
+    itemGate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    await openBatchMode();
+    await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
+    await send('65498491,65498497,111222');
+    await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 1));
+    // Minimizar desmonta el lote (el panel vuelve al modo de una empresa y se cierra).
+    rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-minimize'));
+    open();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(mockRunItem.mock.callCount(), 1);
   });
 
   it('volver a pulsar «ID» regresa al asistente de una empresa', async () => {

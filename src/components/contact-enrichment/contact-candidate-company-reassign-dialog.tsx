@@ -4,7 +4,7 @@
  * «Reasignar empresa» (AGENT2A-CANDIDATE-COMPANY-REASSIGN-1).
  *
  * Misma búsqueda que el AGENTE IA: se escribe el nombre, el dominio o el HubSpot ID y se busca
- * en SellUp y HubSpot (`resolveContactEnrichmentCompanyAction` + `buildResolveInput`). El
+ * en SellUp y HubSpot (`resolveCompanyViaRoute` + `buildResolveInput`). El
  * operador elige una empresa y la acción del servidor la vuelve a confirmar por su id antes de
  * asociarla al candidato. No aprueba nada: después de reasignar, «Aprobar» sigue siendo un clic
  * aparte.
@@ -18,7 +18,8 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/forms/field';
 import { OptionTile } from '@/components/selection/option-tile';
 import { ModalShell } from '@/components/shared/modal-shell';
-import { resolveContactEnrichmentCompanyAction } from '@/modules/contact-enrichment/actions';
+// Por ruta y con tiempo límite: como acción del servidor quedaba en la fila de la pestaña.
+import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-company-client';
 import { reassignContactCandidateCompanyAction } from '@/modules/contact-enrichment/candidate-company-reassignment-actions';
 import type { CompanyReassignmentSelection } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
 import type {
@@ -116,7 +117,7 @@ export function ContactCandidateCompanyReassignDialog({
     setError(null);
     setSelectedKey(null);
     try {
-      const res = await resolveContactEnrichmentCompanyAction(buildResolveInput(q));
+      const res = await resolveCompanyViaRoute({ ...buildResolveInput(q) });
       if (!res.success || !res.data) {
         setResults([]);
         setError(res.error ?? 'No fue posible buscar la empresa.');

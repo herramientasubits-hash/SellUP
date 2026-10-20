@@ -153,6 +153,16 @@ export function ContactEnrichmentHubSpotIdBatch({
     onBusyChange?.(isRunning);
   }, [isRunning, onBusyChange]);
 
+  // AGENT2-RESOLVE-COMPANY-ROUTE-1 — al minimizar o cerrar el panel este componente se desmonta;
+  // sin esto el bucle seguía lanzando, una tras otra, búsquedas completas que nadie veía y que
+  // ocupaban la fila de acciones de la pestaña (todo lo demás esperaba detrás).
+  React.useEffect(() => {
+    const generations = generationRef;
+    return () => {
+      generations.current += 1;
+    };
+  }, []);
+
   React.useEffect(() => {
     requestAnimationFrame(() => {
       const scrollEl =

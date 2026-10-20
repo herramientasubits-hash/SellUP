@@ -14,7 +14,8 @@ import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types';
 import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
 import { buildResolveInput } from '@/components/contact-enrichment/contact-enrichment-chat-reducer';
-import { resolveContactEnrichmentCompanyAction } from '@/modules/contact-enrichment/actions';
+// Por ruta y con tiempo límite: como acción del servidor quedaba en la fila de la pestaña.
+import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-company-client';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import { resolveFirstContactCompanyAction, type FirstContactCompanyHubSpot } from '@/modules/speech/first-contact-company-actions';
 import { LATAM_COUNTRIES } from '@/modules/accounts/types';
@@ -87,8 +88,14 @@ export function FirstContactCompanyPicker({
     say('¿Para qué empresa preparamos el primer contacto?', query);
     setStep({ id: 'searching', query });
     try {
-      const result = await resolveContactEnrichmentCompanyAction(buildResolveInput(query));
-      const candidates = (result.success ? result.data?.candidates ?? [] : []).filter((c) => c.source !== 'manual');
+      const result = await resolveCompanyViaRoute({ ...buildResolveInput(query) });
+      // Un fallo (red, sesión, tiempo agotado) no es «no la encontramos»: se avisa y se reintenta.
+      if (!result.success) {
+        toast.error(result.error ?? 'No pudimos buscar la empresa. Vuelve a intentarlo.');
+        setStep({ id: 'ask' });
+        return;
+      }
+      const candidates = (result.data?.candidates ?? []).filter((c) => c.source !== 'manual');
       if (candidates.length === 0) {
         setStep({ id: 'country', name: query.trim() });
         return;

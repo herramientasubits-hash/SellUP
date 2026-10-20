@@ -9,10 +9,10 @@ import { Field } from '@/components/forms/field';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AgentChatTimeline, useProgressiveReveal } from '@/components/agent-chat';
 import { ChatComposer, ChatQuestionCard, type ChatQuestionOptionDetail } from '@/components/chat';
-import {
-  resolveContactEnrichmentCompanyAction,
-  createContactEnrichmentRequestAction,
-} from '@/modules/contact-enrichment/actions';
+import { createContactEnrichmentRequestAction } from '@/modules/contact-enrichment/actions';
+// AGENT2-RESOLVE-COMPANY-ROUTE-1 — identificar la empresa va por ruta y con tiempo límite: como
+// acción del servidor quedaba en la fila de la pestaña (198 s en «Buscando…», 20-10).
+import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-company-client';
 // AGENT2-ROUTING-WIRE-1: the wizard CTA runs the automatic Apollo→Lusha router.
 // It no longer imports the manual per-provider request actions — the user never
 // picks a provider; routing is decided by the orchestrator behind
@@ -195,9 +195,9 @@ export function ContactEnrichmentChatWizard({
     // SIEMPRE se cierre. Sin él, una llamada que rechaza (invocación cortada,
     // red caída, función matada por la plataforma tras esperar a HubSpot) dejaba
     // el wizard en `resolving` para siempre: el spinner infinito del incidente.
-    let result: Awaited<ReturnType<typeof resolveContactEnrichmentCompanyAction>>;
+    let result: Awaited<ReturnType<typeof resolveCompanyViaRoute>>;
     try {
-      result = await resolveContactEnrichmentCompanyAction(buildResolveInput(query));
+      result = await resolveCompanyViaRoute({ ...buildResolveInput(query) });
     } catch {
       dispatch({
         type: 'RESOLVE_FAILED',

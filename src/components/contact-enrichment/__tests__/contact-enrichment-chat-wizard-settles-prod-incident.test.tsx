@@ -129,6 +129,13 @@ mock.module('@/modules/contact-enrichment/actions', {
   },
 });
 
+// AGENT2-RESOLVE-COMPANY-ROUTE-1 — la empresa se busca por ruta (con tiempo límite), no por acción.
+mock.module('@/modules/contact-enrichment/resolve-company-client', {
+  namedExports: {
+    resolveCompanyViaRoute: () => mockResolve(),
+  },
+});
+
 mock.module('@/modules/contact-enrichment/automatic-routing-actions', {
   namedExports: {
     runAutomaticContactEnrichmentForRequestAction: async () => ({ success: true }),

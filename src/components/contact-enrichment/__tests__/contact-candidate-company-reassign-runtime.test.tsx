@@ -122,6 +122,12 @@ mock.module('@/modules/contact-enrichment/actions', {
     resolveContactEnrichmentCompanyAction: (input: unknown) => mockResolve(input),
   },
 });
+// AGENT2-RESOLVE-COMPANY-ROUTE-1 — la empresa se busca por ruta (con tiempo límite), no por acción.
+mock.module('@/modules/contact-enrichment/resolve-company-client', {
+  namedExports: {
+    resolveCompanyViaRoute: (input: unknown) => mockResolve(input),
+  },
+});
 mock.module('@/modules/contact-enrichment/candidate-company-reassignment-actions', {
   namedExports: {
     reassignContactCandidateCompanyAction: (id: string, selection: unknown) =>
