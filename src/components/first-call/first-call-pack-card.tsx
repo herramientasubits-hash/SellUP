@@ -37,6 +37,8 @@ import {
 import { ubitsProductNames } from '@/server/agents/first-call/ubits-messaging-library';
 import { FirstCallLauncher, type FirstCallContactOption, type FirstContactLaunchRequest } from './first-call-launcher';
 import { MAIN_VERSION, MessageTypeSelect, messageTypeOptions } from './message-type-select';
+import { LanguageSwitch, type PackLanguage } from './language-switch';
+import { localizedContent } from '@/server/agents/first-call/pack-translation';
 
 const STATUS: Record<FirstCallPackStatus, { status: StatusType; label: string }> = {
   draft: { status: 'info', label: 'Lista para usar' },
@@ -199,8 +201,13 @@ export function FirstCallPackCard({
   );
   // Los hechos del propio paquete: los de la ficha actual pueden estar numerados distinto.
   const factMap = React.useMemo(() => new Map((pack.facts ?? []).map((f) => [f.id, f])), [pack.facts]);
-  const content = pack.content;
-  const script = pack.editedScript ?? content?.callScript.text ?? '';
+  // Brasil y EE. UU.: lo que se dice o se envía también en el idioma del país.
+  const [language, setLanguage] = React.useState<PackLanguage>('es');
+  const localLanguage = pack.content?.localVersion?.language ?? null;
+  const inLocal = language === 'local' && !!localLanguage;
+  const content = pack.content && inLocal ? localizedContent(pack.content) : pack.content;
+  // Tu versión editada del guion es en español.
+  const script = (inLocal ? null : pack.editedScript) ?? content?.callScript.text ?? '';
   const closed = pack.status === 'used' || pack.status === 'discarded';
 
   const run = async (action: () => Promise<{ success: boolean; error?: string }>, ok: string) => {
@@ -239,7 +246,7 @@ export function FirstCallPackCard({
   // Las preparaciones viejas sólo traían la apertura (sin mensaje de voz): se muestra aparte.
   const openerOnly = isCall && !!shownVariant && !shownVariant.voicemail;
   const shownScript = isCall && shownVariant && !openerOnly ? shownVariant.text : script;
-  const canEditScript = !closed && !shownVariant;
+  const canEditScript = !closed && !shownVariant && !inLocal;
   const message = shownVariant
     ? isCall
       ? shownVariant.voicemail ?? content?.shortMessage.text ?? ''
@@ -272,6 +279,7 @@ export function FirstCallPackCard({
               onValueChange={setVersion}
               isCall={isCall}
             />
+            {localLanguage && <LanguageSwitch language={localLanguage} value={language} onValueChange={setLanguage} />}
             {pack.status !== 'used' && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -365,7 +373,7 @@ export function FirstCallPackCard({
               ) : (
                 <p className="whitespace-pre-line rounded-xl bg-surface-muted p-3 text-sm leading-relaxed text-foreground">{shownScript}</p>
               )}
-              {pack.editedScript && !editing && !shownVariant && <p className="text-xs text-muted-foreground">Es tu versión editada.</p>}
+              {pack.editedScript && !editing && !shownVariant && !inLocal && <p className="text-xs text-muted-foreground">Es tu versión editada.</p>}
             </Block>
           )}
 

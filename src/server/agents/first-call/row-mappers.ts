@@ -16,6 +16,8 @@ import {
   type FirstCallPack,
   type FirstCallPackContent,
   type FirstCallPackStatus,
+  type LocalLanguage,
+  type LocalPackVersion,
   type ResearchBrief,
   type ResearchBriefStatus,
   type ResearchFact,
@@ -214,6 +216,39 @@ function packContentFrom(value: unknown): FirstCallPackContent | null {
     confirmation: text(pack['confirmation']) ?? undefined,
     contactInsight: contactInsightFrom(pack['contactInsight']),
     contactResearch: contactResearchFrom(pack['contactResearch']),
+    localVersion: localVersionFrom(pack['localVersion']),
+  };
+}
+
+const LOCAL_LANGUAGES: readonly LocalLanguage[] = ['pt-BR', 'en-US'];
+
+/** La versión en el idioma del país guardada con la preparación (o `undefined`). */
+function localVersionFrom(value: unknown): LocalPackVersion | undefined {
+  const record = asRecord(value);
+  const language = text(record?.['language']);
+  if (!record || !language || !(LOCAL_LANGUAGES as readonly string[]).includes(language)) return undefined;
+  // Las preguntas y objeciones van en el mismo orden que en español: un texto vacío se conserva.
+  const strings = (v: unknown) => (Array.isArray(v) ? v : []).map((s) => (typeof s === 'string' ? s : ''));
+  return {
+    language: language as LocalLanguage,
+    callScript: text(record['callScript']) ?? '',
+    shortMessage: text(record['shortMessage']) ?? '',
+    variants: (Array.isArray(record['variants']) ? record['variants'] : [])
+      .map(asRecord)
+      .filter((v): v is Record<string, unknown> => !!v && approachFrom(v['approach']) !== null)
+      .map((v) => ({
+        approach: approachFrom(v['approach'])!,
+        text: text(v['text']) ?? '',
+        ...(text(v['voicemail']) ? { voicemail: text(v['voicemail'])! } : {}),
+      })),
+    ...(text(record['meetingAsk']) ? { meetingAsk: text(record['meetingAsk'])! } : {}),
+    ...(text(record['ifNo']) ? { ifNo: text(record['ifNo'])! } : {}),
+    ...(text(record['confirmation']) ? { confirmation: text(record['confirmation'])! } : {}),
+    questions: strings(record['questions']),
+    objections: (Array.isArray(record['objections']) ? record['objections'] : []).map((o) => {
+      const r = asRecord(o);
+      return { objection: text(r?.['objection']) ?? '', response: text(r?.['response']) ?? '' };
+    }),
   };
 }
 

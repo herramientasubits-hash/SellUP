@@ -323,6 +323,7 @@ export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
   redactar_llamada: 'Preparar el primer contacto (Claude)',
   contacto_busqueda: 'Buscar al decisor (Tavily)',
   investigar_contacto: 'Investigar al decisor (Claude)',
+  version_idioma_pais: 'Versión en el idioma del país (Claude)',
 };
 
 export const SEARCH_MODE_LABELS: Readonly<Record<string, string>> = {

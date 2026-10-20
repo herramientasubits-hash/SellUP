@@ -18,7 +18,8 @@ import { buildNewsSearchBody, parseNewsResponse } from '../news-search';
 import { addressFormFor, roleFocusFor, DEFAULT_ROLE_FOCUS } from '../ubits-messaging-library';
 import { curatedListLabels, mapBriefRow, mapPackRow, readPriorClassification } from '../row-mappers';
 import { parseFirstCallRequest } from '../../../../modules/speech/first-call-request';
-import type { ResearchFact } from '../types';
+import type { FirstCallPackContent, ResearchFact } from '../types';
+import { buildLocalVersion, localLanguageFor, localizedContent, looksUntranslated, numbersIn, translationSegments, verifyTranslation } from '../pack-translation';
 
 const TODAY = '2026-10-16';
 
@@ -347,3 +348,95 @@ describe('solicitud del navegador', () => {
     );
   });
 });
+
+describe('versión en el idioma del país (dueña 20-10)', () => {
+  const CONTENT: FirstCallPackContent = {
+    reasonToCall: { text: 'Abrieron 2 sedes.', factRefs: ['F1'] },
+    angle: 'Onboarding de asesores nuevos.',
+    callScript: { text: 'Hola María, soy Ana de UBITS. Vi que buscan 40 asesores.', factRefs: [] },
+    shortMessage: { text: 'Hola María, vi las 1.500 vacantes. ¿Le sirve?', factRefs: [] },
+    variants: [{ approach: 'trigger', text: 'Vi la apertura de sedes.', factRefs: [], voicemail: 'Le dejo mi mensaje.' }],
+    meetingAsk: '¿El martes a las 15:00 o el jueves a las 10:00?',
+    questions: ['¿Cómo forman hoy?', '¿Quién define la inducción?'],
+    objections: [{ objection: 'Mándame información.', response: 'Con gusto, ¿cuál es el reto?', libraryKey: null }],
+    nextStep: 'Agendar 20 minutos.',
+    cautions: ['Es una hipótesis.'],
+  };
+
+  it('sólo Brasil y EE. UU. llevan otro idioma', () => {
+    assert.equal(localLanguageFor('BR'), 'pt-BR');
+    assert.equal(localLanguageFor('us'), 'en-US');
+    assert.equal(localLanguageFor('ES'), null);
+    assert.equal(localLanguageFor(null), null);
+  });
+
+  it('las cifras se comparan sin separadores y sin las horas del día', () => {
+    assert.deepEqual(numbersIn('1.500 personas y 4,5 horas'), ['1500', '45']);
+    assert.deepEqual(numbersIn('1,500 people and 4.5 hours'), ['1500', '45']);
+    assert.deepEqual(numbersIn('el martes a las 15:00 o el jueves a las 10h'), []);
+    assert.deepEqual(numbersIn('Tuesday at 3:00 p.m. or Thursday at 10 a.m.'), []);
+  });
+
+  it('sólo va lo que se dice o se envía; las notas para el vendedor quedan en español', () => {
+    const ids = translationSegments(CONTENT).map((s) => s.id);
+    assert.deepEqual(ids, ['script', 'message', 'variant1', 'variant1_voicemail', 'meeting', 'question1', 'question2', 'objection1', 'response1']);
+  });
+
+  it('avisa lo que falta, las cifras inventadas o perdidas y el texto mucho más largo', () => {
+    const segments = translationSegments(CONTENT);
+    const ok = new Map(segments.map((s) => [s.id, s.text]));
+    assert.deepEqual(
+      verifyTranslation(segments, ok, 'en-US').filter((i) => !i.endsWith('quedó en español.')),
+      [],
+    );
+    const bad = new Map(ok);
+    bad.delete('question2');
+    bad.set('message', 'Hi María, I saw the openings. Does it help?');
+    bad.set('script', 'Hi María, Ana from UBITS here. You are hiring 40 reps and 300 more.');
+    bad.set('response1', `${'Sure, '.repeat(30)}what is the challenge?`);
+    const issues = verifyTranslation(segments, bad, 'en-US');
+    assert.ok(issues.includes('Falta la pregunta 2 en inglés.'));
+    assert.ok(issues.includes('En inglés, el mensaje perdió cifras de la versión en español (1500).'));
+    assert.ok(issues.includes('En inglés, el guion trae cifras que no están en español (300).'));
+    assert.ok(issues.includes('En inglés, la respuesta a la objeción 1 quedó mucho más largo que en español.'));
+  });
+
+  it('un texto que quedó en español se avisa; el portugués, aunque se parezca, no (Coca-Cola y Magalu, banco 20-10)', () => {
+    const es = 'Vi que Magazine Luiza está en expansión importante: Amazon en junio, Mercado Libre en septiembre y ahora Shopee.';
+    const pt = 'Vi que a Magazine Luiza está em expansão importante: Amazon em junho, Mercado Livre em setembro e agora Shopee.';
+    assert.equal(looksUntranslated(es, pt), false);
+    assert.equal(looksUntranslated(es, es), true);
+    assert.equal(looksUntranslated('¿Cómo forman hoy?', '¿Cómo forman hoy?'), false, 'un texto muy corto no se juzga');
+    const segments = translationSegments(CONTENT);
+    const issues = verifyTranslation(segments, new Map(segments.map((s) => [s.id, s.text])), 'en-US');
+    assert.ok(issues.includes('En inglés, el guion quedó en español.'));
+  });
+
+  it('una nota «No aplica…» para el vendedor no se adapta (Magalu: se convirtió en un pedido de reunión inventado)', () => {
+    const ids = translationSegments({ ...CONTENT, meetingAsk: 'No aplica en este enfoque: es para identificar al decisor.' }).map((s) => s.id);
+    assert.equal(ids.includes('meeting'), false);
+  });
+
+  it('la tarjeta muestra el otro idioma y lo que no se adaptó queda en español', () => {
+    const translated = new Map(translationSegments(CONTENT).map((s) => [s.id, `PT ${s.text}`]));
+    translated.delete('question2');
+    const content = { ...CONTENT, localVersion: buildLocalVersion(CONTENT, translated, 'pt-BR') };
+    const shown = localizedContent(content);
+    assert.equal(shown.callScript.text, `PT ${CONTENT.callScript.text}`);
+    assert.equal(shown.variants![0].voicemail, 'PT Le dejo mi mensaje.');
+    assert.deepEqual(shown.questions, ['PT ¿Cómo forman hoy?', '¿Quién define la inducción?']);
+    assert.equal(shown.objections[0].response, 'PT Con gusto, ¿cuál es el reto?');
+    assert.equal(shown.reasonToCall.text, CONTENT.reasonToCall.text);
+    assert.deepEqual(shown.cautions, CONTENT.cautions);
+    assert.equal(localizedContent(CONTENT), CONTENT, 'sin otra versión no cambia nada');
+  });
+
+  it('se lee de la base tal como se guardó (y un idioma desconocido se ignora)', () => {
+    const local = buildLocalVersion(CONTENT, new Map(translationSegments(CONTENT).map((s) => [s.id, `EN ${s.text}`])), 'en-US');
+    const row = (localVersion: unknown) =>
+      mapPackRow({ id: 'p', account_id: 'a', status: 'draft', channel: 'call', goal: 'book_meeting', pack: { ...CONTENT, localVersion }, created_at: TODAY });
+    assert.deepEqual(row(local).content!.localVersion, local);
+    assert.equal(row({ ...local, language: 'fr-FR' }).content!.localVersion, undefined);
+  });
+});
+

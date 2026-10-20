@@ -15,6 +15,7 @@ import { RESEARCH_SUBMIT_TOOL } from '../research-prompt';
 import { runFirstCall, type BriefPatch, type FirstCallContext, type PackInsert, type RunFirstCallDeps, type UsageLogInput } from '../run-first-call';
 import type { FirstCallRequest, ResearchBrief } from '../types';
 import { WRITER_SUBMIT_TOOL } from '../writer-prompt';
+import { TRANSLATION_SUBMIT_TOOL } from '../pack-translation';
 
 const ACCOUNT_ID = '7d2b8c5e-1f3a-4b6c-9d8e-0a1b2c3d4e5f';
 const NOW = Date.parse('2026-10-16T15:00:00Z');
@@ -71,6 +72,20 @@ function toolUse(name: string, input: unknown): AnthropicConversationResult {
   return { content: [{ type: 'tool_use', id: `tu_${name}`, name, input }], stopReason: 'tool_use', usage: usage(), requests: 1 };
 }
 
+/** Los textos que llegan al traductor: `[clave]` y el texto debajo. */
+function segmentsOf(body: AnthropicRequestBody): Array<{ id: string; text: string }> {
+  const message = body.messages[0].content as string;
+  return [...message.matchAll(/\n\[([a-z0-9_]+)\]\n([\s\S]*?)(?=\n\n\[[a-z0-9_]+\]\n|$)/g)].map((m) => ({ id: m[1], text: m[2] }));
+}
+
+/** «Inglés» de mentira: cada palabra al revés (no repite las del español, conserva las cifras). */
+const fakeEnglish = (text: string) => `EN ${text.replace(/\p{L}{3,}/gu, (w) => [...w].reverse().join(''))}`;
+
+/** Un traductor falso que devuelve cada texto transformado, con su misma clave. */
+function translatedEcho(body: AnthropicRequestBody, transform: (text: string, id: string) => string): AnthropicConversationResult {
+  return toolUse(TRANSLATION_SUBMIT_TOOL, { segments: segmentsOf(body).map((s) => ({ id: s.id, text: transform(s.text, s.id) })) });
+}
+
 const RESEARCH_SUBMISSION = {
   summary: 'Cadena de tiendas en 12 ciudades que está contratando para nuevas sedes.',
   facts: [
@@ -118,6 +133,7 @@ function harness(options: {
   research?: (body: AnthropicRequestBody) => Promise<AnthropicConversationResult>;
   writer?: Array<unknown>;
   briefLocked?: boolean;
+  translator?: (body: AnthropicRequestBody) => Promise<AnthropicConversationResult>;
 } = {}): Harness {
   const calls: Harness['calls'] = { fetched: [], news: [], conversations: [], briefPatches: [], packs: [], logs: [], briefsCreated: 0, statuses: [] };
   const writerAnswers = [...(options.writer ?? [GOOD_PACK])];
@@ -165,6 +181,9 @@ function harness(options: {
       const submitTool = (body.tools as Array<{ name?: string }>).find((t) => t.name === RESEARCH_SUBMIT_TOOL || t.name === WRITER_SUBMIT_TOOL);
       if (submitTool?.name === RESEARCH_SUBMIT_TOOL) {
         return options.research ? options.research(body) : toolUse(RESEARCH_SUBMIT_TOOL, RESEARCH_SUBMISSION);
+      }
+      if ((body.tools as Array<{ name?: string }>).some((t) => t.name === TRANSLATION_SUBMIT_TOOL)) {
+        return options.translator ? options.translator(body) : translatedEcho(body, fakeEnglish);
       }
       const answer = writerAnswers.shift() ?? GOOD_PACK;
       return toolUse(WRITER_SUBMIT_TOOL, answer);
@@ -876,5 +895,72 @@ describe('runFirstCall — entrega de la investigación cortada (Grupo LALA, ban
     const log = calls.logs.find((l) => l.agentStep === 'investigar_empresa')!;
     assert.deepEqual(log.metadata.stop_reasons, ['max_tokens', 'tool_use']);
     assert.equal(log.metadata.forced_submission, true);
+  });
+});
+
+describe('runFirstCall — Brasil y EE. UU.: también en el idioma del país', () => {
+  const usContext = (): Partial<FirstCallContext> => ({
+    internal: { ...INTERNAL, account: { ...INTERNAL.account, country: 'Estados Unidos', countryCode: 'US' } },
+  });
+
+  it('en Colombia no se escribe otra versión', async () => {
+    const { deps, calls } = harness();
+    await runFirstCall(REQUEST, deps);
+    assert.equal(calls.conversations.some((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === TRANSLATION_SUBMIT_TOOL)), false);
+    assert.equal((calls.packs[0].content as { localVersion?: unknown }).localVersion, undefined);
+  });
+
+  it('en EE. UU. la preparación queda en español y en inglés, con su costo en Uso de IA', async () => {
+    const { deps, calls } = harness({ context: usContext() });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const pack = calls.packs[0];
+    const content = pack.content!;
+    assert.match(content.callScript.text, /^Hola/, 'la versión principal sigue en español');
+    assert.equal(content.localVersion?.language, 'en-US');
+    assert.equal(content.localVersion?.callScript, fakeEnglish(content.callScript.text));
+    assert.equal(content.localVersion?.questions.length, content.questions.length);
+    assert.equal(content.localVersion?.objections[0].response, fakeEnglish(content.objections[0].response));
+    assert.equal(content.localVersion?.meetingAsk, fakeEnglish(content.meetingAsk!));
+    assert.equal(pack.status, 'draft');
+    const log = calls.logs.find((l) => l.agentStep === 'version_idioma_pais')!;
+    assert.equal(log.status, 'success');
+    assert.equal(log.metadata.language, 'en-US');
+    assert.equal(log.countryCode, 'US');
+    const translatorBody = calls.conversations.find((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === TRANSLATION_SUBMIT_TOOL))!;
+    assert.match((translatorBody.system as Array<{ text: string }>)[0].text, /Inglés de Estados Unidos/);
+  });
+
+  it('una cifra que no estaba en español se corrige una vez y, si sigue, queda para revisar', async () => {
+    let calls = 0;
+    const { deps, calls: seen } = harness({
+      context: usContext(),
+      translator: async (body) => {
+        calls += 1;
+        return translatedEcho(body, (t, id) => (id === 'meeting' ? `${fakeEnglish(t)} We train 5000 people.` : fakeEnglish(t)));
+      },
+    });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(calls, 2, 'se pidió una corrección');
+    const pack = seen.packs[0];
+    assert.equal(pack.status, 'needs_review');
+    assert.ok(pack.verifierIssues.some((i) => /^En inglés, el pedido de reunión trae cifras que no están en español \(5000\)/.test(i)));
+    assert.ok(pack.content!.localVersion, 'la versión se guarda igual, con el aviso');
+  });
+
+  it('si la versión en inglés falla, la de español sigue sirviendo y el aviso lo dice', async () => {
+    const { deps, calls } = harness({
+      context: usContext(),
+      translator: async () => {
+        throw new AnthropicApiError(529, 'overloaded', 'Claude está ocupado', EMPTY_USAGE);
+      },
+    });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const pack = calls.packs[0];
+    assert.equal(pack.content!.localVersion, undefined);
+    assert.equal(pack.status, 'needs_review');
+    assert.deepEqual(pack.verifierIssues, ['No se pudo escribir la versión en inglés: usa la de español o pide otra versión.']);
+    assert.equal(calls.logs.find((l) => l.agentStep === 'version_idioma_pais')!.status, 'error');
   });
 });

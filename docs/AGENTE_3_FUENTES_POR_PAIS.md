@@ -107,7 +107,7 @@ Está en `src/server/agents/first-call/country-style.ts`. Sale del estudio de es
   - el saludo y el permiso: «¿me regala 30 segundos?» en Colombia, «¿me permite…?» en México y en el resto;
   - palabras que en ese país suenan a otro, que el verificador marca. Ejemplos: «platicar» fuera de México y Centroamérica, «licenciado» en Colombia, «agendar» o «celular» en España, «ahorita» en casi todos.
 
-**Pendiente de decisión de la dueña:** en Brasil lo natural es escribir en portugués, y en EE. UU. en inglés (salvo roles regionales de Latinoamérica). Hoy todo sale en español con el tono del país, porque escribir en otro idioma depende de que el vendedor lo hable.
+**Idioma (dueña 20-10):** en Brasil y EE. UU. cada preparación sale en **dos versiones**. La de español es la principal: el agente la escribe y la verifica. Además se adapta al portugués de Brasil o al inglés de EE. UU. todo lo que se dice o se envía: guion, mensaje de voz, mensajes, versiones, pedido de reunión, preguntas, objeciones y confirmación. Las notas para el vendedor quedan en español. Un verificador sin IA avisa si falta un texto, si aparece o se pierde una cifra, si un texto quedó en español o si quedó mucho más largo. Las notas «No aplica…» no se adaptan. En la tarjeta, el selector «Idioma» cambia entre las dos versiones. Ver `src/server/agents/first-call/pack-translation.ts`.
 
 ## Normas de formación por país
 
@@ -132,4 +132,4 @@ Estas 11 se investigan **sin decisor**: no se inventan personas.
 - **Industrias sin gremio activo:** Nicaragua (el gobierno canceló COSEP y 18 cámaras en 2023), y logística y retail en República Dominicana. Ahí se busca en la prensa del país y en la regional.
 - **Merco no existe** en Venezuela ni en Nicaragua, y Merco Talento solo se publica en 10 países.
 - **No hay asociación nacional de RR. HH. confirmada** en Chile, Costa Rica, Honduras, El Salvador ni Nicaragua.
-- **Pendientes de la dueña:** escribir en portugués para Brasil y en inglés para EE. UU.
+- **Resuelto 20-10:** Brasil y EE. UU. llevan la versión en español y la del idioma del país.
