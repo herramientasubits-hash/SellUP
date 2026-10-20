@@ -10,7 +10,8 @@
 // HubSpot — el candidato queda en `pending_review` y lo aprueba una persona.
 
 import type { ExistingContactSnapshot } from '@/modules/contact-enrichment/types';
-import { classifyContactRelevance } from './contact-relevance-classifier';
+import type { HubSpotOwnerDirectory } from '@/server/integrations/hubspot-free-company-policy';
+import { classifyContactRelevance, type ContactRelevanceCategory } from './contact-relevance-classifier';
 
 /**
  * Cuántos contactos relevantes CON CORREO de HubSpot bastan para no llamar a los proveedores.
@@ -39,6 +40,42 @@ export interface HubSpotFirstCandidateRow {
   enrichment_metadata: Record<string, unknown>;
 }
 
+/**
+ * AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — de quién es cada contacto en HubSpot. Un contacto de OTRO
+ * vendedor activo no se ofrece (misma regla que la toma de empresas libres): sí los sin dueño,
+ * los de una bolsa, los de un dueño desactivado y los del propio vendedor.
+ */
+export interface HubSpotFirstOwnership {
+  /** Dueño de HubSpot del vendedor que busca; null si no se pudo saber. */
+  sellerOwnerId: string | null;
+  /** Directorio de dueños; null si HubSpot no lo devolvió (entonces sólo pasan sin dueño o propios). */
+  directory: HubSpotOwnerDirectory | null;
+}
+
+export function isOfferableHubSpotContact(ownerId: string | null | undefined, ownership: HubSpotFirstOwnership): boolean {
+  const owner = ownerId?.trim() || null;
+  if (owner === null) return true;
+  if (ownership.sellerOwnerId && owner === ownership.sellerOwnerId) return true;
+  const directory = ownership.directory;
+  return !!directory && (directory.poolIds.has(owner) || directory.deactivatedIds.has(owner));
+}
+
+const LEADERSHIP_TITLE =
+  /\b(chro|cpo|vp|vice ?presiden|director|directora|gerente|subgerente|head|jef[ea]|l[ií]der|lead|manager|chief|presidente)/i;
+
+/**
+ * Orden en que conviene revisar (menor = antes). Primero quien decide la formación (líder de
+ * formación/aprendizaje), luego quien lidera RR. HH./talento/cultura, luego la gerencia general,
+ * y al final los cargos operativos. Puro y estable: sólo depende del cargo y la categoría.
+ */
+export function hubspotFirstPriority(title: string | null | undefined, category: ContactRelevanceCategory | null): number {
+  const leader = LEADERSHIP_TITLE.test(title ?? '');
+  if (category === 'learning') return leader ? 0 : 3;
+  if (category === 'hr' || category === 'people' || category === 'talent' || category === 'culture') return leader ? 1 : 4;
+  if (category === 'executive_sponsor') return 2;
+  return leader ? 4 : 5;
+}
+
 export interface HubSpotFirstSelection {
   rows: HubSpotFirstCandidateRow[];
   /** Cuántos de esos tienen correo: lo que cuenta para saltarse a los proveedores. */
@@ -47,6 +84,8 @@ export interface HubSpotFirstSelection {
   skippedKnownInSellUp: number;
   skippedNotRelevant: number;
   skippedAlreadyInRun: number;
+  /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — contactos de otro vendedor activo en HubSpot. */
+  skippedOtherSeller: number;
 }
 
 function emailKey(value: string | null | undefined): string | null {
@@ -64,6 +103,8 @@ export function selectHubSpotFirstCandidates(input: {
   sellupContacts: readonly ExistingContactSnapshot[];
   /** IDs de HubSpot que ya son candidatos de esta corrida (reintento idempotente). */
   alreadyInRunHubspotIds: ReadonlySet<string>;
+  /** Sin esto no se filtra por dueño (pruebas antiguas); la etapa siempre lo pasa. */
+  ownership?: HubSpotFirstOwnership;
 }): HubSpotFirstSelection {
   const knownEmails = new Set(input.sellupContacts.map((c) => emailKey(c.email)).filter((k): k is string => k !== null));
   const knownLinkedin = new Set(
@@ -77,8 +118,10 @@ export function selectHubSpotFirstCandidates(input: {
     skippedKnownInSellUp: 0,
     skippedNotRelevant: 0,
     skippedAlreadyInRun: 0,
+    skippedOtherSeller: 0,
   };
   const seenInThisBatch = new Set<string>();
+  const priorities = new Map<HubSpotFirstCandidateRow, number>();
 
   for (const contact of input.hubspotContacts) {
     const hubspotId = contact.id?.trim();
@@ -90,6 +133,10 @@ export function selectHubSpotFirstCandidates(input: {
     }
     if (input.alreadyInRunHubspotIds.has(hubspotId) || seenInThisBatch.has(hubspotId)) {
       result.skippedAlreadyInRun += 1;
+      continue;
+    }
+    if (input.ownership && !isOfferableHubSpotContact(contact.ownerId, input.ownership)) {
+      result.skippedOtherSeller += 1;
       continue;
     }
     const email = emailKey(contact.email);
@@ -113,7 +160,7 @@ export function selectHubSpotFirstCandidates(input: {
     }
     seenInThisBatch.add(hubspotId);
     if (email) result.relevantWithEmail += 1;
-    result.rows.push({
+    const row: HubSpotFirstCandidateRow = {
       first_name: contact.firstName ?? null,
       last_name: contact.lastName ?? null,
       full_name: fullName,
@@ -140,8 +187,12 @@ export function selectHubSpotFirstCandidates(input: {
           score: relevance.relevanceScore,
         },
       },
-    });
+    };
+    priorities.set(row, hubspotFirstPriority(contact.title, relevance.matchedCategory));
+    result.rows.push(row);
   }
+  // Lo más importante primero (Array.prototype.sort es estable: empate ⇒ orden de HubSpot).
+  result.rows.sort((a, b) => (priorities.get(a) ?? 9) - (priorities.get(b) ?? 9));
   return result;
 }
 
