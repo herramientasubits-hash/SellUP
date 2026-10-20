@@ -8,7 +8,7 @@ import {
   verifySitePeople,
   type CompanySiteDocument,
 } from '../company-site-people-core';
-import { runCompanySiteStage, type CompanySiteStageDeps, type CompanySiteUsage } from '../company-site-stage.server';
+import { homeUrlCandidates, runCompanySiteStage, type CompanySiteStageDeps, type CompanySiteUsage } from '../company-site-stage.server';
 import type { CompanySiteCandidateRow } from '../company-site-people-core';
 import type { SafePageFetchResult } from '../../prospecting-toolkit/website-verifier';
 import { AnthropicApiError } from '../../prospecting-toolkit/claude-classifier/anthropic-messages-client';
@@ -202,5 +202,34 @@ describe('Sitio de la empresa — etapa', () => {
     const result = await runCompanySiteStage({ attemptId: 'a1', triggeredBy: 'u1' }, deps);
     assert.equal(result.status === 'done' && result.inserted, 0);
     assert.equal(calls.inserted.length, 0);
+  });
+});
+
+describe('Sitio de la empresa — portada con y sin «www», y sitios sin texto (20-10)', () => {
+  it('prueba el dominio tal cual y con «www.»; una URL completa se respeta', () => {
+    assert.deepEqual(homeUrlCandidates('almagro.com.ec'), ['https://almagro.com.ec', 'https://www.almagro.com.ec']);
+    assert.deepEqual(homeUrlCandidates('www.acme.co'), ['https://acme.co', 'https://www.acme.co']);
+    assert.deepEqual(homeUrlCandidates('https://acme.co/es'), ['https://acme.co/es']);
+  });
+
+  it('si el dominio sin «www» no responde, lee la versión con «www» (caso Almagro)', async () => {
+    const { deps, calls } = stageHarness({
+      fetchPage: async (url) => {
+        if (url === 'https://acme.co') throw new Error('ECONNREFUSED');
+        if (url === 'https://www.acme.co') return page(url, `<p>${LONG}</p><a href="/equipo">Equipo</a>`);
+        return page(url, `<p>${LONG} Laura Gómez Pérez, Gerente de Gestión Humana.</p>`);
+      },
+    });
+    const result = await runCompanySiteStage({ attemptId: 'a1', triggeredBy: 'u1' }, deps);
+    assert.equal(result.status, 'done');
+    assert.equal(calls.claude, 1);
+  });
+
+  it('la portada responde pero sin texto (sitio sólo JavaScript, caso Covemex): «sin texto», no «inalcanzable», y sin llamar a Claude', async () => {
+    const { deps, calls } = stageHarness({ fetchPage: async (url) => page(url, '<div id="root"></div>') });
+    const result = await runCompanySiteStage({ attemptId: 'a1', triggeredBy: 'u1' }, deps);
+    assert.equal(result.status, 'site_no_text');
+    assert.equal(calls.claude, 0);
+    assert.deepEqual(calls.recorded[0], { status: 'site_no_text' });
   });
 });

@@ -75,29 +75,54 @@ export interface CompanySiteStageDeps {
 }
 
 export type CompanySiteStageResult =
-  | { status: 'no_domain' | 'budget_blocked' | 'site_unreachable' | 'no_model' | 'error'; inserted: 0; detail?: string }
+  | {
+      // `site_no_text`: la portada respondió pero sin texto legible (sitios armados sólo con
+      // JavaScript, como covemex.com el 20-10): no hay nada que leer sin un navegador.
+      status: 'no_domain' | 'budget_blocked' | 'site_unreachable' | 'site_no_text' | 'no_model' | 'error';
+      inserted: 0;
+      detail?: string;
+    }
   | { status: 'done'; inserted: number; pagesRead: number; peopleFound: number };
-
-function toUrl(domain: string): string {
-  return /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
-}
 
 function usable(page: SafePageFetchResult): page is SafePageFetchResult & { html: string } {
   return !!page.html && (page.httpStatus ?? 0) < 400;
+}
+
+/**
+ * Por dónde probar la portada: el dominio tal cual y, si no empieza por «www.», también con
+ * «www.» (almagro.com.ec sólo responde como www.almagro.com.ec, medido el 20-10).
+ */
+export function homeUrlCandidates(domain: string): string[] {
+  const trimmed = domain.trim();
+  if (/^https?:\/\//i.test(trimmed)) return [trimmed];
+  const bare = trimmed.replace(/^www\./i, '');
+  return [`https://${bare}`, `https://www.${bare}`];
+}
+
+export interface PeoplePagesRead {
+  documents: CompanySiteDocument[];
+  /** La portada respondió (con o sin texto legible). */
+  homeReachable: boolean;
 }
 
 /** Portada + páginas con más probabilidad de nombrar personas. Nunca lanza. */
 export async function readPeoplePages(
   domain: string,
   fetchPage: (url: string) => Promise<SafePageFetchResult>,
-): Promise<CompanySiteDocument[]> {
-  let home: SafePageFetchResult;
-  try {
-    home = await fetchPage(toUrl(domain));
-  } catch {
-    return [];
+): Promise<PeoplePagesRead> {
+  let home: (SafePageFetchResult & { html: string }) | null = null;
+  for (const url of homeUrlCandidates(domain)) {
+    try {
+      const page = await fetchPage(url);
+      if (usable(page)) {
+        home = page;
+        break;
+      }
+    } catch {
+      // Se prueba la siguiente forma del dominio.
+    }
   }
-  if (!usable(home)) return [];
+  if (!home) return { documents: [], homeReachable: false };
   const homeUrl = home.finalUrl ?? home.requestedUrl;
   const texts: Array<{ url: string; text: string }> = [{ url: homeUrl, text: extractVisibleText(home.html, PEOPLE_PAGE_TEXT_MAX_CHARS) }];
   const pages = await Promise.all(
@@ -111,9 +136,12 @@ export async function readPeoplePages(
     }),
   );
   for (const page of pages) if (page) texts.push(page);
-  return texts
-    .filter((t) => t.text.length >= MIN_DOC_TEXT_CHARS)
-    .map((t, i) => ({ docId: `D${i + 1}`, url: t.url, text: t.text }));
+  return {
+    homeReachable: true,
+    documents: texts
+      .filter((t) => t.text.length >= MIN_DOC_TEXT_CHARS)
+      .map((t, i) => ({ docId: `D${i + 1}`, url: t.url, text: t.text })),
+  };
 }
 
 // ── Lecturas y escrituras por defecto (service role) ────────────────────────────
@@ -235,10 +263,11 @@ export async function runCompanySiteStage(
     if (!run || !domain) return { status: 'no_domain', inserted: 0 };
     if (!(await isBudgetAvailable())) return { status: 'budget_blocked', inserted: 0 };
 
-    const documents = await readPeoplePages(domain, fetchPage);
+    const { documents, homeReachable } = await readPeoplePages(domain, fetchPage);
     if (documents.length === 0) {
-      await recordOnRun(input.attemptId, { status: 'site_unreachable' }, 0);
-      return { status: 'site_unreachable', inserted: 0 };
+      const status = homeReachable ? 'site_no_text' : 'site_unreachable';
+      await recordOnRun(input.attemptId, { status }, 0);
+      return { status, inserted: 0 };
     }
 
     const models = await resolveModel();
