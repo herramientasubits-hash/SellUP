@@ -16,8 +16,10 @@ import type { AnthropicContentBlock, AnthropicRequestBody, AnthropicUsageTotals 
 import { extractCitedTextsByUrl, extractWebFetchTexts } from '../prospecting-toolkit/claude-classifier/evidence-verifier';
 import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
-import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/latam-curated/latam-curated-rows';
-import { curatedCoreName, isDistinctiveCore } from './curated-match';
+import { mentionsCompany } from './curated-match';
+import { normalizeKeys } from './tool-input';
+
+export { mentionsCompany };
 import type { DecisionMaker } from './internal-facts';
 import type { NewsSearchInput } from './news-search';
 import type { NewsResult, NewsSearchOutput } from './research-documents';
@@ -80,14 +82,6 @@ export function contactSearchPlan(
 /** Compatibilidad: sólo las consultas. */
 export function contactSearchQueries(name: string, companyName: string, linkedinUrl: string | null = null): string[] {
   return contactSearchPlan(name, companyName, linkedinUrl).map((q) => q.query);
-}
-
-/** ¿El texto nombra a la empresa? (por el núcleo de su nombre, sin «Grupo», «Banco» ni el país). */
-export function mentionsCompany(text: string, companyName: string): boolean {
-  // Con un núcleo que es palabra común («BANCO», «EXITO») se exige el nombre entero.
-  const core = curatedCoreName(companyName);
-  const target = isDistinctiveCore(core) ? core : normalizeLatamCuratedName(companyName);
-  return target.length > 0 && ` ${normalizeLatamCuratedName(text)} `.includes(` ${target} `);
 }
 
 /** El perfil de LinkedIn sin variantes (http/https, www, barra final, parámetros). */
@@ -264,8 +258,9 @@ export function buildContactResearchUserMessage(input: {
 function submissionFrom(content: readonly AnthropicContentBlock[]): Record<string, unknown> | null {
   for (const block of content) {
     if (block.type === 'tool_use' && (block as { name?: string }).name === CONTACT_RESEARCH_TOOL) {
-      const input = (block as { input?: unknown }).input;
-      return input && typeof input === 'object' ? (input as Record<string, unknown>) : null;
+      // Datos que llegan como texto JSON o en camelCase (Haiku): se normalizan antes de leer.
+      const input = normalizeKeys((block as { input?: unknown }).input);
+      return input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : null;
     }
   }
   return null;

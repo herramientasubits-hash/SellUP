@@ -221,7 +221,8 @@ describe('verificación del paquete', () => {
     reason_to_call: { text: 'Vi que contratarán 400 personas para sus nuevas sedes.', fact_refs: ['F1'] },
     angle: 'Onboarding para crecer rápido.',
     call_script: { text: script, fact_refs: ['F1'] },
-    short_message: { text: 'Hola María, vi la noticia de sus nuevas sedes. ¿Conversamos 20 minutos?', fact_refs: ['F1'] },
+    // El primer WhatsApp sólo pide permiso para escribir por ahí (Pizza Pizza, Prod 19-10).
+    short_message: { text: 'Hola, María. Vi la noticia de sus nuevas sedes. ¿Le puedo escribir por aquí sobre eso?', fact_refs: ['F1'] },
     questions: ['¿Cómo forman hoy al personal nuevo?', '¿Quién define la inducción?', '¿Cómo miden el avance?'],
     objections: [{ library_key: 'send_info', objection: 'Mándame información.', response: 'Con gusto, ¿cuál es el reto principal?' }],
     next_step: 'Agendar 20 minutos la próxima semana.',

@@ -83,3 +83,45 @@ export function curatedNamesMatch(accountName: string | null | undefined, listNa
   if (!isDistinctiveCore(core)) return false;
   return core === curatedCoreName(listName);
 }
+
+/** ¿El texto nombra a la empresa? (por el núcleo de su nombre, sin «Grupo», «Banco» ni el país). */
+export function mentionsCompany(text: string, companyName: string): boolean {
+  // Con un núcleo que es palabra común («BANCO», «EXITO») se exige el nombre entero.
+  const core = curatedCoreName(companyName);
+  const target = isDistinctiveCore(core) ? core : normalizeLatamCuratedName(companyName);
+  return target.length > 0 && phraseIn(text, target);
+}
+
+function plain(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[’'`´]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * ¿El texto dice la frase, palabra por palabra y sin puntuación en medio? «Domino’s Pizza:
+ * pizza mediana» no dice «Pizza Pizza» (Pizza Pizza, Prod 19-10).
+ */
+function phraseIn(text: string, phrase: string): boolean {
+  const words = plain(phrase).split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.length === 0) return false;
+  return new RegExp(`(^|[^a-z0-9])${words.join(' ')}(?![a-z0-9])`).test(plain(text));
+}
+
+/**
+ * ¿El resultado es de ESTA empresa? Nombra su núcleo o su dominio («oreillyauto» en
+ * «O'Reilly Auto Parts»). Pizza Pizza (Prod 19-10): la prensa traía notas de «pizza» en
+ * general («Día de la Pizza», Pizza Hut en Nueva York) que ocupaban los documentos.
+ */
+export function resultMentionsCompany(text: string, companyName: string, domain: string | null): boolean {
+  if (mentionsCompany(text, companyName)) return true;
+  const label = (domain ?? '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
+  if (label.length < 5) return false;
+  // Dentro de un mismo tramo sin puntuación («O’Reilly Auto Parts» → «oreillyautoparts»).
+  return plain(text)
+    .split(/[^a-z0-9 ]+/)
+    .some((segment) => segment.replace(/ /g, '').includes(label));
+}

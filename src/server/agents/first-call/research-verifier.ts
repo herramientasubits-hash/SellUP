@@ -14,6 +14,7 @@ import { canonicalUrl } from '../prospecting-toolkit/claude-classifier/evidence-
 import { quoteMatchKind } from '../prospecting-toolkit/claude-classifier/page-text';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
 import { unsupportedNumbers } from './numbers';
+import { normalizeKeys } from './tool-input';
 import { MAX_GAPS, MAX_HYPOTHESES, MAX_WEB_FACTS, RESEARCH_SUBMIT_TOOL, type ResearchDocument } from './research-prompt';
 import { RESEARCH_TOPICS, type ResearchFact, type ResearchHypothesis, type ResearchTopic } from './types';
 import { UBITS_PRODUCTS } from './ubits-messaging-library';
@@ -67,7 +68,9 @@ export interface VerifiedResearch {
 export function extractResearchSubmission(content: readonly AnthropicContentBlock[]): RawResearchSubmission | null {
   const block = [...content].reverse().find((b) => b.type === 'tool_use' && b.name === RESEARCH_SUBMIT_TOOL);
   if (!block || typeof block.input !== 'object' || block.input === null) return null;
-  return block.input as RawResearchSubmission;
+  // Itaú en el banco (19-10): los datos llegaron como texto JSON y la ficha quedó sin ninguno.
+  const normalized = normalizeKeys(block.input);
+  return normalized && typeof normalized === 'object' && !Array.isArray(normalized) ? (normalized as RawResearchSubmission) : null;
 }
 
 function str(value: unknown): string | null {

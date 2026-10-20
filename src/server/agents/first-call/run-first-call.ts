@@ -315,7 +315,7 @@ async function gatherNews(
   return {
     // Tope por búsqueda y en total: más documentos no dieron más datos y sí más descartes (banco 19-10).
     documents: queries
-      .flatMap((q, i) => newsToDocuments(outputs[i].results, account.domain, q.step).slice(0, DOCS_PER_SEARCH))
+      .flatMap((q, i) => newsToDocuments(outputs[i].results, account.domain, q.step, account.name).slice(0, DOCS_PER_SEARCH))
       .filter(firstOfEachUrl())
       .slice(0, MAX_SEARCH_DOCUMENTS),
     credits: outputs.reduce((sum, o) => sum + (o.credits ?? 0), 0),
@@ -576,10 +576,17 @@ function verifyAll(
   nowMs: number,
   countryCode: string | null,
   companyName: string | null,
+  decisionMakerTitle: string | null,
 ): Partial<Record<FirstCallChannel, string[]>> {
   const result: Partial<Record<FirstCallChannel, string[]>> = {};
   for (const channel of channels) {
-    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, { decisionMakerName, nowMs, countryCode, companyName });
+    result[channel] = verifyPack(contentForChannel(submission, channel), facts, channel, {
+      decisionMakerName,
+      nowMs,
+      countryCode,
+      companyName,
+      decisionMakerTitle,
+    });
   }
   return result;
 }
@@ -713,7 +720,7 @@ async function writeForTarget(params: {
     shape = describeSubmissionShape(raw);
     if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview() };
     submission = parseWriterSubmission(raw, channels);
-    issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name);
+    issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     const issues = combinedIssues(issuesByChannel, channels);
     if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
 
@@ -746,7 +753,7 @@ async function writeForTarget(params: {
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
       submission = parseWriterSubmission(retried, channels);
-      issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name);
+      issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     }
     return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
   } catch (err) {
@@ -863,6 +870,7 @@ function completeSharedParts(
       nowMs: params.deps.now(),
       countryCode: params.context.internal.account.countryCode,
       companyName: params.context.internal.account.name,
+      decisionMakerTitle: params.target?.title ?? null,
     });
     return { ...w, submission, issuesByChannel: { ...w.issuesByChannel, [channel]: issues } };
   });
