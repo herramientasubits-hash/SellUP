@@ -157,6 +157,183 @@ const CONTEXT: Readonly<Record<string, readonly TrainingContextItem[]>> = {
       source: 'sinafocal.gov.py',
     },
   ],
+  CO: [
+    {
+      name: 'Decreto 1072 de 2015 (capacitación en SST)',
+      ids: ['Decreto 1072 de 2015'],
+      what: 'programa de capacitación en SST documentado para todos los niveles, revisado al menos una vez al año, con inducción a todo trabajador nuevo',
+      appliesTo: 'todo empleador o contratante',
+      source: 'Decreto 1072 de 2015, art. 2.2.4.6.11',
+    },
+    {
+      name: 'Resolución 0312 de 2019 (estándares mínimos del SG-SST)',
+      ids: ['Resolución 0312 de 2019', 'Resolución 312 de 2019'],
+      what: 'capacitación en promoción y prevención y un plan anual de trabajo; en empresas de 11 a 50 trabajadores de riesgo IV o V, programa de capacitación anual con inducción y reinducción',
+      appliesTo: 'empleadores según tamaño y nivel de riesgo',
+      source: 'MinTrabajo, Diario Oficial 50.872',
+    },
+    {
+      name: 'Ley 2101 de 2021 (reducción de jornada)',
+      ids: ['Ley 2101 de 2021', 'Ley 2101'],
+      what: 'la jornada máxima bajó gradualmente y desde el 15-07-2026 es de 42 horas semanales sin reducir el salario',
+      appliesTo: 'régimen privado del Código Sustantivo del Trabajo',
+      source: 'Ley 2101 de 2021; MinTrabajo, julio de 2026',
+    },
+    {
+      name: 'Ley 2365 de 2024 (acoso sexual laboral)',
+      ids: ['Ley 2365 de 2024', 'Ley 2365'],
+      what: 'política interna de prevención del acoso sexual en el reglamento, los contratos y los protocolos, ampliamente difundida',
+      appliesTo: 'todos los empleadores',
+      source: 'Ley 2365 de 2024, art. 11',
+    },
+    {
+      name: 'Resolución 2764 de 2022 (riesgo psicosocial)',
+      ids: ['Resolución 2764 de 2022'],
+      what: 'evaluación con la batería de riesgo psicosocial: anual si el riesgo es alto y cada dos años si es medio o bajo',
+      appliesTo: 'empleadores públicos y privados',
+      source: 'MinTrabajo, Diario Oficial 52.106',
+    },
+    {
+      name: 'Ley 2466 de 2025 (reforma laboral)',
+      ids: ['Ley 2466 de 2025', 'Ley 2466'],
+      what: 'trabajo libre de violencias y acoso, con protocolos, comités y mecanismos de prevención',
+      appliesTo: 'relaciones laborales del Código Sustantivo del Trabajo',
+      source: 'Ley 2466 de 2025, art. 18',
+    },
+    {
+      name: 'Cuota de aprendices del SENA (Ley 789 de 2002)',
+      ids: ['Ley 789 de 2002'],
+      what: 'un aprendiz por cada 20 trabajadores',
+      appliesTo: 'empresas privadas con 15 o más trabajadores (salvo construcción)',
+      source: 'SENA, concepto 9470 de 2025',
+    },
+  ],
+  BO: [
+    {
+      name: 'Decreto Ley 16998 (Higiene, Seguridad Ocupacional y Bienestar)',
+      ids: ['Decreto Ley 16998', 'DL 16998'],
+      what: 'el empleador debe promover la capacitación del personal en prevención de riesgos del trabajo',
+      appliesTo: 'todos los empleadores',
+      source: 'DL 16998, art. 6',
+    },
+  ],
+  GT: [
+    {
+      name: 'Ley Orgánica del INTECAP (Decreto 17-72)',
+      ids: ['Decreto 17-72'],
+      what: 'tasa patronal de hasta el 1 % de la planilla, que puede rebajarse hasta un 80 % si la empresa da su propia formación por convenio con el INTECAP',
+      appliesTo: 'empresas privadas y entidades públicas con fines de lucro',
+      source: 'INTECAP, Decreto 17-72, arts. 28 y 30',
+    },
+    {
+      name: 'Acuerdo Gubernativo 229-2014 (salud y seguridad ocupacional)',
+      ids: ['Acuerdo Gubernativo 229-2014'],
+      what: 'el patrono debe promover la capacitación de su personal en salud y seguridad ocupacional',
+      appliesTo: 'todos los patronos',
+      source: 'AG 229-2014, art. 5',
+    },
+  ],
+  HN: [
+    {
+      name: 'Aporte al INFOP',
+      what: 'el empleador aporta el 1 % para la formación profesional',
+      appliesTo: 'empleadores',
+      source: 'PwC Tax Summaries Honduras, 08-2026',
+    },
+  ],
+  SV: [
+    {
+      name: 'Ley del INCAF (Decreto 893 de 2023)',
+      ids: ['Decreto 893'],
+      what: 'cotización del 1 % sobre la planilla para la formación profesional; el INCAF reemplazó al INSAFORP',
+      appliesTo: 'patronos privados e instituciones autónomas con 10 o más trabajadores',
+      source: 'Decreto 893, art. 19',
+    },
+    {
+      name: 'Ley General de Prevención de Riesgos en los Lugares de Trabajo (Decreto 254)',
+      ids: ['Decreto 254'],
+      what: 'programa de gestión de prevención con entrenamiento inductor y permanente y sensibilización sobre acoso y riesgos psicosociales actualizada cada año; comité de SSO desde 15 trabajadores',
+      appliesTo: 'todos los empleadores',
+      source: 'Decreto Legislativo 254, arts. 8 y 13',
+    },
+  ],
+  NI: [
+    {
+      name: 'Ley 618 (Higiene y Seguridad del Trabajo)',
+      ids: ['Ley 618'],
+      what: 'capacitación en higiene y seguridad al menos una vez al año, planificada con la Comisión Mixta e impartida por personal acreditado',
+      appliesTo: 'todos los empleadores',
+      source: 'Ley 618, arts. 19 a 22',
+    },
+    {
+      name: 'Aporte al INATEC',
+      ids: ['Decreto 40-94'],
+      what: 'aporte mensual del 2 % sobre la planilla para la formación profesional',
+      appliesTo: 'todos los empleadores',
+      source: 'Decreto 40-94 y Decreto 28-95',
+    },
+  ],
+  PA: [
+    {
+      name: 'Ley 7 de 2018 (actos discriminatorios y acoso)',
+      ids: ['Ley 7 de 2018'],
+      what: 'política interna que prevenga y sancione el hostigamiento, el acoso sexual o moral, el racismo y el sexismo, con programas de orientación',
+      appliesTo: 'todos los empleadores',
+      source: 'Ley 7 de 2018, art. 6',
+    },
+    {
+      name: 'Seguro educativo',
+      what: 'cotización del 1,50 % a cargo del empleador y del 1,25 % a cargo del empleado',
+      appliesTo: 'empleadores y trabajadores',
+      source: 'PwC Tax Summaries Panamá, 08-2026',
+    },
+  ],
+  UY: [
+    {
+      name: 'INEFOP y el Fondo de Reconversión Laboral (Ley 18.406)',
+      ids: ['Ley 18.406'],
+      what: 'el INEFOP financia formación profesional con el Fondo de Reconversión Laboral (0,10 % del empleador y 0,10 % del trabajador)',
+      appliesTo: 'empleadores y trabajadores del sector privado',
+      source: 'IMPO, Ley 18.406; BPS',
+    },
+    {
+      name: 'Ley 18.561 (acoso sexual)',
+      ids: ['Ley 18.561'],
+      what: 'medidas para prevenir y sancionar el acoso sexual y difundir la política contra el acoso',
+      appliesTo: 'empleadores públicos y privados',
+      source: 'IMPO, Ley 18.561, art. 6',
+    },
+  ],
+  US: [
+    {
+      name: 'California SB 553 (Labor Code 6401.9)',
+      ids: ['SB 553', 'Labor Code 6401.9'],
+      what: 'plan escrito de prevención de violencia laboral y capacitación inicial y anual',
+      appliesTo: 'empleadores de California',
+      source: 'Cal/OSHA, desde el 01-07-2024',
+    },
+    {
+      name: 'California Gov. Code 12950.1',
+      ids: ['Gov. Code 12950.1'],
+      what: 'capacitación en prevención del acoso sexual cada dos años: 2 horas a supervisores y 1 hora al resto',
+      appliesTo: 'empleadores con 5 o más empleados',
+      source: 'California Civil Rights Department, 12-2025',
+    },
+    {
+      name: 'New York Labor Law 201-g',
+      ids: ['Labor Law 201-g'],
+      what: 'política de prevención del acoso sexual y capacitación interactiva al menos una vez al año',
+      appliesTo: 'todos los empleadores de Nueva York',
+      source: 'ny.gov, Employer Toolkit',
+    },
+    {
+      name: 'IRC Section 127',
+      ids: ['Section 127', 'IRC 127'],
+      what: 'hasta 5.250 USD al año de asistencia educativa libre de impuestos bajo un plan escrito del empleador',
+      appliesTo: 'empleadores con plan escrito',
+      source: 'IRS FS-2026-10',
+    },
+  ],
 };
 
 /** Lo verificado del país (vacío si no hay nada confirmado). */

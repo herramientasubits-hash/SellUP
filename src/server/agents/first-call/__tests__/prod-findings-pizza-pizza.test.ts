@@ -143,3 +143,31 @@ describe('investigación que llega como texto JSON (Itaú en el banco, 19-10)', 
     assert.equal((submission!.facts as unknown[]).length, 1);
   });
 });
+
+describe('los 20 países tienen normas de formación verificadas (19-10)', () => {
+  it('cada país del catálogo tiene al menos una norma; El Salvador nombra el INCAF, no el INSAFORP', async () => {
+    const { trainingContextFor, stripTrainingNormIds } = await import('../country-training-context');
+    const { COUNTRY_SOURCE_CATALOG } = await import('../research-catalog-data');
+    for (const country of Object.keys(COUNTRY_SOURCE_CATALOG)) {
+      assert.ok(trainingContextFor(country).length > 0, country);
+    }
+    const sv = JSON.stringify(trainingContextFor('SV'));
+    assert.match(sv, /INCAF/);
+    // El INSAFORP sólo aparece como el que fue reemplazado, nunca como vigente.
+    assert.equal(sv.replace('reemplazó al INSAFORP', '').includes('INSAFORP'), false);
+    assert.equal(stripTrainingNormIds('Con la Ley 2101 de 2021 y la Resolución 0312 de 2019', 'CO').match(/\d/g), null);
+  });
+});
+
+describe('«sin costo» como inciso se quita (banco 20-10)', () => {
+  it('entre comas o al comienzo de la frase', () => {
+    assert.equal(
+      cleanToolText('Le llevo un diagnóstico rápido de las brechas de su equipo, sin costo, para que vea dónde están.'),
+      'Le llevo un diagnóstico rápido de las brechas de su equipo, para que vea dónde están.',
+    );
+    assert.equal(cleanToolText('¿Le sirve? Sin costo, lo llevamos la próxima semana.'), '¿Le sirve? Lo llevamos la próxima semana.');
+    assert.equal(cleanToolText('Le muestro el diagnóstico, sin costo.'), 'Le muestro el diagnóstico.');
+    // Dicho como afirmación, no se toca: lo marca el verificador.
+    assert.equal(cleanToolText('El diagnóstico es gratis para ustedes.'), 'El diagnóstico es gratis para ustedes.');
+  });
+});

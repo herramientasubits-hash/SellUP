@@ -17,7 +17,8 @@ export const MAX_HYPOTHESES = 3;
 export const MAX_GAPS = 5;
 /** Búsquedas web de Claude cuando ni el sitio ni las noticias alcanzaron. */
 export const RESEARCH_MAX_WEB_SEARCHES = 2;
-export const RESEARCH_MAX_OUTPUT_TOKENS = 6_000;
+/** Con la regla de citar lo encontrado antes de entregar, hace falta más margen (Grupo LALA, 20-10). */
+export const RESEARCH_MAX_OUTPUT_TOKENS = 8_000;
 
 /** Tope de texto por documento que va al modelo. */
 export const DOC_TEXT_MAX_CHARS = 6_000;
@@ -100,6 +101,13 @@ export function buildResearchSubmitTool() {
  */
 export const RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY = 5;
 export const RESEARCH_MAX_WEB_FETCHES_WITHOUT_TAVILY = 5;
+/** Con Tavily, lo que Claude puede leer entero si busca en la web. */
+export const RESEARCH_MAX_WEB_FETCHES = 2;
+
+/** Cómo se comprueban las citas de la búsqueda web de Claude (su texto llega cifrado). */
+export const CITED_TEXT_RULE =
+  'IMPORTANTE (cómo se comprueban las citas): antes de entregar, escribe en texto, en pocas líneas, lo que encontraste, citando los resultados de tu búsqueda (así queda la frase citada de cada fuente). Cada quote que entregues tiene que ser una frase de un documento de arriba, de una página que leíste con web_fetch o de lo que citaste en ese texto, copiada tal cual. Lo que no puedas citar así, no lo entregues.';
+
 /** Tope de texto por artículo leído (~24 KB): alcanza para una nota de prensa. */
 export const RESEARCH_WEB_FETCH_MAX_CONTENT_TOKENS = 6_000;
 
@@ -142,7 +150,7 @@ export function renderFallbackSearchPlan(params: {
     hr ? `4. Premios y rankings de empleadores: ${name} Merco OR "Great Place to Work" OR "Top Employers" (medios de talento: ${hr}).` : `4. Premios y rankings de empleadores: ${name} Merco OR "Great Place to Work".`,
     params.website ? `5. Lo que la empresa publica en su sitio: ${name} ${params.website} noticias OR blog OR comunicado.` : `5. Lo que la empresa publica: ${name} noticias OR comunicado.`,
     `Después lee con web_fetch los ${RESEARCH_MAX_WEB_FETCHES_WITHOUT_TAVILY} artículos más útiles (de preferencia con fecha de los últimos 12 meses).`,
-    'IMPORTANTE (cómo se comprueban las citas): antes de entregar, escribe en texto, en pocas líneas, lo que encontraste, citando los resultados de tu búsqueda (así queda la frase citada de cada fuente). Cada quote que entregues tiene que ser una frase de un documento de arriba, de una página que leíste con web_fetch o de lo que citaste en ese texto, copiada tal cual. Lo que no puedas citar así, no lo entregues.',
+    CITED_TEXT_RULE,
     'Cuidado con homónimos: que coincida el país o el sector.',
   ].join('\n');
 }
@@ -225,7 +233,7 @@ export function buildResearchUserMessage(params: {
             press: params.fallbackSources?.press ?? [],
             hrMedia: params.fallbackSources?.hrMedia ?? [],
           })
-        : `Puedes hacer hasta ${RESEARCH_MAX_WEB_SEARCHES} búsquedas web si faltan señales recientes o datos de talento.`
+        : `Puedes hacer hasta ${RESEARCH_MAX_WEB_SEARCHES} búsquedas web si faltan señales recientes o datos de talento, y leer con web_fetch hasta ${RESEARCH_MAX_WEB_FETCHES} artículos. ${CITED_TEXT_RULE}`
       : 'No tienes búsqueda web: trabaja sólo con los documentos.',
     '',
     'Lo que SellUp ya sabe (puedes citarlo en fact_refs, no lo repitas como hecho):',

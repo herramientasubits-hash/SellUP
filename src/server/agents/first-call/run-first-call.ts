@@ -19,7 +19,6 @@ import {
   type AnthropicRequestBody,
   type AnthropicUsageTotals,
 } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
-import { forceSubmission } from '../prospecting-toolkit/claude-classifier/classify-company';
 import { estimateClassifierCost } from '../prospecting-toolkit/claude-classifier/cost';
 import {
   canonicalUrl,
@@ -51,6 +50,7 @@ import {
   buildResearchUserMessage,
   buildResearchWebFetchTool,
   buildResearchWebSearchTool,
+  RESEARCH_MAX_WEB_FETCHES,
   RESEARCH_MAX_WEB_SEARCHES_WITHOUT_TAVILY,
   type ResearchDocument,
 } from './research-prompt';
@@ -328,24 +328,51 @@ async function runResearchConversation(params: {
   body: AnthropicRequestBody;
   apiKey: string;
   deps: RunFirstCallDeps;
-}): Promise<{ conversation: AnthropicConversationResult | null; usage: AnthropicUsageTotals; errorCode: string | null }> {
+}): Promise<{
+  conversation: AnthropicConversationResult | null;
+  usage: AnthropicUsageTotals;
+  errorCode: string | null;
+  stopReasons: string[];
+  forced: boolean;
+}> {
   const run = (body: AnthropicRequestBody) => params.deps.runConversation(body, params.apiKey);
+  const stopReasons: string[] = [];
   try {
     let conversation = await run(params.body);
-    if (!extractResearchSubmission(conversation.content) && conversation.stopReason === 'end_turn') {
-      conversation = await forceSubmission(
-        params.body,
-        conversation,
-        { runConversation: run },
-        RESEARCH_SUBMIT_TOOL,
-        `Entrega ahora tu resultado con ${RESEARCH_SUBMIT_TOOL}. Sin cita, el dato no va.`,
-      );
+    stopReasons.push(conversation.stopReason ?? 'unknown');
+    // Sin entrega válida (terminó, se pausó en la búsqueda web o se cortó a mitad de la
+    // entrega, que llega sin la lista de datos): se le pide de nuevo, sin la entrega cortada
+    // (O’Reilly y Grupo LALA en el banco, 20-10: 0 datos aunque Claude había respondido).
+    if (!hasResearchFacts(conversation.content)) {
+      const prior = conversation.content.filter((b) => !(b.type === 'tool_use' && b.name === RESEARCH_SUBMIT_TOOL));
+      const second = await run({
+        ...params.body,
+        tool_choice: { type: 'tool', name: RESEARCH_SUBMIT_TOOL },
+        messages: [
+          ...params.body.messages,
+          ...(prior.length > 0 ? [{ role: 'assistant' as const, content: prior }] : []),
+          { role: 'user' as const, content: `Entrega ahora tu resultado con ${RESEARCH_SUBMIT_TOOL}. Sin cita, el dato no va.` },
+        ],
+      });
+      stopReasons.push(second.stopReason ?? 'unknown');
+      conversation = {
+        content: [...prior, ...second.content],
+        stopReason: second.stopReason,
+        usage: sumUsage(conversation.usage, second.usage),
+        requests: conversation.requests + second.requests,
+      };
+      return { conversation, usage: conversation.usage, errorCode: null, stopReasons, forced: true };
     }
-    return { conversation, usage: conversation.usage, errorCode: null };
+    return { conversation, usage: conversation.usage, errorCode: null, stopReasons, forced: false };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
-    return { conversation: null, usage: apiError?.partialUsage ?? EMPTY_USAGE, errorCode: apiError?.code ?? 'unexpected_error' };
+    return { conversation: null, usage: apiError?.partialUsage ?? EMPTY_USAGE, errorCode: apiError?.code ?? 'unexpected_error', stopReasons, forced: false };
   }
+}
+
+/** ¿La entrega de la investigación trae su lista de datos? (una entrega cortada llega sin ella). */
+function hasResearchFacts(content: readonly AnthropicContentBlock[]): boolean {
+  return Array.isArray(extractResearchSubmission(content)?.facts);
 }
 
 async function research(
@@ -389,7 +416,8 @@ async function research(
               buildResearchWebFetchTool(),
               buildResearchSubmitTool(),
             ]
-          : [buildResearchWebSearchTool(), buildResearchSubmitTool()],
+          : // Con Tavily, Claude busca un poco y puede leer 2 artículos para comprobar sus citas (Anex Tour, 20-10).
+            [buildResearchWebSearchTool(), buildResearchWebFetchTool(RESEARCH_MAX_WEB_FETCHES), buildResearchSubmitTool()],
       messages: [
         {
           role: 'user',
@@ -474,6 +502,9 @@ async function research(
         tavily_unavailable: news.tavilyUnavailable,
         // Diagnóstico (dueña 19-10): cuántos datos propuso Claude y por qué se descartaron, y de qué fuente.
         proposed_facts: Array.isArray(submission?.facts) ? submission!.facts.length : 0,
+        // Cómo terminó Claude cada respuesta (`max_tokens` = se cortó) y si hubo que pedir la entrega.
+        stop_reasons: run.stopReasons,
+        forced_submission: run.forced,
         rejected_by_reason: countBy(verified.rejected.map((r) => r.reason)),
         rejected_by_source: countBy(verified.rejected.map((r) => sourceGroupOf(r.sourceUrl, documents))),
         verified_by_source: countBy(verified.facts.filter((f) => f.sourceKind !== 'sellup').map((f) => f.sourceLabel.split(' · ')[0])),

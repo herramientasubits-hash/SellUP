@@ -64,28 +64,28 @@ Medido el 19-10 en 10 empresas reales, sin escribir nada en Producción:
 
 El catálogo está en `src/server/agents/first-call/research-catalog-data.ts`. Los dominios salen de las investigaciones del 19-10-2026. Cada uno se abrió y estaba activo; la gran mayoría mostró una nota fechada en 2025 o 2026, y unos pocos gremios, activos pero sin fecha visible, quedaron marcados en los informes.
 
-| País | Prensa de negocios | Industrias con medio propio | Medios de talento | Fuentes del decisor |
+| País | Prensa de negocios | Industrias con medio propio | Medios de talento (GPTW, Merco, asociación) | Normas verificadas |
 |---|---|---|---|---|
-| Argentina (AR) | 9 | 11/12 | 4 | 6 |
-| Bolivia (BO) | 11 | 12/12 | 3 | 7 |
-| Brasil (BR) | 8 | 12/12 | 5 | 6 |
-| Chile (CL) | 7 | 12/12 | 2 | 5 |
-| Colombia (CO) | 11 | 12/12 | 11 | 9 |
-| Costa Rica (CR) | 8 | 9/12 | 4 | 6 |
-| República Dominicana (DO) | 8 | 1/12 | 2 | 5 |
-| Ecuador (EC) | 11 | 12/12 | 5 | 8 |
-| España (ES) | 6 | 11/12 | 7 | 6 |
-| Guatemala (GT) | 8 | 9/12 | 3 | 5 |
-| Honduras (HN) | 8 | 6/12 | 3 | 7 |
-| México (MX) | 13 | 12/12 | 10 | 11 |
-| Nicaragua (NI) | 7 | 7/12 | 1 | 4 |
-| Panamá (PA) | 8 | 6/12 | 3 | 6 |
-| Perú (PE) | 12 | 12/12 | 6 | 8 |
-| Paraguay (PY) | 6 | 7/12 | 2 | 3 |
-| El Salvador (SV) | 6 | 4/12 | 2 | 6 |
-| Estados Unidos (US) | 8 | 12/12 | 7 | 6 |
-| Uruguay (UY) | 4 | 11/12 | 3 | 4 |
-| Venezuela (VE) | 11 | 12/12 | 4 | 8 |
+| Argentina (AR) | 9 | 11/12 | 5 | 1 |
+| Bolivia (BO) | 11 | 12/12 | 5 | 1 |
+| Brasil (BR) | 8 | 12/12 | 6 | 1 |
+| Chile (CL) | 7 | 12/12 | 3 | 2 |
+| Colombia (CO) | 11 | 12/12 | 11 | 7 |
+| Costa Rica (CR) | 8 | 9/12 | 6 | 1 |
+| República Dominicana (DO) | 8 | 10/12 | 4 | 1 |
+| Ecuador (EC) | 11 | 12/12 | 6 | 1 |
+| España (ES) | 6 | 11/12 | 7 | 2 |
+| Guatemala (GT) | 8 | 9/12 | 6 | 2 |
+| Honduras (HN) | 8 | 10/12 | 5 | 1 |
+| México (MX) | 13 | 12/12 | 10 | 4 |
+| Nicaragua (NI) | 7 | 10/12 | 2 | 2 |
+| Panamá (PA) | 8 | 11/12 | 6 | 2 |
+| Perú (PE) | 12 | 12/12 | 7 | 2 |
+| Paraguay (PY) | 6 | 12/12 | 3 | 1 |
+| El Salvador (SV) | 6 | 10/12 | 4 | 2 |
+| Estados Unidos (US) | 8 | 12/12 | 8 | 4 |
+| Uruguay (UY) | 4 | 11/12 | 5 | 2 |
+| Venezuela (VE) | 11 | 12/12 | 5 | 1 |
 
 Además, en todos los países se busca en prensa regional (Bloomberg Línea, AméricaEconomía, Forbes Centroamérica, BNamericas, Infobae, Expansión) y en rankings de empleadores (Merco, Great Place to Work, Top Employers, DCH, RRHHDigital).
 
@@ -111,26 +111,25 @@ Está en `src/server/agents/first-call/country-style.ts`. Sale del estudio de es
 
 ## Normas de formación por país
 
-Están en `src/server/agents/first-call/country-training-context.ts`. Solo entra lo verificado en una fuente oficial o en prensa con fecha:
-- México: NOM-035, DC-3, el estímulo del Plan México y la jornada de 40 horas.
-- Chile: la franquicia SENCE y la Ley Karin.
-- Brasil: la NR-1, con riesgos psicosociales.
-- España: FUNDAE y el RD 723/2026.
-- Argentina: la Ley Micaela.
-- Perú: la Ley 29783 y el reglamento de hostigamiento sexual.
-- Ecuador: SECAP.
-- Venezuela: INCES.
-- Costa Rica: el Convenio 190.
-- República Dominicana: la responsabilidad penal de las empresas.
-- Paraguay: SINAFOCAL.
+Están en `src/server/agents/first-call/country-training-context.ts`. Desde el 19-10 los **20 países** tienen al menos una norma verificada en una fuente oficial: diario oficial, ministerio, base normativa o el instituto de formación. Algunas correcciones que salieron al verificar:
+- **El Salvador:** el INSAFORP ya no existe. Lo reemplazó el INCAF (Decreto 893 de 2023).
+- **Colombia:** la Ley 2365 exige una política de prevención del acoso, no una capacitación expresa.
+- **Uruguay:** el aporte al INEFOP es 0,10 %.
+- **Guatemala:** la tasa del INTECAP puede rebajarse hasta un 80 % si la empresa forma a su gente por convenio, lo que es un buen argumento de venta.
 
-Rumbo las usa como contexto o como pregunta, nunca para decir que la empresa incumple. Lo que quedó marcado «por verificar» (aportes de INTECAP, INFOP, INSAFORP e INA, entre otros) no entra hasta confirmarlo.
+Rumbo usa las normas como contexto o como pregunta, nombrando la norma sin repetir sus cifras, y nunca para decir que la empresa incumple.
 
-## Huecos para una segunda pasada
+## Banco interno de 25 empresas (20 países)
 
-La búsqueda web de las investigaciones se agotó a mitad de la tarea. Quedan pendientes:
-- Merco Talento por país (merco.info redirige en bucle).
-- La asociación de RR. HH. de Uruguay (ADPU) y la de Bolivia.
-- Las normas de Colombia, Centroamérica y Ecuador que quedaron «por verificar».
-- Medios de salud en Uruguay y de servicios en Paraguay.
-- Más industrias para República Dominicana y El Salvador.
+`scripts/agent3/research-eval.mts --set=todo` corre la preparación real sin escribir nada:
+- **`base`:** 10 empresas de SellUp con decisor (Colombia, México, Chile, Costa Rica y Perú).
+- **`paises`:** 4 empresas más de SellUp con decisor (República Dominicana, Ecuador, Honduras y EE. UU.), y una empresa real por cada uno de los 11 países donde SellUp no tiene cuentas (Argentina, Bolivia, Brasil, España, Guatemala, Nicaragua, Panamá, Paraguay, El Salvador, Uruguay y Venezuela). Cada una es de una industria distinta.
+
+Estas 11 se investigan **sin decisor**: no se inventan personas.
+
+## Lo que sigue abierto
+
+- **Industrias sin gremio activo:** Nicaragua (el gobierno canceló COSEP y 18 cámaras en 2023), y logística y retail en República Dominicana. Ahí se busca en la prensa del país y en la regional.
+- **Merco no existe** en Venezuela ni en Nicaragua, y Merco Talento solo se publica en 10 países.
+- **No hay asociación nacional de RR. HH. confirmada** en Chile, Costa Rica, Honduras, El Salvador ni Nicaragua.
+- **Pendientes de la dueña:** escribir en portugués para Brasil y en inglés para EE. UU.
