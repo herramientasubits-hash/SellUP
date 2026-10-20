@@ -15,11 +15,11 @@
 // Inyectable para tests.
 
 import {
-  searchApolloOrganizations,
   type ApolloOrganization,
   type SearchOrganizationsParams,
   type ApolloSearchResult,
 } from '@/server/integrations/apollo-client';
+import { searchApolloOrganizationsForPeople } from './apollo-org-search-for-people.server';
 
 // ── Tipos ──────────────────────────────────────────────────────
 
@@ -130,7 +130,10 @@ export async function resolveApolloOrganization(
   name: string,
   deps: ApolloOrgResolverDeps = {},
 ): Promise<ApolloOrgResolutionResult> {
-  const { searchOrganizations = searchApolloOrganizations } = deps;
+  // AGENT2-APOLLO-ACCOUNTS-VS-ORGANIZATIONS-1 — empresas reales primero; una cuenta del espacio
+  // sólo cuenta a través de su organization_id (nunca su propio id).
+  const { searchOrganizations = searchApolloOrganizationsForPeople } = deps;
+  let domainRawEntries = 0;
 
   const emptyDiagnostics: ApolloOrgResolutionDiagnostics = {
     domain_query_results: 0,
@@ -177,6 +180,7 @@ export async function resolveApolloOrganization(
       };
     }
 
+    domainRawEntries = rawEntriesOf(domainResult);
     if (domainResult.success && domainResult.data && domainResult.data.length > 0) {
       const candidates = domainResult.data;
       const best = pickBestCandidate(candidates, normalizedDomain, normalizedName);
@@ -188,7 +192,7 @@ export async function resolveApolloOrganization(
         resolutionMethod: 'domain',
         candidatesCount: candidates.length,
         diagnostics: {
-          domain_query_results: candidates.length,
+          domain_query_results: Math.max(candidates.length, domainRawEntries),
           name_query_results: 0,
           selected_organization_id: best.id,
           selected_organization_name: best.name,
@@ -207,7 +211,7 @@ export async function resolveApolloOrganization(
       resolutionStatus: 'not_found',
       resolutionMethod: null,
       candidatesCount: 0,
-      diagnostics: { ...emptyDiagnostics, domain_query_results: normalizedDomain ? 0 : 0 },
+      diagnostics: { ...emptyDiagnostics, domain_query_results: domainRawEntries },
     };
   }
 
@@ -242,8 +246,8 @@ export async function resolveApolloOrganization(
       resolutionMethod: 'name',
       candidatesCount: candidates.length,
       diagnostics: {
-        domain_query_results: normalizedDomain ? 0 : 0,
-        name_query_results: candidates.length,
+        domain_query_results: domainRawEntries,
+        name_query_results: Math.max(candidates.length, rawEntriesOf(nameResult)),
         selected_organization_id: best.id,
         selected_organization_name: best.name,
         selected_organization_domain: best.website_url,
@@ -258,6 +262,13 @@ export async function resolveApolloOrganization(
     resolutionStatus: 'not_found',
     resolutionMethod: null,
     candidatesCount: 0,
-    diagnostics: emptyDiagnostics,
+    // Una página con sólo cuentas sin empresa cobra igual: el conteo crudo lo refleja.
+    diagnostics: { ...emptyDiagnostics, domain_query_results: domainRawEntries, name_query_results: rawEntriesOf(nameResult) },
   };
+}
+
+/** Entradas crudas de la página si la búsqueda las informa; si no, lo que devolvió. */
+function rawEntriesOf(result: ApolloSearchResult<ApolloOrganization>): number {
+  const raw = (result as { rawEntries?: unknown }).rawEntries;
+  return typeof raw === 'number' ? raw : (result.data?.length ?? 0);
 }
