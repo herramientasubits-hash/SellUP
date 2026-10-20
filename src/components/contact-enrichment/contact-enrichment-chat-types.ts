@@ -56,6 +56,10 @@ export interface AutomaticRoutingUiResult {
   hubspotFirstCandidates?: number;
   /** true cuando HubSpot bastó y no se llamó a Apollo ni a Lusha. */
   hubspotFirstSatisfied?: boolean;
+  /** Banco de contactos: candidatos que SellUp ya conocía de otra ficha de la misma compañía. */
+  contactBankCandidates?: number;
+  /** true cuando lo ya conocido bastó y no se llamó a Apollo ni a Lusha. */
+  contactBankSatisfied?: boolean;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────

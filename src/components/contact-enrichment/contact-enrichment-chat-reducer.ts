@@ -241,6 +241,21 @@ function failedSourcesNote(failed: readonly string[] | undefined): string {
  *  • 0 new, but pending ones reused → "Esta búsqueda no trajo contactos nuevos, pero ya tienes N…"
  *  • 0 and nothing pending          → "No se encontraron contactos." (warning)
  */
+/** «que SellUp ya conocía de esta empresa» / «de HubSpot y de lo que SellUp ya conocía…». */
+function freeSourcesPhrase(fromHubSpot: number, fromBank: number): string {
+  if (fromHubSpot > 0 && fromBank > 0) return 'de HubSpot y de lo que SellUp ya conocía de esta empresa';
+  if (fromHubSpot > 0) return 'de HubSpot';
+  return 'que SellUp ya conocía de esta empresa';
+}
+
+/** «2 ya estaban en HubSpot» / «1 ya lo conocía SellUp» / ambas. */
+function freeSourcesNote(fromHubSpot: number, fromBank: number): string {
+  const parts: string[] = [];
+  if (fromHubSpot > 0) parts.push(`${fromHubSpot} ya ${fromHubSpot === 1 ? 'estaba' : 'estaban'} en HubSpot`);
+  if (fromBank > 0) parts.push(`${fromBank} ya ${fromBank === 1 ? 'lo conocía' : 'los conocía'} SellUp de esta empresa`);
+  return parts.join(' y ');
+}
+
 export function buildAutomaticRoutingMessage(
   result: AutomaticRoutingUiResult,
 ): { content: string; tone?: AgentChatTone } {
@@ -251,7 +266,9 @@ export function buildAutomaticRoutingMessage(
   const apollo = result.providerCandidatesCreated?.apollo ?? null;
   const lusha = result.providerCandidatesCreated?.lusha ?? null;
   const fromHubSpot = result.hubspotFirstCandidates ?? 0;
-  if (result.attempt1AttemptId == null || (apollo === null && lusha === null && fromHubSpot === 0)) {
+  const fromBank = result.contactBankCandidates ?? 0;
+  const free = fromHubSpot + fromBank;
+  if (result.attempt1AttemptId == null || (apollo === null && lusha === null && free === 0)) {
     return { content: AUTOMATIC_BLOCKED, tone: 'warning' };
   }
 
@@ -265,10 +282,16 @@ export function buildAutomaticRoutingMessage(
       content: `Encontré ${contactsLabel(fromHubSpot)} de HubSpot para revisar, así que no gasté Apollo ni Lusha. ${AUTOMATIC_APPROVAL_NOTE}`,
     };
   }
-  if (fromHubSpot > 0) {
-    const total = created + fromHubSpot;
+  // Banco de contactos: lo que SellUp ya conocía de otra ficha de la misma compañía.
+  if (result.contactBankSatisfied) {
     return {
-      content: `Encontré ${contactsLabel(total)} para revisar (${fromHubSpot} ya estaban en HubSpot). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+      content: `Encontré ${contactsLabel(free)} para revisar ${freeSourcesPhrase(fromHubSpot, fromBank)}, así que no gasté Apollo ni Lusha. ${AUTOMATIC_APPROVAL_NOTE}`,
+    };
+  }
+  if (free > 0) {
+    const total = created + free;
+    return {
+      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
     };
   }
 

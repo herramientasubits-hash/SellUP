@@ -393,6 +393,18 @@ export function isContactEnrichmentHubSpotFirstEnabled(): boolean {
 }
 
 /**
+ * AGENT2-CONTACT-BANK-1 — banco de contactos por empresa: antes de Apollo/Lusha se ofrece lo que
+ * SellUp ya conocía de otra ficha de la misma compañía (archivada o del mismo responsable). Con
+ * esta variable en false/ausente (el DEFAULT del código; no afirma lo que Producción tenga
+ * puesto) el orquestador no lee esas fichas, no escribe candidatos y no cambia ninguna rama.
+ */
+export const CONTACT_ENRICHMENT_CONTACT_BANK_FLAG = 'ENABLE_CONTACT_ENRICHMENT_CONTACT_BANK';
+
+export function isContactEnrichmentContactBankEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_CONTACT_BANK_FLAG]);
+}
+
+/**
  * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE` en este runtime?
  *
  * PRESENCIA, nunca el valor — mismo par presencia/resolución que

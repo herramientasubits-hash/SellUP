@@ -25,7 +25,28 @@ describe('Primero HubSpot — mensaje del chat', () => {
     const { content } = buildAutomaticRoutingMessage(
       result({ hubspotFirstCandidates: 1, providerCandidatesCreated: { apollo: 2, lusha: null } }),
     );
-    assert.match(content, /3 contactos para revisar \(1 ya estaban en HubSpot\)/);
+    assert.match(content, /3 contactos para revisar \(1 ya estaba en HubSpot\)/);
+  });
+
+  it('banco de contactos bastó: lo dice y avisa que no se gastaron proveedores', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({ status: 'contact_bank_satisfied', contactBankCandidates: 3, contactBankSatisfied: true }),
+    );
+    assert.match(content, /^Encontré 3 contactos para revisar que SellUp ya conocía de esta empresa, así que no gasté Apollo ni Lusha\./);
+  });
+
+  it('HubSpot + banco bastaron juntos: nombra las dos fuentes', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({ hubspotFirstCandidates: 2, contactBankCandidates: 1, contactBankSatisfied: true }),
+    );
+    assert.match(content, /3 contactos para revisar de HubSpot y de lo que SellUp ya conocía de esta empresa/);
+  });
+
+  it('banco + proveedor: suma y dice cuántos ya los conocía SellUp', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({ contactBankCandidates: 2, providerCandidatesCreated: { apollo: 1, lusha: null } }),
+    );
+    assert.match(content, /3 contactos para revisar \(2 ya los conocía SellUp de esta empresa\)/);
   });
 
   it('sin HubSpot el mensaje es el de siempre', () => {

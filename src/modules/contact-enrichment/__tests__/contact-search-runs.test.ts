@@ -108,4 +108,13 @@ describe('createContactSearchRunsStore', () => {
     assert.equal(contactsFound(RESULT({ providerCandidatesCreated: { apollo: 2, lusha: 1 }, reusedExistingCandidates: 4 })), 7);
     assert.equal(contactsFound(RESULT({ providerCandidatesCreated: { apollo: null, lusha: null } })), 0);
   });
+
+  it('cuenta lo que trajeron HubSpot y el banco de contactos aunque no corriera ningún proveedor', () => {
+    assert.equal(
+      contactsFound(
+        RESULT({ providerCandidatesCreated: { apollo: null, lusha: null }, hubspotFirstCandidates: 2, contactBankCandidates: 1 }),
+      ),
+      3,
+    );
+  });
 });
