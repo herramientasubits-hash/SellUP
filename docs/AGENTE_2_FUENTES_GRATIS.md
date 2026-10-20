@@ -99,3 +99,10 @@ Ahora el Agente 2 lee la respuesta con el mismo normalizador que ya usa el Agent
 de Apollo; una cuenta sólo cuenta a través de su `organization_id`. Una cuenta sin empresa no identifica
 nada, y la búsqueda de personas sigue por el dominio. Los créditos se cuentan sobre la página cruda
 (Apollo cobra aunque sólo traiga cuentas).
+
+## Sitio web: «www» y sitios sin texto (20-10)
+
+Primeras búsquedas reales: `almagro.com.ec` sólo responde como `www.almagro.com.ec`, y `covemex.com`
+responde pero es una página armada sólo con JavaScript (7 caracteres de texto). Las dos quedaban como
+«inalcanzable». Ahora la portada se prueba también con «www.», y una portada que responde sin texto
+legible queda como `site_no_text` (sin llamar a Claude): leerla exigiría un navegador real.
