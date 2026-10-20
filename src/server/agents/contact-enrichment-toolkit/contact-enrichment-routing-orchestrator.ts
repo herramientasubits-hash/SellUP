@@ -49,9 +49,11 @@ import {
   isContactEnrichmentLocalReuseGateEnabled,
   isContactEnrichmentHubSpotFirstEnabled,
   isContactEnrichmentContactBankEnabled,
+  isContactEnrichmentCompanySiteEnabled,
 } from '@/lib/feature-flags.server';
 import { runHubSpotFirstStage, type HubSpotFirstStageResult } from './hubspot-first-stage.server';
 import { runContactBankStage, type ContactBankStageResult } from './contact-bank-stage.server';
+import { runCompanySiteStage, type CompanySiteStageResult } from './company-site-stage.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   getContactEnrichmentRoutingConfigV1,
@@ -250,6 +252,11 @@ async function defaultRunContactBank(attemptId: string): Promise<ContactBankStag
   return runContactBankStage({ attemptId });
 }
 
+async function defaultRunCompanySite(attemptId: string, triggeredBy: string): Promise<CompanySiteStageResult | null> {
+  if (!isContactEnrichmentCompanySiteEnabled()) return null;
+  return runCompanySiteStage({ attemptId, triggeredBy });
+}
+
 async function defaultMarkRunSatisfiedByContactBank(
   attemptId: string,
   stage: Extract<ContactBankStageResult, { status: 'done' }>,
@@ -385,6 +392,11 @@ export interface AutomaticRoutingOrchestratorResult {
    * misma compañía; `satisfied` = bastaron y se omitieron los proveedores.
    */
   contactBank?: { attemptId: string; inserted: number; satisfied: boolean };
+  /**
+   * AGENT2-COMPANY-SITE-PEOPLE-1 — presente sólo cuando se leyó el sitio de la empresa (bandera
+   * encendida y Apollo sin candidatos). `inserted` = personas del sitio dejadas para revisar.
+   */
+  companySite?: { attemptId: string; inserted: number };
 }
 
 export interface AutomaticRoutingOrchestratorDeps {
@@ -436,6 +448,12 @@ export interface AutomaticRoutingOrchestratorDeps {
     attemptId: string,
     stage: Extract<ContactBankStageResult, { status: 'done' }>,
   ) => Promise<void>;
+  /**
+   * AGENT2-COMPANY-SITE-PEOPLE-1 — lee el sitio oficial cuando Apollo no dejó candidatos.
+   * `null` con la bandera ENABLE_CONTACT_ENRICHMENT_COMPANY_SITE apagada (default). No cambia
+   * la decisión de pasar a Lusha. Falla abierto.
+   */
+  runCompanySite?: (attemptId: string, triggeredBy: string) => Promise<CompanySiteStageResult | null>;
   /** Conservative default: null (unknown cost) — see evaluateBudgetGuardrailV1. */
   estimateFallbackCostUsd?: () => number | null;
   writeRoutingTelemetry?: (
@@ -476,12 +494,13 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps = {},
 ): Promise<AutomaticRoutingOrchestratorResult> {
-  const freeStagesCtx: FreeStagesCtx = { hubspotFirst: null, contactBank: null };
+  const freeStagesCtx: FreeStagesCtx = { hubspotFirst: null, contactBank: null, companySite: null };
   const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
   return {
     ...result,
     ...(freeStagesCtx.hubspotFirst ? { hubspotFirst: freeStagesCtx.hubspotFirst } : {}),
     ...(freeStagesCtx.contactBank ? { contactBank: freeStagesCtx.contactBank } : {}),
+    ...(freeStagesCtx.companySite ? { companySite: freeStagesCtx.companySite } : {}),
   };
 }
 
@@ -489,6 +508,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
 interface FreeStagesCtx {
   hubspotFirst: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null;
   contactBank: NonNullable<AutomaticRoutingOrchestratorResult['contactBank']> | null;
+  companySite: NonNullable<AutomaticRoutingOrchestratorResult['companySite']> | null;
 }
 
 function satisfiedByFreeStageResult(
@@ -523,6 +543,7 @@ async function runAutomaticRoutingCore(
     markRunSatisfiedByHubSpot = defaultMarkRunSatisfiedByHubSpot,
     runContactBank = defaultRunContactBank,
     markRunSatisfiedByContactBank = defaultMarkRunSatisfiedByContactBank,
+    runCompanySite = defaultRunCompanySite,
     evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
     estimateFallbackCostUsd = () => null,
     writeRoutingTelemetry = defaultWriteRoutingTelemetry,
@@ -664,6 +685,16 @@ async function runAutomaticRoutingCore(
       blockedReason: 'apollo_provider_not_called',
       reusedExistingCandidates: 0,
     };
+  }
+
+  // AGENT2-COMPANY-SITE-PEOPLE-1 — Apollo no dejó a nadie: el sitio oficial suele nombrar a quien
+  // buscamos. Se suma a la misma corrida y NO cambia la decisión de pasar a Lusha (que busca
+  // correos, cosa que el sitio no da).
+  if (attempt1Result.candidatesCreated === 0) {
+    const site = await runCompanySite(resolved1.attemptId, input.triggeredBy).catch(() => null);
+    if (site?.status === 'done') {
+      freeStagesCtx.companySite = { attemptId: resolved1.attemptId, inserted: site.inserted };
+    }
   }
 
   const technicalOutcome = deriveApolloTechnicalOutcomeV1(attempt1Result);

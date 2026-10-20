@@ -316,6 +316,7 @@ export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
   enriquecer_candidato: 'Completar empresa importada (IA)',
   numero_fiscal_migo: 'Validar RUC en Migo (Perú)',
   identificar_empresa: 'Identificar la empresa en Apollo',
+  leer_sitio_empresa: 'Personas del sitio web de la empresa (Claude)',
   completar_cuenta: 'Completar país e industria (Claude)',
   investigar_empresa: 'Investigar la empresa (Claude)',
   noticias: 'Noticias del último año (Tavily)',

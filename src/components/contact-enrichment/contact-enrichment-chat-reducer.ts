@@ -248,11 +248,12 @@ function freeSourcesPhrase(fromHubSpot: number, fromBank: number): string {
   return 'que SellUp ya conocía de esta empresa';
 }
 
-/** «2 ya estaban en HubSpot» / «1 ya lo conocía SellUp» / ambas. */
-function freeSourcesNote(fromHubSpot: number, fromBank: number): string {
+/** «2 ya estaban en HubSpot» / «1 ya lo conocía SellUp» / «2 del sitio web, sin correo». */
+function freeSourcesNote(fromHubSpot: number, fromBank: number, fromSite = 0): string {
   const parts: string[] = [];
   if (fromHubSpot > 0) parts.push(`${fromHubSpot} ya ${fromHubSpot === 1 ? 'estaba' : 'estaban'} en HubSpot`);
   if (fromBank > 0) parts.push(`${fromBank} ya ${fromBank === 1 ? 'lo conocía' : 'los conocía'} SellUp de esta empresa`);
+  if (fromSite > 0) parts.push(`${fromSite} del sitio web de la empresa, sin correo`);
   return parts.join(' y ');
 }
 
@@ -267,7 +268,8 @@ export function buildAutomaticRoutingMessage(
   const lusha = result.providerCandidatesCreated?.lusha ?? null;
   const fromHubSpot = result.hubspotFirstCandidates ?? 0;
   const fromBank = result.contactBankCandidates ?? 0;
-  const free = fromHubSpot + fromBank;
+  const fromSite = result.companySiteCandidates ?? 0;
+  const free = fromHubSpot + fromBank + fromSite;
   if (result.attempt1AttemptId == null || (apollo === null && lusha === null && free === 0)) {
     return { content: AUTOMATIC_BLOCKED, tone: 'warning' };
   }
@@ -291,7 +293,7 @@ export function buildAutomaticRoutingMessage(
   if (free > 0) {
     const total = created + free;
     return {
-      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank, fromSite)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
     };
   }
 

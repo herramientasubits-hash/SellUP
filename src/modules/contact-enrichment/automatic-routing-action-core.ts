@@ -65,6 +65,8 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   contactBankCandidates?: number;
   /** true cuando lo ya conocido bastó y no se llamó a Apollo ni a Lusha. */
   contactBankSatisfied?: boolean;
+  /** AGENT2-COMPANY-SITE-PEOPLE-1 — personas del sitio web de la empresa (sin correo). */
+  companySiteCandidates?: number;
 }
 
 export interface AutomaticRoutingCandidatesCreated {
@@ -115,6 +117,7 @@ function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult
     hubspotFirstSatisfied: false,
     contactBankCandidates: 0,
     contactBankSatisfied: false,
+    companySiteCandidates: 0,
   };
 }
 
@@ -164,5 +167,6 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     hubspotFirstSatisfied: result.hubspotFirst?.satisfied ?? false,
     contactBankCandidates: result.contactBank?.inserted ?? 0,
     contactBankSatisfied: result.contactBank?.satisfied ?? false,
+    companySiteCandidates: result.companySite?.inserted ?? 0,
   };
 }

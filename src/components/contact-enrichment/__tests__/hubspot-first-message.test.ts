@@ -49,6 +49,13 @@ describe('Primero HubSpot — mensaje del chat', () => {
     assert.match(content, /3 contactos para revisar \(2 ya los conocía SellUp de esta empresa\)/);
   });
 
+  it('personas del sitio web: las suma y avisa que vienen sin correo', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({ companySiteCandidates: 2, providerCandidatesCreated: { apollo: 0, lusha: 0 } }),
+    );
+    assert.match(content, /^Encontré 2 contactos para revisar \(2 del sitio web de la empresa, sin correo\)\./);
+  });
+
   it('sin HubSpot el mensaje es el de siempre', () => {
     assert.match(
       buildAutomaticRoutingMessage(result({ providerCandidatesCreated: { apollo: 2, lusha: null } })).content,

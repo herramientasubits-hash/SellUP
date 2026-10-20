@@ -11,8 +11,12 @@ encenderlas en Vercel Producción es una decisión de la dueña.
    conocía de **otra ficha de la misma compañía** (mismo número fiscal y país, dominio o ID de
    HubSpot), si esa ficha está archivada o es del mismo responsable. Nunca la ficha activa de otro
    vendedor.
-3. **Apollo** (la búsqueda de personas es gratis; completar un perfil cuesta 1 crédito) y, si no
-   alcanza, **Lusha**.
+3. **Apollo** (la búsqueda de personas es gratis; completar un perfil cuesta 1 crédito). Quien ya es
+   contacto de la empresa no se completa: el nombre de pila y el apellido (aunque Apollo lo mande
+   oculto, «Go***z») bastan para reconocerlo sin pagar.
+4. **Sitio web de la empresa** (`ENABLE_CONTACT_ENRICHMENT_COMPANY_SITE`), sólo si Apollo no dejó
+   ningún candidato. Ver abajo.
+5. Si no alcanza, **Lusha**, con la misma regla de siempre.
 
 Si 1 + 2 dejan 3 o más personas relevantes con correo, no se llama a Apollo ni a Lusha.
 
@@ -53,3 +57,18 @@ cada intento y una muestra de cargos. **0 créditos**: sólo usa la búsqueda de
 en Apollo. No guarda nada ni devuelve nombres, correos o teléfonos.
 
 Si `documented` trae gente donde `current` traía 0, se enciende `ENABLE_APOLLO_PEOPLE_SEARCH_V2`.
+
+## Sitio web de la empresa
+
+`ENABLE_CONTACT_ENRICHMENT_COMPANY_SITE`. Cuando Apollo no deja candidatos (141 de 193 búsquedas en
+los 60 días previos al 20-10), se lee la portada y hasta cuatro páginas del sitio oficial: equipo y
+dirección, «nosotros», sostenibilidad y prensa. Claude entrega quién aparece con su cargo y la
+frase exacta; cada persona se verifica contra el texto (la cita tiene que estar en la página y
+nombrarla) y sólo entran los cargos del perfil de UBITS (RR. HH., talento, formación, gerencia
+general).
+
+- Entran como candidatos por revisar **sin correo ni teléfono**, con la página y la cita en
+  `enrichment_metadata.company_site`. El origen queda como `manual`.
+- Costo: una llamada a Claude por búsqueda (unos centavos), registrada en Uso de IA como «Personas
+  del sitio web de la empresa (Claude)». Sin presupuesto de IA disponible no se llama.
+- No cambia cuándo se llama a Lusha.

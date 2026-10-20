@@ -417,6 +417,18 @@ export function isApolloPeopleSearchV2Enabled(): boolean {
 }
 
 /**
+ * AGENT2-COMPANY-SITE-PEOPLE-1 — cuando Apollo no deja ningún candidato, leer el sitio oficial de
+ * la empresa (equipo, «nosotros», sostenibilidad, prensa) y ofrecer a las personas que nombra con
+ * su cargo. Usa Claude (se registra en Uso de IA y respeta el presupuesto). Con esta variable en
+ * false/ausente (el DEFAULT del código; no afirma lo que Producción tenga puesto) no se lee nada.
+ */
+export const CONTACT_ENRICHMENT_COMPANY_SITE_FLAG = 'ENABLE_CONTACT_ENRICHMENT_COMPANY_SITE';
+
+export function isContactEnrichmentCompanySiteEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_COMPANY_SITE_FLAG]);
+}
+
+/**
  * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE` en este runtime?
  *
  * PRESENCIA, nunca el valor — mismo par presencia/resolución que

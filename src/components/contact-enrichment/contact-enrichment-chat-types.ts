@@ -60,6 +60,8 @@ export interface AutomaticRoutingUiResult {
   contactBankCandidates?: number;
   /** true cuando lo ya conocido bastó y no se llamó a Apollo ni a Lusha. */
   contactBankSatisfied?: boolean;
+  /** Personas que nombra el sitio web de la empresa, sin correo. */
+  companySiteCandidates?: number;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────
