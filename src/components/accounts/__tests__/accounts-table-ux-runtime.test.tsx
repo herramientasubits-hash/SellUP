@@ -267,3 +267,28 @@ describe('Empresas — vista «Lista»', () => {
     assert.ok(first.getByRole('checkbox', { name: 'Seleccionar Acme' }));
   });
 });
+
+describe('Rumbo desde la barra: «¿Qué hacemos?» con las empresas marcadas (dueña 20-10)', () => {
+  it('con una empresa ofrece buscar sus contactos y preparar el primer contacto', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    const copy = chooserCopy([{ name: 'Davivienda' }], 'none', true);
+    assert.match(copy.intro, /¿Qué hacemos con Davivienda\?/);
+    assert.deepEqual(copy.options.map((o) => o.value), ['contacts', 'first-contact']);
+  });
+
+  it('con varias, sólo buscar contactos en lote; sin Agente 3, sin primer contacto', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    const many = chooserCopy([{ name: 'A' }, { name: 'B' }], 'none', true);
+    assert.deepEqual(many.options.map((o) => o.value), ['contacts']);
+    assert.match(many.options[0].description, /2 empresas, en lote/);
+    const off = chooserCopy([{ name: 'A' }], 'none', false);
+    assert.deepEqual(off.options.map((o) => o.value), ['contacts']);
+    assert.equal(off.intro.includes('primer contacto'), false);
+  });
+
+  it('sin nada marcado, el de siempre (prospectar, contactos, primer contacto)', async () => {
+    const { chooserCopy } = await import('../accounts-agent-chooser');
+    assert.deepEqual(chooserCopy(undefined, 'available', true).options.map((o) => o.value), ['prospect', 'contacts', 'first-contact']);
+  });
+});
+
