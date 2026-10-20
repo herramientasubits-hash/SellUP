@@ -414,12 +414,29 @@ describe('runFirstCall — respaldo cuando Tavily no está', () => {
     assert.equal(web?.max_uses, 5);
   });
 
-  it('con Tavily funcionando, Claude sólo busca un poco y no lee páginas', async () => {
+  it('con Tavily funcionando, Claude busca un poco y puede leer 2 artículos para comprobar sus citas (Anex Tour, 20-10)', async () => {
     const { deps, calls } = harness({ context: { internal: { ...INTERNAL, account: { ...INTERNAL.account, website: null, domain: null } } } });
     await runFirstCall(REQUEST, deps);
     const tools = calls.conversations[0].tools as Array<{ type?: string; max_uses?: number }>;
     assert.equal(tools.find((t) => t.type === 'web_search_20250305')?.max_uses, 2);
-    assert.equal(tools.some((t) => t.type === 'web_fetch_20250910'), false);
+    assert.equal(tools.find((t) => t.type === 'web_fetch_20250910')?.max_uses, 2);
+    assert.match(calls.conversations[0].messages[0].content as string, /escribe en texto, en pocas líneas, lo que encontraste/);
+  });
+
+  it('si la investigación termina sin entrega (pausa en la búsqueda web), se le pide (O’Reilly, 20-10)', async () => {
+    let call = 0;
+    const { deps, calls } = harness({
+      research: async () => {
+        call += 1;
+        return call === 1
+          ? { content: [{ type: 'text', text: 'Sigo buscando…' }], stopReason: 'pause_turn', usage: usage(), requests: 1 }
+          : toolUse(RESEARCH_SUBMIT_TOOL, RESEARCH_SUBMISSION);
+      },
+    });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(call, 2, 'un segundo turno pidiendo la entrega');
+    const final = calls.briefPatches.find((p) => p.status !== undefined)!;
+    assert.ok(final.facts!.some((f) => f.sourceKind !== 'sellup'));
   });
 
   it('una cita de un artículo que Claude leyó entero se verifica contra ese texto, con la fecha del resultado', async () => {
@@ -826,5 +843,38 @@ describe('runFirstCall — un canal sin lo común lo toma de otro del mismo deci
     assert.ok(content.objections.length > 0, 'objeciones del otro canal');
     assert.ok(content.nextStep, 'cierre del otro canal');
     assert.equal(linkedin.verifierIssues.some((i) => /preguntas|objeciones|siguiente paso/.test(i)), false, linkedin.verifierIssues.join(' | '));
+  });
+});
+
+describe('runFirstCall — entrega de la investigación cortada (Grupo LALA, banco 20-10)', () => {
+  it('una entrega sin lista de datos (se cortó) se vuelve a pedir, sin la entrega cortada', async () => {
+    const bodies: AnthropicRequestBody[] = [];
+    let call = 0;
+    const { deps, calls } = harness({
+      research: async (body) => {
+        bodies.push(body);
+        call += 1;
+        return call === 1
+          ? {
+              content: [
+                { type: 'text', text: 'Encontré esto…' },
+                { type: 'tool_use', id: 'cut', name: RESEARCH_SUBMIT_TOOL, input: {} },
+              ],
+              stopReason: 'max_tokens',
+              usage: usage(),
+              requests: 1,
+            }
+          : toolUse(RESEARCH_SUBMIT_TOOL, RESEARCH_SUBMISSION);
+      },
+    });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(call, 2);
+    const retry = JSON.stringify(bodies[1].messages);
+    assert.equal(retry.includes('"id":"cut"'), false, 'la entrega cortada no se reenvía');
+    const final = calls.briefPatches.find((p) => p.status !== undefined)!;
+    assert.ok(final.facts!.some((f) => f.sourceKind !== 'sellup'));
+    const log = calls.logs.find((l) => l.agentStep === 'investigar_empresa')!;
+    assert.deepEqual(log.metadata.stop_reasons, ['max_tokens', 'tool_use']);
+    assert.equal(log.metadata.forced_submission, true);
   });
 });

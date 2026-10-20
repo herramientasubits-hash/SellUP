@@ -76,8 +76,22 @@ const PARAMETER_TAG = /<\/?parameter(?:\s+name="[^"]*")?\s*>/g;
 const LEADING_LABEL =
   /^\s*(?:mensaje de voz(?: si no contesta)?|mensaje si no contesta|guion(?: de (?:la )?llamada)?|versi[oó]n[^:\n]{0,40}|nota de (?:conexi[oó]n|linkedin)|whatsapp|linkedin|correo)(?:\s*\([^)\n]{0,60}\))?\s*:\s*/i;
 
+/**
+ * «…un diagnóstico de su equipo, sin costo, para que…»: el redactor agrega «sin costo» a las
+ * ofertas aunque la biblioteca no lo promete (banco 20-10, 4 preparaciones). Si va como inciso
+ * (entre comas, o al comienzo de la frase), se quita; en otro lugar lo marca el verificador.
+ */
+const FREE_INCISO = /,\s*(?:sin costo alguno|sin costo|sin cargo|gratis|de forma gratuita)\s*(?=[,.;!?])/gi;
+const FREE_OPENING = /(^|[.!?]\s+)(?:sin costo|sin cargo|gratis),\s*(\p{L})/giu;
+
 export function cleanToolText(value: string): string {
-  return value.replace(PARAMETER_TAG, '').trim().replace(LEADING_LABEL, '').trim();
+  return value
+    .replace(PARAMETER_TAG, '')
+    .trim()
+    .replace(LEADING_LABEL, '')
+    .replace(FREE_INCISO, '')
+    .replace(FREE_OPENING, (_m, start: string, first: string) => `${start}${first.toUpperCase()}`)
+    .trim();
 }
 
 function refsFrom(value: unknown): string[] {
@@ -463,7 +477,8 @@ export function verifyPack(
         break;
       }
       const subjectWords = countWords(subject);
-      if (subjectWords > EMAIL_SUBJECT_MAX_WORDS + 2) {
+      // Un asunto de 5 a 8 palabras concreto también funciona; sólo se marca el que se alarga (banco 20-10).
+      if (subjectWords > EMAIL_SUBJECT_MAX_WORDS + 4) {
         issues.push(`El asunto es largo (${subjectWords} palabras; se buscan 1 a ${EMAIL_SUBJECT_MAX_WORDS}).`);
         break;
       }

@@ -52,7 +52,7 @@ export function isAgent3ExtendedResearchEnabled(value: string | undefined): bool
 /** Preparaciones recientes del decisor que se revisan para reutilizar lo investigado. */
 const CACHED_CONTACT_PACKS_READ = 8;
 
-async function readCuratedLists(account: { name: string; domain: string | null; country_code: string | null }): Promise<string[]> {
+export async function readCuratedLists(account: { name: string; domain: string | null; country_code: string | null }): Promise<string[]> {
   if (!account.country_code) return [];
   const admin = createSupabaseAdminClient();
   const base = () =>

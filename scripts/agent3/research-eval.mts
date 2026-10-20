@@ -16,6 +16,7 @@
  *   node --import tsx scripts/agent3/research-eval.mts --compare=/tmp/eval/antes.json,/tmp/eval/despues.json
  *
  * Opciones:
+ *   --set=base|paises|todo       el banco de siempre (CO, MX, CL, CR, PE), los otros países o todo
  *   --accounts=nombre1,nombre2   sólo esas empresas del banco (por nombre)
  *   --writer=on|off              off = no llama al redactor (mide sólo la investigación)
  *   --channels=call,email        canales para el redactor (por defecto los 4)
@@ -27,6 +28,7 @@
  *   --confirm-spend              confirma el gasto real en Tavily y Claude
  *   --tavily=off                 simula que Tavily no responde (mide el respaldo con Claude)
  *   --extraction-model=<modelo>  otro modelo para investigar (p. ej. claude-sonnet-4-6)
+ *   --dump=<dir>                 guarda la respuesta cruda de Claude al investigar
  *
  * Gasto aproximado por empresa: investigación ~US$0,08 + 2–6 créditos de Tavily; con el
  * redactor de 4 canales y todos los tipos de mensaje, ~US$0,15 más.
@@ -37,14 +39,25 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createSupabaseAdminClient } from '../../src/lib/supabase/admin';
-import { buildLiveFirstCallDeps, loadFirstCallContext } from '../../src/server/agents/first-call/run-first-call.server';
-import { runFirstCall, type BriefPatch, type PackInsert, type UsageLogInput, type RunFirstCallDeps } from '../../src/server/agents/first-call/run-first-call';
+import { buildLiveFirstCallDeps, loadFirstCallContext, readCuratedLists } from '../../src/server/agents/first-call/run-first-call.server';
+import { runFirstCall, type BriefPatch, type FirstCallContext, type PackInsert, type UsageLogInput, type RunFirstCallDeps } from '../../src/server/agents/first-call/run-first-call';
 import { WRITER_SUBMIT_TOOL } from '../../src/server/agents/first-call/writer-prompt';
 import type { FirstCallChannel, FirstCallRequest } from '../../src/server/agents/first-call/types';
 import { computeResearchMetrics, compareRuns, type EvalCompanyResult, type EvalRun } from './research-eval-metrics';
 
-/** El banco: empresas reales con su decisor de RR. HH. (países, tamaños e industrias distintos). */
-export const EVAL_SET: ReadonlyArray<{ name: string; contact: string }> = [
+/**
+ * Una empresa del banco. Las que no están en SellUp (`synthetic`) se investigan igual con
+ * sus datos públicos, SIN decisor: no se inventan personas (dueña 19-10: cubrir los 20
+ * países y las 12 industrias aunque SellUp no tenga cuentas ahí).
+ */
+export interface EvalEntry {
+  name: string;
+  contact: string | null;
+  synthetic?: { country: string; countryCode: string; industry: string; website: string };
+}
+
+/** El banco de siempre: empresas reales con su decisor de RR. HH. (CO, MX, CL, CR, PE). */
+export const EVAL_SET: ReadonlyArray<EvalEntry> = [
   { name: 'Davivienda Colombia', contact: 'Fabian Martinez' },
   { name: 'Auteco', contact: 'Andrea Guevara' },
   { name: 'Itaú Colombia', contact: 'Cristian Penafiel Arancibia' },
@@ -57,6 +70,64 @@ export const EVAL_SET: ReadonlyArray<{ name: string; contact: string }> = [
   { name: 'Elifarma', contact: 'Ariana Lock' },
 ];
 
+/**
+ * El resto de los países: las cuentas de SellUp con decisor que hay (DO, EC, HN, US) y,
+ * donde no hay ninguna, una empresa real conocida de una industria distinta cada una.
+ */
+export const EVAL_SET_COUNTRIES: ReadonlyArray<EvalEntry> = [
+  { name: 'Anex Tour', contact: 'Aysun Dumrul' },
+  { name: 'Zurich Seguros Ecuador', contact: 'Andres Aguirre' },
+  { name: 'Lácteos de Honduras', contact: 'Jennifer Coello' },
+  { name: 'The Coca-Cola Company', contact: 'Peggy McCaslin' },
+  { name: 'Adecoagro', contact: null, synthetic: { country: 'Argentina', countryCode: 'AR', industry: 'Agroindustria', website: 'https://www.adecoagro.com' } },
+  { name: 'Banco Mercantil Santa Cruz', contact: null, synthetic: { country: 'Bolivia', countryCode: 'BO', industry: 'Seguros y Servicios Financieros', website: 'https://www.bmsc.com.bo' } },
+  { name: 'Magazine Luiza', contact: null, synthetic: { country: 'Brasil', countryCode: 'BR', industry: 'Retail', website: 'https://www.magazineluiza.com.br' } },
+  { name: 'Iberdrola', contact: null, synthetic: { country: 'España', countryCode: 'ES', industry: 'Gas / Petróleo / Energía / Minería / Medio Ambiente', website: 'https://www.iberdrola.com' } },
+  { name: 'Cementos Progreso', contact: null, synthetic: { country: 'Guatemala', countryCode: 'GT', industry: 'Propiedad & Construcción', website: 'https://www.cempro.com' } },
+  { name: 'Compañía Licorera de Nicaragua', contact: null, synthetic: { country: 'Nicaragua', countryCode: 'NI', industry: 'Consumo Masivo', website: 'https://www.flordecana.com' } },
+  { name: 'Copa Airlines', contact: null, synthetic: { country: 'Panamá', countryCode: 'PA', industry: 'Transporte & Logística', website: 'https://www.copaair.com' } },
+  { name: 'Tigo Paraguay', contact: null, synthetic: { country: 'Paraguay', countryCode: 'PY', industry: 'Tecnología', website: 'https://www.tigo.com.py' } },
+  { name: 'Hospital de Diagnóstico', contact: null, synthetic: { country: 'El Salvador', countryCode: 'SV', industry: 'Salud & Farmacéuticos', website: 'https://www.hdiagnostico.com' } },
+  { name: 'ANTEL', contact: null, synthetic: { country: 'Uruguay', countryCode: 'UY', industry: 'Gobierno', website: 'https://www.antel.com.uy' } },
+  { name: 'Empresas Polar', contact: null, synthetic: { country: 'Venezuela', countryCode: 'VE', industry: 'Consumo Masivo', website: 'https://www.empresaspolar.com' } },
+];
+
+/** El contexto de una empresa que no está en SellUp: sus datos públicos, sin decisor. */
+async function syntheticContext(entry: EvalEntry, userId: string): Promise<FirstCallContext> {
+  const synthetic = entry.synthetic!;
+  const domain = synthetic.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  const admin = createSupabaseAdminClient();
+  const { data: user } = await admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle();
+  const fullName = (user as { full_name?: string | null } | null)?.full_name ?? null;
+  return {
+    internal: {
+      account: {
+        id: `eval-${domain}`,
+        name: entry.name,
+        legalName: null,
+        website: synthetic.website,
+        domain,
+        country: synthetic.country,
+        countryCode: synthetic.countryCode,
+        industry: synthetic.industry,
+        companySize: null,
+        taxIdentifier: null,
+        taxIdentifierType: null,
+        hubspotCompanyId: null,
+      },
+      classification: null,
+      curatedLists: await readCuratedLists({ name: entry.name, domain, country_code: synthetic.countryCode }),
+      relations: [],
+      hubspot: null,
+      decisionMaker: null,
+    },
+    decisionMakers: [],
+    sellerName: fullName ? fullName.split(/\s+/)[0] : null,
+    currentBrief: null,
+    researchRunning: false,
+  };
+}
+
 const ALL_CHANNELS: FirstCallChannel[] = ['call', 'whatsapp', 'email', 'linkedin'];
 
 function arg(name: string): string | null {
@@ -68,7 +139,7 @@ function key(parts: unknown): string {
   return createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 16);
 }
 
-async function findAccount(name: string, contactName: string) {
+async function findAccount(name: string, contactName: string | null) {
   const admin = createSupabaseAdminClient();
   const { data: accounts } = await admin.from('accounts').select('id, name').eq('name', name).neq('pipeline_status', 'archived');
   for (const account of (accounts ?? []) as Array<{ id: string; name: string }>) {
@@ -103,9 +174,11 @@ interface EvalOptions {
   tavilyOff: boolean;
   /** Otro modelo para investigar (empresa y decisor); el redactor sigue con el activo. */
   extractionModel: string | null;
+  /** Guarda la respuesta cruda de Claude al investigar (para diagnosticar). */
+  dump: string | null;
 }
 
-function evalDeps(userId: string, opts: EvalOptions) {
+function evalDeps(userId: string, opts: EvalOptions, fixedContext: FirstCallContext | null = null) {
   const live = buildLiveFirstCallDeps(userId);
   const captured = { patches: [] as BriefPatch[], packs: [] as PackInsert[], logs: [] as UsageLogInput[], statuses: [] as string[] };
   const store = (dir: string, kind: string, parts: unknown, value: unknown) => {
@@ -118,7 +191,7 @@ function evalDeps(userId: string, opts: EvalOptions) {
   };
   const deps: RunFirstCallDeps = {
     ...live,
-    loadContext: (request) => loadFirstCallContext(request, userId, { readAccount: readAccountDirect, skipHubSpot: true }),
+    loadContext: async (request) => fixedContext ?? loadFirstCallContext(request, userId, { readAccount: readAccountDirect, skipHubSpot: true }),
     checkBudget: async (provider) => (opts.tavilyOff && provider === 'tavily' ? { allowed: false } : live.checkBudget(provider)),
     resolveModels: async () => {
       const models = await live.resolveModels();
@@ -158,6 +231,12 @@ function evalDeps(userId: string, opts: EvalOptions) {
     },
     runConversation: async (body, apiKey) => {
       const isWriter = (body.tools as Array<{ name?: string }> | undefined)?.some((t) => t.name === WRITER_SUBMIT_TOOL);
+      if (opts.dump && !isWriter) {
+        const output = await live.runConversation(body, apiKey);
+        mkdirSync(opts.dump, { recursive: true });
+        writeFileSync(path.join(opts.dump, `${Date.now()}-${key(body.messages)}.json`), JSON.stringify({ body, output }, null, 1));
+        return output;
+      }
       if (isWriter && !opts.writer) {
         return { content: [], stopReason: 'skipped', usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, webFetchRequests: 0 }, requests: 0 };
       }
@@ -167,13 +246,15 @@ function evalDeps(userId: string, opts: EvalOptions) {
   return { deps, captured };
 }
 
-async function evaluateCompany(entry: { name: string; contact: string }, userId: string, opts: EvalOptions): Promise<EvalCompanyResult> {
-  const found = await findAccount(entry.name, entry.contact);
-  if (!found) return { name: entry.name, contact: entry.contact, error: 'no_encontrada' } as EvalCompanyResult;
-  const { deps, captured } = evalDeps(userId, opts);
+async function evaluateCompany(entry: EvalEntry, userId: string, opts: EvalOptions): Promise<EvalCompanyResult> {
+  const contactLabel = entry.contact ?? '(sin decisor)';
+  const fixed = entry.synthetic ? await syntheticContext(entry, userId) : null;
+  const found = fixed ? { accountId: fixed.internal.account.id, contactId: null } : await findAccount(entry.name, entry.contact);
+  if (!found) return { name: entry.name, contact: contactLabel, error: 'no_encontrada' } as EvalCompanyResult;
+  const { deps, captured } = evalDeps(userId, opts, fixed);
   const request: FirstCallRequest = {
     accountId: found.accountId,
-    contactIds: [found.contactId],
+    contactIds: found.contactId ? [found.contactId] : [],
     channels: opts.channels,
     goals: ['book_meeting'],
     productKeys: [],
@@ -194,7 +275,7 @@ async function evaluateCompany(entry: { name: string; contact: string }, userId:
   const brief = captured.patches.reduce((acc, p) => ({ ...acc, ...p }), {} as BriefPatch);
   return {
     name: entry.name,
-    contact: entry.contact,
+    contact: contactLabel,
     resultCode,
     durationMs: Date.now() - startedAt,
     brief,
@@ -229,6 +310,7 @@ async function main() {
     replay: arg('replay'),
     tavilyOff: arg('tavily') === 'off',
     extractionModel: arg('extraction-model'),
+    dump: arg('dump'),
   };
   // Sin respuestas guardadas o con el redactor, se gasta de verdad: se confirma a propósito.
   const spends = !opts.replay || writer;
@@ -237,7 +319,10 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const set = EVAL_SET.filter((e) => !only || only.includes(e.name.toLowerCase()));
+  // --set=base (el de siempre), paises (los otros países) o todo.
+  const which = arg('set') ?? 'base';
+  const pool = which === 'paises' ? EVAL_SET_COUNTRIES : which === 'todo' ? [...EVAL_SET, ...EVAL_SET_COUNTRIES] : EVAL_SET;
+  const set = pool.filter((e) => !only || only.includes(e.name.toLowerCase()));
 
   const companies: EvalCompanyResult[] = [];
   for (const entry of set) {
