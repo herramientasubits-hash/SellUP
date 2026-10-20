@@ -2,6 +2,7 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import {
   Building2,
   Users,
@@ -138,6 +139,8 @@ export function AccountDetailSheet({
   onRequestFirstContact,
   initialTab = 'resumen',
 }: AccountDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, onClose);
   const [data, setData] = React.useState<SheetData | null>(null);
   const [loading, setLoading] = React.useState(false);
   // Antes, si la empresa no se podía leer, el panel se quedaba girando para

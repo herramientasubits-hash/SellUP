@@ -42,6 +42,7 @@ import {
   type ProcessState,
 } from './agent-runs-tray-copy';
 import { openAgentRun } from './agent-run-opener';
+import { useRefreshOnFinishedRuns } from './finished-runs';
 import { FirstContactRunRows } from '@/components/first-call/first-contact-run-rows';
 import { FirstContactGlobalPanelHost } from '@/components/first-call/first-contact-global-panel-host';
 import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
@@ -269,6 +270,9 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
   const router = useRouter();
+  // Terminó una búsqueda (aunque el asistente esté minimizado): se recarga para verla.
+  const refreshScreen = React.useCallback(() => router.refresh(), [router]);
+  useRefreshOnFinishedRuns(runs, refreshScreen);
   const close = () => setOpen(false);
   const openRun = (clientRequestId: string) => {
     close();

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useExclusivePanel } from '@/lib/exclusive-panels';
 import { formatInAppZone } from '@/lib/format-date';
 import { toast } from 'sonner';
 import {
@@ -349,6 +350,8 @@ export function ContactCandidateDetailSheet({
   phoneRevealWaterfallAuthorized = false,
   variant = 'review',
 }: ContactCandidateDetailSheetProps) {
+  // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
+  useExclusivePanel('detail', open, onClose);
   const isRejectedVariant = variant === 'rejected';
   // La misma proyección de sólo lectura; cambia únicamente el estado que se admite.
   const loadCandidateById = isRejectedVariant

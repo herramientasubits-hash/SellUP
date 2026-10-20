@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import {
   Eye,
   Pencil,
+  PhoneCall,
   Archive,
   Building2,
   ExternalLink,
@@ -19,7 +20,7 @@ import {
   UserPlus,
 } from "@/icons";
 import { RumboIcon } from '@/components/chat/chat-mark';
-import { RUMBO_ACTION_LABELS, withRumbo } from '@/components/ai/rumbo-labels';
+import { RUMBO_ACTION_LABELS, RUMBO_IA } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -67,6 +68,7 @@ import { AccountEditDrawer } from './account-edit-drawer';
 import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
+import { readOpenAccountParam } from './open-account-link';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -229,6 +231,17 @@ export function AccountsDataTableClient({
     setDetailAccountId(id);
     setDetailOpen(true);
   }, []);
+
+  // `/accounts?abrir=<id>` (p. ej. al aprobar una empresa en «Por revisar»): se abre su
+  // ficha y se quita el parámetro, para que recargar no la vuelva a abrir.
+  React.useEffect(() => {
+    const { accountId, rest } = readOpenAccountParam(window.location.search);
+    if (!accountId) return;
+    // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openDetail(accountId);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+  }, [openDetail]);
 
   // Una preparación de Rumbo terminó (aunque se haya abierto desde el Centro de
   // procesos): en Empresas el resultado se ve en la ficha, en «Primer contacto».
@@ -529,20 +542,6 @@ export function AccountsDataTableClient({
         disabled: (rows) => rows.length !== 1,
         onClick: (rows) => setEditingId(rows[0].id),
       },
-      ...(firstCallEnabled
-        ? [
-            {
-              id: 'first-call',
-              // Una empresa a la vez: cada una gasta su propia investigación.
-              scope: ['single'] as ('single' | 'bulk')[],
-              label: RUMBO_ACTION_LABELS.prepareFirstContact,
-              icon: RumboIcon,
-              variant: 'ai' as const,
-              disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
-              onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
-            },
-          ]
-        : []),
       {
         id: 'assign',
         label: 'Asignar a…',
@@ -592,28 +591,51 @@ export function AccountsDataTableClient({
         },
       },
       {
-        id: 'bulk-enrich-contacts',
-        label: withRumbo('Buscar contactos en lote'),
+        // Rumbo en general (dueña 20-10): con una empresa, buscar sus contactos o preparar
+        // el primer contacto; con varias, buscar contactos en lote.
+        id: 'rumbo',
+        label: RUMBO_IA,
         icon: RumboIcon,
         variant: 'ai',
-        disabled: (rows) => rows.length === 0,
-        onClick: (rows) => {
-          if (rows.length === 1) {
-            // Single selection: open individual enrichment drawer
-            const row = rows[0];
-            setEnrichCompany({
-              name: row.name,
-              domain: row.domain,
-              country: row.country,
-              countryCode: row.country_code,
-              sellupAccountId: row.id,
-            });
-            return;
-          }
-          // Multiple selection: open bulk drawer
-          setBulkEnrichAccounts(rows);
-          setBulkEnrichOpen(true);
-        },
+        items: [
+          {
+            id: 'enrich-contacts',
+            label: RUMBO_ACTION_LABELS.findContacts,
+            icon: UserSearch,
+            variant: 'ai',
+            disabled: (rows) => rows.length === 0,
+            onClick: (rows) => {
+              if (rows.length === 1) {
+                const row = rows[0];
+                setEnrichCompany({
+                  name: row.name,
+                  domain: row.domain,
+                  country: row.country,
+                  countryCode: row.country_code,
+                  sellupAccountId: row.id,
+                });
+                return;
+              }
+              setBulkEnrichAccounts(rows);
+              setBulkEnrichOpen(true);
+            },
+          },
+          ...(firstCallEnabled
+            ? [
+                {
+                  id: 'first-call',
+                  label: RUMBO_ACTION_LABELS.prepareFirstContact,
+                  icon: PhoneCall,
+                  variant: 'ai' as const,
+                  // Una empresa a la vez: cada una gasta su propia investigación.
+                  disabled: (rows: Row[]) => rows.length !== 1 || rows[0].pipeline_status === 'archived',
+                  disabledLabel: (rows: Row[]) =>
+                    rows.length !== 1 ? 'De a una empresa' : rows[0].pipeline_status === 'archived' ? 'Empresa archivada' : undefined,
+                  onClick: (rows: Row[]) => setFirstContact({ kind: 'account', accountId: rows[0].id }),
+                },
+              ]
+            : []),
+        ],
       },
     ],
     [openDetail, router, firstCallEnabled],

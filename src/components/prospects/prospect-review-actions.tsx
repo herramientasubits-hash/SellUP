@@ -53,6 +53,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { openAccountHref } from '@/components/accounts/open-account-link';
 import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from "@/icons";
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -269,9 +270,12 @@ export function ProspectReviewActions({
       if (result.ok) {
         toast.success(resolveSuccessMessage(result.status, result.hubSpotStatus));
         setConfirming(false);
-        // Server components refetch: the drawer receives the updated candidate
-        // and re-renders this zone (null — terminal) and the status info card
-        // in the "Convertido en cuenta" state with the "Ver empresa" CTA.
+        // Dueña 20-10: aprobada, se va a la empresa donde quedó (Empresas, con su ficha
+        // abierta). Sin el id de la empresa, se queda y refresca como antes.
+        if (result.accountId) {
+          router.push(openAccountHref(result.accountId));
+          return;
+        }
         router.refresh();
       } else {
         toast.error(
