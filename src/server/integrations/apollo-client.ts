@@ -493,6 +493,75 @@ export async function searchApolloPeople(
 }
 
 // ============================================================
+// Búsqueda de personas — formato documentado (AGENT2-APOLLO-PEOPLE-SEARCH-V2-1)
+// POST https://api.apollo.io/api/v1/mixed_people/api_search?person_titles[]=…
+//
+// La referencia oficial (docs.apollo.io/reference/people-api-search, leída 20-10)
+// define TODOS los filtros como parámetros de URL con sufijo `[]` y ningún cuerpo.
+// Tampoco existen ahí `person_department_or_subdepartments`, `q_organization_domains`
+// ni `q_organization_name`, que la versión anterior manda en un cuerpo JSON. Gratis
+// (0 créditos), igual que la anterior. No devuelve correo ni teléfono, y el apellido
+// llega oculto (`last_name_obfuscated`): eso lo completa people/match, que sí cobra.
+// ============================================================
+
+export interface PeopleApiSearchQuery {
+  organization_ids?: string[];
+  q_organization_domains_list?: string[];
+  person_titles?: string[];
+  include_similar_titles?: boolean;
+  person_seniorities?: string[];
+  person_locations?: string[];
+  page?: number;
+  per_page?: number;
+}
+
+/** Arma la query string con la forma documentada: `clave[]=valor` repetido para listas. */
+export function buildPeopleApiSearchQueryString(query: PeopleApiSearchQuery): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query) as Array<[string, unknown]>) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const text = String(item).trim();
+        if (text) params.append(`${key}[]`, text);
+      }
+      continue;
+    }
+    params.append(key, String(value));
+  }
+  return params.toString();
+}
+
+export async function searchApolloPeopleByQuery(
+  query: PeopleApiSearchQuery,
+): Promise<ApolloSearchResult<ApolloPerson>> {
+  const result = await apolloFetch<{
+    people?: ApolloPerson[];
+    pagination?: { total_entries: number; page: number; per_page: number };
+    total_entries?: number;
+  }>(`/api/v1/mixed_people/api_search?${buildPeopleApiSearchQueryString(query)}`, { method: 'POST' });
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: {
+        error: `HTTP_${result.status}`,
+        message: result.errorBody ?? 'Error en búsqueda de personas',
+        statusCode: result.status,
+      },
+    };
+  }
+
+  return {
+    success: true,
+    data: result.data?.people ?? [],
+    total: result.data?.pagination?.total_entries ?? result.data?.total_entries,
+    page: result.data?.pagination?.page,
+    per_page: result.data?.pagination?.per_page,
+  };
+}
+
+// ============================================================
 // Enriquecimiento de persona
 // POST https://api.apollo.io/api/v1/people/match
 //

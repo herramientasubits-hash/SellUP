@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  countsForPendingCheck,
   findMatchingPendingCandidate,
   type CandidateForPendingCheck,
   type PendingCandidateRecord,
@@ -124,5 +125,22 @@ describe('findMatchingPendingCandidate', () => {
       [pending({ email: 'shared@corp.com', fullName: 'Otro Nombre Totalmente Distinto' })],
     );
     assert.equal(match?.matchedBy, 'email');
+  });
+});
+
+describe('countsForPendingCheck — filas de las etapas gratuitas en el mismo run', () => {
+  it('cuenta siempre las de otros runs', () => {
+    assert.equal(countsForPendingCheck({ enrichment_run_id: 'old', enrichment_metadata: {} }, 'run'), true);
+  });
+  it('del mismo run cuenta lo que dejaron «Primero HubSpot» y el banco de contactos', () => {
+    assert.equal(countsForPendingCheck({ enrichment_run_id: 'run', enrichment_metadata: { hubspot_first: true } }, 'run'), true);
+    assert.equal(
+      countsForPendingCheck({ enrichment_run_id: 'run', enrichment_metadata: { contact_bank: { origin: 'contact' } } }, 'run'),
+      true,
+    );
+  });
+  it('del mismo run NO cuenta lo que escribió el proveedor (eso lo filtra el deduplicador)', () => {
+    assert.equal(countsForPendingCheck({ enrichment_run_id: 'run', enrichment_metadata: { relevance: {} } }, 'run'), false);
+    assert.equal(countsForPendingCheck({ enrichment_run_id: 'run', enrichment_metadata: null }, 'run'), false);
   });
 });

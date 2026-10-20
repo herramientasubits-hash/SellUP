@@ -152,6 +152,8 @@ function getAdminClient(): SupabaseClient {
 
 interface PendingCandidateRow {
   id: string;
+  enrichment_run_id: string;
+  enrichment_metadata: Record<string, unknown> | null;
   email: string | null;
   linkedin_url: string | null;
   source_contact_id: string | null;
@@ -161,8 +163,26 @@ interface PendingCandidateRow {
 }
 
 /**
+ * ¿Esta fila pendiente cuenta para no volver a insertar a la misma persona?
+ *
+ * Las de OTROS runs, siempre (17B.4X.7C.3H.3). Las de ESTE run, sólo las que dejaron las etapas
+ * gratuitas antes del proveedor —«Primero HubSpot» (AGENT2-HUBSPOT-FIRST-1) y el banco de
+ * contactos (AGENT2-CONTACT-BANK-1)—: si Apollo trae a la misma persona, ya está en la lista.
+ * Lo que el propio proveedor escribe en este run lo sigue filtrando el deduplicador.
+ */
+export function countsForPendingCheck(
+  row: { enrichment_run_id: string; enrichment_metadata: Record<string, unknown> | null },
+  currentRunId: string,
+): boolean {
+  if (row.enrichment_run_id !== currentRunId) return true;
+  const metadata = row.enrichment_metadata ?? {};
+  return metadata.hubspot_first === true || (typeof metadata.contact_bank === 'object' && metadata.contact_bank !== null);
+}
+
+/**
  * Lee candidatos pending_review de OTROS runs (enrichment_run_id distinto al
- * actual) que pertenecen a la MISMA cuenta (account_id), vía join contra
+ * actual) —más los que las etapas gratuitas dejaron en el actual, ver
+ * `countsForPendingCheck`— que pertenecen a la MISMA cuenta (account_id), vía join contra
  * contact_enrichment_runs. Alcance V1: si accountId es null (empresa
  * HubSpot-only o manual), retorna [] — no hay forma segura de acotar el
  * scope sin inventar una regla no solicitada en este hito.
@@ -177,15 +197,14 @@ export async function readPendingCandidatesForSameAccount(
   const { data, error } = await admin
     .from('contact_enrichment_candidates')
     .select(
-      'id, email, linkedin_url, source_contact_id, source, full_name, title, contact_enrichment_runs!inner(account_id)',
+      'id, enrichment_run_id, enrichment_metadata, email, linkedin_url, source_contact_id, source, full_name, title, contact_enrichment_runs!inner(account_id)',
     )
     .eq('status', 'pending_review')
-    .eq('contact_enrichment_runs.account_id', accountId)
-    .neq('enrichment_run_id', excludeRunId);
+    .eq('contact_enrichment_runs.account_id', accountId);
 
   if (error || !data) return [];
 
-  return (data as unknown as PendingCandidateRow[]).map((row) => ({
+  return (data as unknown as PendingCandidateRow[]).filter((row) => countsForPendingCheck(row, excludeRunId)).map((row) => ({
     id: row.id,
     email: row.email,
     linkedinUrl: row.linkedin_url,

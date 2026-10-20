@@ -48,8 +48,10 @@ import {
   isLushaContactEnrichmentEnabled,
   isContactEnrichmentLocalReuseGateEnabled,
   isContactEnrichmentHubSpotFirstEnabled,
+  isContactEnrichmentContactBankEnabled,
 } from '@/lib/feature-flags.server';
 import { runHubSpotFirstStage, type HubSpotFirstStageResult } from './hubspot-first-stage.server';
+import { runContactBankStage, type ContactBankStageResult } from './contact-bank-stage.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   getContactEnrichmentRoutingConfigV1,
@@ -243,6 +245,35 @@ async function defaultMarkRunSatisfiedByHubSpot(
     .in('status', ['pending', 'resolving', 'ready_to_enrich']);
 }
 
+async function defaultRunContactBank(attemptId: string): Promise<ContactBankStageResult | null> {
+  if (!isContactEnrichmentContactBankEnabled()) return null;
+  return runContactBankStage({ attemptId });
+}
+
+async function defaultMarkRunSatisfiedByContactBank(
+  attemptId: string,
+  stage: Extract<ContactBankStageResult, { status: 'done' }>,
+): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const current = await defaultReadRunSummary(attemptId);
+  await admin
+    .from('contact_enrichment_runs')
+    .update({
+      status: 'ready_for_review',
+      summary: {
+        ...current,
+        contact_bank: {
+          satisfied: true,
+          candidates_inserted: stage.inserted,
+          relevant_with_email: stage.relevantWithEmail,
+          same_company_accounts: stage.siblingAccounts,
+        },
+      },
+    })
+    .eq('id', attemptId)
+    .in('status', ['pending', 'resolving', 'ready_to_enrich']);
+}
+
 async function defaultReadRunSummary(attemptId: string): Promise<Record<string, unknown>> {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
@@ -303,6 +334,11 @@ export type AutomaticRoutingOutcomeV1 =
    * y quedaron como candidatos a revisión: no se llamó a Apollo ni a Lusha. Éxito terminal.
    */
   | 'hubspot_first_satisfied'
+  /**
+   * AGENT2-CONTACT-BANK-1 — lo que SellUp ya conocía de otra ficha de la misma compañía (más lo
+   * de HubSpot, si corrió) bastó: no se llamó a Apollo ni a Lusha. Éxito terminal.
+   */
+  | 'contact_bank_satisfied'
   | 'fallback_provider_unavailable'
   | 'fallback_blocked_by_budget'
   | 'attempt2_already_exists'
@@ -343,6 +379,12 @@ export interface AutomaticRoutingOrchestratorResult {
    * en la corrida; `satisfied` = bastaron y se omitieron los proveedores.
    */
   hubspotFirst?: { attemptId: string; inserted: number; satisfied: boolean };
+  /**
+   * AGENT2-CONTACT-BANK-1 — presente sólo cuando el banco de contactos corrió (bandera encendida
+   * y la empresa tiene ficha en SellUp). `inserted` = candidatos traídos de otras fichas de la
+   * misma compañía; `satisfied` = bastaron y se omitieron los proveedores.
+   */
+  contactBank?: { attemptId: string; inserted: number; satisfied: boolean };
 }
 
 export interface AutomaticRoutingOrchestratorDeps {
@@ -383,6 +425,17 @@ export interface AutomaticRoutingOrchestratorDeps {
   runHubSpotFirst?: (attemptId: string) => Promise<HubSpotFirstStageResult | null>;
   /** Marca la corrida como lista para revisión cuando HubSpot bastó. */
   markRunSatisfiedByHubSpot?: (attemptId: string, stage: Extract<HubSpotFirstStageResult, { status: 'done' }>) => Promise<void>;
+  /**
+   * AGENT2-CONTACT-BANK-1 — banco de contactos por empresa. Devuelve `null` cuando la bandera
+   * ENABLE_CONTACT_ENRICHMENT_CONTACT_BANK está apagada (default): no se lee nada ni se escribe
+   * nada. Falla abierto: ante cualquier error el flujo sigue con Apollo/Lusha.
+   */
+  runContactBank?: (attemptId: string) => Promise<ContactBankStageResult | null>;
+  /** Marca la corrida como lista para revisión cuando el banco bastó. */
+  markRunSatisfiedByContactBank?: (
+    attemptId: string,
+    stage: Extract<ContactBankStageResult, { status: 'done' }>,
+  ) => Promise<void>;
   /** Conservative default: null (unknown cost) — see evaluateBudgetGuardrailV1. */
   estimateFallbackCostUsd?: () => number | null;
   writeRoutingTelemetry?: (
@@ -423,17 +476,41 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps = {},
 ): Promise<AutomaticRoutingOrchestratorResult> {
-  const hubspotFirstCtx: { value: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null } = {
-    value: null,
+  const freeStagesCtx: FreeStagesCtx = { hubspotFirst: null, contactBank: null };
+  const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
+  return {
+    ...result,
+    ...(freeStagesCtx.hubspotFirst ? { hubspotFirst: freeStagesCtx.hubspotFirst } : {}),
+    ...(freeStagesCtx.contactBank ? { contactBank: freeStagesCtx.contactBank } : {}),
   };
-  const result = await runAutomaticRoutingCore(input, deps, hubspotFirstCtx);
-  return hubspotFirstCtx.value ? { ...result, hubspotFirst: hubspotFirstCtx.value } : result;
+}
+
+/** Lo que las etapas gratuitas (HubSpot, banco de contactos) dejaron en la corrida. */
+interface FreeStagesCtx {
+  hubspotFirst: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null;
+  contactBank: NonNullable<AutomaticRoutingOrchestratorResult['contactBank']> | null;
+}
+
+function satisfiedByFreeStageResult(
+  outcome: 'hubspot_first_satisfied' | 'contact_bank_satisfied',
+): AutomaticRoutingOrchestratorResult {
+  return {
+    outcome,
+    automaticRoutingEnabled: true,
+    attempt1: null,
+    attempt2: null,
+    fallbackExecuted: false,
+    wouldRecommendFallback: false,
+    fallbackReason: 'not_applicable',
+    blockedReason: null,
+    reusedExistingCandidates: 0,
+  };
 }
 
 async function runAutomaticRoutingCore(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps,
-  hubspotFirstCtx: { value: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null },
+  freeStagesCtx: FreeStagesCtx,
 ): Promise<AutomaticRoutingOrchestratorResult> {
   const {
     getConfig = getContactEnrichmentRoutingConfigV1,
@@ -444,6 +521,8 @@ async function runAutomaticRoutingCore(
     runLushaAttempt = defaultRunLushaAttempt,
     runHubSpotFirst = defaultRunHubSpotFirst,
     markRunSatisfiedByHubSpot = defaultMarkRunSatisfiedByHubSpot,
+    runContactBank = defaultRunContactBank,
+    markRunSatisfiedByContactBank = defaultMarkRunSatisfiedByContactBank,
     evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
     estimateFallbackCostUsd = () => null,
     writeRoutingTelemetry = defaultWriteRoutingTelemetry,
@@ -486,7 +565,7 @@ async function runAutomaticRoutingCore(
   // bandera apagada `runHubSpotFirst` devuelve null y esta rama no existe. Falla abierto.
   const hubspotFirst = await runHubSpotFirst(resolved1.attemptId).catch(() => null);
   if (hubspotFirst?.status === 'done') {
-    hubspotFirstCtx.value = {
+    freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,
       inserted: hubspotFirst.inserted,
       satisfied: hubspotFirst.satisfied,
@@ -513,17 +592,43 @@ async function runAutomaticRoutingCore(
           },
         }),
       );
-      return {
-        outcome: 'hubspot_first_satisfied',
-        automaticRoutingEnabled: true,
-        attempt1: null,
-        attempt2: null,
-        fallbackExecuted: false,
-        wouldRecommendFallback: false,
-        fallbackReason: 'not_applicable',
-        blockedReason: null,
-        reusedExistingCandidates: 0,
-      };
+      return satisfiedByFreeStageResult('hubspot_first_satisfied');
+    }
+  }
+
+  // AGENT2-CONTACT-BANK-1 — después, lo que SellUp ya conocía de otra ficha de la misma compañía
+  // (gratis). Con la bandera apagada `runContactBank` devuelve null y esta rama no existe.
+  const contactBank = await runContactBank(resolved1.attemptId).catch(() => null);
+  if (contactBank?.status === 'done') {
+    freeStagesCtx.contactBank = {
+      attemptId: resolved1.attemptId,
+      inserted: contactBank.inserted,
+      satisfied: contactBank.satisfied,
+    };
+    if (contactBank.satisfied) {
+      await markRunSatisfiedByContactBank(resolved1.attemptId, contactBank);
+      await writeRoutingTelemetry(
+        resolved1.attemptId,
+        buildRunColumns('primary', 'not_applicable'),
+        buildSummaryBlock({
+          role: 'primary',
+          policy,
+          actualProvider: config.primaryProvider,
+          wouldRecommendFallback: false,
+          fallbackReason: 'not_applicable',
+          fallbackExecuted: false,
+          fallbackAttemptRunId: null,
+          triggeredByAttemptRunId: null,
+          evaluatedAt: input.evaluatedAt,
+          evidence: {
+            contact_bank_satisfied: true,
+            contact_bank_candidates_inserted: contactBank.inserted,
+            contact_bank_relevant_with_email: contactBank.relevantWithEmail,
+            contact_bank_same_company_accounts: contactBank.siblingAccounts,
+          },
+        }),
+      );
+      return satisfiedByFreeStageResult('contact_bank_satisfied');
     }
   }
 

@@ -61,6 +61,10 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   hubspotFirstCandidates?: number;
   /** true cuando HubSpot bastó y no se llamó a ningún proveedor. */
   hubspotFirstSatisfied?: boolean;
+  /** AGENT2-CONTACT-BANK-1 — candidatos traídos de otra ficha de la misma compañía. */
+  contactBankCandidates?: number;
+  /** true cuando lo ya conocido bastó y no se llamó a Apollo ni a Lusha. */
+  contactBankSatisfied?: boolean;
 }
 
 export interface AutomaticRoutingCandidatesCreated {
@@ -109,6 +113,8 @@ function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult
     failedProviders: [],
     hubspotFirstCandidates: 0,
     hubspotFirstSatisfied: false,
+    contactBankCandidates: 0,
+    contactBankSatisfied: false,
   };
 }
 
@@ -141,7 +147,8 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     status: result.outcome,
     automaticRoutingEnabled: result.automaticRoutingEnabled,
     fallbackExecuted: result.fallbackExecuted,
-    attempt1AttemptId: result.attempt1?.attemptId ?? result.hubspotFirst?.attemptId ?? null,
+    attempt1AttemptId:
+      result.attempt1?.attemptId ?? result.hubspotFirst?.attemptId ?? result.contactBank?.attemptId ?? null,
     attempt2AttemptId: result.attempt2?.attemptId ?? null,
     blockedReason: result.blockedReason,
     reusedExistingCandidates: result.reusedExistingCandidates,
@@ -155,5 +162,7 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     failedProviders: deriveFailedProviders(result),
     hubspotFirstCandidates: result.hubspotFirst?.inserted ?? 0,
     hubspotFirstSatisfied: result.hubspotFirst?.satisfied ?? false,
+    contactBankCandidates: result.contactBank?.inserted ?? 0,
+    contactBankSatisfied: result.contactBank?.satisfied ?? false,
   };
 }

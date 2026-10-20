@@ -57,10 +57,19 @@ const LOST_MESSAGE = 'Perdimos la conexión con la búsqueda, pero sigue en el s
 /** Respuestas que no dicen cómo terminó (no son un «no» del servidor). */
 const LOST_RESPONSE_CODES: ReadonlySet<string> = new Set(['bad_response', 'network']);
 
-/** Contactos nuevos que dejó para revisar: lo que creó cada proveedor más lo que ya estaba. */
+/**
+ * Contactos nuevos que dejó para revisar: lo que creó cada proveedor, lo que ya estaba, lo que
+ * HubSpot ya tenía y lo que SellUp conocía de otra ficha de la misma compañía.
+ */
 export function contactsFound(result: RunAutomaticContactEnrichmentForRequestResult): number {
   const created = result.providerCandidatesCreated ?? { apollo: null, lusha: null };
-  return (created.apollo ?? 0) + (created.lusha ?? 0) + (result.reusedExistingCandidates ?? 0);
+  return (
+    (created.apollo ?? 0) +
+    (created.lusha ?? 0) +
+    (result.reusedExistingCandidates ?? 0) +
+    (result.hubspotFirstCandidates ?? 0) +
+    (result.contactBankCandidates ?? 0)
+  );
 }
 
 export interface ContactSearchRunsStore {
