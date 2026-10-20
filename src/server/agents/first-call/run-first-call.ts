@@ -29,7 +29,7 @@ import {
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
-import { allApplicableApproaches, recommendApproach } from './approaches';
+import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach } from './approaches';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight, LocalPackVersion } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
@@ -700,10 +700,20 @@ async function writeForTarget(params: {
     hasDecisionMaker: target !== null,
     countryCode: internal.account.countryCode,
   });
+  // SoftExpert (Prod 20-10): el vendedor pidió sólo «Por un evento reciente» y la noticia más
+  // nueva tenía 10 meses; las 4 preparaciones quedaron para revisar. Sin una noticia de los
+  // últimos 90 días ese enfoque se cambia por el recomendado, y la preparación lo dice.
+  const requested = request.approaches.filter((a) => a !== 'trigger' || recentSignal);
+  const approachNote =
+    requested.length < request.approaches.length
+      ? `Pediste «${APPROACH_DEFINITIONS.trigger.label}», pero no hay una noticia de los últimos ${RECENT_SIGNAL_MAX_DAYS} días: se escribió con «${APPROACH_DEFINITIONS[requested[0] ?? recommendedApproach].label}».`
+      : null;
   // Sin enfoques elegidos: una versión con cada uno que aplique, el recomendado como principal.
   const allApproaches =
     request.approaches.length > 0
-      ? request.approaches
+      ? requested.length > 0
+        ? requested
+        : [recommendedApproach]
       : allApplicableApproaches(recommendedApproach, {
           hasRecentSignal: recentSignal,
           hasReferral: !!request.referralNote,
@@ -764,7 +774,7 @@ async function writeForTarget(params: {
     const raw = extractWriterSubmission(first.content);
     shape = describeSubmissionShape(raw);
     if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview() };
-    submission = parseWriterSubmission(raw, channels);
+    submission = withApproachNote(parseWriterSubmission(raw, channels), approachNote);
     issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     const issues = combinedIssues(issuesByChannel, channels);
     if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
@@ -797,7 +807,7 @@ async function writeForTarget(params: {
     const retried = extractWriterSubmission(second.content);
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) {
-      submission = parseWriterSubmission(retried, channels);
+      submission = withApproachNote(parseWriterSubmission(retried, channels), approachNote);
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     }
     return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
@@ -809,6 +819,12 @@ async function writeForTarget(params: {
     if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons, rawPreview: preview() };
     return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons, rawPreview: preview() };
   }
+}
+
+/** Si se cambió el enfoque pedido, el vendedor lo ve primero en «Cuidado». */
+function withApproachNote(submission: WriterSubmission, note: string | null): WriterSubmission {
+  if (!note || submission.shared.cautions.includes(note)) return submission;
+  return { ...submission, shared: { ...submission.shared, cautions: [note, ...submission.shared.cautions] } };
 }
 
 /** La preparación con lo investigado del decisor: su gancho y, si encontró datos, esos datos con su fecha. */

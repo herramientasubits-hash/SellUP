@@ -964,3 +964,24 @@ describe('runFirstCall — Brasil y EE. UU.: también en el idioma del país', (
     assert.equal(calls.logs.find((l) => l.agentStep === 'version_idioma_pais')!.status, 'error');
   });
 });
+
+describe('runFirstCall — «Por un evento reciente» sin noticia fresca (SoftExpert, Prod 20-10)', () => {
+  it('sin una noticia de los últimos 90 días escribe con el enfoque recomendado y lo dice en «Cuidado»', async () => {
+    // La noticia del arnés es del 10-07 y hoy es 16-10: 98 días.
+    const { deps, calls } = harness();
+    await runFirstCall({ ...REQUEST, approaches: ['trigger'] }, deps);
+    const writerBody = calls.conversations.find((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL))!;
+    assert.equal(JSON.stringify(writerBody.tools).includes('"trigger"'), false, 'el redactor ya no recibe ese enfoque');
+    assert.equal(
+      calls.packs[0].content!.cautions[0],
+      'Pediste «Por un evento reciente», pero no hay una noticia de los últimos 90 días: se escribió con «Por el problema».',
+    );
+  });
+
+  it('con una noticia fresca respeta lo que pidió el vendedor', async () => {
+    const { deps, calls } = harness();
+    await runFirstCall({ ...REQUEST, approaches: ['trigger'] }, { ...deps, now: () => Date.parse('2026-08-01T15:00:00Z') });
+    assert.equal(calls.packs[0].content!.cautions.some((c) => c.startsWith('Pediste')), false);
+  });
+});
+
