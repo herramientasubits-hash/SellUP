@@ -346,6 +346,25 @@ export function ContactEnrichmentChatWizard({
 
   const isPanel = layout === 'panel';
 
+  // Dueña 20-10: mientras busca, la espera ocupa TODO el panel (como la búsqueda de empresas y
+  // la preparación de Rumbo): sin la conversación arriba ni la caja de escribir abajo.
+  if (searchingInBackground && search) {
+    return (
+      <div
+        className={cn(
+          'flex flex-col',
+          isPanel ? 'h-full min-h-0 flex-1 px-4 py-5' : 'mx-auto min-h-full w-full max-w-2xl',
+        )}
+      >
+        <ContactSearchLoader
+          requestId={search.requestId}
+          startedAtMs={search.startedAtMs}
+          companyName={state.selectedCandidate?.name ?? state.query}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -361,14 +380,6 @@ export function ContactEnrichmentChatWizard({
           isTyping={isTyping}
           typingLabel={typingLabelForStep(state.step)}
         />
-
-        {searchingInBackground && search && (
-          <ContactSearchLoader
-            requestId={search.requestId}
-            startedAtMs={search.startedAtMs}
-            companyName={state.selectedCandidate?.name ?? state.query}
-          />
-        )}
 
         {showActiveRegion && (
           <div className="space-y-3">

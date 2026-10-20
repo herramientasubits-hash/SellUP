@@ -85,3 +85,17 @@ la búsqueda por nombre puede elegir una ficha equivocada o vacía («Davivienda
 - Con la búsqueda nueva encendida, si la empresa sólo se encontró por nombre y hay dominio, las
   personas se buscan por el dominio y no por esa ficha.
 - El diagnóstico suma `documentedByDomain`: la búsqueda nueva sólo por dominio (0 créditos).
+
+## Cuentas del espacio de Apollo vs. empresas (20-10)
+
+La primera búsqueda real después del #762 (La Boliviana Ciacruz) mostró el último eslabón: Organization
+Search devuelve también `accounts`, las cuentas guardadas en NUESTRO espacio de Apollo (por ejemplo, las
+sincronizadas desde HubSpot). El Agente 2 tomaba esa lista aunque viniera vacía —perdiendo las empresas
+reales— y usaba el id de la cuenta como si fuera el de la empresa: buscar personas con ese id da 0
+siempre. Por eso las «empresas» encontradas se llamaban igual que en SellUp («Davivienda Colombia»,
+«La boliviana Ciacruz», «elangel.co.cr»).
+
+Ahora el Agente 2 lee la respuesta con el mismo normalizador que ya usa el Agente 1: primero las empresas
+de Apollo; una cuenta sólo cuenta a través de su `organization_id`. Una cuenta sin empresa no identifica
+nada, y la búsqueda de personas sigue por el dominio. Los créditos se cuentan sobre la página cruda
+(Apollo cobra aunque sólo traiga cuentas).

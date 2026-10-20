@@ -7,11 +7,15 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { ExistingContactsSnapshotResult } from '@/modules/contact-enrichment/types';
+import { resolveSellerHubSpotOwner } from '@/modules/prospect-batches/hubspot-free-pool-approval';
+import { findHubSpotOwnerByEmail, getHubSpotToken } from '@/server/integrations/hubspot-company-create';
+import { loadHubSpotOwnerDirectory } from '@/server/integrations/hubspot-free-company-pool.server';
 import { readExistingContactsForCompany } from './existing-contacts-reader';
 import {
   isSatisfiedByHubSpot,
   selectHubSpotFirstCandidates,
   type HubSpotFirstCandidateRow,
+  type HubSpotFirstOwnership,
 } from './hubspot-first-core';
 
 export interface HubSpotFirstRunRef {
@@ -24,6 +28,42 @@ export interface HubSpotFirstStageDeps {
   readSnapshot?: (ref: HubSpotFirstRunRef) => Promise<ExistingContactsSnapshotResult>;
   loadRunHubspotCandidates?: (attemptId: string) => Promise<Array<{ hubspotId: string; hasEmail: boolean }>>;
   insertRows?: (attemptId: string, rows: HubSpotFirstCandidateRow[]) => Promise<{ error?: string }>;
+  /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — dueño de HubSpot del vendedor y directorio de dueños. */
+  resolveOwnership?: (triggeredBy: string | null) => Promise<HubSpotFirstOwnership>;
+  now?: () => number;
+}
+
+async function defaultResolveOwnership(triggeredBy: string | null): Promise<HubSpotFirstOwnership> {
+  const admin = createSupabaseAdminClient();
+  let email: string | null = null;
+  if (triggeredBy) {
+    const { data } = await admin.from('internal_users').select('email').eq('id', triggeredBy).maybeSingle();
+    email = typeof data?.email === 'string' ? data.email : null;
+  }
+  const token = await getHubSpotToken();
+  const seller = await resolveSellerHubSpotOwner(email, {
+    findMappedOwnerId: async (clean) => {
+      const { data } = await admin
+        .from('hubspot_owner_mappings')
+        .select('hubspot_owner_id')
+        .eq('internal_user_email', clean)
+        .eq('is_active', true)
+        .maybeSingle();
+      return typeof data?.hubspot_owner_id === 'string' ? data.hubspot_owner_id : null;
+    },
+    findHubSpotOwnerIdByEmail: async (clean) => (token ? ((await findHubSpotOwnerByEmail(clean, token))?.id ?? null) : null),
+  });
+  const directory = token ? await loadHubSpotOwnerDirectory(token).catch(() => null) : null;
+  return { sellerOwnerId: seller.ownerId, directory };
+}
+
+/**
+ * La lista de revisión se ordena por `created_at` descendente y una sola inserción les da a
+ * todos el mismo instante: se escalonan por milisegundos para que lo más importante salga
+ * primero sin tocar cada pantalla que lee candidatos.
+ */
+export function withPriorityTimestamps<T extends object>(rows: readonly T[], nowMs: number): Array<T & { created_at: string }> {
+  return rows.map((row, index) => ({ ...row, created_at: new Date(nowMs - index).toISOString() }));
 }
 
 export type HubSpotFirstStageResult =
@@ -58,7 +98,10 @@ async function defaultLoadRunHubspotCandidates(attemptId: string) {
   }));
 }
 
-async function defaultInsertRows(attemptId: string, rows: HubSpotFirstCandidateRow[]): Promise<{ error?: string }> {
+async function defaultInsertRows(
+  attemptId: string,
+  rows: Array<HubSpotFirstCandidateRow & { created_at?: string }>,
+): Promise<{ error?: string }> {
   const admin = createSupabaseAdminClient();
   const { error } = await admin
     .from('contact_enrichment_candidates')
@@ -67,7 +110,7 @@ async function defaultInsertRows(attemptId: string, rows: HubSpotFirstCandidateR
 }
 
 export async function runHubSpotFirstStage(
-  input: { attemptId: string },
+  input: { attemptId: string; triggeredBy?: string | null },
   deps: HubSpotFirstStageDeps = {},
 ): Promise<HubSpotFirstStageResult> {
   const {
@@ -76,6 +119,8 @@ export async function runHubSpotFirstStage(
       readExistingContactsForCompany({ accountId: ref.accountId, hubspotCompanyId: ref.hubspotCompanyId }),
     loadRunHubspotCandidates = defaultLoadRunHubspotCandidates,
     insertRows = defaultInsertRows,
+    resolveOwnership = defaultResolveOwnership,
+    now = Date.now,
   } = deps;
 
   try {
@@ -88,14 +133,19 @@ export async function runHubSpotFirstStage(
     }
 
     const inRun = await loadRunHubspotCandidates(input.attemptId);
+    // Sin poder saber de quién es cada contacto, sólo pasan los sin dueño (falla cerrado).
+    const ownership = await resolveOwnership(input.triggeredBy ?? null).catch(
+      (): HubSpotFirstOwnership => ({ sellerOwnerId: null, directory: null }),
+    );
     const selection = selectHubSpotFirstCandidates({
       hubspotContacts: snapshot.hubspot.contacts,
       sellupContacts: snapshot.sellup.contacts,
       alreadyInRunHubspotIds: new Set(inRun.map((c) => c.hubspotId)),
+      ownership,
     });
 
     if (selection.rows.length > 0) {
-      const { error } = await insertRows(input.attemptId, selection.rows);
+      const { error } = await insertRows(input.attemptId, withPriorityTimestamps(selection.rows, now()));
       if (error) return { status: 'error', satisfied: false, inserted: 0, detail: error };
     }
 

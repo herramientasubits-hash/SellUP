@@ -219,9 +219,9 @@ async function defaultEvaluateLocalCandidateReuse(requestId: string): Promise<Lo
   );
 }
 
-async function defaultRunHubSpotFirst(attemptId: string): Promise<HubSpotFirstStageResult | null> {
+async function defaultRunHubSpotFirst(attemptId: string, triggeredBy?: string): Promise<HubSpotFirstStageResult | null> {
   if (!isContactEnrichmentHubSpotFirstEnabled()) return null;
-  return runHubSpotFirstStage({ attemptId });
+  return runHubSpotFirstStage({ attemptId, triggeredBy: triggeredBy ?? null });
 }
 
 async function defaultMarkRunSatisfiedByHubSpot(
@@ -434,7 +434,7 @@ export interface AutomaticRoutingOrchestratorDeps {
    * ENABLE_CONTACT_ENRICHMENT_HUBSPOT_FIRST está apagada (default): no se lee HubSpot ni se
    * escribe nada. Falla abierto: ante cualquier error el flujo sigue con Apollo/Lusha.
    */
-  runHubSpotFirst?: (attemptId: string) => Promise<HubSpotFirstStageResult | null>;
+  runHubSpotFirst?: (attemptId: string, triggeredBy?: string) => Promise<HubSpotFirstStageResult | null>;
   /** Marca la corrida como lista para revisión cuando HubSpot bastó. */
   markRunSatisfiedByHubSpot?: (attemptId: string, stage: Extract<HubSpotFirstStageResult, { status: 'done' }>) => Promise<void>;
   /**
@@ -584,7 +584,7 @@ async function runAutomaticRoutingCore(
 
   // AGENT2-HUBSPOT-FIRST-1 — primero lo que HubSpot ya sabe de la empresa (gratis). Con la
   // bandera apagada `runHubSpotFirst` devuelve null y esta rama no existe. Falla abierto.
-  const hubspotFirst = await runHubSpotFirst(resolved1.attemptId).catch(() => null);
+  const hubspotFirst = await runHubSpotFirst(resolved1.attemptId, input.triggeredBy).catch(() => null);
   if (hubspotFirst?.status === 'done') {
     freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,

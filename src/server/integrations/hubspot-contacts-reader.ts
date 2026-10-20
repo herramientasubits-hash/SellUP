@@ -24,6 +24,8 @@ const CONTACT_PROPERTIES = [
   'mobilephone',
   'jobtitle',
   'hs_linkedin_url',
+  // AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — para no ofrecer contactos de otro vendedor activo.
+  'hubspot_owner_id',
 ];
 
 function getAdminSupabase() {
@@ -157,6 +159,7 @@ interface HubSpotContactProperties {
   mobilephone?: string;
   jobtitle?: string;
   hs_linkedin_url?: string;
+  hubspot_owner_id?: string;
 }
 
 interface HubSpotContactObject {
@@ -178,9 +181,11 @@ function normalizeContactSnapshot(obj: HubSpotContactObject): ExistingContactSna
   const phone = p.phone?.trim() || p.mobilephone?.trim() || null;
   const linkedinUrl = p.hs_linkedin_url?.trim() || null;
   const title = p.jobtitle?.trim() || null;
+  const ownerId = p.hubspot_owner_id?.trim() || null;
 
   return {
     id: obj.id,
+    ownerId,
     source: 'hubspot',
     fullName,
     firstName,

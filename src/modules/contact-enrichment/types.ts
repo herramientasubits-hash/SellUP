@@ -108,6 +108,8 @@ export interface ExistingContactSnapshot {
   phone?: string | null;
   linkedinUrl?: string | null;
   title?: string | null;
+  /** Dueño del contacto en HubSpot (`hubspot_owner_id`). Sólo en contactos de HubSpot. */
+  ownerId?: string | null;
   completeness: {
     hasEmail: boolean;
     hasPhone: boolean;
