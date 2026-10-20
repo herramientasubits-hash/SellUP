@@ -8,6 +8,7 @@
  */
 
 import { foreignWordsIn } from './country-style';
+import { normalizeKeys } from './tool-input';
 import { stripTrainingNormIds } from './country-training-context';
 import type { AnthropicContentBlock } from '../prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { unsupportedNumbers as unsupportedNumbersIn } from './numbers';
@@ -42,30 +43,6 @@ export function extractWriterSubmission(content: readonly AnthropicContentBlock[
  * (18-10): la entrega llegó sin mensajes, objeciones ni pedido de reunión. Antes de
  * leer, se desenvuelve el texto JSON y se pasan las claves a snake_case.
  */
-function unwrapJson(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  const trimmed = value.trim();
-  if (!(trimmed.startsWith('[') || trimmed.startsWith('{'))) return value;
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return value;
-  }
-}
-
-function snakeCase(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
-}
-
-function normalizeKeys(value: unknown): unknown {
-  const unwrapped = unwrapJson(value);
-  if (Array.isArray(unwrapped)) return unwrapped.map(normalizeKeys);
-  if (unwrapped && typeof unwrapped === 'object') {
-    return Object.fromEntries(Object.entries(unwrapped as Record<string, unknown>).map(([k, v]) => [snakeCase(k), normalizeKeys(v)]));
-  }
-  return unwrapped;
-}
-
 /** Una lista, aunque llegue como objeto con claves (p. ej. un mensaje por canal: `{ "call": {…} }`). */
 function list(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
@@ -92,8 +69,15 @@ function strList(value: unknown, max: number): string[] {
  */
 const PARAMETER_TAG = /<\/?parameter(?:\s+name="[^"]*")?\s*>/g;
 
+/**
+ * Etiquetas internas que el redactor a veces deja al comienzo del texto («Mensaje de voz si
+ * no contesta (enfoque insight): …», Pizza Pizza en Prod 19-10): el vendedor no las dice.
+ */
+const LEADING_LABEL =
+  /^\s*(?:mensaje de voz(?: si no contesta)?|mensaje si no contesta|guion(?: de (?:la )?llamada)?|versi[oó]n[^:\n]{0,40}|nota de (?:conexi[oó]n|linkedin)|whatsapp|linkedin|correo)(?:\s*\([^)\n]{0,60}\))?\s*:\s*/i;
+
 export function cleanToolText(value: string): string {
-  return value.replace(PARAMETER_TAG, '').trim();
+  return value.replace(PARAMETER_TAG, '').trim().replace(LEADING_LABEL, '').trim();
 }
 
 function refsFrom(value: unknown): string[] {
@@ -280,6 +264,24 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\bayud(o|amos|ando|amos a|ando a) (a )?(otr[oa]s )?(bancos|empresas|compa[nñ]ias|aseguradoras)\b/,
 ];
 
+const LIBRARY_CLAIM_KEYS: ReadonlySet<string> = new Set(UBITS_CLAIMS.map((c) => c.key));
+
+/** Cargo en femenino o masculino (en español); `null` si el cargo no lo dice («Gerente», «HR Director»). */
+export function genderFromTitle(title: string | null | undefined): 'f' | 'm' | null {
+  const t = normalizeForBan(title ?? '');
+  // Un cargo en inglés («Human Resources Director») no dice el género.
+  if (/\b(human|resources|manager|officer|head|chief|people|learning|development)\b/.test(t)) return null;
+  if (/\b(directora|gerenta|jefa|coordinadora|subdirectora|vicepresidenta|presidenta|ejecutiva|licenciada|ingeniera|doctora|psicologa|abogada|administradora|encargada|subgerenta|supervisora|asesora|consultora)\b/.test(t)) return 'f';
+  if (/\b(director|jefe|coordinador|subdirector|ejecutivo|licenciado|ingeniero|doctor|psicologo|abogado|administrador|encargado|supervisor|asesor|consultor)\b/.test(t)) return 'm';
+  return null;
+}
+
+/** «Estimada Juvenal» (Pizza Pizza, Prod 19-10): el género no se adivina por el nombre. */
+const GENDERED_GREETING = /\b(estimad[oa]|querid[oa])\b/g;
+
+/** En el primer contacto por WhatsApp o LinkedIn no se pide reunión ni minutos. */
+const FIRST_TOUCH_MEETING = /\b(\d{1,3}\s*min(utos)?|reunion|nos veamos|vernos|agend(ar|emos|amos)|una llamada|videollamada)\b/;
+
 /** «Gratis», «sin costo»…: ninguna oferta de la biblioteca lo promete. */
 const FREE_PROMISE = /\b(gratis|gratuit[oa]s?|sin costo|sin cargo|cero costo|no tiene costo)\b/;
 
@@ -303,6 +305,8 @@ export interface VerifyPackOptions {
   countryCode?: string | null;
   /** Nombre de la empresa: no se revisa como tuteo ni como palabra de otro país («Aldeas Infantiles SOS»). */
   companyName?: string | null;
+  /** Cargo del decisor: si dice el género («Directora»), el saludo tiene que coincidir. */
+  decisionMakerTitle?: string | null;
 }
 
 /** Una noticia para «Por un evento reciente» sirve hasta 90 días. */
@@ -354,7 +358,9 @@ export function verifyPack(
   if (pack.objections.length === 0) issues.push('Faltan las objeciones y sus respuestas.');
 
   const allRefs = [...pack.reasonToCall.factRefs, ...pack.callScript.factRefs, ...pack.shortMessage.factRefs];
-  const unknownRefs = [...new Set(allRefs.filter((r) => !factIds.has(r)))];
+  // Una cifra de la biblioteca citada por su clave («linkedin_wlr_2025_retention») no es un hecho
+  // inexistente: es una afirmación permitida (Pizza Pizza, Prod 19-10).
+  const unknownRefs = [...new Set(allRefs.filter((r) => !factIds.has(r) && !LIBRARY_CLAIM_KEYS.has(r)))];
   if (unknownRefs.length > 0) issues.push(`Cita hechos que no existen en la ficha: ${unknownRefs.join(', ')}.`);
   if (facts.length > 0 && pack.reasonToCall.text && pack.reasonToCall.factRefs.length === 0) {
     issues.push('La razón para contactarlo no dice en qué hecho se basa.');
@@ -490,6 +496,22 @@ export function verifyPack(
     .map(([where]) => where);
   if (informalIn.length > 0) {
     issues.push(`Tutea al decisor en ${informalIn.join(', ')}: en el primer contacto va «usted».`);
+  }
+
+  // Pizza Pizza (Prod 19-10): «Estimada Juvenal». Sin el género en el cargo, saludo neutro.
+  if (options.decisionMakerTitle !== undefined) {
+    const gender = genderFromTitle(options.decisionMakerTitle);
+    const greetings = [...firstTouch, pack.confirmation ?? '']
+      .flatMap((t) => [...normalizeForBan(t).matchAll(GENDERED_GREETING)].map((m) => (m[1].endsWith('a') ? 'f' : 'm')));
+    if (greetings.length > 0 && gender === null) {
+      issues.push('Saluda con «Estimado/a» sin saber el género (el cargo no lo dice): usa un saludo neutro («Buenos días, Nombre:»).');
+    } else if (greetings.some((g) => g !== gender)) {
+      issues.push(`El saludo no coincide con el cargo («${options.decisionMakerTitle}»).`);
+    }
+  }
+  // Sólo el mensaje principal: es el del primer contacto (las otras versiones son alternativas).
+  if ((channel === 'whatsapp' || channel === 'linkedin') && FIRST_TOUCH_MEETING.test(normalizeForBan(pack.shortMessage.text))) {
+    issues.push(channel === 'whatsapp' ? 'El primer WhatsApp pide reunión: sólo pide permiso para escribir por ahí.' : 'La nota de LinkedIn pide reunión: sólo el motivo para conectar.');
   }
 
   // Estilo del país (dueña 19-10): palabras que allí suenan a otro país y signos de apertura.

@@ -23,14 +23,17 @@ import { COUNTRY_SOURCE_CATALOG, type CountrySourceCatalog } from './research-ca
 /** Tavily acepta hasta 300; más de esto diluye el ranking de una búsqueda de 6–8 resultados. */
 export const MAX_INCLUDE_DOMAINS = 30;
 
-/** Prensa de negocios regional, que cubre a casi todos los países de la región. */
+/**
+ * Prensa de negocios regional, que cubre a casi todos los países de la región. Los medios
+ * de UN país (Expansión de España, Forbes Centroamérica, RRHHDigital y DCH de España)
+ * van sólo en el catálogo de ese país: en Chile, RRHHDigital se llevaba los 6 resultados de
+ * talento (Pizza Pizza, Prod 19-10).
+ */
 export const REGIONAL_BUSINESS_PRESS: readonly string[] = [
   'bloomberglinea.com',
   'americaeconomia.com',
-  'forbescentroamerica.com',
   'bnamericas.com',
   'infobae.com',
-  'expansion.com',
 ];
 
 /** Rankings de empleadores y medios de talento regionales. */
@@ -38,8 +41,6 @@ export const REGIONAL_HR_MEDIA: readonly string[] = [
   'merco.info',
   'greatplacetowork.com',
   'top-employers.com',
-  'orgdch.org',
-  'rrhhdigital.com',
 ];
 
 /** Sitios que nunca aportan un dato verificable de la empresa (redes, portales de empleo, directorios de datos). */

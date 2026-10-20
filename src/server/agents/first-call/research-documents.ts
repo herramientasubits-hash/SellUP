@@ -10,6 +10,7 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import { isUbitsCompetitorDomain } from '../prospecting-toolkit/claude-classifier/ubits-competitors';
 import { normalizeDomain } from '../prospecting-toolkit/normalization';
 import { DOC_TEXT_MAX_CHARS, type ResearchDocument } from './research-prompt';
+import { resultMentionsCompany } from './curated-match';
 import { SEARCH_STEP_DOC_LABEL, type ResearchSearchStep } from './research-catalog';
 import { MAX_SITE_PAGES, SITE_PAGE_LABELS, pickSitePages, type SitePageKind } from './site-pages';
 
@@ -116,6 +117,9 @@ export function hostOfUrl(url: string): string | null {
   return normalizeDomain(url);
 }
 
+/** Búsquedas en fuentes elegidas: traen notas del tema aunque no sean de la empresa. */
+const FILTERED_STEPS: ReadonlySet<ResearchSearchStep> = new Set(['prensa', 'medios_talento', 'linkedin']);
+
 /** Filtro para quedarse con la primera aparición de cada URL (varias búsquedas traen la misma). */
 export function firstOfEachUrl(): (doc: ResearchDocument) => boolean {
   const seen = new Set<string>();
@@ -131,7 +135,12 @@ export function firstOfEachUrl(): (doc: ResearchDocument) => boolean {
  * sin competidores. `step` dice de qué búsqueda vienen (cambia la etiqueta y, en la de
  * LinkedIn, deja pasar sólo las páginas de empresa y sus publicaciones).
  */
-export function newsToDocuments(results: readonly NewsResult[], companyDomain: string | null, step: ResearchSearchStep = 'noticias'): ResearchDocument[] {
+export function newsToDocuments(
+  results: readonly NewsResult[],
+  companyDomain: string | null,
+  step: ResearchSearchStep = 'noticias',
+  companyName: string | null = null,
+): ResearchDocument[] {
   const own = companyDomain ? normalizeDomain(companyDomain) : null;
   const seen = new Set<string>();
   const documents: ResearchDocument[] = [];
@@ -142,6 +151,8 @@ export function newsToDocuments(results: readonly NewsResult[], companyDomain: s
     const isLinkedIn = /(^|\.)linkedin\.com$/i.test(host);
     if (step === 'linkedin' ? !isLinkedIn || !LINKEDIN_COMPANY_PATH.test(result.url) : NOISE_HOSTS.test(host)) continue;
     if (text.length < 80 || seen.has(result.url)) continue;
+    // En las fuentes elegidas (prensa, talento, LinkedIn) sólo entra lo que nombra a la empresa.
+    if (companyName && FILTERED_STEPS.has(step) && !resultMentionsCompany(text, companyName, companyDomain)) continue;
     seen.add(result.url);
     // Un subdominio de la empresa (ir.empresa.com, blog.empresa.com) es la empresa hablando.
     const isOwn = own !== null && (host === own || host.endsWith(`.${own}`));
