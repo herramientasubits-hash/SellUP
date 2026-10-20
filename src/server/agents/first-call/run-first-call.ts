@@ -31,7 +31,7 @@ import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifie
 import type { Agent3StatusTarget } from './account-status';
 import { allApplicableApproaches, recommendApproach } from './approaches';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
-import type { ContactInsight } from './types';
+import type { ContactInsight, LocalPackVersion } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
 import {
@@ -80,6 +80,20 @@ import {
   type ResearchSource,
 } from './types';
 import { addressFormFor, roleFocusFor } from './ubits-messaging-library';
+import {
+  LOCAL_LANGUAGE_LABELS,
+  TRANSLATION_MAX_OUTPUT_TOKENS,
+  TRANSLATION_SUBMIT_TOOL,
+  buildLocalVersion,
+  buildTranslationSubmitTool,
+  buildTranslationSystemPrompt,
+  buildTranslationUserMessage,
+  extractTranslation,
+  localLanguageFor,
+  translationSegments,
+  verifyTranslation,
+  type LocalLanguage,
+} from './pack-translation';
 import { MIN_QUESTIONS, WRITER_MAX_OUTPUT_TOKENS, WRITER_SUBMIT_TOOL, buildWriterSubmitTool, buildWriterSystemPrompt, buildWriterUserMessage } from './writer-prompt';
 
 /** Tavily cobra 1 crédito por búsqueda básica (la que usa el agente). */
@@ -914,6 +928,136 @@ function writtenHasContent(written: WrittenForTarget, channel: FirstCallChannel)
   return !!submission.messages[channel]?.text || (channel === 'call' && !!submission.shared.callScript.text);
 }
 
+// ── Versión en el idioma del país (Brasil, EE. UU.) ─────────────────────────
+
+interface LocalVersionResult {
+  version: LocalPackVersion | null;
+  /** Lo que quedó mal en la versión adaptada (va con los avisos de la preparación). */
+  issues: string[];
+  usage: AnthropicUsageTotals;
+  errorCode: string | null;
+  stopReasons: string[];
+}
+
+/**
+ * Adapta al idioma del país lo que se dice o se envía de UNA preparación ya verificada en
+ * español. Si algo queda mal se pide una corrección; si aun así falla, la preparación
+ * sigue sirviendo en español y el aviso dice qué revisar.
+ */
+async function writeLocalVersion(params: {
+  content: FirstCallPackContent;
+  language: LocalLanguage;
+  countryName: string | null;
+  models: { apiKey: string; writerModel: string };
+  deps: RunFirstCallDeps;
+}): Promise<LocalVersionResult> {
+  const { content, language, models, deps } = params;
+  const segments = translationSegments(content);
+  const label = LOCAL_LANGUAGE_LABELS[language].toLowerCase();
+  const failed = (usage: AnthropicUsageTotals, errorCode: string, stopReasons: string[]): LocalVersionResult => ({
+    version: null,
+    issues: [`No se pudo escribir la versión en ${label}: usa la de español o pide otra versión.`],
+    usage,
+    errorCode,
+    stopReasons,
+  });
+  if (segments.length === 0) return { version: null, issues: [], usage: EMPTY_USAGE, errorCode: null, stopReasons: [] };
+  const body: AnthropicRequestBody = {
+    model: models.writerModel,
+    max_tokens: TRANSLATION_MAX_OUTPUT_TOKENS,
+    system: [{ type: 'text', text: buildTranslationSystemPrompt(language), cache_control: { type: 'ephemeral' } }],
+    tools: [buildTranslationSubmitTool()],
+    tool_choice: { type: 'tool', name: TRANSLATION_SUBMIT_TOOL },
+    messages: [{ role: 'user', content: buildTranslationUserMessage(segments, params.countryName, language) }],
+  };
+  let usage = EMPTY_USAGE;
+  const stopReasons: string[] = [];
+  try {
+    const first = await deps.runConversation(body, models.apiKey);
+    usage = first.usage;
+    stopReasons.push(first.stopReason ?? 'unknown');
+    let translated = extractTranslation(first.content);
+    if (!translated) return failed(usage, 'no_submission', stopReasons);
+    let issues = verifyTranslation(segments, translated, language);
+    if (issues.length > 0) {
+      const second = await deps.runConversation(
+        {
+          ...body,
+          messages: [
+            ...body.messages,
+            { role: 'assistant', content: first.content },
+            {
+              role: 'user',
+              content: [
+                ...first.content
+                  .filter((b) => b.type === 'tool_use')
+                  .map((b) => ({ type: 'tool_result', tool_use_id: b.id, content: 'Revisado: hay que corregirlo.' })),
+                { type: 'text', text: `Corrige esto y entrega de nuevo TODOS los textos con ${TRANSLATION_SUBMIT_TOOL}:\n- ${issues.join('\n- ')}` },
+              ],
+            },
+          ],
+        },
+        models.apiKey,
+      );
+      usage = sumUsage(usage, second.usage);
+      stopReasons.push(second.stopReason ?? 'unknown');
+      const retried = extractTranslation(second.content);
+      if (retried) {
+        // Lo que la corrección no volvió a entregar se queda como estaba.
+        translated = new Map([...translated, ...retried]);
+        issues = verifyTranslation(segments, translated, language);
+      }
+    }
+    return { version: buildLocalVersion(content, translated, language), issues, usage, errorCode: null, stopReasons };
+  } catch (err) {
+    const apiError = err instanceof AnthropicApiError ? err : null;
+    return failed(sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE), apiError?.code ?? 'unexpected_error', stopReasons);
+  }
+}
+
+/** La versión en el idioma del país de cada canal de un decisor, con su costo en Uso de IA. */
+async function writeLocalVersions(
+  contents: Partial<Record<FirstCallChannel, FirstCallPackContent | null>>,
+  countryName: string | null,
+  models: { apiKey: string; writerModel: string },
+  deps: RunFirstCallDeps,
+  meta: { accountId: string; briefId: string; contactId: string | null; countryCode: string | null },
+): Promise<{ byChannel: Partial<Record<FirstCallChannel, LocalVersionResult>>; costUsd: number }> {
+  const language = localLanguageFor(meta.countryCode);
+  const channels = (Object.keys(contents) as FirstCallChannel[]).filter((c) => contents[c]);
+  if (!language || channels.length === 0) return { byChannel: {}, costUsd: 0 };
+  const startedAt = deps.now();
+  const results = await Promise.all(channels.map((c) => writeLocalVersion({ content: contents[c]!, language, countryName, models, deps })));
+  const usage = results.reduce((acc, r) => sumUsage(acc, r.usage), EMPTY_USAGE);
+  const costUsd = costOf(usage, models.writerModel);
+  const failedChannels = channels.filter((_, i) => !results[i].version);
+  await deps.logUsage({
+    providerKey: 'anthropic',
+    operationKey: 'first_call_local_version',
+    agentStep: 'version_idioma_pais',
+    model: models.writerModel,
+    usage,
+    costUsd,
+    credits: null,
+    status: failedChannels.length === channels.length ? 'error' : 'success',
+    errorCode: results.find((r) => r.errorCode)?.errorCode ?? null,
+    durationMs: deps.now() - startedAt,
+    countryCode: meta.countryCode,
+    resultsReturned: channels.length - failedChannels.length,
+    metadata: {
+      account_id: meta.accountId,
+      brief_id: meta.briefId,
+      contact_id: meta.contactId,
+      language,
+      channels,
+      failed_channels: failedChannels,
+      channels_with_issues: channels.filter((_, i) => results[i].issues.length > 0),
+      stop_reasons: Object.fromEntries(channels.map((c, i) => [c, results[i].stopReasons])),
+    },
+  });
+  return { byChannel: Object.fromEntries(channels.map((c, i) => [c, results[i]])), costUsd };
+}
+
 // ── Entrada ──────────────────────────────────────────────────────────────────
 
 export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCallDeps): Promise<RunFirstCallResult> {
@@ -1065,13 +1209,26 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
       },
     });
 
+    // Brasil y EE. UU.: cada preparación también en el idioma del país (una llamada por canal).
+    const contents = Object.fromEntries(
+      request.channels.map((c) => [c, byChannel[c]?.submission ? contentForChannel(byChannel[c]!.submission!, c) : null]),
+    ) as Partial<Record<FirstCallChannel, FirstCallPackContent | null>>;
+    const local = await writeLocalVersions(contents, account.country, models, deps, {
+      accountId: request.accountId,
+      briefId,
+      contactId: target?.id ?? null,
+      countryCode: account.countryCode,
+    });
+
     // El costo de la llamada se reparte entre las preparaciones que produjo.
     const share = costUsd / request.channels.length;
     const inserted: Array<{ id: string; status: FirstCallPackStatus }> = [];
     for (const channel of request.channels) {
       const written = byChannel[channel];
-      const content = written?.submission ? contentForChannel(written.submission, channel) : null;
-      const issues = written?.issuesByChannel[channel] ?? [];
+      const spanish = contents[channel] ?? null;
+      const localVersion = local.byChannel[channel];
+      const content = spanish && localVersion?.version ? { ...spanish, localVersion: localVersion.version } : spanish;
+      const issues = [...(written?.issuesByChannel[channel] ?? []), ...(localVersion?.issues ?? [])];
       // Una llamada con guion sirve aunque falte el mensaje de voz: queda «para revisar».
       const usable = !!content && (!!content.shortMessage.text || (channel === 'call' && !!content.callScript.text));
       const status: FirstCallPackStatus = !usable ? 'failed' : issues.length > 0 ? 'needs_review' : 'draft';
@@ -1090,7 +1247,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         verifierIssues: issues,
         regeneratedFromId: request.regenerateFromPackId,
         regenerationReason: request.regenerationReason,
-        costUsd: share,
+        costUsd: share + (local.byChannel[channel] ? local.costUsd / request.channels.length : 0),
         model: models.writerModel,
         errorCode: written?.errorCode ?? (status === 'failed' ? 'no_message_for_channel' : null),
       });

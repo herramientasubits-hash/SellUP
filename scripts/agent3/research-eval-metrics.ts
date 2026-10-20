@@ -38,10 +38,13 @@ export interface ResearchMetrics {
   packsReady: number;
   packsNeedsReview: number;
   issueKinds: Record<string, number>;
+  /** Brasil y EE. UU.: preparaciones que traen la versión en el idioma del país. */
+  packsWithLocalVersion?: number;
 }
 
 /** El motivo de un aviso del verificador, agrupado (para comparar el redactor). */
 export function issueKind(issue: string): string {
+  if (/^En (inglés|portugués),|en (inglés|portugués)\.$|versión en (inglés|portugués)/.test(issue)) return 'idioma_pais';
   if (/experiencia, clientes o casos/.test(issue)) return 'afirma_clientes';
   if (/cifras/.test(issue)) return 'cifras_sin_fuente';
   if (/pasa de \d+ caracteres|es muy largo|es largo/.test(issue)) return 'largo';
@@ -144,6 +147,7 @@ export function computeResearchMetrics(input: {
     versionsByChannel,
     packsReady: input.packs.filter((p) => p.status === 'draft').length,
     packsNeedsReview: input.packs.filter((p) => p.status === 'needs_review').length,
+    packsWithLocalVersion: input.packs.filter((p) => !!(p.content as { localVersion?: unknown } | null)?.localVersion).length,
     issueKinds: input.packs
       .flatMap((p) => p.verifierIssues ?? [])
       .reduce<Record<string, number>>((acc, issue) => {
@@ -198,6 +202,8 @@ export function compareRuns(a: EvalRun, b: EvalRun | null): string {
       aviso_largo: ms.reduce((s, m) => s + (m.issueKinds?.largo ?? 0), 0),
       aviso_faltan_partes: ms.reduce((s, m) => s + (m.issueKinds?.faltan_partes ?? 0), 0),
       aviso_estilo: ms.reduce((s, m) => s + (m.issueKinds?.estilo ?? 0), 0),
+      con_idioma_pais: ms.reduce((s, m) => s + (m.packsWithLocalVersion ?? 0), 0),
+      aviso_idioma_pais: ms.reduce((s, m) => s + (m.issueKinds?.idioma_pais ?? 0), 0),
       costo: Math.round(ms.reduce((s, m) => s + m.costUsd, 0) * 1000) / 1000,
       creditos: ms.reduce((s, m) => s + m.tavilyCredits, 0),
     };

@@ -7,8 +7,8 @@
  * de primer contacto (Gong, Lavender, HubSpot España). Lo que NO cambia por país: el
  * primer contacto va con «usted» (Manual del primer contacto, 17-10).
  *
- * El texto en español: en Brasil y Estados Unidos lo correcto sería portugués e inglés,
- * y eso depende de que el vendedor hable el idioma (pendiente de la dueña).
+ * Idioma (dueña 20-10): todo se escribe en español y, en Brasil y Estados Unidos, también
+ * en portugués o inglés (`pack-translation.ts`). Este estilo guía la versión en español.
  */
 
 export interface CountryStyle {
@@ -199,14 +199,14 @@ const STYLES: Readonly<Record<string, CountryStyle>> = {
   BR: {
     ...NEUTRAL_LATAM,
     warmth: 5,
-    note: 'Muy relacional: un saludo cálido antes del motivo. Lo ideal sería escribir en portugués de Brasil (pendiente: depende de que el vendedor lo hable).',
+    note: 'Muy relacional: un saludo cálido antes del motivo.',
   },
   US: {
     ...NEUTRAL_LATAM,
     directness: 5,
     warmth: 2,
     titles: 'Nombre de pila, sin títulos.',
-    note: 'Muy directo: el valor en la primera línea y un solo pedido. Lo ideal sería escribir en inglés salvo roles regionales de Latinoamérica (pendiente de la dueña).',
+    note: 'Muy directo: el valor en la primera línea y un solo pedido.',
   },
 };
 

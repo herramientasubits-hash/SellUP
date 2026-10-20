@@ -224,6 +224,23 @@ export interface ApproachVariant {
   voicemail?: string;
 }
 
+/** Idiomas del país distintos del español (Brasil y Estados Unidos). */
+export type LocalLanguage = 'pt-BR' | 'en-US';
+
+/** La preparación en el idioma del país: sólo lo que se dice o se envía al cliente. */
+export interface LocalPackVersion {
+  language: LocalLanguage;
+  callScript: string;
+  shortMessage: string;
+  variants: Array<{ approach: FirstContactApproach; text: string; voicemail?: string }>;
+  meetingAsk?: string;
+  ifNo?: string;
+  confirmation?: string;
+  /** En el mismo orden que en español; un texto vacío se muestra en español. */
+  questions: string[];
+  objections: Array<{ objection: string; response: string }>;
+}
+
 export interface FirstCallPackContent {
   /** Producto de UBITS que el redactor eligió para este decisor (clave de la biblioteca). */
   productKey?: string | null;
@@ -245,6 +262,8 @@ export interface FirstCallPackContent {
    * único que se reutiliza los días siguientes (nunca los datos de la ficha de la empresa).
    */
   contactResearch?: { facts: ResearchFact[]; researchedAt: string };
+  /** Brasil y EE. UU.: lo mismo adaptado al portugués o al inglés (la versión en español es la principal). */
+  localVersion?: LocalPackVersion;
   reasonToCall: PackTextWithRefs;
   angle: string;
   callScript: PackTextWithRefs;
