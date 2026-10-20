@@ -9,11 +9,16 @@ import { describe, it, before, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 let candidates: unknown[] = [];
+let resolveFails = false;
 const resolveCalls: unknown[] = [];
 
-mock.module('@/modules/contact-enrichment/actions', {
+// AGENT2-RESOLVE-COMPANY-ROUTE-1 — la empresa se busca por ruta (con tiempo límite), no por acción.
+mock.module('@/modules/contact-enrichment/resolve-company-client', {
   namedExports: {
-    resolveContactEnrichmentCompanyAction: async () => ({ success: true, data: { resolved: false, singleMatch: false, candidates, skippedHubSpot: false } }),
+    resolveCompanyViaRoute: async () =>
+      resolveFails
+        ? { success: false, error: 'La búsqueda de la empresa tardó demasiado. Intenta nuevamente.' }
+        : { success: true, data: { resolved: false, singleMatch: false, candidates, skippedHubSpot: false } },
   },
 });
 mock.module('@/modules/speech/first-contact-company-actions', {
@@ -36,6 +41,7 @@ before(async () => {
 afterEach(() => {
   rtl.cleanup();
   candidates = [];
+  resolveFails = false;
   resolveCalls.length = 0;
 });
 
@@ -58,6 +64,17 @@ describe('Agente 3 · elegir la empresa desde afuera', () => {
 
     await rtl.waitFor(() => assert.deepEqual(resolved, ['acc-new']));
     assert.deepEqual(resolveCalls, [{ manual: { name: 'Nueva Empresa SA', countryCode: 'CO', domain: 'nuevaempresa.co' } }]);
+  });
+
+  it('si la búsqueda FALLA (tiempo agotado, red), no la trata como «no existe»: no pide país ni crea nada', async () => {
+    resolveFails = true;
+    rtl.render(React.createElement(FirstContactCompanyPicker, { open: true, onOpenChange: () => {}, onResolved: () => {} }));
+    answerText('Herradura Tequila');
+    // Vuelve a preguntar por la empresa en vez de saltar a «¿De qué país es…?».
+    await rtl.waitFor(() => assert.ok(rtl.screen.getByRole('textbox')));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(rtl.screen.queryByText(/¿De qué país es Herradura Tequila\?/), null);
+    assert.deepEqual(resolveCalls, []);
   });
 
   it('si la encuentra, se elige y se usa esa', async () => {
