@@ -753,7 +753,10 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // AGENT3-FIRST-CALL-1 declara la 153 (`account_research_briefs` y `first_call_packs`: fichas y
     // paquetes de primera llamada del Agente 3). No es de este corte; la ventana sube a la 154, y el
     // barrido de AUTORÍA se ENSANCHA para incluir la 153.
-    assert.equal(migrations.filter((f) => f.startsWith('155')).length, 0);
+    // APOLLO-SAVED-CONTACT-PHONES-1 declara la 155 (dos funciones que importan los teléfonos ya
+    // guardados en Apollo). No es de este corte; la ventana sube a la 156, y el barrido de AUTORÍA
+    // se ENSANCHA para incluir la 155.
+    assert.equal(migrations.filter((f) => f.startsWith('156')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -786,7 +789,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('151') ||
         f.startsWith('152') ||
         f.startsWith('153') ||
-        f.startsWith('154'),
+        f.startsWith('154') ||
+        f.startsWith('155'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
