@@ -379,9 +379,13 @@ describe('A3. El árbol guardado: lo que se lee de la base se valida', () => {
     const base = { ...wanted, branches: [...wanted.branches] };
     assert.ok(pickSavedTree([rowOf(tree())], { ...base, rootDomain: 'grupobimbo.com' }), 'misma web: sí');
     assert.equal(pickSavedTree([rowOf(tree())], { ...base, rootDomain: 'bimbo-otro.com' }), null, 'otra web: no');
-    assert.equal(pickSavedTree([rowOf(tree())], { ...base, rootCountryCode: null }), null, 'sin país ni web: no');
+    const nameOnly = { ...base, rootCountryCode: null, rootDomain: null };
+    assert.ok(pickSavedTree([rowOf(tree())], nameOnly), 'sólo el nombre y un único grupo guardado: sí (Prod 21-10, Bimbo)');
+    const otherGroup = tree({}, { root: { website: 'https://alfa-otra.com', domain: 'alfa-otra.com', country_code: 'AR' } });
+    assert.equal(pickSavedTree([rowOf(tree()), rowOf(otherGroup, 'b-otro')], nameOnly), null, 'sólo el nombre y dos grupos distintos: no');
     const noCountry = tree({}, { root: { website: null, domain: null, country_code: null } });
     assert.equal(pickSavedTree([rowOf(noCountry)], base), null, 'el guardado sin país ni web: no');
+    assert.equal(pickSavedTree([rowOf(noCountry)], { ...base, rootCountryCode: null }), null, 'sólo el nombre y el guardado sin web: no');
   });
 
   it('enlaces guardados: sólo http(s); el dominio sale siempre de la web', () => {
@@ -562,6 +566,19 @@ describe('A4. La corrida: el árbol guardado se reutiliza sin pagar', () => {
     assert.equal((tree.apollo as Record<string, unknown>).skipped, 'saved_tree');
     assert.equal(tree.saved, undefined, 'lo reutilizado no se vuelve a guardar');
     assert.deepEqual(calls.freeCatalog.map((c) => c.country), ['EC'], 'y todo pasa igual por las compuertas');
+  });
+
+  it('Bimbo (Prod 21-10): buscado SÓLO por nombre, sin país ni web, la repetición también reutiliza', async () => {
+    const nameOnly: CorporateTreeRequest = { ...REQUEST, rootWebsite: null, rootCountryCode: null };
+    const noRootCountry = { findFreeHits: async () => ({ hits: [], rootCountryCode: null, queries: 1, errors: 0 }) };
+    const first = fakeDeps(noRootCountry);
+    await runCorporateTreeSearch(nameOnly, CONTEXT, first.deps);
+    const stored = { batchId: 'batch-old', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: treeOf(first.calls) } };
+    const { deps, calls } = fakeDeps({ ...noRootCountry, findSavedTrees: async () => [stored] });
+    const result = await runCorporateTreeSearch(nameOnly, CONTEXT, deps);
+    assert.ok(result.ok && result.reusedSavedTree, 'antes volvía a pagar: sin país ni web no había con qué comparar');
+    assert.deepEqual(calls.searched, []);
+    assert.equal(calls.apollo, 0);
   });
 
   it('`refresh` busca de nuevo aunque haya árbol guardado', async () => {
