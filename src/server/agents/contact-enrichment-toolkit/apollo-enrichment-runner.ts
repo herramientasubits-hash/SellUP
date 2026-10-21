@@ -21,6 +21,7 @@ import {
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
   type ApolloOrgResolutionMeta,
+  type CountryFilterMeta,
   apolloOrgResolutionCredits,
 } from './apollo-people-adapter';
 import { normalizeApolloPeople, type NormalizedApolloContact } from './contact-normalizer';
@@ -184,6 +185,11 @@ export interface ApolloEnrichmentRunResult {
   searchGuardrail?: SearchGuardrailMeta;
   /** Evaluación de presupuesto alert-only (Hito E). */
   budgetCheck?: ApolloBudgetCheckMeta;
+  /**
+   * Cómo quedó identificada la empresa en Apollo ('found_by_domain', 'found_by_name',
+   * 'not_found', 'error'…). Lo usa el chat para explicar un cero (AGENT2-AUDIT-FIXES-1).
+   */
+  organizationResolutionStatus?: string | null;
   error?: string;
 }
 
@@ -408,6 +414,11 @@ interface ApolloEnrichmentSummaryBlock {
   search_guardrail?: SearchGuardrailMeta;
   /** Resolución de organización Apollo (Hito 17A.8A). */
   apollo_organization_resolution?: ApolloOrgResolutionMeta;
+  /**
+   * Qué país se mandó a Apollo y por qué (AGENT2-AUDIT-FIXES-1). Se calculaba y se perdía: sin
+   * esto no se podía saber en Prod si una búsqueda filtró por ubicación.
+   */
+  country_filter?: CountryFilterMeta;
   /** Resultado del filtro de relevancia/calidad (Hito 17A.3B). */
   relevance_filter?: RelevanceFilterSummary;
   /** Resultado del completado selectivo de datos (Hito 17A.3C). */
@@ -1223,6 +1234,7 @@ export async function executeContactEnrichmentApolloRun(
       search_attempts: toAttemptSummaries(apollo.attempts),
       search_guardrail: apollo.searchGuardrail,
       apollo_organization_resolution: apollo.organizationResolution,
+      country_filter: apollo.countryFilter,
       relevance_filter: relevanceFilter,
       contact_completion: completionSummary,
       provider_identity_novelty: providerIdentityNovelty,
@@ -1409,6 +1421,7 @@ export async function executeContactEnrichmentApolloRun(
     search_attempts: toAttemptSummaries(apollo.attempts),
     search_guardrail: apollo.searchGuardrail,
     apollo_organization_resolution: apollo.organizationResolution,
+    country_filter: apollo.countryFilter,
     relevance_filter: relevanceFilter,
     contact_completion: completionSummary,
     provider_identity_novelty: providerIdentityNovelty,
@@ -1516,5 +1529,6 @@ export async function executeContactEnrichmentApolloRun(
     costGuardrail: completionSummary.cost_guardrail,
     searchGuardrail: apollo.searchGuardrail,
     budgetCheck: budgetMeta,
+    organizationResolutionStatus: apollo.organizationResolution?.status ?? null,
   };
 }
