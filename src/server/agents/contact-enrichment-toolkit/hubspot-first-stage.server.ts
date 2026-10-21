@@ -68,7 +68,28 @@ export function withPriorityTimestamps<T extends object>(rows: readonly T[], now
 
 export type HubSpotFirstStageResult =
   | { status: 'no_hubspot_company' | 'hubspot_unavailable' | 'error'; satisfied: false; inserted: 0; detail?: string }
-  | { status: 'done'; satisfied: boolean; inserted: number; relevantWithEmail: number };
+  | {
+      status: 'done';
+      satisfied: boolean;
+      inserted: number;
+      relevantWithEmail: number;
+      /**
+       * Por qué los contactos de HubSpot no entraron (AGENT2-HUBSPOT-FIRST-WHY-ZERO-1). Antes se
+       * contaba y se perdía: Grupo LALA (21-10) tenía ~100 contactos en HubSpot, dejó 0 y no se
+       * podía saber si era por dueño, por cargo o porque ya estaban en SellUp.
+       */
+      breakdown?: HubSpotFirstBreakdown;
+    };
+
+export interface HubSpotFirstBreakdown {
+  /** Contactos de la empresa que devolvió HubSpot. */
+  hubspotContacts: number;
+  otherSeller: number;
+  knownInSellUp: number;
+  notRelevant: number;
+  noName: number;
+  alreadyInRun: number;
+}
 
 async function defaultLoadRunRef(attemptId: string): Promise<HubSpotFirstRunRef | null> {
   const admin = createSupabaseAdminClient();
@@ -157,6 +178,14 @@ export async function runHubSpotFirstStage(
       satisfied: isSatisfiedByHubSpot(relevantWithEmail),
       inserted: selection.rows.length,
       relevantWithEmail,
+      breakdown: {
+        hubspotContacts: snapshot.hubspot.contacts.length,
+        otherSeller: selection.skippedOtherSeller,
+        knownInSellUp: selection.skippedKnownInSellUp,
+        notRelevant: selection.skippedNotRelevant,
+        noName: selection.skippedNoName,
+        alreadyInRun: selection.skippedAlreadyInRun,
+      },
     };
   } catch (err) {
     return { status: 'error', satisfied: false, inserted: 0, detail: err instanceof Error ? err.message : String(err) };

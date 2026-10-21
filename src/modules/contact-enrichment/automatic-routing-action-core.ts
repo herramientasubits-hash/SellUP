@@ -91,6 +91,14 @@ export interface AutomaticRoutingDiagnosis {
   lushaRecentZeroAt: string | null;
   /** Lusha corrió en esta búsqueda. */
   lushaRan: boolean;
+  /** Por qué los contactos de HubSpot no entraron; null si «Primero HubSpot» no corrió. */
+  hubspotFirst?: {
+    hubspotContacts: number;
+    otherSeller: number;
+    knownInSellUp: number;
+    notRelevant: number;
+    noName: number;
+  } | null;
 }
 
 export interface AutomaticRoutingCandidatesCreated {
@@ -145,6 +153,15 @@ function buildDiagnosis(
     },
     lushaRecentZeroAt: result.recentFallbackZero?.lastZeroAt ?? null,
     lushaRan: !!result.attempt2?.result,
+    hubspotFirst: result.hubspotFirstBreakdown
+      ? {
+          hubspotContacts: result.hubspotFirstBreakdown.hubspotContacts,
+          otherSeller: result.hubspotFirstBreakdown.otherSeller,
+          knownInSellUp: result.hubspotFirstBreakdown.knownInSellUp,
+          notRelevant: result.hubspotFirstBreakdown.notRelevant,
+          noName: result.hubspotFirstBreakdown.noName,
+        }
+      : null,
   };
 }
 

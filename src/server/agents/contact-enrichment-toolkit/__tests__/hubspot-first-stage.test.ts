@@ -38,7 +38,10 @@ describe('Primero HubSpot — etapa', () => {
   it('3 relevantes con correo: inserta y queda satisfecha', async () => {
     const inserted: unknown[] = [];
     const result = await runHubSpotFirstStage({ attemptId: 'run-1' }, deps({ inserted }));
-    assert.deepEqual(result, { status: 'done', satisfied: true, inserted: 3, relevantWithEmail: 3 });
+    assert.deepEqual(result, {
+      status: 'done', satisfied: true, inserted: 3, relevantWithEmail: 3,
+      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 0 },
+    });
     assert.equal(inserted.length, 3);
   });
 
@@ -65,7 +68,10 @@ describe('Primero HubSpot — etapa', () => {
       }),
     );
     assert.equal(inserted.length, 1);
-    assert.deepEqual(result, { status: 'done', satisfied: true, inserted: 1, relevantWithEmail: 3 });
+    assert.deepEqual(result, {
+      status: 'done', satisfied: true, inserted: 1, relevantWithEmail: 3,
+      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 2 },
+    });
   });
 
   it('sin ID de HubSpot, con HubSpot caído o con error: no satisface y no rompe', async () => {
