@@ -35,6 +35,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { rankContactsBySeniority } from './contact-seniority-ranking';
 import { normalizeDomain } from './company-consistency-checker';
+import { buildLushaProspectingCompanyInclude } from './lusha-prospecting-company-filter';
 import { normalizeLushaPersonName } from './lusha-people-adapter';
 import { buildLushaPersonIdentityEvidence } from './lusha-person-identity-evidence';
 import { resolveLushaDiscoveryMode, type LushaContactProspectingRequest } from './lusha-types';
@@ -1387,9 +1388,10 @@ export async function executeContactEnrichmentLushaRun(
         })
       : null;
 
-    const companyInclude: Record<string, string[]> = {};
-    if (companyName) companyInclude['names'] = [companyName];
-    if (companyDomain) companyInclude['domains'] = [companyDomain];
+    // LUSHA-PROSPECTING-DOMAIN-ONLY-1: con dominio, sólo el dominio (ver el módulo del filtro).
+    const companyInclude: Record<string, string[]> = {
+      ...buildLushaProspectingCompanyInclude(companyName, companyDomain),
+    };
 
     const prospectRequest: LushaContactProspectingRequest = {
       filters: {
