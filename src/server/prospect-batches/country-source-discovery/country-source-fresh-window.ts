@@ -9,6 +9,8 @@
  * `priority_score` y el filtro «ya está en SellUp / HubSpot» corría DESPUÉS. Una
  * vez vistas, la corrida siguiente leía exactamente las mismas: 0 nuevas para
  * siempre y la búsqueda pagaba Apollo/Tavily por lo que la fuente gratuita tenía.
+ * CO, AR, CL, DO, BO y EC leían de más (×3) y marcaban lo ya visto DESPUÉS: el
+ * mismo defecto, sólo que tardaba unas corridas más en agotarse.
  *
  * ── El arreglo ───────────────────────────────────────────────────────────────
  *

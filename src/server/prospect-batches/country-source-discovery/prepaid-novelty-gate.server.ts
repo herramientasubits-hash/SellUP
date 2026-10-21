@@ -69,6 +69,7 @@ import { buildMxDenueLiveReads } from '@/server/source-catalog/connectors/denue-
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
 import { isUnsearchedFreeLayerDiscard } from './country-source-prior-sightings';
+import { buildReadKnownSnapshotIdentities } from './country-source-fresh-window';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 
 /**
@@ -276,8 +277,10 @@ export async function runProductionPrePaidNoveltyGate(
           latamCuratedDiscoveryReads: buildLatamCuratedDiscoveryReads(adminClient),
           // SOURCES-MX-DENUE-FREE-DISCOVERY-1 — DENUE en vivo (gratuito); la clave sale
           // de la bóveda de secretos y sólo se pide si la corrida es de México.
+          // AUDIT-A1-WS7 — y pagina saltando las webs que SellUp ya conoce (sólo lectura).
           mxDenueDiscoveryReads: buildMxDenueLiveReads({
             getToken: async () => (await resolveSourceCredential('denue_mexico'))?.token ?? null,
+            readKnown: buildReadKnownSnapshotIdentities(adminClient),
           }),
         })
       : null,

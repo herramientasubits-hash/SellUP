@@ -27,14 +27,18 @@ import {
   denueWebsiteToDomain,
   MX_DENUE_DISCOVERY_MAX_ROWS,
   MX_DENUE_DISCOVERY_SOURCE_KEY,
+  MX_DENUE_ESTRATO_BUDGET_MS,
+  MX_DENUE_PAGE_SIZE,
   type DenueEstablishment,
   type MxDenueDiscoveryReads,
 } from '../mx-denue-discovery-adapter';
 import {
   buildDenueActivityUrl,
   buildMxDenueLiveReads,
+  DENUE_REQUEST_TIMEOUT_MS,
 } from '@/server/source-catalog/connectors/denue-mexico/denue-activity-live-reads';
 import { runPrePaidNoveltyGate } from '../run-prepaid-novelty-gate';
+import { FRESH_WINDOW_MAX_PAGES, type KnownSnapshotIdentities } from '../country-source-fresh-window';
 import {
   buildCountrySourceAdapter,
   countrySourceMacroHasCoverage,
@@ -371,5 +375,126 @@ describe('organismos públicos genéricos y sucursales de institución (SOURCES-
     const { reads } = fakeReads({ '7': [imss('i1', 'IMSS CLINICA 76'), imss('i2', 'IMSS HOSPITAL GENERAL DE ZONA 68')] });
     const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
     assert.deepEqual(result.companies.map((c) => c.legalName), ['INSTITUTO MEXICANO DEL SEGURO SOCIAL']);
+  });
+});
+
+/**
+ * AUDIT-A1-WS7 (México) — DENUE ya no lee siempre los registros 1–100: pagina con
+ * `reg_ini`/`reg_fin` y salta las webs que SellUp ya conoce, dentro del mismo
+ * presupuesto de tiempo de siempre. Sin red: DENUE, «conocidas» y reloj dobles.
+ */
+describe('ventana fresca de DENUE (no se agota)', () => {
+  const tech = MX_DENUE_QUERY_PLAN.technology[0];
+  const knownOf = (domains: string[]): KnownSnapshotIdentities => ({
+    taxIds: new Set(),
+    taxIdsUnlessDomain: new Set(),
+    domains: new Set(domains),
+  });
+
+  /** DENUE doble con `count` establecimientos para tecnología × estrato 7; responde por rango. */
+  function pagedReads(count: number, extra: Partial<MxDenueDiscoveryReads> = {}) {
+    const rows = Array.from({ length: count }, (_, i) => est(String(i + 1)));
+    const calls: Array<{ estrato: string; limit: number; offset?: number; timeoutMs?: number; tech: boolean }> = [];
+    const reads: MxDenueDiscoveryReads = {
+      async readEstablishments({ filter, estrato, limit, offset, timeoutMs }) {
+        const isTech = filter === tech;
+        calls.push({ estrato, limit, offset, timeoutMs, tech: isTech });
+        if (!isTech || estrato !== '7') return [];
+        const from = offset ?? 0;
+        return rows.slice(from, from + limit);
+      },
+      ...extra,
+    };
+    return { reads, calls };
+  }
+
+  it('sin «conocidas» pide una sola página 1–100, como siempre', async () => {
+    const { reads, calls } = pagedReads(250);
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 200 });
+    const techCalls = calls.filter((c) => c.tech && c.estrato === '7');
+    assert.equal(techCalls.length, 1);
+    assert.equal(techCalls[0].offset, undefined);
+    assert.equal(techCalls[0].limit, MX_DENUE_PAGE_SIZE);
+    assert.equal(result.companies.length, 100);
+  });
+
+  it('salta lo que SellUp ya conoce por web y pide la página siguiente', async () => {
+    const seen: Array<{ taxIds: readonly string[]; domains: readonly string[] }> = [];
+    const { reads, calls } = pagedReads(250, {
+      readKnown: async ({ countryCode, taxIds, domains }) => {
+        assert.equal(countryCode, 'MX');
+        seen.push({ taxIds, domains });
+        // Las 100 primeras ya están en SellUp (corridas anteriores).
+        return knownOf(domains.filter((d) => Number(/empresa(\d+)/.exec(d)?.[1]) <= 100));
+      },
+    });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 50 });
+    const techCalls = calls.filter((c) => c.tech && c.estrato === '7');
+    assert.deepEqual(techCalls.map((c) => c.offset), [undefined, 100]);
+    assert.ok((techCalls[1].timeoutMs ?? 0) > 0 && (techCalls[1].timeoutMs ?? 0) <= MX_DENUE_ESTRATO_BUDGET_MS);
+    assert.deepEqual(seen[0].taxIds, []); // DENUE no trae RFC.
+    assert.ok(seen[0].domains.includes('empresa1.com.mx'));
+    assert.equal(result.companies.length, 50);
+    assert.equal(result.companies[0].recordIdentityKey, 'denue:101');
+    assert.equal(result.recordsRead, 200); // cuenta lo leído, no sólo lo fresco.
+  });
+
+  it('respeta el techo de páginas aunque todo sea conocido', async () => {
+    const { reads, calls } = pagedReads(10_000, { readKnown: async ({ domains }) => knownOf([...domains]) });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.equal(calls.filter((c) => c.tech && c.estrato === '7').length, FRESH_WINDOW_MAX_PAGES);
+    assert.equal(result.companies.length, 0);
+  });
+
+  it('fail-open: si falla la lectura de «conocidas», la página cuenta entera (una sola)', async () => {
+    const { reads, calls } = pagedReads(250, { readKnown: async () => { throw new Error('db caída'); } });
+    const result = await buildMxDenueDiscoveryAdapter(reads)({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    assert.equal(calls.filter((c) => c.tech && c.estrato === '7').length, 1);
+    assert.equal(result.companies.length, 10);
+  });
+
+  it('no alarga la corrida: sin tiempo en la franja del estrato no pide páginas extra', async () => {
+    let clock = 0;
+    const { reads, calls } = pagedReads(250, { readKnown: async ({ domains }) => knownOf([...domains]) });
+    const slow: MxDenueDiscoveryReads = {
+      ...reads,
+      async readEstablishments(input) {
+        clock += MX_DENUE_ESTRATO_BUDGET_MS; // la primera página agota la franja
+        return reads.readEstablishments(input);
+      },
+    };
+    await buildMxDenueDiscoveryAdapter(slow, { now: () => clock })({ countryCode: 'MX', macroIndustryKey: 'technology', limit: 10 });
+    // Una sola página por filtro y estrato: la primera, como siempre.
+    assert.ok(calls.every((c) => c.offset === undefined));
+    assert.equal(calls.filter((c) => c.tech && c.estrato === '7').length, 1);
+  });
+
+  it('la franja por estrato es el tiempo máximo por consulta del conector (trinquete)', () => {
+    assert.equal(MX_DENUE_ESTRATO_BUDGET_MS, DENUE_REQUEST_TIMEOUT_MS);
+    assert.equal(FRESH_WINDOW_MAX_PAGES, 5);
+  });
+
+  it('la URL pagina con reg_ini/reg_fin', () => {
+    assert.equal(
+      buildDenueActivityUrl({ ...tech, estrato: '7', limit: 100, offset: 100, token: 'TKN' }),
+      `https://www.inegi.org.mx/app/api/denue/v1/consulta/BuscarAreaActEstr/00/0/0/0/0/${tech.sector}/${tech.subsector}/${tech.rama}/0/0/101/200/0/7/TKN`,
+    );
+  });
+
+  it('consulta en vivo: pasa `readKnown` y no llama a DENUE sin tiempo', async () => {
+    const readKnown = async () => knownOf([]);
+    let fetches = 0;
+    const reads = buildMxDenueLiveReads({
+      getToken: async () => 'T',
+      readKnown,
+      fetchImpl: async () => {
+        fetches++;
+        return { ok: true, text: async () => '[]' };
+      },
+    });
+    assert.equal(reads.readKnown, readKnown);
+    assert.deepEqual(await reads.readEstablishments({ filter: tech, estrato: '7', limit: 5, offset: 5, timeoutMs: 0 }), []);
+    assert.equal(fetches, 0);
+    assert.equal(buildMxDenueLiveReads({ getToken: async () => 'T' }).readKnown, null);
   });
 });

@@ -21,6 +21,12 @@ import {
   type KnownSnapshotIdentities,
 } from '../country-source-fresh-window';
 import { buildGtGuatecomprasDirectoryDiscoveryReads } from '../gt-guatecompras-directory-snapshot-query';
+import { buildCoSiisDiscoverySnapshotQuery } from '../co-siis-snapshot-query';
+import { buildArRnsDiscoveryReads } from '../ar-rns-snapshot-query';
+import { buildClSiiDirectoryDiscoveryReads } from '../cl-sii-directory-snapshot-query';
+import { buildDoDgiiDiscoveryReads } from '../do-dgii-snapshot-query';
+import { buildBoOfficialDiscoveryReads } from '../bo-official-discovery-snapshot-query';
+import { buildEcScvsDirectoryDiscoveryReads } from '../ec-scvs-directory-snapshot-query';
 
 type Row = { tax: string | null; domain: string | null };
 
@@ -236,5 +242,199 @@ describe('lectura de Guatemala con la ventana nueva', () => {
     const rows = await buildGtGuatecomprasDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 1 });
     assert.deepEqual(rows.map((r) => r.nit), ['2']);
     assert.deepEqual(terminal, ['limit', 'range:1']);
+  });
+});
+
+/**
+ * Las fuentes que leían de más (×3) y marcaban lo ya visto DESPUÉS (CO, AR, CL, DO,
+ * BO, EC) también leían siempre la misma ventana: tras pocas corridas, todo lo
+ * leído ya era conocido. Ahora usan la misma ventana fresca.
+ */
+describe('CO, AR, CL, DO, BO y EC con la ventana nueva', () => {
+  const snapshotRow = (tax: string) => ({
+    record_identity_key: `tax:${tax}`,
+    normalized_tax_id: tax,
+    tax_id: tax,
+    legal_name: `EMPRESA ${tax}`,
+    normalized_legal_name: `EMPRESA ${tax}`,
+    sector: null,
+    city: null,
+    region: null,
+    department: null,
+    priority_score: 50,
+    size_tier: 1,
+    website_domain: null,
+    raw_data: { matricula_renewed: true },
+  });
+
+  /** Primera página (`limit`) entera ya conocida; la segunda (`range`) trae una nueva. */
+  function pagedClient(firstPageSize: number) {
+    const known = Array.from({ length: firstPageSize }, (_, i) => `K${i + 1}`);
+    const terminal: string[] = [];
+    const client = {
+      from(table: string) {
+        const builder: Record<string, unknown> = {};
+        for (const method of ['select', 'eq', 'order', 'not', 'in', 'gte', 'is']) builder[method] = () => builder;
+        builder.then = (resolve: (value: unknown) => unknown) =>
+          Promise.resolve({
+            data: table === 'prospect_candidates' ? known.map((tax) => ({ tax_identifier: tax })) : [],
+            error: null,
+          }).then(resolve);
+        builder.limit = () => {
+          terminal.push('limit');
+          return Promise.resolve({ data: known.map(snapshotRow), error: null });
+        };
+        builder.range = (from: number) => {
+          terminal.push(`range:${from}`);
+          return Promise.resolve({ data: [snapshotRow('NEW1')], error: null });
+        };
+        for (const write of ['insert', 'update', 'upsert', 'delete', 'rpc']) {
+          builder[write] = () => {
+            throw new Error(`escritura prohibida: ${write}`);
+          };
+        }
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+    return { client, terminal };
+  }
+
+  // limit 1 ⇒ ventana ×3 = 3 filas (DO no sobremuestrea: 1).
+  const cases: Array<{ name: string; size: number; read: (client: SupabaseClient) => Promise<Array<string | null>> }> = [
+    {
+      name: 'CO (co_siis)',
+      size: 3,
+      read: async (c) =>
+        (await buildCoSiisDiscoverySnapshotQuery(c)({ macroIndustryKey: 'health_pharma', ciiuCodes: ['2100'], limit: 1 })).map(
+          (r) => r.tax_id,
+        ),
+    },
+    {
+      name: 'CO (co_public_entities)',
+      size: 3,
+      read: async (c) =>
+        (await buildCoSiisDiscoverySnapshotQuery(c)({ macroIndustryKey: 'government', ciiuCodes: [], limit: 1 })).map(
+          (r) => r.tax_id,
+        ),
+    },
+    {
+      name: 'CL',
+      size: 3,
+      read: async (c) =>
+        (await buildClSiiDirectoryDiscoveryReads(c).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 1 })).map(
+          (r) => r.rut,
+        ),
+    },
+    {
+      name: 'DO',
+      size: 1,
+      read: async (c) =>
+        (await buildDoDgiiDiscoveryReads(c).readSizedCompaniesByMacro({ macroIndustryKey: 'technology', limit: 1 })).map(
+          (r) => r.rnc,
+        ),
+    },
+    {
+      name: 'BO (grandes contribuyentes)',
+      size: 3,
+      read: async (c) =>
+        (await buildBoOfficialDiscoveryReads(c).readLargeTaxpayersByMacro({ macroIndustryKey: 'technology', limit: 1 })).map(
+          (r) => r.nit,
+        ),
+    },
+    {
+      name: 'EC (ec_scvs_directory)',
+      size: 3,
+      read: async (c) =>
+        (await buildEcScvsDirectoryDiscoveryReads(c).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 1 })).map(
+          (r) => r.ruc,
+        ),
+    },
+  ];
+
+  for (const { name, size, read } of cases) {
+    it(`${name}: salta lo ya conocido y lee la página siguiente`, async () => {
+      const { client, terminal } = pagedClient(size);
+      assert.deepEqual(await read(client), ['NEW1']);
+      assert.deepEqual(terminal, ['limit', `range:${size}`]);
+    });
+  }
+
+  it('AR: cada fuente pagina por su cuenta', async () => {
+    const { client, terminal } = pagedClient(3);
+    const rows = await buildArRnsDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 1 });
+    assert.deepEqual(rows.map((r) => [r.origin, r.cuit]), [['procurement', 'NEW1'], ['employer', 'NEW1']]);
+    assert.deepEqual([...terminal].sort(), ['limit', 'limit', 'range:3', 'range:3']);
+  });
+
+  it('BO (entidades públicas, sin NIT): la web conocida también salta', async () => {
+    const terminal: string[] = [];
+    const entity = (key: string, domain: string) => ({
+      ...snapshotRow(key),
+      normalized_tax_id: null,
+      raw_data: { website_domain: domain, macro_industry_key: 'government' },
+    });
+    const client = {
+      from(table: string) {
+        const builder: Record<string, unknown> = {};
+        for (const method of ['select', 'eq', 'order', 'not', 'in']) builder[method] = () => builder;
+        builder.then = (resolve: (value: unknown) => unknown) =>
+          Promise.resolve({ data: table === 'accounts' ? [{ domain: 'www.conocida.gob.bo' }] : [], error: null }).then(resolve);
+        builder.limit = () => {
+          terminal.push('limit');
+          return Promise.resolve({ data: [entity('E1', 'conocida.gob.bo'), entity('E2', 'nueva.gob.bo')], error: null });
+        };
+        builder.range = () => {
+          terminal.push('range');
+          return Promise.resolve({ data: [], error: null });
+        };
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+    const rows = await buildBoOfficialDiscoveryReads(client).readPublicEntitiesByMacro({ macroIndustryKey: 'government', limit: 1 });
+    assert.deepEqual(rows.map((r) => r.website_domain), ['nueva.gob.bo']);
+    // Página corta (2 < 3): la fuente se agotó, no se pide otra.
+    assert.deepEqual(terminal, ['limit']);
+  });
+
+  it('CO: si el orden por ingresos falla, todas las páginas usan el orden estable', async () => {
+    const orders: string[][] = [];
+    const known = ['K1', 'K2', 'K3'];
+    let failedOnce = false;
+    const client = {
+      from(table: string) {
+        const builder: Record<string, unknown> = {};
+        const order: string[] = [];
+        for (const method of ['select', 'eq', 'not', 'in', 'gte']) builder[method] = () => builder;
+        builder.order = (column: string) => {
+          order.push(column);
+          return builder;
+        };
+        builder.then = (resolve: (value: unknown) => unknown) =>
+          Promise.resolve({
+            data: table === 'prospect_candidates' ? known.map((tax) => ({ tax_identifier: tax })) : [],
+            error: null,
+          }).then(resolve);
+        builder.limit = () => {
+          orders.push([...order]);
+          if (order.includes('financials->operatingRevenueCurrent') && !failedOnce) {
+            failedOnce = true;
+            return Promise.resolve({ data: null, error: { message: 'no se puede ordenar' } });
+          }
+          return Promise.resolve({ data: known.map(snapshotRow), error: null });
+        };
+        builder.range = () => {
+          orders.push([...order]);
+          return Promise.resolve({ data: [snapshotRow('NEW1')], error: null });
+        };
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+    const rows = await buildCoSiisDiscoverySnapshotQuery(client)({ macroIndustryKey: 'health_pharma', ciiuCodes: ['2100'], limit: 1 });
+    assert.deepEqual(rows.map((r) => r.tax_id), ['NEW1']);
+    assert.deepEqual(orders, [
+      ['financials->operatingRevenueCurrent', 'record_identity_key'],
+      ['record_identity_key'],
+      ['record_identity_key'],
+    ]);
   });
 });

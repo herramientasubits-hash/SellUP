@@ -12,6 +12,10 @@
  *     trabajadores.
  * Cada fila sale marcada con su origen; el adapter las intercala.
  *
+ * AUDIT-A1-WS7 — cada fuente se lee por páginas (mismo orden) saltando en la
+ * LECTURA lo que SellUp ya conoce por CUIT o web (`country-source-fresh-window.ts`):
+ * la ventana ×3 fija se agotaba tras pocas corridas.
+ *
  * SOURCES-AR-PUBLIC-ENTITIES-1 — para Gobierno se lee SÓLO
  * `ar_public_entities` (municipios, organismos nacionales, universidades).
  *
@@ -36,6 +40,11 @@ import {
   PRIOR_SIGHTING_DISPOSITION_COLUMNS,
   type PriorSightingDispositionRow,
 } from './country-source-prior-sightings';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 
 /** Fuente cargada → origen que el adapter intercala. */
 export const AR_DISCOVERY_SOURCES: ReadonlyArray<{
@@ -182,18 +191,31 @@ export function buildArRnsDiscoveryReads(client: SupabaseClient): ArRnsDiscovery
     macroIndustryKey: string,
     limit: number,
   ): Promise<ArRnsSnapshotReadRow[]> {
-    try {
-      const { data, error } = await client
+    // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+    const buildQuery = () =>
+      client
         .from('source_company_snapshots')
         .select(SELECTED_COLUMNS)
         .eq('source_key', sourceKey)
         .eq('country_code', 'AR')
         .eq('raw_data->>macro_industry_key', macroIndustryKey)
         .order('priority_score', { ascending: false })
-        .order('normalized_tax_id', { ascending: true })
-        .limit(limit);
-      if (error || !Array.isArray(data)) return [];
-      return (data as unknown as SnapshotSelectRow[]).map((row) => toRow(row, origin));
+        .order('normalized_tax_id', { ascending: true });
+    try {
+      const rows = await readFreshSnapshotWindow<SnapshotSelectRow>({
+        size: limit,
+        countryCode: 'AR',
+        readKnown: buildReadKnownSnapshotIdentities(client),
+        taxIdOf: (row) => row.normalized_tax_id,
+        domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+        readRange: async (from, to) => {
+          const query = buildQuery();
+          const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+          if (error || !Array.isArray(data)) throw new Error('ar_snapshot_read_failed');
+          return data as unknown as SnapshotSelectRow[];
+        },
+      });
+      return rows.map((row) => toRow(row, origin));
     } catch {
       return [];
     }

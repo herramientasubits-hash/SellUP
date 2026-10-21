@@ -53,6 +53,7 @@ import { WizardAutoProviderNotice } from './wizard-auto-provider-notice';
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SuccessPanel } from './wizard-execution-panels';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import type { WizardShortfallReason } from '@/modules/prospect-batches/chat-wizard-execution/wizard-shortfall-reasons';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 import {
   type ApolloRunModeLimits,
@@ -84,6 +85,8 @@ type WizardRunProviderSurfaceProps = {
   twoRoundOutcome?: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
   /** QUERY-QUALITY-2 § 8 — distribución real de descartes de la corrida. */
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
+  /** AGENT1-CRITERIA-QUICK-WINS-1 § 2 — por qué no se llegó a la meta. */
+  shortfallReasons?: WizardShortfallReason[] | null;
   /** PERSISTENCE-READINESS-4 § 8 — cifras reales de la escritura. `null` = no llegaron. */
   persistenceOutcome?: WizardPersistenceOutcome | null;
   /**
@@ -138,6 +141,7 @@ export function WizardConversationSummary({
   onRequestedProviderChange,
   twoRoundOutcome = null,
   noNewCandidatesBreakdown = null,
+  shortfallReasons = null,
   persistenceOutcome = null,
   budgetPreflight = null,
   defaultDiscoveryProvider = null,
@@ -224,6 +228,7 @@ export function WizardConversationSummary({
         onEditSearch={onEditSearch}
         twoRoundOutcome={twoRoundOutcome}
         noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+        shortfallReasons={shortfallReasons}
         persistenceOutcome={persistenceOutcome}
         targetEligibleCompanies={apolloRunModeLimits?.targetEligibleCompanies ?? null}
       />

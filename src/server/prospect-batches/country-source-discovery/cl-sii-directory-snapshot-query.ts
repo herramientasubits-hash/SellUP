@@ -9,6 +9,10 @@
  * (`priority_score`, percentil 0-100) y, en los empates, por RUT para que dos
  * corridas idénticas lean las mismas filas.
  *
+ * AUDIT-A1-WS7 — por páginas (mismo orden) y saltando en la LECTURA lo que SellUp
+ * ya conoce por RUT o web (`country-source-fresh-window.ts`): la ventana ×3 fija
+ * se agotaba tras pocas corridas.
+ *
  * Nunca inserta, actualiza ni borra. Cualquier error degrada a vacío (fail-soft).
  *
  * Este módulo NO construye el cliente: recibe uno de `service_role` creado por la
@@ -20,6 +24,11 @@ import type {
   ClSiiDirectoryDiscoveryReads,
   ClSiiDirectorySnapshotReadRow,
 } from './cl-sii-directory-discovery-adapter';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 
 type SnapshotSelectRow = {
   record_identity_key: string;
@@ -113,18 +122,32 @@ export function buildClSiiDirectoryDiscoveryReads(client: SupabaseClient): ClSii
   return {
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
-      try {
-        const { data, error } = await client
+      const readLimit = Math.min(limit * CL_DISCOVERY_READ_OVERSAMPLE, CL_DISCOVERY_READ_CAP);
+      // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+      const buildQuery = () =>
+        client
           .from('source_company_snapshots')
           .select(SELECTED_COLUMNS)
           .eq('source_key', 'cl_sii_directory')
           .eq('country_code', 'CL')
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .limit(Math.min(limit * CL_DISCOVERY_READ_OVERSAMPLE, CL_DISCOVERY_READ_CAP));
-        if (error || !Array.isArray(data)) return [];
-        const rows = (data as unknown as SnapshotSelectRow[]).map(toRow);
+          .order('normalized_tax_id', { ascending: true });
+      try {
+        const page = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: readLimit,
+          countryCode: 'CL',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+          readRange: async (from, to) => {
+            const query = buildQuery();
+            const { data, error } = await (from === 0 ? query.limit(readLimit) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('cl_sii_directory_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        const rows = page.map(toRow);
         const ruts = [...new Set(rows.map((row) => row.rut).filter((rut): rut is string => Boolean(rut)))];
         const seen = ruts.length > 0 ? await readAlreadySeen(client, ruts) : new Set<string>();
         return rows.map((row) => ({ ...row, already_seen: row.rut !== null && seen.has(row.rut) }));

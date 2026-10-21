@@ -399,9 +399,13 @@ describe('lectura de producción (buildEcScvsDirectoryDiscoveryReads)', () => {
       ],
     );
     assert.deepEqual(calls.find((c) => c.method === 'limit'), { method: 'limit', args: [600] });
+    // La primera `.in` es la ventana fresca (AUDIT-A1-WS7; este doble no tiene
+    // `.not`: fail-open, la página cuenta entera); después, lo ya visto.
     const inCalls = calls.filter((c) => c.method === 'in').map((c) => c.args);
-    assert.deepEqual(inCalls[0], ['tax_identifier', ['1791234510001', '1791234511001', '1791234512001', '1791234513001']]);
-    assert.deepEqual(inCalls[1][1], ['tax:1791234510001', 'tax:1791234511001', 'tax:1791234512001', 'tax:1791234513001']);
+    const rucs = ['1791234510001', '1791234511001', '1791234512001', '1791234513001'];
+    assert.deepEqual(inCalls[0], ['tax_identifier', rucs]);
+    assert.deepEqual(inCalls[1], ['tax_identifier', rucs]);
+    assert.deepEqual(inCalls[2][1], rucs.map((ruc) => `tax:${ruc}`));
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {

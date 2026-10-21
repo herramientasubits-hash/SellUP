@@ -533,10 +533,12 @@ describe('SOURCES-CL-NO-RECYCLE-1 — no volver a proponer lo que SellUp ya vio'
     const rows = await buildClSiiDirectoryDiscoveryReads(client).readCompaniesByMacro({ macroIndustryKey: 'technology', limit: 5 });
     assert.deepEqual(rows.map((r) => r.already_seen), [true, false, true]);
     assert.deepEqual(asked.map((a) => [a.table, a.column]), [
+      // AUDIT-A1-WS7: la ventana fresca (este doble no tiene `.not`: fail-open).
+      ['prospect_candidates', 'tax_identifier'],
       ['prospect_candidates', 'tax_identifier'],
       ['prospect_discarded_dispositions', 'provider_identifier'],
     ]);
-    assert.deepEqual(asked[1].values, [rut(1), rut(2), rut(3)].map((r) => `tax:${r}`));
+    assert.deepEqual(asked[2].values, [rut(1), rut(2), rut(3)].map((r) => `tax:${r}`));
 
     // Si la marca falla, las filas se ofrecen igual.
     const failing = {
@@ -544,7 +546,14 @@ describe('SOURCES-CL-NO-RECYCLE-1 — no volver a proponer lo que SellUp ya vio'
         const chain: Record<string, unknown> = {};
         for (const m of ['select', 'eq', 'order']) chain[m] = () => chain;
         chain.limit = () => Promise.resolve({ data: snapshotRows, error: null });
-        chain.in = () => Promise.reject(new Error(`caída ${table}`));
+        // Rechazo perezoso (al esperarla), encadenable como el builder real: la
+        // ventana fresca (AUDIT-A1-WS7) sigue con `.in`/`.not` antes de esperar.
+        const down: Record<string, unknown> = {
+          then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+            Promise.reject(new Error(`caída ${table}`)).then(resolve, reject),
+        };
+        for (const m of ['eq', 'in', 'not']) down[m] = () => down;
+        chain.in = () => down;
         return chain;
       },
     } as unknown as SupabaseClient;

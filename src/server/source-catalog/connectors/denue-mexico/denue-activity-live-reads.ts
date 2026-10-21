@@ -14,6 +14,9 @@
  * - Cada consulta tiene tiempo máximo; cualquier error, respuesta no-JSON o clave
  *   ausente degrada a vacío (fail-open hacia el proveedor de pago).
  * - La clave se pide una sola vez por adapter y se reutiliza.
+ * - AUDIT-A1-WS7: `offset` pagina con `reg_ini`/`reg_fin` (antes siempre 1–N) y
+ *   `timeoutMs` acota una página extra al resto de la franja del adapter; nunca
+ *   supera `DENUE_REQUEST_TIMEOUT_MS`. `readKnown` (sólo lectura) pasa tal cual.
  *
  * Vive en el conector de DENUE, junto al resto del código que llama al INEGI, y
  * NO en `country-source-discovery/`: esa carpeta tiene una guarda que prohíbe
@@ -25,6 +28,7 @@ import type {
   DenueEstablishment,
   MxDenueDiscoveryReads,
 } from '@/server/prospect-batches/country-source-discovery/mx-denue-discovery-adapter';
+import type { ReadKnownSnapshotIdentities } from '@/server/prospect-batches/country-source-discovery/country-source-fresh-window';
 
 export const DENUE_API_BASE = 'https://www.inegi.org.mx/app/api/denue/v1/consulta';
 /** Tiempo máximo por consulta a DENUE. */
@@ -43,16 +47,20 @@ export function buildDenueActivityUrl(input: {
   rama: string;
   estrato: string;
   limit: number;
+  /** Registros a saltar (0 por defecto). DENUE numera desde 1 y el rango es inclusivo. */
+  offset?: number;
   token: string;
 }): string {
   const safe = (value: string) => encodeURIComponent(value);
+  const regIni = Math.max(0, Math.trunc(input.offset ?? 0)) + 1;
+  const regFin = regIni + Math.max(1, Math.trunc(input.limit)) - 1;
   return [
     DENUE_API_BASE,
     'BuscarAreaActEstr',
     '00', '0', '0', '0', '0',
     safe(input.sector), safe(input.subsector), safe(input.rama), '0',
     '0',
-    '1', String(Math.max(1, Math.trunc(input.limit))),
+    String(regIni), String(regFin),
     '0',
     safe(input.estrato),
     safe(input.token),
@@ -79,6 +87,8 @@ export function toDenueEstablishment(raw: Record<string, unknown>): DenueEstabli
 export function buildMxDenueLiveReads(deps: {
   getToken: () => Promise<string | null>;
   fetchImpl?: Fetch;
+  /** Qué webs ya conoce SellUp (sólo lectura). Ausente ⇒ una página, como siempre. */
+  readKnown?: ReadKnownSnapshotIdentities | null;
 }): MxDenueDiscoveryReads {
   const doFetch: Fetch = deps.fetchImpl ?? ((url, init) => fetch(url, init));
   let tokenPromise: Promise<string | null> | null = null;
@@ -88,14 +98,17 @@ export function buildMxDenueLiveReads(deps: {
   };
 
   return {
-    async readEstablishments({ filter, estrato, limit }) {
+    readKnown: deps.readKnown ?? null,
+    async readEstablishments({ filter, estrato, limit, offset, timeoutMs }) {
       const key = await token();
       if (!key) return [];
+      const budget = Math.min(DENUE_REQUEST_TIMEOUT_MS, Math.max(0, timeoutMs ?? DENUE_REQUEST_TIMEOUT_MS));
+      if (budget <= 0) return [];
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), DENUE_REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), budget);
       try {
         const response = await doFetch(
-          buildDenueActivityUrl({ ...filter, estrato, limit, token: key }),
+          buildDenueActivityUrl({ ...filter, estrato, limit, offset, token: key }),
           { signal: controller.signal },
         );
         if (!response.ok) return [];

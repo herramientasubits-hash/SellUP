@@ -44,6 +44,7 @@ import { useWizardMessageSound } from './use-wizard-message-sound';
 // AGENT1-APOLLO-CONTINUATION-WIZARD-WIRING § 2 — la continuación, conectada.
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import type { WizardShortfallReason } from '@/modules/prospect-batches/chat-wizard-execution/wizard-shortfall-reasons';
 import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — superficie administrativa de proveedor por
 // corrida. La capacidad la resuelve el servidor; aquí sólo se guarda la elección
@@ -353,6 +354,10 @@ export function ProspectChatWizard({
   // UI no afirma ninguna causa concreta.
   const [noNewCandidatesBreakdown, setNoNewCandidatesBreakdown] =
     React.useState<NoNewCandidatesBreakdown | null>(null);
+
+  // AGENT1-CRITERIA-QUICK-WINS-1 § 2 — por qué la corrida no llegó a la meta.
+  const [shortfallReasons, setShortfallReasons] =
+    React.useState<WizardShortfallReason[] | null>(null);
 
   // ── PERSISTENCE-READINESS-4 § 8 · resultado REAL de la escritura ────────────
   // Gana sobre historial y calidad al resolver el copy: un fallo de
@@ -772,6 +777,7 @@ export function ProspectChatWizard({
       if (result.ok && result.noNewCandidatesBreakdown) {
         setNoNewCandidatesBreakdown(result.noNewCandidatesBreakdown);
       }
+      setShortfallReasons(result.ok ? (result.shortfallReasons ?? null) : null);
       if (result.ok && result.persistenceOutcome) {
         setPersistenceOutcome(result.persistenceOutcome);
       }
@@ -1034,6 +1040,7 @@ export function ProspectChatWizard({
                   onRequestedProviderChange={setRequestedProvider}
                   twoRoundOutcome={twoRoundOutcome}
                   noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+                  shortfallReasons={shortfallReasons}
                   persistenceOutcome={persistenceOutcome}
                 />
               ) : WIZARD_QUESTION_STEPS.has(state.currentStep) ? null : (

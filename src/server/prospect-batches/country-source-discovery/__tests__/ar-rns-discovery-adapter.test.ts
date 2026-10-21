@@ -456,9 +456,16 @@ describe('lectura de producción (buildArRnsDiscoveryReads)', () => {
       snapshotCalls.filter((c) => c.method === 'limit').map((c) => c.args),
       [[150], [150]],
     );
-    // Lo «ya visto» se pregunta a candidatas y descartadas, sólo lectura.
+    // Lo «ya visto» se pregunta a candidatas y descartadas, sólo lectura. Antes,
+    // AUDIT-A1-WS7: la ventana fresca pregunta por fuente qué ya conoce SellUp
+    // (este doble no tiene `.not`, así que falla y la página cuenta entera).
     const tables = calls.filter((c) => c.method === 'from').map((c) => c.args[0]);
-    assert.deepEqual(tables.slice(2), ['prospect_candidates', 'prospect_discarded_dispositions']);
+    assert.deepEqual(tables.slice(2), [
+      'prospect_candidates',
+      'prospect_candidates',
+      'prospect_candidates',
+      'prospect_discarded_dispositions',
+    ]);
   });
 
   it('con límite 0 no consulta; un error o una excepción devuelven vacío', async () => {

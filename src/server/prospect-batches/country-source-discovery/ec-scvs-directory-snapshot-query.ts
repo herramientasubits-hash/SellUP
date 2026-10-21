@@ -12,6 +12,11 @@
  * Además marca, por RUC, lo que SellUp ya vio (candidatas y descartes) para que
  * el adapter no lo vuelva a proponer (`country-source-prior-sightings.ts`).
  *
+ * AUDIT-A1-WS7 — y lee por páginas (mismo orden) saltando en la LECTURA lo que
+ * SellUp ya conoce por RUC o web (`country-source-fresh-window.ts`): la ventana ×3
+ * fija se agotaba tras pocas corridas. Sólo cambia QUÉ filas del snapshot se leen;
+ * no toca el conector EC-SCVS ni su piloto en vivo.
+ *
  * Nunca inserta, actualiza ni borra. Cualquier error degrada a vacío (fail-soft).
  *
  * Este módulo NO construye el cliente: recibe uno de `service_role` creado por la
@@ -24,6 +29,11 @@ import type {
   EcScvsDirectorySnapshotReadRow,
 } from './ec-scvs-directory-discovery-adapter';
 import { readCountrySourcePriorSightings } from './country-source-prior-sightings';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 import { classifyEcPublicEntity } from '@/server/source-catalog/connectors/ec-scvs/ec-public-entity-classifier';
 
 type SnapshotSelectRow = {
@@ -103,12 +113,22 @@ async function readPublicEntitiesByMacro(
     all.push(...(data as unknown as SnapshotSelectRow[]));
     if (data.length < PUBLIC_ENTITY_PAGE) break;
   }
-  const classified = all
+  type ClassifiedEntityRow = { row: SnapshotSelectRow; entity: ReturnType<typeof classifyEcPublicEntity> };
+  const sorted: ClassifiedEntityRow[] = all
     .map((row) => ({ row, entity: classifyEcPublicEntity(row.legal_name) }))
     .filter((item) => item.entity?.macroIndustryKey === macroIndustryKey)
     // Primero lo más grande (nacional); en el empate, por RUC: dos corridas leen lo mismo.
-    .sort((a, b) => (b.entity?.priority ?? 0) - (a.entity?.priority ?? 0))
-    .slice(0, Math.min(limit * EC_DISCOVERY_READ_OVERSAMPLE, EC_DISCOVERY_READ_CAP));
+    .sort((a, b) => (b.entity?.priority ?? 0) - (a.entity?.priority ?? 0));
+  // AUDIT-A1-WS7 — la ventana fresca sobre la lista ya ordenada (en memoria): se
+  // saltan las que SellUp ya conoce en vez de cortar siempre las mismas primeras.
+  const classified = await readFreshSnapshotWindow<ClassifiedEntityRow>({
+    size: Math.min(limit * EC_DISCOVERY_READ_OVERSAMPLE, EC_DISCOVERY_READ_CAP),
+    countryCode: 'EC',
+    readKnown: buildReadKnownSnapshotIdentities(client),
+    taxIdOf: (item) => item.row.normalized_tax_id,
+    domainOf: (item) => snapshotWebsiteDomain(item.row.raw_data),
+    readRange: async (from, to) => sorted.slice(from, to + 1),
+  });
   return classified.map(({ row, entity }) => ({
     ...toRow(row),
     // El catastro del SRI no trae empleados ni macro de la tabla de la Superintendencia.
@@ -142,18 +162,32 @@ export function buildEcScvsDirectoryDiscoveryReads(client: SupabaseClient): EcSc
     },
     async readCompaniesByMacro({ macroIndustryKey, limit }) {
       if (limit <= 0) return [];
-      try {
-        const { data, error } = await client
+      const readLimit = Math.min(limit * EC_DISCOVERY_READ_OVERSAMPLE, EC_DISCOVERY_READ_CAP);
+      // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+      const buildQuery = () =>
+        client
           .from('source_company_snapshots')
           .select(SELECTED_COLUMNS)
           .eq('source_key', 'ec_scvs_directory')
           .eq('country_code', 'EC')
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .limit(Math.min(limit * EC_DISCOVERY_READ_OVERSAMPLE, EC_DISCOVERY_READ_CAP));
-        if (error || !Array.isArray(data)) return [];
-        const rows = (data as unknown as SnapshotSelectRow[]).map(toRow);
+          .order('normalized_tax_id', { ascending: true });
+      try {
+        const page = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: readLimit,
+          countryCode: 'EC',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+          readRange: async (from, to) => {
+            const query = buildQuery();
+            const { data, error } = await (from === 0 ? query.limit(readLimit) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('ec_scvs_directory_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        const rows = page.map(toRow);
         const rucs = [...new Set(rows.map((row) => row.ruc).filter((ruc): ruc is string => Boolean(ruc)))];
         const sightings = rucs.length > 0 ? await readCountrySourcePriorSightings(client, rucs) : new Map();
         return rows.map((row) => ({ ...row, prior_sighting: (row.ruc && sightings.get(row.ruc)) || null }));

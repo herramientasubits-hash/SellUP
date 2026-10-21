@@ -3,6 +3,7 @@ import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+import type { WizardShortfallReason } from './wizard-shortfall-reasons';
 import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import type {
   ProviderResolutionReason,
@@ -400,6 +401,11 @@ export type WizardExecutionActionResult =
        * genérica entre las dos posibles.
        */
       noNewCandidatesBreakdown?: NoNewCandidatesBreakdown;
+      /**
+       * AGENT1-CRITERIA-QUICK-WINS-1 § 2 — por qué la corrida NO llegó a la meta
+       * (sin tiempo, una capa que falló…). Ausente con la meta cumplida.
+       */
+      shortfallReasons?: WizardShortfallReason[];
       /**
        * A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — cifras REALES de la
        * persistencia.

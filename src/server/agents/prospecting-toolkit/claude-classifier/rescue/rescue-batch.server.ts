@@ -31,7 +31,13 @@ import {
   resolveActiveAnthropicModel,
 } from '../classify-batch-candidates.server';
 import { CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
-import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-search';
+import {
+  CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
+  CLAUDE_DOMAIN_SEARCH_OPERATION_KEY,
+  DOMAIN_SEARCH_REASON_CODE,
+  type DomainDuplicateCheck,
+  type PriorDomainSearchRow,
+} from './domain-search';
 import { findKnownCompanyMatch, type KnownCompanyRow } from './known-company-guard';
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
@@ -187,7 +193,57 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
     ),
   checkDuplicate: checkDuplicateStrict,
   findKnownCompany,
+  findPriorSearches: (input) => findPriorDomainSearches(createSupabaseAdminClient(), input),
 };
+
+/** Filas de la misma empresa que se miran como mucho por cada criterio. */
+const PRIOR_SEARCH_MAX_ROWS = 5;
+
+/**
+ * 21-10 — otras filas de Descartadas de la MISMA empresa con búsqueda del sitio ya
+ * hecha (cualquier lote y estado): por número fiscal y por nombre normalizado + país.
+ * Sólo lectura, dos consultas acotadas; la elección la hace `reusablePriorDomainSearch`.
+ */
+export async function findPriorDomainSearches(
+  client: Pick<ReturnType<typeof createSupabaseAdminClient>, 'from'>,
+  input: { dispositionId: string; taxId: string | null; name: string; countryCode: string | null },
+): Promise<PriorDomainSearchRow[]> {
+  const base = () =>
+    client
+      .from('prospect_discarded_dispositions')
+      .select('id, evidence')
+      .eq('reason_code', DOMAIN_SEARCH_REASON_CODE)
+      .neq('id', input.dispositionId)
+      .not(`evidence->${CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY}`, 'is', null);
+  const queries = [
+    ...(input.taxId ? [base().eq('provider_identifier', `tax:${input.taxId}`)] : []),
+    ...(input.name && input.countryCode ? [base().eq('name', input.name).eq('country_code', input.countryCode)] : []),
+  ].map((q) => q.order('updated_at', { ascending: false }).limit(PRIOR_SEARCH_MAX_ROWS));
+  const results = await Promise.all(queries);
+  const rows = new Map<string, PriorDomainSearchRow>();
+  for (const { data, error } of results) {
+    if (error) throw new Error(`prior_domain_search_read_failed:${error.message}`);
+    for (const row of (data ?? []) as PriorDomainSearchRow[]) rows.set(row.id, row);
+  }
+  return [...rows.values()];
+}
+
+/**
+ * 21-10 — búsquedas del sitio ya PAGADAS en un lote (filas de uso de
+ * `company_domain_search`). Sólo lectura; `null` si no se puede leer.
+ */
+export async function readBatchDomainSearchCount(
+  client: Pick<ReturnType<typeof createSupabaseAdminClient>, 'from'>,
+  batchId: string,
+): Promise<number | null> {
+  const { count, error } = await client
+    .from('provider_usage_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('batch_id', batchId)
+    .eq('provider_key', CLAUDE_CLASSIFIER_PROVIDER_KEY)
+    .eq('operation_key', CLAUDE_DOMAIN_SEARCH_OPERATION_KEY);
+  return error || typeof count !== 'number' ? null : count;
+}
 
 /**
  * AGENT1-RESCUE-KNOWN-COMPANY-GUARD-1 — candidatas del mismo lote (cualquier estado)
@@ -271,6 +327,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
     loadBatchRescueSpentUsd: (batchId) => readBatchRescueSpentUsd(createSupabaseAdminClient(), batchId),
+    loadBatchDomainSearchCount: (batchId) => readBatchDomainSearchCount(createSupabaseAdminClient(), batchId),
     // El rescate también corre SIN sesión (vueltas en cadena desde la ruta del cron):
     // el catálogo se lee con el cliente de servicio, sólo lectura.
     loadCatalog: () => loadClassifierCatalog(createSupabaseAdminClient()),
