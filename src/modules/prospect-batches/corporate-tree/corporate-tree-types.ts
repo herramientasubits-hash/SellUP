@@ -78,6 +78,8 @@ export type CorporateTreeRunPayload = {
   branches: CorporateTreeBranch[];
   /** Países donde se buscan las ramas. */
   countryCodes: string[];
+  /** `true` = no reutilizar el árbol guardado del grupo: buscar (y pagar) de nuevo. */
+  refresh?: boolean;
 };
 
 /** `metadata.corporate_tree` de cada candidato que entró por el árbol. */
@@ -93,6 +95,8 @@ export type CorporateTreeCandidateMetadata = {
   website_unverified?: boolean;
   /** La web la encontró Apollo buscando por el nombre. */
   found_in_apollo?: boolean;
+  /** FASE D: el grupo ya es cliente de UBITS o lo trabaja alguien (oportunidad tibia). */
+  group_opportunity?: 'customer_group' | 'worked_group';
 };
 
 export function isCorporateTreeBranch(value: unknown): value is CorporateTreeBranch {
