@@ -67,6 +67,30 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   contactBankSatisfied?: boolean;
   /** AGENT2-COMPANY-SITE-PEOPLE-1 — personas del sitio web de la empresa (sin correo). */
   companySiteCandidates?: number;
+  /**
+   * AGENT2-AUDIT-FIXES-1 — por qué la búsqueda dejó lo que dejó. El chat lo usa para explicar un
+   * cero con el siguiente paso en vez de un «No se encontraron contactos» a secas.
+   */
+  diagnosis?: AutomaticRoutingDiagnosis;
+}
+
+export interface AutomaticRoutingDiagnosis {
+  /** Apollo no se llamó: faltaban dominio y nombre. */
+  apolloSkipped: boolean;
+  /** 'found_by_domain' | 'found_by_name' | 'not_found' | 'error' | null (no se sabe). */
+  apolloOrganization: string | null;
+  /** Personas que devolvió la búsqueda de Apollo; null si Apollo no corrió. */
+  apolloPeopleFound: number | null;
+  /** De esas, descartadas por cargo o datos incompletos. */
+  apolloRejected: number | null;
+  /** Ya conocidas (contactos existentes o identidades ya vistas): no se pagaron de nuevo. */
+  apolloAlreadyKnown: number;
+  /** Estado de cada etapa gratuita (ver FreeStageStatusesV1). */
+  freeStages: { hubspotFirst: string; contactBank: string; companySite: string };
+  /** Lusha se omitió porque ya dio cero aquí en esta fecha (ISO). */
+  lushaRecentZeroAt: string | null;
+  /** Lusha corrió en esta búsqueda. */
+  lushaRan: boolean;
 }
 
 export interface AutomaticRoutingCandidatesCreated {
@@ -99,6 +123,29 @@ function deriveFailedProviders(
     failed.push('Lusha');
   }
   return failed;
+}
+
+function buildDiagnosis(
+  result: Awaited<ReturnType<typeof runAutomaticContactEnrichmentFallbackForRequest>>,
+): AutomaticRoutingDiagnosis {
+  const apolloSkipped = result.outcome === 'attempt1_provider_not_called';
+  const apollo = !apolloSkipped ? result.attempt1?.result ?? null : null;
+  return {
+    apolloSkipped,
+    apolloOrganization: apollo?.organizationResolutionStatus ?? null,
+    apolloPeopleFound: apollo ? apollo.rawResultsCount : null,
+    apolloRejected: apollo ? apollo.rejectedByRelevance : null,
+    apolloAlreadyKnown: apollo
+      ? (apollo.skippedKnownProviderIdentity ?? 0) + apollo.exactDuplicates + apollo.existingPendingDuplicatesSkipped
+      : 0,
+    freeStages: {
+      hubspotFirst: result.freeStages?.hubspot_first ?? 'not_reached',
+      contactBank: result.freeStages?.contact_bank ?? 'not_reached',
+      companySite: result.freeStages?.company_site ?? 'not_reached',
+    },
+    lushaRecentZeroAt: result.recentFallbackZero?.lastZeroAt ?? null,
+    lushaRan: !!result.attempt2?.result,
+  };
 }
 
 function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult {
@@ -168,5 +215,6 @@ export async function runAutomaticContactEnrichmentForRequestCore(
     contactBankCandidates: result.contactBank?.inserted ?? 0,
     contactBankSatisfied: result.contactBank?.satisfied ?? false,
     companySiteCandidates: result.companySite?.inserted ?? 0,
+    diagnosis: buildDiagnosis(result),
   };
 }

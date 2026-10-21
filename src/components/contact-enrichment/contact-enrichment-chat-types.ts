@@ -62,6 +62,19 @@ export interface AutomaticRoutingUiResult {
   contactBankSatisfied?: boolean;
   /** Personas que nombra el sitio web de la empresa, sin correo. */
   companySiteCandidates?: number;
+  /** Por qué la búsqueda dejó lo que dejó (explica un cero). */
+  diagnosis?: AutomaticRoutingUiDiagnosis;
+}
+
+export interface AutomaticRoutingUiDiagnosis {
+  apolloSkipped: boolean;
+  apolloOrganization: string | null;
+  apolloPeopleFound: number | null;
+  apolloRejected: number | null;
+  apolloAlreadyKnown: number;
+  freeStages: { hubspotFirst: string; contactBank: string; companySite: string };
+  lushaRecentZeroAt: string | null;
+  lushaRan: boolean;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────
