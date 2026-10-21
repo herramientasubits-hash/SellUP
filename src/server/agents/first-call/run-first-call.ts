@@ -30,6 +30,7 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
 import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach, type FirstContactApproach } from './approaches';
+import { pickProvenApproach, provenApproachNote, type ApproachResultRow, type ProvenApproach } from './approach-results';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight, LocalPackVersion } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
@@ -130,6 +131,8 @@ export interface FirstCallContext {
   currentBrief: ResearchBrief | null;
   /** ¿Hay otra investigación de esta empresa corriendo ahora? */
   researchRunning: boolean;
+  /** Las preparaciones usadas con resultado (de todo el equipo): de aquí aprende el redactor. */
+  approachResults?: readonly ApproachResultRow[];
 }
 
 export interface UsageLogInput {
@@ -628,6 +631,8 @@ interface WrittenForTarget {
   fallback?: boolean;
   /** Versiones alternativas quitadas porque, ya corregidas, seguían inventando clientes. */
   droppedVariants?: FirstContactApproach[];
+  /** El enfoque que se recomendó por los resultados del equipo (en vez del manual). */
+  proven?: ProvenApproach | null;
 }
 
 function verifyAll(
@@ -711,12 +716,29 @@ async function writeForTarget(params: {
   const nowMs = deps.now();
   // Un nombramiento reciente del decisor también es un evento para abrir.
   const recentSignal = hasRecentSignal(facts, nowMs);
-  const recommendedApproach = recommendApproach({
+  const manualApproach = recommendApproach({
     title: target?.title ?? null,
     hasRecentSignal: recentSignal,
     hasDecisionMaker: target !== null,
     countryCode: internal.account.countryCode,
   });
+  // Lo que funcionó (auditoría 21-10): sólo si el vendedor deja elegir, hay decisor, es un
+  // canal y no es Perú (allí la regla del manual manda). Si no hay datos, queda el manual.
+  const proven =
+    request.approaches.length === 0 && target !== null && channels.length === 1 && internal.account.countryCode?.toUpperCase() !== 'PE'
+      ? pickProvenApproach({
+          rows: context.approachResults ?? [],
+          countryCode: internal.account.countryCode,
+          channel: channels[0],
+          candidates: allApplicableApproaches(manualApproach, {
+            hasRecentSignal: recentSignal,
+            hasReferral: !!request.referralNote,
+            countryCode: internal.account.countryCode,
+          }),
+          manual: manualApproach,
+        })
+      : null;
+  const recommendedApproach = proven?.approach ?? manualApproach;
   // SoftExpert (Prod 20-10): el vendedor pidió sólo «Por un evento reciente» y la noticia más
   // nueva tenía 10 meses; las 4 preparaciones quedaron para revisar. Sin una noticia de los
   // últimos 90 días ese enfoque se cambia por el recomendado, y la preparación lo dice.
@@ -769,6 +791,7 @@ async function writeForTarget(params: {
           hubspotWarning: hubspotWarning(internal.hubspot),
           regenerationReason: request.regenerationReason,
           contactInsight: params.contactInsight ?? null,
+          provenApproachNote: proven ? provenApproachNote(proven, channels[0], internal.account.country) : null,
         }),
       },
     ],
@@ -790,11 +813,11 @@ async function writeForTarget(params: {
     stopReasons.push(first.stopReason ?? 'unknown');
     const raw = extractWriterSubmission(first.content);
     shape = describeSubmissionShape(raw);
-    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview() };
+    if (!raw) return { submission: null, facts, issuesByChannel: {}, usage, errorCode: 'no_submission', shape, stopReasons, rawPreview: preview(), proven };
     submission = withApproachNote(parseWriterSubmission(raw, channels), approachNote);
     issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     const issues = combinedIssues(issuesByChannel, channels);
-    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
+    if (issues.length === 0) return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview(), proven };
 
     const second = await deps.runConversation(
       {
@@ -830,14 +853,14 @@ async function writeForTarget(params: {
     if (retried || cleaned.dropped.length > 0) {
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview(), droppedVariants: cleaned.dropped };
+    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview(), droppedVariants: cleaned.dropped, proven };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
     usage = sumUsage(usage, apiError?.partialUsage ?? EMPTY_USAGE);
     // Si falló la CORRECCIÓN, el primer borrador sigue sirviendo: queda para revisar.
-    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons, rawPreview: preview() };
-    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons, rawPreview: preview() };
+    if (submission) return { submission, facts, issuesByChannel, usage, errorCode, shape, stopReasons, rawPreview: preview(), proven };
+    return { submission: null, facts, issuesByChannel: {}, usage, errorCode, shape, stopReasons, rawPreview: preview(), proven };
   }
 }
 
@@ -1255,6 +1278,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         writer_calls: request.channels.length,
         // Canales que salieron del intento simple (sólo la versión principal).
         fallback_channels: request.channels.filter((c) => byChannel[c]?.fallback),
+        // El enfoque que se recomendó por los resultados del equipo (si cambió el del manual).
+        proven_approach: Object.fromEntries(
+          request.channels.filter((c) => byChannel[c]?.proven).map((c) => [c, byChannel[c]!.proven]),
+        ),
         // Versiones alternativas quitadas por afirmar clientes de UBITS tras corregir.
         dropped_variants: Object.fromEntries(
           request.channels.filter((c) => (byChannel[c]?.droppedVariants?.length ?? 0) > 0).map((c) => [c, byChannel[c]!.droppedVariants]),

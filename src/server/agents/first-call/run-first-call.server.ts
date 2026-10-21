@@ -25,6 +25,7 @@ import type { PipelineStatus } from '@/modules/accounts/types';
 import { nextAgent3Status, type Agent3StatusTarget } from './account-status';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
+import { readApproachResults } from './approach-results.server';
 import { cachedContactResearch } from './contact-research';
 import { curatedListLabels, mapBriefRow, mapPackRow, readPriorClassification } from './row-mappers';
 import type { BriefPatch, FirstCallContext, PackInsert, RunFirstCallDeps, UsageLogInput } from './run-first-call';
@@ -304,7 +305,7 @@ export async function loadFirstCallContext(
       : {};
 
   const admin = createSupabaseAdminClient();
-  const [classification, curatedLists, relations, hubspot, decisionMakers, seller, briefState] = await Promise.all([
+  const [classification, curatedLists, relations, hubspot, decisionMakers, seller, briefState, approachResults] = await Promise.all([
     readOriginClassification(account.id, metadata).catch((err: unknown) => {
       console.warn('[agent3] origin classification read failed:', err instanceof Error ? err.message : err);
       return null;
@@ -315,6 +316,11 @@ export async function loadFirstCallContext(
     readDecisionMakers(account.id, request.contactIds),
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
+    // Lo que funcionó en el equipo (sólo cuentas): sin eso, el redactor usa lo del manual.
+    readApproachResults({ onlyWithOutcome: true }).catch((err: unknown) => {
+      console.warn('[agent3] approach results read failed:', err instanceof Error ? err.message : err);
+      return [];
+    }),
   ]);
 
   const internal: InternalContext = {
@@ -346,6 +352,7 @@ export async function loadFirstCallContext(
     sellerName: fullName ? fullName.split(/\s+/)[0] : null,
     currentBrief: briefState.currentBrief,
     researchRunning: briefState.researchRunning,
+    approachResults,
   };
 }
 

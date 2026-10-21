@@ -1082,3 +1082,47 @@ describe('runFirstCall — una versión que sigue inventando clientes se quita (
     assert.deepEqual(log.metadata.dropped_variants, { call: ['permission'] });
   });
 });
+
+describe('runFirstCall — el redactor usa lo que funcionó (auditoría 21-10)', () => {
+  const won = (approach: 'permission' | 'problem', result: 'meeting_booked' | 'no_answer') => ({
+    channel: 'call' as const,
+    countryCode: 'CO',
+    mainApproach: 'problem' as const,
+    status: 'used',
+    usedApproach: approach,
+    outcome: result,
+  });
+  const RESULTS = [...Array(5).fill(won('permission', 'meeting_booked')), ...Array(6).fill(won('problem', 'no_answer'))];
+  const writerMessage = (calls: Harness['calls']) =>
+    calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL)).at(-1)!.messages[0].content as string;
+
+  it('si el vendedor deja elegir, recomienda el enfoque que más abrió conversación y lo deja en el registro', async () => {
+    const { deps, calls } = harness({ context: { approachResults: RESULTS } });
+    await runFirstCall(REQUEST, deps);
+    assert.match(writerMessage(calls), /Recomendado por los resultados del equipo: permission/);
+    assert.match(writerMessage(calls), /Enfoques pedidos \(el primero es el principal\): permission/, 'y va primero en «Todos»');
+    assert.match(writerMessage(calls), /en 5 de 5 contactos/);
+    const log = calls.logs.find((l) => l.agentStep === 'redactar_llamada')!;
+    assert.deepEqual(log.metadata.proven_approach, { call: { approach: 'permission', uses: 5, positives: 5, scope: 'country' } });
+  });
+
+  it('si el vendedor eligió el enfoque, o no hay datos, manda lo pedido o el manual', async () => {
+    const chosen = harness({ context: { approachResults: RESULTS } });
+    await runFirstCall({ ...REQUEST, approaches: ['insight'] }, chosen.deps);
+    assert.doesNotMatch(writerMessage(chosen.calls), /resultados del equipo/);
+    const none = harness();
+    await runFirstCall(REQUEST, none.deps);
+    assert.doesNotMatch(writerMessage(none.calls), /resultados del equipo/);
+  });
+
+  it('en Perú manda la regla del manual aunque haya datos', async () => {
+    const peru = harness({
+      context: {
+        approachResults: RESULTS.map((r) => ({ ...r, countryCode: 'PE' })),
+        internal: { ...INTERNAL, account: { ...INTERNAL.account, country: 'Perú', countryCode: 'PE' } },
+      },
+    });
+    await runFirstCall(REQUEST, peru.deps);
+    assert.doesNotMatch(writerMessage(peru.calls), /resultados del equipo/);
+  });
+});
