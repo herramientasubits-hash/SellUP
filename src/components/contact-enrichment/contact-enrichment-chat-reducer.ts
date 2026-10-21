@@ -316,6 +316,25 @@ export function explainZeroResult(d: AutomaticRoutingUiDiagnosis | undefined): s
   return `\n\n${why.join(' ')}${next ? `\n\n${next}` : ''}`;
 }
 
+/**
+ * AGENT2-HUBSPOT-FIRST-WHY-ZERO-1 — por qué no se usó ningún contacto de HubSpot cuando la
+ * empresa sí tiene contactos ahí (Grupo LALA 21-10: ~100 en HubSpot, 0 usados). '' si no aplica.
+ */
+export function explainHubSpotFirstZero(d: AutomaticRoutingUiDiagnosis | undefined): string {
+  const hs = d?.hubspotFirst;
+  if (!hs || hs.hubspotContacts === 0) return '';
+  const parts: string[] = [];
+  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  if (hs.otherSeller > 0) parts.push(`${hs.otherSeller} ${plural(hs.otherSeller, 'es', 'son')} de otro vendedor`);
+  if (hs.notRelevant > 0)
+    parts.push(`${hs.notRelevant} no ${plural(hs.notRelevant, 'es', 'son')} de RR. HH., formación o dirección`);
+  if (hs.knownInSellUp > 0) parts.push(`${hs.knownInSellUp} ya ${plural(hs.knownInSellUp, 'está', 'están')} en SellUp`);
+  if (hs.noName > 0) parts.push(`${hs.noName} no ${plural(hs.noName, 'tiene', 'tienen')} nombre`);
+  const total = hs.hubspotContacts === 1 ? '1 contacto' : `${hs.hubspotContacts} contactos`;
+  const detail = parts.length > 0 ? `: ${parts.slice(0, -1).join(', ')}${parts.length > 1 ? ' y ' : ''}${parts.at(-1)}` : '';
+  return `\n\nHubSpot tiene ${total} de esta empresa y no usé ninguno${detail}.`;
+}
+
 export function buildAutomaticRoutingMessage(
   result: AutomaticRoutingUiResult,
 ): { content: string; tone?: AgentChatTone } {
@@ -356,9 +375,11 @@ export function buildAutomaticRoutingMessage(
     };
   }
 
+  const hubspotNote = explainHubSpotFirstZero(result.diagnosis);
+
   if (created > 0) {
     return {
-      content: `Encontré ${contactsLabel(created)} para revisar. ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+      content: `Encontré ${contactsLabel(created)} para revisar. ${AUTOMATIC_APPROVAL_NOTE}${failed}${hubspotNote}`,
     };
   }
 
@@ -369,7 +390,7 @@ export function buildAutomaticRoutingMessage(
   }
 
   return {
-    content: `No se encontraron contactos.${failed}${explainZeroResult(result.diagnosis)}`,
+    content: `No se encontraron contactos.${failed}${hubspotNote}${explainZeroResult(result.diagnosis)}`,
     tone: 'warning',
   };
 }
