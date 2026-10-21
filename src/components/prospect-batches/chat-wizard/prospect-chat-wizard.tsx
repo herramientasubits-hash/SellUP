@@ -675,10 +675,12 @@ export function ProspectChatWizard({
     // Bancolombia aunque compartan país e industria). Igual en «Competidores».
     const supplierReference =
       state.searchMode === 'suppliers' ? (state.referenceCompanyName ?? '').trim() : '';
+    // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores» sin referencia.
+    const supplierFrequent = state.searchMode === 'suppliers' && state.supplierScope === 'frequent_public';
     const searchModePayload = buildSearchModePayload(state);
     const competitorReference = 'referenceCompany' in searchModePayload ? searchModePayload.referenceCompany : null;
     const runTitle = [
-      supplierReference ? `Proveedores de ${supplierReference}` : '',
+      supplierFrequent ? 'Proveedores frecuentes del Estado' : supplierReference ? `Proveedores de ${supplierReference}` : '',
       competitorReference ? `Competidores de ${competitorReference.name}` : '',
       countryName,
       competitorReference ? '' : industryName,
@@ -691,7 +693,9 @@ export function ProspectChatWizard({
             title: runTitle,
             // Mismo país × industria = mismas empresas: nunca corren juntas. Proveedores y
             // competidores de una empresa son otra búsqueda: su clave es la referencia.
-            concurrencyKey: supplierReference
+            concurrencyKey: supplierFrequent
+              ? `suppliers:frequent_public:${state.countryCode ?? ''}:${state.industryId ?? ''}`
+              : supplierReference
               ? `suppliers:${supplierReference.toLowerCase()}:${state.countryCode ?? ''}:${state.industryId ?? ''}`
               : competitorReference
               ? `competitors:${competitorReference.domain ?? competitorReference.name}:${state.countryCode ?? ''}`
@@ -739,9 +743,11 @@ export function ProspectChatWizard({
         clientRequestId: clientRequestIdRef.current,
         // AGENT1-SUPPLIER-SEARCH-1 — sólo en «Proveedores»: una búsqueda por criterios
         // produce exactamente la misma solicitud que antes.
-        ...(supplierReference
-          ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
-          : {}),
+        ...(supplierFrequent
+          ? { searchMode: 'suppliers' as const, supplierScope: 'frequent_public' as const }
+          : supplierReference
+            ? { searchMode: 'suppliers' as const, referenceCompanyName: supplierReference }
+            : {}),
         // «Competidores de una empresa»: modo + ficha. Vacío en las demás búsquedas.
         ...searchModePayload,
         // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
@@ -820,7 +826,7 @@ export function ProspectChatWizard({
         // texto (cuota de Claude agotada, modelo sin configurar…): se muestra tal cual.
         // Su lote fallido ya quedó sellado; el reintento es una corrida nueva (el id
         // ya se rotó arriba, para todos los modos).
-        const mapped = supplierReference && result.code === 'GENERATION_FAILED'
+        const mapped = (supplierReference || supplierFrequent) && result.code === 'GENERATION_FAILED'
           ? { message: result.message, retryable: result.retryable }
           : result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)

@@ -421,7 +421,7 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // teléfono, ni del catálogo, ni de BR, ni de CUT3B4, y no tocan el registro de identidad del lote
 // ni la valla; su autoría se policía por CONTENIDO en las pruebas dedicadas de abajo. AUTORADAS y
 // NO APLICADAS.
-const REPOSITORY_CEILING = '154_suggest_public_procurement_buyers.sql';
+const REPOSITORY_CEILING = '154_public_procurement_read_functions.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';

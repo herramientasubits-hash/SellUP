@@ -1,3 +1,4 @@
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { REFERENCE_COMPANY_LIMITS, resolveSearchModeDefinitions } from './wizard-config';
@@ -148,6 +149,10 @@ export function canAdvanceFromCurrentStep(state: ProspectWizardState): boolean {
 
 /** AGENT1-SUPPLIER-SEARCH-1 — ¿hay una empresa de referencia utilizable? */
 export function hasValidReferenceCompany(state: ProspectWizardState): boolean {
+  // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia: vale si el país (cuando ya está) tiene compras cargadas.
+  if (state.supplierScope === 'frequent_public') {
+    return state.countryCode === null || FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(state.countryCode);
+  }
   const length = (state.referenceCompanyName ?? '').trim().length;
   return length >= REFERENCE_COMPANY_LIMITS.minChars && length <= REFERENCE_COMPANY_LIMITS.maxChars;
 }

@@ -116,6 +116,11 @@ export type ProspectWizardState = {
    */
   referenceCompanyName?: string | null;
   /**
+   * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores» SIN empresa de referencia: empresas
+   * que le venden a varias entidades públicas del país. `null`/ausente = con referencia.
+   */
+  supplierScope?: 'frequent_public' | null;
+  /**
    * «Competidores de una empresa»: la ficha de la referencia. Se fija al
    * encontrarla y queda confirmada al pasar de `reference_confirm`. Ausente o
    * null en las demás búsquedas (y en estados guardados antes del modo).
@@ -225,6 +230,7 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
+  | { type: 'SET_SUPPLIER_FREQUENT_PUBLIC' }
   | {
       type: 'SET_REFERENCE_COMPANY';
       value: string;

@@ -358,7 +358,7 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
       // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
       // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
-      '154_suggest_public_procurement_buyers.sql',
+      '154_public_procurement_read_functions.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

@@ -60,6 +60,10 @@ export type PublicBuyerSupplier = {
   evidenceUrl: string | null;
   /** Trabajadores según el registro oficial del país (Chile: SII), si se conocen. */
   officialWorkers?: { workers: number; year: number | null; sourceLabel: string } | null;
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «frecuentes»: a cuántas entidades le vende. */
+  buyerCount?: number;
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «frecuentes»: sus entidades de más monto (hasta 3). */
+  topBuyerNames?: readonly string[];
 };
 
 export type PublicBuyerSuppliersResult =
@@ -96,6 +100,11 @@ export type PublicBuyerRelationship = {
   name: string;
   evidenceUrl: string | null;
   evidence: string;
+  /**
+   * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedor de …» propio de esta empresa (en
+   * «frecuentes», sus entidades: «IMSS, ISSSTE y 5 más»). Ausente = la referencia del lote.
+   */
+  referenceName?: string;
 };
 
 export type PublicBuyerStepSkipReason =
@@ -104,12 +113,16 @@ export type PublicBuyerStepSkipReason =
   | 'ambiguous_entity'
   | 'industry_without_unspsc'
   | 'source_unavailable'
+  // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — nadie le vende a varias entidades en esa industria.
+  | 'no_frequent_suppliers'
   | 'failed';
 
 export type PublicBuyerStepOutcome =
   | { executed: false; reason: PublicBuyerStepSkipReason | string }
   | {
       executed: true;
+      /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia: empresas que le venden a varias entidades. */
+      scope?: 'frequent_public';
       buyer: {
         taxId: string;
         name: string;
@@ -324,6 +337,41 @@ export async function runPublicBuyerSupplierStep(
   });
   if (!listed.ok) return { executed: false, reason: listed.reason };
 
+  const buyerName = input.referenceCompanyName.trim();
+  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
+  const offered = await offerPublicSuppliers(listed, input, deps, (s) => ({
+    evidence: describePublicBuyerSupplier(s, buyerName, sinceYear),
+  }));
+  return {
+    executed: true,
+    buyer: {
+      taxId: buyer.taxId,
+      name: buyer.normalizedLegalName,
+      matchedBy: picked.matchedBy,
+      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
+    },
+    ...offered,
+  };
+}
+
+/** Lo que el paso ofrece, escribe y deja como prueba (común a una entidad y a «frecuentes»). */
+type OfferedPublicSuppliers = Omit<Extract<PublicBuyerStepOutcome, { executed: true }>, 'executed' | 'buyer' | 'scope'>;
+
+/**
+ * Común a los dos pasos de compras públicas: fuera consorcios, otras entidades públicas,
+ * las chicas por tamaño oficial y los competidores de UBITS; las grandes primero; como
+ * mucho 12; con web al lote y sin web a Descartadas (para el rescate). `describe` arma la
+ * prueba de cada una (y, en «frecuentes», a quién le vende).
+ */
+async function offerPublicSuppliers(
+  listed: Extract<PublicBuyerSuppliersResult, { ok: true }>,
+  input: { batchId: string; countryCode: string },
+  deps: Pick<
+    PublicBuyerStepDeps,
+    'sourceKey' | 'taxIdentifierType' | 'listPublicOnlyTaxIds' | 'findDomainsByTaxId' | 'writeWithWebsite' | 'recordWithoutWebsite'
+  >,
+  describe: (supplier: PublicBuyerSupplier) => { evidence: string; referenceName?: string },
+): Promise<OfferedPublicSuppliers> {
   // Común a todos los países: fuera consorcios y uniones temporales.
   const consortia = listed.suppliers.filter((s) => isConsortiumSupplierName(s.name));
   const companies = listed.suppliers.filter((s) => !isConsortiumSupplierName(s.name));
@@ -368,16 +416,7 @@ export async function runPublicBuyerSupplierStep(
         })
       : 0;
 
-  const buyerName = input.referenceCompanyName.trim();
-  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
   return {
-    executed: true,
-    buyer: {
-      taxId: buyer.taxId,
-      name: buyer.normalizedLegalName,
-      matchedBy: picked.matchedBy,
-      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
-    },
     sourceKey: deps.sourceKey,
     tableVersion: listed.tableVersion,
     read: listed.read,
@@ -391,12 +430,16 @@ export async function runPublicBuyerSupplierStep(
     writeFailed: write.failed,
     recordedWithoutWebsite,
     ...(recordWithoutWebsiteFailed ? { recordWithoutWebsiteFailed: true } : {}),
-    relationships: offered.map((s) => ({
-      taxId: s.taxId,
-      name: s.name,
-      evidenceUrl: s.evidenceUrl,
-      evidence: describePublicBuyerSupplier(s, buyerName, sinceYear),
-    })),
+    relationships: offered.map((s) => {
+      const described = describe(s);
+      return {
+        taxId: s.taxId,
+        name: s.name,
+        evidenceUrl: s.evidenceUrl,
+        evidence: described.evidence,
+        ...(described.referenceName ? { referenceName: described.referenceName } : {}),
+      };
+    }),
   };
 }
 
@@ -453,7 +496,7 @@ export async function tagPublicBuyerSuppliers(
     if (existing && typeof existing === 'object' && existing.kind === 'supplier_of') continue;
     const ok = await deps.updateRelationship(candidate.id, {
       kind: 'supplier_of',
-      reference_company_name: input.referenceCompanyName.trim(),
+      reference_company_name: relationship.referenceName ?? input.referenceCompanyName.trim(),
       evidence_url: relationship.evidenceUrl,
       evidence: relationship.evidence,
       source: 'public_procurement',
@@ -461,4 +504,80 @@ export async function tagPublicBuyerSuppliers(
     if (ok) tagged += 1;
   }
   return tagged;
+}
+
+// ── «Proveedores frecuentes del Estado» (AGENT1-SUPPLIER-FREQUENT-PUBLIC-1) ──────────
+
+/** Entidades distintas a las que tiene que venderle una empresa para ser «frecuente». */
+export const FREQUENT_PUBLIC_MIN_BUYERS = 3;
+/** El nombre del lote y de su referencia: no hay una empresa, hay varias entidades. */
+export const FREQUENT_PUBLIC_REFERENCE_LABEL = 'el Estado';
+
+export type FrequentPublicStepInput = {
+  batchId: string;
+  countryCode: string;
+  /** Para la frase de la prueba («entidades públicas de México»). */
+  countryName: string;
+  macroIndustryKey: string;
+  nowIso: string;
+};
+
+export type FrequentPublicStepDeps = Pick<
+  PublicBuyerStepDeps,
+  'sourceKey' | 'taxIdentifierType' | 'listPublicOnlyTaxIds' | 'findDomainsByTaxId' | 'writeWithWebsite' | 'recordWithoutWebsite'
+> & {
+  /** Empresas que le venden a `minBuyers` o más entidades, en la industria pedida (más entidades primero). */
+  listFrequentSuppliers: (input: { macroIndustryKey: string; minBuyers: number }) => Promise<PublicBuyerSuppliersResult>;
+};
+
+/** «IMSS, ISSSTE y 5 más» — a quién le vende (para «Proveedor de …»). */
+export function describeFrequentBuyers(supplier: PublicBuyerSupplier, countryName: string): string {
+  const names = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const count = supplier.buyerCount ?? names.length;
+  if (names.length === 0) return `${count} entidades públicas de ${countryName}`;
+  const more = count - names.length;
+  if (more <= 0) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+  return `${names.join(', ')} y ${more} más`;
+}
+
+/** La frase que el vendedor ve en «Por qué fue encontrado». */
+export function describeFrequentPublicSupplier(supplier: PublicBuyerSupplier, countryName: string, sinceYear: string): string {
+  const entities = `${supplier.buyerCount ?? 0} entidades públicas de ${countryName}`;
+  const contracts = supplier.contractCount === 1 ? '1 contrato' : `${supplier.contractCount} contratos`;
+  const amount =
+    supplier.totalAmount >= 1_000_000
+      ? `$${MILLIONS.format(Math.round(supplier.totalAmount / 1_000_000))} millones`
+      : `$${MILLIONS.format(Math.round(supplier.totalAmount))}`;
+  const rubro = supplier.rubro ? ` (${supplier.rubro.toLowerCase()})` : '';
+  const top = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const among = top.length > 0 ? `, entre ellas ${top.join(', ')}` : '';
+  return `Le vende a ${entities}${among}: ${contracts}${rubro} en compras públicas desde ${sinceYear} por ${amount}.`;
+}
+
+/**
+ * Sin empresa de referencia: empresas que le venden a VARIAS entidades públicas del país
+ * en la industria pedida. Son empresas medianas o grandes, con contratos como prueba, y
+ * gratis. Mismo camino que el paso de una entidad (filtros, 12 como mucho, web, rescate).
+ */
+export async function runFrequentPublicSupplierStep(
+  input: FrequentPublicStepInput,
+  deps: FrequentPublicStepDeps,
+): Promise<PublicBuyerStepOutcome> {
+  const listed = await deps.listFrequentSuppliers({
+    macroIndustryKey: input.macroIndustryKey,
+    minBuyers: FREQUENT_PUBLIC_MIN_BUYERS,
+  });
+  if (!listed.ok) return { executed: false, reason: listed.reason };
+  if (listed.suppliers.length === 0) return { executed: false, reason: 'no_frequent_suppliers' };
+  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
+  const offered = await offerPublicSuppliers(listed, input, deps, (s) => ({
+    evidence: describeFrequentPublicSupplier(s, input.countryName, sinceYear),
+    referenceName: describeFrequentBuyers(s, input.countryName),
+  }));
+  return {
+    executed: true,
+    scope: 'frequent_public',
+    buyer: { taxId: 'frequent_public', name: FREQUENT_PUBLIC_REFERENCE_LABEL, matchedBy: 'exact' },
+    ...offered,
+  };
 }

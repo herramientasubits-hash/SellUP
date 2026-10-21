@@ -117,6 +117,8 @@ export type WizardExecutionRequest = {
   searchMode?: 'exploratory' | 'suppliers';
   /** Sólo con `searchMode: 'suppliers'`: la empresa de la que se buscan proveedores. */
   referenceCompanyName?: string;
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores» sin referencia: frecuentes del Estado. */
+  supplierScope?: 'frequent_public';
 };
 
 // ── Resolved catalog entities ─────────────────────────────────────────────────

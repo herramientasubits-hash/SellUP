@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { persistDiscardedDispositionRows } from '@/modules/prospect-discards/pipeline-writer.server';
 import { persistCountrySourceCandidates } from '@/server/prospect-batches/country-source-discovery/persist-country-source-candidates';
 import { buildUnverifiedFreeDispositionRows } from '@/server/prospect-batches/country-source-discovery/free-source-unverified';
-import type { PublicBuyerStepDeps, TaggableCandidate } from './public-buyer-suppliers';
+import type { FrequentPublicStepDeps, PublicBuyerStepDeps, TaggableCandidate } from './public-buyer-suppliers';
 import { publicBuyerCountryLookups } from './countries/index.server';
 
 function logError(step: string, error: unknown): void {
@@ -26,7 +26,7 @@ export function buildLivePublicBuyerStepDeps(params: {
   countryName: string;
   macroIndustryKey: string;
   requestedByUserId: string;
-}): PublicBuyerStepDeps {
+}): PublicBuyerStepDeps & { listFrequentSuppliers?: FrequentPublicStepDeps['listFrequentSuppliers'] } {
   const writers: Pick<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'> = {
     writeWithWebsite: async (companies) => {
       const result = await persistCountrySourceCandidates(params.sessionClient, {
@@ -59,6 +59,26 @@ export function buildLivePublicBuyerStepDeps(params: {
   const lookups = publicBuyerCountryLookups(params.countryCode, params.serviceClient);
   if (!lookups) throw new Error(`public_buyer_country_not_supported:${params.countryCode}`);
   return { ...lookups, ...writers };
+}
+
+/**
+ * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — las mismas escrituras, con la lectura de «frecuentes»
+ * del país (sólo países con compras cargadas). `null` = el país no la tiene.
+ */
+export function buildLiveFrequentPublicStepDeps(
+  params: Parameters<typeof buildLivePublicBuyerStepDeps>[0],
+): FrequentPublicStepDeps | null {
+  const deps = buildLivePublicBuyerStepDeps(params);
+  if (!deps.listFrequentSuppliers) return null;
+  return {
+    sourceKey: deps.sourceKey,
+    taxIdentifierType: deps.taxIdentifierType,
+    listPublicOnlyTaxIds: deps.listPublicOnlyTaxIds,
+    findDomainsByTaxId: deps.findDomainsByTaxId,
+    writeWithWebsite: deps.writeWithWebsite,
+    recordWithoutWebsite: deps.recordWithoutWebsite,
+    listFrequentSuppliers: deps.listFrequentSuppliers,
+  };
 }
 
 /** Lectura y etiquetado de los candidatos del lote (cliente de la sesión). */

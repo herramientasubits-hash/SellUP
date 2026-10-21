@@ -162,7 +162,7 @@ describe('4. el asistente: el país de la entidad elegida queda preseleccionado'
 });
 
 describe('5. migración 154: sólo lectura y sólo service_role', () => {
-  const sql = readFileSync(join(process.cwd(), 'supabase/migrations/154_suggest_public_procurement_buyers.sql'), 'utf8')
+  const sql = readFileSync(join(process.cwd(), 'supabase/migrations/154_public_procurement_read_functions.sql'), 'utf8')
     .replace(/--.*$/gm, '');
 
   it('una función SECURITY INVOKER, STABLE, con EXECUTE sólo para service_role', () => {

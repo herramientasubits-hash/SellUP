@@ -58,6 +58,7 @@ import {
   toDiscoveryTaxonomyMetadata,
 } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
 import {
   PUBLIC_BUYER_SUPPLIER_COUNTRIES,
   SUPPLIER_PUBLIC_BUYER_METADATA_KEY,
@@ -107,6 +108,15 @@ export type SupplierSearchRunDeps = {
    * (sector y tamaño), aquí dentro de la corrida y con ventana corta. `true` = revisó.
    */
   rescueBatchInline?: (input: { batchId: string; windowMs: number }) => Promise<boolean>;
+  /**
+   * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores frecuentes del Estado» (sin
+   * referencia): empresas que le venden a varias entidades públicas del país.
+   */
+  runFrequentPublicSuppliers?: (input: {
+    batchId: string;
+    countryCode: string;
+    macroIndustryKey: string;
+  }) => Promise<PublicBuyerStepOutcome>;
   /** Ids de las filas web del lote que cuentan para la meta, leídos tras el rescate. */
   listAcceptedCandidateIds?: (batchId: string) => Promise<string[] | null>;
   /**
@@ -151,6 +161,12 @@ export type SupplierSearchRunInput = {
   catalogVersion: string;
   additionalCriteria: string | null;
   referenceCompanyName: string;
+  /**
+   * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin empresa de referencia: proveedores frecuentes
+   * del Estado (sólo compras públicas, Claude no corre). `referenceCompanyName` llega con
+   * `FREQUENT_PUBLIC_REFERENCE_LABEL`.
+   */
+  scope?: 'frequent_public';
   catalogResolution: CatalogResolutionOutput;
   searchDepth: string;
 };
@@ -193,6 +209,26 @@ export function resolveSupplierRescueWindowMs(elapsedMs: number | null): number 
 
 /** Texto para la persona cuando el paso de Claude no pudo correr. */
 export function describeSupplierSearchFailure(reason: string): { message: string; retryable: boolean } {
+  // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «frecuentes» sin resultado o en un país sin compras cargadas.
+  if (reason === 'no_frequent_suppliers') {
+    return {
+      message:
+        'No hay empresas que le vendan a 3 o más entidades públicas en esa industria y país. Prueba con otra industria o con una entidad de referencia.',
+      retryable: false,
+    };
+  }
+  if (reason === 'industry_without_unspsc') {
+    return {
+      message: 'Las compras públicas de ese país no permiten separar esa industria. Prueba con otra industria.',
+      retryable: false,
+    };
+  }
+  if (reason === 'frequent_country_not_supported') {
+    return {
+      message: 'Proveedores frecuentes del Estado todavía no está disponible para ese país.',
+      retryable: false,
+    };
+  }
   if (reason === 'quota_exhausted') {
     return {
       message: 'Se agotó la cuota mensual de Claude en Proveedores. Pide que la amplíen para seguir buscando proveedores.',
@@ -385,7 +421,10 @@ export async function executeSupplierSearchRun(
           macro_industry_display_name: catalogResolution.industry.name,
           requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
         },
-        supplierSearch: { referenceCompanyName: input.referenceCompanyName },
+        supplierSearch: {
+          referenceCompanyName: input.referenceCompanyName,
+          ...(input.scope ? { scope: input.scope } : {}),
+        },
       },
     });
   } catch {
@@ -425,8 +464,21 @@ export async function executeSupplierSearchRun(
 
   // 4-pre. AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — compras públicas primero (gratis). Un
   //        tropiezo no tumba la corrida: Claude sigue como en la Fase 1.
-  const publicStep: PublicBuyerStepOutcome | null =
-    deps.runPublicBuyerSuppliers && macroIndustryKey && PUBLIC_BUYER_SUPPLIER_COUNTRIES.includes(input.countryCode)
+  const stepFailed = (err: unknown): PublicBuyerStepOutcome => ({
+    executed: false,
+    reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`,
+  });
+  const isFrequent = input.scope === 'frequent_public';
+  const publicStep: PublicBuyerStepOutcome | null = isFrequent
+    ? // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia: sólo compras públicas cargadas.
+      !FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(input.countryCode) || !deps.runFrequentPublicSuppliers
+      ? { executed: false, reason: 'frequent_country_not_supported' }
+      : !macroIndustryKey
+        ? { executed: false, reason: 'industry_without_unspsc' }
+        : await deps
+            .runFrequentPublicSuppliers({ batchId, countryCode: input.countryCode, macroIndustryKey })
+            .catch(stepFailed)
+    : deps.runPublicBuyerSuppliers && macroIndustryKey && PUBLIC_BUYER_SUPPLIER_COUNTRIES.includes(input.countryCode)
       ? await deps
           .runPublicBuyerSuppliers({
             batchId,
@@ -434,22 +486,19 @@ export async function executeSupplierSearchRun(
             countryCode: input.countryCode,
             macroIndustryKey,
           })
-          .catch((err): PublicBuyerStepOutcome => ({
-            executed: false,
-            reason: `failed:${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`,
-          }))
+          .catch(stepFailed)
       : null;
   const publicLeg = publicLegOf(publicStep);
   let batchOutcome = publicLeg && publicLeg.persistedCandidates > 0 ? await readOutcome() : null;
   // AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — según lo que compras públicas dejó para revisar.
-  const claudeRounds = resolveClaudeRoundsAfterPublic(
-    publicStep,
-    batchOutcome?.reviewable ?? publicLeg?.persistedCandidates ?? null,
-  );
+  // «Frecuentes» no tiene a quién preguntarle a Claude: nunca corre.
+  const claudeRounds = isFrequent
+    ? 0
+    : resolveClaudeRoundsAfterPublic(publicStep, batchOutcome?.reviewable ?? publicLeg?.persistedCandidates ?? null);
 
   const firstRound: ClaudeSearchLegOutcome =
     claudeRounds === 0
-    ? { executed: false, reason: 'public_buyer_suppliers_found' }
+    ? { executed: false, reason: isFrequent ? 'frequent_public_only' : 'public_buyer_suppliers_found' }
     : await runRound(0, resolveSupplierRoundPhaseMs(elapsed()) ?? resolveSupplierSearchPhaseMs(elapsed()));
   const rounds: Array<{ round: number; outcome: ClaudeSearchLegOutcome }> = [{ round: 0, outcome: firstRound }];
   // AGENT1-AUDIT-WS2 § A — compras públicas corrió sin novedades: ronda ejecutada en 0.
@@ -600,7 +649,9 @@ export async function executeSupplierSearchRun(
   }
 
   if (!leg.executed) {
-    const failure = describeSupplierSearchFailure(String(leg.reason));
+    // En «frecuentes» Claude no corre: el motivo es el de compras públicas.
+    const reason = isFrequent && publicStep && !publicStep.executed ? publicStep.reason : leg.reason;
+    const failure = describeSupplierSearchFailure(String(reason));
     return {
       ok: false,
       code: 'GENERATION_FAILED',

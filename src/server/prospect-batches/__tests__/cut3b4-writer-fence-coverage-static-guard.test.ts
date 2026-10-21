@@ -513,7 +513,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // la valla de admisión, y el barrido explícito de abajo se ENSANCHA para incluir la 150, el
     // techo anterior. AUTORADAS y NO APLICADAS.
     const ENRICHMENT_JOBS_HARDENING_151 = '151_claim_enrichment_jobs_hardening.sql';
-    const CEILING = '154_suggest_public_procurement_buyers.sql';
+    const CEILING = '154_public_procurement_read_functions.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',

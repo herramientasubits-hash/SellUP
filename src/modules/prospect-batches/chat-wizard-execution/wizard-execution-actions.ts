@@ -24,6 +24,7 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { executeCompetitorSearchRun, type CompetitorRunDeps } from './wizard-competitor-run';
 import { executeSupplierSearchRun, type SupplierSearchRunDeps } from './wizard-supplier-search';
+import { FREQUENT_PUBLIC_REFERENCE_LABEL } from '@/server/prospect-batches/supplier-search/public-buyer-suppliers';
 import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -627,6 +628,7 @@ export type WizardExecutionDeps = {
   runClaudeSupplierSearch?: (input: { batchId: string; phaseMs: number; round?: number }) => Promise<ClaudeSearchLegOutcome>;
   /** AGENT1-SUPPLIER-SEARCH-PUBLIC-1 — compras públicas de una entidad (ver `wizard-supplier-search`). */
   runPublicBuyerSuppliers?: SupplierSearchRunDeps['runPublicBuyerSuppliers'];
+  runFrequentPublicSuppliers?: SupplierSearchRunDeps['runFrequentPublicSuppliers'];
   listAcceptedPublicCandidateIds?: SupplierSearchRunDeps['listAcceptedPublicCandidateIds'];
   tagPublicBuyerSuppliers?: SupplierSearchRunDeps['tagPublicBuyerSuppliers'];
   /**
@@ -1270,6 +1272,30 @@ export async function executeProspectWizardGenerationAction(
         }),
       );
     },
+    // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores frecuentes del Estado»: las mismas
+    // escrituras que el paso de una entidad, con la lectura de frecuentes del país.
+    runFrequentPublicSuppliers: async ({ batchId, countryCode, macroIndustryKey }) => {
+      const auth = await requireActiveUser();
+      const [{ runFrequentPublicSupplierStep }, { buildLiveFrequentPublicStepDeps }] = await Promise.all([
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers'),
+        import('@/server/prospect-batches/supplier-search/public-buyer-suppliers.server'),
+      ]);
+      const countryName = LATAM_COUNTRIES.find((c) => c.code === countryCode)?.name ?? countryCode;
+      const frequentDeps = buildLiveFrequentPublicStepDeps({
+        sessionClient: supabase as unknown as SupabaseClient,
+        serviceClient: budgetClient as unknown as SupabaseClient,
+        batchId,
+        countryCode,
+        countryName,
+        macroIndustryKey,
+        requestedByUserId: auth.internalUserId,
+      });
+      if (!frequentDeps) return { executed: false, reason: 'frequent_country_not_supported' };
+      return runFrequentPublicSupplierStep(
+        { batchId, countryCode, countryName, macroIndustryKey, nowIso: new Date().toISOString() },
+        frequentDeps,
+      );
+    },
     // AGENT1-SUPPLIER-SEARCH-PUBLIC-2 — fuente oficial con web, ni duplicada ni descartada
     // (como la capa gratuita): estas filas no llevan `target_completeness`.
     listAcceptedPublicCandidateIds: async (batchId) => {
@@ -1482,7 +1508,8 @@ export async function executeProspectWizardGeneration(
   // 4b. AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa» tiene su propio camino
   // corto (sólo Claude): no resuelve proveedor, no corre capa gratuita, banco, Tavily,
   // Apollo ni Lusha, y no reserva del presupuesto del piloto. Ver wizard-supplier-search.
-  if (req.searchMode === 'suppliers' && req.referenceCompanyName) {
+  if (req.searchMode === 'suppliers' && (req.referenceCompanyName || req.supplierScope === 'frequent_public')) {
+    const isFrequent = req.supplierScope === 'frequent_public';
     return executeSupplierSearchRun(
       {
         userId,
@@ -1491,7 +1518,9 @@ export async function executeProspectWizardGeneration(
         countryName: LATAM_COUNTRIES.find((c) => c.code === req.countryCode)?.name ?? req.countryCode,
         catalogVersion: req.catalogVersion,
         additionalCriteria: req.additionalCriteriaRaw,
-        referenceCompanyName: req.referenceCompanyName,
+        // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia, el lote se nombra por el Estado.
+        referenceCompanyName: isFrequent ? FREQUENT_PUBLIC_REFERENCE_LABEL : (req.referenceCompanyName ?? ''),
+        ...(isFrequent ? { scope: 'frequent_public' as const } : {}),
         catalogResolution,
         searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
       },
