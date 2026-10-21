@@ -496,6 +496,12 @@ export type WizardExecutionDeps = {
      * byte por byte como antes del corte.
      */
     metadata?: Record<string, unknown> | null;
+    /**
+     * «Competidores de una empresa»: el nombre del lote otra vez al cerrar. Lo
+     * gratuito escribe con el escritor común, que lo deja «Agente 1 · Pipeline · …»
+     * (QA Prod 21-10, 5128e0d0). Ausente ⇒ el nombre no se toca (las demás rutas).
+     */
+    name?: string;
   }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   // Usado por Tavily y Lusha, SIN CAMBIOS. Apollo ya no pasa por aquí — ver
@@ -1083,7 +1089,7 @@ export async function executeProspectWizardGenerationAction(
     // Va por el cliente de SESIÓN, no por service_role, igual que
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
-    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata, name: requestedName }) => {
       const { data: currentRow } = await supabase
         .from('prospect_batches')
         .select('metadata, name, country, industry, completed_at')
@@ -1092,7 +1098,10 @@ export async function executeProspectWizardGenerationAction(
       // AGENT1-CRITERIA-QUICK-WINS-1 § 6 — nombre humano y fecha de cierre en la
       // MISMA escritura terminal (el writer de pago no corre en esta rama).
       const now = new Date();
-      const name = currentRow ? resolveFreeOnlyBatchName(currentRow, now) : null;
+      // El nombre que pide el modo (p. ej. competidores) manda; si no, el nombre
+      // humano calculado desde la fila.
+      const name =
+        requestedName ?? (currentRow ? resolveFreeOnlyBatchName(currentRow, now) : null);
       const completionSeal = decideBatchCompletionSeal({
         status,
         currentCompletedAt: (currentRow?.completed_at as string | null | undefined) ?? null,

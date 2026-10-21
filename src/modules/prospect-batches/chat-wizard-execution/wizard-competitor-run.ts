@@ -33,6 +33,7 @@ import {
   type RunAcceptanceFacts,
 } from '@/modules/prospect-batches/accepted-for-target';
 import {
+  buildCompetitorBatchName,
   toCompetitorSearchMetadata,
   type CompetitorReference,
 } from '@/modules/prospect-batches/competitor-search/competitor-reference';
@@ -175,6 +176,8 @@ export type CompetitorRunDeps = {
     batchId: string;
     status: BatchTerminalStatus;
     metadata?: Record<string, unknown> | null;
+    /** El nombre del lote otra vez al cerrar (ver `buildCompetitorSealName`). */
+    name?: string;
   }) => Promise<void>;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
   /**
@@ -284,6 +287,11 @@ export function resolveCompetitorMacroIndustryKey(catalogResolution: CatalogReso
     slug: catalogResolution.industry.slug,
     displayName: catalogResolution.industry.name,
   });
+}
+
+/** «Competidores de X · país · industria», el mismo nombre que la reserva y la web. */
+export function buildCompetitorSealName(input: CompetitorRunInput): string {
+  return buildCompetitorBatchName(input.reference.name, input.countryName, input.catalogResolution.industry.name);
 }
 
 /** La fila del lote: la misma que una corrida por criterios, más la referencia. */
@@ -539,6 +547,9 @@ export async function executeCompetitorSearchRun(
       .sealFreeOnlyBatchStatus({
         batchId,
         status: seal.status,
+        // Lo gratuito escribe con el escritor común, que deja «Agente 1 · Pipeline · …»:
+        // el sellado, última escritura del lote, vuelve a dejar «Competidores de X · …».
+        name: buildCompetitorSealName(input),
         metadata: {
           [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget),
           claude_search_leg: claudeLeg ?? { executed: false, reason: freeCovers ? 'free_sources_covered_target' : 'not_run' },
