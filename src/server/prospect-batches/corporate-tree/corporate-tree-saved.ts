@@ -198,6 +198,17 @@ function sameRootCompany(
 }
 
 /**
+ * Búsqueda SÓLO por nombre (lo normal en el chat: «Bimbo»): antes de Claude no se sabe ni la
+ * web ni el país, así que no hay con qué comparar (Prod 21-10, Bimbo 3115144b: la repetición
+ * volvió a pagar). Se reutiliza sólo si TODOS los árboles guardados con ese nombre son de la
+ * misma empresa (la misma web de partida); si hubo homónimos, se busca de nuevo.
+ */
+function unambiguousByName(trees: readonly CorporateTreeSavedTree[]): CorporateTreeSavedTree[] {
+  const domains = new Set(trees.map((t) => t.root.domain ?? ''));
+  return domains.size === 1 && !domains.has('') ? [...trees] : [];
+}
+
+/**
  * El árbol guardado más reciente que cubre lo pedido: de menos de 30 días, con TODAS las ramas
  * y países pedidos, y de la misma empresa de partida (`sameRootCompany`).
  * Devuelve sus empresas recortadas a lo pedido.
@@ -213,7 +224,7 @@ export function pickSavedTree(
     nowMs: number;
   },
 ): CorporateTreeSavedTree | null {
-  const fresh = rows
+  const covering = rows
     .map(readSavedTree)
     .filter((t): t is CorporateTreeSavedTree => !!t)
     .filter((t) => {
@@ -222,8 +233,9 @@ export function pickSavedTree(
     })
     .filter((t) => wanted.branches.every((b) => t.branches.includes(b)))
     .filter((t) => wanted.countryCodes.every((c) => t.countryCodes.includes(c)))
-    .filter((t) => sameRootCompany(t.root, wanted))
     .sort((a, b) => Date.parse(b.searchedAt) - Date.parse(a.searchedAt));
+  const knowsRoot = !!wanted.rootDomain || !!wanted.rootCountryCode;
+  const fresh = knowsRoot ? covering.filter((t) => sameRootCompany(t.root, wanted)) : unambiguousByName(covering);
   const best = fresh[0];
   if (!best) return null;
   return {
