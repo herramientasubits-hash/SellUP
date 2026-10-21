@@ -30,8 +30,13 @@ export const AGENT_RUNS_TRAY_COPY = {
   dismiss: 'Quitar',
   queued: 'En espera: empieza en cuanto se libere un lugar (máximo 3 a la vez, y una sola por país e industria).',
   detached: 'Sigue en curso (lanzada antes de recargar la página).',
-  succeeded: (count: number | null): string =>
-    count === null ? 'Terminada.' : count === 1 ? 'Terminada: 1 empresa.' : `Terminada: ${count} empresas.`,
+  succeeded: (count: number | null, sizePending: number | null = null): string => {
+    if (count === null) return 'Terminada.';
+    const base = count === 1 ? 'Terminada: 1 empresa' : `Terminada: ${count} empresas`;
+    // Competidores: la revisión de tamaño corre al terminar y puede descartar algunas.
+    const pending = sizePending !== null && sizePending > 0 ? Math.min(sizePending, count) : 0;
+    return pending > 0 ? `${base} (${pending} por confirmar tamaño).` : `${base}.`;
+  },
   failedFallback: 'No se pudo completar la búsqueda.',
 } as const;
 
@@ -60,7 +65,7 @@ export function describeAgentRun(run: AgentRun, liveLabel: string | null): Agent
     case 'succeeded':
       return {
         progressStatus: 'success',
-        description: AGENT_RUNS_TRAY_COPY.succeeded(run.candidateCount),
+        description: AGENT_RUNS_TRAY_COPY.succeeded(run.candidateCount, run.sizePendingCount ?? null),
         error: undefined,
         showLink: Boolean(run.redirectPath),
         dismissible: true,

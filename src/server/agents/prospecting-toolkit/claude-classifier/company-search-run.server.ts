@@ -205,6 +205,16 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
     resolveRegions: resolveTavilyCountryRegions,
     resolveActiveModel: resolveActiveAnthropicModel,
     checkQuota: () => checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY),
+    // «Competidores»: el grupo de la referencia, con el mismo cargador que lo gratuito.
+    // Sin NIT de la cuenta (la web no trae número fiscal); nunca lanza.
+    loadCompetitorGroupDomains: async (reference) => {
+      const [{ loadCompetitorReferenceExclusion }, { buildCompetitorReferenceExclusionReader }] = await Promise.all([
+        import('@/server/prospect-batches/competitor-search/competitor-free-sources'),
+        import('@/server/prospect-batches/competitor-search/competitor-free-sources.server'),
+      ]);
+      const { exclusion } = await loadCompetitorReferenceExclusion(reference, buildCompetitorReferenceExclusionReader());
+      return [...exclusion.relatedDomains];
+    },
     runSearch: async ({ source, queries, excludeDomains, active, deadlineAtMs, onCall }) => {
       const context: ClaudeSearchRunContext = {
         model: active.model,

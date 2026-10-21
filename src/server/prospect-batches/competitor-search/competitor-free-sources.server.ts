@@ -57,6 +57,12 @@ export type CompetitorFreeSourcesInput = {
   industryName: string;
   target: number;
   userId: string;
+  /**
+   * Hasta cuándo se EMPIEZA a juzgar (ms epoch). Después, el juez no se llama y lo
+   * de esa fuente no entra: el tiempo es de la ronda de Claude en la web, que rinde
+   * más (auditoría 21-10). Ausente ⇒ sin plazo propio.
+   */
+  judgeStartDeadlineAtMs?: number;
 };
 
 
@@ -196,11 +202,16 @@ export async function runCompetitorFreeSourcesLive(
     const prefilterOptions = { exclusion: referenceExclusion.exclusion, onPrefiltered: prefilter.onPrefiltered };
     const judgeTally: CompetitorJudgeTally = {};
     const liveJudge = buildLiveCompetitorJudge(input.userId);
+    let judgeSkippedByDeadline = 0;
     // El juez de cada fuente anota lo que juzgó de verdad (telemetría `competitor_selection`).
     const judgeFor = (source: 'free_layer' | 'company_bank' | 'hubspot_free_pool') =>
-      tallyCompetitorJudge(judgeTally, source, (judgeInput) =>
-        liveJudge({ ...judgeInput, batchId: input.batchId, source }),
-      );
+      tallyCompetitorJudge(judgeTally, source, async (judgeInput) => {
+        if (input.judgeStartDeadlineAtMs !== undefined && Date.now() >= input.judgeStartDeadlineAtMs) {
+          judgeSkippedByDeadline += 1;
+          return null;
+        }
+        return liveJudge({ ...judgeInput, batchId: input.batchId, source });
+      });
     const context: CompetitorJudgeContext = {
       reference: input.reference,
       countryName: input.countryName,
@@ -252,6 +263,7 @@ export async function runCompetitorFreeSourcesLive(
         ...withRealCompetitorJudgedCount(outcome.telemetry, judgeTally),
         reference_activity_codes: activityCodes,
         competitor_judge_by_source: judgeTally,
+        ...(judgeSkippedByDeadline > 0 ? { competitor_judge_skipped_deadline: judgeSkippedByDeadline } : {}),
         competitor_prefiltered: prefilter.counts(),
         reference_exclusion: referenceExclusion.telemetry,
       },

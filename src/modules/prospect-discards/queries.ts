@@ -32,6 +32,10 @@ import type {
   DiscardedProspectsListResult,
   DiscardedProspectItemSource,
 } from './types';
+import {
+  COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
+  isCompetitorSmallCompany,
+} from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
 
 function toDispositionRow(raw: Record<string, unknown>): DiscardedDispositionRow {
   return {
@@ -145,6 +149,10 @@ function candidateToItem(candidate: {
     resultingCandidateId: null,
     createdAt: candidate.created_at,
     updatedAt: candidate.updated_at,
+    // Competidora pequeña (decisión de la dueña 21-10): se ve, pero no vuelve a revisión.
+    ...(isCompetitorSmallCompany(candidate.metadata)
+      ? { sendToReviewBlockedReason: COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED }
+      : {}),
   };
 }
 

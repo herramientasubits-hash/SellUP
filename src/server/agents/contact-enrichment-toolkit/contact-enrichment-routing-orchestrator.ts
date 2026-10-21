@@ -27,6 +27,7 @@
 // database layer; the loser observes 'already_exists' and never calls Lusha.
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { updateAgentRun as updateAgentRunRecord } from '@/modules/usage-tracking/logging';
 import {
   assertAutomaticRoutingEnvironmentIsSafe,
   UnsafeSupabaseEnvironmentError,
@@ -54,6 +55,10 @@ import {
 import { runHubSpotFirstStage, type HubSpotFirstStageResult } from './hubspot-first-stage.server';
 import { runContactBankStage, type ContactBankStageResult } from './contact-bank-stage.server';
 import { runCompanySiteStage, type CompanySiteStageResult } from './company-site-stage.server';
+import {
+  evaluateRecentFallbackZeroGate,
+  type RecentFallbackZeroGateResult,
+} from './recent-fallback-zero-gate';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   getContactEnrichmentRoutingConfigV1,
@@ -228,23 +233,65 @@ async function defaultMarkRunSatisfiedByHubSpot(
   attemptId: string,
   stage: Extract<HubSpotFirstStageResult, { status: 'done' }>,
 ): Promise<void> {
+  await markRunSatisfiedByFreeStage(attemptId, stage.inserted, {
+    hubspot_first: {
+      satisfied: true,
+      candidates_inserted: stage.inserted,
+      relevant_with_email: stage.relevantWithEmail,
+    },
+  });
+}
+
+/**
+ * Cierra una corrida que una etapa gratuita dejó lista para revisión (AGENT2-AUDIT-FIXES-1).
+ * Antes sólo se cambiaba el estado de la búsqueda: el registro del agente (`agent_runs`) quedaba
+ * «en curso» para siempre y `totalCandidates` en 0 aunque hubiera candidatos (Davivienda, 20-10).
+ * Ahora escribe el total, cierra el registro del agente igual que Apollo y deja rastro si la
+ * corrida ya no estaba en un estado que se pudiera cerrar.
+ */
+async function markRunSatisfiedByFreeStage(
+  attemptId: string,
+  inserted: number,
+  summaryPatch: Record<string, unknown>,
+): Promise<void> {
   const admin = createSupabaseAdminClient();
-  const current = await defaultReadRunSummary(attemptId);
-  await admin
+  const { data: current } = await admin
+    .from('contact_enrichment_runs')
+    .select('summary, agent_run_id')
+    .eq('id', attemptId)
+    .maybeSingle();
+  const currentSummary = (current?.summary as Record<string, unknown> | null) ?? {};
+  // El total sale de las filas reales: HubSpot pudo dejar gente antes de que el banco bastara.
+  const { count: rowsInRun } = await admin
+    .from('contact_enrichment_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('enrichment_run_id', attemptId);
+  const total = typeof rowsInRun === 'number' && rowsInRun >= inserted ? rowsInRun : inserted;
+  const { data: updated, error } = await admin
     .from('contact_enrichment_runs')
     .update({
       status: 'ready_for_review',
-      summary: {
-        ...current,
-        hubspot_first: {
-          satisfied: true,
-          candidates_inserted: stage.inserted,
-          relevant_with_email: stage.relevantWithEmail,
-        },
-      },
+      summary: { ...currentSummary, ...summaryPatch, totalCandidates: total },
     })
     .eq('id', attemptId)
-    .in('status', ['pending', 'resolving', 'ready_to_enrich']);
+    .in('status', ['pending', 'resolving', 'ready_to_enrich'])
+    .select('id');
+  if (error || !updated || updated.length === 0) {
+    console.error('[contact-enrichment] free stage could not close run', {
+      attemptId,
+      error: error?.message ?? 'run_not_in_closable_status',
+    });
+    return;
+  }
+  const agentRunId = typeof current?.agent_run_id === 'string' ? current.agent_run_id : null;
+  if (agentRunId) {
+    await updateAgentRunRecord(agentRunId, {
+      status: 'completed',
+      finished_at: new Date().toISOString(),
+      results_generated: total,
+      estimated_cost_usd: 0,
+    });
+  }
 }
 
 async function defaultRunContactBank(attemptId: string): Promise<ContactBankStageResult | null> {
@@ -261,24 +308,21 @@ async function defaultMarkRunSatisfiedByContactBank(
   attemptId: string,
   stage: Extract<ContactBankStageResult, { status: 'done' }>,
 ): Promise<void> {
-  const admin = createSupabaseAdminClient();
-  const current = await defaultReadRunSummary(attemptId);
-  await admin
-    .from('contact_enrichment_runs')
-    .update({
-      status: 'ready_for_review',
-      summary: {
-        ...current,
-        contact_bank: {
-          satisfied: true,
-          candidates_inserted: stage.inserted,
-          relevant_with_email: stage.relevantWithEmail,
-          same_company_accounts: stage.siblingAccounts,
-        },
-      },
-    })
-    .eq('id', attemptId)
-    .in('status', ['pending', 'resolving', 'ready_to_enrich']);
+  await markRunSatisfiedByFreeStage(attemptId, stage.inserted, {
+    contact_bank: {
+      satisfied: true,
+      candidates_inserted: stage.inserted,
+      relevant_with_email: stage.relevantWithEmail,
+      same_company_accounts: stage.siblingAccounts,
+    },
+  });
+}
+
+async function defaultEvaluateRecentFallbackZero(
+  requestId: string,
+  provider: RoutingProviderKey,
+): Promise<RecentFallbackZeroGateResult> {
+  return evaluateRecentFallbackZeroGate({ requestId, provider });
 }
 
 async function defaultReadRunSummary(attemptId: string): Promise<Record<string, unknown>> {
@@ -346,6 +390,16 @@ export type AutomaticRoutingOutcomeV1 =
    * de HubSpot, si corrió) bastó: no se llamó a Apollo ni a Lusha. Éxito terminal.
    */
   | 'contact_bank_satisfied'
+  /**
+   * AGENT2-AUDIT-FIXES-1 — Apollo no dejó candidatos, pero «Primero HubSpot» o el banco de
+   * contactos sí dejaron gente con canal en ESTA búsqueda: no se paga Lusha. Éxito terminal.
+   */
+  | 'fallback_skipped_free_stage_candidates'
+  /**
+   * AGENT2-AUDIT-FIXES-1 — la última corrida de Lusha para la misma empresa, dentro de la
+   * ventana, no dejó candidatos: no se vuelve a pagar Lusha. Ver recent-fallback-zero-gate.ts.
+   */
+  | 'fallback_skipped_recent_zero'
   | 'fallback_provider_unavailable'
   | 'fallback_blocked_by_budget'
   | 'attempt2_already_exists'
@@ -397,6 +451,21 @@ export interface AutomaticRoutingOrchestratorResult {
    * encendida y Apollo sin candidatos). `inserted` = personas del sitio dejadas para revisar.
    */
   companySite?: { attemptId: string; inserted: number };
+  /**
+   * AGENT2-AUDIT-FIXES-1 — qué hizo cada etapa gratuita en esta búsqueda, también cuando no
+   * aportó nada (`disabled`, `no_hubspot_company`, `site_unreachable`, `error`…). Es lo que
+   * permite explicarle al vendedor por qué la búsqueda quedó en cero.
+   */
+  freeStages: FreeStageStatusesV1;
+  /** Presente sólo en 'fallback_skipped_recent_zero': cuándo dio cero Lusha la última vez. */
+  recentFallbackZero?: { lastZeroAt: string; lookbackDays: number };
+}
+
+/** Estado de cada etapa gratuita. `not_reached` = la búsqueda terminó antes de llegar a ella. */
+export interface FreeStageStatusesV1 {
+  hubspot_first: string;
+  contact_bank: string;
+  company_site: string;
 }
 
 export interface AutomaticRoutingOrchestratorDeps {
@@ -454,6 +523,14 @@ export interface AutomaticRoutingOrchestratorDeps {
    * la decisión de pasar a Lusha. Falla abierto.
    */
   runCompanySite?: (attemptId: string, triggeredBy: string) => Promise<CompanySiteStageResult | null>;
+  /**
+   * AGENT2-AUDIT-FIXES-1 — ¿la última corrida del proveedor de respaldo para esta empresa dio
+   * cero hace poco? Sólo lectura; falla abierto (sin acierto ⇒ el respaldo corre como siempre).
+   */
+  evaluateRecentFallbackZero?: (
+    requestId: string,
+    provider: RoutingProviderKey,
+  ) => Promise<RecentFallbackZeroGateResult>;
   /** Conservative default: null (unknown cost) — see evaluateBudgetGuardrailV1. */
   estimateFallbackCostUsd?: () => number | null;
   writeRoutingTelemetry?: (
@@ -467,7 +544,7 @@ function notEngagedResult(
   outcome: AutomaticRoutingOutcomeV1,
   automaticRoutingEnabled: boolean,
   blockedReason: string | null,
-): AutomaticRoutingOrchestratorResult {
+): Omit<AutomaticRoutingOrchestratorResult, 'freeStages'> {
   return {
     outcome,
     automaticRoutingEnabled,
@@ -494,10 +571,17 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps = {},
 ): Promise<AutomaticRoutingOrchestratorResult> {
-  const freeStagesCtx: FreeStagesCtx = { hubspotFirst: null, contactBank: null, companySite: null };
+  const freeStagesCtx: FreeStagesCtx = {
+    hubspotFirst: null,
+    contactBank: null,
+    companySite: null,
+    statuses: { hubspot_first: 'not_reached', contact_bank: 'not_reached', company_site: 'not_reached' },
+    relevantWithEmail: 0,
+  };
   const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
   return {
     ...result,
+    freeStages: { ...freeStagesCtx.statuses },
     ...(freeStagesCtx.hubspotFirst ? { hubspotFirst: freeStagesCtx.hubspotFirst } : {}),
     ...(freeStagesCtx.contactBank ? { contactBank: freeStagesCtx.contactBank } : {}),
     ...(freeStagesCtx.companySite ? { companySite: freeStagesCtx.companySite } : {}),
@@ -509,11 +593,32 @@ interface FreeStagesCtx {
   hubspotFirst: NonNullable<AutomaticRoutingOrchestratorResult['hubspotFirst']> | null;
   contactBank: NonNullable<AutomaticRoutingOrchestratorResult['contactBank']> | null;
   companySite: NonNullable<AutomaticRoutingOrchestratorResult['companySite']> | null;
+  statuses: FreeStageStatusesV1;
+  /** Candidatos relevantes CON correo que dejaron HubSpot y el banco en esta búsqueda. */
+  relevantWithEmail: number;
+}
+
+/** null = bandera apagada; un fallo inesperado de la etapa = 'error'. */
+function freeStageStatus(stage: { status: string } | null, threw: boolean): string {
+  if (threw) return 'error';
+  return stage ? stage.status : 'disabled';
+}
+
+/** Corre una etapa gratuita sin dejar que un fallo corte la búsqueda (falla abierto). */
+async function runFreeStage<T extends { status: string }>(
+  run: () => Promise<T | null>,
+): Promise<{ stage: T | null; status: string }> {
+  try {
+    const stage = await run();
+    return { stage, status: freeStageStatus(stage, false) };
+  } catch {
+    return { stage: null, status: freeStageStatus(null, true) };
+  }
 }
 
 function satisfiedByFreeStageResult(
   outcome: 'hubspot_first_satisfied' | 'contact_bank_satisfied',
-): AutomaticRoutingOrchestratorResult {
+): Omit<AutomaticRoutingOrchestratorResult, 'freeStages'> {
   return {
     outcome,
     automaticRoutingEnabled: true,
@@ -531,7 +636,7 @@ async function runAutomaticRoutingCore(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps,
   freeStagesCtx: FreeStagesCtx,
-): Promise<AutomaticRoutingOrchestratorResult> {
+): Promise<Omit<AutomaticRoutingOrchestratorResult, 'freeStages'>> {
   const {
     getConfig = getContactEnrichmentRoutingConfigV1,
     resolveAttempt1 = defaultResolveAttempt1,
@@ -544,12 +649,21 @@ async function runAutomaticRoutingCore(
     runContactBank = defaultRunContactBank,
     markRunSatisfiedByContactBank = defaultMarkRunSatisfiedByContactBank,
     runCompanySite = defaultRunCompanySite,
+    evaluateRecentFallbackZero = defaultEvaluateRecentFallbackZero,
     evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
     estimateFallbackCostUsd = () => null,
-    writeRoutingTelemetry = defaultWriteRoutingTelemetry,
+    writeRoutingTelemetry: writeRoutingTelemetryDep = defaultWriteRoutingTelemetry,
     assertEnvironmentSafe = (automaticRoutingEnabled: boolean) =>
       assertAutomaticRoutingEnvironmentIsSafe(automaticRoutingEnabled, process.env),
   } = deps;
+
+  // Toda la telemetría de la búsqueda lleva qué hizo cada etapa gratuita: así un cero queda
+  // explicado en la base aunque ninguna etapa haya aportado (AGENT2-AUDIT-FIXES-1).
+  const writeRoutingTelemetry: typeof writeRoutingTelemetryDep = (attemptId, columns, summaryPatch) =>
+    writeRoutingTelemetryDep(attemptId, columns, {
+      ...summaryPatch,
+      evidence: { ...summaryPatch.evidence, free_stages: { ...freeStagesCtx.statuses } },
+    });
 
   const config = getConfig();
 
@@ -584,8 +698,11 @@ async function runAutomaticRoutingCore(
 
   // AGENT2-HUBSPOT-FIRST-1 — primero lo que HubSpot ya sabe de la empresa (gratis). Con la
   // bandera apagada `runHubSpotFirst` devuelve null y esta rama no existe. Falla abierto.
-  const hubspotFirst = await runHubSpotFirst(resolved1.attemptId, input.triggeredBy).catch(() => null);
+  const hubspotRun = await runFreeStage(() => runHubSpotFirst(resolved1.attemptId, input.triggeredBy));
+  const hubspotFirst = hubspotRun.stage;
+  freeStagesCtx.statuses.hubspot_first = hubspotRun.status;
   if (hubspotFirst?.status === 'done') {
+    freeStagesCtx.relevantWithEmail += hubspotFirst.relevantWithEmail;
     freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,
       inserted: hubspotFirst.inserted,
@@ -619,8 +736,11 @@ async function runAutomaticRoutingCore(
 
   // AGENT2-CONTACT-BANK-1 — después, lo que SellUp ya conocía de otra ficha de la misma compañía
   // (gratis). Con la bandera apagada `runContactBank` devuelve null y esta rama no existe.
-  const contactBank = await runContactBank(resolved1.attemptId).catch(() => null);
+  const bankRun = await runFreeStage(() => runContactBank(resolved1.attemptId));
+  const contactBank = bankRun.stage;
+  freeStagesCtx.statuses.contact_bank = bankRun.status;
   if (contactBank?.status === 'done') {
+    freeStagesCtx.relevantWithEmail += contactBank.relevantWithEmail;
     freeStagesCtx.contactBank = {
       attemptId: resolved1.attemptId,
       inserted: contactBank.inserted,
@@ -691,7 +811,9 @@ async function runAutomaticRoutingCore(
   // buscamos. Se suma a la misma corrida y NO cambia la decisión de pasar a Lusha (que busca
   // correos, cosa que el sitio no da).
   if (attempt1Result.candidatesCreated === 0) {
-    const site = await runCompanySite(resolved1.attemptId, input.triggeredBy).catch(() => null);
+    const siteRun = await runFreeStage(() => runCompanySite(resolved1.attemptId, input.triggeredBy));
+    const site = siteRun.stage;
+    freeStagesCtx.statuses.company_site = siteRun.status;
     if (site?.status === 'done') {
       freeStagesCtx.companySite = { attemptId: resolved1.attemptId, inserted: site.inserted };
     }
@@ -826,6 +948,80 @@ async function runAutomaticRoutingCore(
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: null,
       reusedExistingCandidates: localReuse.actionableReusableCandidateCount,
+    };
+  }
+
+  // AGENT2-AUDIT-FIXES-1 — gente relevante CON correo que «Primero HubSpot» o el banco ya dejaron
+  // en ESTA búsqueda. Se decide aquí, como compuerta propia, y NO se suma al conteo de Apollo: la
+  // señal de respaldo sigue siendo la verdad de Apollo. Sin correo (o del sitio web) no frena a
+  // Lusha, que es justamente quien aporta correos.
+  const freeStageReviewable = freeStagesCtx.relevantWithEmail;
+  if (freeStageReviewable > 0) {
+    await writeRoutingTelemetry(
+      resolved1.attemptId,
+      buildRunColumns('primary', signal.fallbackReasonForTelemetry),
+      buildSummaryBlock({
+        role: 'primary',
+        policy,
+        actualProvider: config.primaryProvider,
+        wouldRecommendFallback: true,
+        fallbackReason: signal.fallbackReasonForTelemetry,
+        fallbackExecuted: false,
+        fallbackAttemptRunId: null,
+        triggeredByAttemptRunId: null,
+        evaluatedAt: input.evaluatedAt,
+        evidence: { blocked_reason: 'free_stage_candidates', free_stage_candidates: freeStageReviewable },
+      }),
+    );
+    return {
+      outcome: 'fallback_skipped_free_stage_candidates',
+      automaticRoutingEnabled: true,
+      attempt1,
+      attempt2: null,
+      fallbackExecuted: false,
+      wouldRecommendFallback: true,
+      fallbackReason: signal.fallbackReasonForTelemetry,
+      blockedReason: 'free_stage_candidates',
+      reusedExistingCandidates: 0,
+    };
+  }
+
+  // AGENT2-AUDIT-FIXES-1 — si Lusha ya dio cero hace poco para esta empresa, no se repite.
+  const recentZero = await evaluateRecentFallbackZero(input.requestId, config.fallbackProvider).catch(
+    () => null,
+  );
+  if (recentZero?.hit && recentZero.lastZeroAt) {
+    await writeRoutingTelemetry(
+      resolved1.attemptId,
+      buildRunColumns('primary', signal.fallbackReasonForTelemetry),
+      buildSummaryBlock({
+        role: 'primary',
+        policy,
+        actualProvider: config.primaryProvider,
+        wouldRecommendFallback: true,
+        fallbackReason: signal.fallbackReasonForTelemetry,
+        fallbackExecuted: false,
+        fallbackAttemptRunId: null,
+        triggeredByAttemptRunId: null,
+        evaluatedAt: input.evaluatedAt,
+        evidence: {
+          blocked_reason: 'fallback_recent_zero',
+          last_zero_at: recentZero.lastZeroAt,
+          lookback_days: recentZero.lookbackDays,
+        },
+      }),
+    );
+    return {
+      outcome: 'fallback_skipped_recent_zero',
+      automaticRoutingEnabled: true,
+      attempt1,
+      attempt2: null,
+      fallbackExecuted: false,
+      wouldRecommendFallback: true,
+      fallbackReason: signal.fallbackReasonForTelemetry,
+      blockedReason: 'fallback_recent_zero',
+      reusedExistingCandidates: 0,
+      recentFallbackZero: { lastZeroAt: recentZero.lastZeroAt, lookbackDays: recentZero.lookbackDays },
     };
   }
 
