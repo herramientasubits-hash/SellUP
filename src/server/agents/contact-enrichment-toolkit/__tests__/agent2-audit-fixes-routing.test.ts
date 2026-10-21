@@ -99,6 +99,15 @@ describe('Lusha no corre si HubSpot o el banco ya dejaron gente en esta búsqued
     assert.equal(result.attempt1?.result.candidatesCreated, 0);
   });
 
+  it('HubSpot dejó gente SIN correo: Lusha sí corre (es quien trae correos)', async () => {
+    const { deps, calls } = harness({
+      runHubSpotFirst: async () => ({ status: 'done', satisfied: false, inserted: 2, relevantWithEmail: 0 }),
+    });
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+    assert.equal(result.outcome, 'fallback_executed');
+    assert.equal(calls.lusha, 1);
+  });
+
   it('el banco dejó 1: tampoco se paga Lusha', async () => {
     const { deps, calls } = harness({
       runContactBank: async () => ({ status: 'done', satisfied: false, inserted: 1, relevantWithEmail: 1, siblingAccounts: 1 }),
@@ -154,7 +163,8 @@ describe('Cierre de corridas satisfechas por etapas gratuitas (código)', () => 
   const source = readFileSync(join(__dirname, '..', 'contact-enrichment-routing-orchestrator.ts'), 'utf8');
   const helper = source.slice(source.indexOf('async function markRunSatisfiedByFreeStage('), source.indexOf('async function defaultRunContactBank('));
   it('escribe el total, cierra agent_runs y revisa si se cerró algo', () => {
-    assert.match(helper, /totalCandidates: inserted/);
+    assert.match(helper, /totalCandidates: total/);
+    assert.match(helper, /\.eq\('enrichment_run_id', attemptId\)/);
     assert.match(helper, /updateAgentRunRecord\(agentRunId/);
     assert.match(helper, /\.select\('id'\)/);
   });

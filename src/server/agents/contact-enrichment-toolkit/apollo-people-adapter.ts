@@ -817,7 +817,8 @@ export async function searchApolloPeopleForCompany(
       ...merged.filter((person) => countReviewablePeople([person]) > 0),
       ...merged.filter((person) => countReviewablePeople([person]) === 0),
     ];
-    chosen = reviewableFirst.slice(0, MAX_SEARCH_RESULTS_PER_RUN);
+    // Mismo tope de siempre (10): cambia QUIÉNES entran, no cuántos.
+    chosen = reviewableFirst.slice(0, perPage);
     chosenAttempt = contributingAttempts.join('+');
   }
 

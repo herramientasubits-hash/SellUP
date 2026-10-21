@@ -261,11 +261,17 @@ async function markRunSatisfiedByFreeStage(
     .eq('id', attemptId)
     .maybeSingle();
   const currentSummary = (current?.summary as Record<string, unknown> | null) ?? {};
+  // El total sale de las filas reales: HubSpot pudo dejar gente antes de que el banco bastara.
+  const { count: rowsInRun } = await admin
+    .from('contact_enrichment_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('enrichment_run_id', attemptId);
+  const total = typeof rowsInRun === 'number' && rowsInRun >= inserted ? rowsInRun : inserted;
   const { data: updated, error } = await admin
     .from('contact_enrichment_runs')
     .update({
       status: 'ready_for_review',
-      summary: { ...currentSummary, ...summaryPatch, totalCandidates: inserted },
+      summary: { ...currentSummary, ...summaryPatch, totalCandidates: total },
     })
     .eq('id', attemptId)
     .in('status', ['pending', 'resolving', 'ready_to_enrich'])
@@ -282,7 +288,7 @@ async function markRunSatisfiedByFreeStage(
     await updateAgentRunRecord(agentRunId, {
       status: 'completed',
       finished_at: new Date().toISOString(),
-      results_generated: inserted,
+      results_generated: total,
       estimated_cost_usd: 0,
     });
   }
@@ -570,6 +576,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     contactBank: null,
     companySite: null,
     statuses: { hubspot_first: 'not_reached', contact_bank: 'not_reached', company_site: 'not_reached' },
+    relevantWithEmail: 0,
   };
   const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
   return {
@@ -587,6 +594,8 @@ interface FreeStagesCtx {
   contactBank: NonNullable<AutomaticRoutingOrchestratorResult['contactBank']> | null;
   companySite: NonNullable<AutomaticRoutingOrchestratorResult['companySite']> | null;
   statuses: FreeStageStatusesV1;
+  /** Candidatos relevantes CON correo que dejaron HubSpot y el banco en esta búsqueda. */
+  relevantWithEmail: number;
 }
 
 /** null = bandera apagada; un fallo inesperado de la etapa = 'error'. */
@@ -693,6 +702,7 @@ async function runAutomaticRoutingCore(
   const hubspotFirst = hubspotRun.stage;
   freeStagesCtx.statuses.hubspot_first = hubspotRun.status;
   if (hubspotFirst?.status === 'done') {
+    freeStagesCtx.relevantWithEmail += hubspotFirst.relevantWithEmail;
     freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,
       inserted: hubspotFirst.inserted,
@@ -730,6 +740,7 @@ async function runAutomaticRoutingCore(
   const contactBank = bankRun.stage;
   freeStagesCtx.statuses.contact_bank = bankRun.status;
   if (contactBank?.status === 'done') {
+    freeStagesCtx.relevantWithEmail += contactBank.relevantWithEmail;
     freeStagesCtx.contactBank = {
       attemptId: resolved1.attemptId,
       inserted: contactBank.inserted,
@@ -940,12 +951,11 @@ async function runAutomaticRoutingCore(
     };
   }
 
-  // AGENT2-AUDIT-FIXES-1 — gente con canal que «Primero HubSpot» o el banco ya dejaron en ESTA
-  // búsqueda. Se decide aquí, como compuerta propia, y NO se suma al conteo de Apollo: la señal
-  // de respaldo sigue siendo la verdad de Apollo. El sitio web no cuenta (no trae correos, que
-  // es lo que Lusha sí puede aportar).
-  const freeStageReviewable =
-    (freeStagesCtx.hubspotFirst?.inserted ?? 0) + (freeStagesCtx.contactBank?.inserted ?? 0);
+  // AGENT2-AUDIT-FIXES-1 — gente relevante CON correo que «Primero HubSpot» o el banco ya dejaron
+  // en ESTA búsqueda. Se decide aquí, como compuerta propia, y NO se suma al conteo de Apollo: la
+  // señal de respaldo sigue siendo la verdad de Apollo. Sin correo (o del sitio web) no frena a
+  // Lusha, que es justamente quien aporta correos.
+  const freeStageReviewable = freeStagesCtx.relevantWithEmail;
   if (freeStageReviewable > 0) {
     await writeRoutingTelemetry(
       resolved1.attemptId,
