@@ -30,6 +30,7 @@ import {
   Database,
   Building2,
 } from "@/icons";
+import { usePanelControl } from '@/components/prospects/controlled-panel-slot';
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
 import type { ProspectChatWizardHandle } from '@/components/prospect-batches/chat-wizard/prospect-chat-wizard';
@@ -321,7 +322,9 @@ type GenerateAIBatchDrawerProps = {
   onBack?: () => void;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, open: controlledOpen, onOpenChange, onBack }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, ...ownControl }: GenerateAIBatchDrawerProps = {}) {
+  // GENERATE-DRAWER-WITHOUT-CLONE-1: la pantalla lo controla por contexto (no clonándolo).
+  const { open: controlledOpen, onOpenChange, onBack } = usePanelControl(ownControl);
   const router = useRouter();
   const agentRuns = useAgentRuns();
   const runsInProgress = agentRuns.filter((run) => run.status === 'running' || run.status === 'queued').length;

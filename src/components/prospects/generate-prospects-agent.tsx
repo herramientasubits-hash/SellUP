@@ -7,13 +7,9 @@ import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 
 import { RailScreenActions, type RailActionSpec } from '@/components/action-rail';
 
-/** Lo que estos componentes necesitan poder decirle al asistente de IA. */
-export interface ControllablePanelProps {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /** «Volver» a «¿Qué quieres hacer?» de Rumbo (sólo cuando se abrió desde ahí). */
-  onBack?: () => void;
-}
+import { ControlledPanelSlot, type ControllablePanelProps } from './controlled-panel-slot';
+
+export type { ControllablePanelProps };
 
 /**
  * El asistente «Generar con IA» del módulo Empresas, tal como lo resolvió el
@@ -84,7 +80,7 @@ export function GenerateProspectsAgentActions({ generateDrawer, isGenerateAvaila
   return (
     <>
       <RailScreenActions actions={NO_ACTIONS} agent={agent} isBlocked={isOpen} />
-      {React.cloneElement(generateDrawer, { open: isOpen, onOpenChange: setIsOpen })}
+      <ControlledPanelSlot panel={generateDrawer} open={isOpen} onOpenChange={setIsOpen} />
     </>
   );
 }

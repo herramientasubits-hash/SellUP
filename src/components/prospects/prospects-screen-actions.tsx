@@ -7,6 +7,7 @@ import { RailScreenActions, type RailActionSpec } from '@/components/action-rail
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { useGenerateProspectsAgentAction, type GenerateProspectsAgent } from './generate-prospects-agent';
+import { ControlledPanelSlot } from './controlled-panel-slot';
 
 type ProspectsScreenActionsProps = GenerateProspectsAgent;
 
@@ -55,10 +56,7 @@ export function ProspectsScreenActions({ generateDrawer, isGenerateAvailable }: 
   return (
     <>
       <RailScreenActions actions={actions} agent={agent} isBlocked={openPanel !== null} />
-      {React.cloneElement(generateDrawer, {
-        open: openPanel === 'generate',
-        onOpenChange: closeIf('generate'),
-      })}
+      <ControlledPanelSlot panel={generateDrawer} open={openPanel === 'generate'} onOpenChange={closeIf('generate')} />
       <ImportCandidatesDrawer open={openPanel === 'import'} onOpenChange={closeIf('import')} />
       <CreateCandidateDrawer open={openPanel === 'manual'} onOpenChange={closeIf('manual')} />
     </>

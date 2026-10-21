@@ -21,6 +21,7 @@ import {
 } from '@/components/action-rail/__tests__/rail-test-dom';
 
 import * as React from 'react';
+import { usePanelControl } from '../controlled-panel-slot';
 import { describe, it, before, afterEach, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -55,7 +56,11 @@ mock.module('@/components/prospect-batches/create-candidate-drawer', {
   namedExports: { CreateCandidateDrawer: fakePanel('crear a mano') },
 });
 
-const FakeGenerateDrawer = fakePanel('asistente de IA');
+// El asistente lo arma el servidor y la pantalla lo controla por contexto (no clonándolo).
+const FakeGenerateDrawerView = fakePanel('asistente de IA');
+function FakeGenerateDrawer(props: PanelProps) {
+  return <FakeGenerateDrawerView {...usePanelControl(props)} />;
+}
 
 function renderActions(isGenerateAvailable = true) {
   return render(

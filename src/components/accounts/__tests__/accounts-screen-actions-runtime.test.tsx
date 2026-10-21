@@ -17,6 +17,7 @@ import {
 } from '../../action-rail/__tests__/rail-test-dom';
 
 import * as React from 'react';
+import { usePanelControl } from '../../prospects/controlled-panel-slot';
 import { describe, it, before, afterEach, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -77,7 +78,11 @@ mock.module('../accounts-agent-chooser', {
   },
 });
 
-const FakeGenerateDrawer = fakePanel('asistente de IA');
+// El asistente lo arma el servidor y la pantalla lo controla por contexto (no clonándolo).
+const FakeGenerateDrawerView = fakePanel('asistente de IA');
+function FakeGenerateDrawer(props: PanelProps) {
+  return <FakeGenerateDrawerView {...usePanelControl(props)} />;
+}
 
 const openDialogs = () => screen.queryAllByRole('dialog').map((dialog) => dialog.getAttribute('aria-label'));
 const railState = () => document.querySelector('[data-slot="action-rail"]')?.getAttribute('data-state');
@@ -215,6 +220,48 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
     );
     fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['qué hacer']);
+  });
+});
+
+/**
+ * 🔴 Producción 21-10: el asistente llega del servidor como nodo DIFERIDO (`react.lazy`, un trozo
+ * aparte del envío), no como elemento. `React.cloneElement` sobre eso daba un elemento sin tipo y
+ * «Empresas» entera caía con «Element type is invalid… got: undefined».
+ */
+function deferredFromServer(element: React.ReactElement<PanelProps>): React.ReactElement<PanelProps> {
+  return { $$typeof: Symbol.for('react.lazy'), _payload: element, _init: (payload: React.ReactElement<PanelProps>) => payload } as unknown as React.ReactElement<PanelProps>;
+}
+
+describe('El asistente que llega diferido del servidor', () => {
+  it('🔴 Empresas pinta y controla el asistente aunque llegue diferido', () => {
+    render(
+      <ListActionRailProvider label="Acciones de empresas" gender="f">
+        <AccountsScreenActions
+          users={[]}
+          firstCallEnabled
+          generateAgent={{ generateDrawer: deferredFromServer(<FakeGenerateDrawer />), isGenerateAvailable: true }}
+        />
+      </ListActionRailProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rumbo IA' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prospectar (available)' }));
+    assert.deepEqual(openDialogs(), ['asistente de IA']);
+    fireEvent.click(screen.getByRole('button', { name: 'Volver desde asistente de IA' }));
+    assert.deepEqual(openDialogs(), ['qué hacer']);
+  });
+
+  it('🔴 Descartadas también', () => {
+    render(
+      <ListActionRailProvider label="Acciones de empresas descartadas" gender="f">
+        <GenerateProspectsAgentActions generateDrawer={deferredFromServer(<FakeGenerateDrawer />)} isGenerateAvailable />
+      </ListActionRailProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar con Rumbo IA' }));
+    assert.deepEqual(openDialogs(), ['asistente de IA']);
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar asistente de IA' }));
+    assert.deepEqual(openDialogs(), []);
   });
 });
 

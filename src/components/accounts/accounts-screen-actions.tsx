@@ -7,6 +7,7 @@ import { RailScreenActions, type RailActionSpec } from '@/components/action-rail
 import {
   type GenerateProspectsAgent,
 } from '@/components/prospects/generate-prospects-agent';
+import { ControlledPanelSlot } from '@/components/prospects/controlled-panel-slot';
 import { CreateAccountDrawer } from './create-account-drawer';
 import { FirstContactOutsideLauncher } from '@/components/first-call/first-contact-outside-launcher';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
@@ -107,12 +108,14 @@ export function AccountsScreenActions({
         open={openPanel === 'create'}
         onOpenChange={closeIf('create')}
       />
-      {generateAgent &&
-        React.cloneElement(generateAgent.generateDrawer, {
-          open: openPanel === 'generate',
-          onOpenChange: closeIf('generate'),
-          onBack: backToChooser,
-        })}
+      {generateAgent && (
+        <ControlledPanelSlot
+          panel={generateAgent.generateDrawer}
+          open={openPanel === 'generate'}
+          onOpenChange={closeIf('generate')}
+          onBack={backToChooser}
+        />
+      )}
     </>
   );
 }
