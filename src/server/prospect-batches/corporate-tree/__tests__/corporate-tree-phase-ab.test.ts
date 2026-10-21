@@ -610,11 +610,16 @@ describe('A4. La corrida: el árbol guardado se reutiliza sin pagar', () => {
     assert.ok(off.ok && off.request.refresh === false);
   });
 
-  it('el aviso al vendedor dice que la búsqueda no tuvo costo', () => {
-    assert.match(
-      corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0, reusedSavedTree: true }),
-      /árbol guardado de este grupo: la búsqueda no tuvo costo/,
-    );
+  it('el aviso dice que no se pagó la búsqueda del grupo, sin prometer «sin costo»', () => {
+    const text = corporateTreePendingSummary({ waitingWebsite: 0, groupReferences: 0, reusedSavedTree: true });
+    assert.match(text, /árbol guardado de este grupo: no se volvió a pagar la búsqueda del grupo/);
+    assert.doesNotMatch(text, /Buscar su web/, 'sin empresas esperando web no hay costo de rescate que avisar');
+  });
+
+  it('Bimbo (Prod 21-10): el aviso cuenta lo que puede costar el rescate de las que esperan web', () => {
+    const text = corporateTreePendingSummary({ waitingWebsite: 4, groupReferences: 0, reusedSavedTree: true });
+    assert.match(text, /^4 esperan su web en «Descartadas»\./);
+    assert.match(text, /Buscar su web cuesta hasta ~US\$0,16; no se vuelve a pagar la de una empresa ya buscada sin éxito en los últimos 30 días\./);
   });
 });
 

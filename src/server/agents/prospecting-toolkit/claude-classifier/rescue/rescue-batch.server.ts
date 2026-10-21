@@ -31,7 +31,14 @@ import {
   resolveActiveAnthropicModel,
 } from '../classify-batch-candidates.server';
 import { CLAUDE_CLASSIFIER_PROVIDER_KEY } from '../types';
-import { DOMAIN_SEARCH_REASON_CODE, type DomainDuplicateCheck } from './domain-search';
+import {
+  DOMAIN_SEARCH_REASON_CODE,
+  pickRecentDomainSearch,
+  RECENT_SEARCH_WINDOW_DAYS,
+  type DomainDuplicateCheck,
+  type RecentDomainSearch,
+  type RecentDomainSearchRow,
+} from './domain-search';
 import { findKnownCompanyMatch, type KnownCompanyRow } from './known-company-guard';
 import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
@@ -187,7 +194,41 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
     ),
   checkDuplicate: checkDuplicateStrict,
   findKnownCompany,
+  findRecentSearch,
 };
+
+/** Filas de «Descartadas» del país que se miran como mucho (las de los últimos 30 días). */
+const RECENT_SEARCH_ROWS = 500;
+
+/**
+ * ¿La misma empresa ya tuvo una búsqueda de web pagada que no sirvió hace menos de 30 días?
+ * Sólo lectura (admin: cualquier lote, cualquier vendedor; el gasto es del mismo presupuesto).
+ * Las del país con decisión final en la ventana; la comparación por número fiscal o nombre la
+ * hace `pickRecentDomainSearch`.
+ */
+async function findRecentSearch(input: {
+  dispositionId: string;
+  countryCode: string | null;
+  taxId: string | null;
+  name: string | null;
+}): Promise<RecentDomainSearch | null> {
+  if (!input.countryCode) return null;
+  const since = new Date(Date.now() - RECENT_SEARCH_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data, error } = await createSupabaseAdminClient()
+    .from('prospect_discarded_dispositions')
+    .select('id, batch_id, name, provider_identifier, evidence')
+    .eq('country_code', input.countryCode)
+    .gte('updated_at', since)
+    .in('evidence->claude_rescue->>decision', ['website_not_found', 'duplicate'])
+    .order('updated_at', { ascending: false })
+    .limit(RECENT_SEARCH_ROWS);
+  if (error) throw new Error(`recent_search_read_failed:${error.message}`);
+  return pickRecentDomainSearch(
+    { id: input.dispositionId, name: input.name, taxId: input.taxId },
+    (data ?? []) as RecentDomainSearchRow[],
+    Date.now(),
+  );
+}
 
 /**
  * AGENT1-RESCUE-KNOWN-COMPANY-GUARD-1 — candidatas del mismo lote (cualquier estado)
