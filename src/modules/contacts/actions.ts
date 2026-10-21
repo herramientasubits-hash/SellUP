@@ -2,6 +2,14 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
+import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
+import {
+  contactAccountScopeOrClause,
+  isContactAccountInScope,
+  type ContactAccountOwnership,
+} from './contact-scope';
 import type {
   Contact,
   ContactAuditEntry,
@@ -74,6 +82,46 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 }
 
 // ============================================================
+// Commercial scope
+// ============================================================
+
+/**
+ * internal_users.ids whose accounts' contacts the current user may see — same
+ * contract as `resolveAccountScopeIds` in Empresas:
+ *  - `null` → no constraint (flag off, or admin / view-all).
+ *  - `[]`   → see nothing.
+ *  - `[ids]`→ contacts whose account is owned/created by these ids.
+ */
+async function resolveContactScopeIds(): Promise<string[] | null> {
+  if (!isCommercialScopeEnabled()) return null;
+  const scope = await resolveCommercialScope();
+  if (!scope) return []; // authenticated-but-no-scope → see nothing, never all
+  return resolveScopedUserIds(scope);
+}
+
+/**
+ * Whether the current user may see the contacts of `accountId`. These actions
+ * are callable from the client with any id, so the account's own scope check
+ * (getAccountById) is not enough on its own.
+ */
+async function canSeeAccountContacts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string,
+): Promise<boolean> {
+  const scopeIds = await resolveContactScopeIds();
+  if (scopeIds === null) return true;
+  if (scopeIds.length === 0) return false;
+
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('owner_id, created_by')
+    .eq('id', accountId)
+    .maybeSingle();
+  if (error) throw new Error(`canSeeAccountContacts: ${error.message}`);
+  return isContactAccountInScope(data as ContactAccountOwnership | null, scopeIds);
+}
+
+// ============================================================
 // Validaciones puras
 // ============================================================
 //
@@ -119,14 +167,26 @@ export interface ContactListItem extends Contact {
 
 export async function getAllContacts(): Promise<ContactListItem[]> {
   await requireActiveUser();
+  const scopeIds = await resolveContactScopeIds();
+  if (scopeIds !== null && scopeIds.length === 0) return [];
+
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  // With a scope, the account embed becomes an inner join filtered by the
+  // account's owner/creator, so only contacts of visible companies come back.
+  let query = supabase
     .from('contacts')
-    .select('*, account:account_id ( name )')
-    .is('archived_at', null)
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .select(
+      scopeIds
+        ? '*, account:account_id!inner ( name, owner_id, created_by )'
+        : '*, account:account_id ( name )',
+    )
+    .is('archived_at', null);
+  if (scopeIds) {
+    query = query.or(contactAccountScopeOrClause(scopeIds), { referencedTable: 'account' });
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(500);
 
   if (error) throw new Error(`getAllContacts: ${error.message}`);
 
@@ -143,6 +203,7 @@ export async function getAllContacts(): Promise<ContactListItem[]> {
 export async function getContactsByAccount(accountId: string): Promise<Contact[]> {
   await requireActiveUser();
   const supabase = await createClient();
+  if (!(await canSeeAccountContacts(supabase, accountId))) return [];
 
   const { data, error } = await supabase
     .from('contacts')
@@ -162,11 +223,14 @@ export async function getContactsByAccount(accountId: string): Promise<Contact[]
 export async function getContactsSummary(accountId: string): Promise<ContactsSummary> {
   await requireActiveUser();
   const supabase = await createClient();
+  const inScope = await canSeeAccountContacts(supabase, accountId);
 
-  const { data, error } = await supabase
-    .from('contacts')
-    .select('contact_status, role_in_account, is_primary')
-    .eq('account_id', accountId);
+  const { data, error } = inScope
+    ? await supabase
+        .from('contacts')
+        .select('contact_status, role_in_account, is_primary')
+        .eq('account_id', accountId)
+    : { data: [], error: null };
 
   if (error) throw new Error(`getContactsSummary: ${error.message}`);
 
@@ -192,7 +256,7 @@ export async function getContactById(id: string): Promise<Contact | null> {
 
   const { data, error } = await supabase
     .from('contacts')
-    .select('*')
+    .select('*, scope_account:account_id ( owner_id, created_by )')
     .eq('id', id)
     .single();
 
@@ -201,7 +265,15 @@ export async function getContactById(id: string): Promise<Contact | null> {
     throw new Error(`getContactById: ${error.message}`);
   }
 
-  return data as Contact;
+  // Enforce scope on direct id access: a non-admin must not open a contact of
+  // a company outside their scope by guessing its id.
+  const { scope_account: scopeAccount, ...contact } = data as unknown as Contact & {
+    scope_account: ContactAccountOwnership | null;
+  };
+  const scopeIds = await resolveContactScopeIds();
+  if (!isContactAccountInScope(scopeAccount, scopeIds)) return null;
+
+  return contact as Contact;
 }
 
 // ============================================================
