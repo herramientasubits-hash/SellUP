@@ -77,6 +77,12 @@ export type ClaudeCompanySearchDeps = {
   resolveRegions: (countryCode: string) => readonly string[];
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
   checkQuota: () => Promise<{ allowed: boolean }>;
+  /**
+   * «Competidores»: dominios del grupo de la referencia (matriz, filiales,
+   * hermanas, según la búsqueda en árbol) para que la web tampoco los traiga, como
+   * ya hacen lo gratuito y Apollo. Ausente o fallo ⇒ sólo la referencia misma.
+   */
+  loadCompetitorGroupDomains?: (reference: CompetitorReference) => Promise<readonly string[]>;
   /** Corre la cadena de siempre con el proveedor `claude`; devuelve las llamadas hechas. */
   runSearch: (params: {
     source: SourceBatch;
@@ -331,6 +337,14 @@ export async function runClaudeCompanySearch(
   // La empresa de referencia nunca es su propia competidora.
   const referenceDomain = source.competitorReference?.domain ?? null;
   if (referenceDomain && !excludeDomains.includes(referenceDomain)) excludeDomains = [referenceDomain, ...excludeDomains];
+  // Ni su grupo: la regla de lo gratuito y Apollo, también aquí (auditoría 21-10).
+  let groupDomainsExcluded = 0;
+  if (source.competitorReference && deps.loadCompetitorGroupDomains) {
+    const groupDomains = await deps.loadCompetitorGroupDomains(source.competitorReference).catch(() => []);
+    const fresh = groupDomains.filter((domain) => !excludeDomains.includes(domain));
+    groupDomainsExcluded = fresh.length;
+    if (fresh.length > 0) excludeDomains = [...fresh, ...excludeDomains];
+  }
   const referenceCompanyName = source.referenceCompanyName?.trim() || null;
   // Proveedores y competidores no rotan regiones: sus consultas nombran a la referencia.
   const previousRuns =
@@ -415,6 +429,7 @@ export async function runClaudeCompanySearch(
               queries,
               previous_runs: previousRuns,
               excluded_domains_count: excludeDomains.length,
+              ...(source.competitorReference ? { competitor_group_domains_excluded: groupDomainsExcluded } : {}),
               proposed,
               passed_pre_filter: passedPreFilter,
               rejected,

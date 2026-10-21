@@ -106,7 +106,11 @@ function WizardActiveStepBody({
       // Proveedores: se escribe el nombre. Competidores: se elige o se escribe y
       // SellUp arma la ficha.
       return state.searchMode === 'competitors' ? (
-        <CompetitorReferenceStep dispatch={dispatch} titleRef={stepTitleRef} />
+        <CompetitorReferenceStep
+          dispatch={dispatch}
+          titleRef={stepTitleRef}
+          refresh={state.referenceRefreshRequested === true}
+        />
       ) : (
         <ReferenceCompanyStep state={state} dispatch={dispatch} titleRef={stepTitleRef} />
       );
@@ -267,9 +271,12 @@ type ReferenceLookup =
 function CompetitorReferenceStep({
   dispatch,
   titleRef,
+  refresh,
 }: {
   dispatch: React.Dispatch<ProspectWizardAction>;
   titleRef: TitleRef;
+  /** La persona rechazó la ficha anterior: se pide una nueva, sin la guardada. */
+  refresh: boolean;
 }) {
   const [accounts, setAccounts] = React.useState<readonly ChatQuestionOptionDetail[]>([]);
   const [lookup, setLookup] = React.useState<ReferenceLookup>({ status: 'idle', message: null });
@@ -294,7 +301,8 @@ function CompetitorReferenceStep({
     async (request: { accountId: string } | { query: string }) => {
       setLookup({ status: 'resolving', message: null });
       try {
-        const result = await resolveCompetitorReferenceAction(request);
+        // Tras un «no es esta empresa» no se reutiliza la ficha guardada.
+      const result = await resolveCompetitorReferenceAction(refresh ? { ...request, refresh: true } : request);
         if (result.ok) {
           setLookup({ status: 'idle', message: null });
           dispatch({ type: 'REFERENCE_RESOLVED', reference: result.reference });
@@ -305,7 +313,7 @@ function CompetitorReferenceStep({
         setLookup({ status: 'failed', message: 'No pudimos buscar la empresa. Intenta de nuevo.' });
       }
     },
-    [dispatch],
+    [dispatch, refresh],
   );
 
   if (lookup.status === 'resolving') {

@@ -20,6 +20,7 @@ import {
   isProspectChatWizardExecutionEnabled,
   isApolloCompanySearchEnabled,
 } from '@/lib/feature-flags.server';
+import type { CompetitorBatchRow } from '@/server/prospect-batches/competitor-search/competitor-batch-outcome';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { executeCompetitorSearchRun, type CompetitorRunDeps } from './wizard-competitor-run';
@@ -621,6 +622,7 @@ export type WizardExecutionDeps = {
   runClaudeCompetitorRound?: CompetitorRunDeps['runClaudeCompetitorRound'];
   reportProgress?: CompetitorRunDeps['reportProgress'];
   countCompetitorBatchOutcome?: CompetitorRunDeps['countCompetitorBatchOutcome'];
+  canReadReferenceAccount?: CompetitorRunDeps['canReadReferenceAccount'];
   runCompetitorApollo?: CompetitorRunDeps['runCompetitorApollo'];
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
@@ -1235,18 +1237,25 @@ export async function executeProspectWizardGenerationAction(
       return runCompetitorApolloLive(apolloInput);
     },
     reportProgress: progress.report,
+    // La cuenta de la ficha, leída con la sesión (RLS): sólo si la persona la ve.
+    canReadReferenceAccount: async (accountId) => {
+      const { data, error } = await supabase.from('accounts').select('id').eq('id', accountId).maybeSingle();
+      return !error && data !== null;
+    },
     countCompetitorBatchOutcome: async (batchId) => {
       const { data, error } = await budgetClient
         .from('prospect_candidates')
-        .select('status, duplicate_check:metadata->duplicate_check->>status')
+        .select('status, website, domain, source_primary, metadata, duplicate_check:metadata->duplicate_check->>status')
         .eq('batch_id', batchId);
       if (error || !data) return null;
-      const rows = data as Array<{ status: string | null; duplicate_check: string | null }>;
-      return {
-        reviewable: rows.filter((r) => r.status !== 'duplicate' && r.status !== 'discarded').length,
-        hubspotDuplicates: rows.filter((r) => r.status === 'duplicate' && r.duplicate_check === 'existing_in_hubspot').length,
-        sellupDuplicates: rows.filter((r) => r.status === 'duplicate' && r.duplicate_check !== 'existing_in_hubspot').length,
-      };
+      const { summarizeCompetitorBatchRows } = await import(
+        '@/server/prospect-batches/competitor-search/competitor-batch-outcome'
+      );
+      // Cuántas mirará todavía la revisión de tamaño de Claude (corre al terminar).
+      return summarizeCompetitorBatchRows(data as CompetitorBatchRow[], {
+        rescueEnabled: isAgent1ClaudeRescueEnabled(),
+        nowMs: Date.now(),
+      });
     },
     // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores de una empresa», detrás de su bandera.
     resolveSupplierSearchEnabled: isAgent1SupplierSearchEnabled,

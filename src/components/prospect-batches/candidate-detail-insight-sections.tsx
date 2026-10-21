@@ -42,6 +42,12 @@ export function CandidateFoundReasonSection({
   const supplierOf = relationship?.kind === 'supplier_of' ? referenceName : null;
   const competitorOf = relationship?.kind === 'competitor_of' ? referenceName : null;
   const evidenceUrl = supplierOf || competitorOf ? safeHttpUrl(relationship?.evidence_url) : null;
+  // El motivo del juez («Comparten: …») o la frase de la web: sin él, «Competidor
+  // de X» no decía por qué (auditoría 21-10).
+  const evidence =
+    competitorOf && typeof relationship?.evidence === 'string' && relationship.evidence.trim()
+      ? relationship.evidence.trim()
+      : null;
   return (
     <DrawerSection title="Por qué fue encontrado" icon={Search}>
       <div className="space-y-3">
@@ -54,6 +60,11 @@ export function CandidateFoundReasonSection({
           {competitorOf && (
             <DetailItem label="Competidor de">
               <span className="font-medium leading-snug">{competitorOf}</span>
+            </DetailItem>
+          )}
+          {evidence && (
+            <DetailItem label="Por qué compite">
+              <span className="leading-snug">{evidence}</span>
             </DetailItem>
           )}
           {evidenceUrl && (
