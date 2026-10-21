@@ -40,6 +40,7 @@ import {
   describeSubmissionShape,
   extractWriterSubmission,
   parseWriterSubmission,
+  claimingSentences,
   verifyPack,
   withoutClaimingVariants,
   type WriterSubmission,
@@ -633,6 +634,18 @@ interface WrittenForTarget {
   droppedVariants?: FirstContactApproach[];
   /** El enfoque que se recomendó por los resultados del equipo (en vez del manual). */
   proven?: ProvenApproach | null;
+  /** La corrección extra de clientes inventados en la principal: no hizo falta, los quitó o no. */
+  claimFix?: 'none' | 'fixed' | 'still';
+}
+
+/** La tercera vuelta del redactor: las frases textuales y cómo decirlas sin clientes. */
+function claimFixInstruction(claims: readonly string[]): string {
+  return [
+    'Estas frases afirman clientes, experiencia o resultados de UBITS con otras empresas, o atribuyen algo a «la mayoría», y no lo podemos respaldar:',
+    ...claims.map((c) => `- «${c}»`),
+    'Reescríbelas SIN mencionar a otras empresas, equipos ni clientes: como el patrón del proceso («en empresas que crecen así suele pasar que…»), como pregunta sobre esta empresa («¿cómo lo están resolviendo hoy en…?») o con la oferta tal como está («una demo con casos de su sector»). No cambies lo demás.',
+    `Entrega de nuevo TODO con ${WRITER_SUBMIT_TOOL}.`,
+  ].join('\n');
 }
 
 function verifyAll(
@@ -851,12 +864,80 @@ async function writeForTarget(params: {
     if (retried) shape = describeSubmissionShape(retried);
     if (retried) submission = withApproachNote(parseWriterSubmission(retried, channels), approachNote);
     // Ya hubo una corrección: lo que todavía invente clientes en una versión alternativa se quita.
-    const cleaned = withoutClaimingVariants(submission);
+    let cleaned = withoutClaimingVariants(submission);
     submission = cleaned.submission;
     if (retried || cleaned.dropped.length > 0) {
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview(), droppedVariants: cleaned.dropped, proven };
+    // Binga! (Prod 21-10): en la versión principal no se puede quitar nada. Si todavía afirma
+    // clientes, UNA corrección más con las frases textuales y cómo reescribirlas.
+    const claimsOf = (candidate: WriterSubmission) => [...new Set(channels.flatMap((c) => claimingSentences(contentForChannel(candidate, c))))];
+    const claims = claimsOf(submission!);
+    let claimFix: 'none' | 'fixed' | 'still' = 'none';
+    if (claims.length > 0) {
+      claimFix = 'still';
+      try {
+        const third = await deps.runConversation(
+          {
+            ...body,
+            messages: [
+              ...body.messages,
+              { role: 'assistant', content: second.content },
+              {
+                role: 'user',
+                content: [
+                  ...second.content
+                    .filter((b) => b.type === 'tool_use')
+                    .map((b) => ({ type: 'tool_result', tool_use_id: b.id, content: 'Revisado: todavía hay que corregirlo.' })),
+                  { type: 'text', text: claimFixInstruction(claims) },
+                ],
+              },
+            ],
+          },
+          models.apiKey,
+        );
+        usage = sumUsage(usage, third.usage);
+        stopReasons.push(third.stopReason ?? 'unknown');
+        const fixedRaw = extractWriterSubmission(third.content);
+        if (fixedRaw) {
+          const fixed = withoutClaimingVariants(withApproachNote(parseWriterSubmission(fixedRaw, channels), approachNote));
+          const fixedIssues = verifyAll(fixed.submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
+          const left = claimsOf(fixed.submission);
+          // Revisión 21-10: se queda con la tercera entrega sólo si quita frases inventadas SIN
+          // perder texto ni sumar otros avisos (una entrega a medias no tiene frases que marcar).
+          const keepsText = channels.every((c) => {
+            const before = contentForChannel(submission!, c);
+            const after = contentForChannel(fixed.submission, c);
+            return (!before.shortMessage.text || !!after.shortMessage.text) && (!before.callScript.text || !!after.callScript.text);
+          });
+          if (left.length < claims.length && keepsText && combinedIssues(fixedIssues, channels).length <= combinedIssues(issuesByChannel, channels).length) {
+            submission = fixed.submission;
+            issuesByChannel = fixedIssues;
+            cleaned = { submission: fixed.submission, dropped: [...new Set([...cleaned.dropped, ...fixed.dropped])] };
+            shape = describeSubmissionShape(fixedRaw);
+            lastContent = third.content;
+            if (left.length === 0) claimFix = 'fixed';
+          }
+        }
+      } catch (err) {
+        // La vuelta extra es opcional: si falla (tiempo, red), queda lo que ya había.
+        console.warn('[agent3] claim fix pass failed:', err instanceof AnthropicApiError ? err.code : err instanceof Error ? err.message : err);
+        usage = sumUsage(usage, err instanceof AnthropicApiError ? err.partialUsage : EMPTY_USAGE);
+      }
+    }
+    return {
+      submission,
+      facts,
+      issuesByChannel,
+      usage,
+      errorCode: null,
+      shape,
+      stopReasons,
+      rawPreview: preview(),
+      droppedVariants: cleaned.dropped,
+      proven,
+      claimFix,
+    };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
@@ -1281,6 +1362,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         writer_calls: request.channels.length,
         // Canales que salieron del intento simple (sólo la versión principal).
         fallback_channels: request.channels.filter((c) => byChannel[c]?.fallback),
+        // La corrección extra de clientes inventados en la principal (Binga!, 21-10).
+        claim_fix: Object.fromEntries(
+          request.channels.filter((c) => byChannel[c]?.claimFix && byChannel[c]!.claimFix !== 'none').map((c) => [c, byChannel[c]!.claimFix]),
+        ),
         // El enfoque que se recomendó por los resultados del equipo (si cambió el del manual).
         proven_approach: Object.fromEntries(
           request.channels.filter((c) => byChannel[c]?.proven).map((c) => [c, byChannel[c]!.proven]),
