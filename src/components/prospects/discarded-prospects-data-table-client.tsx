@@ -51,6 +51,10 @@ import {
 } from '@/components/shared/table-cells';
 import { PROSPECTOS_DISCARDED_TAB_ROUTE } from '@/config/navigation';
 import {
+  COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
+  COMPETITOR_SMALL_STATUS_LABEL,
+} from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
+import {
   DateRangeColumnHeader,
   type DateRangeFilterValue,
 } from '@/components/prospects/prospect-date-range-column-header';
@@ -107,6 +111,9 @@ function getStatusBadge(item: DiscardedProspectItem): {
   variant: 'brand' | 'warning' | 'neutral';
 } {
   if (item.status === 'sent_to_review') return { label: 'Enviada a revisión', variant: 'brand' };
+  if (item.sendToReviewBlockedReason === COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED) {
+    return { label: COMPETITOR_SMALL_STATUS_LABEL, variant: 'neutral' };
+  }
   if (item.sendToReviewBlockedReason) return { label: 'Duplicada', variant: 'warning' };
   return { label: 'Descartada', variant: 'neutral' };
 }
@@ -701,6 +708,8 @@ function describeSendToReviewFailure(reason: string): string {
       return 'No se encontró el registro descartado.';
     case 'status_conflict':
       return 'El estado del registro cambió — actualiza la lista e inténtalo de nuevo.';
+    case 'competitor_small_company':
+      return COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED;
     case 'write_failed':
       return 'No se pudo completar la operación. Intenta de nuevo.';
     case 'claimed_by_other_seller':

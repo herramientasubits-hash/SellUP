@@ -25,11 +25,19 @@ import {
   CLAUDE_CLASSIFIER_PROVIDER_KEY,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/types';
 import { detectPromptInjection } from '@/modules/industry-catalog/schema';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import type { ReferenceCompanyCard } from '@/server/agents/prospecting-toolkit/claude-classifier/reference-company';
 import {
   collapseReferenceText,
   normalizeReferenceDomain,
   type CompetitorReferenceCard,
 } from './competitor-reference';
+import {
+  REFERENCE_CARD_CACHE_TTL_MS,
+  buildReferenceCardKey,
+  readCachedReferenceCard,
+  toCachedReferenceCard,
+} from './reference-card-cache';
 
 /** Una llamada con hasta 3 búsquedas web tarda 10–30 s. */
 const REFERENCE_REQUEST_TIMEOUT_MS = 60_000;
@@ -40,6 +48,8 @@ const requestSchema = z
   .object({
     query: z.string().max(200).optional(),
     accountId: z.string().uuid().optional(),
+    /** Tras rechazar la ficha: se arma de nuevo, sin la guardada. */
+    refresh: z.boolean().optional(),
   })
   .strict();
 
@@ -65,6 +75,32 @@ async function loadAccount(accountId: string): Promise<AccountRow | null> {
   return data as AccountRow;
 }
 
+/**
+ * La ficha ya pagada (últimos 30 días, misma cuenta o mismo texto). Fallo de
+ * lectura ⇒ `null`: se paga una ficha nueva, como antes. Lectura con el cliente de
+ * servicio: Uso de IA no es visible para vendedores, y sólo sale la ficha.
+ */
+async function loadCachedReferenceCard(referenceKey: string): Promise<ReferenceCompanyCard | null> {
+  try {
+    const since = new Date(Date.now() - REFERENCE_CARD_CACHE_TTL_MS).toISOString();
+    const { data, error } = await createSupabaseAdminClient()
+      .from('provider_usage_logs')
+      .select('metadata')
+      .eq('provider_key', CLAUDE_CLASSIFIER_PROVIDER_KEY)
+      .eq('metadata->>flow', 'competitor_reference')
+      .eq('metadata->>reference_key', referenceKey)
+      .eq('status', 'success')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    const metadata = (data[0] as { metadata: Record<string, unknown> | null }).metadata;
+    return readCachedReferenceCard(metadata?.reference_card, LATAM_COUNTRIES);
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveCompetitorReferenceAction(
   request: unknown,
 ): Promise<ResolveCompetitorReferenceResult> {
@@ -84,6 +120,18 @@ export async function resolveCompetitorReferenceAction(
   const query = collapseReferenceText(account?.name ?? parsed.data.query ?? '');
   if (query.length < 2) return { ok: false, message: 'Escribe el nombre o la web de la empresa.' };
   if (detectPromptInjection(query)) return { ok: false, message: 'Escribe sólo el nombre o la web de la empresa.' };
+
+  const referenceKey = buildReferenceCardKey({ accountId: account?.id ?? null, query });
+  const cached = parsed.data.refresh === true ? null : await loadCachedReferenceCard(referenceKey);
+  if (cached) {
+    let cachedCatalog;
+    try {
+      cachedCatalog = await loadActiveDiscoveryCatalog();
+    } catch {
+      return { ok: false, message: 'No pudimos leer el catálogo de industrias. Intenta de nuevo.' };
+    }
+    return { ok: true, reference: toReferenceResult(cached, account, cachedCatalog.industries) };
+  }
 
   const active = await resolveActiveAnthropicModel();
   if ('error' in active) {
@@ -137,6 +185,9 @@ export async function resolveCompetitorReferenceAction(
         contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
         flow: 'competitor_reference',
         found: outcome.card !== null,
+        // La clave y la ficha: la próxima vez la misma referencia no se vuelve a pagar.
+        reference_key: referenceKey,
+        ...(outcome.card ? { reference_card: toCachedReferenceCard(outcome.card) } : {}),
         web_search_requests: outcome.usage.webSearchRequests,
         pricing_source: outcome.usage.pricingSource,
       },
@@ -152,17 +203,21 @@ export async function resolveCompetitorReferenceAction(
       message: 'No pudimos identificar la empresa. Prueba con su sitio web (por ejemplo, alpina.com).',
     };
   }
-  const card = outcome.card;
+  return { ok: true, reference: toReferenceResult(outcome.card, account, catalog.industries) };
+}
+
+function toReferenceResult(
+  card: ReferenceCompanyCard,
+  account: AccountRow | null,
+  industries: ReadonlyArray<{ id: string; name: string }>,
+): CompetitorReferenceCard {
   return {
-    ok: true,
-    reference: {
-      name: card.name,
-      domain: card.domain,
-      description: card.description,
-      accountId: account?.id ?? null,
-      ...(card.keywords.length > 0 ? { keywords: card.keywords } : {}),
-      countryCode: card.countryCode,
-      industryId: catalog.industries.find((i) => i.name === card.industryName)?.id ?? null,
-    },
+    name: card.name,
+    domain: card.domain,
+    description: card.description,
+    accountId: account?.id ?? null,
+    ...(card.keywords.length > 0 ? { keywords: card.keywords } : {}),
+    countryCode: card.countryCode,
+    industryId: industries.find((i) => i.name === card.industryName)?.id ?? null,
   };
 }

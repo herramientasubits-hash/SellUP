@@ -11,9 +11,15 @@ export interface DiscardedItemSnapshot {
   /** 'discarded' | 'sent_to_review' for a disposition row, or the raw
    *  `prospect_candidates.status` for a candidate-row item. */
   status: string | null;
+  /**
+   * «Competidores de una empresa» — competidora con menos de 200 empleados
+   * (`isCompetitorSmallCompany`): decisión de la dueña 21-10, se ve en su búsqueda
+   * pero no vuelve a revisión (de ahí iría a HubSpot). Ausente = no lo es.
+   */
+  competitorSmallCompany?: boolean;
 }
 
-export type SendToReviewRejectReason = 'status_conflict';
+export type SendToReviewRejectReason = 'status_conflict' | 'competitor_small_company';
 
 export type SendToReviewEligibility =
   | { decision: 'send' }
@@ -33,6 +39,7 @@ export function evaluateSendToReviewEligibility(
     return { decision: 'idempotent' };
   }
   if (item.status != null && DISCARDED_STATUSES.has(item.status)) {
+    if (item.competitorSmallCompany === true) return { decision: 'reject', reason: 'competitor_small_company' };
     return { decision: 'send' };
   }
   return { decision: 'reject', reason: 'status_conflict' };
