@@ -68,7 +68,8 @@ export function buildCoLookups(serviceClient: SupabaseClient): CountryLookups {
         .limit(CO_ENTITY_QUERY_LIMIT + 1);
       if (error) {
         logError('find entities', error);
-        return [];
+        // AGENT1-SUPPLIER-AUDIT-NOW-1 — un error no es «no es entidad pública».
+        throw new Error('public_entity_lookup_failed:CO');
       }
       const found = (data ?? []) as Array<Record<string, unknown>>;
       const rows = found.slice(0, CO_ENTITY_QUERY_LIMIT).flatMap((row): PublicEntityRow[] => {

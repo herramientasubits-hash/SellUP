@@ -1080,22 +1080,30 @@ export async function executeProspectWizardGenerationAction(
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
     sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+      // AGENT1-SUPPLIER-AUDIT-NOW-1 — quien llama ignora los errores del sellado: aquí al
+      // menos quedan en los registros (antes la metadata terminal se perdía sin rastro).
+      const logSealError = (step: string, error: { message?: string } | null) => {
+        if (error) console.error(`[wizard-seal] ${step} (lote ${batchId}):`, error.message ?? String(error));
+      };
       if (metadata == null) {
-        await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        const { error } = await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        logSealError('estado', error);
         return;
       }
-      const { data: currentRow } = await supabase
+      const { data: currentRow, error: readError } = await supabase
         .from('prospect_batches')
         .select('metadata')
         .eq('id', batchId)
         .maybeSingle();
-      await supabase
+      logSealError('leer metadata', readError);
+      const { error } = await supabase
         .from('prospect_batches')
         .update({
           status,
           metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
         })
         .eq('id', batchId);
+      logSealError('estado y metadata', error);
     },
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),

@@ -23,6 +23,10 @@ import {
   type CountrySourceCompany,
 } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
+import {
+  isUbitsCompetitorDomain,
+  isUbitsCompetitorName,
+} from '@/server/agents/prospecting-toolkit/claude-classifier/ubits-competitors';
 import { PUBLIC_BUYER_COUNTRY_CODES } from './countries/codes';
 
 /**
@@ -122,12 +126,16 @@ export type PublicBuyerStepOutcome =
       consortiaExcluded?: number;
       /** Con tamaño oficial menor que `PUBLIC_BUYER_MIN_OFFICIAL_WORKERS`: no se ofrecen. */
       knownSmallExcluded?: number;
+      /** AGENT1-SUPPLIER-AUDIT-NOW-1 — competidores de UBITS (por nombre o sitio): no se ofrecen. */
+      ubitsCompetitorsExcluded?: number;
       offered: number;
       /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
       written: number;
       writeFailed: boolean;
       /** Sin web, a Descartadas para que el rescate de Claude busque su sitio. */
       recordedWithoutWebsite: number;
+      /** AGENT1-SUPPLIER-AUDIT-NOW-1 — guardar las sin web en Descartadas falló. */
+      recordWithoutWebsiteFailed?: boolean;
       relationships: PublicBuyerRelationship[];
     };
 
@@ -322,8 +330,19 @@ export async function runPublicBuyerSupplierStep(
   const publicOnly = companies.length > 0 ? await deps.listPublicOnlyTaxIds(companies.map((s) => s.taxId)) : new Set<string>();
   const notPublic = companies.filter((s) => !publicOnly.has(s.taxId));
   const knownSmall = notPublic.filter(isKnownSmall);
-  const offered = prioritizeLargeSuppliers(notPublic.filter((s) => !isKnownSmall(s))).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
-  const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — los competidores de UBITS no son prospectos (como en la
+  // ruta de Claude): por nombre antes de elegir y por sitio cuando se conoce.
+  const competitorsByName = notPublic.filter((s) => !isKnownSmall(s) && isUbitsCompetitorName(s.name));
+  const shortlist = prioritizeLargeSuppliers(
+    notPublic.filter((s) => !isKnownSmall(s) && !isUbitsCompetitorName(s.name)),
+  ).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
+  const domains = shortlist.length > 0 ? await deps.findDomainsByTaxId(shortlist.map((s) => s.taxId)) : new Map<string, string>();
+  const isCompetitorSite = (s: PublicBuyerSupplier): boolean => {
+    const domain = domains.get(s.taxId);
+    return !!domain && isUbitsCompetitorDomain(domain);
+  };
+  const offered = shortlist.filter((s) => !isCompetitorSite(s));
+  const ubitsCompetitorsExcluded = competitorsByName.length + (shortlist.length - offered.length);
   const companyInput = {
     countryCode: input.countryCode,
     sourceKey: deps.sourceKey,
@@ -334,7 +353,20 @@ export async function runPublicBuyerSupplierStep(
   const withoutWebsite = offered.filter((s) => !domains.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
 
   const write = withWebsite.length > 0 ? await deps.writeWithWebsite(withWebsite) : { written: 0, failed: false };
-  const recordedWithoutWebsite = withoutWebsite.length > 0 ? await deps.recordWithoutWebsite(withoutWebsite).catch(() => 0) : 0;
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — un fallo aquí queda registrado y marcado en el paso
+  // (antes valía 0 en silencio y la corrida decía «ya eran de alguien»).
+  let recordWithoutWebsiteFailed = false;
+  const recordedWithoutWebsite =
+    withoutWebsite.length > 0
+      ? await deps.recordWithoutWebsite(withoutWebsite).catch((err: unknown) => {
+          recordWithoutWebsiteFailed = true;
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] guardar sin web (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return 0;
+        })
+      : 0;
 
   const buyerName = input.referenceCompanyName.trim();
   const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
@@ -353,10 +385,12 @@ export async function runPublicBuyerSupplierStep(
     publicEntitiesExcluded: companies.filter((s) => publicOnly.has(s.taxId)).length,
     consortiaExcluded: consortia.length,
     knownSmallExcluded: knownSmall.length,
+    ubitsCompetitorsExcluded,
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
     recordedWithoutWebsite,
+    ...(recordWithoutWebsiteFailed ? { recordWithoutWebsiteFailed: true } : {}),
     relationships: offered.map((s) => ({
       taxId: s.taxId,
       name: s.name,
@@ -377,6 +411,13 @@ export function taxIdKey(raw: string | null | undefined): string | null {
   // UEI de EE. UU. («DT2KS3HH5FP5»): 12 caracteres alfanuméricos; sus letras son parte de él.
   const alnum = (raw ?? '').trim().toUpperCase();
   if (/^[A-Z0-9]{12}$/.test(alnum) && /[A-Z]/.test(alnum)) return alnum;
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — con letras que no son el dígito K del RUT (NIF de España
+  // «B12345678», RFC de México), las letras son parte del número: quitarlas hacía que
+  // «A12345678» y «B12345678» cruzaran como la misma empresa.
+  if (/[A-JL-Z]/.test(alnum)) {
+    const kept = alnum.replace(/[^A-Z0-9]/g, '');
+    return kept.length >= 7 ? kept : null;
+  }
   const generic = (raw ?? '').replace(/[^0-9kK]/g, '').toUpperCase();
   return generic.length >= 7 ? generic : null;
 }
@@ -393,7 +434,11 @@ export async function tagPublicBuyerSuppliers(
   input: { batchId: string; referenceCompanyName: string; relationships: readonly PublicBuyerRelationship[] },
   deps: {
     loadCandidates: (batchId: string) => Promise<TaggableCandidate[]>;
-    updateMetadata: (candidateId: string, metadata: Record<string, unknown>) => Promise<boolean>;
+    /**
+     * Agrega `relationship` a la metadata ACTUAL del candidato (relee antes de escribir) y
+     * no pisa una «Proveedor de» que ya tenga. `true` = la escribió.
+     */
+    updateRelationship: (candidateId: string, relationship: Record<string, unknown>) => Promise<boolean>;
   },
 ): Promise<number> {
   if (input.relationships.length === 0) return 0;
@@ -406,15 +451,12 @@ export async function tagPublicBuyerSuppliers(
     const metadata = candidate.metadata ?? {};
     const existing = metadata.relationship as { kind?: unknown } | undefined;
     if (existing && typeof existing === 'object' && existing.kind === 'supplier_of') continue;
-    const ok = await deps.updateMetadata(candidate.id, {
-      ...metadata,
-      relationship: {
-        kind: 'supplier_of',
-        reference_company_name: input.referenceCompanyName.trim(),
-        evidence_url: relationship.evidenceUrl,
-        evidence: relationship.evidence,
-        source: 'public_procurement',
-      },
+    const ok = await deps.updateRelationship(candidate.id, {
+      kind: 'supplier_of',
+      reference_company_name: input.referenceCompanyName.trim(),
+      evidence_url: relationship.evidenceUrl,
+      evidence: relationship.evidence,
+      source: 'public_procurement',
     });
     if (ok) tagged += 1;
   }

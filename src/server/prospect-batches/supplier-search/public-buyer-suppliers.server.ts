@@ -46,6 +46,12 @@ export function buildLivePublicBuyerStepDeps(params: {
       const recorded = await persistDiscardedDispositionRows(
         buildUnverifiedFreeDispositionRows({ batchId: params.batchId, countryCode: params.countryCode, companies }),
       );
+      // AGENT1-SUPPLIER-AUDIT-NOW-1 — el escritor no lanza: un fallo total se convierte en
+      // error (el paso lo marca); uno parcial se registra.
+      if (recorded.failed > 0) logError(`record without website (lote ${params.batchId})`, recorded.errors.join(' | '));
+      if (recorded.failed > 0 && recorded.persisted === 0) {
+        throw new Error(`record_without_website_failed:${recorded.errors[0] ?? 'unknown'}`.slice(0, 200));
+      }
       return recorded.persisted;
     },
   };
@@ -73,8 +79,26 @@ export function buildLivePublicBuyerTagDeps(sessionClient: SupabaseClient) {
         metadata: row.metadata,
       }));
     },
-    updateMetadata: async (candidateId: string, metadata: Record<string, unknown>): Promise<boolean> => {
-      const { error } = await sessionClient.from('prospect_candidates').update({ metadata }).eq('id', candidateId);
+    // AGENT1-SUPPLIER-AUDIT-NOW-1 — relee la metadata justo antes de escribir y sólo agrega
+    // `relationship`: así no pisa lo que el rescate escribió mientras tanto, ni una
+    // relación «Proveedor de» que llegó en el intervalo.
+    updateRelationship: async (candidateId: string, relationship: Record<string, unknown>): Promise<boolean> => {
+      const { data, error: readError } = await sessionClient
+        .from('prospect_candidates')
+        .select('metadata')
+        .eq('id', candidateId)
+        .maybeSingle();
+      if (readError) {
+        logError('tag candidate (read)', readError);
+        return false;
+      }
+      const fresh = ((data as { metadata?: Record<string, unknown> | null } | null)?.metadata ?? {}) as Record<string, unknown>;
+      const existing = fresh.relationship as { kind?: unknown } | undefined;
+      if (existing && typeof existing === 'object' && existing.kind === 'supplier_of') return false;
+      const { error } = await sessionClient
+        .from('prospect_candidates')
+        .update({ metadata: { ...fresh, relationship } })
+        .eq('id', candidateId);
       if (error) logError('tag candidate', error);
       return !error;
     },

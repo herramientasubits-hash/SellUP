@@ -42,6 +42,21 @@ export const UBITS_COMPETITOR_DOMAIN_LABELS: ReadonlySet<string> = new Set([
   'goconqr',
 ]);
 
+/**
+ * AGENT1-SUPPLIER-AUDIT-NOW-1 — ¿el nombre es de un competidor de UBITS? Para lo que llega
+ * sin sitio (compras públicas: «COURSERA INC», «UDEMY IRELAND LIMITED»). Una palabra
+ * completa del nombre debe ser la etiqueta: «Platzi» sí; «Edxcel» no.
+ */
+export function isUbitsCompetitorName(name: string | null | undefined): boolean {
+  const words = (name ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return words.some((word) => UBITS_COMPETITOR_DOMAIN_LABELS.has(word));
+}
+
 /** ¿El sitio es de un competidor de UBITS? */
 export function isUbitsCompetitorDomain(urlOrDomain: string): boolean {
   const domain = normalizeDomain(urlOrDomain);

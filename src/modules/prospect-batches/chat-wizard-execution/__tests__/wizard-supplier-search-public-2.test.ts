@@ -148,11 +148,30 @@ describe('2. Claude no corre si compras públicas trajo proveedores (AGENT1-SUPP
     assert.equal(result.ok && result.status, 'success_partial');
   });
 
-  it('aunque todas salgan duplicadas, si SECOP trajo proveedores Claude no corre', async () => {
-    const f = deps({ publicStep: step(3, 0), outcomes: [{ reviewable: 0, hubspotDuplicates: 3, sellupDuplicates: 0 }], publicAccepted: [] });
-    const result = await executeSupplierSearchRun(INPUT, f.d);
+  it('AGENT1-SUPPLIER-AUDIT-NOW-1 — si todas salen duplicadas (nada que revisar ni rescatar), Claude hace UNA ronda', async () => {
+    const f = deps({
+      publicStep: step(3, 0),
+      outcomes: [{ reviewable: 0, hubspotDuplicates: 3, sellupDuplicates: 0 }, reviewable(1)],
+      publicAccepted: [],
+    });
+    await executeSupplierSearchRun(INPUT, f.d);
+    assert.deepEqual(f.claudeRounds, [0]);
+    const leg = f.seals[0].metadata?.[SUPPLIER_SEARCH_LEG_METADATA_KEY] as Record<string, unknown>;
+    assert.equal(leg.claude_rounds_allowed, 1);
+  });
+
+  it('AGENT1-SUPPLIER-AUDIT-NOW-1 — con sin web para rescatar, Claude no corre (caso Chile: 0 escritas, 12 sin web)', async () => {
+    const f = deps({ publicStep: step(0, 12), outcomes: [reviewable(4)], publicAccepted: ids(3) });
+    await executeSupplierSearchRun(INPUT, f.d);
     assert.deepEqual(f.claudeRounds, []);
-    assert.equal(result.ok && result.status, 'no_new_candidates');
+  });
+
+  it('AGENT1-SUPPLIER-AUDIT-NOW-1 — una escritura que falló no se informa como «ya eran de alguien»', async () => {
+    const failed = { ...step(0, 0), offered: 4, writeFailed: true } as PublicBuyerStepOutcome;
+    const f = deps({ publicStep: failed, outcomes: [reviewable(0)], publicAccepted: [] });
+    f.d.runClaudeSupplierSearch = async () => ({ executed: false, reason: 'failed:boom' });
+    const result = await executeSupplierSearchRun(INPUT, f.d);
+    assert.equal(result.ok, false);
   });
 
   it('si SECOP no trajo a nadie de la industria, Claude hace sus dos rondas (Fase 1)', async () => {
@@ -162,10 +181,12 @@ describe('2. Claude no corre si compras públicas trajo proveedores (AGENT1-SUPP
   });
 
   it('la regla', () => {
-    assert.equal(resolveClaudeRoundsAfterPublic(null), 2);
-    assert.equal(resolveClaudeRoundsAfterPublic({ executed: false, reason: 'not_public_entity' }), 2);
-    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 0)), 2);
-    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 1)), 0);
-    assert.equal(resolveClaudeRoundsAfterPublic(step(4, 8)), 0);
+    assert.equal(resolveClaudeRoundsAfterPublic(null, null), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic({ executed: false, reason: 'not_public_entity' }, null), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 0), null), 2);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(0, 1), null), 0);
+    assert.equal(resolveClaudeRoundsAfterPublic(step(4, 8), 4), 0);
+    // Ofreció 3, escribió 3, pero las 3 eran duplicadas: no quedó nada ⇒ una ronda.
+    assert.equal(resolveClaudeRoundsAfterPublic(step(3, 0), 0), 1);
   });
 });

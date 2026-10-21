@@ -131,10 +131,14 @@ export function buildLoadedLinksLookups(
     findPublicEntities: async (normalizedName) => {
       // Primero el nombre exacto: si existe, decide (como en `pickPublicBuyer`) y las que sólo
       // empiezan igual no importan. Si no, las que empiezan por el nombre seguido de espacio.
+      // AGENT1-SUPPLIER-AUDIT-NOW-1 — un error de lectura NO es «no es entidad pública»:
+      // se lanza y el paso queda `failed:…` en el lote (antes, una caída pasaba por empresa privada).
       const exact = await distinctBuyers({ op: 'eq', value: normalizedName });
-      if (exact === null) return [];
+      if (exact === null) throw new Error(`public_entity_lookup_failed:${country.countryCode}`);
       if (exact.truncated || exact.rows.length > 0) return exact;
-      return (await distinctBuyers({ op: 'like', value: `${normalizedName.replace(/[%_]/g, '')} %` })) ?? [];
+      const prefix = await distinctBuyers({ op: 'like', value: `${normalizedName.replace(/[%_]/g, '')} %` });
+      if (prefix === null) throw new Error(`public_entity_lookup_failed:${country.countryCode}`);
+      return prefix;
     },
 
     listSuppliers: async ({ buyerTaxId, macroIndustryKey }) => {

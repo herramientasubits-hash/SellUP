@@ -241,6 +241,8 @@ export function publicLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | 
  */
 export function publicNothingNewLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | null {
   if (!step?.executed || step.offered <= 0 || publicLegOf(step) !== null) return null;
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — una escritura que falló no es «ya eran de alguien».
+  if (step.writeFailed || step.recordWithoutWebsiteFailed) return null;
   return {
     executed: true,
     persistedCandidates: 0,
@@ -269,16 +271,31 @@ export function publicStepMetadata(step: PublicBuyerStepOutcome, tagged: number 
   return { ...rest, suppliers: relationships.length, tagged };
 }
 
+/** Rondas de Claude cuando compras públicas trajo proveedores pero no dejó NADA en el lote. */
+export const SUPPLIER_PUBLIC_FALLBACK_ROUNDS = 1;
+
 /**
- * AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — ¿cuántas rondas de Claude? NINGUNA si la referencia
- * es una entidad pública y compras públicas trajo proveedores de la industria (decisión
- * de la dueña, 15-10). Claude no encuentra nada útil para entidades públicas: Prod 15-10,
- * Alcaldía de Medellín 2 rondas (US$0,50) → 2 empresas descartadas; Ministerio de
- * Educación 1 ronda (US$0,23) → 0 propuestas. Si compras públicas no corrió o no trajo
- * a nadie, Claude hace sus dos rondas de siempre (Fase 1).
+ * AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — ¿cuántas rondas de Claude? NINGUNA si compras públicas
+ * dejó algo (decisión de la dueña, 15-10): Claude no encuentra nada útil para entidades
+ * públicas (Prod 15-10: Alcaldía de Medellín 2 rondas, US$0,50 → 2 descartadas; Ministerio
+ * de Educación 1 ronda, US$0,23 → 0 propuestas). Si compras públicas no corrió o no trajo
+ * a nadie de la industria, Claude hace sus dos rondas de siempre (Fase 1).
+ *
+ * AGENT1-SUPPLIER-AUDIT-NOW-1 (auditoría 21-10, dueña: «sólo si no dejó nada») — antes se
+ * miraba lo OFRECIDO: si compras públicas trajo proveedores pero no dejó ni uno para
+ * revisar ni para rescatar (todas duplicadas, o la escritura falló), la corrida terminaba
+ * en cero sin intentar nada. Ahí corre UNA ronda. `reviewable` = lo que quedó en Por
+ * revisar tras el paso público (`null` = no se leyó; se usa lo escrito).
  */
-export function resolveClaudeRoundsAfterPublic(step: PublicBuyerStepOutcome | null): number {
-  return step?.executed && step.offered > 0 ? 0 : SUPPLIER_SEARCH_MAX_ROUNDS;
+export function resolveClaudeRoundsAfterPublic(step: PublicBuyerStepOutcome | null, reviewable: number | null): number {
+  if (!step?.executed || step.offered <= 0) return SUPPLIER_SEARCH_MAX_ROUNDS;
+  const leftSomething = (reviewable ?? step.written) > 0 || step.recordedWithoutWebsite > 0;
+  return leftSomething ? 0 : SUPPLIER_PUBLIC_FALLBACK_ROUNDS;
+}
+
+/** Errores que no cambian la corrida, pero que deben quedar en los registros. */
+function logSupplierRunError(step: string, batchId: string, err: unknown): void {
+  console.error(`[supplier-search] ${step} (lote ${batchId}):`, err instanceof Error ? err.message : String(err));
 }
 
 /**
@@ -424,8 +441,11 @@ export async function executeSupplierSearchRun(
       : null;
   const publicLeg = publicLegOf(publicStep);
   let batchOutcome = publicLeg && publicLeg.persistedCandidates > 0 ? await readOutcome() : null;
-  // AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — si compras públicas trajo proveedores, Claude no corre.
-  const claudeRounds = resolveClaudeRoundsAfterPublic(publicStep);
+  // AGENT1-SUPPLIER-SEARCH-PUBLIC-3 — según lo que compras públicas dejó para revisar.
+  const claudeRounds = resolveClaudeRoundsAfterPublic(
+    publicStep,
+    batchOutcome?.reviewable ?? publicLeg?.persistedCandidates ?? null,
+  );
 
   const firstRound: ClaudeSearchLegOutcome =
     claudeRounds === 0
@@ -502,7 +522,10 @@ export async function executeSupplierSearchRun(
             referenceCompanyName: input.referenceCompanyName,
             relationships: publicStep.relationships,
           })
-          .catch(() => 0)
+          .catch((err) => {
+            logSupplierRunError('etiquetar «Proveedor de»', batchId, err);
+            return 0;
+          })
       : null;
 
   // 4d. AGENT1-SUPPLIER-SEARCH-PUBLIC-2 — las de compras públicas que cuentan, leídas al
@@ -566,13 +589,14 @@ export async function executeSupplierSearchRun(
               window_ms: rescue.windowMs,
               accepted_after_rescue: rescue.acceptedIds?.length ?? null,
             },
-            ...(publicLeg ? { claude_rounds_allowed: claudeRounds, public_accepted: publicAccepted } : {}),
+            ...(publicStep?.executed ? { claude_rounds_allowed: claudeRounds } : {}),
+            ...(publicLeg ? { public_accepted: publicAccepted } : {}),
           },
           ...(publicStep ? { [SUPPLIER_PUBLIC_BUYER_METADATA_KEY]: publicStepMetadata(publicStep, publicTagged) } : {}),
           ...(leg.executed ? { [ACCEPTED_FOR_TARGET_METADATA_KEY]: toAcceptedForTargetMetadata(acceptedForTarget) } : {}),
         },
       })
-      .catch(() => undefined);
+      .catch((err) => logSupplierRunError('sellar el lote', batchId, err));
   }
 
   if (!leg.executed) {
