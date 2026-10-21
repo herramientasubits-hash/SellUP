@@ -4,6 +4,10 @@
 
 import type { ApolloPerson } from '@/server/integrations/apollo-client';
 import { pickBestApolloPhone, type ClassifiedPhone } from './phone-classification';
+import {
+  APOLLO_DIRECT_PHONE_HINT_METADATA_KEY,
+  parseApolloDirectPhoneHint,
+} from '@/modules/contact-enrichment/apollo-direct-phone-hint';
 
 // ── Normalización de cargo Apollo ─────────────────────────────────
 // Apollo a veces devuelve en el campo title una mezcla de cargo real,
@@ -200,6 +204,7 @@ export function normalizeApolloPerson(
   const country = cleanString(person.country);
   const classifiedPhone = pickPhone(person);
   const phone = classifiedPhone?.number ?? null;
+  const directPhoneHint = parseApolloDirectPhoneHint(person.has_direct_phone);
 
   const confidence = computeConfidence({
     hasEmail: !!email,
@@ -232,6 +237,8 @@ export function normalizeApolloPerson(
       email_status: person.email_status ?? null,
       // AGENT2-KNOWN-CONTACT-PRECHECK-1 — sólo cuando Apollo lo manda (búsqueda gratis).
       ...(cleanString(person.last_name_obfuscated) ? { last_name_obfuscated: cleanString(person.last_name_obfuscated) } : {}),
+      // APOLLO-DIRECT-PHONE-HINT-1 — pista gratis de la búsqueda; no revela ni cobra.
+      ...(directPhoneHint ? { [APOLLO_DIRECT_PHONE_HINT_METADATA_KEY]: directPhoneHint } : {}),
       organization: person.organization
         ? {
             id: person.organization.id,

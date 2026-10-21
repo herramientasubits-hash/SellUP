@@ -132,12 +132,15 @@ export function deriveWizardMessages(
       step: 'reference_company',
     });
 
-    if (state.referenceCompanyName) {
+    if (state.referenceCompanyName || state.supplierScope === 'frequent_public') {
       messages.push({
         id: 'user-reference-company-answer',
         role: 'user',
         messageType: 'selection_summary',
-        content: state.referenceCompanyName,
+        content:
+          state.supplierScope === 'frequent_public'
+            ? 'Sin empresa de referencia: proveedores frecuentes del Estado'
+            : (state.referenceCompanyName as string),
         step: 'reference_company',
       });
     }
@@ -188,7 +191,7 @@ export function deriveWizardMessages(
   // ── Country ──────────────────────────────────────────────────────────────
   if (
     hasReached(state.currentStep, 'country') &&
-    (state.searchMode === 'exploratory' || isCompetitors || (isSuppliers && !!state.referenceCompanyName))
+    (state.searchMode === 'exploratory' || isCompetitors || (isSuppliers && (!!state.referenceCompanyName || state.supplierScope === 'frequent_public')))
   ) {
     messages.push({
       id: 'assistant-country-question',

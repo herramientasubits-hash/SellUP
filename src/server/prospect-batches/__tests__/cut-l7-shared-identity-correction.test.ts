@@ -1157,9 +1157,9 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
       assert.equal(agent3FirstCall.includes(foreign), false, `la 153 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
     }
-    // Ninguna 154 o superior, se llame como se llame.
+    // Ninguna 155 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15[4-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[5-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

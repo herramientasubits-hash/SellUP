@@ -24,7 +24,7 @@ import { loadEnvConfig } from '@next/env';
 const envDirIndex = process.argv.indexOf('--env-dir');
 loadEnvConfig(envDirIndex >= 0 && process.argv[envDirIndex + 1] ? process.argv[envDirIndex + 1] : process.cwd());
 
-import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs';
+import { createWriteStream, existsSync, lstatSync, mkdirSync, renameSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -41,6 +41,8 @@ import { monthsBack } from '../../src/server/prospect-batches/supplier-search/co
 import { PROCUREMENT_LINKS_TABLE } from '../../src/server/prospect-batches/supplier-search/countries/loaded-lookups.server';
 
 const UPSERT_CHUNK = 500;
+/** Intentos por archivo cuando la conexión se corta a mitad de la descarga. */
+const DOWNLOAD_ATTEMPTS = 3;
 
 function arg(name: string): string | null {
   const i = process.argv.indexOf(name);
@@ -53,12 +55,34 @@ function lastDay(year: number, month: number): string {
 
 async function download(url: string, file: string): Promise<void> {
   if (existsSync(file) && statSync(file).size > 1_000) return;
+  // AGENT1-SUPPLIER-RELOAD-1 — un enlace roto (apuntaba a una carpeta que ya no está) se ve
+  // como «no existe», pero escribir a través de él falla con ENOENT: se quita y se baja de nuevo.
+  try {
+    if (lstatSync(file).isSymbolicLink()) unlinkSync(file);
+  } catch {
+    // No existe: se baja.
+  }
   // Fuentes que no se pueden bajar desde un script (México: el portal firma cada descarga):
   // la persona deja el archivo en la carpeta y el cargador sólo lo lee.
   if (url.startsWith('manual:')) throw new Error(`descarga_manual: falta ${file} — bájalo a mano desde ${url.slice('manual:'.length)}`);
-  const response = await fetch(url, { headers: { 'User-Agent': 'SellUp/0.1 public-procurement-load' } });
-  if (!response.ok || !response.body) throw new Error(`download_failed:${url}:${response.status}`);
-  await pipeline(Readable.fromWeb(response.body as never), createWriteStream(file));
+  // AGENT1-SUPPLIER-RELOAD-1 — se baja a «.part» y sólo al terminar se renombra: una descarga
+  // cortada (Paraguay 21-10, «terminated»: 81 MB a ~240 KB/s) dejaba un archivo a medias que
+  // después se reusaba. Una conexión cortada se reintenta; un 4xx/5xx no.
+  const partial = `${file}.part`;
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetch(url, { headers: { 'User-Agent': 'SellUp/0.1 public-procurement-load' } });
+    if (!response.ok || !response.body) throw new Error(`download_failed:${url}:${response.status}`);
+    try {
+      await pipeline(Readable.fromWeb(response.body as never), createWriteStream(partial));
+      renameSync(partial, file);
+      return;
+    } catch (err) {
+      rmSync(partial, { force: true });
+      if (attempt >= DOWNLOAD_ATTEMPTS) throw err;
+      console.log(`  descarga cortada (${err instanceof Error ? err.message : String(err)}); intento ${attempt + 1} de ${DOWNLOAD_ATTEMPTS}…`);
+      await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -84,13 +108,19 @@ async function main(): Promise<void> {
     normalizeBuyerName: country.normalizeBuyerName,
   });
   const files = loader.files({ year, month }, months);
-  for (const f of files) {
+  for (const [index, f] of files.entries()) {
     const path = join(dir, f.name);
     await download(f.url, path);
     const before = aggregator.lines;
     await loader.readLines(path, (line) => aggregator.add(line));
-    console.log(`  ${f.name}: ${aggregator.lines - before} líneas de empresa`);
+    const emitted = aggregator.lines - before;
+    // AGENT1-SUPPLIER-RELOAD-1 — los lectores OCDS por año (HN, GT, PY) juntan cada proceso en
+    // todos los archivos y lo entregan al cerrar el último: el «0» de un archivo anterior no es
+    // pérdida (21-10: 664 de 1.077 pares de Honduras empiezan en oct–dic 2025).
+    const note = emitted === 0 && index < files.length - 1 ? ' (leído; sus líneas salen al cerrar el último archivo)' : '';
+    console.log(`  ${f.name}: ${emitted} líneas de empresa${note}`);
   }
+  console.log(`  Total: ${aggregator.lines} líneas de empresa en la ventana`);
 
   const first = monthsBack({ year, month }, months)[0];
   const windowStart = `${first.year}-${String(first.month).padStart(2, '0')}-01`;

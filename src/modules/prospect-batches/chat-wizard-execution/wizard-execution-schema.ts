@@ -3,6 +3,7 @@ import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { competitorReferenceSchema } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { REFERENCE_COMPANY_LIMITS } from '@/modules/prospect-batches/chat-wizard/wizard-config';
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
 
 // ── Request schema ────────────────────────────────────────────────────────────
 // .strict() rejects unknown fields — targetCount and userId sent from the client
@@ -73,6 +74,11 @@ export const wizardExecutionRequestSchema = z
           ),
       )
       .optional(),
+    /**
+     * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores» SIN empresa de referencia:
+     * proveedores frecuentes del Estado (sólo países con compras públicas cargadas).
+     */
+    supplierScope: z.enum(['frequent_public']).optional(),
     /** «Competidores de una empresa»: la ficha de la referencia. */
     referenceCompany: competitorReferenceSchema.optional(),
   })
@@ -95,6 +101,31 @@ export const wizardExecutionRequestSchema = z
       });
     }
 
+    if (value.supplierScope !== undefined && value.searchMode !== 'suppliers') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supplierScope'],
+        message: 'Los proveedores frecuentes del Estado sólo aplican a la búsqueda de proveedores.',
+      });
+    }
+    if (value.searchMode === 'suppliers' && value.supplierScope === 'frequent_public') {
+      // Sin referencia: no hay empresa que citar, y el país tiene que tener compras cargadas.
+      if (value.referenceCompanyName !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['referenceCompanyName'],
+          message: 'Los proveedores frecuentes del Estado no llevan empresa de referencia.',
+        });
+      }
+      if (!FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(value.countryCode)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['countryCode'],
+          message: 'Proveedores frecuentes del Estado todavía no está disponible para ese país.',
+        });
+      }
+      return;
+    }
     if (value.searchMode === 'suppliers') {
       if (!value.referenceCompanyName) {
         ctx.addIssue({
