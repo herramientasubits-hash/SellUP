@@ -18,6 +18,16 @@ import {
 import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { SupplierReferenceSuggestions, useSupplierReferenceSuggestions } from './supplier-reference-suggestions';
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
+
+/** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — la opción «sin empresa de referencia» de «Proveedores». */
+const FREQUENT_PUBLIC_OPTION_VALUE = '__frequent_public__';
+const FREQUENT_PUBLIC_OPTION: ChatQuestionOptionDetail = {
+  value: FREQUENT_PUBLIC_OPTION_VALUE,
+  label: 'Sin empresa: proveedores frecuentes del Estado',
+  description: `Empresas que le venden a 3 o más entidades públicas, con el contrato como prueba. Gratis, en ${FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.length} países.`,
+};
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -350,6 +360,10 @@ function ReferenceCompanyStep({
   titleRef: TitleRef;
 }) {
   const [accounts, setAccounts] = React.useState<readonly ChatQuestionOptionDetail[]>([]);
+  // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — lo escrito en «Otra empresa», para sugerir
+  // entidades públicas que la búsqueda en compras públicas reconoce por nombre exacto.
+  const [typed, setTyped] = React.useState('');
+  const suggestions = useSupplierReferenceSuggestions(typed);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -373,20 +387,33 @@ function ReferenceCompanyStep({
       title="¿De qué empresa quieres encontrar proveedores?"
       description={
         accounts.length > 0
-          ? 'Elige una de tus cuentas o escribe su nombre. Buscaremos empresas con evidencia pública de que le venden.'
-          : 'Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden.'
+          ? 'Elige una de tus cuentas o escribe su nombre. Si es una entidad pública, te sugerimos las que tienen compras públicas cargadas.'
+          : 'Escribe su nombre, por ejemplo: Ecopetrol o Seguro Social. Si es una entidad pública, te sugerimos las que tienen compras públicas cargadas.'
       }
       titleRef={titleRef}
-      options={accounts}
+      options={[FREQUENT_PUBLIC_OPTION, ...accounts]}
       onAnswer={(accountId) => {
+        if (accountId === FREQUENT_PUBLIC_OPTION_VALUE) {
+          dispatch({ type: 'SET_SUPPLIER_FREQUENT_PUBLIC' });
+          return;
+        }
         const account = accounts.find((option) => option.value === accountId);
         if (account) dispatch({ type: 'SET_REFERENCE_COMPANY', value: account.label });
       }}
       filterPlaceholder="Buscar en tus cuentas"
       otherLabel={accounts.length > 0 ? 'Otra empresa' : 'Empresa'}
-      otherPlaceholder="Nombre de la empresa"
+      otherPlaceholder="Nombre de la empresa o entidad pública"
       otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
       onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
+      onOtherChange={setTyped}
+      otherSuggestions={
+        <SupplierReferenceSuggestions
+          state={suggestions}
+          onPick={(item) =>
+            dispatch({ type: 'SET_REFERENCE_COMPANY', value: item.name, suggestedCountryCode: item.countryCode })
+          }
+        />
+      }
       footerNotice={
         hasIssues(state, 'reference_company') ? (
           <StepBlockingIssues state={state} step="reference_company" />
@@ -485,12 +512,19 @@ function CountryStep({
     );
   }
   const suggested = state.countryCode;
+  // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia, sólo países con compras públicas cargadas.
+  const frequent = state.searchMode === 'suppliers' && state.supplierScope === 'frequent_public';
   return (
     <ChatQuestionPanel
       aria-label="País de la búsqueda"
       title="¿En qué país quieres buscar prospectos?"
+      {...(frequent ? { description: 'Países con compras públicas cargadas.' } : {})}
       titleRef={titleRef}
-      options={COUNTRY_OPTIONS}
+      options={
+        frequent
+          ? COUNTRY_OPTIONS.filter((option) => FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(option.value))
+          : COUNTRY_OPTIONS
+      }
       selected={suggested ? [suggested] : []}
       onAnswer={onCountryChange}
       filterPlaceholder="Buscar país"

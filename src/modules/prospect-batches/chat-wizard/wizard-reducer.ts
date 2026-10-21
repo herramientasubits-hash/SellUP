@@ -1,3 +1,4 @@
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import {
@@ -32,6 +33,7 @@ export function hasWizardSelections(state: ProspectWizardState): boolean {
   return (
     state.searchMode !== null ||
     (state.referenceCompanyName ?? '').trim().length > 0 ||
+    state.supplierScope === 'frequent_public' ||
     (state.referenceCompany ?? null) !== null ||
     state.countryCode !== null ||
     state.industryId !== null ||
@@ -180,6 +182,7 @@ export function prospectWizardReducer(
           searchMode: action.mode,
           currentStep: 'corporate_tree',
           referenceCompanyName: null,
+          supplierScope: null,
           referenceCompany: null,
           warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
         };
@@ -193,6 +196,7 @@ export function prospectWizardReducer(
           ...state,
           searchMode: action.mode,
           referenceCompanyName: null,
+          supplierScope: null,
           ...(hasReference && state.searchMode === 'competitors' && state.editReturnsToSummary === true
             ? afterEditedStep(state, 'reference_company')
             : { currentStep: 'reference_company' as const }),
@@ -205,7 +209,8 @@ export function prospectWizardReducer(
       // «Proveedores» desde el resumen obliga a escribirla (no se vuelve al resumen
       // sin ella).
       if (action.mode === 'suppliers') {
-        const hasReference = (state.referenceCompanyName ?? '').trim().length > 0;
+        const hasReference =
+          (state.referenceCompanyName ?? '').trim().length > 0 || state.supplierScope === 'frequent_public';
         return {
           ...state,
           searchMode: action.mode,
@@ -221,6 +226,7 @@ export function prospectWizardReducer(
         ...state,
         searchMode: action.mode,
         referenceCompanyName: null,
+        supplierScope: null,
         referenceCompany: null,
         ...afterEditedStep(state, 'country'),
         warnings: withoutWarningCode(state.warnings, 'MODE_COMING_SOON'),
@@ -248,10 +254,39 @@ export function prospectWizardReducer(
           ],
         };
       }
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — una entidad sugerida trae su país: queda
+      // preseleccionado. Si cambia el país ya elegido (al editar desde el resumen), se
+      // pasa por la pregunta de país para confirmarlo antes de volver al resumen.
+      const suggestedCountry =
+        action.suggestedCountryCode && VALID_COUNTRY_CODES.has(action.suggestedCountryCode)
+          ? action.suggestedCountryCode
+          : null;
+      const countryChanges = suggestedCountry !== null && suggestedCountry !== state.countryCode;
       return {
         ...state,
         referenceCompanyName: value,
-        ...afterEditedStep(state, 'country'),
+        supplierScope: null,
+        ...(suggestedCountry ? { countryCode: suggestedCountry } : {}),
+        ...(countryChanges && state.editReturnsToSummary === true
+          ? { currentStep: 'country' as const }
+          : afterEditedStep(state, 'country')),
+        blockingIssues: withoutBlockingCode(state.blockingIssues, 'REFERENCE_COMPANY_INVALID'),
+      };
+    }
+
+    // ── SET_SUPPLIER_FREQUENT_PUBLIC ────────────────────────────────────────
+    // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores» sin empresa de referencia. Sólo en
+    // países con compras públicas cargadas: si el país ya elegido no está, se vuelve a
+    // preguntar (también al editar desde el resumen).
+    case 'SET_SUPPLIER_FREQUENT_PUBLIC': {
+      if (state.currentStep !== 'reference_company' || state.searchMode !== 'suppliers') return state;
+      const countryOk = state.countryCode !== null && FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(state.countryCode);
+      return {
+        ...state,
+        supplierScope: 'frequent_public',
+        referenceCompanyName: null,
+        countryCode: countryOk ? state.countryCode : null,
+        ...(countryOk ? afterEditedStep(state, 'country') : { currentStep: 'country' as const }),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'REFERENCE_COMPANY_INVALID'),
       };
     }
@@ -319,6 +354,20 @@ export function prospectWizardReducer(
             ...withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'),
             issue,
           ],
+        };
+      }
+
+      // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia, sólo países con compras cargadas.
+      if (state.supplierScope === 'frequent_public' && !FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(action.countryCode)) {
+        const issue: WizardBlockingIssue = {
+          code: 'COUNTRY_REQUIRED',
+          step: 'country',
+          message: 'Proveedores frecuentes del Estado todavía no está disponible para ese país.',
+          recoverable: true,
+        };
+        return {
+          ...state,
+          blockingIssues: [...withoutBlockingCode(state.blockingIssues, 'COUNTRY_REQUIRED'), issue],
         };
       }
 

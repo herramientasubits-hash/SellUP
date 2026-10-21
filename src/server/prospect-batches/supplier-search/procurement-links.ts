@@ -185,6 +185,8 @@ export type StoredProcurementLink = {
   last_order_on: string | null;
   top_order_url: string | null;
   window_start: string;
+  /** AGENT1-SUPPLIER-RELOAD-1 — fin de la ventana cargada (frescura). Ausente en lecturas viejas. */
+  window_end?: string | null;
 };
 
 /**
@@ -248,6 +250,7 @@ export function suppliersFromLinks(
     outsideIndustry: rows.length - suppliers.length,
     tableVersion: classifier.tableVersion,
     ...(rows[0]?.window_start ? { sinceYear: rows[0].window_start.slice(0, 4) } : {}),
+    ...(rows[0]?.window_end ? { windowEnd: rows[0].window_end } : {}),
   };
 }
 

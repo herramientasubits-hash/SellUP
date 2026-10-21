@@ -734,13 +734,16 @@ function SupplierValidatedPanel({
   dispatch,
 }: SupplierValidatedPanelProps) {
   const reference = state.referenceCompanyName ?? '';
+  const frequent = state.supplierScope === 'frequent_public';
   return (
     <div className="space-y-4 animate-su-fade-in" role="status" data-testid="wizard-supplier-validated-panel">
       <Alert variant="success" role={undefined}>
         <AlertTitle className="text-sm">La configuración es válida.</AlertTitle>
         <AlertDescription className="text-xs">
           {executionEnabled
-            ? `Claude buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
+            ? frequent
+              ? 'Buscaremos en las compras públicas empresas que le venden a 3 o más entidades del Estado, con el contrato como prueba. Es gratis; nada se aprueba solo.'
+              : `Claude buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
             : 'La generación real todavía no está habilitada.'}
         </AlertDescription>
       </Alert>
@@ -1000,7 +1003,11 @@ function DecisionRows({
           <SummaryRow label="Tipo de búsqueda" value="Proveedores de una empresa" />
           <SummaryRow
             label="Empresa de referencia"
-            value={state.referenceCompanyName ?? '—'}
+            value={
+              state.supplierScope === 'frequent_public'
+                ? 'Ninguna: proveedores frecuentes del Estado'
+                : (state.referenceCompanyName ?? '—')
+            }
             onEdit={change('reference_company')}
             actionLabel={actionLabel}
             wrap

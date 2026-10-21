@@ -25,7 +25,7 @@ import {
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelectionMetadata,
 } from './wizard-run-provider-selection';
-import { buildSupplierBatchName } from './supplier-batch-name';
+import { buildFrequentPublicSupplierBatchName, buildSupplierBatchName } from './supplier-batch-name';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export type WizardExecutionReservationInput = {
      * inicial: es un hecho de la PETICIÓN (lo que se buscó) y la corrida de Claude lo
      * relee del lote. Ausente ⇒ el metadata queda exactamente igual que antes.
      */
-    supplierSearch?: { referenceCompanyName: string };
+    supplierSearch?: { referenceCompanyName: string; scope?: 'frequent_public' };
     /**
      * AGENT1-CORPORATE-TREE-2 — «Árbol de una empresa». Mismo motivo que
      * `supplierSearch`: un hecho de la PETICIÓN que aterriza en el INSERT inicial, así
@@ -284,7 +284,9 @@ export async function reserveWizardExecutionSlot(
 
 function buildBatchName(payload: WizardExecutionReservationInput['initialBatchPayload']): string {
   if (payload.supplierSearch) {
-    return buildSupplierBatchName(payload.supplierSearch.referenceCompanyName, payload.country, payload.industry);
+    return payload.supplierSearch.scope === 'frequent_public'
+      ? buildFrequentPublicSupplierBatchName(payload.country, payload.industry)
+      : buildSupplierBatchName(payload.supplierSearch.referenceCompanyName, payload.country, payload.industry);
   }
   if (payload.corporateTree) return corporateTreeBatchName(payload.corporateTree.rootName);
   // «Competidores de una empresa»: el lote se nombra por su referencia.
@@ -328,6 +330,7 @@ function buildMetadata(
           search_mode: 'suppliers',
           [SUPPLIER_SEARCH_METADATA_KEY]: {
             reference_company_name: payload.supplierSearch.referenceCompanyName,
+            ...(payload.supplierSearch.scope ? { scope: payload.supplierSearch.scope } : {}),
           },
         }
       : {}),
