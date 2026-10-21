@@ -104,7 +104,8 @@ RETURNS TABLE (
     top_buyer_names   TEXT[],
     top_order_url     TEXT,
     last_order_on     DATE,
-    window_start      DATE
+    window_start      DATE,
+    window_end        DATE
 )
 LANGUAGE sql
 STABLE
@@ -114,7 +115,7 @@ AS $$
     WITH base AS (
         SELECT l.supplier_tax_id, l.supplier_name, l.buyer_code, l.buyer_name, l.total_amount,
                l.order_count, l.amount_by_family, l.top_order_url, l.top_order_amount,
-               l.last_order_on, l.window_start
+               l.last_order_on, l.window_start, l.window_end
         FROM public.public_procurement_supplier_links l
         WHERE l.country_code = p_country_code
     ),
@@ -128,7 +129,8 @@ AS $$
                (array_agg(b.top_order_url ORDER BY b.top_order_amount DESC NULLS LAST)
                     FILTER (WHERE b.top_order_url IS NOT NULL))[1]    AS top_order_url,
                max(b.last_order_on)                                   AS last_order_on,
-               min(b.window_start)                                    AS window_start
+               min(b.window_start)                                    AS window_start,
+               max(b.window_end)                                      AS window_end
         FROM base b
         GROUP BY b.supplier_tax_id
         HAVING count(DISTINCT b.buyer_code) >= greatest(coalesce(p_min_buyers, 3), 2)
@@ -152,7 +154,8 @@ AS $$
            q.top_buyer_names,
            q.top_order_url,
            q.last_order_on,
-           q.window_start
+           q.window_start,
+           q.window_end
     FROM frequent q
     ORDER BY q.buyer_count DESC, q.total_amount DESC;
 $$;

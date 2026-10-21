@@ -28,6 +28,7 @@ import {
   isUbitsCompetitorName,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/ubits-competitors';
 import { PUBLIC_BUYER_COUNTRY_CODES } from './countries/codes';
+import { isProcurementDataStale } from './countries/reload-plan';
 
 /**
  * Países con compras públicas conectadas a «Proveedores»: Colombia (SECOP II en vivo)
@@ -75,6 +76,8 @@ export type PublicBuyerSuppliersResult =
       tableVersion: string;
       /** Año desde el que se miran las compras (frase de la prueba). Ausente = año en curso − 2. */
       sinceYear?: string;
+      /** AGENT1-SUPPLIER-RELOAD-1 — fin de la ventana cargada (AAAA-MM-DD); ausente en los «en vivo». */
+      windowEnd?: string;
     }
   | { ok: false; reason: 'industry_without_unspsc' | 'source_unavailable' };
 
@@ -143,6 +146,9 @@ export type PublicBuyerStepOutcome =
       ubitsCompetitorsExcluded?: number;
       /** AGENT1-SUPPLIER-WEB-BY-NAME-1 — ofrecidas cuya web salió por nombre (no por número fiscal). */
       websitesByName?: number;
+      /** AGENT1-SUPPLIER-RELOAD-1 — hasta cuándo llegan los datos cargados, y si ya están viejos. */
+      dataWindowEnd?: string;
+      dataStale?: boolean;
       offered: number;
       /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
       written: number;
@@ -372,7 +378,7 @@ type OfferedPublicSuppliers = Omit<Extract<PublicBuyerStepOutcome, { executed: t
  */
 async function offerPublicSuppliers(
   listed: Extract<PublicBuyerSuppliersResult, { ok: true }>,
-  input: { batchId: string; countryCode: string },
+  input: { batchId: string; countryCode: string; nowIso: string },
   deps: Pick<
     PublicBuyerStepDeps,
     | 'sourceKey'
@@ -443,7 +449,13 @@ async function offerPublicSuppliers(
         })
       : 0;
 
+  // AGENT1-SUPPLIER-RELOAD-1 — datos viejos no tumban la corrida, pero quedan a la vista.
+  const dataStale = listed.windowEnd ? isProcurementDataStale(input.countryCode, listed.windowEnd, new Date(input.nowIso)) : false;
+  if (dataStale) {
+    console.warn(`[supplier-public-buyer:${input.countryCode}] datos hasta ${listed.windowEnd}: toca recargar (lote ${input.batchId}).`);
+  }
   return {
+    ...(listed.windowEnd ? { dataWindowEnd: listed.windowEnd, dataStale } : {}),
     sourceKey: deps.sourceKey,
     tableVersion: listed.tableVersion,
     read: listed.read,

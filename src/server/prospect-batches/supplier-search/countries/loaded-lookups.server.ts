@@ -66,6 +66,7 @@ type FrequentSupplierRow = {
   top_order_url: string | null;
   last_order_on: string | null;
   window_start: string;
+  window_end?: string | null;
 };
 
 function chunks<T>(items: readonly T[], size: number): T[][] {
@@ -216,7 +217,7 @@ export function buildLoadedLinksLookups(
       for (let page = 0; page < SUPPLIER_MAX_PAGES; page++) {
         const from = page * SUPPLIER_PAGE_SIZE;
         const { data, error } = await links()
-          .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start')
+          .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start, window_end')
           .eq('country_code', country.countryCode)
           .eq('source_key', country.sourceKey)
           .eq('buyer_code', buyerTaxId)
@@ -275,6 +276,7 @@ export function buildLoadedLinksLookups(
         last_order_on: row.last_order_on,
         top_order_url: row.top_order_url,
         window_start: row.window_start,
+        window_end: row.window_end ?? null,
       }));
       const useActivity = Boolean(country.industryByActivity && hooks.activityMacroByTaxId);
       // Con actividad oficial, por tandas en orden (más entidades primero) hasta llenar la industria.
@@ -302,6 +304,7 @@ export function buildLoadedLinksLookups(
         outsideIndustry: rows.length - inIndustry.length,
         tableVersion: country.classifier.tableVersion,
         ...(rows[0]?.window_start ? { sinceYear: rows[0].window_start.slice(0, 4) } : {}),
+        ...(rows[0]?.window_end ? { windowEnd: rows[0].window_end } : {}),
       };
     },
 
