@@ -1126,3 +1126,39 @@ describe('runFirstCall — el redactor usa lo que funcionó (auditoría 21-10)',
     assert.doesNotMatch(writerMessage(peru.calls), /resultados del equipo/);
   });
 });
+
+describe('runFirstCall — clientes inventados que quedan en la versión principal (Binga!, Prod 21-10)', () => {
+  const CLAIM = 'Hola María, vi que están contratando para sus nuevas sedes. ¿Le sirve que le comparta cómo otras empresas de su tamaño en la región están resolviendo esto?';
+  const claiming = { ...GOOD_PACK, short_message: { text: CLAIM, fact_refs: ['F5'] } };
+  const writerCalls = (calls: Harness['calls']) =>
+    calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
+
+  it('si tras corregir la principal sigue con clientes inventados, una vuelta más con la frase textual la arregla', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming, GOOD_PACK] });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const writers = writerCalls(calls);
+    assert.equal(writers.length, 3);
+    const lastTurn = writers[2].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
+    assert.ok(lastTurn.some((b) => b.type === 'text' && b.text!.includes('«¿Le sirve que le comparta cómo otras empresas de su tamaño')));
+    assert.equal(calls.packs[0].status, 'draft');
+    assert.equal(calls.packs[0].content?.shortMessage.text, GOOD_PACK.short_message.text);
+    const log = calls.logs.find((l) => l.agentStep === 'redactar_llamada')!;
+    assert.deepEqual(log.metadata.claim_fix, { call: 'fixed' });
+  });
+
+  it('si la tercera vuelta no mejora, se queda lo de antes «para revisar» y el registro lo dice', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming, claiming] });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(writerCalls(calls).length, 3);
+    assert.equal(calls.packs[0].status, 'needs_review');
+    assert.deepEqual(calls.logs.find((l) => l.agentStep === 'redactar_llamada')!.metadata.claim_fix, { call: 'still' });
+  });
+
+  it('sin clientes inventados no hay tercera vuelta', async () => {
+    const { deps, calls } = harness();
+    await runFirstCall(REQUEST, deps);
+    assert.equal(writerCalls(calls).length, 1);
+    assert.deepEqual(calls.logs.find((l) => l.agentStep === 'redactar_llamada')!.metadata.claim_fix, {});
+  });
+});

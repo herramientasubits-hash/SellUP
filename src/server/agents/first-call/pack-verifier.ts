@@ -237,6 +237,39 @@ export function withoutClaimingVariants(submission: WriterSubmission): { submiss
   return { submission: { ...submission, messageVariants, callScriptVariants }, dropped: [...dropped] };
 }
 
+/** Tope de frases que se mandan a corregir (las demás salen en la siguiente corrida). */
+const CLAIM_SENTENCES_MAX = 8;
+
+/**
+ * Las frases de la versión principal (y de lo que se dice al pedir la reunión) que afirman
+ * clientes o experiencia de UBITS, o atribuyen algo a «la mayoría», tal como se escribieron
+ * (Binga!, Prod 21-10: «cómo otras empresas de su tamaño en la región están resolviendo…»
+ * siguió tras la corrección). Van textuales al redactor para que las reescriba.
+ */
+export function claimingSentences(pack: FirstCallPackContent): string[] {
+  const texts = [
+    pack.reasonToCall.text,
+    pack.callScript.text,
+    pack.shortMessage.text,
+    pack.angle,
+    pack.nextStep,
+    ...pack.questions,
+    ...pack.objections.map((o) => o.response),
+    pack.meetingAsk ?? '',
+    pack.ifNo ?? '',
+    pack.confirmation ?? '',
+  ];
+  const sentences = texts
+    .flatMap((t) => (t ?? '').split(/(?<=[.?!])\s+|\n+/))
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .filter((s) => {
+      const n = normalizeForBan(s);
+      return UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(n)) || MAJORITY_CLAIM.test(n);
+    });
+  return [...new Set(sentences)].slice(0, CLAIM_SENTENCES_MAX);
+}
+
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
   const message = submission.messages[channel] ?? EMPTY_TEXT;
@@ -312,6 +345,9 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
 ];
 
+/** «por qué la llamo», «por qué lo contacto»: el pronombre dice el género del decisor. */
+const GENDERED_CALL_REASON = /\bpor que (la|lo) (llamo|llame|contacto|busco|escribo)\b/g;
+
 /** La clave de un dato de la ficha o del decisor («F12», «C3»), tal como la cita el redactor. */
 const FACT_ID_REF = /\b[FC]\d{1,3}\b/g;
 
@@ -379,6 +415,18 @@ const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
 const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo|vos|tenes|podes|queres|contame|decime)\b/;
 
 /** Una pregunta o exclamación sin su signo de apertura (marca de texto traducido). */
+/**
+ * Binga! (Prod 21-10): el «!» del nombre de la empresa no es una exclamación. Cada palabra
+ * del nombre que trae signos (y el nombre entero) se cuenta sin ellos.
+ */
+export function withoutNameSigns(text: string, companyName: string | null | undefined): string {
+  if (!companyName) return text;
+  const signed = [companyName.trim(), ...companyName.split(/\s+/)].filter((w) => /[!?¡¿]/.test(w));
+  return signed
+    .sort((a, b) => b.length - a.length)
+    .reduce((acc, word) => acc.split(word).join(word.replace(/[!?¡¿]/g, '')), text);
+}
+
 function missingOpeningSign(text: string): boolean {
   const count = (re: RegExp) => (text.match(re) ?? []).length;
   return count(/\?/g) > count(/¿/g) || count(/!/g) > count(/¡/g);
@@ -573,6 +621,17 @@ export function verifyPack(
       issues.push(`El saludo no coincide con el cargo («${options.decisionMakerTitle}»).`);
     }
   }
+  // Binga! (Prod 21-10): «por qué la llamo» a Julián. Sin el género en el cargo, va neutro
+  // («el motivo de mi llamada»); con el género, tiene que coincidir.
+  if (options.decisionMakerTitle !== undefined) {
+    const gender = genderFromTitle(options.decisionMakerTitle);
+    const pronouns = sellerTexts
+      .flatMap(([, texts]) => texts)
+      .flatMap((t) => [...normalizeForBan(t).matchAll(GENDERED_CALL_REASON)].map((m) => (m[1] === 'la' ? 'f' : 'm')));
+    if (pronouns.some((p) => gender === null || p !== gender)) {
+      issues.push('Dice «por qué la/lo llamo» sin saber el género del decisor: usa «el motivo de mi llamada» (o «de mi mensaje»).');
+    }
+  }
   // Sólo el mensaje principal: es el del primer contacto (las otras versiones son alternativas).
   if ((channel === 'whatsapp' || channel === 'linkedin') && FIRST_TOUCH_MEETING.test(normalizeForBan(pack.shortMessage.text))) {
     issues.push(channel === 'whatsapp' ? 'El primer WhatsApp pide reunión: sólo pide permiso para escribir por ahí.' : 'La nota de LinkedIn pide reunión: sólo el motivo para conectar.');
@@ -584,7 +643,7 @@ export function verifyPack(
     const foreign = [...new Set(sellerSaid.flatMap((t) => foreignWordsIn(withoutNames(t), options.countryCode)))];
     if (foreign.length > 0) issues.push(`Usa palabras que en este país suenan a otro: «${foreign.join('», «')}».`);
   }
-  if ([pack.callScript.text, pack.shortMessage.text, ...variants.map((v) => v.text)].some((t) => t && missingOpeningSign(t))) {
+  if ([pack.callScript.text, pack.shortMessage.text, ...variants.map((v) => v.text)].some((t) => t && missingOpeningSign(withoutNameSigns(t, options.companyName)))) {
     issues.push('A una pregunta o exclamación le falta el signo de apertura («¿», «¡»).');
   }
 
