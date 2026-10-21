@@ -1411,7 +1411,9 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
       const written = byChannel[channel];
       const spanish = contents[channel] ?? null;
       const localVersion = local.byChannel[channel];
-      const content = spanish && localVersion?.version ? { ...spanish, localVersion: localVersion.version } : spanish;
+      // La versión en el idioma del país también con el nombre de la ficha (revisión 21-10).
+      const content =
+        spanish && localVersion?.version ? { ...spanish, localVersion: withRecordNameSpelling(localVersion.version, target?.name) } : spanish;
       const issues = [...(written?.issuesByChannel[channel] ?? []), ...(localVersion?.issues ?? [])];
       // Una llamada con guion sirve aunque falte el mensaje de voz: queda «para revisar».
       const usable = !!content && (!!content.shortMessage.text || (channel === 'call' && !!content.callScript.text));

@@ -374,8 +374,10 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\b(lo que )?(hemos visto|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
   /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
   // Binga! (Prod 21-10): «qué están haciendo otros líderes de marketplaces…» (el verbo antes).
-  /\b(que|como|lo que) (estan|han estado|vienen) (haciendo|resolviendo|logrando|implementando|usando|aplicando|formando)\b[^?!\n]{0,20}\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes|lideres|equipos|gerentes|directores|marcas)\b/,
-  /\botr[oa]s (lideres|equipos|empresas|compa[nñ]ias|gerentes|directores|marcas)\b[^?!\n]{0,60}\b(estan (haciendo|logrando|implementando|aplicando)|han logrado|lograron)\b/,
+  /\b(que|como|lo que) (estan|han estado|vienen) (haciendo|resolviendo|logrando|implementando|usando|aplicando|formando)\b[^?!\n]{0,20}\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes|lideres|gerentes|directores)\b/,
+  // Sin «equipos» ni «lograron»: «¿qué usan hoy en otros equipos?» o «otros equipos de su área
+  // lograron…» son preguntas sobre la propia empresa (revisión 21-10).
+  /\botr[oa]s (lideres|empresas|compa[nñ]ias|gerentes|directores)\b[^?!.\n]{0,60}\bestan (haciendo|logrando|implementando|aplicando)\b/,
 ];
 
 /**

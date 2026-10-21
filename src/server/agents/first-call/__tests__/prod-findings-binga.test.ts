@@ -124,7 +124,7 @@ describe('Binga! (2.ª corrida, 21-10) — lo que todavía se escapaba', () => {
     );
     assert.ok(verifyPack(email, FACTS, 'email', opts).some((i) => /experiencia, clientes o casos/.test(i)));
     assert.equal(claimingSentences(email).length, 1);
-    const alsoAfter = pack('email', 'Asunto: Equipo\n\nBuenos días, Julian:\n\nOtros equipos de su tamaño están logrando que la gente rinda desde el primer día. ¿Lo conversamos?');
+    const alsoAfter = pack('email', 'Asunto: Equipo\n\nBuenos días, Julian:\n\nOtras empresas de su tamaño están logrando que la gente rinda desde el primer día. ¿Lo conversamos?');
     assert.ok(verifyPack(alsoAfter, FACTS, 'email', opts).some((i) => /experiencia, clientes o casos/.test(i)));
   });
 
@@ -157,5 +157,23 @@ describe('Binga! — la biblioteca no se contradice a sí misma', () => {
     for (const claim of UBITS_CLAIMS) {
       assert.deepEqual(distortedLibraryClaims([claim.text], []), [], claim.key);
     }
+  });
+});
+
+describe('Binga! — revisión de código (2)', () => {
+  it('preguntas sobre la propia empresa no se marcan', () => {
+    for (const text of [
+      '¿Qué están usando hoy en otros equipos de Binga! para la inducción?',
+      'Otros equipos de su área lograron ordenar la inducción. ¿Cómo lo vive usted?',
+      '¿Tiene 21 minutos el jueves para verlo?',
+    ]) {
+      const issues = verifyPack(pack('linkedin', `Hola, Julian. ${text}`), FACTS, 'linkedin', opts);
+      assert.equal(issues.some((i) => /experiencia, clientes o casos|otro sentido/.test(i)), false, `${text} → ${issues.join(' | ')}`);
+    }
+  });
+
+  it('«88 por ciento» con otro sentido también se marca', () => {
+    const issues = verifyPack(pack('linkedin', 'Hola, Julian. El 88 por ciento dice que la formación rápida es clave. ¿Hablamos?'), FACTS, 'linkedin', opts);
+    assert.ok(issues.some((i) => /otro sentido/.test(i)));
   });
 });

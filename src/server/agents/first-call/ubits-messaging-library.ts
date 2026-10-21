@@ -455,7 +455,6 @@ export const UBITS_CLAIMS: readonly UbitsClaim[] = [
     key: 'industry_elearning_minutes',
     text: 'El promedio de la industria es de 21 minutos de e-learning por persona al mes.',
     source: 'ATD State of the Industry 2026',
-    anchor: { pattern: /\b21 minutos\b/, topic: ['e-learning', 'elearning', 'aprendizaje', 'formacion', 'capacitacion', 'por persona', 'al mes'] },
   },
   {
     key: 'measurable_value',
@@ -472,13 +471,13 @@ export const UBITS_CLAIMS: readonly UbitsClaim[] = [
     key: 'linkedin_wlr_2025_skills',
     text: 'El 49 % de los líderes de talento dice que a su alta dirección le preocupa que la gente no tenga las habilidades para ejecutar la estrategia.',
     source: 'LinkedIn Workplace Learning Report 2025',
-    anchor: { pattern: /\b49\s?%/, topic: ['habilidad', 'estrategia'] },
+    anchor: { pattern: /\b49(\s?%| por ciento)/, topic: ['habilidad', 'estrategia'] },
   },
   {
     key: 'linkedin_wlr_2025_retention',
     text: 'El 88 % de las organizaciones está preocupado por retener talento, y la formación es su principal estrategia para lograrlo.',
     source: 'LinkedIn Workplace Learning Report 2025',
-    anchor: { pattern: /\b88\s?%/, topic: ['reten', 'retien', 'quedarse', 'se quede', 'rotacion'] },
+    anchor: { pattern: /\b88(\s?%| por ciento)/, topic: ['reten', 'retien', 'quedarse', 'se quede', 'rotacion'] },
   },
   {
     key: 'gartner_2026_hr_priorities',
