@@ -985,3 +985,100 @@ describe('runFirstCall — «Por un evento reciente» sin noticia fresca (SoftEx
   });
 });
 
+
+describe('runFirstCall — presupuesto en cada etapa y fallos con rastro (auditoría 21-10)', () => {
+  const SECOND = { id: 'c2', name: 'Jorge Ruiz', title: 'Gerente General', department: null };
+  /** Presupuesto de IA que alcanza para las primeras `allowed` consultas y luego se agota. */
+  const budgetFor = (allowed: number) => {
+    let asked = 0;
+    return async (provider: 'anthropic' | 'tavily') => {
+      if (provider !== 'anthropic') return { allowed: true };
+      asked += 1;
+      return asked <= allowed ? { allowed: true } : { allowed: false, reason: 'monthly_limit' };
+    };
+  };
+  const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const { warn, error } = console;
+    console.warn = () => {};
+    console.error = () => {};
+    try {
+      return await fn();
+    } finally {
+      console.warn = warn;
+      console.error = error;
+    }
+  };
+
+  it('si el presupuesto se agota tras investigar, no escribe y la ficha termina en «done»', async () => {
+    const { deps, calls } = harness();
+    deps.checkBudget = budgetFor(1);
+    const result = await quiet(() => runFirstCall(REQUEST, deps));
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.code, 'budget_blocked');
+    assert.equal(calls.packs.length, 0);
+    assert.equal(calls.logs.some((l) => l.agentStep === 'redactar_llamada'), false);
+    assert.equal(calls.briefPatches.at(-1)?.progressStage, 'done');
+  });
+
+  it('si se agota entre un decisor y otro, guarda lo escrito y avisa que paró por presupuesto', async () => {
+    const { deps, calls } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] } });
+    // Inicio, antes de escribir y el 1.er decisor (CO no traduce: no pregunta) → el 2.º ya no.
+    deps.checkBudget = budgetFor(3);
+    const result = await quiet(() => runFirstCall({ ...REQUEST, contactIds: ['c1', 'c2'] }, deps));
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.budgetStopped, true);
+    assert.equal(result.ok && result.failedTargets, 0);
+    assert.deepEqual(calls.packs.map((p) => p.contactId), ['c1']);
+  });
+
+  it('sin presupuesto para la versión en inglés, la de español se guarda igual', async () => {
+    const { deps, calls } = harness({ context: { internal: { ...INTERNAL, account: { ...INTERNAL.account, country: 'Estados Unidos', countryCode: 'US' } } } });
+    // Inicio, antes de escribir y el decisor; la traducción ya no.
+    deps.checkBudget = budgetFor(3);
+    const result = await quiet(() => runFirstCall(REQUEST, deps));
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.budgetStopped, true);
+    assert.equal(calls.packs[0].content?.localVersion, undefined);
+    assert.equal(calls.conversations.some((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === TRANSLATION_SUBMIT_TOOL)), false);
+  });
+
+  it('un decisor que falla queda en el log y se cuenta en la corrida (antes se perdía sin rastro)', async () => {
+    const { deps } = harness({ context: { decisionMakers: [INTERNAL.decisionMaker!, SECOND] } });
+    const insert = deps.insertPack;
+    deps.insertPack = async (pack) => {
+      if (pack.contactId === 'c2') throw new Error('db down');
+      return insert(pack);
+    };
+    const logged: string[] = [];
+    const { error } = console;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+    try {
+      const result = await runFirstCall({ ...REQUEST, contactIds: ['c1', 'c2'] }, deps);
+      assert.equal(result.ok && result.failedTargets, 1);
+      assert.equal(result.ok && result.budgetStopped, false);
+    } finally {
+      console.error = error;
+    }
+    assert.ok(logged.some((line) => line.includes('contact c2') && line.includes('db down')));
+  });
+});
+
+describe('runFirstCall — una versión que sigue inventando clientes se quita (auditoría 21-10)', () => {
+  it('tras la corrección, la versión con «hemos visto en bancos» no llega y la preparación queda lista', async () => {
+    const claiming = {
+      ...GOOD_PACK,
+      call_script_variants: [
+        { approach: 'permission', text: `Hola María, soy Ana de UBITS. Sé que la llamo sin aviso. ¿Me regala 30 segundos? Lo que hemos visto en empresas que crecen así es que la gente nueva tarda.` },
+      ],
+    };
+    const { deps, calls } = harness({ writer: [claiming, claiming] });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const writerCalls = calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
+    assert.equal(writerCalls.length, 2, 'primero se pide corregir');
+    assert.deepEqual(calls.packs[0].content?.variants ?? [], []);
+    assert.equal(calls.packs[0].status, 'draft');
+    const log = calls.logs.find((l) => l.agentStep === 'redactar_llamada')!;
+    assert.deepEqual(log.metadata.dropped_variants, { call: ['permission'] });
+  });
+});

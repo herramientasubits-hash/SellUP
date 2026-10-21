@@ -29,7 +29,7 @@ import {
 import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/page-text';
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
-import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach } from './approaches';
+import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach, type FirstContactApproach } from './approaches';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight, LocalPackVersion } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
@@ -40,6 +40,7 @@ import {
   extractWriterSubmission,
   parseWriterSubmission,
   verifyPack,
+  withoutClaimingVariants,
   type WriterSubmission,
 } from './pack-verifier';
 import {
@@ -218,7 +219,17 @@ export interface RunFirstCallDeps {
 }
 
 export type RunFirstCallResult =
-  | { ok: true; briefId: string; packIds: string[]; packStatuses: FirstCallPackStatus[]; reusedBrief: boolean }
+  | {
+      ok: true;
+      briefId: string;
+      packIds: string[];
+      packStatuses: FirstCallPackStatus[];
+      reusedBrief: boolean;
+      /** Decisores que fallaron (red, base de datos) sin tumbar a los demás. */
+      failedTargets: number;
+      /** El presupuesto de IA se agotó a mitad de camino: lo que faltaba no se escribió. */
+      budgetStopped: boolean;
+    }
   | {
       ok: false;
       code: 'not_found' | 'contacts_not_found' | 'budget_blocked' | 'model_unavailable' | 'already_running' | 'writer_failed';
@@ -233,6 +244,10 @@ const MESSAGES = {
   already_running: 'Ya hay una investigación de esta empresa en curso. Espera a que termine.',
   writer_failed: 'No pudimos escribir la preparación. Vuelve a intentarlo en un momento.',
 } as const;
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 function isoDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
@@ -611,6 +626,8 @@ interface WrittenForTarget {
   rawPreview?: string;
   /** Salió del intento simple (solo la versión principal). */
   fallback?: boolean;
+  /** Versiones alternativas quitadas porque, ya corregidas, seguían inventando clientes. */
+  droppedVariants?: FirstContactApproach[];
 }
 
 function verifyAll(
@@ -806,11 +823,14 @@ async function writeForTarget(params: {
     lastContent = second.content;
     const retried = extractWriterSubmission(second.content);
     if (retried) shape = describeSubmissionShape(retried);
-    if (retried) {
-      submission = withApproachNote(parseWriterSubmission(retried, channels), approachNote);
+    if (retried) submission = withApproachNote(parseWriterSubmission(retried, channels), approachNote);
+    // Ya hubo una corrección: lo que todavía invente clientes en una versión alternativa se quita.
+    const cleaned = withoutClaimingVariants(submission);
+    submission = cleaned.submission;
+    if (retried || cleaned.dropped.length > 0) {
       issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
     }
-    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview() };
+    return { submission, facts, issuesByChannel, usage, errorCode: null, shape, stopReasons, rawPreview: preview(), droppedVariants: cleaned.dropped };
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;
     const errorCode = apiError?.code ?? 'unexpected_error';
@@ -1102,7 +1122,24 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     brief = await research(context, models, deps, reserved);
   }
   const briefId = brief.id;
+  // La investigación ya gastó: antes de escribir se vuelve a mirar el presupuesto (antes se
+  // miraba una sola vez, al principio, y varios decisores × canales × traducciones seguían).
+  if (!reuse && !(await deps.checkBudget('anthropic')).allowed) {
+    await deps.updateBrief(briefId, { progressStage: 'done' });
+    return { ok: false, code: 'budget_blocked', message: MESSAGES.budget_blocked };
+  }
   if (reuse) await deps.updateBrief(briefId, { progressStage: 'writing' });
+  let budgetStopped = false;
+  /** ¿Queda presupuesto para la siguiente etapa? Una vez agotado, no se vuelve a preguntar. */
+  const budgetStillAllows = async (): Promise<boolean> => {
+    if (budgetStopped) return false;
+    const check = await deps.checkBudget('anthropic');
+    if (!check.allowed) {
+      budgetStopped = true;
+      console.warn(`[agent3] budget exhausted mid-run (account ${request.accountId}): ${check.reason ?? 'not_allowed'}`);
+    }
+    return check.allowed;
+  };
 
   const targets: Array<DecisionMaker | null> = context.decisionMakers.length > 0 ? context.decisionMakers : [null];
   const account = context.internal.account;
@@ -1114,7 +1151,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     // días se cuentan desde que se investigó, no desde la última preparación.
     if (!request.refreshResearch && deps.readCachedContactResearch) {
       const since = new Date(deps.now() - CONTACT_RESEARCH_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const cached = await deps.readCachedContactResearch(account.id, target.id, since).catch(() => null);
+      const cached = await deps.readCachedContactResearch(account.id, target.id, since).catch((err: unknown) => {
+        console.error('[agent3] cached contact research read failed:', errorText(err));
+        return null;
+      });
       if (cached) return { facts: cached.facts, insight: cached.insight, researchedAt: cached.researchedAt };
     }
     const startedAt = deps.now();
@@ -1181,6 +1221,8 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   };
   // Lo que se escribe y se guarda para un decisor (aquí `context` y `models` ya están comprobados).
   const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
+    // Cada decisor es una etapa de gasto: sin presupuesto, no se empieza.
+    if (!(await budgetStillAllows())) return [];
     const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null, researchedAt: '' };
     const startedAt = deps.now();
     const byChannel = await writeEachChannel({ request, context, target, brief, models, deps, contactFacts: contact.facts, contactInsight: contact.insight });
@@ -1213,6 +1255,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         writer_calls: request.channels.length,
         // Canales que salieron del intento simple (sólo la versión principal).
         fallback_channels: request.channels.filter((c) => byChannel[c]?.fallback),
+        // Versiones alternativas quitadas por afirmar clientes de UBITS tras corregir.
+        dropped_variants: Object.fromEntries(
+          request.channels.filter((c) => (byChannel[c]?.droppedVariants?.length ?? 0) > 0).map((c) => [c, byChannel[c]!.droppedVariants]),
+        ),
         stop_reasons: Object.fromEntries(request.channels.map((c) => [c, byChannel[c]?.stopReasons ?? []])),
         // Sólo si algún canal quedó sin mensaje: qué trajo esa entrega (campos y tipos, sin texto).
         ...(missingChannels.length > 0
@@ -1229,7 +1275,9 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     const contents = Object.fromEntries(
       request.channels.map((c) => [c, byChannel[c]?.submission ? contentForChannel(byChannel[c]!.submission!, c) : null]),
     ) as Partial<Record<FirstCallChannel, FirstCallPackContent | null>>;
-    const local = await writeLocalVersions(contents, account.country, models, deps, {
+    // La versión en el idioma del país es otra etapa de gasto: sin presupuesto, queda sólo en español.
+    const needsLocal = localLanguageFor(account.countryCode) !== null;
+    const local = needsLocal && !(await budgetStillAllows()) ? { byChannel: {}, costUsd: 0 } : await writeLocalVersions(contents, account.country, models, deps, {
       accountId: request.accountId,
       briefId,
       contactId: target?.id ?? null,
@@ -1275,9 +1323,15 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   // Un decisor que falla (red, base de datos) no tumba a los demás, y la ficha siempre
   // termina en «done»: si no, la investigación quedaría «escribiendo» para siempre.
   let perTarget: Array<Array<{ id: string; status: FirstCallPackStatus }>> = [];
+  let failedTargets = 0;
   try {
     perTarget = await mapWithConcurrency(targets, WRITER_CONCURRENCY, (target) =>
-      writeAndSaveForTarget(target).catch(() => [] as Array<{ id: string; status: FirstCallPackStatus }>),
+      writeAndSaveForTarget(target).catch((err: unknown) => {
+        // Antes se descartaba sin rastro: ahora queda en el log y en la corrida.
+        failedTargets += 1;
+        console.error(`[agent3] decision maker failed (account ${request.accountId}, contact ${target?.id ?? 'none'}):`, errorText(err));
+        return [] as Array<{ id: string; status: FirstCallPackStatus }>;
+      }),
     );
   } finally {
     await deps.updateBrief(briefId, { progressStage: 'done' });
@@ -1286,7 +1340,11 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
 
   const packs = perTarget.flat();
   const usable = packs.filter((p) => p.status !== 'failed');
-  if (usable.length === 0) return { ok: false, code: 'writer_failed', message: MESSAGES.writer_failed };
+  if (usable.length === 0) {
+    return budgetStopped
+      ? { ok: false, code: 'budget_blocked', message: MESSAGES.budget_blocked }
+      : { ok: false, code: 'writer_failed', message: MESSAGES.writer_failed };
+  }
   await deps.advanceAccountStatus(request.accountId, 'ready_for_outreach');
   return {
     ok: true,
@@ -1294,6 +1352,8 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     packIds: usable.map((p) => p.id),
     packStatuses: usable.map((p) => p.status),
     reusedBrief: reuse,
+    failedTargets,
+    budgetStopped,
   };
 }
 

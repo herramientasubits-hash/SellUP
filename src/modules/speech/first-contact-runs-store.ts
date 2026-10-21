@@ -3,7 +3,11 @@
  * panel para poder minimizarlo o cerrarlo y seguirlas en el Centro de procesos, como
  * las búsquedas del Agente 1 (dueña 18-10). Se guardan en el navegador: al recargar,
  * lo que estaba en curso sigue en el servidor y se vuelve a mirar («desligada»).
+ * Además cada corrida queda en el servidor (`agent_runs`, mismo id): `hydrate` trae las
+ * de otro equipo o pestaña y cierra las desligadas que el servidor ya terminó.
  */
+
+import type { FirstContactServerRun } from './first-contact-run-registry';
 
 export type FirstContactRunStatus = 'running' | 'succeeded' | 'failed';
 
@@ -39,6 +43,8 @@ export interface FirstContactRunsDeps {
   nowMs?: () => number;
   /** Al terminar una corrida (el aviso «¡Primer contacto listo!» vive aquí, no en el panel). */
   onSettled?: (run: FirstContactRun) => void;
+  /** «Quitar»: también se quitan en el servidor para que no vuelvan en otro equipo. */
+  onDismiss?: (ids: string[]) => void;
 }
 
 export const FIRST_CONTACT_RUNS_STORAGE_KEY = 'sellup:agent3-runs:v1';
@@ -65,6 +71,8 @@ export interface FirstContactRunsStore {
   isRunning(accountId: string): boolean;
   settleDetached(id: string, outcome: { status: 'succeeded' | 'failed'; packStatuses: string[]; message?: string | null }): void;
   expireStaleDetached(): void;
+  /** Lo que dice el servidor: agrega las que no estaban y cierra las desligadas ya terminadas. */
+  hydrate(serverRuns: readonly FirstContactServerRun[]): void;
   dismiss(id: string): void;
   dismissFinished(): void;
 }
@@ -152,10 +160,16 @@ export function createFirstContactRunsStore(deps: FirstContactRunsDeps): FirstCo
         update(id, { detached: true });
         return { ok: false, code: FIRST_CONTACT_DETACHED_CODE, message: DETACHED_MESSAGE };
       };
+      // El id, el título y cuántas se esperan viajan con la solicitud: el servidor registra
+      // la corrida con ESE id (si el cuerpo no es un objeto, se manda tal cual).
+      const payload =
+        body && typeof body === 'object' && !Array.isArray(body) ? { ...(body as Record<string, unknown>), run: { id, title, expected, accountName } } : body;
       const promise = deps
-        .execute(body)
+        .execute(payload)
         .then((response) => {
           if (!response.ok && LOST_RESPONSE_CODES.has(response.code)) return detach();
+          // El servidor ya la cerró por otro lado (hydrate): no se avisa dos veces.
+          if (runs.find((r) => r.id === id)?.status !== 'running') return response;
           update(
             id,
             response.ok
@@ -179,15 +193,50 @@ export function createFirstContactRunsStore(deps: FirstContactRunsDeps): FirstCo
       const stale = runs.filter((r) => r.status === 'running' && r.detached && at - r.startedAtMs > FIRST_CONTACT_DETACHED_STALE_MS);
       for (const run of stale) update(run.id, { status: 'failed', finishedAtMs: at, detached: false, message: STALE_MESSAGE });
     },
+    hydrate(serverRuns) {
+      let changed = false;
+      const settled: string[] = [];
+      for (const server of serverRuns) {
+        const local = runs.find((r) => r.id === server.id);
+        if (!local) {
+          // De otro equipo o pestaña: en curso queda desligada (la sigue el Centro de procesos).
+          runs = [...runs, { ...server, detached: server.status === 'running' }];
+          changed = true;
+        } else if (local.status === 'running' && local.detached && server.status !== 'running') {
+          runs = runs.map((r) =>
+            r.id === server.id
+              ? { ...r, status: server.status, finishedAtMs: server.finishedAtMs ?? now(), packStatuses: server.packStatuses, message: server.message, detached: false }
+              : r,
+          );
+          settled.push(server.id);
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      runs = [...runs].sort((a, b) => b.startedAtMs - a.startedAtMs).slice(0, MAX_KEPT);
+      emit();
+      for (const id of settled) {
+        const run = runs.find((r) => r.id === id);
+        if (!run) continue;
+        try {
+          deps.onSettled?.(run);
+        } catch {
+          // El aviso es cosmético.
+        }
+      }
+    },
     dismiss(id) {
       const run = runs.find((r) => r.id === id);
       if (!run || (run.status === 'running' && !run.detached)) return;
       runs = runs.filter((r) => r.id !== id);
       emit();
+      if (run.status !== 'running') deps.onDismiss?.([id]);
     },
     dismissFinished() {
+      const finished = runs.filter((r) => r.status !== 'running').map((r) => r.id);
       runs = runs.filter((r) => r.status === 'running');
       emit();
+      if (finished.length > 0) deps.onDismiss?.(finished);
     },
   };
 }
