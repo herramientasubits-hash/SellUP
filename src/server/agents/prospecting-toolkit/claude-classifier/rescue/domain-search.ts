@@ -15,7 +15,7 @@ import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import { normalizeLinkedInCompanyUrl } from '../../linkedin-company-enrichment';
 import type { DuplicateStatus } from '../../types';
 import { evaluateExternalPlatformGate } from '../../external-platform-blocklist';
-import { normalizeDomain } from '../../normalization';
+import { normalizeCompanyName, normalizeDomain } from '../../normalization';
 import {
   domainCarriesName,
   type DomainFinderInput,
@@ -699,13 +699,83 @@ export function buildFoundEvidence(evidence: Evidence | null, found: FoundWebsit
  */
 export const KNOWN_TAX_ID_SKIP_REASON = 'known_tax_id';
 
+/**
+ * `claude_domain_search.skipped`: la misma empresa (mismo número fiscal, o mismo nombre y país)
+ * ya tuvo una búsqueda de web PAGADA hace menos de 30 días que no sirvió («sin web» o «ya
+ * existía»): se copia ese resultado sin volver a pagar (Prod 21-10, árbol de Bimbo: Nicaragua,
+ * El Salvador, Colombia y Honduras se buscaron 3 a 5 veces el mismo día, US$0,04 cada vez).
+ */
+export const RECENT_SEARCH_SKIP_REASON = 'recent_same_search';
+/** Cuánto vale una búsqueda de web fallida antes de volver a pagarla. */
+export const RECENT_SEARCH_WINDOW_DAYS = 30;
+const RECENT_SEARCH_WINDOW_MS = RECENT_SEARCH_WINDOW_DAYS * 86_400_000;
+
+/** Una búsqueda de web anterior de la misma empresa que no sirvió. */
+export type RecentDomainSearch = {
+  batchId: string;
+  searchedAt: string;
+  decision: 'website_not_found' | 'duplicate';
+  reason: string | null;
+};
+
+/** Lo que se lee de «Descartadas» para decidirlo (cualquier lote, mismo país). */
+export type RecentDomainSearchRow = {
+  id: string;
+  batch_id: string;
+  name: string | null;
+  provider_identifier: string | null;
+  evidence: Evidence | null;
+};
+
+/**
+ * La búsqueda anterior que vale: de OTRA fila, pagada de verdad (no saltada por esta misma
+ * regla, así el plazo cuenta desde la última búsqueda real), terminada en «sin web» o «ya
+ * existía» (nunca un error pasajero), de hace menos de 30 días, y de la misma empresa: mismo
+ * número fiscal o, si alguna no lo tiene, mismo nombre sin forma societaria. La más reciente.
+ */
+export function pickRecentDomainSearch(
+  target: { id: string; name: string | null; taxId: string | null },
+  rows: readonly RecentDomainSearchRow[],
+  nowMs: number,
+): RecentDomainSearch | null {
+  const targetName = normalizeCompanyName(target.name ?? '');
+  let best: RecentDomainSearch | null = null;
+  for (const row of rows) {
+    if (row.id === target.id) continue;
+    const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as Evidence | undefined;
+    const rescue = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY] as Evidence | undefined;
+    const decision = rescue?.['decision'];
+    if (decision !== 'website_not_found' && decision !== 'duplicate') continue;
+    if (!search || search['skipped']) continue;
+    const searchedAt = typeof search['searched_at'] === 'string' ? search['searched_at'] : null;
+    const at = searchedAt ? Date.parse(searchedAt) : NaN;
+    if (!Number.isFinite(at) || nowMs - at > RECENT_SEARCH_WINDOW_MS || at > nowMs) continue;
+    const rowTax = dispositionTaxId(row);
+    const sameCompany =
+      target.taxId && rowTax
+        ? rowTax === target.taxId
+        : !!targetName && targetName.length >= 4 && normalizeCompanyName(row.name ?? '') === targetName;
+    if (!sameCompany) continue;
+    if (best && Date.parse(best.searchedAt) >= at) continue;
+    best = {
+      batchId: row.batch_id,
+      searchedAt: searchedAt!,
+      decision,
+      reason: typeof search['reason'] === 'string' ? search['reason'] : null,
+    };
+  }
+  return best;
+}
+
 export function buildDomainSearchStaysEvidence(
   evidence: Evidence | null,
   params:
     | { kind: 'not_found'; outcome: Extract<DomainFinderOutcome, { found: false }> }
     | { kind: 'duplicate'; found: FoundWebsite; duplicate: DomainDuplicateCheck }
     /** Ya conocida por su número fiscal ANTES de buscar la web: no se pagó la búsqueda. */
-    | { kind: 'known_before_search'; duplicate: DomainDuplicateCheck },
+    | { kind: 'known_before_search'; duplicate: DomainDuplicateCheck }
+    /** La misma búsqueda ya se pagó hace poco y no sirvió: se copia su resultado. */
+    | { kind: 'recent_search'; previous: RecentDomainSearch },
   decidedAt: string,
   /** SOURCES-EC-CLOSE-2 — la búsqueda ya usó los nombres oficiales: no se repite por ellos. */
   options: { officialNamesChecked?: boolean; reusedFrom?: string } = {},
@@ -716,7 +786,19 @@ export function buildDomainSearchStaysEvidence(
   const attempts = previousAttempts(evidence) + (params.kind === 'not_found' && !accountError ? 1 : 0);
   const base = params.kind === 'duplicate' ? buildFoundEvidence(evidence, params.found, decidedAt) : { ...(evidence ?? {}) };
   const search =
-    params.kind === 'known_before_search'
+    params.kind === 'recent_search'
+      ? {
+          contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
+          search_version: DOMAIN_SEARCH_VERSION,
+          searched_at: decidedAt,
+          found: false,
+          skipped: RECENT_SEARCH_SKIP_REASON,
+          reason: params.previous.reason,
+          previous_batch_id: params.previous.batchId,
+          previous_searched_at: params.previous.searchedAt,
+          previous_decision: params.previous.decision,
+        }
+      : params.kind === 'known_before_search'
       ? {
           contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
           search_version: DOMAIN_SEARCH_VERSION,
@@ -758,7 +840,13 @@ export function buildDomainSearchStaysEvidence(
     [CLAUDE_RESCUE_METADATA_KEY]: {
       contract_version: CLAUDE_CLASSIFIER_CONTRACT_VERSION,
       decided_at: decidedAt,
-      decision: retryable ? 'retryable' : params.kind === 'not_found' ? 'website_not_found' : 'duplicate',
+      decision: retryable
+        ? 'retryable'
+        : params.kind === 'recent_search'
+          ? params.previous.decision
+          : params.kind === 'not_found'
+            ? 'website_not_found'
+            : 'duplicate',
     },
   };
 }

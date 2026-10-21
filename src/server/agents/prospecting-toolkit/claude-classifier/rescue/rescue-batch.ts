@@ -41,6 +41,7 @@ import {
   PARENT_GROUP_WEBSITE_KEY,
   parentGroupWebsite,
   type DomainDuplicateCheck,
+  type RecentDomainSearch,
   type FoundWebsite,
   type ParentGroupWebsite,
   type PriorDomainSearchRow,
@@ -221,6 +222,17 @@ export type RescueBatchDeps = {
       name: string;
       countryCode: string | null;
     }) => Promise<PriorDomainSearchRow[]>;
+    /**
+     * ¿La misma empresa ya tuvo una búsqueda de web pagada que no sirvió hace menos de 30
+     * días? Sólo lectura; `null` = no (o no se pudo leer: se busca como siempre). Ausente = no
+     * se mira.
+     */
+    findRecentSearch?: (input: {
+      dispositionId: string;
+      countryCode: string | null;
+      taxId: string | null;
+      name: string | null;
+    }) => Promise<RecentDomainSearch | null>;
   };
   /**
    * AGENT1-DELIVERY-CAP-HARD-1 — lugares libres en el lote bajo el tope de entrega
@@ -625,6 +637,26 @@ async function knownByTaxIdBeforeSearch(
   }
 }
 
+/** Fail-open: si no se puede leer, se busca como siempre (sólo se pierde el ahorro). */
+async function recentSearchBeforePaying(
+  row: RescuableDispositionRow,
+  taxId: string | null,
+  domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
+): Promise<RecentDomainSearch | null> {
+  if (!domainSearch.findRecentSearch) return null;
+  try {
+    return await domainSearch.findRecentSearch({
+      dispositionId: row.id,
+      countryCode: row.country_code,
+      taxId,
+      name: dispositionDisplayName(row),
+    });
+  } catch (err) {
+    console.error('[claude-rescue] recent search check failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /**
  * 21-10 — búsqueda ya hecha para la MISMA empresa en otra fila de Descartadas.
  * Fail-open: si la lectura falla, se busca como antes.
@@ -685,6 +717,13 @@ async function resolveDispositionWebsite(
     if (known) {
       const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
         buildDomainSearchStaysEvidence(evidence, { kind: 'known_before_search', duplicate: known }, deps.nowIso()),
+      );
+      return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost: 0 } };
+    }
+    const recent = await recentSearchBeforePaying(row, taxId, domainSearch);
+    if (recent) {
+      const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
+        buildDomainSearchStaysEvidence(evidence, { kind: 'recent_search', previous: recent }, deps.nowIso()),
       );
       return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost: 0 } };
     }

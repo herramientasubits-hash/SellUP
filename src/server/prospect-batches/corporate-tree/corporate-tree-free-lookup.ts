@@ -25,7 +25,12 @@
  * Puro: las consultas se inyectan.
  */
 
-import type { CorporateTreeRelation } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import {
+  stripBranchSuffix,
+  stripCountryTag,
+  stripOwnCountryMarker,
+  type CorporateTreeRelation,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
 import { normalizeTreeName } from './corporate-tree-search';
@@ -67,6 +72,16 @@ const KNOWN_TAX_ID_TYPES = new Set(Object.values(TAX_ID_TYPE_BY_COUNTRY).concat(
 
 /** Filas por fuente y prefijo (homónimos y razones sociales de un mismo grupo). */
 export const CORPORATE_TREE_FREE_ROWS_PER_SOURCE = 12;
+/**
+ * En los registros COMPLETOS el rango por prefijo trae en orden alfabético todo lo que empieza
+ * igual («BIMBO ABARROTES», «BIMBO ARTE»…): con 12 filas, «BIMBO DE COLOMBIA» o «X PERU» podían
+ * quedar fuera sin que nadie se enterara. El rango usa el índice (0,25 ms en 1,7 M filas).
+ */
+export const CORPORATE_TREE_FREE_ROWS_PER_BROAD_REGISTRY = 40;
+/** Filas del banco por país pedido (antes 12 en TOTAL para todos los países). */
+export const CORPORATE_TREE_FREE_BANK_ROWS_PER_COUNTRY = 6;
+/** Tope de filas del banco por consulta, aunque se pidan los 20 países. */
+const CORPORATE_TREE_FREE_BANK_ROWS_MAX = 120;
 /**
  * Empresas gratis por país que entran al lote. Medido sin desplegar el 14-10 (8 empresas
  * reales): más de 3 por país eran casi siempre razones sociales menores, y cada una sin
@@ -150,6 +165,8 @@ export function freeHitConfirmation(params: {
 export function isStrongFreeSource(hit: Pick<CorporateTreeFreeHit, 'sourceKey' | 'workers'>): boolean {
   return !CORPORATE_TREE_BROAD_REGISTRY_KEYS.has(hit.sourceKey) || (hit.workers ?? 0) >= 50;
 }
+/** Para dar un número fiscal por nombre exacto (más estricto que para buscar familia). */
+const EXACT_RECORD_MIN_CORE_CHARS = 5;
 /** Por debajo de esto el prefijo traería media base («grupo», «banco»). */
 const MIN_CORE_CHARS = 4;
 /** Palabras que preceden al nombre propio y no lo identifican. */
@@ -301,6 +318,57 @@ export function inferRootCountry(
   return [...exact].sort((a, b) => (b.workers ?? 0) - (a.workers ?? 0))[0].countryCode;
 }
 
+export function rowsPerSource(sourceKey: string): number {
+  return CORPORATE_TREE_BROAD_REGISTRY_KEYS.has(sourceKey) ? CORPORATE_TREE_FREE_ROWS_PER_BROAD_REGISTRY : CORPORATE_TREE_FREE_ROWS_PER_SOURCE;
+}
+
+export function bankRowsFor(countries: number): number {
+  return Math.min(CORPORATE_TREE_FREE_BANK_ROWS_MAX, Math.max(1, countries) * CORPORATE_TREE_FREE_BANK_ROWS_PER_COUNTRY);
+}
+
+/**
+ * El registro oficial de UNA empresa por su nombre exacto en su país (sin forma societaria,
+ * sucursal ni el nombre del país al final): su número fiscal y, si la fuente lo publica, su
+ * tamaño. Para las que Claude encontró sin web: con número y 200+ trabajadores entran a «Por
+ * revisar» sin web (FASE B). Fail-closed: si el mismo nombre trae DOS números fiscales
+ * distintos (homónimos), no se elige ninguno. Gratis (sólo nuestras tablas).
+ */
+export async function findExactOfficialRecord(
+  input: { name: string; countryCode: string },
+  deps: Pick<CorporateTreeFreeLookupDeps, 'querySnapshotsByPrefix'>,
+): Promise<CountrySourceCompany | null> {
+  const wanted = corporateTreeExactKey(input.name, input.countryCode);
+  const core = wanted.split('|')[0];
+  // Un nombre corto o genérico («Alfa», «Grupo») en un registro completo es casi siempre otra
+  // empresa: no basta para darle un número fiscal.
+  if (core.length < EXACT_RECORD_MIN_CORE_CHARS || GENERIC_LEADING_WORDS.test(`${core} `)) return null;
+  // El nombre completo («bimbo de colombia») y su núcleo («bimbo»): el registro puede tener
+  // cualquiera de las dos formas y en un registro completo el núcleo trae muchos vecinos.
+  const prefixes = [...new Set([normalizeTreeName(stripCountryTag(stripBranchSuffix(input.name))), core])];
+  const sources = CORPORATE_TREE_FREE_SOURCE_KEYS[input.countryCode] ?? [];
+  const found = (
+    await Promise.all(
+      sources.flatMap((sourceKey) =>
+        prefixes.map((prefix) =>
+          deps.querySnapshotsByPrefix(sourceKey, prefix, rowsPerSource(sourceKey)).catch(() => [] as FreeSnapshotRow[]),
+        ),
+      ),
+    )
+  )
+    .flat()
+    .filter((row) => row.country_code === input.countryCode)
+    .map(toCompany)
+    .filter((c): c is CountrySourceCompany => !!c?.taxId && corporateTreeExactKey(c.legalName ?? '', input.countryCode) === wanted);
+  const taxIds = new Set(found.map((c) => (c.taxId ?? '').replace(/\W/g, '')));
+  if (taxIds.size !== 1) return null;
+  return [...found].sort((a, b) => (b.officialWorkforce?.workers ?? 0) - (a.officialWorkforce?.workers ?? 0))[0];
+}
+
+/** La misma clave que la fila del árbol (`corporateTreeRowKey`), sin depender del plan. */
+function corporateTreeExactKey(name: string, countryCode: string): string {
+  return `${stripOwnCountryMarker(normalizeTreeName(stripCountryTag(stripBranchSuffix(name))), countryCode)}|${countryCode}`;
+}
+
 export async function findCorporateTreeFreeHits(
   input: { rootName: string; rootCountryCode: string | null; countryCodes: readonly string[] },
   deps: CorporateTreeFreeLookupDeps,
@@ -318,7 +386,7 @@ export async function findCorporateTreeFreeHits(
         queries++;
         tasks.push(
           deps
-            .querySnapshotsByPrefix(sourceKey, core, CORPORATE_TREE_FREE_ROWS_PER_SOURCE)
+            .querySnapshotsByPrefix(sourceKey, core, rowsPerSource(sourceKey))
             .catch(() => {
               errors++;
               return [] as FreeSnapshotRow[];
@@ -356,7 +424,7 @@ export async function findCorporateTreeFreeHits(
     queries++;
     tasks.push(
       deps
-        .queryBankByNamePrefix(input.countryCodes, core, CORPORATE_TREE_FREE_ROWS_PER_SOURCE)
+        .queryBankByNamePrefix(input.countryCodes, core, bankRowsFor(input.countryCodes.length))
         .catch(() => {
           errors++;
           return [] as FreeBankRow[];

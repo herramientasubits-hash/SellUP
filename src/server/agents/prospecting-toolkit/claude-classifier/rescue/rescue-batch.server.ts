@@ -35,8 +35,12 @@ import {
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   CLAUDE_DOMAIN_SEARCH_OPERATION_KEY,
   DOMAIN_SEARCH_REASON_CODE,
+  pickRecentDomainSearch,
+  RECENT_SEARCH_WINDOW_DAYS,
   type DomainDuplicateCheck,
   type PriorDomainSearchRow,
+  type RecentDomainSearch,
+  type RecentDomainSearchRow,
 } from './domain-search';
 import { findKnownCompanyMatch, type KnownCompanyRow } from './known-company-guard';
 import type { RescueBatchDeps } from './rescue-batch';
@@ -194,6 +198,7 @@ const liveDomainSearch: NonNullable<RescueBatchDeps['domainSearch']> = {
   checkDuplicate: checkDuplicateStrict,
   findKnownCompany,
   findPriorSearches: (input) => findPriorDomainSearches(createSupabaseAdminClient(), input),
+  findRecentSearch,
 };
 
 /** Filas de la misma empresa que se miran como mucho por cada criterio. */
@@ -243,6 +248,39 @@ export async function readBatchDomainSearchCount(
     .eq('provider_key', CLAUDE_CLASSIFIER_PROVIDER_KEY)
     .eq('operation_key', CLAUDE_DOMAIN_SEARCH_OPERATION_KEY);
   return error || typeof count !== 'number' ? null : count;
+}
+
+/** Filas de «Descartadas» del país que se miran como mucho (las de los últimos 30 días). */
+const RECENT_SEARCH_ROWS = 500;
+
+/**
+ * ¿La misma empresa ya tuvo una búsqueda de web pagada que no sirvió hace menos de 30 días?
+ * Sólo lectura (admin: cualquier lote, cualquier vendedor; el gasto es del mismo presupuesto).
+ * Las del país con decisión final en la ventana; la comparación por número fiscal o nombre la
+ * hace `pickRecentDomainSearch`.
+ */
+async function findRecentSearch(input: {
+  dispositionId: string;
+  countryCode: string | null;
+  taxId: string | null;
+  name: string | null;
+}): Promise<RecentDomainSearch | null> {
+  if (!input.countryCode) return null;
+  const since = new Date(Date.now() - RECENT_SEARCH_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data, error } = await createSupabaseAdminClient()
+    .from('prospect_discarded_dispositions')
+    .select('id, batch_id, name, provider_identifier, evidence')
+    .eq('country_code', input.countryCode)
+    .gte('updated_at', since)
+    .in('evidence->claude_rescue->>decision', ['website_not_found', 'duplicate'])
+    .order('updated_at', { ascending: false })
+    .limit(RECENT_SEARCH_ROWS);
+  if (error) throw new Error(`recent_search_read_failed:${error.message}`);
+  return pickRecentDomainSearch(
+    { id: input.dispositionId, name: input.name, taxId: input.taxId },
+    (data ?? []) as RecentDomainSearchRow[],
+    Date.now(),
+  );
 }
 
 /**

@@ -4,6 +4,7 @@
  */
 
 import type { ResearchProgressStage } from '@/server/agents/first-call/types';
+import type { FirstContactServerRun } from './first-contact-run-registry';
 
 export const FIRST_CONTACT_LIVE_PATH = '/api/agent3/first-call/live';
 const MAX_ITEMS = 12;
@@ -18,6 +19,8 @@ export interface FirstContactLiveItem {
 export interface FirstContactLiveEntry {
   stage: ResearchProgressStage | null;
   packStatuses: string[] | null;
+  /** La corrida en el servidor (`agent_runs`), si quedó registrada: dice cómo terminó. */
+  run?: Pick<FirstContactServerRun, 'status' | 'packStatuses' | 'message'> | null;
 }
 
 export function parseLiveItems(body: unknown): FirstContactLiveItem[] | null {

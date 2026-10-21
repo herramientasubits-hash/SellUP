@@ -54,6 +54,7 @@ import { searchCorporateTreeBranch, type CorporateTreeNode, type CorporateTreeSe
 import {
   escapeLikePrefix,
   findCorporateTreeFreeHits,
+  findExactOfficialRecord,
   prefixUpperBound,
   type FreeBankRow,
   type FreeSnapshotRow,
@@ -70,6 +71,9 @@ import {
 import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
+import { readHubSpotCompanyAvailabilityById } from '@/server/integrations/hubspot-free-company-pool.server';
+import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
+import type { CorporateTreeGroupMemberStatus } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
@@ -78,7 +82,8 @@ import {
   fillMissingOfficialTaxIds,
 } from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import { settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
+import { CORPORATE_TREE_SAVED_DAYS } from './corporate-tree-saved';
+import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
@@ -248,6 +253,16 @@ export function corporateTreeApolloFamilyBilling(
   };
 }
 
+/** Lecturas de fichas de HubSpot a la vez (FASE D): pocas, para no tocar el límite de la API. */
+const GROUP_HUBSPOT_CONCURRENCY = 3;
+
+/** La regla de disponibilidad de HubSpot ⇒ lo que importa para el grupo. `null` = no se sabe. */
+export function groupMemberStatusFromAvailability(availability: HubSpotAvailability | null): CorporateTreeGroupMemberStatus | null {
+  if (!availability) return null;
+  if (availability.free) return 'free';
+  return availability.reason === 'unknown_owner' ? null : availability.reason;
+}
+
 /** Limita cuántas promesas corren a la vez. */
 function limiter(max: number) {
   let active = 0;
@@ -360,6 +375,19 @@ export function buildLiveCorporateTreeDeps(params: {
     return data ? Number(data.unit_cost_usd) : null;
   };
 
+  const querySnapshotsByPrefix = (sourceKey: string, prefix: string, max: number) =>
+    limit(async () => {
+      const { data, error } = await adminClient()
+        .from('source_company_snapshots')
+        .select(SNAPSHOT_COLUMNS)
+        .eq('source_key', sourceKey)
+        .gte('normalized_legal_name', prefix)
+        .lt('normalized_legal_name', prefixUpperBound(prefix))
+        .limit(max);
+      if (error) throw error;
+      return (data ?? []) as unknown as FreeSnapshotRow[];
+    });
+
   return {
     loadExistingRoot: (ref) => loadExistingRoot(params.supabase, ref),
 
@@ -394,18 +422,7 @@ export function buildLiveCorporateTreeDeps(params: {
 
     findFreeHits: (input) =>
       findCorporateTreeFreeHits(input, {
-        querySnapshotsByPrefix: (sourceKey, prefix, max) =>
-          limit(async () => {
-            const { data, error } = await adminClient()
-              .from('source_company_snapshots')
-              .select(SNAPSHOT_COLUMNS)
-              .eq('source_key', sourceKey)
-              .gte('normalized_legal_name', prefix)
-              .lt('normalized_legal_name', prefixUpperBound(prefix))
-              .limit(max);
-            if (error) throw error;
-            return (data ?? []) as unknown as FreeSnapshotRow[];
-          }),
+        querySnapshotsByPrefix,
         queryBankByNamePrefix: (countryCodes, prefix, max) =>
           limit(async () => {
             const { data, error } = await adminClient()
@@ -439,6 +456,50 @@ export function buildLiveCorporateTreeDeps(params: {
       if (log) await logProviderUsage(log);
     },
 
+    findOfficialRecord: (query) => findExactOfficialRecord(query, { querySnapshotsByPrefix }),
+
+    // De TODOS los vendedores (cliente admin): el árbol de un grupo es el mismo para todos y
+    // pagarlo dos veces no sirve. Sólo se reutiliza la lista; la escritura pasa por las
+    // compuertas de siempre («una empresa, un vendedor» incluida).
+    findSavedTrees: async (rootKey) => {
+      const since = new Date(Date.now() - CORPORATE_TREE_SAVED_DAYS * 86_400_000).toISOString();
+      const { data, error } = await adminClient()
+        .from('prospect_batches')
+        .select('id, created_at, metadata')
+        .eq('metadata->>search_mode', 'corporate_tree')
+        .eq('metadata->corporate_tree->>root_key', rootKey)
+        // Sólo los que guardaron su lista (no los que la reutilizaron): si no, cinco
+        // reutilizaciones seguidas dejaban fuera al original y se volvía a pagar.
+        .not('metadata->corporate_tree->saved', 'is', null)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (error) {
+        logError('find saved trees', error);
+        return [];
+      }
+      return (data ?? []).map((row) => ({
+        batchId: row.id as string,
+        createdAt: row.created_at as string,
+        metadata: row.metadata as unknown,
+      }));
+    },
+
+    // FASE D — SÓLO lectura de HubSpot (la regla de «libre» de la bolsa: cliente, negocio
+    // abierto, actividad reciente, dueño activo). Nunca escribe.
+    readGroupHubSpotStatus: async (ids) => {
+      const hubspotLimit = limiter(GROUP_HUBSPOT_CONCURRENCY);
+      const entries = await Promise.all(
+        ids.map((id) =>
+          hubspotLimit(async () => {
+            const status = groupMemberStatusFromAvailability(await readHubSpotCompanyAvailabilityById(id).catch(() => null));
+            return status ? ([id, status] as const) : null;
+          }),
+        ),
+      );
+      return new Map(entries.filter((e): e is readonly [string, CorporateTreeGroupMemberStatus] => !!e));
+    },
+
     fillOfficialTaxIds: async (companies) => {
       const lookUp = buildCountrySourceOfficialTaxIdLookup(buildColombiaOfficialSourceResolvers());
       return fillMissingOfficialTaxIds(companies, lookUp);
@@ -447,7 +508,7 @@ export function buildLiveCorporateTreeDeps(params: {
     findApolloFamily: isAgent1CorporateTreeApolloEnabled()
       ? async ({ rootDomain, rootName }, ctx) => {
           apolloQuota ??= checkProviderQuotaAvailable('apollo').catch(() => ({ allowed: false }));
-          if (!(await apolloQuota).allowed) return null;
+          if (!(await apolloQuota).allowed) return APOLLO_QUOTA_EXHAUSTED;
           const unitCostUsd = await apolloCreditUnitCost();
           const startedAt = Date.now();
           // Una sola llamada, con tope de espera y SIN reintento: lo que no vuelve queda como

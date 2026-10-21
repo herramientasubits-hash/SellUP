@@ -1,3 +1,4 @@
+import type { CorporateTreeGroupSignal } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import type { TavilyFirstOutcome } from './wizard-tavily-first';
 import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
@@ -275,7 +276,14 @@ export type WizardExecutionActionResult =
        * AGENT1-CORPORATE-TREE-3 — sólo el árbol: lo que no entró a «Por revisar» y
        * por qué (sin web, esperando el rescate; o sólo con la web del grupo).
        */
-      corporateTree?: { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number };
+      corporateTree?: {
+        waitingWebsite: number;
+        groupReferences: number;
+        alreadyKnown?: number;
+        possibleKnown?: number;
+        reusedSavedTree?: boolean;
+        groupSignal?: CorporateTreeGroupSignal | null;
+      };
       /** Present when budget reconciliation failed after a successful generation. */
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
       /**
@@ -467,6 +475,12 @@ export type WizardExecutionActionResult =
        * universo DURABLE y las incluye. Ausente ⇒ no se pudo contar.
        */
       reviewableCandidateCount?: number;
+      /**
+       * «Competidores de una empresa» — de las revisables, cuántas esperan aún la
+       * revisión de tamaño de Claude (corre al terminar y puede descartarlas).
+       * Ausente ⇒ ninguna o no se pudo contar.
+       */
+      competitorSizePendingCount?: number;
     }
   | {
       ok: false;

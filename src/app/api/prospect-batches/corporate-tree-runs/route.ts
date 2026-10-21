@@ -11,8 +11,9 @@ import { buildLiveCorporateTreeDeps } from '@/server/prospect-batches/corporate-
  * Agente 1 · Búsqueda en árbol de una empresa (AGENT1-CORPORATE-TREE-1).
  *
  * GET: ¿está encendida? (el chat y las filas la muestran o dicen «Próximamente»).
- * POST: una corrida. Responde con la misma forma que una corrida del asistente,
- * así la bandeja de búsquedas en paralelo la pinta igual.
+ * POST: una corrida (Claude y, con su bandera, una ficha de Apollo; o el árbol guardado
+ * del grupo, sin costo). Responde con la misma forma que una corrida del asistente, así la
+ * bandeja de búsquedas en paralelo la pinta igual.
  */
 export const maxDuration = 300;
 
@@ -96,7 +97,14 @@ export async function POST(request: NextRequest) {
           // Como en «por criterios»: las que quedaron para revisar.
           candidateCount: result.inReview,
           redirectPath: result.redirectPath,
-          corporateTree: { waitingWebsite: result.waitingWebsite, groupReferences: result.groupReferences, alreadyKnown: result.alreadyKnown, possibleKnown: result.possibleKnown },
+          corporateTree: {
+            waitingWebsite: result.waitingWebsite,
+            groupReferences: result.groupReferences,
+            alreadyKnown: result.alreadyKnown,
+            possibleKnown: result.possibleKnown,
+            reusedSavedTree: result.reusedSavedTree === true,
+            groupSignal: result.groupSignal ?? null,
+          },
         }
       : {
           ...failure(result.message),

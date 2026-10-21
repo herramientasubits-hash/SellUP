@@ -21,6 +21,7 @@ import { toCandidateSourcePrimary } from './mapping';
 import { fiscalIdentityFromDisposition } from './fiscal-identity-from-disposition';
 import { officialWorkforceFromDisposition } from './official-workforce-from-disposition';
 import { DISCARD_DISPOSITION_LABELS, type DiscardDispositionCode } from './types';
+import { isCompetitorSmallCompany } from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
 
 export interface SendToReviewCoreDeps {
   supabase: Pick<SupabaseClient, 'from'>;
@@ -122,7 +123,7 @@ export async function sendCandidateToReviewCore(
 
   const { data: current, error } = await supabase
     .from('prospect_candidates')
-    .select('id, batch_id, status, review_notes')
+    .select('id, batch_id, status, review_notes, metadata')
     .eq('id', candidateId)
     .maybeSingle();
   if (error) return { outcome: 'write_failed', message: error.message };
@@ -132,7 +133,10 @@ export async function sendCandidateToReviewCore(
     return { outcome: 'out_of_scope' };
   }
 
-  const decision = evaluateSendToReviewEligibility({ status: current.status as string });
+  const decision = evaluateSendToReviewEligibility({
+    status: current.status as string,
+    competitorSmallCompany: isCompetitorSmallCompany((current as { metadata?: unknown }).metadata),
+  });
   if (decision.decision === 'idempotent') {
     return { outcome: 'idempotent', candidateId };
   }

@@ -29,6 +29,7 @@ import {
   corporateTreePendingSummary,
   type CorporateTreePending,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import { corporateTreeGroupSentence } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import {
   CORPORATE_TREE_BRANCHES,
   CORPORATE_TREE_BRANCH_DESCRIPTIONS,
@@ -198,7 +199,8 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     setStep('branches');
   }
 
-  async function launch() {
+  /** `refresh`: no reutilizar el árbol guardado del grupo (el botón «Buscar de nuevo» del aviso). */
+  async function launch(refresh = false) {
     if (!root) return;
     const id = newClientRequestId();
     const startedAtMs = nowMs();
@@ -214,6 +216,7 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
       rootAccountId: root.accountId ?? null,
       branches,
       countryCodes,
+      ...(refresh ? { refresh: true } : {}),
     };
     const store = getAgentRunsStore();
     try {
@@ -268,16 +271,22 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     const name = root?.name ?? 'la empresa';
     // Mismo aviso que «por criterios» (sin botón): el lote se abre desde «Búsquedas»
     // o el Centro de procesos.
+    // Con el árbol guardado, el vendedor puede pedir una búsqueda nueva (pagada) desde el aviso.
+    const searchAgain = next.pending?.reusedSavedTree
+      ? { action: { label: 'Buscar de nuevo', onClick: () => void launch(true) } }
+      : {};
     if (next.inReview === 0) {
       toast.info('No se encontraron empresas nuevas.', {
         description: `Árbol de ${name}. ${corporateTreePendingSummary(next.pending ?? null)}`,
+        ...searchAgain,
       });
     } else {
       toast.success('Prospectos generados correctamente.', {
         description:
           next.inReview === null
             ? 'Ya puedes revisarlos en el listado de prospectos.'
-            : `Árbol de ${name}: ${next.inReview} ${next.inReview === 1 ? 'empresa nueva' : 'empresas nuevas'} para revisar en el listado de prospectos.`,
+            : `Árbol de ${name}: ${next.inReview} ${next.inReview === 1 ? 'empresa nueva' : 'empresas nuevas'} para revisar en el listado de prospectos. ${corporateTreeGroupSentence(next.pending?.groupSignal ?? null)}`.trim(),
+        ...searchAgain,
       });
     }
     if (!mounted.current) return;

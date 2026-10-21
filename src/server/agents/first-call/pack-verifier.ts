@@ -209,6 +209,67 @@ export function parseWriterSubmission(raw: Record<string, unknown>, channels: re
   return { shared, messages, messageVariants, callScriptVariants };
 }
 
+/** ¿Una versión afirma clientes o experiencia de UBITS, o atribuye algo a «la mayoría»? */
+function variantClaims(variant: ApproachVariant): boolean {
+  const text = normalizeForBan(`${variant.text} ${variant.voicemail ?? ''}`);
+  return UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(text)) || MAJORITY_CLAIM.test(text);
+}
+
+/**
+ * Lo que queda si, YA corregida, una versión alternativa sigue afirmando clientes o
+ * experiencia de UBITS (auditoría 21-10: el aviso n.º 1 de Prod, siempre en versiones
+ * alternativas). Es mejor una versión menos que un cliente inventado: se quita y la
+ * preparación ya no queda «para revisar» por eso. La versión principal no se toca.
+ */
+export function withoutClaimingVariants(submission: WriterSubmission): { submission: WriterSubmission; dropped: FirstContactApproach[] } {
+  const dropped = new Set<FirstContactApproach>();
+  const keep = (variants: readonly ApproachVariant[]) =>
+    variants.filter((v) => {
+      if (!variantClaims(v)) return true;
+      dropped.add(v.approach);
+      return false;
+    });
+  const messageVariants = Object.fromEntries(
+    Object.entries(submission.messageVariants).map(([channel, variants]) => [channel, keep(variants ?? [])]),
+  ) as WriterSubmission['messageVariants'];
+  const callScriptVariants = keep(submission.callScriptVariants);
+  if (dropped.size === 0) return { submission, dropped: [] };
+  return { submission: { ...submission, messageVariants, callScriptVariants }, dropped: [...dropped] };
+}
+
+/** Tope de frases que se mandan a corregir (las demás salen en la siguiente corrida). */
+const CLAIM_SENTENCES_MAX = 8;
+
+/**
+ * Las frases de la versión principal (y de lo que se dice al pedir la reunión) que afirman
+ * clientes o experiencia de UBITS, o atribuyen algo a «la mayoría», tal como se escribieron
+ * (Binga!, Prod 21-10: «cómo otras empresas de su tamaño en la región están resolviendo…»
+ * siguió tras la corrección). Van textuales al redactor para que las reescriba.
+ */
+export function claimingSentences(pack: FirstCallPackContent): string[] {
+  const texts = [
+    pack.reasonToCall.text,
+    pack.callScript.text,
+    pack.shortMessage.text,
+    pack.angle,
+    pack.nextStep,
+    ...pack.questions,
+    ...pack.objections.map((o) => o.response),
+    pack.meetingAsk ?? '',
+    pack.ifNo ?? '',
+    pack.confirmation ?? '',
+  ];
+  const sentences = texts
+    .flatMap((t) => (t ?? '').split(/(?<=[.?!])\s+|\n+/))
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .filter((s) => {
+      const n = normalizeForBan(s);
+      return UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(n)) || MAJORITY_CLAIM.test(n);
+    });
+  return [...new Set(sentences)].slice(0, CLAIM_SENTENCES_MAX);
+}
+
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
   const message = submission.messages[channel] ?? EMPTY_TEXT;
@@ -276,7 +337,16 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|equipos|lideres|clientes)\b[^?!\n]{0,60}\b(han resuelto|resolvieron|lo resuelven|estan resolviendo|lo estan haciendo|lo hacen|estan (capacitando|acelerando|alineando|formando|usando))\b/,
   /\b(trabajo|trabajamos) con (bancos|lideres|aseguradoras|cadenas|retailers|equipos de|areas de)\b/,
   /\bayud(o|amos|ando|amos a|ando a) (a )?(otr[oa]s )?(bancos|empresas|compa[nñ]ias|aseguradoras)\b/,
+  // Teamcore y Davivienda en Prod (19/20-10): «mi equipo trabaja con CEOs en tecnología»,
+  // «lo que hemos visto en bancos que atraviesan esto».
+  /\b(mi|nuestro) equipo (trabaja|ha trabajado|acompana|apoya|ayuda) (con|a)\b/,
+  // «Vemos que en empresas de su tamaño…» es una observación general: sólo la experiencia propia.
+  /\b(lo que )?(hemos visto|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
+  /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
 ];
+
+/** «por qué la llamo», «por qué lo contacto»: el pronombre dice el género del decisor. */
+const GENDERED_CALL_REASON = /\bpor que (la|lo) (llamo|llame|contacto|busco|escribo)\b/g;
 
 /** La clave de un dato de la ficha o del decisor («F12», «C3»), tal como la cita el redactor. */
 const FACT_ID_REF = /\b[FC]\d{1,3}\b/g;
@@ -343,6 +413,22 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
 /** Tuteo (ya normalizado, sin tildes): en el primer contacto va «usted». */
 const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo|vos|tenes|podes|queres|contame|decime)\b/;
+
+/**
+ * Binga! (Prod 21-10): el «!» del nombre de la empresa no es una exclamación. Cada palabra
+ * del nombre que trae signos (y el nombre entero) se cuenta sin ellos.
+ */
+export function withoutNameSigns(text: string, companyName: string | null | undefined): string {
+  if (!companyName) return text;
+  const signed = [...new Set([companyName.trim(), ...companyName.split(/\s+/)])].filter((w) => /[!?¡¿]/.test(w));
+  return signed
+    .sort((a, b) => b.length - a.length)
+    .reduce(
+      // Sin importar mayúsculas («BINGA!»); cada aparición pierde sólo sus propios signos.
+      (acc, word) => acc.replace(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (found) => found.replace(/[!?¡¿]/g, '')),
+      text,
+    );
+}
 
 /** Una pregunta o exclamación sin su signo de apertura (marca de texto traducido). */
 function missingOpeningSign(text: string): boolean {
@@ -539,6 +625,19 @@ export function verifyPack(
       issues.push(`El saludo no coincide con el cargo («${options.decisionMakerTitle}»).`);
     }
   }
+  // Binga! (Prod 21-10): «por qué la llamo» a Julián. Sin el género en el cargo, va neutro
+  // («el motivo de mi llamada»); con el género, tiene que coincidir.
+  if (options.decisionMakerTitle !== undefined) {
+    const gender = genderFromTitle(options.decisionMakerTitle);
+    const pronouns = sellerTexts
+      .flatMap(([, texts]) => texts)
+      .flatMap((t) => [...normalizeForBan(t).matchAll(GENDERED_CALL_REASON)].map((m) => (m[1] === 'la' ? 'f' : 'm')));
+    if (gender === null && pronouns.length > 0) {
+      issues.push('Dice «por qué la/lo llamo» sin saber el género del decisor: usa «el motivo de mi llamada» (o «de mi mensaje»).');
+    } else if (pronouns.some((p) => p !== gender)) {
+      issues.push(`Dice «por qué la/lo llamo» con el género que no coincide con el cargo («${options.decisionMakerTitle}»): usa «el motivo de mi llamada».`);
+    }
+  }
   // Sólo el mensaje principal: es el del primer contacto (las otras versiones son alternativas).
   if ((channel === 'whatsapp' || channel === 'linkedin') && FIRST_TOUCH_MEETING.test(normalizeForBan(pack.shortMessage.text))) {
     issues.push(channel === 'whatsapp' ? 'El primer WhatsApp pide reunión: sólo pide permiso para escribir por ahí.' : 'La nota de LinkedIn pide reunión: sólo el motivo para conectar.');
@@ -550,7 +649,7 @@ export function verifyPack(
     const foreign = [...new Set(sellerSaid.flatMap((t) => foreignWordsIn(withoutNames(t), options.countryCode)))];
     if (foreign.length > 0) issues.push(`Usa palabras que en este país suenan a otro: «${foreign.join('», «')}».`);
   }
-  if ([pack.callScript.text, pack.shortMessage.text, ...variants.map((v) => v.text)].some((t) => t && missingOpeningSign(t))) {
+  if ([pack.callScript.text, pack.shortMessage.text, ...variants.map((v) => v.text)].some((t) => t && missingOpeningSign(withoutNameSigns(t, options.companyName)))) {
     issues.push('A una pregunta o exclamación le falta el signo de apertura («¿», «¡»).');
   }
 

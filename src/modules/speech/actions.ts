@@ -17,10 +17,11 @@ import { getContactsByAccount } from '@/modules/contacts/actions';
 import { moveAccountStage } from '@/modules/pipeline/actions';
 import { toFirstCallContactOptions, type FirstCallContactOption } from './first-call-contacts';
 import { isBriefFresh } from './first-call-state';
+import { buildFirstCallOutcome } from './first-call-outcome';
 import { mapBriefRow, mapPackRow } from '@/server/agents/first-call/row-mappers';
 import { RESEARCH_RUNNING_STALE_MS } from '@/server/agents/first-call/run-first-call.server';
 import type { FirstCallPack, FirstCallPackStatus, ResearchBrief, ResearchFact, ResearchProgressStage } from '@/server/agents/first-call/types';
-import { FIRST_CONTACT_APPROACHES, FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
+import { FIRST_CONTACT_OUTCOMES, type FirstContactApproach, type FirstContactOutcome } from '@/server/agents/first-call/approaches';
 
 /**
  * Qué ficha mostrar, con la MISMA regla que el servidor al reusar: una investigación
@@ -266,13 +267,25 @@ const DISABLED: PackActionResult = { success: false, error: 'La preparación de 
 
 async function loadOwnPack(
   packId: string,
-): Promise<{ accountId: string; status: FirstCallPackStatus; hasContent: boolean; pack: Record<string, unknown> | null } | null> {
+): Promise<{
+  accountId: string;
+  status: FirstCallPackStatus;
+  hasContent: boolean;
+  pack: Record<string, unknown> | null;
+  edited: boolean;
+} | null> {
   const admin = createSupabaseAdminClient();
-  const { data } = await admin.from('first_call_packs').select('account_id, status, pack').eq('id', packId).maybeSingle();
-  const row = data as { account_id: string; status: FirstCallPackStatus; pack: Record<string, unknown> | null } | null;
+  const { data } = await admin.from('first_call_packs').select('account_id, status, pack, edited_script').eq('id', packId).maybeSingle();
+  const row = data as { account_id: string; status: FirstCallPackStatus; pack: Record<string, unknown> | null; edited_script: string | null } | null;
   if (!row?.account_id) return null;
   if (!(await getAccountById(row.account_id))) return null;
-  return { accountId: row.account_id, status: row.status, hasContent: !!row.pack && 'callScript' in row.pack, pack: row.pack };
+  return {
+    accountId: row.account_id,
+    status: row.status,
+    hasContent: !!row.pack && 'callScript' in row.pack,
+    pack: row.pack,
+    edited: !!row.edited_script,
+  };
 }
 
 /** Desde qué estados se puede hacer cada acción. */
@@ -304,7 +317,7 @@ async function updatePack(
   return { success: true };
 }
 
-/** El resultado del contacto va dentro del JSON de la preparación (sin migración). */
+/** El resultado del contacto va dentro del JSON de la preparación (ver `first-call-outcome.ts`). */
 async function packWithOutcome(
   packId: string,
   outcome: FirstContactOutcome,
@@ -313,10 +326,17 @@ async function packWithOutcome(
   if (!FIRST_CONTACT_OUTCOMES.includes(outcome)) return null;
   const own = await loadOwnPack(packId);
   if (!own?.pack) return null;
-  // La versión usada: la que llega (si es un enfoque válido) o la que ya estaba guardada.
-  const previous = (own.pack['outcome'] as { approach?: unknown } | null | undefined)?.approach;
-  const used = approach && FIRST_CONTACT_APPROACHES.includes(approach) ? approach : typeof previous === 'string' ? previous : null;
-  return { ...own.pack, outcome: { result: outcome, at: new Date().toISOString(), approach: used } };
+  return {
+    ...own.pack,
+    outcome: buildFirstCallOutcome({
+      previous: own.pack['outcome'],
+      outcome,
+      approach,
+      mainApproach: own.pack['approach'],
+      edited: own.edited,
+      nowIso: new Date().toISOString(),
+    }),
+  };
 }
 
 /**
