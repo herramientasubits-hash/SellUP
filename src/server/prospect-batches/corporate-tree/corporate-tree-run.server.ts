@@ -71,6 +71,9 @@ import {
 import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-toolkit/apollo-country-location';
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
+import { readHubSpotCompanyAvailabilityById } from '@/server/integrations/hubspot-free-company-pool.server';
+import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
+import type { CorporateTreeGroupMemberStatus } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
@@ -248,6 +251,16 @@ export function corporateTreeApolloFamilyBilling(
     },
     billingIndeterminate: false,
   };
+}
+
+/** Lecturas de fichas de HubSpot a la vez (FASE D): pocas, para no tocar el límite de la API. */
+const GROUP_HUBSPOT_CONCURRENCY = 3;
+
+/** La regla de disponibilidad de HubSpot ⇒ lo que importa para el grupo. `null` = no se sabe. */
+export function groupMemberStatusFromAvailability(availability: HubSpotAvailability | null): CorporateTreeGroupMemberStatus | null {
+  if (!availability) return null;
+  if (availability.free) return 'free';
+  return availability.reason === 'unknown_owner' ? null : availability.reason;
 }
 
 /** Limita cuántas promesas corren a la vez. */
@@ -470,6 +483,21 @@ export function buildLiveCorporateTreeDeps(params: {
         createdAt: row.created_at as string,
         metadata: row.metadata as unknown,
       }));
+    },
+
+    // FASE D — SÓLO lectura de HubSpot (la regla de «libre» de la bolsa: cliente, negocio
+    // abierto, actividad reciente, dueño activo). Nunca escribe.
+    readGroupHubSpotStatus: async (ids) => {
+      const hubspotLimit = limiter(GROUP_HUBSPOT_CONCURRENCY);
+      const entries = await Promise.all(
+        ids.map((id) =>
+          hubspotLimit(async () => {
+            const status = groupMemberStatusFromAvailability(await readHubSpotCompanyAvailabilityById(id).catch(() => null));
+            return status ? ([id, status] as const) : null;
+          }),
+        ),
+      );
+      return new Map(entries.filter((e): e is readonly [string, CorporateTreeGroupMemberStatus] => !!e));
     },
 
     fillOfficialTaxIds: async (companies) => {

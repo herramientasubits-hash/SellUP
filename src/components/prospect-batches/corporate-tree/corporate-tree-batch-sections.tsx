@@ -13,6 +13,12 @@ import {
   type CorporateTreeBatchCandidateInput,
   type CorporateTreeBatchRelationship,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  corporateTreeGroupOpportunity,
+  corporateTreeGroupSentence,
+  readCorporateTreeGroupSignal,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
+import { CORPORATE_TREE_METADATA_KEY } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
 
 /**
  * Agente 1 · Búsqueda en árbol — el lote agrupado por rama (AGENT1-CORPORATE-TREE-1).
@@ -34,6 +40,14 @@ export function CorporateTreeBatchSections({
   const summary = readCorporateTreeBatchSummary(batchMetadata);
   if (!summary) return null;
   const groups = groupBatchCandidatesByTreeRelation(candidates, relationships);
+  const treeMetadata =
+    batchMetadata && typeof batchMetadata === 'object'
+      ? (batchMetadata as Record<string, unknown>)[CORPORATE_TREE_METADATA_KEY]
+      : null;
+  const groupSignal = readCorporateTreeGroupSignal(
+    treeMetadata && typeof treeMetadata === 'object' ? (treeMetadata as Record<string, unknown>).group_hubspot : null,
+  );
+  const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
   const countryNames = LATAM_COUNTRIES.filter((c) => summary.countryCodes.includes(c.code)).map((c) => c.name);
 
   return (
@@ -56,6 +70,16 @@ export function CorporateTreeBatchSections({
           </p>
         </div>
       </div>
+
+      {groupOpportunity && (
+        <p
+          className={`mb-3 rounded-xl px-3 py-2 text-sm text-foreground ${
+            groupOpportunity === 'customer_group' ? 'bg-success/10' : 'bg-warning/15'
+          }`}
+        >
+          {corporateTreeGroupSentence(groupSignal)}
+        </p>
+      )}
 
       {groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">Ninguna empresa de este lote quedó marcada con su rama.</p>

@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
             alreadyKnown: result.alreadyKnown,
             possibleKnown: result.possibleKnown,
             reusedSavedTree: result.reusedSavedTree === true,
+            groupSignal: result.groupSignal ?? null,
           },
         }
       : {
