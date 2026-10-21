@@ -45,8 +45,15 @@ function useFirstContactLive(runs: readonly FirstContactRun[]): Record<string, R
         );
         if (!cancelled) setLive((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(live).map(([id, l]) => [id, l.stage])) }));
         for (const run of active) {
+          if (!run.detached) continue;
+          // Lo que dice el servidor manda (también lo que el barrido cerró por tiempo).
+          const server = live[run.id]?.run;
+          if (server && server.status !== 'running') {
+            store?.settleDetached(run.id, { status: server.status, packStatuses: server.packStatuses, message: server.message });
+            continue;
+          }
           const packs = live[run.id]?.packStatuses;
-          if (run.detached && packs && packs.length >= Math.max(1, run.expected)) {
+          if (packs && packs.length >= Math.max(1, run.expected)) {
             store?.settleDetached(run.id, { status: packs.some((s) => s !== 'failed') ? 'succeeded' : 'failed', packStatuses: packs, message: packs.some((s) => s !== 'failed') ? null : 'No pudimos escribir la preparación. Vuelve a intentarlo.' });
           }
         }

@@ -319,6 +319,8 @@ export interface WriterInput {
   regenerationReason: string | null;
   /** La investigación del decisor: gancho, prioridades probables (hipótesis) y lo que no se confirmó. */
   contactInsight?: ContactInsight | null;
+  /** Lo que funcionó en este país y canal, si cambió la recomendación (ver `approach-results.ts`). */
+  provenApproachNote?: string | null;
 }
 
 function renderFact(fact: ResearchFact): string {
@@ -344,7 +346,13 @@ export function buildWriterUserMessage(input: WriterInput): string {
     `Productos a enfocar: ${products.length > 0 ? products.join(', ') : 'el que mejor conecte con los hechos'}`,
     input.approaches.length > 0
       ? `Enfoques pedidos (el primero es el principal): ${input.approaches.map((a) => `${a} (${APPROACH_DEFINITIONS[a].label})`).join(', ')}`
-      : `Enfoque: el vendedor deja que elijas. Recomendado por el manual para este caso: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}); úsalo salvo que los hechos indiquen otro mejor.`,
+      : input.provenApproachNote
+        ? null
+        : `Enfoque: el vendedor deja que elijas. Recomendado por el manual para este caso: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}); úsalo salvo que los hechos indiquen otro mejor.`,
+    // El principal lo eligieron los resultados del equipo (no el manual): el porqué, sin que salga en los textos.
+    input.provenApproachNote
+      ? `Recomendado por los resultados del equipo: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}). ${input.provenApproachNote} Úsalo como principal; no menciones estos resultados en los textos.`
+      : null,
     input.referralNote ? `Referencia (tal como la escribió el vendedor; no la amplíes): «${input.referralNote}»` : null,
     input.countryCode?.toUpperCase() === 'PE' ? 'País con regla especial: Perú. La llamada sólo pide permiso antes de ofrecer.' : null,
     input.hubspotWarning ? `Aviso de HubSpot: ${input.hubspotWarning}` : null,
