@@ -8,6 +8,7 @@
  *   E — Claude en la web excluye el grupo de la referencia.
  *   F — La ficha ya pagada se reutiliza (y no tras un rechazo).
  *   G — La bandeja nombra las que faltan por confirmar tamaño.
+ *   H — «Competidoras pequeñas»: se ven, no vuelven a revisión ni van a HubSpot.
  *
  * Puras: sin red ni base de datos.
  */
@@ -44,6 +45,8 @@ import {
   type CompanySearchCall,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/company-search-run';
 import { AGENT_RUNS_TRAY_COPY } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray-copy';
+import { collectCompetitorSmallCompanies, isCompetitorSmallCompany } from '../competitor-small-companies';
+import { evaluateSendToReviewEligibility } from '@/modules/prospect-discards/send-to-review-eligibility';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -432,5 +435,74 @@ describe('G — la bandeja dice cuántas faltan por confirmar tamaño', () => {
     assert.equal(AGENT_RUNS_TRAY_COPY.succeeded(1), 'Terminada: 1 empresa.');
     assert.equal(AGENT_RUNS_TRAY_COPY.succeeded(null, 2), 'Terminada.');
     assert.equal(AGENT_RUNS_TRAY_COPY.succeeded(2, 5), 'Terminada: 2 empresas (2 por confirmar tamaño).');
+  });
+});
+
+// ── H ─────────────────────────────────────────────────────────────────────────
+
+describe('H — «Competidoras pequeñas» (decisión de la dueña 21-10)', () => {
+  const small = {
+    relationship: { kind: 'competitor_of', reference_company_name: 'Indalum', evidence: 'Extruye aluminio' },
+    claude_rescue: {
+      decision: 'discard',
+      discard_reason: 'claude_size_below_min',
+      discard_detail: 'Según Claude tiene menos de 200 empleados: «50 colaboradores»',
+    },
+  };
+
+  it('H1: sólo es «pequeña» la competidora que la revisión descartó por tamaño', () => {
+    assert.equal(isCompetitorSmallCompany(small), true);
+    assert.equal(isCompetitorSmallCompany({ claude_rescue: small.claude_rescue }), false);
+    assert.equal(
+      isCompetitorSmallCompany({ ...small, claude_rescue: { decision: 'discard', discard_reason: 'claude_sector_mismatch' } }),
+      false,
+    );
+    assert.equal(isCompetitorSmallCompany(null), false);
+  });
+
+  it('H2: junta las descartadas por tamaño y las que el escritor saltó, sin repetir', () => {
+    const companies = collectCompetitorSmallCompanies({
+      batchMetadata: {
+        writer_omitted_samples: [
+          { name: 'Alumex', domain: 'alumex.cl', url: 'https://alumex.cl', gate: 'icp_size', source_snippet: 'Perfiles de aluminio' },
+          { name: 'Otra', domain: 'otra.cl', url: null, gate: 'country' },
+          { name: 'Repetida', domain: 'www.repetida.cl', url: null, gate: 'icp_size' },
+        ],
+        icp_size_gate_summary: { blocked_reasons: ['Alumex: 51-200 empleados (Apollo)'] },
+      },
+      candidates: [
+        { id: 'c1', name: 'Repetida', domain: 'repetida.cl', website: 'https://repetida.cl', country_code: 'CL', status: 'discarded', metadata: small },
+        { id: 'c2', name: 'Grande', domain: 'grande.cl', website: null, country_code: 'CL', status: 'needs_review', metadata: { relationship: small.relationship } },
+        { id: 'c3', name: 'Sector', domain: 'sector.cl', website: null, country_code: 'CL', status: 'discarded', metadata: { relationship: small.relationship, claude_rescue: { decision: 'discard', discard_reason: 'claude_sector_mismatch' } } },
+      ],
+    });
+    assert.deepEqual(
+      companies.map((c) => [c.name, c.domain, c.origin]),
+      [
+        ['Repetida', 'repetida.cl', 'size_review'],
+        ['Alumex', 'alumex.cl', 'confirmed_size'],
+      ],
+    );
+    assert.equal(companies[0].competitorReason, 'Extruye aluminio');
+    assert.match(companies[0].sizeDetail ?? '', /menos de 200/);
+    assert.equal(companies[1].sizeDetail, '51-200 empleados (Apollo)');
+  });
+
+  it('H3: «Enviar a revisión» rechaza a la competidora pequeña; las demás descartadas siguen pudiendo', () => {
+    assert.deepEqual(evaluateSendToReviewEligibility({ status: 'discarded', competitorSmallCompany: true }), {
+      decision: 'reject',
+      reason: 'competitor_small_company',
+    });
+    assert.deepEqual(evaluateSendToReviewEligibility({ status: 'discarded' }), { decision: 'send' });
+    // Ya en revisión sigue siendo idempotente (no se revierte nada).
+    assert.deepEqual(evaluateSendToReviewEligibility({ status: 'needs_review', competitorSmallCompany: true }), {
+      decision: 'idempotent',
+    });
+  });
+
+  it('H4: el piso de 200 del escritor no se tocó (sigue para lo que va a HubSpot)', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const writer = await readFile('src/server/agents/prospecting-toolkit/candidate-writer.ts', 'utf8');
+    assert.match(writer, /threshold: 200,/);
   });
 });

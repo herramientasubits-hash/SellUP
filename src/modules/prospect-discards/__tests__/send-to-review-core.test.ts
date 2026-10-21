@@ -538,3 +538,65 @@ describe('AGENT1-SEND-TO-REVIEW-RECLAIM-1 — reclamo global al volver de Descar
     assert.equal(outcome.outcome, 'sent');
   });
 });
+
+// «Competidores de una empresa» — decisión de la dueña 21-10: la competidora con
+// menos de 200 empleados se ve en su búsqueda, pero no vuelve a revisión (ni a HubSpot).
+describe('sendCandidateToReviewCore — competidora pequeña', () => {
+  beforeEach(resetFakeState);
+
+  const smallCompetitorMetadata = {
+    relationship: { kind: 'competitor_of', reference_company_name: 'Indalum' },
+    claude_rescue: { decision: 'discard', discard_reason: 'claude_size_below_min' },
+  };
+
+  it('se rechaza y la fila sigue descartada', async () => {
+    seedBatch();
+    seed('prospect_candidates', {
+      id: 'cand-1',
+      batch_id: 'batch-1',
+      status: 'discarded',
+      review_notes: 'Descartada automáticamente (Claude): Según Claude tiene menos de 200 empleados',
+      metadata: smallCompetitorMetadata,
+    });
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'reject');
+    if (outcome.outcome !== 'reject') return;
+    assert.equal(outcome.reason, 'competitor_small_company');
+    assert.equal(db.prospect_candidates.get('cand-1')!.status, 'discarded');
+  });
+
+  it('una empresa pequeña de otra búsqueda (sin «competidor de») sigue pudiendo volver', async () => {
+    seedBatch();
+    seed('prospect_candidates', {
+      id: 'cand-1',
+      batch_id: 'batch-1',
+      status: 'discarded',
+      review_notes: null,
+      metadata: { claude_rescue: smallCompetitorMetadata.claude_rescue },
+    });
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+  });
+
+  it('una competidora descartada por otro motivo (p. ej. sector) sigue pudiendo volver', async () => {
+    seedBatch();
+    seed('prospect_candidates', {
+      id: 'cand-1',
+      batch_id: 'batch-1',
+      status: 'discarded',
+      review_notes: null,
+      metadata: { ...smallCompetitorMetadata, claude_rescue: { decision: 'discard', discard_reason: 'claude_sector_mismatch' } },
+    });
+    const outcome = await sendCandidateToReviewCore(
+      { supabase: makeFakeSupabase(), actorUserId: 'u', isBatchInScope: alwaysInScope },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+  });
+});

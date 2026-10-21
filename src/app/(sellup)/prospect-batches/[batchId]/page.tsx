@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { CorporateTreeBatchSections } from '@/components/prospect-batches/corporate-tree/corporate-tree-batch-sections';
+import { CompetitorSmallCompaniesSection } from '@/components/prospect-batches/competitor-search/competitor-small-companies-section';
 import { loadCorporateTreeBatchRelationships } from '@/modules/prospect-batches/corporate-tree/corporate-tree-relationships.server';
 import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
 import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
@@ -545,6 +546,9 @@ export default async function BatchDetailPage({ params }: Props) {
 
       {/* AGENT1-CORPORATE-TREE-1 — lote de una búsqueda en árbol: ramas sobre la tabla. */}
       <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} relationships={corporateTreeRelationships} />
+
+      {/* «Competidores de una empresa» — las de menos de 200 empleados: se ven, no van a HubSpot. */}
+      <CompetitorSmallCompaniesSection batchMetadata={batch.metadata} candidates={candidates} />
 
       {/* Candidates table */}
       <SurfaceCard noPadding>
