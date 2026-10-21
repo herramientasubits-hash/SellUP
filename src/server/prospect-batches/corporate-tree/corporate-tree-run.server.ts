@@ -54,6 +54,7 @@ import { searchCorporateTreeBranch, type CorporateTreeNode, type CorporateTreeSe
 import {
   escapeLikePrefix,
   findCorporateTreeFreeHits,
+  findExactOfficialRecord,
   prefixUpperBound,
   type FreeBankRow,
   type FreeSnapshotRow,
@@ -78,7 +79,8 @@ import {
   fillMissingOfficialTaxIds,
 } from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import { settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
+import { CORPORATE_TREE_SAVED_DAYS } from './corporate-tree-saved';
+import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
@@ -360,6 +362,19 @@ export function buildLiveCorporateTreeDeps(params: {
     return data ? Number(data.unit_cost_usd) : null;
   };
 
+  const querySnapshotsByPrefix = (sourceKey: string, prefix: string, max: number) =>
+    limit(async () => {
+      const { data, error } = await adminClient()
+        .from('source_company_snapshots')
+        .select(SNAPSHOT_COLUMNS)
+        .eq('source_key', sourceKey)
+        .gte('normalized_legal_name', prefix)
+        .lt('normalized_legal_name', prefixUpperBound(prefix))
+        .limit(max);
+      if (error) throw error;
+      return (data ?? []) as unknown as FreeSnapshotRow[];
+    });
+
   return {
     loadExistingRoot: (ref) => loadExistingRoot(params.supabase, ref),
 
@@ -394,18 +409,7 @@ export function buildLiveCorporateTreeDeps(params: {
 
     findFreeHits: (input) =>
       findCorporateTreeFreeHits(input, {
-        querySnapshotsByPrefix: (sourceKey, prefix, max) =>
-          limit(async () => {
-            const { data, error } = await adminClient()
-              .from('source_company_snapshots')
-              .select(SNAPSHOT_COLUMNS)
-              .eq('source_key', sourceKey)
-              .gte('normalized_legal_name', prefix)
-              .lt('normalized_legal_name', prefixUpperBound(prefix))
-              .limit(max);
-            if (error) throw error;
-            return (data ?? []) as unknown as FreeSnapshotRow[];
-          }),
+        querySnapshotsByPrefix,
         queryBankByNamePrefix: (countryCodes, prefix, max) =>
           limit(async () => {
             const { data, error } = await adminClient()
@@ -439,6 +443,35 @@ export function buildLiveCorporateTreeDeps(params: {
       if (log) await logProviderUsage(log);
     },
 
+    findOfficialRecord: (query) => findExactOfficialRecord(query, { querySnapshotsByPrefix }),
+
+    // De TODOS los vendedores (cliente admin): el árbol de un grupo es el mismo para todos y
+    // pagarlo dos veces no sirve. Sólo se reutiliza la lista; la escritura pasa por las
+    // compuertas de siempre («una empresa, un vendedor» incluida).
+    findSavedTrees: async (rootKey) => {
+      const since = new Date(Date.now() - CORPORATE_TREE_SAVED_DAYS * 86_400_000).toISOString();
+      const { data, error } = await adminClient()
+        .from('prospect_batches')
+        .select('id, created_at, metadata')
+        .eq('metadata->>search_mode', 'corporate_tree')
+        .eq('metadata->corporate_tree->>root_key', rootKey)
+        // Sólo los que guardaron su lista (no los que la reutilizaron): si no, cinco
+        // reutilizaciones seguidas dejaban fuera al original y se volvía a pagar.
+        .not('metadata->corporate_tree->saved', 'is', null)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (error) {
+        logError('find saved trees', error);
+        return [];
+      }
+      return (data ?? []).map((row) => ({
+        batchId: row.id as string,
+        createdAt: row.created_at as string,
+        metadata: row.metadata as unknown,
+      }));
+    },
+
     fillOfficialTaxIds: async (companies) => {
       const lookUp = buildCountrySourceOfficialTaxIdLookup(buildColombiaOfficialSourceResolvers());
       return fillMissingOfficialTaxIds(companies, lookUp);
@@ -447,7 +480,7 @@ export function buildLiveCorporateTreeDeps(params: {
     findApolloFamily: isAgent1CorporateTreeApolloEnabled()
       ? async ({ rootDomain, rootName }, ctx) => {
           apolloQuota ??= checkProviderQuotaAvailable('apollo').catch(() => ({ allowed: false }));
-          if (!(await apolloQuota).allowed) return null;
+          if (!(await apolloQuota).allowed) return APOLLO_QUOTA_EXHAUSTED;
           const unitCostUsd = await apolloCreditUnitCost();
           const startedAt = Date.now();
           // Una sola llamada, con tope de espera y SIN reintento: lo que no vuelve queda como

@@ -35,6 +35,8 @@ import { normalizeTreeName, type CorporateTreeBranch } from '@/modules/prospect-
 export const SUBMIT_CORPORATE_TREE_TOOL_NAME = 'submit_corporate_tree';
 export const CORPORATE_TREE_MAX_WEB_SEARCHES = 6;
 export const CORPORATE_TREE_MAX_OUTPUT_TOKENS = 3_000;
+/** Claude no entregó la lista ni después de pedírsela: respuesta perdida, no un árbol vacío. */
+export const CORPORATE_TREE_NO_SUBMISSION_ERROR = 'no_submission';
 
 export type TreeCountry = { code: string; name: string };
 
@@ -493,6 +495,11 @@ export async function searchCorporateTreeBranch(
       usage: apiError ? toUsage(apiError.partialUsage, model) : null,
       errorCode: apiError?.code ?? 'unexpected_error',
     };
+  }
+  // Tras forzarla, ni así entregó: no es «el grupo no tiene empresas», es una respuesta
+  // perdida (pagada). Se dice como error para no confundirla con un árbol vacío.
+  if (!hasSubmission(conversation.content)) {
+    return { ...empty, usage: toUsage(conversation.usage, model), errorCode: CORPORATE_TREE_NO_SUBMISSION_ERROR };
   }
   const submission = readSubmission(conversation.content);
   const filtered = await filterCorporateTreeProposals(submission, conversation, input, deps.fetchPage);
