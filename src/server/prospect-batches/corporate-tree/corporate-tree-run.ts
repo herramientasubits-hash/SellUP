@@ -33,6 +33,13 @@ import type { CountrySourceCompany } from '@/server/prospect-batches/country-sou
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
+import {
+  CORPORATE_TREE_GROUP_HUBSPOT_MAX_READS,
+  corporateTreeGroupOpportunity,
+  summarizeCorporateTreeGroup,
+  type CorporateTreeGroupMemberStatus,
+  type CorporateTreeGroupSignal,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { corporateTreeRootKey, pickSavedTree, serializeSavedTree, type CorporateTreeSavedTree } from './corporate-tree-saved';
 import type { CorporateTreeNotWritten } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
@@ -225,6 +232,12 @@ export type CorporateTreeRunDeps = {
    * tamaño). Gratis. Para las que quedaron sin web ni número fiscal.
    */
   findOfficialRecord?: (query: { name: string; countryCode: string }) => Promise<CountrySourceCompany | null>;
+  /**
+   * FASE D — qué dice HubSpot (SÓLO lectura) de las empresas del grupo que ya están allí:
+   * cliente, negocio abierto, trabajada por un vendedor, libre. Las que no se pudieron leer
+   * no vienen. Ausente = no se mira.
+   */
+  readGroupHubSpotStatus?: (hubspotCompanyIds: readonly string[]) => Promise<ReadonlyMap<string, CorporateTreeGroupMemberStatus>>;
   /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
   recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
@@ -271,6 +284,8 @@ export type CorporateTreeRunResult =
       estimatedCostUsd: number;
       /** Se reutilizó el árbol guardado del grupo (sin pagar la búsqueda). */
       reusedSavedTree?: boolean;
+      /** FASE D: si el grupo ya es cliente de UBITS o lo trabaja alguien (HubSpot, sólo lectura). */
+      groupSignal?: CorporateTreeGroupSignal | null;
     }
   | {
       ok: false;
@@ -761,6 +776,9 @@ async function runAfterReservation(
   const loaded = loadedOutcome.settled ? loadedOutcome.value : null;
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
+  const relationshipRows = buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId });
+  const groupSignal = await readGroupSignal(relationshipRows, deps, sealStartAtMs);
+  const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
   const tagging = Promise.all(
     plan.rows.map(async (row) => {
       const candidate = matched.get(row.key);
@@ -774,15 +792,15 @@ async function runAfterReservation(
         group_website: row.groupWebsite,
         ...(row.websiteUnverified ? { website_unverified: true } : {}),
         ...(row.foundInApollo ? { found_in_apollo: true } : {}),
+        // Sólo las que el vendedor tiene que trabajar (las de «Por revisar»).
+        ...(groupOpportunity && candidate.status === 'needs_review' ? { group_opportunity: groupOpportunity } : {}),
       };
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
   );
   await settleBy(tagging, sealStartAtMs, deps.nowMs);
   const relationships = await settleBy(
-    deps
-      .insertRelationships(buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }))
-      .catch(() => false),
+    deps.insertRelationships(relationshipRows).catch(() => false),
     sealStartAtMs,
     deps.nowMs,
   );
@@ -841,6 +859,7 @@ async function runAfterReservation(
       dropped_by_cap: plan.droppedByCap,
       dropped_by_branch: plan.droppedByBranch ?? 0,
       relationships_saved: relationshipsSaved,
+      ...(groupSignal ? { group_hubspot: groupSignal } : {}),
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
@@ -896,7 +915,39 @@ async function runAfterReservation(
     redirectPath: `/prospect-batches/${batchId}`,
     estimatedCostUsd,
     reusedSavedTree: !!saved,
+    groupSignal,
   };
+}
+
+/**
+ * FASE D: lee en HubSpot (sólo lectura, como mucho 12 fichas, acotado al sellado) las empresas
+ * del grupo que ya están allí y resume si el grupo ya es cliente o lo trabaja alguien. `null`
+ * si no hay ninguna en HubSpot, si no se pudo leer o si no hubo tiempo.
+ */
+async function readGroupSignal(
+  rows: readonly CorporateTreeRelationshipRow[],
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeGroupSignal | null> {
+  if (!deps.readGroupHubSpotStatus) return null;
+  const byId = new Map<string, CorporateTreeRelationshipRow>();
+  for (const row of rows) {
+    // La empresa de partida primero: si ella es cliente, eso es lo que más importa.
+    if (row.matched_hubspot_company_id && !byId.has(row.matched_hubspot_company_id)) byId.set(row.matched_hubspot_company_id, row);
+  }
+  const ordered = [...byId.entries()].sort(([, a], [, b]) => Number(b.relation_type === 'root') - Number(a.relation_type === 'root'));
+  const ids = ordered.slice(0, CORPORATE_TREE_GROUP_HUBSPOT_MAX_READS).map(([id]) => id);
+  if (ids.length === 0) return null;
+  const read = await settleBy(deps.readGroupHubSpotStatus(ids).catch(() => new Map()), deadlineAtMs, deps.nowMs);
+  if (!read.settled || read.value.size === 0) return null;
+  const statuses = read.value;
+  return summarizeCorporateTreeGroup(
+    ids.map((id) => ({
+      name: byId.get(id)!.related_name,
+      countryCode: byId.get(id)!.related_country_code,
+      status: statuses.get(id) ?? 'unknown',
+    })),
+  );
 }
 
 /**

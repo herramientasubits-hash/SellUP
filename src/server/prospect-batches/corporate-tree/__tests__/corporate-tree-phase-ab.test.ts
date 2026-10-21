@@ -57,6 +57,15 @@ import {
   serializeSavedTree,
 } from '../corporate-tree-saved';
 import { corporateTreePendingSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  corporateTreeGroupOpportunity,
+  corporateTreeGroupSentence,
+  readCorporateTreeGroupSignal,
+  summarizeCorporateTreeGroup,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
+import { groupMemberStatusFromAvailability } from '../corporate-tree-run.server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 const CO = { code: 'CO', name: 'Colombia' };
@@ -673,5 +682,119 @@ describe('A5. Lo que no salió bien queda dicho en el lote', () => {
     assert.equal(outcome.errorCode, CORPORATE_TREE_NO_SUBMISSION_ERROR);
     assert.ok(outcome.usage, 'lo pagado igual queda en Uso de IA');
     assert.equal(outcome.nodes.length, 0);
+  });
+});
+
+// ─── FASE D: el grupo ya es de UBITS (HubSpot, sólo lectura) ──────────────────────────
+
+describe('D1. La señal del grupo (pura)', () => {
+  it('cliente gana sobre «lo trabaja alguien»; libres y desconocidas no cuentan', () => {
+    const signal = summarizeCorporateTreeGroup([
+      { name: 'Bimbo México', countryCode: 'MX', status: 'customer' },
+      { name: 'Barcel', countryCode: 'MX', status: 'active_owner' },
+      { name: 'Bimbo Perú', countryCode: 'PE', status: 'free' },
+      { name: 'Bimbo Chile', countryCode: 'CL', status: 'unknown' },
+    ]);
+    assert.deepEqual(signal, {
+      checked: 3,
+      customers: [{ name: 'Bimbo México', countryCode: 'MX' }],
+      worked: [{ name: 'Barcel', countryCode: 'MX' }],
+    });
+    assert.equal(corporateTreeGroupOpportunity(signal), 'customer_group');
+    assert.match(corporateTreeGroupSentence(signal), /^El grupo ya es cliente de UBITS \(Bimbo México\): las nuevas son una oportunidad tibia/);
+  });
+
+  it('sólo trabajada por un vendedor ⇒ coordinar con su dueño; todo libre ⇒ nada', () => {
+    const worked = summarizeCorporateTreeGroup([{ name: 'Barcel', countryCode: 'MX', status: 'open_deal' }]);
+    assert.equal(corporateTreeGroupOpportunity(worked), 'worked_group');
+    assert.match(corporateTreeGroupSentence(worked), /coordina con su dueño/);
+    const free = summarizeCorporateTreeGroup([{ name: 'Bimbo Perú', countryCode: 'PE', status: 'free' }]);
+    assert.equal(corporateTreeGroupOpportunity(free), null);
+    assert.equal(corporateTreeGroupSentence(free), '');
+  });
+
+  it('lo guardado en el lote se valida (nombres vacíos, países raros)', () => {
+    const read = readCorporateTreeGroupSignal({ checked: 2, customers: [{ name: ' Bimbo ', countryCode: 'mx' }, { name: '' }, 'x'], worked: null });
+    assert.deepEqual(read, { checked: 2, customers: [{ name: 'Bimbo', countryCode: null }], worked: [] });
+    assert.equal(readCorporateTreeGroupSignal('nope'), null);
+  });
+
+  it('la regla de HubSpot ⇒ estado del grupo; dueño desconocido no se adivina', () => {
+    assert.equal(groupMemberStatusFromAvailability({ free: false, reason: 'customer' }), 'customer');
+    assert.equal(groupMemberStatusFromAvailability({ free: true, reason: 'pool_owner' }), 'free');
+    assert.equal(groupMemberStatusFromAvailability({ free: false, reason: 'unknown_owner' }), null);
+    assert.equal(groupMemberStatusFromAvailability(null), null);
+  });
+
+  it('el aviso lo dice, junto a lo demás', () => {
+    const text = corporateTreePendingSummary({
+      waitingWebsite: 0,
+      groupReferences: 0,
+      groupSignal: { checked: 1, customers: [{ name: 'Bimbo México', countryCode: 'MX' }], worked: [] },
+    });
+    assert.match(text, /El grupo ya es cliente de UBITS \(Bimbo México\)/);
+  });
+});
+
+describe('D2. La corrida: el grupo cliente marca a las nuevas como oportunidad tibia', () => {
+  const withHubSpot = (overrides: Partial<CorporateTreeRunDeps> = {}) =>
+    fakeDeps({
+      loadBatchCandidates: async () => [
+        { id: 'c-root', name: 'Bimbo', country_code: 'MX', domain: null, status: 'duplicate', matched_hubspot_company_id: 'hs-root', metadata: {} },
+        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'needs_review', matched_hubspot_company_id: null, metadata: {} },
+      ],
+      ...overrides,
+    });
+
+  it('la empresa de partida es cliente en HubSpot ⇒ el lote lo guarda y la nueva queda marcada', async () => {
+    const asked: string[][] = [];
+    const { deps, calls } = withHubSpot({
+      readGroupHubSpotStatus: async (ids) => {
+        asked.push([...ids]);
+        return new Map([['hs-root', 'customer' as const]]);
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(asked, [['hs-root']], 'sólo las que ya están en HubSpot, una vez');
+    assert.equal(result.groupSignal?.customers[0]?.name, 'Bimbo');
+    assert.deepEqual((treeOf(calls).group_hubspot as { customers: unknown[] }).customers, [{ name: 'Bimbo', countryCode: 'MX' }]);
+    const tag = calls.tagged.get('c-ec')?.corporate_tree as Record<string, unknown>;
+    assert.equal(tag.group_opportunity, 'customer_group');
+    const rootTag = calls.tagged.get('c-root')?.corporate_tree as Record<string, unknown> | undefined;
+    assert.equal(rootTag?.group_opportunity, undefined, 'sólo las de «Por revisar»');
+  });
+
+  it('nadie del grupo en HubSpot ⇒ no se lee HubSpot', async () => {
+    let reads = 0;
+    const { deps, calls } = fakeDeps({
+      readGroupHubSpotStatus: async () => {
+        reads++;
+        return new Map();
+      },
+    });
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.equal(reads, 0);
+    assert.equal(treeOf(calls).group_hubspot, undefined);
+  });
+
+  it('HubSpot falla ⇒ la corrida sigue, sin señal', async () => {
+    const { deps, calls } = withHubSpot({
+      readGroupHubSpotStatus: async () => {
+        throw new Error('hubspot down');
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.equal(result.groupSignal ?? null, null);
+    assert.equal(treeOf(calls).group_hubspot, undefined);
+  });
+});
+
+describe('A6. «Buscar de nuevo» desde el aviso', () => {
+  it('sólo con árbol guardado, y relanza la misma búsqueda con `refresh`', () => {
+    const source = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-flow.tsx'), 'utf8');
+    assert.match(source, /next\.pending\?\.reusedSavedTree\s*\?\s*\{ action: \{ label: 'Buscar de nuevo', onClick: \(\) => void launch\(true\) \} \}/);
+    assert.match(source, /\.\.\.\(refresh \? \{ refresh: true \} : \{\}\)/);
   });
 });
