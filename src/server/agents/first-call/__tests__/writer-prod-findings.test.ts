@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { unsupportedNumbers } from '../numbers';
-import { contentForChannel, parseWriterSubmission, verifyPack } from '../pack-verifier';
+import { contentForChannel, parseWriterSubmission, verifyPack, withoutClaimingVariants } from '../pack-verifier';
 import type { ResearchFact } from '../types';
 import { buildWriterSystemPrompt } from '../writer-prompt';
 import { UBITS_OBJECTIONS, UBITS_OFFERS } from '../ubits-messaging-library';
@@ -95,5 +95,70 @@ describe('enfoques que no invitan a inventar clientes (Prod 19-10)', () => {
     assert.doesNotMatch(system, /Cuenta qué hicieron empresas parecidas/);
     assert.doesNotMatch(system, /- peers \|/);
     assert.match(system, /El motivo es un hecho de SU empresa, no tu experiencia/);
+  });
+});
+
+describe('versiones que siguen inventando clientes tras corregir (auditoría 21-10)', () => {
+  const base = 'Asunto: La integración\nCordial saludo, Juliana:\nVi que Davivienda integró a Scotiabank y tiene 653 sucursales. ';
+  for (const phrase of [
+    'Mi equipo trabaja con CEOs en tecnología que están pasando por lo mismo.',
+    'Lo que hemos visto en bancos que atraviesan esto es que un plan por equipos ayuda.',
+    'Lo que vemos en otras aseguradoras es que la formación llega tarde.',
+  ]) {
+    it(`se marca: «${phrase}»`, () => {
+      const issues = verifyPack(emailPack(`${base}${phrase} ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+      assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
+    });
+  }
+
+  it('«hemos visto» sobre la propia empresa no es prueba social', () => {
+    const issues = verifyPack(emailPack(`${base}Hemos visto en la noticia que crecieron mucho. ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+    assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+  });
+
+  it('se quita la versión alternativa que inventa clientes; la principal y las limpias se quedan', () => {
+    const submission = parseWriterSubmission(
+      {
+        approach: 'trigger',
+        reason_to_call: { text: 'Integró a Scotiabank.', fact_refs: ['F1'] },
+        call_script: { text: 'Buenos días, le habla Elkin, de UBITS. Vi que integraron Scotiabank.', fact_refs: ['F1'] },
+        call_script_variants: [
+          { approach: 'problem', text: 'Buenos días. Lo que hemos visto en bancos que atraviesan esto es que la gente nueva tarda.' },
+          { approach: 'permission', text: 'Buenos días, sé que la llamo sin aviso. ¿Me regala 30 segundos?' },
+        ],
+        messages: [
+          {
+            channel: 'email',
+            text: 'Asunto: La integración\nVi que integraron Scotiabank. ¿Conversamos?',
+            fact_refs: ['F1'],
+            variants: [
+              { approach: 'permission', text: 'Asunto: Una pregunta\nMi equipo trabaja con bancos en integraciones. ¿Conversamos?' },
+              { approach: 'who_decides', text: 'Asunto: Una consulta\n¿Quién lleva la formación de la gente nueva?' },
+            ],
+          },
+        ],
+      },
+      ['call', 'email'],
+    );
+    const { submission: cleaned, dropped } = withoutClaimingVariants(submission);
+    assert.deepEqual(dropped.sort(), ['permission', 'problem']);
+    assert.deepEqual(cleaned.callScriptVariants.map((v) => v.approach), ['permission']);
+    assert.deepEqual(cleaned.messageVariants.email?.map((v) => v.approach), ['who_decides']);
+    assert.equal(cleaned.shared.callScript.text, submission.shared.callScript.text);
+    assert.equal(withoutClaimingVariants(cleaned).dropped.length, 0, 'sin nada que quitar devuelve lo mismo');
+  });
+});
+
+describe('observaciones generales no son prueba social (revisión 21-10)', () => {
+  const base = 'Asunto: La integración\nCordial saludo, Juliana:\nVi que Davivienda integró a Scotiabank y tiene 653 sucursales. ';
+  for (const phrase of ['Vemos que en empresas de su tamaño la inducción se alarga.', 'En integraciones así vemos con frecuencia que la gente nueva tarda.']) {
+    it(`no se marca: «${phrase}»`, () => {
+      const issues = verifyPack(emailPack(`${base}${phrase} ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+      assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+    });
+  }
+  it('sí se marca: «vemos con nuestros clientes…»', () => {
+    const issues = verifyPack(emailPack(`${base}Es lo que vemos con nuestros clientes del sector. ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+    assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
   });
 });
