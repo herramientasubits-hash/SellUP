@@ -4,6 +4,7 @@
 
 import type { AgentChatMessage, AgentChatRole, AgentChatTone } from '@/components/agent-chat';
 import type { CompanyCandidate, CompanyResolutionResult } from '@/modules/contact-enrichment/types';
+import { formatInAppZone } from '@/lib/format-date';
 import type {
   AutomaticRoutingUiDiagnosis,
   AutomaticRoutingUiResult,
@@ -260,9 +261,7 @@ function freeSourcesNote(fromHubSpot: number, fromBank: number, fromSite = 0): s
 
 /** «14 de octubre» — fecha corta para el chat. */
 function shortDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
-  return date.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  return formatInAppZone(iso, { day: 'numeric', month: 'long' }, 'es-CO', iso.slice(0, 10));
 }
 
 const SITE_ZERO_COPY: Record<string, string> = {
