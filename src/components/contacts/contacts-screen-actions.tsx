@@ -43,7 +43,7 @@ export function ContactsScreenActions({ accounts }: ContactsScreenActionsProps) 
   const agent = React.useMemo<RailActionSpec>(
     () => ({
       id: 'search-contacts-ai',
-      label: 'Buscar contactos con IA',
+      label: 'Buscar contactos',
       icon: <Sparkles aria-hidden="true" />,
       scope: ['screen'],
       variant: 'ai',

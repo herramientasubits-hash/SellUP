@@ -9,6 +9,26 @@ import { Toaster as SonnerToaster } from "@/components/ui/sonner";
  */
 export const TOASTER_TOP_OFFSET_PX = 76;
 
+const CLAMPED_TEXT_SELECTOR =
+  "[data-sonner-toast] [data-title], [data-sonner-toast] [data-description]";
+
+/**
+ * El título y la descripción se cortan en dos líneas (`line-clamp-2`, en
+ * `ui/sonner.tsx`). Cuando el texto realmente se corta, el aviso lleva el texto
+ * completo en `title` para leerlo al pasar el mouse; si cabe, no lleva tooltip.
+ */
+export function syncTruncatedToastTooltips(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>(CLAMPED_TEXT_SELECTOR).forEach((el) => {
+    const text = el.textContent?.trim() ?? "";
+    const isTruncated = el.scrollHeight > el.clientHeight + 1;
+    if (isTruncated && text) {
+      if (el.getAttribute("title") !== text) el.setAttribute("title", text);
+    } else if (el.hasAttribute("title")) {
+      el.removeAttribute("title");
+    }
+  });
+}
+
 /**
  * ThemaToaster — port de Thema `feedback/ThemaToaster.tsx`.
  *
@@ -31,6 +51,20 @@ export function ThemaToaster({
   topOffset?: number;
 }) {
   const [theme, setTheme] = React.useState<"light" | "dark">("light");
+  const hostRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const sync = () => syncTruncatedToastTooltips(host);
+    const observer = new MutationObserver(sync);
+    observer.observe(host, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     const read = () =>
@@ -47,15 +81,18 @@ export function ThemaToaster({
   }, []);
 
   return (
-    <SonnerToaster
-      theme={theme}
-      position="top-right"
-      offset={{ top: topOffset }}
-      closeButton
-      richColors={false}
-      expand={false}
-      className={className}
-      style={style}
-    />
+    // `contents`: el contenedor sólo sirve para observar los avisos; no pinta caja.
+    <div ref={hostRef} className="contents">
+      <SonnerToaster
+        theme={theme}
+        position="top-right"
+        offset={{ top: topOffset }}
+        closeButton
+        richColors={false}
+        expand={false}
+        className={className}
+        style={style}
+      />
+    </div>
   );
 }

@@ -48,7 +48,7 @@ import {
   CandidateMainInfoSection,
   CandidateSignalsSection,
   CandidateSummarySection,
-  CandidateTraceabilitySection,
+  CandidateCompanySection,
 } from './contact-candidate-detail-sections';
 import {
   CandidateDuplicateDecisionDialog,
@@ -2557,10 +2557,9 @@ export function ContactCandidateDetailSheet({
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
           <CandidateCompanyConsistencyNotice companyConsistency={companyConsistency} />
 
-          {/* 4. Trazabilidad */}
-          <CandidateTraceabilitySection
+          {/* 4. Empresa (antes «Trazabilidad»: se quitó de la vista) */}
+          <CandidateCompanySection
             candidate={candidate}
-            phoneRevealProviderLabel={phoneRevealProviderLabel}
             companyAction={
               candidate.status === 'pending_review' ? (
                 <Button

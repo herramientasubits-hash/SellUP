@@ -19,7 +19,7 @@ import {
   UserPlus,
 } from "@/icons";
 import { RumboIcon } from '@/components/chat/chat-mark';
-import { RUMBO_ACTION_LABELS, RUMBO_IA } from '@/components/ai/rumbo-labels';
+import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -550,7 +550,7 @@ export function AccountsDataTableClient({
         // Rumbo en general (dueña 20-10): abre su panel «¿Qué hacemos?» con las empresas
         // marcadas, como el Rumbo de la pantalla: buscar contactos o preparar el primer contacto.
         id: 'rumbo',
-        label: RUMBO_IA,
+        label: RUMBO_ACTION_LABELS.search,
         icon: RumboIcon,
         variant: 'ai',
         disabled: (rows) => rows.length === 0,

@@ -1,5 +1,5 @@
 /**
- * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1 — «Reasignar empresa» desde Trazabilidad.
+ * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1 — «Reasignar empresa» desde la sección Empresa.
  *
  * Caso real: un candidato (p. ej. juvenal.lavin@pizzapizza.cl) sin cuenta SellUp ni empresa
  * HubSpot no se podía aprobar. La ficha avisa, ofrece «Reasignar empresa», busca igual que el
@@ -209,7 +209,7 @@ afterEach(() => cleanup());
 async function renderSheet(candidate: PendingContactCandidate) {
   currentCandidate = candidate;
   render(<ContactCandidateDetailSheet candidateId={candidate.id} open onClose={() => {}} />);
-  await screen.findByText('Trazabilidad');
+  await screen.findAllByText('Contacto De Prueba');
 }
 
 describe('Reasignar empresa — ficha del candidato', () => {
@@ -223,6 +223,10 @@ describe('Reasignar empresa — ficha del candidato', () => {
     await renderSheet(makeCandidate({ account_id: 'acc-1', company_domain: 'pizzapizza.cl' }));
     assert.equal(screen.queryByText('Sin empresa asociada'), null);
     assert.ok(screen.getByRole('button', { name: 'Reasignar empresa' }));
+    // «Trazabilidad» (IDs técnicos) se quitó de la vista: confundía al manager.
+    assert.equal(screen.queryByText('Trazabilidad'), null);
+    assert.equal(screen.queryByText('ID del candidato'), null);
+    assert.equal(screen.queryByText('ID de la ejecución'), null);
   });
 
   it('busca en SellUp/HubSpot, oculta «manual» y reasigna la empresa elegida por id', async () => {

@@ -179,4 +179,11 @@ describe('EditContactDrawer — el teléfono guardado no se reescribe solo', () 
     open(contact({}));
     assert.equal(screen.getAllByRole('combobox', { name: 'Prefijo de país' }).length, 2);
   });
+
+  it('el celular vacío arranca con el país del teléfono, no con +57', () => {
+    open(contact({ phone: '+598 9624 6370' }));
+    const prefixes = screen.getAllByRole('combobox', { name: 'Prefijo de país' });
+    assert.equal(prefixes.length, 2);
+    assert.match(prefixes[1].textContent ?? '', /\+598/);
+  });
 });

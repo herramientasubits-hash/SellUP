@@ -14,7 +14,7 @@ export function withRumbo(action: string): string {
 export const RUMBO_ACTION_LABELS = {
   /** Agente 1: buscar empresas nuevas. */
   generate: withRumbo('Generar'),
-  /** Agente 1: la búsqueda final del asistente. */
+  /** «Buscar con Rumbo IA»: búsqueda final del asistente y botón de Rumbo en Empresas. */
   search: withRumbo('Buscar'),
   /** Agente 2: los decisores de una empresa. */
   findContacts: withRumbo('Buscar contactos'),
