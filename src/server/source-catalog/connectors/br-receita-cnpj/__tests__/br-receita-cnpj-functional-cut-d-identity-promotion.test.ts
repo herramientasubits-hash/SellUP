@@ -1457,7 +1457,9 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // (`agent1_company_identity_claims`) and releases the claims of an archived batch. Neither is
     // BR-SOURCE, Receita/CNPJ, the catalog, the phone chain 109–117 or CUT3B4. AUTHORED and NOT
     // APPLIED.
-    assert.equal(numbered[numbered.length - 1], '153_agent3_first_call_prep.sql');
+    // APOLLO-SAVED-CONTACT-PHONES-1 moves the ceiling to 155: saved Apollo contact phone import.
+    // Not BR-SOURCE, Receita/CNPJ or the catalog. AUTHORED and NOT APPLIED.
+    assert.equal(numbered[numbered.length - 1], '155_import_apollo_saved_contact_phones.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

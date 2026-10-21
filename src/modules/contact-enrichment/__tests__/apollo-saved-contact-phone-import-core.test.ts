@@ -10,6 +10,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  SAVED_CONTACT_PHONE_PROCESSING_BASIS,
+  buildSavedContactImportPayload,
   classifyApolloDncStatus,
   decideSavedContactPhoneImport,
   extractSavedContactPhones,
@@ -238,5 +240,54 @@ describe('maskPhoneForReport', () => {
   it('nunca deja ver más de los 2 últimos dígitos', () => {
     assert.equal(maskPhoneForReport('+56912345678'), '••••78');
     assert.equal(maskPhoneForReport(null), '—');
+  });
+});
+
+describe('buildSavedContactImportPayload — lo que reciben las funciones de la 155', () => {
+  const allowed = { kind: 'allowed' } as const;
+
+  function importable(phoneNumbers: ApolloSavedContact['phone_numbers'], id: string | null = 'apollo-contact-1') {
+    const d = decideSavedContactPhoneImport({
+      target: target(),
+      match: matchApolloSavedContact(target(), [saved({ id, phone_numbers: phoneNumbers })]),
+      suppression: allowed,
+      tombstonedDedupeKeys: new Set(),
+    });
+    assert.equal(d.decision, 'would_import');
+    return d as Extract<typeof d, { decision: 'would_import' }>;
+  }
+
+  it('procedencia: apollo + reveal + clave apollo_saved_contact:<id>, sin punteros contables', () => {
+    const payload = buildSavedContactImportPayload(importable([{ sanitized_number: '+56912345678', type_cd: 'mobile' }]));
+    assert.equal(payload.sources.length, 1);
+    const [source] = payload.sources;
+    assert.equal(source.provider, 'apollo');
+    assert.equal(source.acquisition_mode, 'reveal');
+    assert.equal(source.source_event_key, 'apollo_saved_contact:apollo-contact-1');
+    assert.equal('waterfall_run_id' in source, false);
+    assert.equal('reservation_id' in source, false);
+  });
+
+  it('sin id del contacto guardado usa el person_id en la clave', () => {
+    const payload = buildSavedContactImportPayload(importable([{ sanitized_number: '+56912345678' }], null));
+    assert.equal(payload.sources[0].source_event_key, `apollo_saved_contact:person:${PID}`);
+  });
+
+  it('el primario va primero y los inválidos no son candidatos a primario', () => {
+    const payload = buildSavedContactImportPayload(
+      importable([
+        { sanitized_number: '+56211111111', type_cd: 'work_hq' },
+        { sanitized_number: '+56922222222', type_cd: 'mobile' },
+        { sanitized_number: '+56933333333', type_cd: 'mobile', status_cd: 'invalid' },
+      ]),
+    );
+    assert.equal(payload.phones.length, 3);
+    assert.equal(payload.primaryCandidates[0].phone, '+56922222222');
+    assert.equal(payload.primaryCandidates[0].phone_type, 'mobile');
+    assert.ok(payload.primaryCandidates.every((c) => c.phone !== '+56933333333'));
+  });
+
+  it('base de tratamiento fija: legitimate_interest_b2b', () => {
+    assert.equal(SAVED_CONTACT_PHONE_PROCESSING_BASIS, 'legitimate_interest_b2b');
   });
 });

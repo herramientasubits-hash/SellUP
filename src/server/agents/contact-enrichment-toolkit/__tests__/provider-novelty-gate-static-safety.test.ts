@@ -217,7 +217,10 @@ describe('modelo de datos — sin migración nueva', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(Math.max(...numbers), 153, 'el techo conocido es la 153');
+    // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
+    // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
+    // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 155, 'el techo conocido es la 155');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

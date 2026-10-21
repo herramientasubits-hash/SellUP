@@ -808,10 +808,13 @@ describe('la migración 128 — su contrato', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(files[files.length - 1], '153_agent3_first_call_prep.sql');
+    // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
+    // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
+    // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '155_import_apollo_saved_contact_phones.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 153);
-    assert.equal(files.length, 153,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 155);
+    assert.equal(files.length, 155,  'techo y conteo coinciden: ni un hueco (la 154 llega con el PR #774)');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

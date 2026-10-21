@@ -364,7 +364,12 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
-      '153_agent3_first_call_prep.sql',
+      // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas,
+      // PR #774): dos funciones NUEVAS que escriben en la cadena de teléfono —colección de
+      // staging y colección oficial— los números que Apollo ya tiene guardados. SÍ nombra la
+      // cadena, así que queda EXENTA del barrido ciego de abajo con su límite afirmado de forma
+      // directa, igual que la 120, la 122 y la 128. AUTORADA y NO APLICADA.
+      '155_import_apollo_saved_contact_phones.sql',
       'el techo conocido es la 152: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF), la 147 (las dimensiones de las consultas a proveedores), la 148 (las asociaciones entre empresas de la búsqueda en árbol), la 149 (la forma de búsqueda del uso de IA desde la metadata del lote), la 150 (quién le vende a cada entidad pública, de las compras públicas), la 151 (el endurecimiento de claim_enrichment_jobs) y la 152 (el cruce NIT/dominio/LinkedIn de los reclamos de identidad) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
@@ -434,14 +439,15 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT1-AUDIT-HARDENING-1 declara la 151 (`claim_enrichment_jobs` sólo service_role) y la
       // 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad). Quedan AUTORIZADAS y
       // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 153 y superiores.
-      files.some((file) => /^15[4-9]/.test(file) || /^1[6-9]\d/.test(file)),
+      // APOLLO-SAVED-CONTACT-PHONES-1 declara la 155 (la 154 la declara su propio PR, #774).
+      files.some((file) => /^15[6-9]/.test(file) || /^1[6-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
       // AGENT3-FIRST-CALL-1 declara la 153 (fichas y paquetes de primera llamada del Agente 3).
-      'ninguna migración 154 o superior',
+      'ninguna migración 156 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -528,6 +534,11 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     const RESTATED_129 = '129_agent2_contact_hubspot_stale_completeness.sql';
     const RESTATED_130 = '130_agent2_contact_hubspot_stale_source.sql';
     const RESTATED_131 = '131_agent2_post_approval_reveal_stale_producer.sql';
+    // APOLLO-SAVED-CONTACT-PHONES-1 — la 155 queda EXENTA del barrido ciego por la MISMA razón
+    // que la 122 y la 128, y su límite se afirma directamente más abajo: sus dos funciones NUEVAS
+    // escriben en la colección de staging y en la oficial los teléfonos que Apollo ya tiene
+    // guardados, y esa escritura es el hito.
+    const SAVED_CONTACT_IMPORT_155 = '155_import_apollo_saved_contact_phones.sql';
     const BLIND_SWEEP_EXEMPT = new Set([
       RESTATED_120,
       SEARCH_MORE_122,
@@ -535,6 +546,7 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       RESTATED_129,
       RESTATED_130,
       RESTATED_131,
+      SAVED_CONTACT_IMPORT_155,
     ]);
 
     for (const file of files.filter(
@@ -762,6 +774,81 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     assert.ok(
       !exec128.includes('phone_reveal_suppression_audit'),
       'la 128 no toca la auditoría de supresión legada',
+    );
+
+    // ── El límite de la 155, afirmado de forma DIRECTA ───────────────
+    assert.ok(files.includes(SAVED_CONTACT_IMPORT_155), 'el fichero de la 155 no puede faltar');
+    const exec155 = stripSqlComments(
+      readFileSync(join(repoRoot, 'supabase/migrations', SAVED_CONTACT_IMPORT_155), 'utf8'),
+    ).replace(/COMMENT ON [\s\S]*?';\n/g, '');
+
+    // 1. No crea, altera, borra ni vacía NINGUNA estructura: sólo dos funciones y sus permisos.
+    //    `DELETE` sería un borrado sin tombstone.
+    for (const verb of [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'TRUNCATE',
+      'DELETE FROM',
+      'CREATE INDEX',
+      'CREATE POLICY',
+      'CREATE TRIGGER',
+    ]) {
+      assert.ok(
+        !new RegExp(verb, 'i').test(exec155),
+        `la 155 no puede ejecutar ${verb}: sólo crea dos funciones y sus permisos`,
+      );
+    }
+
+    // 2. No re-declara ningún writer existente de la cadena.
+    for (const fn of [
+      'persist_candidate_apollo_phone_reveal_result',
+      'persist_candidate_lusha_phone_reveal_result',
+      'approve_contact_candidate_with_phones',
+      'merge_contact_candidate_into_existing_contact',
+      'append_candidate_search_more_phones',
+      'project_approved_candidate_phones_onto_contact',
+    ]) {
+      assert.ok(
+        !new RegExp(`CREATE (OR REPLACE )?FUNCTION public\\.${fn}`).test(exec155),
+        `la 155 no puede re-declarar ${fn}: su importación son funciones NUEVAS`,
+      );
+    }
+
+    // 3. No crea contactos: escribe en contactos que YA existen.
+    assert.ok(
+      !/INSERT\s+INTO\s+public\.contacts\b/i.test(exec155),
+      'la 155 no puede crear un contacto: eso es de la 116',
+    );
+
+    // 4. Cada mención de la cadena tiene que estar DENTRO del cuerpo de una de sus dos funciones.
+    const fn155Ranges: Array<[number, number]> = [];
+    for (const fn of [
+      'import_candidate_apollo_saved_phones',
+      'import_contact_apollo_saved_phones',
+    ]) {
+      const start = exec155.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`);
+      assert.notEqual(start, -1, `la 155 tiene que crear ${fn}`);
+      const tag = /\bAS (\$[A-Za-z_]*\$)/.exec(exec155.slice(start));
+      assert.ok(tag, `${fn}: no se localizó la etiqueta de dollar-quote`);
+      const bodyStart = start + (tag.index ?? 0) + tag[0].length;
+      const close = exec155.indexOf(tag[1], bodyStart);
+      assert.notEqual(close, -1, `${fn}: dollar-quote sin cerrar`);
+      fn155Ranges.push([start, close + tag[1].length]);
+    }
+    for (const table of PHONE_CHAIN_TABLES) {
+      for (let at = exec155.indexOf(table); at !== -1; at = exec155.indexOf(table, at + 1)) {
+        assert.ok(
+          fn155Ranges.some(([from, to]) => at >= from && at < to),
+          `la 155 menciona ${table} FUERA del cuerpo de sus funciones (offset ${at})`,
+        );
+      }
+    }
+
+    // 5. La auditoría de supresión LEGADA sigue fuera de su alcance.
+    assert.ok(
+      !exec155.includes('phone_reveal_suppression_audit'),
+      'la 155 no toca la auditoría de supresión legada',
     );
 
     // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su

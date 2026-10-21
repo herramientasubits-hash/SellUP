@@ -1,6 +1,6 @@
 # Teléfonos ya guardados en Apollo (APOLLO-SAVED-CONTACT-PHONES-1)
 
-**Fecha:** 2026-10-21 · **Track:** AGENT2A · **Estado:** sólo ensayo (`--plan`). La escritura NO existe.
+**Fecha:** 2026-10-21 · **Track:** AGENT2A · **Estado:** `--plan` probado por la dueña (30 importables, 35 números). `--execute` construido; requiere la migración **155** aplicada en Prod (NO aplicada) y autorización explícita para escribir.
 
 ## Por qué
 
@@ -23,24 +23,22 @@
   scripts/ops/apollo-saved-contact-phones.mts --plan --out /tmp/apollo-saved-contact-phones-plan.json
 ```
 
-## Diseño propuesto para escribir (NO implementado; requiere aprobación)
+## Escritura (`--execute`) — migración 155
 
-Ningún camino de escritura existente sirve tal cual:
+```bash
+/usr/local/bin/node --env-file=/Users/ub-col-pro-lf4/Documents/SellUp/.env.local --import tsx \
+  scripts/ops/apollo-saved-contact-phones.mts --execute --confirm APOLLO-SAVED-CONTACT-PHONES-1 \
+  --out /tmp/apollo-saved-contact-phones-execute.json
+```
 
-- `persist_candidate_apollo_phone_reveal_result` (110/113/120) exige un reveal en vuelo y deja el candidato como «revelado con costo».
-- `append_candidate_search_more_phones` (122) rotula `search_more_reveal` y es de Lusha.
-- Ninguna función escribe teléfonos en un contacto oficial sin candidato aprobado detrás.
-- **Privacidad:** el par `(apollo, search)` → `apollo_search` **sobrevive** al borrado por DSAR (`official-contact-phone-suppression-core.ts`). Reusarlo dejaría números imborrables.
+- Recalcula el plan con datos frescos y escribe objetivo por objetivo; se detiene en el primer resultado inesperado. Re-ejecutar es idempotente (`target_has_phone`).
+- `supabase/migrations/155_import_apollo_saved_contact_phones.sql` agrega dos funciones (service_role, SECURITY INVOKER): `import_candidate_apollo_saved_phones` e `import_contact_apollo_saved_phones`. Bloquean la fila, re-chequean la supresión de la persona, respetan tombstones, **nunca pisan** un teléfono (ni `mobile_phone` en contactos) y no escriben `phone_reveal_*`, usage logs, reservas, presupuesto ni HubSpot.
+- Base de tratamiento: `legitimate_interest_b2b` (decisión de la dueña, 21-10), sólo donde está vacía.
 
-Propuesta (una migración, número a fijar contra `origin/main` y PRs abiertos en el turno de integración):
+### Por qué `(apollo, reveal)` y no un origen nuevo
 
-1. Vocabulario: `acquisition_mode` += `saved_contact` (candidatos y contactos); `contacts.phone_source` += `apollo_saved_contact`. En TS: `deriveLegacyPhoneSource('apollo','saved_contact') = 'apollo_saved_contact'`, agregarlo a `SUPPRESSIBLE_CONTACT_PHONE_SOURCES` y a la etiqueta del drawer.
-2. RPC de candidato: bloqueo de fila, re-chequeo `phone_reveal_candidate_suppression_exists`, salta tombstones, inserta colección + procedencia (`provider='apollo'`, `acquisition_mode='saved_contact'`, `source_event_key='apollo_saved_contact:<id contacto Apollo>'`, idempotente), fija `phone` sólo si sigue vacío. **No** toca `phone_reveal_*` (no hubo reveal) ni usage logs, reservas o presupuesto. Si el candidato está aprobado con contacto, proyecta con la 128.
-3. RPC de contacto oficial: bloqueo, `provider_suppression_exists('apollo', person_id)`, tombstones de `contact_phones`, inserta `contact_phones` + `contact_phone_sources`, escalar sólo si vacío con `phone_source='apollo_saved_contact'`.
-4. `--execute --confirm APOLLO-SAVED-CONTACT-PHONES-1`: vuelve a calcular el plan en el momento (lectura fresca), escribe objetivo por objetivo, se detiene en el primer error.
+Las funciones de borrado DSAR de las migraciones 112, 115, 116, 117 y 128 traducen `(provider, acquisition_mode)` al `phone_source` heredado con un CASE escrito a mano, y sólo `apollo_reveal`, `apollo_cache` y `lusha_reveal` se borran. Un modo nuevo caería en `unknown` y `(apollo, search)` en `apollo_search`: **los dos sobreviven** a una DSAR de Apollo. Por eso los números se registran como `(apollo, reveal)` —son números revelados en Apollo por el equipo— y el origen exacto queda en la procedencia: `source_event_key = 'apollo_saved_contact:<id del contacto en Apollo>'` (la 155 lo exige) y `enrichment_metadata.phone.acquired_via = 'apollo_saved_contact'` en candidatos. El test de Postgres real comprueba que la DSAR de la 115 borra el número importado.
 
-Decisión pendiente de la dueña: **base de tratamiento** (`phone_processing_basis`) que se registra para estos números.
+## Lo que esta rama NO hace
 
-## Lo que este PR NO hace
-
-0 escrituras en Prod, 0 migraciones, 0 flags, 0 créditos, 0 HubSpot.
+No aplica la 155 en Prod, no escribe en Prod, no toca flags, créditos ni HubSpot.

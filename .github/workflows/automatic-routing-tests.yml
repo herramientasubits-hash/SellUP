@@ -997,6 +997,14 @@ jobs:
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 
+      # APOLLO-SAVED-CONTACT-PHONES-1 — la 155 aplicada de verdad: nunca pisa un teléfono,
+      # re-chequea la supresión de la persona bajo lock, respeta tombstones, sólo service_role
+      # la ejecuta, y una DSAR de Apollo (115) SÍ borra el número importado.
+      - name: Run Apollo saved-contact phone import tests against real PostgreSQL
+        run: npm run test:agent2a:apollo-saved-contact-phones:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets

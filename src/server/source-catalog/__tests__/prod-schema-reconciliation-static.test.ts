@@ -328,7 +328,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // not CUT3B4. AUTHORED and NOT APPLIED.
     // AGENT3-FIRST-CALL-1 moves the ceiling to 153: Agent 3 research briefs and first-call packs
     // (`account_research_briefs`, `first_call_packs`). New tables only. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 153);
+    // APOLLO-SAVED-CONTACT-PHONES-1 moves the ceiling to 155 (154 is public procurement, PR #774):
+    // two NEW phone-import functions. No table, column or vocabulary. AUTHORED and NOT APPLIED.
+    assert.equal(highest, 155);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -444,7 +446,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     );
     // AGENT3-FIRST-CALL-1 declares the 153 (Agent 3 research briefs and first-call packs).
     assert.deepEqual(files.filter((f) => f.startsWith('153')), ['153_agent3_first_call_prep.sql']);
-    assert.equal(files.some((f) => f.startsWith('154')), false);
+    // APOLLO-SAVED-CONTACT-PHONES-1 declares the 155 (saved Apollo contact phone import).
+    assert.deepEqual(files.filter((f) => f.startsWith('155')), ['155_import_apollo_saved_contact_phones.sql']);
+    assert.equal(files.some((f) => f.startsWith('156')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [

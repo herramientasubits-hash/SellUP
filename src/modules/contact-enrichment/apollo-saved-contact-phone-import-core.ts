@@ -26,8 +26,13 @@ import {
   pickBestApolloPhone,
   type PhoneType,
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
-import { normalizeCandidatePhone, type CandidatePhoneStatus } from './phone-collection-core';
+import {
+  CANDIDATE_PHONE_TYPE_RANKING,
+  normalizeCandidatePhone,
+  type CandidatePhoneStatus,
+} from './phone-collection-core';
 import { mapApolloPhoneStatus } from './apollo-phone-collection-capture';
+import type { PhoneProcessingBasis } from './types';
 
 // ── Entradas ───────────────────────────────────────────────────
 
@@ -297,6 +302,84 @@ function pickPrimary(phones: readonly SavedContactPhone[]): SavedContactPhone {
   const pool = eligible.length > 0 ? eligible : phones;
   const best = pickBestApolloPhone(pool.map((phone) => ({ sanitized_number: phone.displayPhone, type: phone.rawType })));
   return pool.find((phone) => phone.displayPhone === best?.number) ?? pool[0];
+}
+
+// ── Payload de las funciones de la migración 155 ───────────────
+
+/**
+ * Base de tratamiento registrada para estos números. Decisión de la dueña (21-10): la misma
+ * que usan los reveals. Sólo se escribe donde la columna está vacía.
+ */
+export const SAVED_CONTACT_PHONE_PROCESSING_BASIS: PhoneProcessingBasis = 'legitimate_interest_b2b';
+
+/** Prefijo que la migración 155 EXIGE en `source_event_key`. */
+export const SAVED_CONTACT_SOURCE_EVENT_KEY_PREFIX = 'apollo_saved_contact:';
+
+export interface SavedContactImportPayload {
+  phones: Array<{
+    dedupe_key: string;
+    normalized_phone: string | null;
+    display_phone: string;
+    phone_type: PhoneType;
+    phone_status: CandidatePhoneStatus;
+  }>;
+  /**
+   * `(apollo, reveal)`: son números revelados en Apollo por el equipo. Un modo nuevo
+   * sobreviviría al borrado DSAR de las migraciones 112/115/116/117/128 (ver cabecera de la
+   * 155). Sin waterfall_run_id / reservation_id / provider_usage_log_id: no hubo gasto.
+   */
+  sources: Array<{
+    dedupe_key: string;
+    provider: 'apollo';
+    acquisition_mode: 'reveal';
+    raw_provider_type: string | null;
+    raw_provider_status: string | null;
+    source_event_key: string;
+  }>;
+  /** En orden de preferencia; nunca incluye un número que Apollo marca inválido. */
+  primaryCandidates: Array<{ dedupe_key: string; phone: string; phone_type: PhoneType; raw_type: string | null }>;
+}
+
+type ImportableDecision = Extract<SavedContactImportDecision, { decision: 'would_import' }>;
+
+export function buildSavedContactImportPayload(decision: ImportableDecision): SavedContactImportPayload {
+  const eventKey =
+    SAVED_CONTACT_SOURCE_EVENT_KEY_PREFIX +
+    (decision.apolloContactId ?? `person:${decision.apolloPersonId ?? 'unknown'}`);
+  const rank = (phone: SavedContactPhone) => {
+    const position = CANDIDATE_PHONE_TYPE_RANKING.indexOf(phone.phoneType);
+    return position === -1 ? CANDIDATE_PHONE_TYPE_RANKING.length : position;
+  };
+  const eligible = decision.phones.filter((phone) => phone.phoneStatus !== 'invalid');
+  const primary = eligible.find((phone) => phone.dedupeKey === decision.primaryDedupeKey);
+  const ordered = [
+    ...(primary ? [primary] : []),
+    ...eligible.filter((phone) => phone !== primary).sort((a, b) => rank(a) - rank(b)),
+  ];
+
+  return {
+    phones: decision.phones.map((phone) => ({
+      dedupe_key: phone.dedupeKey,
+      normalized_phone: phone.normalizedPhone,
+      display_phone: phone.displayPhone,
+      phone_type: phone.phoneType,
+      phone_status: phone.phoneStatus,
+    })),
+    sources: decision.phones.map((phone) => ({
+      dedupe_key: phone.dedupeKey,
+      provider: 'apollo',
+      acquisition_mode: 'reveal',
+      raw_provider_type: phone.rawType,
+      raw_provider_status: phone.rawStatus,
+      source_event_key: eventKey,
+    })),
+    primaryCandidates: ordered.map((phone) => ({
+      dedupe_key: phone.dedupeKey,
+      phone: phone.displayPhone,
+      phone_type: phone.phoneType,
+      raw_type: phone.rawType,
+    })),
+  };
 }
 
 /** Para informes: nunca más de los 2 últimos dígitos. */

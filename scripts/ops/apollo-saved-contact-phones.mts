@@ -11,18 +11,22 @@
  *   --plan     SÓLO LECTURA. Lee SellUp (Supabase) y consulta contacts/search de Apollo.
  *              No escribe en ningún sitio salvo el informe local `--out`. El informe
  *              NUNCA lleva números completos (sólo los 2 últimos dígitos) ni la API key.
- *   --execute  NO EXISTE TODAVÍA. Escribir exige una migración aprobada (procedencia nueva
- *              que el borrado por DSAR reconozca + funciones de escritura para candidatos y
- *              contactos oficiales). Ver el .md junto a este archivo.
+ *   --execute  ESCRIBE en SellUp. Exige `--confirm APOLLO-SAVED-CONTACT-PHONES-1` y que la
+ *              migración 155 esté aplicada. Recalcula el plan con datos frescos y escribe
+ *              objetivo por objetivo con las funciones de la 155; se detiene en el primer
+ *              resultado inesperado. Re-ejecutar es idempotente. Ver el .md junto a este archivo.
  *
  * Uso:
  *   /usr/local/bin/node --env-file=/Users/ub-col-pro-lf4/Documents/SellUp/.env.local --import tsx \
- *     scripts/ops/apollo-saved-contact-phones.mts --plan --out <ruta-informe.json>
+ *     scripts/ops/apollo-saved-contact-phones.mts --plan --out <informe.json>
+ *     | --execute --confirm APOLLO-SAVED-CONTACT-PHONES-1 --out <informe.json>
  */
 
 import { writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import {
+  SAVED_CONTACT_PHONE_PROCESSING_BASIS,
+  buildSavedContactImportPayload,
   decideSavedContactPhoneImport,
   maskPhoneForReport,
   matchApolloSavedContact,
@@ -43,19 +47,21 @@ const CONTACTS_SEARCH_URL = 'https://api.apollo.io/api/v1/contacts/search';
 const PAUSE_MS = 350;
 const MAX_RETRIES = 3;
 
+const CONFIRM = 'APOLLO-SAVED-CONTACT-PHONES-1';
 const args = process.argv.slice(2);
-if (args.includes('--execute')) {
-  console.error('--execute no existe todavía: escribir exige una migración aprobada. Usa --plan.');
+const mode = args.includes('--execute') ? 'execute' : args.includes('--plan') ? 'plan' : null;
+if (!mode) {
+  console.error(`Uso: --plan --out <informe.json> | --execute --confirm ${CONFIRM} --out <informe.json>`);
   process.exit(1);
 }
-if (!args.includes('--plan')) {
-  console.error('Uso: --plan --out <ruta-informe.json>');
+if (mode === 'execute' && args[args.indexOf('--confirm') + 1] !== CONFIRM) {
+  console.error(`--execute exige --confirm ${CONFIRM}`);
   process.exit(1);
 }
 const outIndex = args.indexOf('--out');
 const outPath = outIndex >= 0 ? args[outIndex + 1] : null;
 if (!outPath) {
-  console.error('--plan exige --out <ruta-informe.json>');
+  console.error('Falta --out <ruta-informe.json>');
   process.exit(1);
 }
 
@@ -242,7 +248,7 @@ const byDecision = decisions.reduce<Record<string, number>>((acc, d) => ({ ...ac
 const importable = decisions.filter((d) => d.decision === 'would_import');
 
 const summary = {
-  mode: 'plan (sin escritura)',
+  mode: mode === 'plan' ? 'plan (sin escritura)' : 'execute (plan recalculado antes de escribir)',
   targets: targets.length,
   candidates: candidates.length,
   contacts: contacts.length,
@@ -281,6 +287,53 @@ const report = {
   })),
 };
 
-writeFileSync(outPath, JSON.stringify(report, null, 2));
-console.log(JSON.stringify(summary, null, 2));
+// ── Escritura (sólo con --execute --confirm) ───────────────────
+// El plan de arriba se acaba de recalcular con datos frescos. Cada objetivo se escribe en
+// su propia transacción (funciones de la migración 155), que vuelve a bloquear la fila,
+// re-chequea la supresión, respeta tombstones y NUNCA pisa un teléfono existente.
+
+const WRITERS = {
+  candidate: 'import_candidate_apollo_saved_phones',
+  contact: 'import_contact_apollo_saved_phones',
+} as const;
+/** Resultados que no son error: el objetivo cambió desde el plan y la función se negó con razón. */
+const BENIGN_STATUSES = new Set(['persisted', 'persisted_without_primary', 'target_has_phone', 'suppressed']);
+
+const executed: Array<{ target_kind: string; target_id: string; status: string; detail?: string }> = [];
+if (mode === 'execute') {
+  const observedAt = new Date().toISOString();
+  for (const decision of importable) {
+    if (decision.decision !== 'would_import') continue;
+    const payload = buildSavedContactImportPayload(decision);
+    const params = {
+      ...(decision.targetKind === 'candidate' ? { p_candidate_id: decision.targetId } : { p_contact_id: decision.targetId }),
+      p_apollo_person_id: decision.apolloPersonId,
+      p_observed_at: observedAt,
+      p_phones: payload.phones,
+      p_sources: payload.sources,
+      p_primary_candidates: payload.primaryCandidates,
+      p_processing_basis: SAVED_CONTACT_PHONE_PROCESSING_BASIS,
+    };
+    const { data, error } = await admin.rpc(WRITERS[decision.targetKind], params);
+    const status = error ? 'rpc_error' : String((data as { status?: unknown } | null)?.status ?? 'unknown');
+    const detail = error ? error.code ?? 'error' : (data as { detail?: string } | null)?.detail;
+    executed.push({ target_kind: decision.targetKind, target_id: decision.targetId, status, ...(detail ? { detail } : {}) });
+    if (!BENIGN_STATUSES.has(status)) {
+      console.error(`Detenido en ${decision.targetKind} ${decision.targetId}: ${status}${detail ? ` (${detail})` : ''}`);
+      break;
+    }
+  }
+}
+
+const executionSummary =
+  mode === 'execute'
+    ? executed.reduce<Record<string, number>>((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {})
+    : null;
+
+writeFileSync(
+  outPath,
+  JSON.stringify({ ...report, ...(mode === 'execute' ? { executed, execution_summary: executionSummary } : {}) }, null, 2),
+);
+console.log(JSON.stringify({ ...summary, ...(executionSummary ? { execution_summary: executionSummary } : {}) }, null, 2));
 console.log(`Informe (sin números completos): ${outPath}`);
+if (mode === 'execute' && executed.some((row) => !BENIGN_STATUSES.has(row.status))) process.exit(1);

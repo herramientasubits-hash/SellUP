@@ -694,7 +694,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
-      '153_agent3_first_call_prep.sql',
+      // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
+      // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
+      // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
+      '155_import_apollo_saved_contact_phones.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [
