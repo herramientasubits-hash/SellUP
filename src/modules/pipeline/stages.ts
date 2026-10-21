@@ -2,9 +2,11 @@ import type { PipelineStatus } from '@/modules/accounts/types';
 import type { PipelineStage, PipelineStageId, PipelineStagePhase, PipelineStageState } from './types';
 
 /**
- * Las ocho etapas del proceso de venta de SellUp (modelo fijo, de los
- * documentos de estrategia). Dos ya existen en SellUp (Agente 1 y Agente 2A);
- * las demás están previstas y se muestran como tales, sin inventar datos.
+ * Las siete etapas del proceso de venta de SellUp (modelo de los documentos de
+ * estrategia). Investigar la empresa y preparar el primer contacto eran dos etapas
+ * («Inteligencia de cuenta» y «Preparación y contacto»), pero el Agente 3 las hace en
+ * la misma corrida: son UNA, «Primer contacto» (dueña 21-10). Las que aún no tienen
+ * agente se muestran como previstas, sin inventar datos.
  */
 export const PIPELINE_STAGES: readonly PipelineStage[] = [
   {
@@ -25,24 +27,14 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
     plannedText: null,
   },
   {
-    id: 'inteligencia',
-    name: 'Inteligencia de cuenta',
+    id: 'primer_contacto',
+    name: 'Primer contacto',
     summary:
-      'Brief de la cuenta: presencia regional, tamaño, señales, hipótesis UBITS, próxima acción.',
-    agent: 'Agente de inteligencia de cuenta y decisores',
+      'Investigación de la empresa y sus decisores, con fuentes, y qué decirle a cada decisor en cada canal: preguntas y respuestas a objeciones.',
+    agent: 'Agente 3',
     phase: 'mvp',
     plannedText:
-      'Armará el brief de la empresa: dónde opera, tamaño, señales comerciales, hipótesis de oportunidad UBITS y próxima acción, con sus fuentes y nivel de confianza.',
-  },
-  {
-    id: 'preparacion',
-    name: 'Preparación y contacto',
-    summary:
-      'Speech, preguntas y objeciones por cargo y canal; registro del resultado del contacto.',
-    agent: 'Agente de speech y preparación comercial',
-    phase: 'mvp',
-    plannedText:
-      'Preparará el speech para el decisor elegido: ángulo, versión corta, preguntas exploratorias y respuestas a objeciones, según cargo y canal.',
+      'Investigará la empresa y a sus decisores (dónde opera, señales, hipótesis para UBITS, con fuentes) y preparará qué decirle a cada decisor en cada canal, con preguntas y respuestas a objeciones.',
   },
   {
     id: 'reunion',
@@ -115,9 +107,9 @@ export interface CurrentStageResolution {
 
 const CURRENT_STAGE_BY_STATUS: Record<PipelineStatus, CurrentStageResolution> = {
   new: { stageId: 'enriquecimiento', substatusLabel: 'Nueva' },
-  ready_for_research: { stageId: 'inteligencia', substatusLabel: 'Lista para investigar' },
-  research_in_progress: { stageId: 'inteligencia', substatusLabel: 'Investigación en curso' },
-  ready_for_outreach: { stageId: 'preparacion', substatusLabel: 'Lista para contacto' },
+  ready_for_research: { stageId: 'primer_contacto', substatusLabel: 'Lista para investigar' },
+  research_in_progress: { stageId: 'primer_contacto', substatusLabel: 'Investigación en curso' },
+  ready_for_outreach: { stageId: 'primer_contacto', substatusLabel: 'Lista para contacto' },
   archived: { stageId: null, substatusLabel: 'Archivada' },
 };
 

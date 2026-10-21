@@ -1,9 +1,9 @@
 /**
  * AGENT3-FIRST-CALL-2 — el Agente 3 en el recorrido del Pipeline.
  *
- * Apagado, el recorrido queda EXACTAMENTE como lo armó `buildAccountJourney`. Encendido, las
- * etapas «Inteligencia de cuenta» y «Preparación y contacto» dejan de ser «Próximamente»:
- * sin nada hecho son una invitación; con algo hecho, una tarjeta con su resumen.
+ * Apagado, el recorrido queda EXACTAMENTE como lo armó `buildAccountJourney`. Encendido, la
+ * etapa «Primer contacto» (investigación y preparación, una sola desde el 21-10) deja de ser
+ * «Próximamente»: sin nada hecho es una invitación; con algo hecho, una tarjeta con su resumen.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,14 +21,14 @@ const NOW = Date.parse('2026-10-16T12:00:00Z');
 function baseJourney(): AccountJourney {
   return {
     account: { id: 'acc-1', name: 'Globex' },
-    currentStageId: 'inteligencia',
+    currentStageId: 'primer_contacto',
     substatusLabel: 'Lista para investigar',
     isArchived: false,
     stages: PIPELINE_STAGES.map((stage) => ({
       stage,
       state: 'upcoming' as const,
       signals: [],
-      milestoneAt: stage.id === 'inteligencia' ? '2026-09-30T10:00:00Z' : null,
+      milestoneAt: stage.id === 'primer_contacto' ? '2026-09-30T10:00:00Z' : null,
       notStarted: false,
     })),
     history: [{ id: 'audit-1', kind: 'audit', at: '2026-09-30T10:00:00Z', title: 'Estado', description: null, tone: 'primary' }],
@@ -145,29 +145,28 @@ describe('applyFirstCallToJourney', () => {
     assert.equal(applyFirstCallToJourney(journey, null), journey);
   });
 
-  it('antes de usarlo, las dos etapas eran «Próximamente»', () => {
+  it('antes de usarlo, «Primer contacto» era «Próximamente» (una sola etapa)', () => {
     const planned = baseJourney().stages.filter((e) => isFirstCallStage(e.stage.id));
-    assert.deepEqual(planned.map((e) => e.stage.phase), ['mvp', 'mvp']);
+    assert.deepEqual(planned.map((e) => [e.stage.id, e.stage.phase]), [['primer_contacto', 'mvp']]);
   });
 
-  it('sin nada hecho, las dos etapas son una invitación con el agente propio', () => {
+  it('sin nada hecho, «Primer contacto» es una invitación con el agente propio', () => {
     const journey = applyFirstCallToJourney(baseJourney(), toJourneyFirstCall({ enabled: true, brief: null, packs: [] }, CONTACTS, NOW));
-    for (const id of ['inteligencia', 'preparacion'] as const) {
-      const entry = journey.stages.find((e) => e.stage.id === id)!;
-      assert.equal(entry.stage.phase, 'hecho');
-      assert.equal(entry.stage.agent, FIRST_CALL_AGENT_LABEL);
-      assert.equal(entry.stage.plannedText, null);
-      assert.equal(entry.notStarted, true, id);
-    }
+    const entry = journey.stages.find((e) => e.stage.id === 'primer_contacto')!;
+    assert.equal(entry.stage.phase, 'hecho');
+    assert.equal(entry.stage.agent, FIRST_CALL_AGENT_LABEL);
+    assert.equal(entry.stage.plannedText, null);
+    assert.equal(entry.notStarted, true);
   });
 
-  it('con investigación y preparación, las etapas dejan de ser invitación y toman su fecha', () => {
-    const firstCall = toJourneyFirstCall({ enabled: true, brief: BRIEF, packs: [pack('p1')] }, CONTACTS, NOW);
-    const journey = applyFirstCallToJourney(baseJourney(), firstCall);
-    const research = journey.stages.find((e) => e.stage.id === 'inteligencia')!;
-    const prep = journey.stages.find((e) => e.stage.id === 'preparacion')!;
+  it('con la investigación hecha deja de ser invitación y toma su fecha; con preparación, la de la más reciente', () => {
+    const researched = applyFirstCallToJourney(baseJourney(), toJourneyFirstCall({ enabled: true, brief: BRIEF, packs: [] }, CONTACTS, NOW));
+    const research = researched.stages.find((e) => e.stage.id === 'primer_contacto')!;
     assert.equal(research.notStarted, false);
     assert.equal(research.milestoneAt, '2026-10-10T10:01:00Z');
+
+    const prepared = applyFirstCallToJourney(baseJourney(), toJourneyFirstCall({ enabled: true, brief: BRIEF, packs: [pack('p1')] }, CONTACTS, NOW));
+    const prep = prepared.stages.find((e) => e.stage.id === 'primer_contacto')!;
     assert.equal(prep.notStarted, false);
     assert.equal(prep.milestoneAt, '2026-10-11T09:00:00Z');
   });
@@ -201,7 +200,7 @@ describe('etapa actual con lo que hizo el Agente 3', () => {
     assert.equal(withFirstContactEvidence('archived', true), 'archived');
   });
 
-  it('la lista y los filtros del Pipeline cuentan la empresa en «Preparación» (caso Davivienda)', () => {
+  it('la lista y los filtros del Pipeline cuentan la empresa en «Primer contacto» (caso Davivienda)', () => {
     const base = {
       country: 'Colombia',
       country_code: 'CO',
@@ -235,9 +234,9 @@ describe('etapa actual con lo que hizo el Agente 3', () => {
       now: new Date('2026-10-17T12:00:00Z'),
     });
     const davivienda = overview.accounts.find((a) => a.id === 'davivienda')!;
-    assert.equal(davivienda.currentStageId, 'preparacion');
+    assert.equal(davivienda.currentStageId, 'primer_contacto');
     assert.equal(davivienda.substatusLabel, 'Lista para contacto');
-    assert.equal(overview.countsByStage.preparacion, 1);
+    assert.equal(overview.countsByStage.primer_contacto, 1);
     assert.equal(overview.countsByStage.enriquecimiento, 1);
   });
 });

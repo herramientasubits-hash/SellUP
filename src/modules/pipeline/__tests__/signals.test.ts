@@ -57,10 +57,10 @@ describe('Señales — reglas', () => {
   });
 
   it('«Sin movimiento N días» cae sobre la etapa actual con su severidad', () => {
-    const [signal] = computeSignals({ ...HEALTHY, daysSinceMovement: 21, currentStageId: 'inteligencia' });
+    const [signal] = computeSignals({ ...HEALTHY, daysSinceMovement: 21, currentStageId: 'primer_contacto' });
     assert.equal(signal.id, 'sin_movimiento');
     assert.equal(signal.severity, 'critical');
-    assert.equal(signal.stageId, 'inteligencia');
+    assert.equal(signal.stageId, 'primer_contacto');
     assert.equal(signal.label, 'Sin movimiento 21 días');
   });
 

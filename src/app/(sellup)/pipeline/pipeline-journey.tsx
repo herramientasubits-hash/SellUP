@@ -334,7 +334,7 @@ export interface PipelineJourneyProps {
 /**
  * La vista principal del Pipeline: a la izquierda todas las empresas; a la
  * derecha, el resumen (sin empresa elegida) o el recorrido de la elegida por
- * las ocho etapas. En pantalla estrecha se ve una cosa cada vez: la lista, y
+ * las siete etapas. En pantalla estrecha se ve una cosa cada vez: la lista, y
  * al elegir, el recorrido con «Volver».
  */
 export function PipelineJourney({

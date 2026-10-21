@@ -286,7 +286,7 @@ export function PipelineOverviewPanel({
         />
       )}
 
-      {/* Una sola tarjeta: la barra de reparto arriba y, debajo, las 8 etapas del proceso en UNA
+      {/* Una sola tarjeta: la barra de reparto arriba y, debajo, las 7 etapas del proceso en UNA
           fila, en orden, con el mismo vocabulario que la pista y el filtro. Las que hoy no tienen
           empresas salen apagadas y con el motivo; no se esconden. Cada celda mide lo que su nombre
           (nada se recorta); si no caben, la fila se desplaza de lado. */}

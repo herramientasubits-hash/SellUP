@@ -73,7 +73,7 @@ Con la bandera encendida, el agente se ofrece donde se actúa sobre una empresa 
 | Lista de Contactos | En el menú de la fila (ese decisor ya marcado) y en la barra de selección: **varios decisores de la misma empresa** (hasta 5) |
 | Panel y página del contacto | «Preparar primer contacto» (lleva a la empresa con ese decisor elegido) |
 | **Pipeline** | Etapa 3: estado, datos con fuente, fuentes, vigencia, resumen, «Qué encontró» por pregunta, hipótesis con su producto y preguntas sin respuesta. Etapa 4: decisores preparados, preparaciones, usadas y para revisar; cada decisor con sus canales (lista, revisar o falta) y productos; «Preparar lo que falta» y «Preparar otro». La barra de acciones y «Mover de etapa» también abren el agente |
-| Etapa actual y filtros del Pipeline | Una empresa con una preparación usable cuenta como «Lista para contacto» (etapa «Preparación y contacto»), aunque se haya preparado antes de que el agente moviera el estado solo |
+| Etapa actual y filtros del Pipeline | Una empresa con una preparación usable cuenta como «Lista para contacto» (etapa «Primer contacto», que desde el 21-10 une investigación y preparación), aunque se haya preparado antes de que el agente moviera el estado solo |
 | Actividad, pestaña «Agentes» e historial del Pipeline | Lo que hizo el agente y lo que se hizo con su resultado |
 | Uso de IA | «Por agente» con selector (chips y tarjetas). El Agente 1 ya no tiene pestaña propia: al elegirlo aparece su panel (`?agente=agent1`; `?tab=agente-1` sigue funcionando) |
 | Presupuesto y créditos | Créditos de Tavily (1 por búsqueda básica si Tavily no informa), costo con la tarifa vigente (sin tarifa queda «desconocido», nunca 0) y la verificación de presupuesto de Tavily |

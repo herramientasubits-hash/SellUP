@@ -1,9 +1,10 @@
 /**
  * AGENT3-FIRST-CALL-2 — el Agente 3 en el Pipeline, contrato RUNTIME:
  *
- *   · apagado, «Inteligencia de cuenta» y «Preparación y contacto» siguen «Próximamente»;
- *   · encendido y sin nada hecho, son una invitación con «Preparar primera llamada»;
- *   · con investigación y paquetes, son tarjetas con su resumen y su enlace a la empresa;
+ *   · investigar y preparar son UNA etapa, «Primer contacto» (dueña 21-10);
+ *   · apagado, sigue «Próximamente»;
+ *   · encendido y sin nada hecho, es una invitación con «Preparar primera llamada»;
+ *   · con investigación y paquetes, es una tarjeta con su resumen y su enlace a la empresa;
  *   · «Mover de etapa» ofrece la IA (el Agente 3) en investigar y preparar;
  *   · la barra de acciones ofrece «Preparar primera llamada» sólo con el agente presente.
  */
@@ -112,30 +113,26 @@ function renderCards(firstCall: JourneyFirstCall | null) {
 describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
   it('apagado, siguen «Próximamente» y no ofrecen nada', () => {
     renderCards(null);
-    for (const id of ['inteligencia', 'preparacion']) {
-      assert.ok(!stage(id).hasAttribute('data-invitation'), id);
-      assert.ok(rtl.within(stage(id)).getByText('Próximamente'), id);
-    }
+    assert.equal(stage('inteligencia'), null, 'ya no hay etapa «Inteligencia» aparte');
+    assert.equal(stage('preparacion'), null, 'ya no hay etapa «Preparación» aparte');
+    assert.ok(!stage('primer_contacto').hasAttribute('data-invitation'));
+    assert.ok(rtl.within(stage('primer_contacto')).getByText('Próximamente'));
     assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
   });
 
-  it('encendido y sin nada hecho, las dos etapas invitan con el botón del agente', () => {
+  it('encendido y sin nada hecho, «Primer contacto» invita UNA vez con el botón del agente', () => {
     renderCards(EMPTY);
-    const research = stage('inteligencia');
-    const prep = stage('preparacion');
-    for (const card of [research, prep]) {
-      assert.ok(card.hasAttribute('data-invitation'));
-      assert.ok(card.querySelector('[aria-expanded]') === null, 'una invitación no se pliega');
-      assert.ok(rtl.within(card).getByText('Agente 3'));
-      assert.ok(rtl.within(card).getByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }));
-    }
-    assert.ok(rtl.within(research).getByText(/Aún no se ha investigado Globex/));
-    assert.ok(rtl.within(prep).getByText(/Aún no se ha preparado el primer contacto con Globex/));
+    const card = stage('primer_contacto');
+    assert.ok(card.hasAttribute('data-invitation'));
+    assert.ok(card.querySelector('[aria-expanded]') === null, 'una invitación no se pliega');
+    assert.ok(rtl.within(card).getByText('Agente 3'));
+    assert.equal(rtl.screen.getAllByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }).length, 1);
+    assert.ok(rtl.within(card).getByText(/Aún no se ha preparado el primer contacto con Globex\. El agente investiga la empresa/));
   });
 
   it('con la investigación hecha, la etapa resume qué encontró, sus hipótesis y lleva a «Primer contacto»', () => {
     renderCards(DONE);
-    const research = stage('inteligencia');
+    const research = stage('primer_contacto');
     assert.ok(!research.hasAttribute('data-invitation'));
     open(research);
     assert.ok(rtl.within(research).getByText('Suficiente para contactar'));
@@ -150,9 +147,9 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
     assert.equal(rtl.within(research).queryByRole('button', { name: /Ver más/ }), null, 'no abre el drawer de detalle');
   });
 
-  it('con preparaciones, «Preparación y contacto» las agrupa por decisor y canal, dice lo que falta y lleva a «Primer contacto»', () => {
+  it('con preparaciones, la MISMA etapa las agrupa por decisor y canal, dice lo que falta y lleva a «Primer contacto»', () => {
     renderCards(DONE);
-    const prep = stage('preparacion');
+    const prep = stage('primer_contacto');
     open(prep);
     const list = rtl.within(prep).getByRole('list', { name: 'Preparaciones por decisor' });
     assert.equal(list.children.length, 2, 'María y «sin decisor»');
@@ -172,7 +169,7 @@ describe('Pipeline · etapas del Agente 3 en el recorrido', () => {
     const journey = applyFirstCallToJourney(buildJourney({ pipeline_status: 'archived' }), EMPTY);
     rtl.render(h(PipelineStageCards, { journey }));
     assert.equal(rtl.screen.queryByRole('button', { name: 'Preparar primer contacto con Rumbo IA' }), null);
-    assert.ok(rtl.within(stage('inteligencia')).getByText(/la empresa está archivada/));
+    assert.ok(rtl.within(stage('primer_contacto')).getByText(/la empresa está archivada/));
   });
 });
 

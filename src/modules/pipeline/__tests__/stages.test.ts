@@ -1,5 +1,5 @@
 /**
- * Pipeline · etapas — contrato PURO: las 8 etapas fijas y el mapeo de los 5
+ * Pipeline · etapas — contrato PURO: las 7 etapas fijas y el mapeo de los 5
  * `pipeline_status` a la etapa actual y al estado de cada etapa.
  */
 
@@ -16,12 +16,11 @@ import {
 } from '../stages';
 
 describe('Pipeline · etapas — modelo fijo', () => {
-  it('son exactamente las 8 etapas, en este orden', () => {
+  it('son exactamente las 7 etapas, en este orden (investigar y preparar son UNA: «Primer contacto»)', () => {
     assert.deepEqual(PIPELINE_STAGE_IDS, [
       'prospeccion',
       'enriquecimiento',
-      'inteligencia',
-      'preparacion',
+      'primer_contacto',
       'reunion',
       'cotizacion',
       'venta_interna',
@@ -38,6 +37,8 @@ describe('Pipeline · etapas — modelo fijo', () => {
     }
     assert.equal(getPipelineStage('prospeccion').agent, 'Agente 1');
     assert.equal(getPipelineStage('enriquecimiento').agent, 'Agente 2A');
+    assert.equal(getPipelineStage('primer_contacto').name, 'Primer contacto');
+    assert.equal(getPipelineStage('primer_contacto').agent, 'Agente 3');
     assert.equal(getPipelineStage('cotizacion').phase, 'mvp');
     assert.equal(getPipelineStage('venta_interna').phase, 'fase_3');
     assert.equal(getPipelineStage('cierre').phase, 'fase_2');
@@ -55,15 +56,15 @@ describe('Pipeline · etapas — dónde está la empresa', () => {
   it('mapea los 5 estados a su etapa actual y su sustado', () => {
     assert.deepEqual(resolveCurrentStage('new'), { stageId: 'enriquecimiento', substatusLabel: 'Nueva' });
     assert.deepEqual(resolveCurrentStage('ready_for_research'), {
-      stageId: 'inteligencia',
+      stageId: 'primer_contacto',
       substatusLabel: 'Lista para investigar',
     });
     assert.deepEqual(resolveCurrentStage('research_in_progress'), {
-      stageId: 'inteligencia',
+      stageId: 'primer_contacto',
       substatusLabel: 'Investigación en curso',
     });
     assert.deepEqual(resolveCurrentStage('ready_for_outreach'), {
-      stageId: 'preparacion',
+      stageId: 'primer_contacto',
       substatusLabel: 'Lista para contacto',
     });
     assert.deepEqual(resolveCurrentStage('archived'), { stageId: null, substatusLabel: 'Archivada' });
@@ -73,8 +74,7 @@ describe('Pipeline · etapas — dónde está la empresa', () => {
     const states = resolveStageStates('ready_for_outreach');
     assert.equal(states.prospeccion, 'complete');
     assert.equal(states.enriquecimiento, 'complete');
-    assert.equal(states.inteligencia, 'complete');
-    assert.equal(states.preparacion, 'current');
+    assert.equal(states.primer_contacto, 'current');
     assert.equal(states.reunion, 'upcoming');
     assert.equal(states.cierre, 'upcoming');
   });
@@ -83,7 +83,7 @@ describe('Pipeline · etapas — dónde está la empresa', () => {
     const states = resolveStageStates('new');
     assert.equal(states.prospeccion, 'complete');
     assert.equal(states.enriquecimiento, 'current');
-    assert.equal(states.inteligencia, 'upcoming');
+    assert.equal(states.primer_contacto, 'upcoming');
   });
 
   it('archivada: ninguna etapa es actual; prospección completa, el resto archivado', () => {

@@ -298,7 +298,7 @@ export function parsePipelineFilters(source: ParamSource): PipelineFilters {
   const signalIds = splitList(readParam(source, 'senal'));
 
   return {
-    stages: PIPELINE_STAGE_IDS.filter((id) => splitList(readParam(source, 'etapa')).includes(id)),
+    stages: PIPELINE_STAGE_IDS.filter((id) => splitList(readParam(source, 'etapa')).map(currentStageParam).includes(id)),
     countries: splitList(readParam(source, 'pais')).map((code) => (code === NONE_VALUE ? code : code.toUpperCase())),
     industries: splitList(readParam(source, 'industria'), INDUSTRY_SEPARATOR),
     inactivity,
@@ -309,6 +309,16 @@ export function parsePipelineFilters(source: ParamSource): PipelineFilters {
     from,
     to,
   };
+}
+
+/** Enlaces guardados de antes de unir «Inteligencia» y «Preparación» en «Primer contacto» (21-10). */
+const LEGACY_STAGE_PARAMS: Readonly<Record<string, PipelineStageId>> = {
+  inteligencia: 'primer_contacto',
+  preparacion: 'primer_contacto',
+};
+
+function currentStageParam(value: string): string {
+  return LEGACY_STAGE_PARAMS[value] ?? value;
 }
 
 /** Los filtros como parámetros compactos de URL; lo que es por defecto no ensucia la URL. */

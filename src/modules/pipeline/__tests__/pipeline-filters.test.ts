@@ -55,9 +55,9 @@ function account(
 
 const ACCOUNTS: PipelineOverviewAccount[] = [
   account('a', { daysSinceMovement: 30, lastMovementAt: '2026-09-01T15:00:00Z', createdAt: '2026-09-01T15:00:00Z', signalIds: ['sin_movimiento', 'sin_contactos'] }),
-  account('b', { countryCode: 'CL', industry: 'Energía', currentStageId: 'inteligencia', daysSinceMovement: 14, lastMovementAt: '2026-09-17T15:00:00Z', createdAt: '2026-08-10T15:00:00Z', signalIds: ['sin_movimiento', 'corrida_fallida'] }),
-  account('c', { countryCode: 'cl', industry: 'Tecnología', currentStageId: 'inteligencia', daysSinceMovement: 7, lastMovementAt: '2026-09-24T15:00:00Z', signalIds: ['sin_movimiento', 'sin_responsable'] }),
-  account('d', { countryCode: null, industry: null, currentStageId: 'preparacion', daysSinceMovement: 0, lastMovementAt: '2026-10-01T13:00:00Z', signalIds: ['sin_hubspot'] }),
+  account('b', { countryCode: 'CL', industry: 'Energía', currentStageId: 'primer_contacto', daysSinceMovement: 14, lastMovementAt: '2026-09-17T15:00:00Z', createdAt: '2026-08-10T15:00:00Z', signalIds: ['sin_movimiento', 'corrida_fallida'] }),
+  account('c', { countryCode: 'cl', industry: 'Tecnología', currentStageId: 'primer_contacto', daysSinceMovement: 7, lastMovementAt: '2026-09-24T15:00:00Z', signalIds: ['sin_movimiento', 'sin_responsable'] }),
+  account('d', { countryCode: null, industry: null, currentStageId: 'primer_contacto', daysSinceMovement: 0, lastMovementAt: '2026-10-01T13:00:00Z', signalIds: ['sin_hubspot'] }),
 ];
 
 const ids = (filters: Partial<PipelineFilters>) =>
@@ -70,8 +70,9 @@ describe('Filtros — cada grupo', () => {
   });
 
   it('etapa: varias a la vez son una unión; una etapa sin empresas no añade nada', () => {
-    assert.deepEqual(ids({ stages: ['inteligencia'] }), ['b', 'c']);
-    assert.deepEqual(ids({ stages: ['enriquecimiento', 'preparacion', 'reunion'] }), ['a', 'd']);
+    assert.deepEqual(ids({ stages: ['primer_contacto'] }), ['b', 'c', 'd']);
+    assert.deepEqual(ids({ stages: ['enriquecimiento', 'primer_contacto', 'reunion'] }), ['a', 'b', 'c', 'd']);
+    assert.deepEqual(ids({ stages: ['enriquecimiento', 'reunion'] }), ['a']);
     assert.deepEqual(ids({ stages: ['cierre'] }), []);
   });
 
@@ -101,7 +102,7 @@ describe('Filtros — cada grupo', () => {
 
   it('entre grupos es una intersección', () => {
     assert.deepEqual(ids({ countries: ['CL'], inactivity: 14 }), ['b']);
-    assert.deepEqual(ids({ stages: ['inteligencia'], signals: ['sin_responsable'] }), ['c']);
+    assert.deepEqual(ids({ stages: ['primer_contacto'], signals: ['sin_responsable'] }), ['c']);
     assert.deepEqual(ids({ countries: ['CO'], aiFailures: ['corrida_fallida'] }), []);
   });
 });
@@ -143,7 +144,7 @@ describe('Filtros — fechas en la zona de la aplicación', () => {
 
   it('la fecha y la inactividad cuentan como un filtro cada una', () => {
     assert.equal(
-      countActiveFilters({ ...EMPTY_PIPELINE_FILTERS, stages: ['inteligencia', 'cierre'], countries: ['CL'], inactivity: 14, datePreset: '30d' }),
+      countActiveFilters({ ...EMPTY_PIPELINE_FILTERS, stages: ['primer_contacto', 'cierre'], countries: ['CL'], inactivity: 14, datePreset: '30d' }),
       5,
     );
     // Cambiar solo sobre qué fecha se filtra no es un filtro.
@@ -154,10 +155,10 @@ describe('Filtros — fechas en la zona de la aplicación', () => {
 describe('Filtros — opciones y conteos (sobre el total)', () => {
   const options = countFilterOptions(ACCOUNTS);
 
-  it('etapas: las 8, con 0 para las que nadie ha alcanzado', () => {
+  it('etapas: las 7, con 0 para las que nadie ha alcanzado', () => {
     assert.deepEqual(
       options.stages.map((option) => [option.value, option.count] as [PipelineStageId, number]),
-      [['prospeccion', 0], ['enriquecimiento', 1], ['inteligencia', 2], ['preparacion', 1], ['reunion', 0], ['cotizacion', 0], ['venta_interna', 0], ['cierre', 0]],
+      [['prospeccion', 0], ['enriquecimiento', 1], ['primer_contacto', 3], ['reunion', 0], ['cotizacion', 0], ['venta_interna', 0], ['cierre', 0]],
     );
   });
 
@@ -215,7 +216,7 @@ describe('Filtros — la franja de atención es el mismo estado', () => {
 
 describe('Filtros — URL', () => {
   const FULL: PipelineFilters = {
-    stages: ['enriquecimiento', 'inteligencia'],
+    stages: ['enriquecimiento', 'primer_contacto'],
     countries: ['CO', 'CL', NONE_VALUE],
     industries: ['Retail / E-commerce', 'Tecnología'],
     inactivity: 14,
@@ -231,7 +232,7 @@ describe('Filtros — URL', () => {
     assert.deepEqual(serializePipelineFilters(EMPTY_PIPELINE_FILTERS), {});
     assert.deepEqual(serializePipelineFilters({ ...EMPTY_PIPELINE_FILTERS, dateField: 'entrada' }), {});
     assert.deepEqual(serializePipelineFilters(FULL), {
-      etapa: 'enriquecimiento,inteligencia',
+      etapa: 'enriquecimiento,primer_contacto',
       pais: 'CO,CL,-',
       industria: 'Retail / E-commerce~Tecnología',
       inactividad: '14',
@@ -258,7 +259,7 @@ describe('Filtros — URL', () => {
       parsePipelineFilters({
         view: 'tablero',
         account: 'acme',
-        etapa: 'inteligencia,inventada',
+        etapa: 'primer_contacto,inventada',
         pais: 'co',
         inactividad: '9',
         senal: 'sin_contactos,sin_movimiento,otra',
@@ -267,7 +268,12 @@ describe('Filtros — URL', () => {
         desde: '01/09/2026',
         hasta: ['2026-09-30', 'x'],
       }),
-      { ...EMPTY_PIPELINE_FILTERS, stages: ['inteligencia'], countries: ['CO'], signals: ['sin_contactos'], to: '2026-09-30' },
+      { ...EMPTY_PIPELINE_FILTERS, stages: ['primer_contacto'], countries: ['CO'], signals: ['sin_contactos'], to: '2026-09-30' },
     );
+  });
+
+  it('los enlaces guardados con «inteligencia» o «preparacion» abren «Primer contacto»', () => {
+    assert.deepEqual(parsePipelineFilters({ etapa: 'inteligencia' }).stages, ['primer_contacto']);
+    assert.deepEqual(parsePipelineFilters({ etapa: 'enriquecimiento,preparacion' }).stages, ['enriquecimiento', 'primer_contacto']);
   });
 });

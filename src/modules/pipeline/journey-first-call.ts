@@ -1,10 +1,10 @@
 /**
  * Pipeline — suma el Agente 3 al recorrido de una empresa (puro).
  *
- * Con el agente encendido, las etapas «Inteligencia de cuenta» y «Preparación y
- * contacto» dejan de ser «Próximamente»: se vuelven etapas con agente. Una etapa sin nada
- * hecho se pinta como invitación a activarla; con algo hecho, como una tarjeta con su
- * resumen. Apagado, el recorrido queda EXACTAMENTE como lo armó `buildAccountJourney`.
+ * Con el agente encendido, la etapa «Primer contacto» (investigación y preparación, que el
+ * agente hace en la misma corrida) deja de ser «Próximamente»: se vuelve etapa con agente.
+ * Sin nada hecho se pinta como invitación a activarla; con algo hecho, como una tarjeta con
+ * su resumen. Apagado, el recorrido queda EXACTAMENTE como lo armó `buildAccountJourney`.
  */
 
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
@@ -13,8 +13,8 @@ import { RESEARCH_TOPICS, RESEARCH_TOPIC_LABELS, type FirstCallPack, type Resear
 import { ubitsProductName, ubitsProductNames } from '@/server/agents/first-call/ubits-messaging-library';
 import type { AccountJourney, JourneyEvent, JourneyFirstCall, JourneyStage, PipelineStageId } from './types';
 
-/** Las dos etapas que cubre el Agente 3. */
-export const FIRST_CALL_STAGE_IDS: readonly PipelineStageId[] = ['inteligencia', 'preparacion'];
+/** La etapa que cubre el Agente 3. */
+export const FIRST_CALL_STAGE_IDS: readonly PipelineStageId[] = ['primer_contacto'];
 
 export function isFirstCallStage(stageId: PipelineStageId | null | undefined): boolean {
   return !!stageId && FIRST_CALL_STAGE_IDS.includes(stageId);
@@ -80,16 +80,17 @@ export function toJourneyFirstCall(
 }
 
 function liveStage(entry: JourneyStage, firstCall: JourneyFirstCall): JourneyStage {
-  const isResearch = entry.stage.id === 'inteligencia';
-  const latestPackAt = firstCall.packs[0]?.createdAt ?? null;
+  // Lo último que hizo el agente: la preparación más reciente o, sin ninguna, la investigación.
+  const latestAgentAt = [firstCall.packs[0]?.createdAt ?? null, firstCall.brief?.completedAt ?? null]
+    .filter((at): at is string => !!at)
+    .sort()
+    .at(-1);
   return {
     ...entry,
     // Con agente: deja de ser «Próximamente» y su etiqueta es la del agente.
     stage: { ...entry.stage, phase: 'hecho', agent: FIRST_CALL_AGENT_LABEL, plannedText: null },
-    notStarted: isResearch ? firstCall.brief === null : firstCall.packs.length === 0,
-    milestoneAt: isResearch
-      ? (firstCall.brief?.completedAt ?? entry.milestoneAt)
-      : (latestPackAt ?? entry.milestoneAt),
+    notStarted: firstCall.brief === null && firstCall.packs.length === 0,
+    milestoneAt: latestAgentAt ?? entry.milestoneAt,
   };
 }
 
