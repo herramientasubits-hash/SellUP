@@ -1149,8 +1149,9 @@ export const AGENT1_CORPORATE_TREE_SEARCH_FLAG = 'ENABLE_AGENT1_CORPORATE_TREE_S
 /**
  * Desde una empresa, Claude busca su grupo y matriz, sus filiales y la misma
  * empresa en otros países; lo encontrado entra por la importación (mismas
- * compuertas) y queda en «Por revisar». Sólo gasta Claude (≈ una llamada por
- * rama); nunca Apollo ni Lusha. Apagada, la opción del chat dice «Próximamente».
+ * compuertas) y queda en «Por revisar». Gasta Claude (≈ una llamada por rama; nada si
+ * se reutiliza el árbol guardado del grupo, 30 días) y, con su propia bandera, una ficha
+ * de Apollo. Nunca Lusha. Apagada, la opción del chat dice «Próximamente».
  *
  * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
  */
@@ -1161,9 +1162,10 @@ export function isAgent1CorporateTreeSearchEnabled(): boolean {
 export const AGENT1_CORPORATE_TREE_APOLLO_FLAG = 'ENABLE_AGENT1_CORPORATE_TREE_APOLLO';
 
 /**
- * AGENT1-CORPORATE-TREE-4 — ¿El árbol busca en Apollo por nombre las empresas que siguen
- * sin web, antes del rescate? Gasta créditos de Apollo (1 por página con resultados, como
- * mucho 5 por corrida) y pasa por la cuota de Apollo.
+ * AGENT1-CORPORATE-TREE-4 — ¿El árbol pide a Apollo la ficha de la empresa de partida (por
+ * su web) para sumar sus filiales (`suborganizations`)? UNA llamada por corrida: 1 crédito
+ * si Apollo la conoce (0 si no, y ninguno si se reutiliza el árbol guardado). Pasa por la
+ * cuota de Apollo. La búsqueda por nombre se quitó el 15-10 (Apollo Support).
  *
  * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
  */

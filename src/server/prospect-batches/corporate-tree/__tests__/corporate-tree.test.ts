@@ -1215,7 +1215,7 @@ describe('V. Apollo da la FAMILIA de la empresa de partida (1 crédito), no busc
     assert.deepEqual(asked, ['gruponutresa.com']);
     assert.ok(calls.web.some((c) => c.country === 'CL' && c.names.includes('Nutresa Chile')));
     const tree = calls.sealed[0].metadata.corporate_tree as Record<string, unknown>;
-    assert.deepEqual(tree.apollo, { asked: true, subsidiaries: 1, matched: 1, added: 0 });
+    assert.deepEqual(tree.apollo, { asked: true, skipped: null, failed: false, subsidiaries: 1, matched: 1, added: 0 });
   });
 
   it('sin web de la empresa de partida no se pregunta (no hay con qué)', async () => {
