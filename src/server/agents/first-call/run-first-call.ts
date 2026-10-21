@@ -30,7 +30,7 @@ import { extractVisibleText } from '../prospecting-toolkit/claude-classifier/pag
 import type { SafePageFetchResult } from '../prospecting-toolkit/website-verifier';
 import type { Agent3StatusTarget } from './account-status';
 import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach, type FirstContactApproach } from './approaches';
-import { pickProvenApproach, provenApproachNote, type ApproachResultRow, type ProvenApproach } from './approach-results';
+import { learnableCandidates, pickProvenApproach, provenApproachNote, type ApproachResultRow, type ProvenApproach } from './approach-results';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight, LocalPackVersion } from './types';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
@@ -730,11 +730,14 @@ async function writeForTarget(params: {
           rows: context.approachResults ?? [],
           countryCode: internal.account.countryCode,
           channel: channels[0],
-          candidates: allApplicableApproaches(manualApproach, {
-            hasRecentSignal: recentSignal,
-            hasReferral: !!request.referralNote,
-            countryCode: internal.account.countryCode,
-          }),
+          candidates: learnableCandidates(
+            manualApproach,
+            allApplicableApproaches(manualApproach, {
+              hasRecentSignal: recentSignal,
+              hasReferral: !!request.referralNote,
+              countryCode: internal.account.countryCode,
+            }),
+          ),
           manual: manualApproach,
         })
       : null;

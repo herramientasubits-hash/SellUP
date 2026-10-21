@@ -19,8 +19,8 @@ export async function getAgent3ResultsDashboard(
   try {
     // «Todo» es todo; sin periodo elegido, el último año (como lo que aprende el redactor).
     const sinceIso = filters.period === 'all' ? new Date(0).toISOString() : resolvePeriodStart(filters.period) ?? undefined;
-    const rows = await readApproachResults({ sinceIso, countryCode: filters.country ?? null });
-    return { status: 'ok', dashboard: buildApproachResultsDashboard(rows, countryLabel) };
+    const { rows, truncated } = await readApproachResults({ sinceIso, countryCode: filters.country ?? null });
+    return { status: 'ok', dashboard: buildApproachResultsDashboard(rows, countryLabel, truncated) };
   } catch (err) {
     console.error('[agent3] results dashboard failed:', err instanceof Error ? err.message : err);
     return { status: 'error' };

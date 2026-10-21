@@ -85,5 +85,11 @@ describe('tablero de resultados de Rumbo', () => {
     assert.ok(screen.getByText('México'));
     assert.ok(screen.getAllByText('83 %').length >= 1, '5 de 6 en Directo y con permiso');
     assert.equal(screen.queryByText('Todavía nadie marcó «La usé»'), null);
+    assert.equal(screen.queryByText(/estas cifras pueden quedarse cortas/), null);
+  });
+
+  it('si la lectura llegó al tope, lo dice', () => {
+    render(h(view.Agent3ResultsView, { dashboard: buildApproachResultsDashboard([row({})], undefined, true) }));
+    assert.ok(screen.getByText(/estas cifras pueden quedarse cortas/));
   });
 });

@@ -25,7 +25,8 @@ import type { PipelineStatus } from '@/modules/accounts/types';
 import { nextAgent3Status, type Agent3StatusTarget } from './account-status';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
-import { readApproachResults } from './approach-results.server';
+import { readLearnedApproachResults } from './approach-results.server';
+import { wantsLearnedApproach } from './approach-results';
 import { cachedContactResearch } from './contact-research';
 import { curatedListLabels, mapBriefRow, mapPackRow, readPriorClassification } from './row-mappers';
 import type { BriefPatch, FirstCallContext, PackInsert, RunFirstCallDeps, UsageLogInput } from './run-first-call';
@@ -316,11 +317,14 @@ export async function loadFirstCallContext(
     readDecisionMakers(account.id, request.contactIds),
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
-    // Lo que funcionó en el equipo (sólo cuentas): sin eso, el redactor usa lo del manual.
-    readApproachResults({ onlyWithOutcome: true }).catch((err: unknown) => {
-      console.warn('[agent3] approach results read failed:', err instanceof Error ? err.message : err);
-      return [];
-    }),
+    // Lo que funcionó en el equipo (sólo cuentas), sólo si se va a usar: el vendedor deja
+    // elegir el enfoque, hay decisor y no es Perú. Sin eso, el redactor usa lo del manual.
+    wantsLearnedApproach(request, account.country_code)
+      ? readLearnedApproachResults(request.channels).catch((err: unknown) => {
+          console.warn('[agent3] approach results read failed:', err instanceof Error ? err.message : err);
+          return [];
+        })
+      : Promise.resolve([]),
   ]);
 
   const internal: InternalContext = {

@@ -101,6 +101,7 @@ export function Agent3ResultsView({ dashboard }: { dashboard: ApproachResultsDas
 
   return (
     <div className="space-y-6">
+      <p className="text-xs text-muted-foreground">Preparaciones creadas en el periodo y lo que el equipo dijo que pasó con cada una.</p>
       <section aria-label="Resultados del primer contacto" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard compact title="Preparadas" description="que se pueden usar" value={formatCount(total.prepared)} />
         <MetricCard compact title="Usadas" description="marcadas con «La usé»" value={formatCount(total.used)} />
@@ -119,6 +120,12 @@ export function Agent3ResultsView({ dashboard }: { dashboard: ApproachResultsDas
           hint="Reunión agendada o interesado, sobre las usadas con resultado. «No es la persona» no cuenta: habla de a quién se contactó, no de cómo."
         />
       </section>
+
+      {dashboard.truncated && (
+        <p className="text-xs text-muted-foreground">
+          Hay más preparaciones de las que se pueden leer de una vez: estas cifras pueden quedarse cortas. Elige un periodo más corto.
+        </p>
+      )}
 
       {total.used === 0 && (
         <EmptyState

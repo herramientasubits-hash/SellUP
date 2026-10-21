@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import {
   PROVEN_MIN_USES,
   buildApproachResultsDashboard,
+  learnableCandidates,
   mapApproachResultRow,
+  wantsLearnedApproach,
   pickProvenApproach,
   provenApproachNote,
   type ApproachResultRow,
@@ -34,6 +36,10 @@ describe('lo que funcionó — leer las filas', () => {
     assert.equal(chosen.usedApproach, 'permission');
     assert.equal(chosen.countryCode, 'MX');
     assert.equal(mapApproachResultRow({ channel: 'fax' }), null);
+    // Lo que trae la lectura del servidor: sólo dos campos del resultado.
+    const flat = mapApproachResultRow({ channel: 'call', status: 'used', approach: 'problem', outcome_result: 'not_now', outcome_approach: 'insight', accounts: { country_code: 'CL' } })!;
+    assert.equal(flat.outcome, 'not_now');
+    assert.equal(flat.usedApproach, 'insight');
     const unused = mapApproachResultRow({ channel: 'call', status: 'draft', approach: 'problem', outcome: null, accounts: null })!;
     assert.equal(unused.outcome, null);
     assert.equal(unused.usedApproach, null);
@@ -120,5 +126,28 @@ describe('«La usé» bien guardado', () => {
   it('un enfoque que no existe no se guarda', () => {
     const out = buildFirstCallOutcome({ previous: { approach: 'inventado' }, outcome: 'no_answer', approach: 'otro' as FirstContactApproach, mainApproach: 'x', edited: false, nowIso: NOW });
     assert.equal(out.approach, null);
+  });
+});
+
+describe('lo que funcionó — cuándo se mira', () => {
+  it('sólo si el vendedor deja elegir, hay decisor y no es Perú (si no, ni se lee)', () => {
+    assert.equal(wantsLearnedApproach({ approaches: [], contactIds: ['c1'] }, 'CO'), true);
+    assert.equal(wantsLearnedApproach({ approaches: ['insight'], contactIds: ['c1'] }, 'CO'), false);
+    assert.equal(wantsLearnedApproach({ approaches: [], contactIds: [] }, 'CO'), false);
+    assert.equal(wantsLearnedApproach({ approaches: [], contactIds: ['c1'] }, 'pe'), false);
+  });
+
+  it('con una noticia fresca el evento manda; con decisor no compite «¿Quién decide?»', () => {
+    assert.deepEqual(learnableCandidates('trigger', ['trigger', 'problem', 'insight']), []);
+    assert.deepEqual(learnableCandidates('problem', ['problem', 'insight', 'who_decides']), ['problem', 'insight']);
+    const rows = times(6, used('who_decides', 'meeting_booked'));
+    assert.equal(
+      pickProvenApproach({ rows, countryCode: 'CO', channel: 'call', candidates: learnableCandidates('problem', CANDIDATES), manual: 'problem' }),
+      null,
+    );
+  });
+
+  it('el tablero avisa si la lectura llegó al tope', () => {
+    assert.equal(buildApproachResultsDashboard([], undefined, true).truncated, true);
   });
 });

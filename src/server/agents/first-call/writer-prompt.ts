@@ -346,7 +346,9 @@ export function buildWriterUserMessage(input: WriterInput): string {
     `Productos a enfocar: ${products.length > 0 ? products.join(', ') : 'el que mejor conecte con los hechos'}`,
     input.approaches.length > 0
       ? `Enfoques pedidos (el primero es el principal): ${input.approaches.map((a) => `${a} (${APPROACH_DEFINITIONS[a].label})`).join(', ')}`
-      : `Enfoque: el vendedor deja que elijas. Recomendado por el manual para este caso: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}); úsalo salvo que los hechos indiquen otro mejor.`,
+      : input.provenApproachNote
+        ? null
+        : `Enfoque: el vendedor deja que elijas. Recomendado por el manual para este caso: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}); úsalo salvo que los hechos indiquen otro mejor.`,
     // El principal lo eligieron los resultados del equipo (no el manual): el porqué, sin que salga en los textos.
     input.provenApproachNote
       ? `Recomendado por los resultados del equipo: ${input.recommendedApproach} (${APPROACH_DEFINITIONS[input.recommendedApproach].label}). ${input.provenApproachNote} Úsalo como principal; no menciones estos resultados en los textos.`

@@ -53,17 +53,19 @@ function asOutcome(value: unknown): FirstContactOutcome | null {
 export function mapApproachResultRow(row: Record<string, unknown>): ApproachResultRow | null {
   const channel = row.channel;
   if (typeof channel !== 'string' || !(FIRST_CALL_CHANNELS as readonly string[]).includes(channel)) return null;
+  // La lectura trae sólo dos campos del resultado (`outcome_result`, `outcome_approach`);
+  // el objeto entero (`outcome`) también se entiende.
   const outcome = row.outcome && typeof row.outcome === 'object' ? (row.outcome as Record<string, unknown>) : null;
   const account = (Array.isArray(row.accounts) ? row.accounts[0] : row.accounts) as { country_code?: unknown } | null | undefined;
   const mainApproach = asApproach(row.approach);
-  const result = asOutcome(outcome?.result);
+  const result = asOutcome(row.outcome_result ?? outcome?.result);
   return {
     channel: channel as FirstCallChannel,
     countryCode: typeof account?.country_code === 'string' ? account.country_code.toUpperCase() : null,
     mainApproach,
     status: typeof row.status === 'string' ? row.status : 'draft',
     // Las preparaciones de antes de guardar la versión usada: se usó la principal.
-    usedApproach: result ? asApproach(outcome?.approach) ?? mainApproach : null,
+    usedApproach: result ? asApproach(row.outcome_approach ?? outcome?.approach) ?? mainApproach : null,
     outcome: result,
   };
 }
@@ -114,6 +116,8 @@ export interface ApproachResultGroup<K extends string> {
 }
 
 export interface ApproachResultsDashboard {
+  /** La lectura llegó al tope de filas: las cifras pueden quedarse cortas. */
+  truncated: boolean;
   total: ApproachResultStats;
   byApproach: ApproachResultGroup<FirstContactApproach>[];
   byChannel: ApproachResultGroup<FirstCallChannel>[];
@@ -131,7 +135,11 @@ function sortGroups<K extends string>(groups: ApproachResultGroup<K>[]): Approac
  * El tablero: totales y cortes por enfoque (el de la versión USADA; si aún no se usó,
  * el de la principal, para ver cuánto se prepara de cada uno), canal y país.
  */
-export function buildApproachResultsDashboard(rows: readonly ApproachResultRow[], countryLabel: (code: string) => string = (c) => c): ApproachResultsDashboard {
+export function buildApproachResultsDashboard(
+  rows: readonly ApproachResultRow[],
+  countryLabel: (code: string) => string = (c) => c,
+  truncated = false,
+): ApproachResultsDashboard {
   const group = <K extends string>(keyOf: (row: ApproachResultRow) => K | null, labelOf: (key: K) => string): ApproachResultGroup<K>[] => {
     const buckets = new Map<K, ApproachResultRow[]>();
     for (const row of rows) {
@@ -142,6 +150,7 @@ export function buildApproachResultsDashboard(rows: readonly ApproachResultRow[]
     return sortGroups([...buckets].map(([key, list]) => ({ key, label: labelOf(key), stats: statsOf(list) })));
   };
   return {
+    truncated,
     total: statsOf(rows),
     byApproach: group((row) => row.usedApproach ?? row.mainApproach, (key) => APPROACH_DEFINITIONS[key].label),
     byChannel: group((row) => row.channel, (key) => CHANNEL_LABELS[key]),
@@ -213,4 +222,22 @@ export function pickProvenApproach(input: {
 export function provenApproachNote(proven: ProvenApproach, channel: FirstCallChannel, countryName: string | null): string {
   const where = proven.scope === 'country' && countryName ? `en ${countryName}` : 'en todos los países';
   return `Lo que más funcionó ${where} por ${CHANNEL_LABELS[channel].toLowerCase()}: «${APPROACH_DEFINITIONS[proven.approach].label}» abrió la conversación (reunión o interés) en ${proven.positives} de ${proven.uses} contactos que el equipo marcó con resultado.`;
+}
+
+/** ¿Esta solicitud puede usar lo aprendido? (si no, ni se lee). */
+export function wantsLearnedApproach(
+  request: { approaches: readonly unknown[]; contactIds: readonly unknown[] },
+  countryCode: string | null | undefined,
+): boolean {
+  return request.approaches.length === 0 && request.contactIds.length > 0 && countryCode?.toUpperCase() !== 'PE';
+}
+
+/**
+ * Entre qué enfoques puede elegir lo aprendido: con decisor no compite «¿Quién decide?»
+ * (se le pediría a quién dirigirse a alguien que ya es el decisor) y, con una noticia
+ * fresca, el evento manda (es el motivo para llamar hoy): ahí no se cambia nada.
+ */
+export function learnableCandidates(manual: FirstContactApproach, applicable: readonly FirstContactApproach[]): FirstContactApproach[] {
+  if (manual === 'trigger') return [];
+  return applicable.filter((a) => a !== 'who_decides');
 }
