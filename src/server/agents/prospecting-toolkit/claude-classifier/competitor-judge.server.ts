@@ -32,7 +32,8 @@ export function buildLiveCompetitorJudge(userId: string): LiveCompetitorJudge {
       if ('error' in active) return null;
       if (!(await checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY)).allowed) return null;
       const startedMs = Date.now();
-      const outcome = await judgeCompetitors(input, active.model, {
+      // La fuente decide cuánta prueba pide el juez (HubSpot y Apollo traen poco dato).
+      const outcome = await judgeCompetitors({ ...input, listSource: input.source }, active.model, {
         runConversation: (body) =>
           runAnthropicConversation({ apiKey: active.apiKey, body, timeoutMs: COMPETITOR_JUDGE_TIMEOUT_MS }),
       });

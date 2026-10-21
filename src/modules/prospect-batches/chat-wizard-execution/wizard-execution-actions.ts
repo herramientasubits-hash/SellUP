@@ -494,6 +494,12 @@ export type WizardExecutionDeps = {
      * byte por byte como antes del corte.
      */
     metadata?: Record<string, unknown> | null;
+    /**
+     * «Competidores de una empresa»: el nombre del lote otra vez al cerrar. Lo
+     * gratuito escribe con el escritor común, que lo deja «Agente 1 · Pipeline · …»
+     * (QA Prod 21-10, 5128e0d0). Ausente ⇒ el nombre no se toca (las demás rutas).
+     */
+    name?: string;
   }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   // Usado por Tavily y Lusha, SIN CAMBIOS. Apollo ya no pasa por aquí — ver
@@ -1081,9 +1087,11 @@ export async function executeProspectWizardGenerationAction(
     // Va por el cliente de SESIÓN, no por service_role, igual que
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
-    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata, name }) => {
+      const rename = name ? { name } : {};
       if (metadata == null) {
-        await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        const batches = supabase.from('prospect_batches');
+        await (name ? batches.update({ status, name }) : batches.update({ status })).eq('id', batchId);
         return;
       }
       const { data: currentRow } = await supabase
@@ -1095,6 +1103,7 @@ export async function executeProspectWizardGenerationAction(
         .from('prospect_batches')
         .update({
           status,
+          ...rename,
           metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
         })
         .eq('id', batchId);

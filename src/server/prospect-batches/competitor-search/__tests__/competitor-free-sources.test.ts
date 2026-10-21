@@ -152,10 +152,10 @@ describe('K — el juez de Claude', () => {
     const verdicts = readCompetitorJudgeVerdicts(
       conversation({
         competitors: [
-          { key: 'e1', shared_offering: 'Perfiles de aluminio', confidence: 'high' },
-          { key: 'e1', shared_offering: 'repetida', confidence: 'high' },
-          { key: 'e9', shared_offering: 'inventada', confidence: 'high' },
-          { key: 7, shared_offering: 'basura', confidence: 'high' },
+          { key: 'e1', shared_offering: 'Perfiles de aluminio', same_customer: 'yes', confidence: 'high' },
+          { key: 'e1', shared_offering: 'repetida', same_customer: 'yes', confidence: 'high' },
+          { key: 'e9', shared_offering: 'inventada', same_customer: 'yes', confidence: 'high' },
+          { key: 7, shared_offering: 'basura', same_customer: 'yes', confidence: 'high' },
         ],
       }).content,
       items,
@@ -168,8 +168,8 @@ describe('K — el juez de Claude', () => {
       conversation({
         competitors: [
           { key: 'e1', shared_offering: 'Perfiles de aluminio', confidence: 'medium' },
-          { key: 'e2', shared_offering: '   ', confidence: 'high' },
-          { key: 'e2', confidence: 'high' },
+          { key: 'e2', shared_offering: '   ', same_customer: 'yes', confidence: 'high' },
+          { key: 'e2', same_customer: 'yes', confidence: 'high' },
         ],
       }).content,
       items,
@@ -204,8 +204,8 @@ describe('K — el juez de Claude', () => {
     const verdicts = readCompetitorJudgeVerdicts(
       conversation({
         competitors: [
-          { key: 'e1', shared_offering: 'Servicios de producción y fabricación industrial, maquinado', confidence: 'high' },
-          { key: 'e7', shared_offering: 'Soldadura y pruebas no destructivas', confidence: 'high' },
+          { key: 'e1', shared_offering: 'Servicios de producción y fabricación industrial, maquinado', same_customer: 'yes', confidence: 'high' },
+          { key: 'e7', shared_offering: 'Soldadura y pruebas no destructivas', same_customer: 'yes', confidence: 'high' },
         ],
       }).content,
       list,
