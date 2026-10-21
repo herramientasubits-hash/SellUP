@@ -118,6 +118,12 @@ export interface ApolloPerson {
   email_status?: string | null;
   /** People API Search (gratis) devuelve el apellido oculto: «Go***z». */
   last_name_obfuscated?: string | null;
+  /**
+   * People API Search (gratis): "Yes" o "Maybe: please request direct dial via
+   * people/bulk_match". Pista de presencia; leerlo NO consume créditos (soporte
+   * Apollo 2026-10-21). Ver modules/contact-enrichment/apollo-direct-phone-hint.ts.
+   */
+  has_direct_phone?: string | boolean | null;
 }
 
 // ============================================================
