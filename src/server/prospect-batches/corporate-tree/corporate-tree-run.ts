@@ -11,8 +11,13 @@
  *   6. Etiqueta cada fila con su rama, guarda las asociaciones, sella el lote y
  *      programa el rescate.
  *
- * Sin Apollo ni Lusha (decisión de la dueña, 14-10). Lo único que se paga es Claude,
- * y cada llamada queda en Uso de IA con el lote.
+ * Se paga Claude (cada llamada en Uso de IA con el lote) y, con su bandera, UNA ficha de
+ * Apollo de la empresa de partida (1 crédito: sus filiales). Nunca Lusha.
+ *
+ * FASE A/B (dueña 21-10): las ramas pedidas valen también para lo gratis; el árbol de un
+ * grupo se guarda 30 días y se reutiliza sin pagar; las del grupo sin web propia pero con
+ * número fiscal y 200+ trabajadores entran a «Por revisar» con la web del grupo como
+ * referencia (antes, «Descartadas» y rescate pagado).
  */
 
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -28,12 +33,14 @@ import type { CountrySourceCompany } from '@/server/prospect-batches/country-sou
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
 import type { CorporateTreeSearchInput, CorporateTreeSearchOutcome, TreeCountry } from './corporate-tree-search';
 import type { CorporateTreeFreeHit } from './corporate-tree-free-lookup';
+import { corporateTreeRootKey, pickSavedTree, serializeSavedTree, type CorporateTreeSavedTree } from './corporate-tree-saved';
 import type { CorporateTreeNotWritten } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   markKnownCompanies,
   mergeRootFindings,
   planCorporateTreeWrites,
   promoteGroupCompaniesWithTaxIds,
+  promoteSizedCompaniesWithoutWebsite,
   applyApolloFamily,
   type CorporateTreeApolloSubsidiary,
   type CorporateTreeKnownCompany,
@@ -43,6 +50,9 @@ import {
   type CorporateTreeWebItem,
   type CorporateTreeWritePlan,
 } from './corporate-tree-plan';
+
+/** Apollo no se consultó porque no hay cuota (no es «Apollo no la conoce»). */
+export const APOLLO_QUOTA_EXHAUSTED = 'quota_exhausted' as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
@@ -56,6 +66,8 @@ export type CorporateTreeRequest = {
   rootAccountId: string | null;
   branches: CorporateTreeBranch[];
   countries: TreeCountry[];
+  /** `true` = no reutilizar el árbol guardado: buscar (y pagar) de nuevo. */
+  refresh?: boolean;
 };
 
 export type CorporateTreeRequestError = 'invalid_request' | 'root_name_required' | 'branches_required' | 'countries_required';
@@ -101,6 +113,7 @@ export function parseCorporateTreeRequest(raw: unknown): { ok: true; request: Co
       rootAccountId: optionalUuid(body.rootAccountId),
       branches,
       countries: countries.map((c) => ({ code: c.code, name: c.name })),
+      refresh: body.refresh === true,
     },
   };
 }
@@ -201,7 +214,17 @@ export type CorporateTreeRunDeps = {
   findApolloFamily?: (
     query: { rootDomain: string; rootName: string },
     ctx: { batchId: string },
-  ) => Promise<CorporateTreeApolloSubsidiary[] | null>;
+  ) => Promise<CorporateTreeApolloSubsidiary[] | null | typeof APOLLO_QUOTA_EXHAUSTED>;
+  /**
+   * Los lotes del árbol de este grupo (por `corporateTreeRootKey`) de los últimos 30 días, el
+   * más reciente primero. Ausente = no se reutiliza nada.
+   */
+  findSavedTrees?: (rootKey: string) => Promise<{ batchId: string; createdAt: string; metadata: unknown }[]>;
+  /**
+   * El registro oficial de una empresa por su nombre exacto en su país (número fiscal y
+   * tamaño). Gratis. Para las que quedaron sin web ni número fiscal.
+   */
+  findOfficialRecord?: (query: { name: string; countryCode: string }) => Promise<CountrySourceCompany | null>;
   /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
   recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
@@ -246,6 +269,8 @@ export type CorporateTreeRunResult =
       possibleKnown: number;
       redirectPath: string;
       estimatedCostUsd: number;
+      /** Se reutilizó el árbol guardado del grupo (sin pagar la búsqueda). */
+      reusedSavedTree?: boolean;
     }
   | {
       ok: false;
@@ -409,20 +434,108 @@ async function withGroupTaxIds(
   return promoteGroupCompaniesWithTaxIds(plan, byKey);
 }
 
+type ApolloFamilyOutcome = {
+  plan: CorporateTreeWritePlan;
+  /** Se llamó a Apollo en ESTA corrida (antes decía `true` también sin cuota o con error). */
+  asked: boolean;
+  /** Por qué no se llamó, o qué salió mal. */
+  skipped: 'disabled' | 'no_root_domain' | 'time_budget' | 'quota_exhausted' | 'saved_tree' | null;
+  failed: boolean;
+  subsidiaries: number;
+  matched: number;
+  added: number;
+  /** Lo que devolvió Apollo (para guardarlo con el árbol); `null` = no respondió. */
+  answered: CorporateTreeApolloSubsidiary[] | null;
+};
+
 async function withApolloFamily(
   plan: CorporateTreeWritePlan,
   root: CorporateTreeRoot,
-  countryCodes: readonly string[],
+  request: CorporateTreeRequest,
   batchId: string,
   deps: CorporateTreeRunDeps,
   deadlineAtMs: number,
-): Promise<{ plan: CorporateTreeWritePlan; asked: boolean; subsidiaries: number; matched: number; added: number }> {
-  const none = { plan, asked: false, subsidiaries: 0, matched: 0, added: 0 };
-  if (!deps.findApolloFamily || !root.domain || deps.nowMs() >= deadlineAtMs) return none;
-  const subsidiaries = await deps.findApolloFamily({ rootDomain: root.domain, rootName: root.name }, { batchId }).catch(() => null);
-  if (!subsidiaries || subsidiaries.length === 0) return { ...none, asked: true };
-  const applied = applyApolloFamily({ plan, root, subsidiaries, countryCodes });
-  return { plan: applied.plan, asked: true, subsidiaries: subsidiaries.length, matched: applied.matched, added: applied.added };
+  saved: CorporateTreeSavedTree | null,
+): Promise<ApolloFamilyOutcome> {
+  const none = { plan, asked: false, failed: false, subsidiaries: 0, matched: 0, added: 0, answered: null };
+  const apply = (subsidiaries: CorporateTreeApolloSubsidiary[], base: Omit<ApolloFamilyOutcome, 'plan' | 'matched' | 'added'>) => {
+    // Sin la rama «filiales» Apollo sólo completa webs: no agrega empresas que no se pidieron.
+    const applied = applyApolloFamily({
+      plan,
+      root,
+      subsidiaries,
+      countryCodes: request.countries.map((c) => c.code),
+      addNew: request.branches.includes('subsidiary'),
+    });
+    return { ...base, plan: applied.plan, matched: applied.matched, added: applied.added };
+  };
+  // El árbol guardado trae las filiales de Apollo de la misma web: no se vuelve a pagar el crédito.
+  if (saved?.apolloSubsidiaries && saved.root.domain && saved.root.domain === root.domain) {
+    const subs = saved.apolloSubsidiaries;
+    return apply(subs, { asked: false, skipped: 'saved_tree', failed: false, subsidiaries: subs.length, answered: subs });
+  }
+  if (!deps.findApolloFamily) return { ...none, skipped: 'disabled' };
+  if (!root.domain) return { ...none, skipped: 'no_root_domain' };
+  if (deps.nowMs() >= deadlineAtMs) return { ...none, skipped: 'time_budget' };
+  let failed = false;
+  const result = await deps.findApolloFamily({ rootDomain: root.domain, rootName: root.name }, { batchId }).catch(() => {
+    failed = true;
+    return null;
+  });
+  if (result === APOLLO_QUOTA_EXHAUSTED) return { ...none, skipped: 'quota_exhausted' };
+  if (!result || result.length === 0) return { ...none, asked: true, skipped: null, failed, answered: result ? [] : null };
+  return apply(result, { asked: true, skipped: null, failed: false, subsidiaries: result.length, answered: result });
+}
+
+/** Lo más que se espera la lectura del árbol guardado. */
+const CORPORATE_TREE_SAVED_READ_TIMEOUT_MS = 5_000;
+
+/** Cuántas búsquedas en los registros oficiales a la vez (gratis, nuestras tablas). */
+const OFFICIAL_RECORD_CONCURRENCY = 4;
+
+/**
+ * FASE B: el número fiscal y el tamaño oficiales de las del grupo que quedaron sin web ni
+ * número (casi siempre las que trajo Claude), por su nombre exacto en su país. Con número, una
+ * referencia del grupo entra por la capa gratuita (como `withGroupTaxIds`, ahora en todos los
+ * países) y una sin web con 200+ trabajadores también (`promoteSizedCompaniesWithoutWebsite`).
+ */
+async function withOfficialRecords(
+  plan: CorporateTreeWritePlan,
+  root: CorporateTreeRoot,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<{ plan: CorporateTreeWritePlan; looked: number; found: number; promoted: number }> {
+  const pending = plan.rows.filter(
+    (row) => !row.taxId && !!row.countryCode && (row.route === 'without_website' || row.route === 'group_reference'),
+  );
+  const records = new Map<string, CountrySourceCompany>();
+  let looked = 0;
+  if (deps.findOfficialRecord) {
+    for (let i = 0; i < pending.length; i += OFFICIAL_RECORD_CONCURRENCY) {
+      if (deps.nowMs() >= deadlineAtMs) break;
+      const slice = pending.slice(i, i + OFFICIAL_RECORD_CONCURRENCY);
+      const answered = await settleBy(
+        Promise.all(slice.map((row) => deps.findOfficialRecord!({ name: row.name, countryCode: row.countryCode! }).catch(() => null))),
+        deadlineAtMs,
+        deps.nowMs,
+      );
+      if (!answered.settled) break;
+      looked += slice.length;
+      slice.forEach((row, index) => {
+        const record = answered.value[index];
+        if (record?.taxId) records.set(row.key, record);
+      });
+    }
+  }
+  const groupWithTax = new Map(
+    [...records].filter(([key]) => plan.groupCompanies.has(key)).map(([key, record]) => {
+      const base = plan.groupCompanies.get(key)!;
+      return [key, { ...base, ...record, legalName: base.legalName, countryCode: base.countryCode }] as const;
+    }),
+  );
+  const withGroup = promoteGroupCompaniesWithTaxIds(plan, groupWithTax);
+  const sized = promoteSizedCompaniesWithoutWebsite(withGroup, { groupWebsite: root.website, officialRecords: records });
+  return { plan: sized.plan, looked, found: records.size, promoted: sized.promoted };
 }
 
 /** Cuántas consultas a HubSpot/SellUp a la vez (y cuántas como mucho). */
@@ -618,29 +731,26 @@ async function runAfterReservation(
   const { batchId, runId, free } = start;
   let root = start.root;
 
-  // 3. Claude, sólo por lo que falta.
-  const claude = await runClaudePhase(request, root, free.hits, { runId, batchId }, deps);
+  // 3. El árbol guardado de este grupo (30 días) o Claude, sólo por lo que falta.
+  const saved = await findSavedTree(request, root, deps);
+  const claude: ClaudePhase = saved
+    ? { outcomes: [], skipped: 'saved_tree' }
+    : await runClaudePhase(request, root, free.hits, { runId, batchId }, deps);
   const estimatedCostUsd = roundUsd(claude.outcomes.reduce((acc, o) => acc + (o.usage?.estimatedCostUsd ?? 0), 0));
-  root = mergeRootFindings(
-    root,
-    claude.outcomes.map((o) => o.root),
-    free.hits,
-  );
-  const nodes = claude.outcomes.flatMap((o) => o.nodes);
+  root = mergeRootFindings(root, saved ? [saved.root] : claude.outcomes.map((o) => o.root), free.hits);
+  const nodes = saved ? saved.nodes : claude.outcomes.flatMap((o) => o.nodes);
 
   // 4. Escribir por las vías de siempre.
   deps.report('tree_checking');
-  const withKnown = await withKnownCompanies(planCorporateTreeWrites({ root, freeHits: free.hits, nodes }), deps, context.writeDeadlineAtMs);
-  const withGroupFiscal = await withGroupTaxIds(withKnown, deps, context.writeDeadlineAtMs);
-  const apollo = await withApolloFamily(
-    withGroupFiscal,
-    root,
-    request.countries.map((c) => c.code),
-    batchId,
+  const withKnown = await withKnownCompanies(
+    planCorporateTreeWrites({ root, freeHits: free.hits, nodes, branches: request.branches }),
     deps,
     context.writeDeadlineAtMs,
   );
-  const plan = apollo.plan;
+  const withGroupFiscal = await withGroupTaxIds(withKnown, deps, context.writeDeadlineAtMs);
+  const apollo = await withApolloFamily(withGroupFiscal, root, request, batchId, deps, context.writeDeadlineAtMs, saved);
+  const official = await withOfficialRecords(apollo.plan, root, deps, context.writeDeadlineAtMs);
+  const plan = official.plan;
   const writes = await writePlan(plan, batchId, request.countries, deps, context.writeDeadlineAtMs);
 
   // 5. Rama de cada fila y asociaciones. Todo acotado: lo que no termine antes del sellado
@@ -669,13 +779,16 @@ async function runAfterReservation(
     }),
   );
   await settleBy(tagging, sealStartAtMs, deps.nowMs);
-  await settleBy(
+  const relationships = await settleBy(
     deps
       .insertRelationships(buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }))
       .catch(() => false),
     sealStartAtMs,
     deps.nowMs,
   );
+  // Sin asociaciones el lote no muestra su árbol y el rescate no reconoce la web del grupo:
+  // queda dicho en el lote (antes sólo en el log del servidor).
+  const relationshipsSaved: boolean | 'timeout' = relationships.settled ? relationships.value : 'timeout';
 
   // 6. Sellado y rescate.
   const inReview = candidates.filter((c) => c.status === 'needs_review').length;
@@ -687,6 +800,7 @@ async function runAfterReservation(
       root_domain: root.domain,
       root_candidate_id: root.candidateId,
       root_account_id: root.accountId,
+      root_key: corporateTreeRootKey(root.name),
       branches: request.branches,
       country_codes: request.countries.map((c) => c.code),
       free_first: {
@@ -698,6 +812,7 @@ async function runAfterReservation(
       },
       claude: {
         skipped: claude.skipped,
+        ...(saved ? { reused_from: saved.batchId, reused_searched_at: saved.searchedAt } : {}),
         proposed: claude.outcomes.reduce((acc, o) => acc + o.proposed, 0),
         accepted: nodes.length,
         rejected: Object.fromEntries(claude.outcomes.map((o) => [o.branch, o.rejected])),
@@ -713,13 +828,35 @@ async function runAfterReservation(
       already_known: plan.rows.filter((r) => r.route === 'already_known').length,
       possible_known: plan.rows.filter((r) => r.route === 'possible_known').length,
       group_with_tax_id: plan.rows.filter((r) => r.route === 'free_catalog' && !!r.groupWebsite).length,
-      apollo: { asked: apollo.asked, subsidiaries: apollo.subsidiaries, matched: apollo.matched, added: apollo.added },
+      apollo: {
+        asked: apollo.asked,
+        skipped: apollo.skipped,
+        failed: apollo.failed,
+        subsidiaries: apollo.subsidiaries,
+        matched: apollo.matched,
+        added: apollo.added,
+      },
+      official_records: { looked: official.looked, found: official.found },
+      sized_without_website: official.promoted,
       dropped_by_cap: plan.droppedByCap,
+      dropped_by_branch: plan.droppedByBranch ?? 0,
+      relationships_saved: relationshipsSaved,
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
       not_written: writes.notWritten.slice(0, CORPORATE_TREE_NOT_WRITTEN_KEPT),
       searched_at: deps.nowIso(),
+      // Lo encontrado se guarda para reutilizarlo 30 días. No se guarda lo reutilizado (el
+      // plazo cuenta desde la búsqueda real) ni una búsqueda que Claude no hizo o con errores.
+      ...(!saved && claude.skipped === null && claude.outcomes.every((o) => !o.errorCode)
+        ? {
+            saved: serializeSavedTree({
+              root: { website: root.website, domain: root.domain, countryCode: root.countryCode },
+              nodes,
+              apolloSubsidiaries: apollo.answered,
+            }),
+          }
+        : {}),
     },
   };
   await deps
@@ -758,7 +895,35 @@ async function runAfterReservation(
     possibleKnown: plan.rows.filter((r) => r.route === 'possible_known').length,
     redirectPath: `/prospect-batches/${batchId}`,
     estimatedCostUsd,
+    reusedSavedTree: !!saved,
   };
+}
+
+/**
+ * El árbol guardado de este grupo que cubre lo pedido, o `null` (sin guardado, `refresh`, o la
+ * lectura falló: entonces se busca como siempre).
+ */
+async function findSavedTree(
+  request: CorporateTreeRequest,
+  root: CorporateTreeRoot,
+  deps: CorporateTreeRunDeps,
+): Promise<CorporateTreeSavedTree | null> {
+  const rootKey = corporateTreeRootKey(root.name);
+  if (request.refresh || !deps.findSavedTrees || !rootKey) return null;
+  // Una lectura colgada no frena la corrida: sin respuesta a tiempo, se busca como siempre.
+  const read = await settleBy(
+    deps.findSavedTrees(rootKey).catch(() => []),
+    deps.nowMs() + CORPORATE_TREE_SAVED_READ_TIMEOUT_MS,
+    deps.nowMs,
+  );
+  if (!read.settled) return null;
+  return pickSavedTree(read.value, {
+    branches: request.branches,
+    countryCodes: request.countries.map((c) => c.code),
+    rootCountryCode: root.countryCode,
+    rootDomain: root.domain,
+    nowMs: deps.nowMs(),
+  });
 }
 
 /** Una asociación por fila planeada (también las que ya estaban en HubSpot o quedaron sin web). */

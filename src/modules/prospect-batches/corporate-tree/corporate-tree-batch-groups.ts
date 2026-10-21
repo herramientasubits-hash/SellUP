@@ -266,7 +266,14 @@ export function groupBatchCandidatesByTreeRelation(
 }
 
 /** Lo que no entró a «Por revisar» al terminar la corrida. */
-export type CorporateTreePending = { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number };
+export type CorporateTreePending = {
+  waitingWebsite: number;
+  groupReferences: number;
+  alreadyKnown?: number;
+  possibleKnown?: number;
+  /** Se reutilizó el árbol guardado del grupo (menos de 30 días): la búsqueda no se pagó. */
+  reusedSavedTree?: boolean;
+};
 
 /**
  * Qué pasó con lo que no entró a «Por revisar», sin inventar causas (Prod 14-10,
@@ -293,7 +300,8 @@ export function corporateTreePendingSummary(pending: CorporateTreePending | null
       `${pending.possibleKnown} ${pending.possibleKnown === 1 ? 'parece' : 'parecen'} ya estar en HubSpot (en «Descartadas», sin rescate)`,
     );
   }
-  if (parts.length === 0) return 'Las demás ya estaban en HubSpot o en SellUp.';
+  const reused = pending.reusedSavedTree ? ' Usé el árbol guardado de este grupo: la búsqueda no tuvo costo.' : '';
+  if (parts.length === 0) return `Las demás ya estaban en HubSpot o en SellUp.${reused}`;
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0];
-  return `${sentence}.`.replace(/^./, (c) => c.toUpperCase());
+  return `${sentence}.`.replace(/^./, (c) => c.toUpperCase()) + reused;
 }
