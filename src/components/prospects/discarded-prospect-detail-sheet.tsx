@@ -15,6 +15,10 @@ import { Button } from '@/components/ui/button';
 import { DISCARD_DISPOSITION_LABELS } from '@/modules/prospect-discards/types';
 import type { DiscardedProspectItem } from '@/modules/prospect-discards/types';
 import { formatProspectDate } from '@/modules/prospect-batches/prospect-date-utils';
+import {
+  COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
+  COMPETITOR_SMALL_STATUS_LABEL,
+} from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
 
 interface DiscardedProspectDetailSheetProps {
   item: DiscardedProspectItem | null;
@@ -60,7 +64,13 @@ export function DiscardedProspectDetailSheet({
       icon={<Building2 className="h-4 w-4" aria-hidden="true" />}
       titleBadge={
         <Badge variant={isAlreadySent ? 'brand' : 'neutral'}>
-          {isAlreadySent ? 'Enviada a revisión' : item.sendToReviewBlockedReason ? 'Duplicada' : 'Descartada'}
+          {isAlreadySent
+            ? 'Enviada a revisión'
+            : item.sendToReviewBlockedReason === COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED
+              ? COMPETITOR_SMALL_STATUS_LABEL
+              : item.sendToReviewBlockedReason
+                ? 'Duplicada'
+                : 'Descartada'}
         </Badge>
       }
       size="md"

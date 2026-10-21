@@ -37,6 +37,8 @@ export type AgentRun = {
   batchId: string | null;
   redirectPath: string | null;
   candidateCount: number | null;
+  /** De esas empresas, cuántas esperan la revisión de tamaño (sólo Competidores). */
+  sizePendingCount?: number | null;
   /** Texto corto para la bandeja cuando falla o termina sin empresas nuevas. */
   message: string | null;
   /** La corrida terminó EN PAUSA con trabajo de Apollo encolado (lo declara el servidor). */
@@ -121,7 +123,10 @@ function isFinished(run: AgentRun): boolean {
 
 function summarize(
   result: WizardExecutionActionResult,
-): Pick<AgentRun, 'status' | 'batchId' | 'redirectPath' | 'candidateCount' | 'message' | 'continuationPending'> {
+): Pick<
+  AgentRun,
+  'status' | 'batchId' | 'redirectPath' | 'candidateCount' | 'sizePendingCount' | 'message' | 'continuationPending'
+> {
   if (result.ok && result.apolloContinuationFailure !== undefined) {
     // AGENT1-AUDIT-WS2 § 5 — la pausa no quedó en cola: nadie la retomará. Pide
     // atención (con enlace al lote, que sí tiene lo encontrado), no «en pausa».
@@ -149,6 +154,8 @@ function summarize(
           : typeof result.candidateCount === 'number'
             ? result.candidateCount
             : null,
+      sizePendingCount:
+        typeof result.competitorSizePendingCount === 'number' ? result.competitorSizePendingCount : null,
       message: null,
     };
   }

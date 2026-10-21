@@ -259,7 +259,12 @@ export function prospectWizardReducer(
     // ── REFERENCE_RESOLVED ──────────────────────────────────────────────────
     case 'REFERENCE_RESOLVED': {
       if (state.currentStep !== 'reference_company' || state.searchMode !== 'competitors') return state;
-      return { ...state, referenceCompany: action.reference, currentStep: 'reference_confirm' };
+      return {
+        ...state,
+        referenceCompany: action.reference,
+        referenceRefreshRequested: false,
+        currentStep: 'reference_confirm',
+      };
     }
 
     // ── CONFIRM_REFERENCE ───────────────────────────────────────────────────
@@ -294,7 +299,7 @@ export function prospectWizardReducer(
     // ── REJECT_REFERENCE ────────────────────────────────────────────────────
     case 'REJECT_REFERENCE': {
       if (state.currentStep !== 'reference_confirm') return state;
-      return { ...state, referenceCompany: null, currentStep: 'reference_company' };
+      return { ...state, referenceCompany: null, referenceRefreshRequested: true, currentStep: 'reference_company' };
     }
 
     // ── SELECT_COUNTRY ──────────────────────────────────────────────────────
