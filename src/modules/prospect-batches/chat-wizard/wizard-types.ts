@@ -122,6 +122,11 @@ export type ProspectWizardState = {
    */
   referenceCompany?: CompetitorReferenceCard | null;
   /**
+   * La persona rechazó la ficha («no es esta empresa»): la próxima se arma de
+   * nuevo con Claude, sin la ficha guardada. Ausente = no hubo rechazo.
+   */
+  referenceRefreshRequested?: boolean;
+  /**
    * Resuelto en el servidor (`ENABLE_AGENT1_SUPPLIER_SEARCH`) y fijo durante la
    * conversación: con `true` la opción «Proveedores de una empresa» deja de ser
    * «Próximamente». Ausente = apagada. No autoriza nada: el servidor vuelve a mirar

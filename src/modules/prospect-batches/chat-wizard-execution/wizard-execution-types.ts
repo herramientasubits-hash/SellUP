@@ -461,6 +461,12 @@ export type WizardExecutionActionResult =
        * universo DURABLE y las incluye. Ausente ⇒ no se pudo contar.
        */
       reviewableCandidateCount?: number;
+      /**
+       * «Competidores de una empresa» — de las revisables, cuántas esperan aún la
+       * revisión de tamaño de Claude (corre al terminar y puede descartarlas).
+       * Ausente ⇒ ninguna o no se pudo contar.
+       */
+      competitorSizePendingCount?: number;
     }
   | {
       ok: false;

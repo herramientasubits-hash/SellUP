@@ -82,6 +82,14 @@ export const COMPETITOR_SEARCH_MIN_PHASE_MS = 60_000;
  */
 export const COMPETITOR_APOLLO_MIN_REMAINING_MS = 80_000;
 
+/**
+ * Lo gratuito sólo EMPIEZA juicios en los primeros 90 s de la acción: un juicio
+ * tarda hasta 45 s y la ronda de Claude en la web necesita ≥150 s por delante
+ * (60 s de fase + 90 s de cola). Sin plazo, los jueces de las tres fuentes podían
+ * dejar sin tiempo a la web, que es la que encuentra competidoras (auditoría 21-10).
+ */
+export const COMPETITOR_FREE_JUDGE_START_MS = 90_000;
+
 /** Lo que necesita Apollo como último recurso (ver `competitor-apollo.server.ts`). */
 export type CompetitorApolloRequest = {
   batchId: string;
@@ -113,6 +121,8 @@ export type CompetitorFreeSourcesRequest = {
   industryName: string;
   target: number;
   userId: string;
+  /** Hasta cuándo se empieza a juzgar lo gratuito (ver `COMPETITOR_FREE_JUDGE_START_MS`). */
+  judgeStartDeadlineAtMs?: number;
 };
 
 export type CompetitorFreeSourcesOutcome = {
@@ -167,6 +177,12 @@ export type CompetitorRunDeps = {
     metadata?: Record<string, unknown> | null;
   }) => Promise<void>;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
+  /**
+   * ¿La persona puede ver esta cuenta? (lectura con SU sesión, bajo RLS). La ficha
+   * viaja desde el navegador: sin esto, un `accountId` ajeno llegaba a lecturas con
+   * el cliente de servicio (número fiscal). `false` o fallo ⇒ se corre sin la cuenta.
+   */
+  canReadReferenceAccount?: (accountId: string) => Promise<boolean>;
   actionStartedAtMs?: number;
   nowMs?: () => number;
 };
@@ -176,6 +192,11 @@ export type CompetitorBatchOutcome = {
   reviewable: number;
   hubspotDuplicates: number;
   sellupDuplicates: number;
+  /**
+   * De las revisables, las que la revisión de tamaño de Claude todavía mirará al
+   * terminar (puede descartarlas). Ausente ⇒ no se midió.
+   */
+  sizePending?: number;
 };
 
 export type CompetitorRunInput = {
@@ -299,8 +320,23 @@ function failure(
   return { ok: false, code, message, retryable };
 }
 
+/**
+ * La referencia que llega del navegador, con su cuenta sólo si la persona puede
+ * verla (auditoría 21-10). Sin la dep, la cuenta se descarta: nunca se confía a ciegas.
+ */
+export async function verifyCompetitorReferenceAccount(
+  reference: CompetitorReference,
+  canReadReferenceAccount: CompetitorRunDeps['canReadReferenceAccount'],
+): Promise<CompetitorReference> {
+  if (!reference.accountId) return reference;
+  const readable = canReadReferenceAccount
+    ? await canReadReferenceAccount(reference.accountId).catch(() => false)
+    : false;
+  return readable ? reference : { ...reference, accountId: null };
+}
+
 export async function executeCompetitorSearchRun(
-  input: CompetitorRunInput,
+  rawInput: CompetitorRunInput,
   deps: CompetitorRunDeps,
 ): Promise<WizardExecutionActionResult> {
   // Sin Claude no hay con qué buscar competidores: se para antes de crear el lote.
@@ -311,6 +347,11 @@ export async function executeCompetitorSearchRun(
       false,
     );
   }
+
+  const input: CompetitorRunInput = {
+    ...rawInput,
+    reference: await verifyCompetitorReferenceAccount(rawInput.reference, deps.canReadReferenceAccount),
+  };
 
   // La base tiene que poder GUARDAR antes de pagar una sola llamada (mismo control
   // que la corrida por criterios).
@@ -383,6 +424,9 @@ export async function executeCompetitorSearchRun(
         industryName: input.catalogResolution.industry.name,
         target: input.target,
         userId: input.userId,
+        ...(deps.actionStartedAtMs !== undefined
+          ? { judgeStartDeadlineAtMs: deps.actionStartedAtMs + COMPETITOR_FREE_JUDGE_START_MS }
+          : {}),
       })
       .catch(() => null);
   }
@@ -402,10 +446,10 @@ export async function executeCompetitorSearchRun(
     if (first.executed) {
       claudeLeg = first;
       batchOutcome = await readOutcome();
-    } else if (freePersisted === 0) {
-      await deps.markBatchFailed(batchId, 'pipeline_error').catch(() => undefined);
-      return failure('GENERATION_FAILED', 'La búsqueda de competidores falló. Intenta de nuevo en unos minutos.', true);
     }
+    // Claude caído (cuota, tiempo, API) NO corta la corrida: Apollo, el último
+    // recurso, todavía puede llenar el lote (auditoría 21-10). Sólo si nada dejó
+    // filas se marca el lote como fallido, al final.
   }
 
   // Rondas siguientes: sólo si faltan aceptadas y queda tiempo. Una ronda que falla
@@ -454,6 +498,11 @@ export async function executeCompetitorSearchRun(
 
   const apolloPersisted = Math.max(0, apollo?.persistedCount ?? 0);
   const totalPersisted = freePersisted + claudePersisted + apolloPersisted;
+  // Ninguna fuente dejó filas y Claude no pudo correr: es un fallo, no «sin nuevas».
+  if (totalPersisted === 0 && claudeLeg === null && !freeCovers) {
+    await deps.markBatchFailed(batchId, 'pipeline_error').catch(() => undefined);
+    return failure('GENERATION_FAILED', 'La búsqueda de competidores falló. Intenta de nuevo en unos minutos.', true);
+  }
   const freeAccepted = Math.min(Math.max(0, freeSources?.acceptedCount ?? 0), freePersisted, input.target);
   const facts: RunAcceptanceFacts = {
     demand:
@@ -508,6 +557,7 @@ export async function executeCompetitorSearchRun(
   // ya estaba en HubSpot/SellUp, la corrida no «generó candidatos».
   const reviewable = batchOutcome?.reviewable ?? totalPersisted;
   const hasReviewable = reviewable > 0;
+  const sizePending = Math.max(0, batchOutcome?.sizePending ?? 0);
   return {
     ok: true,
     status: hasReviewable
@@ -526,5 +576,6 @@ export async function executeCompetitorSearchRun(
     targetReached: acceptedForTarget.targetReached,
     acceptedForTarget,
     ...(claudeLeg ? { claudeSearchLeg: claudeLeg } : {}),
+    ...(hasReviewable && sizePending > 0 ? { competitorSizePendingCount: Math.min(sizePending, reviewable) } : {}),
   };
 }
