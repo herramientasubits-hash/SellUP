@@ -141,3 +141,32 @@ describe('normalizeApolloPerson — otros campos intactos (PHONE-3A)', () => {
     assert.equal(withPhone?.confidence, withoutPhone?.confidence);
   });
 });
+
+describe('normalizeApolloPerson — señal gratuita has_direct_phone (APOLLO-DIRECT-PHONE-HINT-1)', () => {
+  it('"Yes" se guarda como apollo_direct_phone_hint=yes sin inventar teléfono', () => {
+    const result = normalizeApolloPerson(makePerson({ phone_numbers: [], has_direct_phone: 'Yes' }));
+    assert.ok(result);
+    assert.equal(result.enrichmentMetadata.apollo_direct_phone_hint, 'yes');
+    assert.equal(result.phone, null);
+    assert.equal(result.enrichmentMetadata.phone, undefined);
+  });
+
+  it('"Maybe: …" se guarda como maybe', () => {
+    const result = normalizeApolloPerson(
+      makePerson({ has_direct_phone: 'Maybe: please request direct dial via people/bulk_match' }),
+    );
+    assert.equal(result?.enrichmentMetadata.apollo_direct_phone_hint, 'maybe');
+  });
+
+  it('sin el campo (people/match, candidatos previos) la clave no aparece', () => {
+    const result = normalizeApolloPerson(makePerson());
+    assert.ok(result);
+    assert.equal('apollo_direct_phone_hint' in result.enrichmentMetadata, false);
+  });
+
+  it('la señal no altera la confianza', () => {
+    const withHint = normalizeApolloPerson(makePerson({ has_direct_phone: 'Yes' }));
+    const withoutHint = normalizeApolloPerson(makePerson());
+    assert.equal(withHint?.confidence, withoutHint?.confidence);
+  });
+});
