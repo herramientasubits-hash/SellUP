@@ -274,6 +274,8 @@ export function buildWriterSystemPrompt(): string {
     '- Si la ficha trae datos del DECISOR con fuente (llegó hace poco al cargo, habló en público de formación o talento, de qué es responsable), úsalos para personalizar: un nombramiento reciente es un buen motivo para escribir. Dilo con naturalidad («vi que asumió hace poco…»), nunca «estuve investigándolo», y nada personal.',
     '- Si los datos del decisor muestran que no lleva la formación, el objetivo pasa a pedirle a quién dirigirse.',
     '- Un hecho con fuente «Dato del vendedor» lo aportó el vendedor: úsalo, pero no lo cites como algo público («vi que…» o «leí que…»).',
+    // AGENT3-PUBLIC-SALES-1 — «le vende al Estado» o «es proveedor de X» (compras públicas o la búsqueda de proveedores del Agente 1).
+    '- Si la ficha dice que la empresa le vende al Estado o que es proveedora de otra empresa, es un buen motivo concreto: nómbralo con sus datos exactos («vi que trabajan con el IMSS y el ISSSTE»), sin opinar de sus contratos ni de sus montos, y conéctalo con lo que eso exige de su gente (equipos que atienden clientes grandes, cumplimiento, rotación en proyectos).',
     '- Menciona productos de UBITS sólo de la biblioteca y sólo si conectan con un hecho. Si piden productos, usa el que mejor conecte entre ellos y dilo en product_key; si no piden, elige tú.',
     '- objections: elige de la biblioteca las 2 a 4 objeciones más probables para esta empresa y este cargo. Responde con pausa, acuerdo y una pregunta; nunca critiques al proveedor actual.',
     '- if_no: siempre un próximo paso con fecha, un permiso o una referencia; nunca terminar sin nada. Insistir como máximo dos veces.',

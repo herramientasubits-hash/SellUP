@@ -23,6 +23,16 @@ import { normalizeLatamCuratedName } from '@/server/source-catalog/connectors/la
 import { curatedCoreName, curatedNamesMatch, isDistinctiveCore } from './curated-match';
 import type { PipelineStatus } from '@/modules/accounts/types';
 import { nextAgent3Status, type Agent3StatusTarget } from './account-status';
+import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
+import { publicBuyerCountry } from '@/server/prospect-batches/supplier-search/countries';
+import {
+  PUBLIC_SALES_SOURCE_LABELS,
+  publicSalesTaxIdForms,
+  readSupplierRelationship,
+  summarizePublicSales,
+  type PublicSalesRow,
+  type PublicSalesSummary,
+} from './public-sales';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
 import { cachedContactResearch } from './contact-research';
@@ -93,7 +103,8 @@ async function readRelations(accountId: string): Promise<CorporateRelation[]> {
   );
 }
 
-async function readOriginClassification(accountId: string, metadata: Record<string, unknown>) {
+/** La metadata de la candidata de la que salió la cuenta (`null` si no hay). */
+async function readOriginCandidateMetadata(accountId: string, metadata: Record<string, unknown>): Promise<unknown> {
   const admin = createSupabaseAdminClient();
   const byConversion = await admin
     .from('prospect_candidates')
@@ -102,11 +113,45 @@ async function readOriginClassification(accountId: string, metadata: Record<stri
     .order('reviewed_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle();
-  if (byConversion.data) return readPriorClassification((byConversion.data as { metadata: unknown }).metadata);
+  if (byConversion.data) return (byConversion.data as { metadata: unknown }).metadata;
   const fallbackId = typeof metadata.converted_from_candidate_id === 'string' ? metadata.converted_from_candidate_id : null;
   if (!fallbackId) return null;
   const byId = await admin.from('prospect_candidates').select('metadata').eq('id', fallbackId).maybeSingle();
-  return byId.data ? readPriorClassification((byId.data as { metadata: unknown }).metadata) : null;
+  return byId.data ? (byId.data as { metadata: unknown }).metadata : null;
+}
+
+/** Filas de compras públicas que se leen por cuenta (una por entidad compradora). */
+const PUBLIC_SALES_MAX_ROWS = 1000;
+
+/**
+ * AGENT3-PUBLIC-SALES-1 — lo que la cuenta le vende al Estado, por su número fiscal, en los
+ * países con compras públicas cargadas. Sin número fiscal, en otro país o con error: `null`
+ * (la ficha sigue sin ese hecho).
+ */
+export async function readPublicSales(account: {
+  tax_identifier: string | null;
+  country_code: string | null;
+  country: string | null;
+}): Promise<PublicSalesSummary | null> {
+  const countryCode = account.country_code?.toUpperCase() ?? null;
+  if (!account.tax_identifier || !countryCode || !FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.includes(countryCode)) return null;
+  const country = publicBuyerCountry(countryCode);
+  if (!country) return null;
+  const { data, error } = await createSupabaseAdminClient()
+    .from('public_procurement_supplier_links')
+    .select('buyer_code, buyer_name, total_amount, currency, order_count, first_order_on, last_order_on, top_order_url, top_order_amount')
+    .eq('country_code', countryCode)
+    .eq('source_key', country.sourceKey)
+    .in('supplier_tax_id', publicSalesTaxIdForms(account.tax_identifier, countryCode))
+    .limit(PUBLIC_SALES_MAX_ROWS);
+  if (error) {
+    console.error('[agent3] public sales:', error.message);
+    return null;
+  }
+  return summarizePublicSales((data ?? []) as PublicSalesRow[], {
+    countryName: account.country ?? countryCode,
+    sourceLabel: PUBLIC_SALES_SOURCE_LABELS[country.sourceKey] ?? 'compras públicas',
+  });
 }
 
 async function readHubSpot(account: {
@@ -297,15 +342,17 @@ export async function loadFirstCallContext(
       : {};
 
   const admin = createSupabaseAdminClient();
-  const [classification, curatedLists, relations, hubspot, decisionMakers, seller, briefState] = await Promise.all([
-    readOriginClassification(account.id, metadata).catch(() => null),
+  const [originMetadata, curatedLists, relations, hubspot, decisionMakers, seller, briefState, publicSales] = await Promise.all([
+    readOriginCandidateMetadata(account.id, metadata).catch(() => null),
     readCuratedLists(account),
     readRelations(account.id),
     options.skipHubSpot ? Promise.resolve(null) : readHubSpot(account),
     readDecisionMakers(account.id, request.contactIds),
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
+    readPublicSales(account).catch(() => null),
   ]);
+  const classification = originMetadata ? readPriorClassification(originMetadata) : null;
 
   const internal: InternalContext = {
     account: {
@@ -326,6 +373,8 @@ export async function loadFirstCallContext(
     curatedLists,
     relations,
     hubspot,
+    publicSales,
+    supplierRelationship: originMetadata ? readSupplierRelationship(originMetadata) : null,
     // Cada decisor se agrega al redactar (uno por llamada al redactor).
     decisionMaker: null,
   };
