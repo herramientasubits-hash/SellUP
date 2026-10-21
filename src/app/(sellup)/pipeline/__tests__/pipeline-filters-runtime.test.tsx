@@ -249,9 +249,9 @@ describe('Pipeline · filtros en la URL', () => {
   });
 
   it('los filtros viajan al elegir empresa y al cambiar de vista, junto a view y account', () => {
-    const filters = { ...EMPTY_PIPELINE_FILTERS, stages: ['inteligencia' as const], aiFailures: ['corrida_fallida' as const] };
-    assert.equal(pipelineHref('recorrido', 'globex', filters), '/pipeline?account=globex&etapa=inteligencia&fallo=1');
-    assert.equal(pipelineHref('tablero', null, filters), '/pipeline?view=tablero&etapa=inteligencia&fallo=1');
+    const filters = { ...EMPTY_PIPELINE_FILTERS, stages: ['primer_contacto' as const], aiFailures: ['corrida_fallida' as const] };
+    assert.equal(pipelineHref('recorrido', 'globex', filters), '/pipeline?account=globex&etapa=primer_contacto&fallo=1');
+    assert.equal(pipelineHref('tablero', null, filters), '/pipeline?view=tablero&etapa=primer_contacto&fallo=1');
     assert.equal(pipelineHref('recorrido', null, EMPTY_PIPELINE_FILTERS), '/pipeline');
   });
 });
@@ -292,7 +292,7 @@ describe('Pipeline · la franja de atención y las casillas son el mismo estado'
   it('el resumen no se filtra, y lo dice cuando hay filtros puestos', async () => {
     render(h(Journey, { log: [] }));
     await openPanel();
-    fireEvent.click(group('Etapa').getByRole('checkbox', { name: 'Preparación' }));
+    fireEvent.click(group('Etapa').getByRole('checkbox', { name: 'Enriquecimiento' }));
 
     assert.equal(
       document.querySelector('[data-slot="pipeline-overview-unfiltered"]')?.textContent,
@@ -325,14 +325,14 @@ describe('Pipeline · el tablero aplica los mismos filtros', () => {
     }
     render(h(Board));
     assert.deepEqual(cardsIn('Enriquecimiento'), ['Acme']);
-    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
+    assert.deepEqual(cardsIn('Primer contacto'), ['Initech', 'Globex', 'Umbrella']);
 
     await openPanel();
-    fireEvent.click(group('Etapa').getByRole('checkbox', { name: 'Preparación' }));
+    fireEvent.click(group('Etapa').getByRole('checkbox', { name: 'Primer contacto' }));
     assert.deepEqual(cardsIn('Enriquecimiento'), []);
-    assert.deepEqual(cardsIn('Preparación'), ['Umbrella']);
-    assert.equal(document.querySelector('[data-slot="pipeline-filter-count"]')?.textContent, '1 de 4 empresas');
-    assert.deepEqual(changes.at(-1)?.stages, ['preparacion']);
+    assert.deepEqual(cardsIn('Primer contacto'), ['Initech', 'Globex', 'Umbrella']);
+    assert.equal(document.querySelector('[data-slot="pipeline-filter-count"]')?.textContent, '3 de 4 empresas');
+    assert.deepEqual(changes.at(-1)?.stages, ['primer_contacto']);
   });
 
   it('con filtros en la URL, el tablero arranca filtrado', () => {
@@ -340,12 +340,13 @@ describe('Pipeline · el tablero aplica los mismos filtros', () => {
       h(PipelineBoard, {
         accounts: buildOverview().accounts,
         onMoveAccount: async () => ({ success: true as const }),
+        // Un enlace guardado de antes de unir las etapas («inteligencia») abre «Primer contacto».
         filters: parsePipelineFilters({ etapa: 'inteligencia' }),
         onFiltersChange: () => {},
         now: NOW,
       }),
     );
     assert.deepEqual(cardsIn('Enriquecimiento'), []);
-    assert.deepEqual(cardsIn('Inteligencia'), ['Initech', 'Globex']);
+    assert.deepEqual(cardsIn('Primer contacto'), ['Initech', 'Globex', 'Umbrella']);
   });
 });

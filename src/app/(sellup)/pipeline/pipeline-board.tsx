@@ -38,14 +38,13 @@ export { PROSPECTS_HREF };
 
 /**
  * Las etapas a las que se puede mover una empresa (tienen estado) y el estado
- * con el que entra en cada una. Inteligencia agrupa dos estados: soltar en ella
- * la deja «Lista para investigar»; pasar a «Investigación en curso» se hace
- * desde «Cambiar etapa» del recorrido.
+ * con el que entra en cada una. «Primer contacto» agrupa tres estados: soltar en
+ * ella la deja «Lista para investigar»; pasar a «Investigación en curso» o «Lista
+ * para contacto» se hace desde «Cambiar etapa» del recorrido (o lo hace el Agente 3).
  */
 export const BOARD_STAGE_STATUS: Readonly<Partial<Record<PipelineStageId, Exclude<PipelineStatus, "archived">>>> = {
   enriquecimiento: "new",
-  inteligencia: "ready_for_research",
-  preparacion: "ready_for_outreach",
+  primer_contacto: "ready_for_research",
 };
 
 /** Ancho de una columna llena y de una columna apagada (ya superada o próximamente). */
@@ -56,11 +55,12 @@ const NARROW_COLUMN_WIDTH = 176;
 function columnDescription(stageId: PipelineStageId, count: number): string {
   if (!BOARD_STAGE_STATUS[stageId]) return stageCountNote(stageId, 0);
   if (stageId === "enriquecimiento") return "El Agente 2A busca sus contactos.";
+  if (stageId === "primer_contacto") return "El Agente 3 investiga y prepara el primer contacto.";
   return count === 0 ? "Agente próximamente · puedes moverlas aquí." : "Agente próximamente.";
 }
 
 /**
- * Las 8 columnas del tablero: las etapas del proceso, en orden, con el mismo
+ * Las 7 columnas del tablero: las etapas del proceso, en orden, con el mismo
  * vocabulario, icono y tono que la tarjeta «Empresas por etapa» del resumen. Las
  * que no tienen estado (Prospección, ya superada; Reunión a Cierre, próximamente)
  * no admiten soltar y van estrechas y apagadas.
@@ -150,7 +150,7 @@ function toItem(account: PipelineOverviewAccount, stageId: PipelineStageId): Kan
 }
 
 /**
- * PipelineBoard — la vista «Tablero»: el `Kanban` del sistema con las 8 etapas
+ * PipelineBoard — la vista «Tablero»: el `Kanban` del sistema con las 7 etapas
  * del proceso como columnas (las mismas, con su icono y su tono, que el resumen)
  * y una tarjeta por empresa en la columna de su etapa actual, con la misma
  * información que su fila en la lista. Encima, los motivos de atención y la

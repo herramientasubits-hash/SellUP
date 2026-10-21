@@ -235,8 +235,8 @@ function resolveMilestones(args: {
   return {
     prospeccion: args.origin?.approvedAt ?? args.origin?.reviewedAt ?? args.createdAt,
     enriquecimiento: latestRun?.createdAt ?? null,
-    inteligencia: researchAt?.created_at ?? null,
-    preparacion: outreachAt?.created_at ?? null,
+    // «Primer contacto»: el último paso dentro de la etapa (lista para contacto o, antes, para investigar).
+    primer_contacto: outreachAt?.created_at ?? researchAt?.created_at ?? null,
   };
 }
 

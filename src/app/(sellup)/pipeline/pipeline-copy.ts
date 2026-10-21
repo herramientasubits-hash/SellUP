@@ -1,6 +1,5 @@
 import {
   Briefcase,
-  Brain,
   Calendar,
   CheckCircle2,
   MessageSquareText,
@@ -35,7 +34,7 @@ export const PIPELINE_DESCRIPTION =
 export const PIPELINE_CRUMB_LABEL = "Pipeline SellUp";
 
 /** Lo que dice la nota del resumen mientras las etapas de la derecha no tengan empresas. */
-export const FUTURE_STAGES_NOTE = "Las etapas de Inteligencia a Cierre se activarán cuando existan sus agentes.";
+export const FUTURE_STAGES_NOTE = "Las etapas de Primer contacto a Cierre se activarán cuando existan sus agentes.";
 
 /** A dónde va quien todavía no tiene empresas en el pipeline. */
 export const PROSPECTS_HREF = "/accounts?tab=prospectos";
@@ -68,8 +67,7 @@ export function pipelineHref(view: PipelineView, accountId: string | null, filte
 export const STAGE_SHORT_LABELS: Record<PipelineStageId, string> = {
   prospeccion: "Prospección",
   enriquecimiento: "Enriquecimiento",
-  inteligencia: "Inteligencia",
-  preparacion: "Preparación",
+  primer_contacto: "Primer contacto",
   reunion: "Reunión",
   cotizacion: "Cotización",
   venta_interna: "Venta interna",
@@ -77,10 +75,9 @@ export const STAGE_SHORT_LABELS: Record<PipelineStageId, string> = {
 };
 
 /** El tono del chip de la etapa actual de una empresa. */
-export const CURRENT_STAGE_STATUS: Record<"enriquecimiento" | "inteligencia" | "preparacion", StatusType> = {
+export const CURRENT_STAGE_STATUS: Record<"enriquecimiento" | "primer_contacto", StatusType> = {
   enriquecimiento: "info",
-  inteligencia: "pending",
-  preparacion: "active",
+  primer_contacto: "active",
 };
 
 export function currentStageBadge(stageId: PipelineStageId | null): { status: StatusType; label: string } {
@@ -181,8 +178,7 @@ export function formatUsd(value: number): string {
 export const STAGE_VISUAL: Record<PipelineStageId, { icon: LucideIcon; tone: MetricTone; chartTone: ChartTone }> = {
   prospeccion: { icon: Target, tone: "neutral", chartTone: "neutral" },
   enriquecimiento: { icon: UserSearch, tone: "info", chartTone: "brand" },
-  inteligencia: { icon: Brain, tone: "warning", chartTone: "warning" },
-  preparacion: { icon: MessageSquareText, tone: "positive", chartTone: "positive" },
+  primer_contacto: { icon: MessageSquareText, tone: "warning", chartTone: "warning" },
   reunion: { icon: Calendar, tone: "brand", chartTone: "info" },
   cotizacion: { icon: ReceiptText, tone: "brand", chartTone: "negative" },
   venta_interna: { icon: Briefcase, tone: "brand", chartTone: "neutral" },

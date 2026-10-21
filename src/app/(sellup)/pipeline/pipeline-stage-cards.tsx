@@ -162,16 +162,10 @@ function StageFirstCallLauncher(props: Omit<React.ComponentProps<typeof FirstCal
   return <FirstCallLauncher {...props} onDone={() => router.refresh()} />;
 }
 
-/** La frase de invitación de una etapa del Agente 3 que aún no se ha hecho. */
-function firstCallInvitation(stageId: PipelineStageId, accountName: string, archived: boolean): string {
-  if (archived) {
-    return stageId === "inteligencia"
-      ? `No se investigó ${accountName}: la empresa está archivada.`
-      : `No se preparó el primer contacto con ${accountName}: la empresa está archivada.`;
-  }
-  return stageId === "inteligencia"
-    ? `Aún no se ha investigado ${accountName}. El agente lee su sitio y sus noticias y deja cada dato con su fuente.`
-    : `Aún no se ha preparado el primer contacto con ${accountName}: qué decirle a cada decisor en cada canal, las preguntas y las respuestas a objeciones.`;
+/** La frase de invitación de «Primer contacto» cuando el Agente 3 aún no la ha hecho. */
+function firstCallInvitation(accountName: string, archived: boolean): string {
+  if (archived) return `No se preparó el primer contacto con ${accountName}: la empresa está archivada.`;
+  return `Aún no se ha preparado el primer contacto con ${accountName}. El agente investiga la empresa y a sus decisores (cada dato con su fuente) y prepara qué decirle a cada uno en cada canal.`;
 }
 
 interface StageInvitationProps {
@@ -198,7 +192,7 @@ function StageInvitation({ entry, index, journey, onSearchContacts }: StageInvit
   const firstCall = isFirstCallStage(stage.id) ? journey.agent3 ?? null : null;
   const canActivate = firstCall ? !journey.isArchived : Boolean(onSearchContacts) && !journey.isArchived;
   const invitation = firstCall
-    ? firstCallInvitation(stage.id, journey.account.name, journey.isArchived)
+    ? firstCallInvitation(journey.account.name, journey.isArchived)
     : journey.isArchived
       ? `No se buscaron los contactos de ${journey.account.name}: la empresa está archivada.`
       : `Aún no se han buscado los contactos de ${journey.account.name}.`;
@@ -366,7 +360,7 @@ function LastRunLine({ journey }: { journey: AccountJourney }) {
 
 function PlannedBody({ entry, journey }: { entry: JourneyStage; journey: AccountJourney }) {
   const { stage } = entry;
-  const isResearching = stage.id === "inteligencia" && journey.account.pipelineStatus === "research_in_progress";
+  const isResearching = stage.id === "primer_contacto" && journey.account.pipelineStatus === "research_in_progress";
 
   return (
     <>
@@ -392,7 +386,7 @@ const BRIEF_STATUS_BADGE = { sufficient: "completed", partial: "warning", failed
 const PACK_STATUS_LABEL = { draft: "Lista", needs_review: "Revisar", used: "Usada" } as const;
 const PACK_STATUS_BADGE = { draft: "info", needs_review: "warning", used: "completed" } as const;
 
-/** Etapa «Inteligencia de cuenta» con el Agente 3: qué encontró, con qué y qué falta. */
+/** «Primer contacto», la investigación: qué encontró el Agente 3, con qué y qué falta. */
 function InteligenciaBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
   const brief = firstCall.brief;
   if (!brief) return null;
@@ -471,7 +465,7 @@ function InteligenciaBody({ journey, firstCall }: { journey: AccountJourney; fir
   );
 }
 
-/** Etapa «Preparación y contacto» con el Agente 3: lo preparado por decisor y canal, y lo que falta. */
+/** «Primer contacto», la preparación: lo preparado por decisor y canal, y lo que falta. */
 function PreparacionBody({ journey, firstCall }: { journey: AccountJourney; firstCall: JourneyFirstCall }) {
   const coverage = buildCoverage(firstCall.packs, firstCall.contacts);
   const missing = missingSelection(coverage);
@@ -667,10 +661,12 @@ function StageAccordion({ journey, onSearchContacts, focusRequest, onOpenStageDe
             <ProspeccionBody journey={journey} />
           ) : entry.stage.id === "enriquecimiento" ? (
             <EnriquecimientoBody journey={journey} />
-          ) : entry.stage.id === "inteligencia" && journey.agent3 ? (
-            <InteligenciaBody journey={journey} firstCall={journey.agent3} />
-          ) : entry.stage.id === "preparacion" && journey.agent3 ? (
-            <PreparacionBody journey={journey} firstCall={journey.agent3} />
+          ) : entry.stage.id === "primer_contacto" && journey.agent3 ? (
+            // Una sola etapa: el agente investiga y prepara en la misma corrida (dueña 21-10).
+            <>
+              <InteligenciaBody journey={journey} firstCall={journey.agent3} />
+              {journey.agent3.packs.length > 0 && <PreparacionBody journey={journey} firstCall={journey.agent3} />}
+            </>
           ) : (
             <PlannedBody entry={entry} journey={journey} />
           )}

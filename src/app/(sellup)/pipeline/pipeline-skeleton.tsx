@@ -35,10 +35,10 @@ export function PipelineJourneySkeleton() {
   );
 }
 
-/** Las 8 columnas del tablero: llenas las que admiten mover, estrechas las demás (como el tablero). */
+/** Las 7 columnas del tablero: llenas las que admiten mover, estrechas las demás (como el tablero). */
 const BOARD_SKELETON_COLUMNS: readonly boolean[] = [false, true, true, true, false, false, false, false];
 
-/** El tablero mientras llega: sus 8 etapas, con tarjetas fantasma en las que admiten mover. */
+/** El tablero mientras llega: sus 7 etapas, con tarjetas fantasma en las que admiten mover. */
 function BoardSkeleton() {
   return (
     <div role="status" aria-label="Cargando el tablero" aria-busy="true" className="flex min-w-0 gap-4 overflow-hidden">

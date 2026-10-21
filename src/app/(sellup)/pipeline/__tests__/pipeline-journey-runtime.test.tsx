@@ -92,7 +92,7 @@ describe('Pipeline · lista de empresas', () => {
     assert.ok(acme.getByRole('img', { name: 'Requiere atención' }));
     const umbrella = within(rows[3] as HTMLElement);
     assert.ok(umbrella.getByText(/Chile · hace 1 día/));
-    assert.ok(umbrella.getByText('Preparación'));
+    assert.ok(umbrella.getByText('Primer contacto'));
     assert.ok(umbrella.queryByRole('img', { name: 'Requiere atención' }) === null);
   });
 
@@ -112,35 +112,36 @@ describe('Pipeline · lista de empresas', () => {
     return screen.findByRole('list', { name: 'Filtrar por etapa' });
   };
 
-  it('un solo botón «Filtros» abre el panel; el grupo Etapa trae las 8 etapas con su contador (0 apagadas pero elegibles)', async () => {
+  it('un solo botón «Filtros» abre el panel; el grupo Etapa trae las 7 etapas con su contador (0 apagadas pero elegibles)', async () => {
     renderJourney();
     assert.ok(screen.queryByRole('radiogroup', { name: 'Filtrar por etapa actual' }) === null, 'ya no hay chips en rejilla');
     assert.ok(screen.queryByRole('button', { name: /^Etapa/ }) === null, 'un solo botón de filtros');
     const options = within(await openFilters()).getAllByRole('listitem');
     assert.deepEqual(
       options.map((option) => option.textContent),
-      ['Prospección0', 'Enriquecimiento1', 'Inteligencia2', 'Preparación1', 'Reunión0', 'Cotización0', 'Venta interna0', 'Cierre0'],
+      ['Prospección0', 'Enriquecimiento1', 'Primer contacto3', 'Reunión0', 'Cotización0', 'Venta interna0', 'Cierre0'],
     );
-    const empty = within(options[4]).getByRole('checkbox', { name: 'Reunión' });
+    const empty = within(options[3]).getByRole('checkbox', { name: 'Reunión' });
     assert.equal((empty as HTMLButtonElement).disabled, false);
-    assert.match(options[4].querySelector('span')?.className ?? '', /text-text-muted/);
+    assert.match(options[3].querySelector('span')?.className ?? '', /text-text-muted/);
   });
 
   it('marcar varias etapas es una unión; el botón cuenta, hay chips quitables y «Limpiar todo»', async () => {
     renderJourney();
     const list = within(await openFilters());
     fireEvent.click(list.getByRole('checkbox', { name: 'Enriquecimiento' }));
-    fireEvent.click(list.getByRole('checkbox', { name: 'Preparación' }));
-    assert.deepEqual(listNames(), ['Acme', 'Umbrella']);
-    assert.ok(screen.getByRole('button', { name: 'Filtros · 2' }));
-    assert.equal(document.querySelector('[data-slot="pipeline-filter-count"]')?.textContent, '2 de 4 empresas');
-    const chips = within(screen.getByRole('group', { name: 'Filtros activos' }));
-    assert.ok(chips.getByText('Etapa: Enriquecimiento'));
-    assert.ok(chips.getByText('Etapa: Preparación'));
-
+    assert.deepEqual(listNames(), ['Acme']);
     // Una etapa a la que ninguna empresa ha llegado se puede marcar: no suma ni quita empresas.
     fireEvent.click(list.getByRole('checkbox', { name: 'Reunión' }));
-    assert.deepEqual(listNames(), ['Acme', 'Umbrella']);
+    assert.deepEqual(listNames(), ['Acme']);
+    assert.ok(screen.getByRole('button', { name: 'Filtros · 2' }));
+    assert.equal(document.querySelector('[data-slot="pipeline-filter-count"]')?.textContent, '1 de 4 empresas');
+    const chips = within(screen.getByRole('group', { name: 'Filtros activos' }));
+    assert.ok(chips.getByText('Etapa: Enriquecimiento'));
+    assert.ok(chips.getByText('Etapa: Reunión'));
+
+    fireEvent.click(list.getByRole('checkbox', { name: 'Primer contacto' }));
+    assert.equal(listNames().length, 4, 'la unión suma las empresas de «Primer contacto»');
 
     fireEvent.click(within(screen.getByRole('group', { name: 'Filtros activos' })).getByRole('button', { name: 'Limpiar todo' }));
     assert.equal(listNames().length, 4);
@@ -152,12 +153,12 @@ describe('Pipeline · lista de empresas', () => {
   it('un chip se quita de uno en uno', async () => {
     renderJourney();
     const list = within(await openFilters());
-    fireEvent.click(list.getByRole('checkbox', { name: 'Inteligencia' }));
-    fireEvent.click(list.getByRole('checkbox', { name: 'Preparación' }));
-    assert.deepEqual(listNames(), ['Initech', 'Globex', 'Umbrella']);
+    fireEvent.click(list.getByRole('checkbox', { name: 'Enriquecimiento' }));
+    fireEvent.click(list.getByRole('checkbox', { name: 'Primer contacto' }));
+    assert.equal(listNames().length, 4);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Eliminar Etapa: Inteligencia' }));
-    assert.deepEqual(listNames(), ['Umbrella']);
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar Etapa: Primer contacto' }));
+    assert.deepEqual(listNames(), ['Acme']);
     assert.ok(screen.getByRole('button', { name: 'Filtros · 1' }));
   });
 
@@ -201,7 +202,7 @@ describe('Pipeline · volver al resumen en escritorio', () => {
 });
 
 describe('Pipeline · resumen sin empresa elegida', () => {
-  it('enseña las 8 etapas del proceso, en orden: con su conteo, o apagadas y con el motivo si no hay ninguna', () => {
+  it('enseña las 7 etapas del proceso, en orden: con su conteo, o apagadas y con el motivo si no hay ninguna', () => {
     renderJourney();
     const summary = within(screen.getByRole('region', { name: 'Resumen del pipeline' }));
     const cards = within(summary.getByRole('list', { name: 'Empresas por etapa' })).getAllByRole('listitem');
@@ -210,21 +211,20 @@ describe('Pipeline · resumen sin empresa elegida', () => {
       [
         '1. Prospección0Ya superada',
         '2. Enriquecimiento1empresa',
-        '3. Inteligencia2empresas',
-        '4. Preparación1empresa',
-        '5. Reunión0Próximamente',
-        '6. Cotización0Próximamente',
-        '7. Venta interna0Próximamente',
-        '8. Cierre0Próximamente',
+        '3. Primer contacto3empresas',
+        '4. Reunión0Próximamente',
+        '5. Cotización0Próximamente',
+        '6. Venta interna0Próximamente',
+        '7. Cierre0Próximamente',
       ],
     );
     // Las vacías se marcan como tales (salen apagadas); las que tienen empresas, no.
     assert.deepEqual(
       cards.map((card) => card.getAttribute('data-empty')),
-      ['true', null, null, null, 'true', 'true', 'true', 'true'],
+      ['true', null, null, 'true', 'true', 'true', 'true'],
     );
     // El reparto solo dibuja las etapas con empresas.
-    assert.ok(summary.getByRole('img', { name: /Enriquecimiento de contactos: 1, Inteligencia de cuenta: 2, Preparación y contacto: 1/ }));
+    assert.ok(summary.getByRole('img', { name: /Enriquecimiento de contactos: 1, Primer contacto: 3/ }));
   });
 
   it('«Archivadas» es un total aparte y las etapas futuras se explican en una línea', () => {
@@ -232,7 +232,7 @@ describe('Pipeline · resumen sin empresa elegida', () => {
     const summary = within(screen.getByRole('region', { name: 'Resumen del pipeline' }));
     assert.equal(summary.queryByText('Archivadas', { selector: 'p' }), null);
     assert.ok(summary.getByText(/fuera del pipeline, no cuentan en las etapas/));
-    assert.ok(summary.getByText('Las etapas de Inteligencia a Cierre se activarán cuando existan sus agentes.'));
+    assert.ok(summary.getByText('Las etapas de Primer contacto a Cierre se activarán cuando existan sus agentes.'));
   });
 
   it('dice cuántas requieren atención y cada motivo filtra la lista', () => {
@@ -278,7 +278,7 @@ describe('Pipeline · resumen sin empresa elegida', () => {
     // «Sin movimiento» es el umbral de 7 días del grupo de inactividad.
     assert.ok(within(screen.getByRole('group', { name: 'Filtros activos' })).getByText('Inactividad: 7+ días'));
     fireEvent.click(screen.getByRole('button', { name: /^Filtros/ }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Inteligencia' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Reunión' }));
     assert.ok(screen.queryByRole('list', { name: 'Empresas del pipeline' }) === null);
     assert.equal(screen.getAllByRole('button', { name: /^Eliminar / }).length, 2);
     assert.ok(screen.getByText('Ninguna empresa coincide'));
@@ -302,15 +302,14 @@ describe('Pipeline · recorrido de una empresa', () => {
     if (card.getAttribute('data-open') !== 'true') fireEvent.click(within(card).getAllByRole('button')[0]);
   };
 
-  it('muestra las 8 tarjetas de etapa, en orden, con su estado', () => {
+  it('muestra las 7 tarjetas de etapa, en orden, con su estado', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     assert.deepEqual(
       stageCards().map((card) => [card.getAttribute('data-stage'), card.getAttribute('data-state')]),
       [
         ['prospeccion', 'complete'],
         ['enriquecimiento', 'complete'],
-        ['inteligencia', 'current'],
-        ['preparacion', 'upcoming'],
+        ['primer_contacto', 'current'],
         ['reunion', 'upcoming'],
         ['cotizacion', 'upcoming'],
         ['venta_interna', 'upcoming'],
@@ -323,12 +322,12 @@ describe('Pipeline · recorrido de una empresa', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     const track = screen.getByRole('list', { name: 'Etapas del proceso de venta' });
     const steps = Array.from(track.querySelectorAll('li'));
-    assert.equal(steps.length, 8);
+    assert.equal(steps.length, 7);
     const current = track.querySelector('[aria-current="step"]');
-    assert.ok(current?.textContent?.includes('Inteligencia'));
+    assert.ok(current?.textContent?.includes('Primer contacto'));
     assert.deepEqual(
       steps.map((step) => step.getAttribute('data-status')),
-      ['complete', 'complete', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming'],
+      ['complete', 'complete', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming'],
     );
     // Las pendientes también se pueden pulsar: la pista navega, no avanza un flujo.
     assert.equal(within(track).getAllByRole('button').filter((button) => (button as HTMLButtonElement).disabled).length, 0);
@@ -370,7 +369,7 @@ describe('Pipeline · recorrido de una empresa', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     assert.ok(screen.getByRole('heading', { level: 2, name: 'Globex' }));
     assert.ok(screen.getByText('Responsable: Ana Pérez'));
-    assert.ok(screen.getByText('Inteligencia · Lista para investigar'));
+    assert.ok(screen.getByText('Primer contacto · Lista para investigar'));
     const header = screen.getByRole('heading', { level: 2, name: 'Globex' }).closest('.rounded-2xl') as HTMLElement;
     assert.equal(header.querySelectorAll('button, a').length, 0);
     assert.ok(screen.queryByRole('link', { name: /Ver empresa/ }) === null);
@@ -554,7 +553,7 @@ describe('Pipeline · recorrido de una empresa', () => {
   it('las etapas «Próximamente» dicen en una frase qué hará el agente, sin «Ver más» ni datos simulados', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     const planned = stageCards().slice(2);
-    assert.equal(planned.length, 6);
+    assert.equal(planned.length, 5);
     planned.forEach((card, index) => {
       openStage(index + 2);
       assert.match(card.textContent ?? '', /Próximamente/);
@@ -564,7 +563,7 @@ describe('Pipeline · recorrido de una empresa', () => {
       assert.equal(body.querySelectorAll('dl').length, 0);
     });
     openStage(2);
-    assert.ok(within(openBody(2)).getByText(/Armará el brief de la empresa/));
+    assert.ok(within(openBody(2)).getByText(/Investigará la empresa y a sus decisores/));
     assert.ok(screen.queryByText('Lo que ya tiene SellUp para esta etapa') === null);
     // Nada de reuniones, cotizaciones ni cierres simulados.
     assert.ok(screen.queryByText(/Samu conectado/) === null);
@@ -652,8 +651,8 @@ describe('Pipeline · etapa disponible sin empezar: invitación a activarla', ()
   it('las demás etapas siguen siendo acordeones; la invitación no se pliega', () => {
     renderJourney({ selectedAccountId: 'nova', journey: buildProspectOnlyJourney({ id: 'nova', name: 'Nova Energía' }) });
 
-    assert.equal(document.querySelectorAll('section[data-stage]').length, 8);
-    assert.equal(document.querySelectorAll('section[data-stage] [aria-expanded]').length, 7);
+    assert.equal(document.querySelectorAll('section[data-stage]').length, 7);
+    assert.equal(document.querySelectorAll('section[data-stage] [aria-expanded]').length, 6);
     assert.ok(stage('enriquecimiento').hasAttribute('data-invitation'));
   });
 
@@ -693,7 +692,7 @@ describe('Pipeline · etapa disponible sin empezar: invitación a activarla', ()
 
   it('las etapas «Próximamente» nunca son invitación: siguen siendo acordeones apagados', () => {
     renderJourney({ selectedAccountId: 'nova', journey: buildProspectOnlyJourney({ id: 'nova', name: 'Nova Energía' }) });
-    for (const id of ['inteligencia', 'preparacion', 'reunion', 'cotizacion', 'venta_interna', 'cierre', 'prospeccion']) {
+    for (const id of ['primer_contacto', 'reunion', 'cotizacion', 'venta_interna', 'cierre', 'prospeccion']) {
       assert.equal(stage(id).hasAttribute('data-invitation'), false, id);
     }
   });
@@ -731,8 +730,8 @@ describe('Pipeline · cada etapa es un acordeón', () => {
   it('de entrada solo está abierta la etapa actual; las demás muestran su cabecera y su descripción', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
 
-    assert.equal(card('inteligencia').getAttribute('data-open'), 'true');
-    for (const id of ['prospeccion', 'enriquecimiento', 'preparacion', 'reunion', 'cotizacion', 'venta_interna', 'cierre']) {
+    assert.equal(card('primer_contacto').getAttribute('data-open'), 'true');
+    for (const id of ['prospeccion', 'enriquecimiento', 'reunion', 'cotizacion', 'venta_interna', 'cierre']) {
       assert.equal(card(id).getAttribute('data-open'), 'false', id);
       assert.equal(header(id).getAttribute('aria-expanded'), 'false', id);
     }
@@ -744,7 +743,7 @@ describe('Pipeline · cada etapa es un acordeón', () => {
   it('el título es un h3 que envuelve al botón de la cabecera', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
 
-    const heading = screen.getByRole('heading', { level: 3, name: /6\. Cotización/ });
+    const heading = screen.getByRole('heading', { level: 3, name: /5\. Cotización/ });
     assert.ok(heading.querySelector('button'));
   });
 
@@ -764,10 +763,10 @@ describe('Pipeline · cada etapa es un acordeón', () => {
     renderJourney({ selectedAccountId: 'globex', journey: buildJourney() });
     const openCount = () => document.querySelectorAll('section[data-stage][data-open="true"]').length;
 
-    assert.equal(card('inteligencia').getAttribute('data-open'), 'true');
+    assert.equal(card('primer_contacto').getAttribute('data-open'), 'true');
     fireEvent.click(header('prospeccion'));
     assert.equal(card('prospeccion').getAttribute('data-open'), 'true');
-    assert.equal(card('inteligencia').getAttribute('data-open'), 'false');
+    assert.equal(card('primer_contacto').getAttribute('data-open'), 'false');
     assert.equal(openCount(), 1);
 
     fireEvent.click(header('prospeccion'));

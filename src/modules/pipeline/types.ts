@@ -5,12 +5,14 @@ import type { ClaudeClassificationDisplay } from '@/components/prospect-batches/
 
 // ── Etapas ─────────────────────────────────────────────────────
 
-/** Las ocho etapas del proceso de venta, en orden. Modelo fijo (documentos de estrategia). */
+/**
+ * Las siete etapas del proceso de venta, en orden. Investigar la empresa y preparar el primer
+ * contacto son UNA etapa («Primer contacto»): el Agente 3 las hace en la misma corrida (dueña 21-10).
+ */
 export type PipelineStageId =
   | 'prospeccion'
   | 'enriquecimiento'
-  | 'inteligencia'
-  | 'preparacion'
+  | 'primer_contacto'
   | 'reunion'
   | 'cotizacion'
   | 'venta_interna'
@@ -246,8 +248,8 @@ export interface AccountJourney {
   audit: AccountAuditEntry[];
   history: JourneyEvent[];
   /**
-   * Agente 3. `null`/ausente = apagado: las etapas «Inteligencia de cuenta» y «Preparación y
-   * contacto» siguen como «Próximamente». Lo suma `applyFirstCallToJourney`.
+   * Agente 3. `null`/ausente = apagado: la etapa «Primer contacto» (investigación y
+   * preparación) sigue como «Próximamente». Lo suma `applyFirstCallToJourney`.
    */
   agent3?: JourneyFirstCall | null;
 }

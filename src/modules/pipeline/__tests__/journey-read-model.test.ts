@@ -168,13 +168,13 @@ describe('Read model — recorrido con prospecto de origen', () => {
     now: NOW,
   });
 
-  it('tiene las 8 etapas, con enriquecimiento como actual para una empresa nueva', () => {
-    assert.equal(journey.stages.length, 8);
+  it('tiene las 7 etapas, con enriquecimiento como actual para una empresa nueva', () => {
+    assert.equal(journey.stages.length, 7);
     assert.equal(journey.currentStageId, 'enriquecimiento');
     assert.equal(journey.substatusLabel, 'Nueva');
     assert.deepEqual(
       journey.stages.map((s) => s.state),
-      ['complete', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming'],
+      ['complete', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming'],
     );
   });
 
@@ -260,7 +260,7 @@ describe('Read model — movimiento, investigación, corrida fallida y decisores
     );
   });
 
-  it('investigación en curso: etapa inteligencia, marcada por quien cambió el estado', () => {
+  it('investigación en curso: etapa «Primer contacto», marcada por quien cambió el estado', () => {
     const journey = buildAccountJourney({
       account: account({ pipeline_status: 'research_in_progress' }),
       origin: ORIGIN,
@@ -275,7 +275,7 @@ describe('Read model — movimiento, investigación, corrida fallida y decisores
       ],
       now: NOW,
     });
-    assert.equal(journey.currentStageId, 'inteligencia');
+    assert.equal(journey.currentStageId, 'primer_contacto');
     assert.equal(journey.substatusLabel, 'Investigación en curso');
     assert.equal(journey.researchMarkedBy, 'Carlos Ruiz');
     assert.equal(journey.daysSinceMovement, 2);
@@ -376,12 +376,11 @@ describe('Read model — resumen del pipeline', () => {
     now: NOW,
   });
 
-  it('cuenta las 8 etapas del proceso (0 para las que ninguna empresa ha alcanzado) y las archivadas', () => {
+  it('cuenta las 7 etapas del proceso (0 para las que ninguna empresa ha alcanzado) y las archivadas', () => {
     assert.deepEqual(overview.countsByStage, {
       prospeccion: 0,
       enriquecimiento: 1,
-      inteligencia: 2,
-      preparacion: 1,
+      primer_contacto: 3,
       reunion: 0,
       cotizacion: 0,
       venta_interna: 0,
@@ -458,7 +457,7 @@ describe('Read model — etapa disponible pero sin empezar', () => {
 
   it('las etapas previstas no se pueden activar: nunca están «sin empezar»', () => {
     const facts = { contactsTotal: 0, runsTotal: 0 };
-    assert.equal(isStageNotStarted({ id: 'inteligencia', phase: 'mvp' }, facts), false);
+    assert.equal(isStageNotStarted({ id: 'primer_contacto', phase: 'mvp' }, facts), false);
     assert.equal(isStageNotStarted({ id: 'cierre', phase: 'fase_2' }, facts), false);
     assert.equal(isStageNotStarted({ id: 'prospeccion', phase: 'hecho' }, facts), false);
     assert.equal(isStageNotStarted({ id: 'enriquecimiento', phase: 'hecho' }, facts), true);
