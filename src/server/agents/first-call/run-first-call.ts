@@ -42,6 +42,7 @@ import {
   parseWriterSubmission,
   claimingSentences,
   verifyPack,
+  withRecordNameSpelling,
   withoutClaimingVariants,
   type WriterSubmission,
 } from './pack-verifier';
@@ -1387,8 +1388,12 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     });
 
     // Brasil y EE. UU.: cada preparación también en el idioma del país (una llamada por canal).
+    // El nombre del decisor como en la ficha, en todo lo que se guarda (y se traduce).
     const contents = Object.fromEntries(
-      request.channels.map((c) => [c, byChannel[c]?.submission ? contentForChannel(byChannel[c]!.submission!, c) : null]),
+      request.channels.map((c) => [
+        c,
+        byChannel[c]?.submission ? withRecordNameSpelling(contentForChannel(byChannel[c]!.submission!, c), target?.name) : null,
+      ]),
     ) as Partial<Record<FirstCallChannel, FirstCallPackContent | null>>;
     // La versión en el idioma del país es otra etapa de gasto: sin presupuesto, queda sólo en español.
     const needsLocal = localLanguageFor(account.countryCode) !== null;

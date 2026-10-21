@@ -270,6 +270,36 @@ export function claimingSentences(pack: FirstCallPackContent): string[] {
   return [...new Set(sentences)].slice(0, CLAIM_SENTENCES_MAX);
 }
 
+const ACCENT_CLASS: Readonly<Record<string, string>> = {
+  a: '[aáàä]', e: '[eéèë]', i: '[iíìï]', o: '[oóòö]', u: '[uúùü]', n: '[nñ]',
+  A: '[AÁÀÄ]', E: '[EÉÈË]', I: '[IÍÌÏ]', O: '[OÓÒÖ]', U: '[UÚÙÜ]', N: '[NÑ]',
+};
+
+/**
+ * El nombre del decisor tal como está en la ficha (Binga!, Prod 21-10: la ficha dice
+ * «Julian» y dos textos decían «Julián»). Cada palabra del nombre que aparezca con otras
+ * tildes se escribe como en la ficha; el resto del texto no cambia.
+ */
+export function withRecordNameSpelling<T>(value: T, recordName: string | null | undefined): T {
+  const words = (recordName ?? '').split(/\s+/).filter((w) => w.length >= 3 && /^[\p{L}'-]+$/u.test(w));
+  if (words.length === 0) return value;
+  const patterns = words.map((word) => {
+    const body = [...word.normalize('NFD').replace(/[\u0300-\u036f]/g, '')]
+      .map((ch) => ACCENT_CLASS[ch] ?? ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('');
+    // Con mayúsculas tal cual: «paz» o «rosa» en minúscula son palabras, no el nombre.
+    return { word, re: new RegExp(`(?<![\\p{L}])${body}(?![\\p{L}])`, 'gu') };
+  });
+  const fix = (text: string) => patterns.reduce((acc, { word, re }) => acc.replace(re, () => word), text);
+  const walk = (node: unknown): unknown => {
+    if (typeof node === 'string') return fix(node);
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, walk(v)]));
+    return node;
+  };
+  return walk(value) as T;
+}
+
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
   const message = submission.messages[channel] ?? EMPTY_TEXT;
@@ -343,7 +373,28 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   // «Vemos que en empresas de su tamaño…» es una observación general: sólo la experiencia propia.
   /\b(lo que )?(hemos visto|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
   /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
+  // Binga! (Prod 21-10): «qué están haciendo otros líderes de marketplaces…» (el verbo antes).
+  /\b(que|como|lo que) (estan|han estado|vienen) (haciendo|resolviendo|logrando|implementando|usando|aplicando|formando)\b[^?!\n]{0,20}\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes|lideres|equipos|gerentes|directores|marcas)\b/,
+  /\botr[oa]s (lideres|equipos|empresas|compa[nñ]ias|gerentes|directores|marcas)\b[^?!\n]{0,60}\b(estan (haciendo|logrando|implementando|aplicando)|han logrado|lograron)\b/,
 ];
+
+/**
+ * Cifras de la biblioteca dichas con otro sentido (Binga!, Prod 21-10: «El 88 % dice que
+ * la formación rápida en los primeros meses es clave»; la fuente habla de retener talento).
+ * Si una frase usa la cifra de una afirmación, tiene que nombrar su tema, salvo que la cifra
+ * salga de un hecho de la ficha. Devuelve las afirmaciones deformadas.
+ */
+export function distortedLibraryClaims(texts: readonly string[], facts: readonly ResearchFact[]): UbitsClaimLike[] {
+  const factText = normalizeForBan(facts.map((f) => `${f.statement} ${f.quote ?? ''}`).join(' '));
+  const sentences = texts.flatMap((t) => (t ?? '').split(/(?<=[.?!])\s+|\n+/)).map((s) => normalizeForBan(s));
+  return UBITS_CLAIMS.filter((claim) => {
+    const anchor = claim.anchor;
+    if (!anchor || anchor.pattern.test(factText)) return false;
+    return sentences.some((s) => anchor.pattern.test(s) && !anchor.topic.some((word) => s.includes(word)));
+  });
+}
+
+type UbitsClaimLike = (typeof UBITS_CLAIMS)[number];
 
 /** «por qué la llamo», «por qué lo contacto»: el pronombre dice el género del decisor. */
 const GENDERED_CALL_REASON = /\bpor que (la|lo) (llamo|llame|contacto|busco|escribo)\b/g;
@@ -624,6 +675,15 @@ export function verifyPack(
     } else if (greetings.some((g) => g !== gender)) {
       issues.push(`El saludo no coincide con el cargo («${options.decisionMakerTitle}»).`);
     }
+  }
+  const distorted = distortedLibraryClaims(
+    [...sellerTexts.flatMap(([, texts]) => texts), ...variants.flatMap((v) => [v.text, v.voicemail ?? ''])],
+    facts,
+  );
+  if (distorted.length > 0) {
+    issues.push(
+      `Usa una cifra de la biblioteca con otro sentido: dila como en la fuente (${distorted.map((c) => `«${c.text}»`).join('; ')}) o quítala.`,
+    );
   }
   // Binga! (Prod 21-10): «por qué la llamo» a Julián. Sin el género en el cargo, va neutro
   // («el motivo de mi llamada»); con el género, tiene que coincidir.
