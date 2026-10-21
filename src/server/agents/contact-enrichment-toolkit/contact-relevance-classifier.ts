@@ -75,6 +75,10 @@ export const HIGH_RELEVANCE_KEYWORDS: Record<HighRelevanceCategory, string[]> = 
     'chro',
     'hrbp',
     'hr business partner',
+    // AGENT2-AUDIT-FIXES-1 — portugués (Brasil): sin esto un «Gerente de RH» no contaba.
+    'rh',
+    'gestao de pessoas',
+    'departamento pessoal',
   ],
   people: [
     'people',
@@ -82,6 +86,20 @@ export const HIGH_RELEVANCE_KEYWORDS: Record<HighRelevanceCategory, string[]> = 
     'people operations',
     'people manager',
     'chief people',
+    // «Personas» sola es ambigua («Banca Personas» = banca minorista en Chile): sólo frases.
+    'gestion de personas',
+    'gerente de personas',
+    'gerencia de personas',
+    'director de personas',
+    'directora de personas',
+    'jefe de personas',
+    'jefa de personas',
+    'personas y cultura',
+    'desarrollo de personas',
+    'pessoas e cultura',
+    'diretor de pessoas',
+    'diretora de pessoas',
+    'gerente de pessoas',
   ],
   talent: [
     'talento humano',
@@ -93,6 +111,10 @@ export const HIGH_RELEVANCE_KEYWORDS: Record<HighRelevanceCategory, string[]> = 
     'seleccion',
     'talento',
     'talent',
+    'aquisicao de talentos',
+    'recrutamento',
+    'recrutamento e selecao',
+    'talentos',
   ],
   learning: [
     'learning and development',
@@ -105,6 +127,14 @@ export const HIGH_RELEVANCE_KEYWORDS: Record<HighRelevanceCategory, string[]> = 
     'universidad corporativa',
     'desarrollo organizacional',
     'organizational development',
+    'desarrollo humano',
+    'treinamento',
+    'treinamento e desenvolvimento',
+    'capacitacao',
+    'aprendizagem',
+    'educacao corporativa',
+    'desenvolvimento humano',
+    'desenvolvimento organizacional',
   ],
   culture: ['cultura', 'culture'],
   wellbeing: [
@@ -113,6 +143,8 @@ export const HIGH_RELEVANCE_KEYWORDS: Record<HighRelevanceCategory, string[]> = 
     'well-being',
     'employee experience',
     'experiencia del empleado',
+    'bem-estar',
+    'experiencia do colaborador',
   ],
 };
 
@@ -148,6 +180,14 @@ export const MEDIUM_RELEVANCE_KEYWORDS: string[] = [
   'presidente',
   'vicepresidente corporativo',
   'vp corporativo',
+  // Portugués.
+  'transformacao digital',
+  'transformacao',
+  'inovacao',
+  'sustentabilidade',
+  'diretor geral',
+  'diretor presidente',
+  'gerente geral',
 ];
 
 /**
@@ -176,6 +216,12 @@ export const NEGATIVE_KEYWORDS: string[] = [
   'cumplimiento',
   'compliance',
   'erm',
+  // Portugués.
+  'riscos',
+  'contabilidade',
+  'tesouraria',
+  'juridico',
+  'desenvolvedor',
 ];
 
 // ── Scores base por estado de relevancia ───────────────────────
