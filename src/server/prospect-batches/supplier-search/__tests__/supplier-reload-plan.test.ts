@@ -10,8 +10,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import {
   formatYearMonth,
@@ -24,6 +26,9 @@ import {
 } from '../countries/reload-plan';
 import { PROCUREMENT_LOADERS } from '../countries/loaders';
 import { runPublicBuyerSupplierStep, type PublicBuyerStepDeps } from '../public-buyer-suppliers';
+import { createOcdsWindowLoader, dateInWindow } from '../countries/ocds-window';
+import type { ProcurementLine } from '../procurement-links';
+import { HN_COUNTRY } from '../countries/hn';
 
 const TODAY = new Date('2026-10-21T12:00:00Z');
 
@@ -117,5 +122,47 @@ describe('4. la recarga escribe sólo con autorización', () => {
   it('la migración 154 devuelve el fin de la ventana a «frecuentes»', () => {
     const sql = readFileSync(join(process.cwd(), 'supabase/migrations/154_public_procurement_read_functions.sql'), 'utf8');
     assert.match(sql, /max\(b\.window_end\)\s+AS window_end/);
+  });
+});
+
+describe('5. los lectores OCDS por año no pierden el primer archivo (Honduras, Paraguay)', () => {
+  it('un proceso de octubre de 2025 (archivo 2025) sale junto con los de 2026, al cerrar el último archivo', async () => {
+    // El ensayo del 21-10 imprimía «hn-2025.jsonl.gz: 0 líneas de empresa»: no era pérdida,
+    // las líneas se juntan por proceso y salen al final (Prod: 664 de 1.077 pares empiezan en 2025-10…12).
+    const dir = mkdtempSync(join(tmpdir(), 'ocds-window-'));
+    const release = (ocid: string, date: string, supplier: string) => ({ ocid, date, supplier });
+    writeFileSync(join(dir, 'x-2025.jsonl.gz'), gzipSync(`${JSON.stringify(release('ocds-1', '2025-10-14', 'S1'))}\n`));
+    writeFileSync(join(dir, 'x-2026-hasta-9.jsonl.gz'), gzipSync(`${JSON.stringify(release('ocds-2', '2026-03-02', 'S2'))}\n`));
+    const loader = createOcdsWindowLoader({
+      country: HN_COUNTRY,
+      files: () => [
+        { url: 'https://x/2025', name: 'x-2025.jsonl.gz' },
+        { url: 'https://x/2026', name: 'x-2026-hasta-9.jsonl.gz' },
+      ],
+      readRelease: (r, window) => {
+        const date = dateInWindow(r.date, window);
+        if (!date) return null;
+        const line: ProcurementLine = {
+          buyerCode: 'B1',
+          buyerName: 'SESAL',
+          supplierTaxId: String(r.supplier),
+          supplierName: String(r.supplier),
+          amount: 1_000_000,
+          orderCode: String(r.ocid),
+          date,
+        };
+        return { ocid: String(r.ocid), lines: [line], buyerTaxIds: [] };
+      },
+    });
+    const files = loader.files({ year: 2026, month: 9 }, 12);
+    const perFile: number[] = [];
+    const all: string[] = [];
+    for (const f of files) {
+      const before = all.length;
+      await loader.readLines(join(dir, f.name), (line) => all.push(`${line.supplierTaxId}@${line.date}`));
+      perFile.push(all.length - before);
+    }
+    assert.deepEqual(perFile, [0, 2]);
+    assert.deepEqual(all.sort(), ['S1@2025-10-14', 'S2@2026-03-02']);
   });
 });

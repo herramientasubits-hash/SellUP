@@ -108,13 +108,19 @@ async function main(): Promise<void> {
     normalizeBuyerName: country.normalizeBuyerName,
   });
   const files = loader.files({ year, month }, months);
-  for (const f of files) {
+  for (const [index, f] of files.entries()) {
     const path = join(dir, f.name);
     await download(f.url, path);
     const before = aggregator.lines;
     await loader.readLines(path, (line) => aggregator.add(line));
-    console.log(`  ${f.name}: ${aggregator.lines - before} líneas de empresa`);
+    const emitted = aggregator.lines - before;
+    // AGENT1-SUPPLIER-RELOAD-1 — los lectores OCDS por año (HN, GT, PY) juntan cada proceso en
+    // todos los archivos y lo entregan al cerrar el último: el «0» de un archivo anterior no es
+    // pérdida (21-10: 664 de 1.077 pares de Honduras empiezan en oct–dic 2025).
+    const note = emitted === 0 && index < files.length - 1 ? ' (leído; sus líneas salen al cerrar el último archivo)' : '';
+    console.log(`  ${f.name}: ${emitted} líneas de empresa${note}`);
   }
+  console.log(`  Total: ${aggregator.lines} líneas de empresa en la ventana`);
 
   const first = monthsBack({ year, month }, months)[0];
   const windowStart = `${first.year}-${String(first.month).padStart(2, '0')}-01`;
