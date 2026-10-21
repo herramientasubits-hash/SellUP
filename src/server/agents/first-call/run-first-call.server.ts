@@ -35,6 +35,8 @@ import {
 } from './public-sales';
 import type { CorporateRelation, HubSpotRelation, InternalContext } from './internal-facts';
 import { runTavilyNewsSearch } from './news-search';
+import { readLearnedApproachResults } from './approach-results.server';
+import { wantsLearnedApproach } from './approach-results';
 import { cachedContactResearch } from './contact-research';
 import { curatedListLabels, mapBriefRow, mapPackRow, readPriorClassification } from './row-mappers';
 import type { BriefPatch, FirstCallContext, PackInsert, RunFirstCallDeps, UsageLogInput } from './run-first-call';
@@ -85,7 +87,9 @@ export async function readCuratedLists(account: { name: string; domain: string |
         .flatMap((row) => curatedListLabels(row.raw_data)),
     );
     return [...new Set(labels)];
-  } catch {
+  } catch (err) {
+    // Sin listas curadas la investigación sigue; queda rastro para saber por qué faltaron.
+    console.warn('[agent3] curated lists read failed:', err instanceof Error ? err.message : err);
     return [];
   }
 }
@@ -97,6 +101,7 @@ async function readRelations(accountId: string): Promise<CorporateRelation[]> {
     .select('related_name, relation_type, related_country_code')
     .eq('root_account_id', accountId)
     .limit(20);
+  if (error) console.warn('[agent3] corporate relations read failed:', error.message);
   if (error || !data) return [];
   return (data as Array<{ related_name: string; relation_type: CorporateRelation['relationType']; related_country_code: string | null }>).map(
     (r) => ({ name: r.related_name, relationType: r.relation_type, countryCode: r.related_country_code }),
@@ -174,7 +179,9 @@ async function readHubSpot(account: {
       lastActivityDate: check.match?.lastActivityDate ?? null,
       numberOfDeals: check.match?.numberOfDeals ?? null,
     };
-  } catch {
+  } catch (err) {
+    // HubSpot caído no detiene la preparación, pero sin este aviso parecía «sin relación».
+    console.warn('[agent3] HubSpot read failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -283,13 +290,15 @@ async function tavilyCostUsd(credits: number | null): Promise<number | null> {
   return pricing ? Math.round(credits * pricing.unitCostUsd * 1_000_000) / 1_000_000 : null;
 }
 
-async function logUsage(entry: UsageLogInput, userId: string): Promise<void> {
+async function logUsage(entry: UsageLogInput, userId: string, agentRunId: string | null): Promise<void> {
   const isTavily = entry.providerKey === 'tavily';
   const costUsd = isTavily && entry.costUsd === null ? await tavilyCostUsd(entry.credits) : entry.costUsd;
   // Misma verificación de presupuesto «sólo avisa» que el resto de Tavily: queda en la fila
   // y la página de Presupuesto y créditos la muestra en su actividad.
   const budgetCheck = isTavily ? await evaluateTavilyBudgetAlertOnly(userId, entry.credits ?? 0, entry.operationKey) : null;
   await logProviderUsage({
+    // Cada consulta queda enlazada a su corrida (el costo de una preparación se suma por ella).
+    ...(agentRunId ? { agent_run_id: agentRunId } : {}),
     provider_key: entry.providerKey,
     operation_key: entry.operationKey,
     agent_key: AGENT3_USAGE_AGENT_KEY,
@@ -342,8 +351,13 @@ export async function loadFirstCallContext(
       : {};
 
   const admin = createSupabaseAdminClient();
-  const [originMetadata, curatedLists, relations, hubspot, decisionMakers, seller, briefState, publicSales] = await Promise.all([
-    readOriginCandidateMetadata(account.id, metadata).catch(() => null),
+  const [originMetadata, curatedLists, relations, hubspot, decisionMakers, seller, briefState, publicSales, approachResults] =
+    await Promise.all([
+    // AGENT3-PUBLIC-SALES-1 — la candidata de origen da la clasificación Y el «Proveedor de X».
+    readOriginCandidateMetadata(account.id, metadata).catch((err: unknown) => {
+      console.warn('[agent3] origin classification read failed:', err instanceof Error ? err.message : err);
+      return null;
+    }),
     readCuratedLists(account),
     readRelations(account.id),
     options.skipHubSpot ? Promise.resolve(null) : readHubSpot(account),
@@ -351,6 +365,14 @@ export async function loadFirstCallContext(
     admin.from('internal_users').select('full_name').eq('id', userId).maybeSingle(),
     readBriefState(account.id, Date.now()),
     readPublicSales(account).catch(() => null),
+    // Lo que funcionó en el equipo (sólo cuentas), sólo si se va a usar: el vendedor deja
+    // elegir el enfoque, hay decisor y no es Perú. Sin eso, el redactor usa lo del manual.
+    wantsLearnedApproach(request, account.country_code)
+      ? readLearnedApproachResults(request.channels).catch((err: unknown) => {
+          console.warn('[agent3] approach results read failed:', err instanceof Error ? err.message : err);
+          return [];
+        })
+      : Promise.resolve([]),
   ]);
   const classification = originMetadata ? readPriorClassification(originMetadata) : null;
 
@@ -385,6 +407,7 @@ export async function loadFirstCallContext(
     sellerName: fullName ? fullName.split(/\s+/)[0] : null,
     currentBrief: briefState.currentBrief,
     researchRunning: briefState.researchRunning,
+    approachResults,
   };
 }
 
@@ -423,7 +446,13 @@ async function advanceAccountStatus(accountId: string, target: Agent3StatusTarge
   }
 }
 
-export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
+export interface LiveFirstCallOptions {
+  /** La fila de `agent_runs` de esta corrida, si se pudo registrar. */
+  agentRunId?: string | null;
+}
+
+export function buildLiveFirstCallDeps(userId: string, options: LiveFirstCallOptions = {}): RunFirstCallDeps {
+  const agentRunId = options.agentRunId ?? null;
   const admin = createSupabaseAdminClient();
   const deadlineAtMs = Date.now() + RUN_DEADLINE_MS;
   return {
@@ -489,7 +518,7 @@ export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
       if (error || !data) throw new Error(`pack_insert_failed:${error?.message ?? 'no_row'}`);
       return (data as { id: string }).id;
     },
-    logUsage: (entry) => logUsage(entry, userId),
+    logUsage: (entry) => logUsage(entry, userId, agentRunId),
     readCachedContactResearch: async (accountId, contactId, sinceIso) => {
       const { data, error } = await admin
         .from('first_call_packs')
@@ -500,6 +529,7 @@ export function buildLiveFirstCallDeps(userId: string): RunFirstCallDeps {
         .gte('created_at', sinceIso)
         .order('created_at', { ascending: false })
         .limit(CACHED_CONTACT_PACKS_READ);
+      if (error) console.warn('[agent3] cached contact research read failed:', error.message);
       if (error || !data) return null;
       for (const row of data as Array<Record<string, unknown>>) {
         const cached = cachedContactResearch(mapPackRow({ ...row, id: '', account_id: accountId, created_at: sinceIso }).content, sinceIso);

@@ -4,7 +4,9 @@
 
 import type { AgentChatMessage, AgentChatRole, AgentChatTone } from '@/components/agent-chat';
 import type { CompanyCandidate, CompanyResolutionResult } from '@/modules/contact-enrichment/types';
+import { formatInAppZone } from '@/lib/format-date';
 import type {
+  AutomaticRoutingUiDiagnosis,
   AutomaticRoutingUiResult,
   ContactEnrichmentChatAction,
   ContactEnrichmentChatState,
@@ -257,6 +259,63 @@ function freeSourcesNote(fromHubSpot: number, fromBank: number, fromSite = 0): s
   return parts.join(' y ');
 }
 
+/** «14 de octubre» — fecha corta para el chat. */
+function shortDate(iso: string): string {
+  return formatInAppZone(iso, { day: 'numeric', month: 'long' }, 'es-CO', iso.slice(0, 10));
+}
+
+const SITE_ZERO_COPY: Record<string, string> = {
+  site_unreachable: 'El sitio web de la empresa no respondió.',
+  site_no_text: 'El sitio web no tiene texto legible (está armado sólo con JavaScript).',
+  no_domain: 'No hay dominio para leer el sitio web de la empresa.',
+  budget_blocked: 'No leí el sitio web: no queda presupuesto de IA.',
+};
+
+/**
+ * AGENT2-AUDIT-FIXES-1 — por qué una búsqueda quedó en cero y qué puede hacer el vendedor.
+ * Antes el chat decía sólo «No se encontraron contactos.» y el vendedor repetía la búsqueda
+ * (Tostadas Charras 14 veces, Papa Johns 10). Devuelve '' cuando no hay nada que explicar.
+ */
+export function explainZeroResult(d: AutomaticRoutingUiDiagnosis | undefined): string {
+  if (!d) return '';
+  const why: string[] = [];
+  let next = '';
+
+  if (d.apolloSkipped) {
+    why.push('Faltan el dominio y el nombre de la empresa para buscar en Apollo.');
+    next = 'Agrega el dominio de la empresa y vuelve a buscar.';
+  } else if (d.apolloOrganization === 'not_found') {
+    why.push('Apollo no reconoce esta empresa ni por su dominio ni por su nombre.');
+    next = 'Revisa que el dominio de la ficha sea el sitio real de la empresa.';
+  } else if (d.apolloPeopleFound === 0) {
+    why.push(
+      d.apolloOrganization === 'found_by_name'
+        ? 'Apollo sólo encontró la empresa por el nombre y no tiene personas registradas en ella.'
+        : 'Apollo no tiene personas registradas en esta empresa.',
+    );
+    if (d.apolloOrganization === 'found_by_name') next = 'Si el dominio de la ficha está mal, corrígelo y vuelve a buscar.';
+  } else if (d.apolloPeopleFound !== null && d.apolloPeopleFound > 0) {
+    const found = d.apolloPeopleFound === 1 ? '1 persona' : `${d.apolloPeopleFound} personas`;
+    why.push(
+      d.apolloAlreadyKnown > 0
+        ? `Apollo trajo ${found}: ${d.apolloAlreadyKnown} ya ${d.apolloAlreadyKnown === 1 ? 'era contacto' : 'eran contactos'} y el resto no era de RR. HH., formación o dirección, o no tenía datos de contacto.`
+        : `Apollo trajo ${found}, pero ninguna es de RR. HH., formación o dirección con datos de contacto.`,
+    );
+  }
+
+  const site = SITE_ZERO_COPY[d.freeStages.companySite];
+  if (site) why.push(site);
+
+  if (d.lushaRecentZeroAt) {
+    why.push(`No volví a gastar Lusha: el ${shortDate(d.lushaRecentZeroAt)} ya buscó en esta empresa sin resultados.`);
+  } else if (d.lushaRan) {
+    why.push('Lusha tampoco encontró a nadie nuevo.');
+  }
+
+  if (why.length === 0) return '';
+  return `\n\n${why.join(' ')}${next ? `\n\n${next}` : ''}`;
+}
+
 export function buildAutomaticRoutingMessage(
   result: AutomaticRoutingUiResult,
 ): { content: string; tone?: AgentChatTone } {
@@ -309,7 +368,10 @@ export function buildAutomaticRoutingMessage(
     };
   }
 
-  return { content: `No se encontraron contactos.${failed}`, tone: 'warning' };
+  return {
+    content: `No se encontraron contactos.${failed}${explainZeroResult(result.diagnosis)}`,
+    tone: 'warning',
+  };
 }
 
 // ── Reducer ─────────────────────────────────────────────────────────────────────

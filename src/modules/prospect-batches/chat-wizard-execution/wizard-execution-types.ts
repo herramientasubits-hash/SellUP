@@ -276,7 +276,7 @@ export type WizardExecutionActionResult =
        * AGENT1-CORPORATE-TREE-3 — sólo el árbol: lo que no entró a «Por revisar» y
        * por qué (sin web, esperando el rescate; o sólo con la web del grupo).
        */
-      corporateTree?: { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number };
+      corporateTree?: { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number; reusedSavedTree?: boolean };
       /** Present when budget reconciliation failed after a successful generation. */
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
       /**

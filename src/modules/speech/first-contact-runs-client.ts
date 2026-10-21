@@ -16,6 +16,7 @@ import {
   type FirstContactRunsStore,
 } from './first-contact-runs-store';
 import { FIRST_CONTACT_LIVE_PATH, type FirstContactLiveEntry, type FirstContactLiveItem } from './first-contact-live';
+import { FIRST_CONTACT_RUNS_PATH, type FirstContactServerRun } from './first-contact-run-registry';
 
 async function executeFirstContactRun(body: unknown): Promise<FirstContactRunResponse> {
   const response = await fetch('/api/agent3/first-call', {
@@ -47,6 +48,39 @@ export async function fetchFirstContactLive(items: readonly FirstContactLiveItem
   });
   if (!response.ok) throw new Error(`live ${response.status}`);
   return (await response.json()) as Record<string, FirstContactLiveEntry>;
+}
+
+/** Las corridas guardadas en el servidor (de este u otro equipo). */
+async function fetchServerRuns(): Promise<FirstContactServerRun[]> {
+  const response = await fetch(FIRST_CONTACT_RUNS_PATH, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`runs ${response.status}`);
+  const parsed = (await response.json()) as { runs?: FirstContactServerRun[] };
+  return Array.isArray(parsed.runs) ? parsed.runs : [];
+}
+
+function dismissOnServer(ids: string[]): void {
+  void fetch(FIRST_CONTACT_RUNS_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dismiss: ids }),
+    cache: 'no-store',
+  }).catch(() => {
+    // Sin red: en este navegador ya se quitó; en otro equipo puede volver a aparecer.
+  });
+}
+
+/** Al volver a la pestaña se vuelve a mirar el servidor, como mucho cada 30 s. */
+const SERVER_SYNC_MIN_MS = 30_000;
+let lastServerSyncMs = 0;
+
+async function syncFromServer(store: FirstContactRunsStore): Promise<void> {
+  if (Date.now() - lastServerSyncMs < SERVER_SYNC_MIN_MS) return;
+  lastServerSyncMs = Date.now();
+  try {
+    store.hydrate(await fetchServerRuns());
+  } catch {
+    // Sin servidor un momento: queda lo del navegador, como antes.
+  }
 }
 
 /** Un id para una corrida nueva (se llama al lanzarla, nunca al pintar). */
@@ -102,7 +136,10 @@ export function getFirstContactRunsStore(): FirstContactRunsStore | null {
     } catch {
       storage = null;
     }
-    singleton = createFirstContactRunsStore({ execute: executeFirstContactRun, storage, onSettled: announce });
+    const store = createFirstContactRunsStore({ execute: executeFirstContactRun, storage, onSettled: announce, onDismiss: dismissOnServer });
+    singleton = store;
+    void syncFromServer(store);
+    window.addEventListener('focus', () => void syncFromServer(store));
   }
   return singleton;
 }

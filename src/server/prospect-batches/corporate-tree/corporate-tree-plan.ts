@@ -16,8 +16,10 @@
 
 import {
   CORPORATE_TREE_LIMITS,
+  type CorporateTreeBranch,
   type CorporateTreeRelation,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-types';
+import { ICP_SIZE_GATE_DEFAULT_THRESHOLD } from '@/server/agents/prospecting-toolkit/icp-size-gate';
 import type { CountrySourceCompany } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import type { ProspectingPipelineCandidate } from '@/server/agents/prospecting-toolkit/types';
 import { normalizeTreeName, type CorporateTreeNode } from './corporate-tree-search';
@@ -94,6 +96,8 @@ export type CorporateTreeWritePlan = {
   sharedWebsites: number;
   /** De registros sin confirmar que Claude no confirmó: no entran. */
   unconfirmedDropped: number;
+  /** De registros de una rama que no se pidió (sólo «grupo» ⇒ sin filiales ni otros países). */
+  droppedByBranch?: number;
 };
 
 /** Una empresa sin web que en HubSpot tiene un nombre parecido en su mismo país. */
@@ -211,8 +215,15 @@ export function planCorporateTreeWrites(params: {
   freeHits: readonly CorporateTreeFreeHit[];
   nodes: readonly CorporateTreeNode[];
   maxRows?: number;
+  /**
+   * Las ramas pedidas. Lo gratis también las respeta (antes sólo Claude: con «grupo» solo,
+   * entraban igual las filiales y los otros países de los registros). Ausente = todas.
+   */
+  branches?: readonly CorporateTreeBranch[];
 }): CorporateTreeWritePlan {
   const { root } = params;
+  const wantsBranch = (relation: CorporateTreeRelation) =>
+    relation === 'root' || !params.branches || (params.branches as readonly string[]).includes(relation);
   const maxRows = params.maxRows ?? CORPORATE_TREE_LIMITS.maxRows;
   const rootIsExisting = !!(root.candidateId || root.accountId);
   const rootKey = corporateTreeRowKey(root.name, root.countryCode);
@@ -242,6 +253,7 @@ export function planCorporateTreeWrites(params: {
   const entries: PlanEntry[] = [];
   let sharedWebsites = 0;
   let unconfirmedDropped = 0;
+  let droppedByBranch = 0;
 
   // 1. Lo gratis (registros oficiales y banco), unido a lo que Claude dijo de cada una.
   for (const hit of params.freeHits) {
@@ -265,6 +277,10 @@ export function planCorporateTreeWrites(params: {
     const unconfirmed = hit.confirmation === 'needs_claude' || (ambiguousRootByName && hit.relation === 'root');
     if (unconfirmed && !node && !isRoot) {
       unconfirmedDropped++;
+      continue;
+    }
+    if (!isRoot && !wantsBranch(node ? node.branch : hitRelation)) {
+      droppedByBranch++;
       continue;
     }
     seen.add(key);
@@ -421,6 +437,7 @@ export function planCorporateTreeWrites(params: {
     droppedByCap: entries.length - kept.length,
     sharedWebsites,
     unconfirmedDropped,
+    droppedByBranch,
   };
   for (const entry of kept) {
     const cc = entry.row.countryCode ?? '';
@@ -569,6 +586,80 @@ export function promoteGroupCompaniesWithTaxIds(
   return { ...plan, rows, freeCatalog };
 }
 
+/**
+ * Trabajadores oficiales desde los que una empresa del grupo sin web propia entra a «Por
+ * revisar» (el mismo mínimo del ICP: 200+).
+ */
+export const CORPORATE_TREE_NO_WEBSITE_MIN_WORKERS = ICP_SIZE_GATE_DEFAULT_THRESHOLD;
+
+/**
+ * FASE B (dueña 21-10): las empresas del grupo SIN web propia pero CON número fiscal y
+ * tamaño oficial (200+ trabajadores) entran a «Por revisar» por la capa gratuita, sin web y
+ * con la web del grupo como referencia, en vez de ir a «Descartadas» a esperar el rescate
+ * pagado (Prod 14/15-10: 241 de 475 terminaron «sin web»; Bimbo Ecuador, 1.154 trabajadores).
+ * «Una empresa, un vendedor» las reclama por su número fiscal, así que no chocan con la casa
+ * matriz. `officialRecords` (por fila) trae el número y el tamaño que el registro oficial
+ * tiene para las que Claude encontró sin ellos. Sin número o sin tamaño suficiente siguen su
+ * camino. Puro: devuelve un plan nuevo.
+ */
+export function promoteSizedCompaniesWithoutWebsite(
+  plan: CorporateTreeWritePlan,
+  params: {
+    groupWebsite: string | null;
+    officialRecords?: ReadonlyMap<string, CountrySourceCompany>;
+    minWorkers?: number;
+  },
+): { plan: CorporateTreeWritePlan; promoted: number } {
+  const minWorkers = params.minWorkers ?? CORPORATE_TREE_NO_WEBSITE_MIN_WORKERS;
+  const companyByKey = new Map<string, CountrySourceCompany>();
+  for (const companies of plan.withoutWebsite.values()) {
+    for (const company of companies) companyByKey.set(corporateTreeRowKey(company.legalName ?? '', company.countryCode), company);
+  }
+  const ready = new Map<string, CountrySourceCompany>();
+  const byOfficialName = new Set<string>();
+  for (const row of plan.rows) {
+    if (row.route !== 'without_website') continue;
+    const own = companyByKey.get(row.key);
+    if (!own) continue;
+    const official = params.officialRecords?.get(row.key) ?? null;
+    const company: CountrySourceCompany = own.taxId
+      ? { ...own, officialWorkforce: own.officialWorkforce ?? official?.officialWorkforce ?? null }
+      : official?.taxId
+        ? { ...own, ...official, legalName: own.legalName, countryCode: own.countryCode }
+        : own;
+    if (company.taxId && (company.officialWorkforce?.workers ?? 0) >= minWorkers) {
+      ready.set(row.key, { ...company, domain: null });
+      if (!own.taxId) byOfficialName.add(row.key);
+    }
+  }
+  if (ready.size === 0) return { plan, promoted: 0 };
+
+  const freeCatalog = new Map([...plan.freeCatalog].map(([cc, list]) => [cc, [...list]]));
+  const rows = plan.rows.map((row) => {
+    const company = ready.get(row.key);
+    if (!company) return row;
+    push(freeCatalog, row.countryCode ?? '', company);
+    return {
+      ...row,
+      route: 'free_catalog' as const,
+      taxId: company.taxId,
+      domain: null,
+      // La empresa de partida no se refiere a sí misma.
+      groupWebsite: row.relation === 'root' ? null : (row.groupWebsite ?? params.groupWebsite),
+      // Quien revisa debe saber que el número salió del registro por el nombre, no de la fuente.
+      ...(byOfficialName.has(row.key)
+        ? { relationDetail: `${row.relationDetail ?? 'Del grupo'} · número fiscal del registro oficial por nombre exacto` }
+        : {}),
+    };
+  });
+  const withoutWebsite = new Map<string, CountrySourceCompany[]>();
+  for (const [code, companies] of plan.withoutWebsite) {
+    const kept = companies.filter((c) => !ready.has(corporateTreeRowKey(c.legalName ?? '', c.countryCode)));
+    if (kept.length > 0) withoutWebsite.set(code, kept);
+  }
+  return { plan: { ...plan, rows, freeCatalog, withoutWebsite }, promoted: ready.size };
+}
+
 /** Lo que Apollo devolvió de una empresa buscada por su nombre. */
 export type CorporateTreeApolloMatch = { website: string; domain: string; linkedinUrl: string | null };
 
@@ -697,6 +788,8 @@ export function applyApolloFamily(params: {
   subsidiaries: readonly CorporateTreeApolloSubsidiary[];
   countryCodes: readonly string[];
   maxRows?: number;
+  /** `false` = sólo completa webs, no agrega filiales (no se pidió la rama «filiales»). */
+  addNew?: boolean;
 }): { plan: CorporateTreeWritePlan; matched: number; added: number } {
   const { root, countryCodes } = params;
   const maxRows = params.maxRows ?? CORPORATE_TREE_LIMITS.maxRows;
@@ -732,7 +825,8 @@ export function applyApolloFamily(params: {
 
   // 2. Filiales nuevas con país conocido y pedido.
   const existingKeys = new Set(plan.rows.map((r) => r.key));
-  const room = Math.max(0, Math.min(CORPORATE_TREE_APOLLO_FAMILY_MAX_NEW, maxRows - plan.rows.length));
+  const room =
+    params.addNew === false ? 0 : Math.max(0, Math.min(CORPORATE_TREE_APOLLO_FAMILY_MAX_NEW, maxRows - plan.rows.length));
   const web = new Map([...plan.web].map(([cc, list]) => [cc, [...list]]));
   const newRows: CorporateTreePlannedRow[] = [];
   for (const sub of usable) {
