@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { executeBulkContactEnrichmentRun } from '@/modules/contact-enrichment/bulk-enrichment-runner';
 
+// Hasta 10 empresas en serie: el límite por defecto no alcanzaba (AGENT2-AUDIT-FIXES-1).
+export const maxDuration = 300;
+
 async function resolveInternalUser(
   authUserId: string,
 ): Promise<string | null> {

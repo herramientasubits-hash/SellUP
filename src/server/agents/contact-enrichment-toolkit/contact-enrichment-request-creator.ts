@@ -19,6 +19,19 @@ import type {
   CreateContactEnrichmentRequestInput,
   CreateContactEnrichmentRequestResult,
 } from '@/modules/contact-enrichment/request-attempt-types';
+import { mapCountryToCode } from './company-resolver-core';
+
+/**
+ * El país siempre como código ISO de 2 letras (AGENT2-AUDIT-FIXES-1). En Prod había búsquedas
+ * con «méxico» o «República Dominicana» escritos: con eso Apollo no filtra por ubicación. Un
+ * nombre que no se reconoce queda vacío en vez de guardar texto que nadie puede usar.
+ */
+export function normalizeRequestCountryCode(value: string | null): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  if (/^[A-Za-z]{2}$/.test(raw)) return raw.toUpperCase();
+  return mapCountryToCode(raw);
+}
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -50,7 +63,7 @@ async function insertRequest(context: NormalizedRequestContext): Promise<InsertR
       account_id: context.accountId,
       company_name: context.companyName,
       company_domain: context.companyDomain,
-      company_country_code: context.companyCountryCode,
+      company_country_code: normalizeRequestCountryCode(context.companyCountryCode),
       hubspot_company_id: context.hubspotCompanyId,
       company_resolution_source: context.companyResolutionSource,
       triggered_by: context.triggeredBy,
