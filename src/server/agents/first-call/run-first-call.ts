@@ -871,45 +871,58 @@ async function writeForTarget(params: {
     }
     // Binga! (Prod 21-10): en la versión principal no se puede quitar nada. Si todavía afirma
     // clientes, UNA corrección más con las frases textuales y cómo reescribirlas.
-    const claims = [...new Set(channels.flatMap((c) => claimingSentences(contentForChannel(submission!, c))))];
+    const claimsOf = (candidate: WriterSubmission) => [...new Set(channels.flatMap((c) => claimingSentences(contentForChannel(candidate, c))))];
+    const claims = claimsOf(submission!);
     let claimFix: 'none' | 'fixed' | 'still' = 'none';
     if (claims.length > 0) {
-      const third = await deps.runConversation(
-        {
-          ...body,
-          messages: [
-            ...body.messages,
-            { role: 'assistant', content: second.content },
-            {
-              role: 'user',
-              content: [
-                ...second.content
-                  .filter((b) => b.type === 'tool_use')
-                  .map((b) => ({ type: 'tool_result', tool_use_id: b.id, content: 'Revisado: todavía hay que corregirlo.' })),
-                { type: 'text', text: claimFixInstruction(claims) },
-              ],
-            },
-          ],
-        },
-        models.apiKey,
-      );
-      usage = sumUsage(usage, third.usage);
-      stopReasons.push(third.stopReason ?? 'unknown');
-      lastContent = third.content;
-      const fixedRaw = extractWriterSubmission(third.content);
-      if (fixedRaw) {
-        shape = describeSubmissionShape(fixedRaw);
-        cleaned = withoutClaimingVariants(withApproachNote(parseWriterSubmission(fixedRaw, channels), approachNote));
-        const candidate = cleaned.submission;
-        const left = channels.flatMap((c) => claimingSentences(contentForChannel(candidate, c)));
-        // Sólo se queda con la tercera entrega si le faltan menos frases inventadas.
-        if (left.length < claims.length) {
-          submission = candidate;
-          issuesByChannel = verifyAll(submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
+      claimFix = 'still';
+      try {
+        const third = await deps.runConversation(
+          {
+            ...body,
+            messages: [
+              ...body.messages,
+              { role: 'assistant', content: second.content },
+              {
+                role: 'user',
+                content: [
+                  ...second.content
+                    .filter((b) => b.type === 'tool_use')
+                    .map((b) => ({ type: 'tool_result', tool_use_id: b.id, content: 'Revisado: todavía hay que corregirlo.' })),
+                  { type: 'text', text: claimFixInstruction(claims) },
+                ],
+              },
+            ],
+          },
+          models.apiKey,
+        );
+        usage = sumUsage(usage, third.usage);
+        stopReasons.push(third.stopReason ?? 'unknown');
+        const fixedRaw = extractWriterSubmission(third.content);
+        if (fixedRaw) {
+          const fixed = withoutClaimingVariants(withApproachNote(parseWriterSubmission(fixedRaw, channels), approachNote));
+          const fixedIssues = verifyAll(fixed.submission, facts, channels, dmName, nowMs, countryCode, internal.account.name, target?.title ?? null);
+          const left = claimsOf(fixed.submission);
+          // Revisión 21-10: se queda con la tercera entrega sólo si quita frases inventadas SIN
+          // perder texto ni sumar otros avisos (una entrega a medias no tiene frases que marcar).
+          const keepsText = channels.every((c) => {
+            const before = contentForChannel(submission!, c);
+            const after = contentForChannel(fixed.submission, c);
+            return (!before.shortMessage.text || !!after.shortMessage.text) && (!before.callScript.text || !!after.callScript.text);
+          });
+          if (left.length < claims.length && keepsText && combinedIssues(fixedIssues, channels).length <= combinedIssues(issuesByChannel, channels).length) {
+            submission = fixed.submission;
+            issuesByChannel = fixedIssues;
+            cleaned = { submission: fixed.submission, dropped: [...new Set([...cleaned.dropped, ...fixed.dropped])] };
+            shape = describeSubmissionShape(fixedRaw);
+            lastContent = third.content;
+            if (left.length === 0) claimFix = 'fixed';
+          }
         }
-        claimFix = left.length === 0 ? 'fixed' : 'still';
-      } else {
-        claimFix = 'still';
+      } catch (err) {
+        // La vuelta extra es opcional: si falla (tiempo, red), queda lo que ya había.
+        console.warn('[agent3] claim fix pass failed:', err instanceof AnthropicApiError ? err.code : err instanceof Error ? err.message : err);
+        usage = sumUsage(usage, err instanceof AnthropicApiError ? err.partialUsage : EMPTY_USAGE);
       }
     }
     return {

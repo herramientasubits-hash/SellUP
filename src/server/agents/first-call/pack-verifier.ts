@@ -414,19 +414,23 @@ const LINK = /(https?:\/\/|www\.|calendly|cal\.com|bit\.ly)/i;
 /** Tuteo (ya normalizado, sin tildes): en el primer contacto va «usted». */
 const INFORMAL = /\b(tu|tus|tienes|puedes|quieres|cuentame|dime|contigo|te parece|te sirve|te escribo|te comparto|te llamo|te cuento|te llevare|te envio|te mando|te confirmo|vos|tenes|podes|queres|contame|decime)\b/;
 
-/** Una pregunta o exclamación sin su signo de apertura (marca de texto traducido). */
 /**
  * Binga! (Prod 21-10): el «!» del nombre de la empresa no es una exclamación. Cada palabra
  * del nombre que trae signos (y el nombre entero) se cuenta sin ellos.
  */
 export function withoutNameSigns(text: string, companyName: string | null | undefined): string {
   if (!companyName) return text;
-  const signed = [companyName.trim(), ...companyName.split(/\s+/)].filter((w) => /[!?¡¿]/.test(w));
+  const signed = [...new Set([companyName.trim(), ...companyName.split(/\s+/)])].filter((w) => /[!?¡¿]/.test(w));
   return signed
     .sort((a, b) => b.length - a.length)
-    .reduce((acc, word) => acc.split(word).join(word.replace(/[!?¡¿]/g, '')), text);
+    .reduce(
+      // Sin importar mayúsculas («BINGA!»); cada aparición pierde sólo sus propios signos.
+      (acc, word) => acc.replace(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (found) => found.replace(/[!?¡¿]/g, '')),
+      text,
+    );
 }
 
+/** Una pregunta o exclamación sin su signo de apertura (marca de texto traducido). */
 function missingOpeningSign(text: string): boolean {
   const count = (re: RegExp) => (text.match(re) ?? []).length;
   return count(/\?/g) > count(/¿/g) || count(/!/g) > count(/¡/g);
@@ -628,8 +632,10 @@ export function verifyPack(
     const pronouns = sellerTexts
       .flatMap(([, texts]) => texts)
       .flatMap((t) => [...normalizeForBan(t).matchAll(GENDERED_CALL_REASON)].map((m) => (m[1] === 'la' ? 'f' : 'm')));
-    if (pronouns.some((p) => gender === null || p !== gender)) {
+    if (gender === null && pronouns.length > 0) {
       issues.push('Dice «por qué la/lo llamo» sin saber el género del decisor: usa «el motivo de mi llamada» (o «de mi mensaje»).');
+    } else if (pronouns.some((p) => p !== gender)) {
+      issues.push(`Dice «por qué la/lo llamo» con el género que no coincide con el cargo («${options.decisionMakerTitle}»): usa «el motivo de mi llamada».`);
     }
   }
   // Sólo el mensaje principal: es el del primer contacto (las otras versiones son alternativas).

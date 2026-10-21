@@ -102,3 +102,16 @@ describe('Binga! — clientes inventados que quedaban en la versión principal',
     assert.deepEqual(claimingSentences(clean), []);
   });
 });
+
+describe('Binga! — revisión de código', () => {
+  it('un nombre de una palabra no se limpia dos veces y da igual la mayúscula', () => {
+    assert.equal(withoutNameSigns('Yahoo!! Qué bien', 'Yahoo!'), 'Yahoo! Qué bien');
+    assert.equal(withoutNameSigns('Vi que BINGA! crece', COMPANY), 'Vi que BINGA crece');
+  });
+
+  it('con el género del cargo, el aviso dice que no coincide', () => {
+    const text = 'Buenos días, ¿hablo con Julián? Le habla Elkin, de UBITS. ¿Me permite 30 segundos para contarle por qué la llamo?';
+    const issues = verifyPack(pack('call', text), FACTS, 'call', { ...opts, decisionMakerTitle: 'Director General' });
+    assert.ok(issues.some((i) => /no coincide con el cargo/.test(i)), issues.join(' | '));
+  });
+});

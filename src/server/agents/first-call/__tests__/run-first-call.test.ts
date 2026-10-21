@@ -1162,3 +1162,38 @@ describe('runFirstCall — clientes inventados que quedan en la versión princip
     assert.deepEqual(calls.logs.find((l) => l.agentStep === 'redactar_llamada')!.metadata.claim_fix, {});
   });
 });
+
+describe('runFirstCall — la vuelta extra no acepta una entrega a medias (revisión 21-10)', () => {
+  const CLAIM = 'Hola María, vi que están contratando para sus nuevas sedes. ¿Le sirve que le comparta cómo otras empresas de su tamaño en la región están resolviendo esto?';
+  const claiming = { ...GOOD_PACK, short_message: { text: CLAIM, fact_refs: ['F5'] } };
+
+  it('una tercera entrega sin mensaje ni guion no reemplaza a la buena', async () => {
+    const partial = { approach: 'problem', reason_to_call: GOOD_PACK.reason_to_call };
+    const { deps, calls } = harness({ writer: [claiming, claiming, partial] });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(calls.packs[0].content?.shortMessage.text, CLAIM, 'se queda la de antes');
+    assert.equal(calls.packs[0].content?.callScript.text, GOOD_PACK.call_script.text);
+    assert.equal(calls.packs[0].status, 'needs_review');
+  });
+
+  it('si la vuelta extra falla, queda lo de antes sin marcar error', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming] });
+    const run = deps.runConversation;
+    let writerCalls = 0;
+    deps.runConversation = async (body, key) => {
+      if ((body.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL) && ++writerCalls === 3) {
+        throw new AnthropicApiError(null, 'deadline_exceeded', 'tarde', EMPTY_USAGE);
+      }
+      return run(body, key);
+    };
+    const { warn } = console;
+    console.warn = () => {};
+    try {
+      await runFirstCall(REQUEST, deps);
+    } finally {
+      console.warn = warn;
+    }
+    assert.equal(calls.packs[0].status, 'needs_review');
+    assert.equal(calls.packs[0].errorCode, null);
+  });
+});
