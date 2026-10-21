@@ -307,7 +307,9 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   // Teamcore y Davivienda en Prod (19/20-10): «mi equipo trabaja con CEOs en tecnología»,
   // «lo que hemos visto en bancos que atraviesan esto».
   /\b(mi|nuestro) equipo (trabaja|ha trabajado|acompana|apoya|ayuda) (con|a)\b/,
-  /\b(lo que )?(hemos visto|vemos|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
+  // «Vemos que en empresas de su tamaño…» es una observación general: sólo la experiencia propia.
+  /\b(lo que )?(hemos visto|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
+  /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
 ];
 
 /** La clave de un dato de la ficha o del decisor («F12», «C3»), tal como la cita el redactor. */

@@ -201,7 +201,10 @@ export async function listFirstContactRuns(
   }
 }
 
-/** «Quitar» en el Centro de procesos: deja de salir en los demás equipos. Las en curso se quedan. */
+/**
+ * «Quitar» en el Centro de procesos: deja de salir en los demás equipos (también una en
+ * curso que se quitó aquí; su avance se sigue leyendo por id, y el barrido la cierra).
+ */
 export async function dismissFirstContactRuns(
   userId: string,
   ids: readonly string[],
@@ -216,7 +219,6 @@ export async function dismissFirstContactRuns(
       .select('id, metadata')
       .eq('agent_key', FIRST_CONTACT_RUN_AGENT_KEY)
       .eq('triggered_by', userId)
-      .neq('status', 'running')
       .in('id', valid);
     if (error) throw new Error(error.message);
     const dismissedAt = new Date().toISOString();

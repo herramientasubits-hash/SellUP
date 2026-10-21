@@ -230,7 +230,7 @@ export function createFirstContactRunsStore(deps: FirstContactRunsDeps): FirstCo
       if (!run || (run.status === 'running' && !run.detached)) return;
       runs = runs.filter((r) => r.id !== id);
       emit();
-      if (run.status !== 'running') deps.onDismiss?.([id]);
+      deps.onDismiss?.([id]);
     },
     dismissFinished() {
       const finished = runs.filter((r) => r.status !== 'running').map((r) => r.id);

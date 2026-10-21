@@ -148,3 +148,17 @@ describe('versiones que siguen inventando clientes tras corregir (auditoría 21-
     assert.equal(withoutClaimingVariants(cleaned).dropped.length, 0, 'sin nada que quitar devuelve lo mismo');
   });
 });
+
+describe('observaciones generales no son prueba social (revisión 21-10)', () => {
+  const base = 'Asunto: La integración\nCordial saludo, Juliana:\nVi que Davivienda integró a Scotiabank y tiene 653 sucursales. ';
+  for (const phrase of ['Vemos que en empresas de su tamaño la inducción se alarga.', 'En integraciones así vemos con frecuencia que la gente nueva tarda.']) {
+    it(`no se marca: «${phrase}»`, () => {
+      const issues = verifyPack(emailPack(`${base}${phrase} ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+      assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+    });
+  }
+  it('sí se marca: «vemos con nuestros clientes…»', () => {
+    const issues = verifyPack(emailPack(`${base}Es lo que vemos con nuestros clientes del sector. ¿Le sirve que le comparta una idea?`), FACTS, 'email', { nowMs: NOW, countryCode: 'CO' });
+    assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
+  });
+});

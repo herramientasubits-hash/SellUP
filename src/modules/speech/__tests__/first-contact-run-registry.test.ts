@@ -125,13 +125,13 @@ describe('registro de corridas en el servidor — el navegador', () => {
     assert.equal(settled.length, 1);
   });
 
-  it('«Quitar» las terminadas también las quita en el servidor; las en curso no', () => {
+  it('«Quitar» también quita en el servidor (una desligada en curso no vuelve al sincronizar)', () => {
     const dismissed: string[][] = [];
     const store = createFirstContactRunsStore({ execute: () => new Promise(() => {}), onDismiss: (ids) => dismissed.push(ids) });
     store.hydrate([server({ id: 'a' }), server({ id: 'b', status: 'running', finishedAtMs: null })]);
     store.dismiss('b');
-    assert.deepEqual(dismissed, [], 'la desligada en curso se quita aquí, pero en el servidor sigue');
+    assert.deepEqual(dismissed, [['b']]);
     store.dismissFinished();
-    assert.deepEqual(dismissed, [['a']]);
+    assert.deepEqual(dismissed, [['b'], ['a']]);
   });
 });

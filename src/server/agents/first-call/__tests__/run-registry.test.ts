@@ -219,14 +219,13 @@ describe('registro de corridas — leer y quitar', () => {
     assert.deepEqual(filter(calls[0], 'in', 'id'), [RUN_ID]);
   });
 
-  it('«Quitar» marca dismissed_at sólo en las terminadas de quien pregunta, sin perder su metadata', async () => {
+  it('«Quitar» marca dismissed_at sólo en las de quien pregunta, sin perder su metadata', async () => {
     const { client, calls } = fakeClient((call) =>
       call.op === 'select' ? { data: [{ id: RUN_ID, metadata: { account_name: 'Ciisa', pack_statuses: ['draft'] } }] } : { data: null },
     );
     await dismissFirstContactRuns('u1', [RUN_ID, 'no-es-id'], client);
     const read = calls[0];
     assert.equal(filter(read, 'eq', 'triggered_by'), 'u1');
-    assert.equal(filter(read, 'neq', 'status'), 'running');
     assert.deepEqual(filter(read, 'in', 'id'), [RUN_ID]);
     const write = calls[1];
     const metadata = (write.payload as { metadata: Record<string, unknown> }).metadata;
