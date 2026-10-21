@@ -141,6 +141,8 @@ export type PublicBuyerStepOutcome =
       knownSmallExcluded?: number;
       /** AGENT1-SUPPLIER-AUDIT-NOW-1 — competidores de UBITS (por nombre o sitio): no se ofrecen. */
       ubitsCompetitorsExcluded?: number;
+      /** AGENT1-SUPPLIER-WEB-BY-NAME-1 — ofrecidas cuya web salió por nombre (no por número fiscal). */
+      websitesByName?: number;
       offered: number;
       /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
       written: number;
@@ -182,6 +184,11 @@ export type PublicBuyerStepDeps = {
   /** NIT que son entidades públicas y NO empresas del registro mercantil. */
   listPublicOnlyTaxIds: (taxIds: readonly string[]) => Promise<ReadonlySet<string>>;
   findDomainsByTaxId: (taxIds: readonly string[]) => Promise<ReadonlyMap<string, string>>;
+  /**
+   * AGENT1-SUPPLIER-WEB-BY-NAME-1 — web por NOMBRE exacto en las fichas del país, para los
+   * que el número fiscal no la dio (ver `website-by-name.ts`). Ausente = sólo por número.
+   */
+  findDomainsByName?: (companies: ReadonlyArray<{ taxId: string; name: string }>) => Promise<ReadonlyMap<string, string>>;
   writeWithWebsite: (companies: readonly CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   recordWithoutWebsite: (companies: readonly CountrySourceCompany[]) => Promise<number>;
 };
@@ -368,7 +375,13 @@ async function offerPublicSuppliers(
   input: { batchId: string; countryCode: string },
   deps: Pick<
     PublicBuyerStepDeps,
-    'sourceKey' | 'taxIdentifierType' | 'listPublicOnlyTaxIds' | 'findDomainsByTaxId' | 'writeWithWebsite' | 'recordWithoutWebsite'
+    | 'sourceKey'
+    | 'taxIdentifierType'
+    | 'listPublicOnlyTaxIds'
+    | 'findDomainsByTaxId'
+    | 'findDomainsByName'
+    | 'writeWithWebsite'
+    | 'recordWithoutWebsite'
   >,
   describe: (supplier: PublicBuyerSupplier) => { evidence: string; referenceName?: string },
 ): Promise<OfferedPublicSuppliers> {
@@ -384,7 +397,21 @@ async function offerPublicSuppliers(
   const shortlist = prioritizeLargeSuppliers(
     notPublic.filter((s) => !isKnownSmall(s) && !isUbitsCompetitorName(s.name)),
   ).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
-  const domains = shortlist.length > 0 ? await deps.findDomainsByTaxId(shortlist.map((s) => s.taxId)) : new Map<string, string>();
+  const byTaxId = shortlist.length > 0 ? await deps.findDomainsByTaxId(shortlist.map((s) => s.taxId)) : new Map<string, string>();
+  // AGENT1-SUPPLIER-WEB-BY-NAME-1 — los que siguen sin web, por nombre exacto (gratis; si
+  // falla, siguen sin web y van al rescate como antes).
+  const missing = shortlist.filter((s) => !byTaxId.has(s.taxId));
+  const byName =
+    missing.length > 0 && deps.findDomainsByName
+      ? await deps.findDomainsByName(missing.map((s) => ({ taxId: s.taxId, name: s.name }))).catch((err: unknown) => {
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] web por nombre (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return new Map<string, string>();
+        })
+      : new Map<string, string>();
+  const domains = new Map<string, string>([...byName, ...byTaxId]);
   const isCompetitorSite = (s: PublicBuyerSupplier): boolean => {
     const domain = domains.get(s.taxId);
     return !!domain && isUbitsCompetitorDomain(domain);
@@ -425,6 +452,7 @@ async function offerPublicSuppliers(
     consortiaExcluded: consortia.length,
     knownSmallExcluded: knownSmall.length,
     ubitsCompetitorsExcluded,
+    websitesByName: offered.filter((s) => byName.has(s.taxId) && !byTaxId.has(s.taxId)).length,
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
@@ -524,7 +552,13 @@ export type FrequentPublicStepInput = {
 
 export type FrequentPublicStepDeps = Pick<
   PublicBuyerStepDeps,
-  'sourceKey' | 'taxIdentifierType' | 'listPublicOnlyTaxIds' | 'findDomainsByTaxId' | 'writeWithWebsite' | 'recordWithoutWebsite'
+  | 'sourceKey'
+  | 'taxIdentifierType'
+  | 'listPublicOnlyTaxIds'
+  | 'findDomainsByTaxId'
+  | 'findDomainsByName'
+  | 'writeWithWebsite'
+  | 'recordWithoutWebsite'
 > & {
   /** Empresas que le venden a `minBuyers` o más entidades, en la industria pedida (más entidades primero). */
   listFrequentSuppliers: (input: { macroIndustryKey: string; minBuyers: number }) => Promise<PublicBuyerSuppliersResult>;

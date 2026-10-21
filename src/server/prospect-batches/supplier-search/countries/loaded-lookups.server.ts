@@ -7,6 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
 import { buyersFromLinks, suppliersFromLinks, type StoredProcurementLink } from '../procurement-links';
+import { indexWebsitesByName, matchWebsitesByName, type NamedWebsite } from '../website-by-name';
 import {
   PUBLIC_BUYER_MAX_SUPPLIERS,
   type FrequentPublicStepDeps,
@@ -44,6 +45,12 @@ export type CountryLookups = Omit<PublicBuyerStepDeps, 'writeWithWebsite' | 'rec
 
 /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — filas que pide a la función 154 (más entidades primero). */
 export const FREQUENT_SUPPLIER_MAX_ROWS = 3000;
+/**
+ * AGENT1-SUPPLIER-WEB-BY-NAME-1 — fichas con web del país que se leen para cruzar por
+ * nombre (páginas de 1.000; medido 21-10: el país con más, Argentina, ~2.400).
+ */
+export const NAMED_WEBSITE_PAGE_SIZE = 1000;
+export const NAMED_WEBSITE_MAX_PAGES = 10;
 /** Números fiscales por consulta a las fichas (actividad, trabajadores): la URL tiene límite. */
 export const SNAPSHOT_LOOKUP_CHUNK = 150;
 
@@ -101,6 +108,32 @@ export function buildLoadedLinksLookups(
 ): CountryLookups {
   const links = () => serviceClient.from(PROCUREMENT_LINKS_TABLE);
   const formsOf = (taxId: string) => country.snapshotTaxIdForms?.(taxId) ?? [taxId];
+
+  // AGENT1-SUPPLIER-WEB-BY-NAME-1 — índice nombre → web del país, leído una vez por corrida.
+  let websiteIndex: Promise<Map<string, string>> | null = null;
+  const loadWebsiteIndex = async (): Promise<Map<string, string>> => {
+    const rows: NamedWebsite[] = [];
+    for (let page = 0; page < NAMED_WEBSITE_MAX_PAGES; page++) {
+      const from = page * NAMED_WEBSITE_PAGE_SIZE;
+      const { data, error } = await serviceClient
+        .from('source_company_snapshots')
+        .select('legal_name, website_domain:raw_data->>website_domain, website:raw_data->>website')
+        .eq('country_code', country.countryCode)
+        // Las fichas de entidades públicas no son proveedores.
+        .not('source_key', 'like', '%public_entities')
+        .or('raw_data->>website_domain.not.is.null,raw_data->>website.not.is.null')
+        .order('id', { ascending: true })
+        .range(from, from + NAMED_WEBSITE_PAGE_SIZE - 1);
+      if (error) throw new Error(`named_websites_failed:${error.message}`);
+      const pageRows = (data ?? []) as Array<{ legal_name: string | null; website_domain: string | null; website: string | null }>;
+      for (const row of pageRows) {
+        const host = normalizeWebsiteHost(text(row.website_domain) ?? text(row.website));
+        if (host) rows.push({ legalName: row.legal_name, host });
+      }
+      if (pageRows.length < NAMED_WEBSITE_PAGE_SIZE) break;
+    }
+    return indexWebsitesByName(rows);
+  };
 
   const workersByTaxId = async (taxIds: readonly string[]) => {
     const out = new Map<string, { workers: number; year: number | null; sourceLabel: string }>();
@@ -270,6 +303,19 @@ export function buildLoadedLinksLookups(
         tableVersion: country.classifier.tableVersion,
         ...(rows[0]?.window_start ? { sinceYear: rows[0].window_start.slice(0, 4) } : {}),
       };
+    },
+
+    // AGENT1-SUPPLIER-WEB-BY-NAME-1 — por nombre exacto en las fichas del país (un error se
+    // lanza: el paso lo registra y esas empresas siguen al rescate como antes).
+    findDomainsByName: async (companies) => {
+      if (companies.length === 0) return new Map<string, string>();
+      websiteIndex ??= loadWebsiteIndex();
+      try {
+        return matchWebsitesByName(companies, await websiteIndex);
+      } catch (error) {
+        websiteIndex = null;
+        throw error;
+      }
     },
 
     // Las entidades públicas ya quedaron fuera al cargar (el lector sólo entrega empresas).

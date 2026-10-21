@@ -75,6 +75,7 @@ export function buildLiveFrequentPublicStepDeps(
     taxIdentifierType: deps.taxIdentifierType,
     listPublicOnlyTaxIds: deps.listPublicOnlyTaxIds,
     findDomainsByTaxId: deps.findDomainsByTaxId,
+    ...(deps.findDomainsByName ? { findDomainsByName: deps.findDomainsByName } : {}),
     writeWithWebsite: deps.writeWithWebsite,
     recordWithoutWebsite: deps.recordWithoutWebsite,
     listFrequentSuppliers: deps.listFrequentSuppliers,
