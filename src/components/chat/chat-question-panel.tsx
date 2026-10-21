@@ -41,6 +41,10 @@ export interface ChatQuestionPanelProps {
   otherLabel?: string;
   onOther?: (text: string) => void;
   otherMaxLength?: number;
+  /** Cada cambio de lo escrito en «Otro» (p. ej. para buscar sugerencias). */
+  onOtherChange?: (text: string) => void;
+  /** Lo que se pinta bajo el campo de «Otro» (p. ej. sugerencias mientras se escribe). */
+  otherSuggestions?: React.ReactNode;
   /** Sin él no hay «Omitir». */
   onSkip?: () => void;
   skipLabel?: string;
@@ -115,6 +119,8 @@ export function ChatQuestionPanel({
   otherLabel = "Otro",
   onOther,
   otherMaxLength,
+  onOtherChange,
+  otherSuggestions,
   onSkip,
   skipLabel = "Omitir",
   footerNotice,
@@ -190,6 +196,7 @@ export function ChatQuestionPanel({
     if (otherText && onOther) {
       onOther(otherText);
       setOther("");
+      onOtherChange?.("");
       return;
     }
     if (isMultiple && selected.length > 0) onSubmitSelection?.([...selected]);
@@ -340,7 +347,10 @@ export function ChatQuestionPanel({
                 ref={otherRef}
                 value={other}
                 maxLength={otherMaxLength}
-                onChange={(event) => setOther(event.target.value)}
+                onChange={(event) => {
+                  setOther(event.target.value);
+                  onOtherChange?.(event.target.value);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
@@ -351,6 +361,7 @@ export function ChatQuestionPanel({
                 aria-label={otherPlaceholder}
                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-text-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
               />
+              {otherSuggestions}
             </li>
           )}
         </ol>

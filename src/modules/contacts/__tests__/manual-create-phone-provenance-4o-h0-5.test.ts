@@ -694,7 +694,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
-      '153_agent3_first_call_prep.sql',
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
+      // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
+      // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '154_public_procurement_read_functions.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

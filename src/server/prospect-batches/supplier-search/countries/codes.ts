@@ -24,3 +24,14 @@ export const PUBLIC_BUYER_COUNTRY_CODES: readonly string[] = [
   'EC', // SERCOP datos abiertos OCDS (anual), cargado; industria por CIIU del proveedor
   'MX', // Compras MX, contratos anuales (descarga a mano) cargados; tabla de partidas aprobada
 ];
+
+/**
+ * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedores frecuentes del Estado» sólo en los
+ * países con las compras públicas CARGADAS (`kind: 'loaded'`): ahí la tabla tiene a todas
+ * las entidades y se puede contar a cuántas le vende cada empresa. Los «en vivo» (CO, DO,
+ * BR, US) se consultan por entidad y no sirven para esto. Una prueba exige que coincida
+ * con el registro.
+ */
+export const FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES: readonly string[] = [
+  'CL', 'PE', 'HN', 'GT', 'PY', 'PA', 'AR', 'UY', 'ES', 'CR', 'EC', 'MX',
+];
