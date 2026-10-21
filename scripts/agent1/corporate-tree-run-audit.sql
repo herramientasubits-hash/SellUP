@@ -57,9 +57,10 @@ rels AS (
 findings AS (
   -- ── Resumen ───────────────────────────────────────────────
   SELECT b.id, 'info' AS severity, 'summary' AS chk, NULL::text AS item,
-         format('estado=%s · filas=%s · escritas=%s · sin web=%s · Apollo pedido=%s filiales=%s agregadas=%s · US$%s · créditos Apollo=%s',
-                b.status, b.t ->> 'rows', b.t ->> 'written', b.t ->> 'without_website',
-                b.t -> 'apollo' ->> 'asked', b.t -> 'apollo' ->> 'subsidiaries', b.t -> 'apollo' ->> 'added',
+         format('estado=%s · filas=%s · escritas=%s · sin web=%s · sin web con tamaño a revisión=%s · Apollo pedido=%s (%s) filiales=%s agregadas=%s · árbol guardado=%s · US$%s · créditos Apollo=%s',
+                b.status, b.t ->> 'rows', b.t ->> 'written', b.t ->> 'without_website', coalesce(b.t ->> 'sized_without_website', '—'),
+                b.t -> 'apollo' ->> 'asked', coalesce(b.t -> 'apollo' ->> 'skipped', '—'), b.t -> 'apollo' ->> 'subsidiaries', b.t -> 'apollo' ->> 'added',
+                coalesce(left(b.t -> 'claude' ->> 'reused_from', 8), 'no'),
                 coalesce(u.usd, 0), coalesce(u.apollo_credits, 0)) AS detail
   FROM batches b LEFT JOIN usage u ON u.batch_id = b.id
 
@@ -69,8 +70,34 @@ findings AS (
   FROM batches b WHERE coalesce(b.t ->> 'root_domain', '') = ''
 
   UNION ALL
-  SELECT b.id, 'warn', 'apollo_not_asked', b.t ->> 'root_domain', 'Había web de la empresa de partida pero Apollo no se consultó (¿bandera, cupo o tiempo?).'
+  SELECT b.id, 'warn', 'apollo_not_asked', b.t ->> 'root_domain',
+         format('Había web de la empresa de partida pero Apollo no se consultó (motivo: %s).', coalesce(b.t -> 'apollo' ->> 'skipped', 'sin dato: corrida anterior al 21-10'))
   FROM batches b WHERE coalesce(b.t ->> 'root_domain', '') <> '' AND coalesce((b.t -> 'apollo' ->> 'asked')::boolean, false) = false
+    AND coalesce(b.t -> 'apollo' ->> 'skipped', '') <> 'saved_tree'
+
+  UNION ALL
+  SELECT b.id, 'error', 'apollo_failed', b.t ->> 'root_domain', 'La ficha de Apollo falló (ver Uso de IA: cobro posiblemente desconocido).'
+  FROM batches b WHERE coalesce((b.t -> 'apollo' ->> 'failed')::boolean, false)
+
+  -- ── Árbol guardado reutilizado (sin pagar la búsqueda) ────
+  UNION ALL
+  SELECT b.id, 'info', 'saved_tree_reused', left(b.t -> 'claude' ->> 'reused_from', 8),
+         format('Reutilizó el árbol buscado el %s.', b.t -> 'claude' ->> 'reused_searched_at')
+  FROM batches b WHERE b.t -> 'claude' ->> 'reused_from' IS NOT NULL
+
+  -- ── Las asociaciones no se guardaron (el lote no muestra su árbol) ─
+  UNION ALL
+  SELECT b.id, 'error', 'relationships_not_saved', b.t ->> 'relationships_saved', 'No se guardaron las asociaciones del árbol.'
+  FROM batches b WHERE b.t ->> 'relationships_saved' IN ('false', 'timeout')
+
+  -- ── Entró una rama que no se pidió ─────────────────────────
+  UNION ALL
+  SELECT c.batch_id, 'error', 'branch_not_requested', c.name,
+         format('Rama «%s» y se pidió %s.', c.metadata -> 'corporate_tree' ->> 'relation', b.t -> 'branches')
+  FROM cand c JOIN batches b ON b.id = c.batch_id
+  WHERE c.metadata -> 'corporate_tree' ->> 'relation' NOT IN ('root')
+    AND jsonb_typeof(b.t -> 'branches') = 'array'
+    AND NOT (b.t -> 'branches') ? (c.metadata -> 'corporate_tree' ->> 'relation')
 
   -- ── La web de partida no lleva su nombre (¿es la de su matriz?) ─
   -- Prod 15-10, Monsanto: quedó bayer.com y Apollo enriqueció a Bayer.

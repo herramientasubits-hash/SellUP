@@ -209,6 +209,34 @@ export function parseWriterSubmission(raw: Record<string, unknown>, channels: re
   return { shared, messages, messageVariants, callScriptVariants };
 }
 
+/** ¿Una versión afirma clientes o experiencia de UBITS, o atribuye algo a «la mayoría»? */
+function variantClaims(variant: ApproachVariant): boolean {
+  const text = normalizeForBan(`${variant.text} ${variant.voicemail ?? ''}`);
+  return UNSUPPORTED_UBITS_CLAIMS.some((re) => re.test(text)) || MAJORITY_CLAIM.test(text);
+}
+
+/**
+ * Lo que queda si, YA corregida, una versión alternativa sigue afirmando clientes o
+ * experiencia de UBITS (auditoría 21-10: el aviso n.º 1 de Prod, siempre en versiones
+ * alternativas). Es mejor una versión menos que un cliente inventado: se quita y la
+ * preparación ya no queda «para revisar» por eso. La versión principal no se toca.
+ */
+export function withoutClaimingVariants(submission: WriterSubmission): { submission: WriterSubmission; dropped: FirstContactApproach[] } {
+  const dropped = new Set<FirstContactApproach>();
+  const keep = (variants: readonly ApproachVariant[]) =>
+    variants.filter((v) => {
+      if (!variantClaims(v)) return true;
+      dropped.add(v.approach);
+      return false;
+    });
+  const messageVariants = Object.fromEntries(
+    Object.entries(submission.messageVariants).map(([channel, variants]) => [channel, keep(variants ?? [])]),
+  ) as WriterSubmission['messageVariants'];
+  const callScriptVariants = keep(submission.callScriptVariants);
+  if (dropped.size === 0) return { submission, dropped: [] };
+  return { submission: { ...submission, messageVariants, callScriptVariants }, dropped: [...dropped] };
+}
+
 /** La preparación de un canal: el guion sólo existe en la llamada. */
 export function contentForChannel(submission: WriterSubmission, channel: FirstCallChannel): FirstCallPackContent {
   const message = submission.messages[channel] ?? EMPTY_TEXT;
@@ -276,6 +304,12 @@ const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
   /\botr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|equipos|lideres|clientes)\b[^?!\n]{0,60}\b(han resuelto|resolvieron|lo resuelven|estan resolviendo|lo estan haciendo|lo hacen|estan (capacitando|acelerando|alineando|formando|usando))\b/,
   /\b(trabajo|trabajamos) con (bancos|lideres|aseguradoras|cadenas|retailers|equipos de|areas de)\b/,
   /\bayud(o|amos|ando|amos a|ando a) (a )?(otr[oa]s )?(bancos|empresas|compa[nñ]ias|aseguradoras)\b/,
+  // Teamcore y Davivienda en Prod (19/20-10): «mi equipo trabaja con CEOs en tecnología»,
+  // «lo que hemos visto en bancos que atraviesan esto».
+  /\b(mi|nuestro) equipo (trabaja|ha trabajado|acompana|apoya|ayuda) (con|a)\b/,
+  // «Vemos que en empresas de su tamaño…» es una observación general: sólo la experiencia propia.
+  /\b(lo que )?(hemos visto|hemos aprendido)\b[^?!\n]{0,20}\b(en|con) (otr[oa]s |muchos |muchas |varios |varias )?(bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes)\b/,
+  /\bvemos (con|en) (nuestros clientes|otr[oa]s (bancos|empresas|compa[nñ]ias|organizaciones|aseguradoras|cadenas|retailers|clientes))\b/,
 ];
 
 /** La clave de un dato de la ficha o del decisor («F12», «C3»), tal como la cita el redactor. */

@@ -28,6 +28,7 @@ import {
   Agent1EffectivenessPanel,
   Agent1EffectivenessPanelSkeleton,
 } from './agent1-effectiveness-panel';
+import { Agent3ResultsPanel, Agent3ResultsPanelSkeleton } from './agent3-results-panel';
 import {
   PhoneSuppressionNotEvaluablePanel,
   PhoneSuppressionNotEvaluablePanelSkeleton,
@@ -333,6 +334,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
                   title="El panel del Agente 1 es de costos"
                   description="Las cifras en dólares las ven líderes y administración. Lo que entregó el Agente 1 lo tienes en «Por país» y «Por búsqueda»."
                 />
+              ),
+              // Rumbo: qué se usó y qué pasó (sin dinero, lo ve quien ve la página).
+              agent3: (
+                <Suspense fallback={<Agent3ResultsPanelSkeleton />}>
+                  <Agent3ResultsPanel filters={{ period: filters.period, country: filters.country }} />
+                </Suspense>
               ),
             }}
           />
