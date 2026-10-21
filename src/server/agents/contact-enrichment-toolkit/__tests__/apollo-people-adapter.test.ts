@@ -561,6 +561,12 @@ describe('mapCountryCodeToApolloLocation', () => {
     assert.equal(mapCountryCodeToApolloLocation('PE'), 'Peru');
   });
 
+  it('DO, NI y PR también filtran (Macrotech RD buscaba sin país, 21-10)', () => {
+    assert.equal(mapCountryCodeToApolloLocation('DO'), 'Dominican Republic');
+    assert.equal(mapCountryCodeToApolloLocation('NI'), 'Nicaragua');
+    assert.equal(mapCountryCodeToApolloLocation('PR'), 'Puerto Rico');
+  });
+
   it('código no soportado → null (sin bloqueo)', () => {
     assert.equal(mapCountryCodeToApolloLocation('ZZ'), null);
   });
