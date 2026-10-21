@@ -2,6 +2,10 @@
  * Agente 1 · Búsqueda en árbol — el lote agrupado por rama (puro).
  */
 
+import {
+  corporateTreeGroupSentence,
+  type CorporateTreeGroupSignal,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { describeCorporateTreeItemStatus } from './corporate-tree-associations';
 import {
   CORPORATE_TREE_METADATA_KEY,
@@ -273,6 +277,8 @@ export type CorporateTreePending = {
   possibleKnown?: number;
   /** Se reutilizó el árbol guardado del grupo (menos de 30 días): la búsqueda no se pagó. */
   reusedSavedTree?: boolean;
+  /** FASE D: si el grupo ya es cliente de UBITS o lo trabaja alguien. */
+  groupSignal?: CorporateTreeGroupSignal | null;
 };
 
 /**
@@ -301,6 +307,7 @@ export function corporateTreePendingSummary(pending: CorporateTreePending | null
     );
   }
   const notes = [
+    corporateTreeGroupSentence(pending.groupSignal ?? null),
     pending.reusedSavedTree ? 'Usé el árbol guardado de este grupo: no se volvió a pagar la búsqueda del grupo.' : '',
     rescueCostNote(pending.waitingWebsite),
   ]

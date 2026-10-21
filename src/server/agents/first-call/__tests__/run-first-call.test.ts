@@ -1126,3 +1126,74 @@ describe('runFirstCall — el redactor usa lo que funcionó (auditoría 21-10)',
     assert.doesNotMatch(writerMessage(peru.calls), /resultados del equipo/);
   });
 });
+
+describe('runFirstCall — clientes inventados que quedan en la versión principal (Binga!, Prod 21-10)', () => {
+  const CLAIM = 'Hola María, vi que están contratando para sus nuevas sedes. ¿Le sirve que le comparta cómo otras empresas de su tamaño en la región están resolviendo esto?';
+  const claiming = { ...GOOD_PACK, short_message: { text: CLAIM, fact_refs: ['F5'] } };
+  const writerCalls = (calls: Harness['calls']) =>
+    calls.conversations.filter((b) => (b.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL));
+
+  it('si tras corregir la principal sigue con clientes inventados, una vuelta más con la frase textual la arregla', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming, GOOD_PACK] });
+    const result = await runFirstCall(REQUEST, deps);
+    assert.equal(result.ok, true);
+    const writers = writerCalls(calls);
+    assert.equal(writers.length, 3);
+    const lastTurn = writers[2].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
+    assert.ok(lastTurn.some((b) => b.type === 'text' && b.text!.includes('«¿Le sirve que le comparta cómo otras empresas de su tamaño')));
+    assert.equal(calls.packs[0].status, 'draft');
+    assert.equal(calls.packs[0].content?.shortMessage.text, GOOD_PACK.short_message.text);
+    const log = calls.logs.find((l) => l.agentStep === 'redactar_llamada')!;
+    assert.deepEqual(log.metadata.claim_fix, { call: 'fixed' });
+  });
+
+  it('si la tercera vuelta no mejora, se queda lo de antes «para revisar» y el registro lo dice', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming, claiming] });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(writerCalls(calls).length, 3);
+    assert.equal(calls.packs[0].status, 'needs_review');
+    assert.deepEqual(calls.logs.find((l) => l.agentStep === 'redactar_llamada')!.metadata.claim_fix, { call: 'still' });
+  });
+
+  it('sin clientes inventados no hay tercera vuelta', async () => {
+    const { deps, calls } = harness();
+    await runFirstCall(REQUEST, deps);
+    assert.equal(writerCalls(calls).length, 1);
+    assert.deepEqual(calls.logs.find((l) => l.agentStep === 'redactar_llamada')!.metadata.claim_fix, {});
+  });
+});
+
+describe('runFirstCall — la vuelta extra no acepta una entrega a medias (revisión 21-10)', () => {
+  const CLAIM = 'Hola María, vi que están contratando para sus nuevas sedes. ¿Le sirve que le comparta cómo otras empresas de su tamaño en la región están resolviendo esto?';
+  const claiming = { ...GOOD_PACK, short_message: { text: CLAIM, fact_refs: ['F5'] } };
+
+  it('una tercera entrega sin mensaje ni guion no reemplaza a la buena', async () => {
+    const partial = { approach: 'problem', reason_to_call: GOOD_PACK.reason_to_call };
+    const { deps, calls } = harness({ writer: [claiming, claiming, partial] });
+    await runFirstCall(REQUEST, deps);
+    assert.equal(calls.packs[0].content?.shortMessage.text, CLAIM, 'se queda la de antes');
+    assert.equal(calls.packs[0].content?.callScript.text, GOOD_PACK.call_script.text);
+    assert.equal(calls.packs[0].status, 'needs_review');
+  });
+
+  it('si la vuelta extra falla, queda lo de antes sin marcar error', async () => {
+    const { deps, calls } = harness({ writer: [claiming, claiming] });
+    const run = deps.runConversation;
+    let writerCalls = 0;
+    deps.runConversation = async (body, key) => {
+      if ((body.tools as Array<{ name?: string }>).some((t) => t.name === WRITER_SUBMIT_TOOL) && ++writerCalls === 3) {
+        throw new AnthropicApiError(null, 'deadline_exceeded', 'tarde', EMPTY_USAGE);
+      }
+      return run(body, key);
+    };
+    const { warn } = console;
+    console.warn = () => {};
+    try {
+      await runFirstCall(REQUEST, deps);
+    } finally {
+      console.warn = warn;
+    }
+    assert.equal(calls.packs[0].status, 'needs_review');
+    assert.equal(calls.packs[0].errorCode, null);
+  });
+});

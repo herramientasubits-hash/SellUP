@@ -1,3 +1,4 @@
+import type { CorporateTreeGroupSignal } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import type { TavilyFirstOutcome } from './wizard-tavily-first';
 import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
@@ -276,7 +277,14 @@ export type WizardExecutionActionResult =
        * AGENT1-CORPORATE-TREE-3 — sólo el árbol: lo que no entró a «Por revisar» y
        * por qué (sin web, esperando el rescate; o sólo con la web del grupo).
        */
-      corporateTree?: { waitingWebsite: number; groupReferences: number; alreadyKnown?: number; possibleKnown?: number; reusedSavedTree?: boolean };
+      corporateTree?: {
+        waitingWebsite: number;
+        groupReferences: number;
+        alreadyKnown?: number;
+        possibleKnown?: number;
+        reusedSavedTree?: boolean;
+        groupSignal?: CorporateTreeGroupSignal | null;
+      };
       /** Present when budget reconciliation failed after a successful generation. */
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
       /**
