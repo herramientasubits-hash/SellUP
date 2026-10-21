@@ -252,9 +252,16 @@ export interface ApolloEnrichResult<T> {
 // Helper interno de fetch autenticado
 // ============================================================
 
+/**
+ * Tiempo límite de las llamadas del Agente 2 (AGENT2-AUDIT-FIXES-1). Sin él, una respuesta
+ * colgada de Apollo se comía los 300 s de la búsqueda. Sólo lo usan las funciones que lo pasan
+ * explícitamente: el resto de consumidores de este cliente no cambia.
+ */
+export const APOLLO_AGENT2_TIMEOUT_MS = 25_000;
+
 async function apolloFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<{
   ok: boolean;
   data?: T;
@@ -269,14 +276,27 @@ async function apolloFetch<T>(
     return { ok: false, status: 401, errorBody: 'No API key configured' };
   }
 
-  const response = await fetch(`${APOLLO_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      'X-Api-Key': apiKey,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const { timeoutMs, ...init } = options;
+  let response: Response;
+  try {
+    response = await fetch(`${APOLLO_BASE_URL}${path}`, {
+      ...init,
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      headers: {
+        'X-Api-Key': apiKey,
+        'Content-Type': 'application/json',
+        ...init.headers,
+      },
+    });
+  } catch (err) {
+    const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    // Sólo se traduce el tiempo límite pedido por el llamador; cualquier otro fallo de red se
+    // propaga igual que antes.
+    if (timeoutMs && isTimeout) {
+      return { ok: false, status: 408, errorBody: `Apollo no respondió en ${Math.round(timeoutMs / 1000)} s` };
+    }
+    throw err;
+  }
 
   const status = response.status;
 
@@ -470,7 +490,8 @@ export async function enrichApolloOrganization(
 // ============================================================
 
 export async function searchApolloPeople(
-  params: SearchPeopleParams
+  params: SearchPeopleParams,
+  options: { timeoutMs?: number } = {},
 ): Promise<ApolloSearchResult<ApolloPerson>> {
   const result = await apolloFetch<{
     people?: ApolloPerson[];
@@ -478,6 +499,7 @@ export async function searchApolloPeople(
   }>('/api/v1/mixed_people/api_search', {
     method: 'POST',
     body: JSON.stringify(params),
+    timeoutMs: options.timeoutMs,
   });
 
   if (!result.ok) {
@@ -547,7 +569,10 @@ export async function searchApolloPeopleByQuery(
     people?: ApolloPerson[];
     pagination?: { total_entries: number; page: number; per_page: number };
     total_entries?: number;
-  }>(`/api/v1/mixed_people/api_search?${buildPeopleApiSearchQueryString(query)}`, { method: 'POST' });
+  }>(`/api/v1/mixed_people/api_search?${buildPeopleApiSearchQueryString(query)}`, {
+    method: 'POST',
+    timeoutMs: APOLLO_AGENT2_TIMEOUT_MS,
+  });
 
   if (!result.ok) {
     return {
@@ -584,6 +609,7 @@ export async function matchApolloPerson(
     {
       method: 'POST',
       body: JSON.stringify(params),
+      timeoutMs: APOLLO_AGENT2_TIMEOUT_MS,
     }
   );
 
