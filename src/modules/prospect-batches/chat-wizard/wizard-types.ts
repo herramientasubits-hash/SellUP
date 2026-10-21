@@ -225,7 +225,15 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
-  | { type: 'SET_REFERENCE_COMPANY'; value: string }
+  | {
+      type: 'SET_REFERENCE_COMPANY';
+      value: string;
+      /**
+       * AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — país de la entidad sugerida que se eligió:
+       * queda preseleccionado en la pregunta de país (se puede cambiar).
+       */
+      suggestedCountryCode?: string;
+    }
   /** La ficha de la referencia llegó del servidor: se muestra para confirmarla. */
   | { type: 'REFERENCE_RESOLVED'; reference: CompetitorReferenceCard }
   | { type: 'CONFIRM_REFERENCE' }

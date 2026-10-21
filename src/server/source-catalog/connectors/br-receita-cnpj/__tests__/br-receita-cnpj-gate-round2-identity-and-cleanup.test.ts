@@ -697,7 +697,7 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // (`agent1_company_identity_claims`) and releases the claims of an archived batch. Not phone
     // chain 109–117, not catalog, not BR, not CUT3B4. Neither is a BR migration; each gets its own
     // authorship check further down. AUTHORED and NOT APPLIED.
-    assert.equal(highest, 153, 'the repository ceiling is 153 — AGENT3-FIRST-CALL-1, not CUT A');
+    assert.equal(highest, 154, 'the repository ceiling is 153 — AGENT3-FIRST-CALL-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],

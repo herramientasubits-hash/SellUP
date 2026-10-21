@@ -250,7 +250,7 @@ describe('115 — numeración', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(Math.max(...numbers), 153);
+    assert.equal(Math.max(...numbers), 154);
   });
 
   it('declara NO estar aplicada en Producción', () => {

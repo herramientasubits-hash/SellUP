@@ -569,6 +569,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
       '153_agent3_first_call_prep.sql',
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
+      // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
+      // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '154_suggest_public_procurement_buyers.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -687,7 +691,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(numbered[numbered.length - 1], 153);
+    assert.equal(numbered[numbered.length - 1], 154);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

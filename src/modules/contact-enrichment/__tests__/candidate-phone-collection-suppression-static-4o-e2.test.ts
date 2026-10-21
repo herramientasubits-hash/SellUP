@@ -323,6 +323,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
       '153_agent3_first_call_prep.sql',
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
+      // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
+      // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      '154_suggest_public_procurement_buyers.sql',
     ]);
   });
 

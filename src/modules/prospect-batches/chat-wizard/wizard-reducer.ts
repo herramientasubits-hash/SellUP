@@ -248,10 +248,21 @@ export function prospectWizardReducer(
           ],
         };
       }
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — una entidad sugerida trae su país: queda
+      // preseleccionado. Si cambia el país ya elegido (al editar desde el resumen), se
+      // pasa por la pregunta de país para confirmarlo antes de volver al resumen.
+      const suggestedCountry =
+        action.suggestedCountryCode && VALID_COUNTRY_CODES.has(action.suggestedCountryCode)
+          ? action.suggestedCountryCode
+          : null;
+      const countryChanges = suggestedCountry !== null && suggestedCountry !== state.countryCode;
       return {
         ...state,
         referenceCompanyName: value,
-        ...afterEditedStep(state, 'country'),
+        ...(suggestedCountry ? { countryCode: suggestedCountry } : {}),
+        ...(countryChanges && state.editReturnsToSummary === true
+          ? { currentStep: 'country' as const }
+          : afterEditedStep(state, 'country')),
         blockingIssues: withoutBlockingCode(state.blockingIssues, 'REFERENCE_COMPANY_INVALID'),
       };
     }

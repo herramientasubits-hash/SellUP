@@ -217,7 +217,7 @@ describe('modelo de datos — sin migración nueva', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(Math.max(...numbers), 153, 'el techo conocido es la 153');
+    assert.equal(Math.max(...numbers), 154, 'el techo conocido es la 154');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

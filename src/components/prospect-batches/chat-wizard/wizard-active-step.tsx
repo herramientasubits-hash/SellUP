@@ -18,6 +18,7 @@ import {
 import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { SupplierReferenceSuggestions, useSupplierReferenceSuggestions } from './supplier-reference-suggestions';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -342,6 +343,10 @@ function ReferenceCompanyStep({
   titleRef: TitleRef;
 }) {
   const [accounts, setAccounts] = React.useState<readonly ChatQuestionOptionDetail[]>([]);
+  // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — lo escrito en «Otra empresa», para sugerir
+  // entidades públicas que la búsqueda en compras públicas reconoce por nombre exacto.
+  const [typed, setTyped] = React.useState('');
+  const suggestions = useSupplierReferenceSuggestions(typed);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -365,8 +370,8 @@ function ReferenceCompanyStep({
       title="¿De qué empresa quieres encontrar proveedores?"
       description={
         accounts.length > 0
-          ? 'Elige una de tus cuentas o escribe su nombre. Buscaremos empresas con evidencia pública de que le venden.'
-          : 'Escribe su nombre, por ejemplo: Ecopetrol, Bancolombia o Grupo Éxito. Buscaremos empresas con evidencia pública de que le venden.'
+          ? 'Elige una de tus cuentas o escribe su nombre. Si es una entidad pública, te sugerimos las que tienen compras públicas cargadas.'
+          : 'Escribe su nombre, por ejemplo: Ecopetrol o Seguro Social. Si es una entidad pública, te sugerimos las que tienen compras públicas cargadas.'
       }
       titleRef={titleRef}
       options={accounts}
@@ -376,9 +381,18 @@ function ReferenceCompanyStep({
       }}
       filterPlaceholder="Buscar en tus cuentas"
       otherLabel={accounts.length > 0 ? 'Otra empresa' : 'Empresa'}
-      otherPlaceholder="Nombre de la empresa"
+      otherPlaceholder="Nombre de la empresa o entidad pública"
       otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
       onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
+      onOtherChange={setTyped}
+      otherSuggestions={
+        <SupplierReferenceSuggestions
+          state={suggestions}
+          onPick={(item) =>
+            dispatch({ type: 'SET_REFERENCE_COMPANY', value: item.name, suggestedCountryCode: item.countryCode })
+          }
+        />
+      }
       footerNotice={
         hasIssues(state, 'reference_company') ? (
           <StepBlockingIssues state={state} step="reference_company" />
