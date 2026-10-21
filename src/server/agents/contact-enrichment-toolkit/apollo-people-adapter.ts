@@ -19,6 +19,7 @@
 import {
   searchApolloPeople,
   searchApolloPeopleByQuery,
+  APOLLO_AGENT2_TIMEOUT_MS,
   type ApolloPerson,
   type PeopleApiSearchQuery,
   type SearchPeopleParams,
@@ -558,7 +559,8 @@ export async function searchApolloPeopleForCompany(
 ): Promise<ApolloPeopleAdapterResult> {
   const {
     isConnected = hasApolloApiKey,
-    searchPeople = searchApolloPeople,
+    searchPeople = (params: Parameters<typeof searchApolloPeople>[0]) =>
+      searchApolloPeople(params, { timeoutMs: APOLLO_AGENT2_TIMEOUT_MS }),
     searchPeopleByQuery = searchApolloPeopleByQuery,
     isDocumentedPeopleSearchEnabled = isApolloPeopleSearchV2Enabled,
     resolveOrganization = resolveApolloOrganization,
@@ -688,6 +690,27 @@ export async function searchApolloPeopleForCompany(
 
   let totalReviewable = 0;
 
+  // AGENT2-AUDIT-FIXES-1 — antes se quedaba con las personas de UN solo intento y descartaba
+  // las de los demás (Macrotech 21-10: 10 de RR. HH. y 10 de dirección, sólo se usaron las
+  // primeras). Ahora se juntan todas, sin repetir, en el orden de los intentos (RR. HH. primero).
+  const merged: ApolloPerson[] = [];
+  const mergedKeys = new Set<string>();
+  const contributingAttempts: string[] = [];
+  const addToMerged = (people: ApolloPerson[], attemptName: string) => {
+    let added = 0;
+    for (const person of people) {
+      if (!isNormalizablePerson(person)) continue;
+      const key =
+        person.id?.trim() ||
+        [person.first_name, person.last_name, person.title].map((v) => v?.trim().toLowerCase() ?? '').join('|');
+      if (mergedKeys.has(key)) continue;
+      mergedKeys.add(key);
+      merged.push(person);
+      added += 1;
+    }
+    if (added > 0) contributingAttempts.push(attemptName);
+  };
+
   for (const plan of plans) {
     // Guardrail de presupuesto: si ya alcanzamos el máximo de resultados crudos,
     // no hacemos más llamadas a Apollo aunque queden planes por ejecutar.
@@ -747,6 +770,7 @@ export async function searchApolloPeopleForCompany(
       filters: plan.filters,
       rawResultsCount: capped.length,
     });
+    addToMerged(capped, plan.name);
 
     // Stop early por revisables: detenemos si ya tenemos suficientes candidatos
     // de calidad. Usa TARGET_REVIEWABLE_CONTACTS (no >0) para evitar parar
@@ -785,6 +809,16 @@ export async function searchApolloPeopleForCompany(
   if (chosenAttempt === null && bestData.length > 0) {
     chosen = bestData.slice(0, perPage);
     chosenAttempt = bestAttempt;
+  }
+
+  // Con más de un intento aportando gente, el runner recibe a todos (revisables primero).
+  if (contributingAttempts.length > 1) {
+    const reviewableFirst = [
+      ...merged.filter((person) => countReviewablePeople([person]) > 0),
+      ...merged.filter((person) => countReviewablePeople([person]) === 0),
+    ];
+    chosen = reviewableFirst.slice(0, MAX_SEARCH_RESULTS_PER_RUN);
+    chosenAttempt = contributingAttempts.join('+');
   }
 
   return {
