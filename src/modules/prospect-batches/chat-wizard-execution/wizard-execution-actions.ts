@@ -78,7 +78,6 @@ import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capa
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import {
-  TAVILY_FIRST_MAX_ROUNDS,
   canStartApolloAfterTavilyFirst,
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
@@ -269,6 +268,7 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { resolveApolloSeenDomainExclusion } from '@/modules/prospect-batches/provider-seen/apollo-seen-domain-exclusion';
 import { buildWizardShortfallReasons } from './wizard-shortfall-reasons';
+import { resolveTavilyFirstMaxRounds } from './wizard-run-time-plan';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -2647,6 +2647,9 @@ export async function executeProspectWizardGeneration(
       preTavilyCandidateIds = deps.listBatchCandidateIds
         ? await deps.listBatchCandidateIds(reservedBatchId).catch(() => null)
         : undefined;
+      const tavilyFirstMaxRounds = resolveTavilyFirstMaxRounds(
+        deps.actionStartedAtMs === undefined ? null : elapsedSinceActionStartMs(),
+      );
       // AGENT1-TAVILY-PROVIDER-CONFIG-1 — sin reserva del piloto: Tavily se rige
       // por su configuración en Proveedores, como Apollo.
       try {
@@ -2655,7 +2658,9 @@ export async function executeProspectWizardGeneration(
           reservedBatchId,
           extraBatchMetadata: runProviderSelectionMetadata,
           resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
-          maxRounds: TAVILY_FIRST_MAX_ROUNDS,
+          // AGENT1-CRITERIA-QUICK-WINS-2 § 2 — las rondas que caben antes del
+          // arranque de Apollo (antes eran siempre 3 y podían dejarlo sin tiempo).
+          maxRounds: tavilyFirstMaxRounds,
         });
       } catch (err) {
         console.error('[Agent1Wizard] Tavily primero falló:', err);

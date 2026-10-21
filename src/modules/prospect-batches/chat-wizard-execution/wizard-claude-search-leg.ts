@@ -11,14 +11,17 @@
  * corrida: cualquier tropiezo ⇒ la corrida termina como sin este paso.
  */
 
+// AGENT1-CRITERIA-QUICK-WINS-2 § 2 — los tiempos salen del plan único de la corrida.
+import { WIZARD_RUN_TIME_PLAN } from './wizard-run-time-plan';
+
 /** Límite de una función en Vercel para la acción del asistente. */
-export const WIZARD_FUNCTION_LIMIT_MS = 300_000;
+export const WIZARD_FUNCTION_LIMIT_MS = WIZARD_RUN_TIME_PLAN.functionLimitMs;
 /** Con menos que esto por delante no se empieza: Claude + verificar + escribir ≈ 90–140 s. */
-export const CLAUDE_SEARCH_LEG_MIN_REMAINING_MS = 150_000;
+export const CLAUDE_SEARCH_LEG_MIN_REMAINING_MS = WIZARD_RUN_TIME_PLAN.claudeSearchMinRemainingMs;
 /** Lo que se deja para verificar sitios, revisar duplicados, escribir y cerrar la corrida. */
-export const CLAUDE_SEARCH_LEG_TAIL_MS = 90_000;
+export const CLAUDE_SEARCH_LEG_TAIL_MS = WIZARD_RUN_TIME_PLAN.claudeSearchTailMs;
 /** Tope para EMPEZAR consultas a Claude dentro del paso. */
-export const CLAUDE_SEARCH_LEG_MAX_PHASE_MS = 120_000;
+export const CLAUDE_SEARCH_LEG_MAX_PHASE_MS = WIZARD_RUN_TIME_PLAN.claudeSearchMaxPhaseMs;
 
 export type ClaudeSearchLegSkipReason =
   | 'flag_disabled'

@@ -293,6 +293,28 @@ function clock(startMs: number, stepsMs: number[]): { nowMs: () => number } {
   return { nowMs: () => startMs + (stepsMs[Math.min(i++, stepsMs.length - 1)] ?? 0) };
 }
 
+describe('rondas de Tavily según el reloj (AGENT1-CRITERIA-QUICK-WINS-2 § 2)', () => {
+  const START = 1_000_000;
+
+  it('con la capa gratuita y el banco ya gastando 100 s, Tavily corre 1 ronda para dejar arrancar a Apollo', async () => {
+    const calls = newCalls();
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 1, calls,
+      overrides: { actionStartedAtMs: START, ...clock(START, [100_000]) },
+    }));
+    assert.deepEqual(calls.tavilyMaxRounds, [1]);
+  });
+
+  it('con 50 s gastados caben 2 rondas', async () => {
+    const calls = newCalls();
+    await executeProspectWizardGeneration(VALID_REQUEST, tavilyFirstDeps({
+      reviewable: 1, calls,
+      overrides: { actionStartedAtMs: START, ...clock(START, [50_000]) },
+    }));
+    assert.deepEqual(calls.tavilyMaxRounds, [2]);
+  });
+});
+
 describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
   const START = 1_000_000;
 
@@ -324,7 +346,7 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
       overrides: {
         countReviewableCandidates: sequence([9, 4]),
         rescueBatchInline: async () => true,
-        actionStartedAtMs: START, ...clock(START, [50_000, 110_000]),
+        actionStartedAtMs: START, ...clock(START, [10_000, 50_000, 110_000]),
       },
     }));
     assert.ok(result.ok, JSON.stringify(result));
@@ -339,7 +361,7 @@ describe('Claude dentro de la corrida (AGENT1-TAVILY-FIRST-2)', () => {
       overrides: {
         countReviewableCandidates: sequence([9, 4]),
         rescueBatchInline: async () => true,
-        actionStartedAtMs: START, ...clock(START, [60_000, 170_000]),
+        actionStartedAtMs: START, ...clock(START, [10_000, 60_000, 170_000]),
       },
     }));
     assert.ok(result.ok, JSON.stringify(result));
@@ -843,7 +865,7 @@ describe('Tavily-primero decide por las que cuentan tras Claude (AGENT1-TAVILY-F
         countReviewableCandidates: sequence([8, 5]),
         rescueBatchInline: async () => true,
         listAcceptedCandidateIds: async () => ['cmh'],
-        actionStartedAtMs: START, ...clock(START, [60_000, 170_000]),
+        actionStartedAtMs: START, ...clock(START, [10_000, 60_000, 170_000]),
       },
     }));
     assert.ok(result.ok, JSON.stringify(result));
