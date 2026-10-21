@@ -615,7 +615,9 @@ function AdditionalCriteriaStep({
     <ChatQuestionPanel
       aria-label="Criterio adicional de la búsqueda"
       title="¿Hay alguna característica adicional que debamos tener en cuenta?"
-      description="Por ejemplo: tamaño de empresa, tecnología usada, etapa de crecimiento…"
+      // AGENT1-CRITERIA-QUICK-WINS-1 — el tamaño NO es un criterio libre: está fijo en
+      // más de 200 empleados. Ofrecerlo aquí prometía un filtro que nadie aplicaba.
+      description="Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados."
       titleRef={titleRef}
       options={[CRITERIA_NO]}
       onAnswer={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}

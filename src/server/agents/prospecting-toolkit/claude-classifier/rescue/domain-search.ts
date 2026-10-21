@@ -121,7 +121,27 @@ const ACCOUNT_ERROR_CODES: ReadonlySet<string> = new Set(['http_400', 'http_401'
 
 /** ¿Falló la CUENTA de Anthropic (no la búsqueda de esta empresa)? */
 export function isAccountLevelModelError(outcome: DomainFinderOutcome): boolean {
-  return !outcome.found && outcome.reason === 'model_error' && ACCOUNT_ERROR_CODES.has(outcome.errorCode ?? '');
+  return (
+    !outcome.found &&
+    outcome.reason === 'model_error' &&
+    ACCOUNT_ERROR_CODES.has(outcome.errorCode ?? '') &&
+    !isRequestRejectedModelError(outcome)
+  );
+}
+
+/**
+ * 21-10 — un 400 DESPUÉS de un primer turno cobrado: la cuenta sí funcionaba, lo que la
+ * API rechazó fue la petición (el turno forzado reenviaba bloques inválidos). Repetirla
+ * da el mismo 400 y vuelve a pagar el primer turno: no se reintenta ni frena la corrida.
+ * Prod oct-2026: 110 de 121 fallos de `company_domain_search` fueron http_400.
+ */
+export function isRequestRejectedModelError(outcome: DomainFinderOutcome): boolean {
+  return (
+    !outcome.found &&
+    outcome.reason === 'model_error' &&
+    outcome.errorCode === 'http_400' &&
+    (outcome.usage?.inputTokens ?? 0) > 0
+  );
 }
 
 function previousAttempts(evidence: Evidence | null): number {
@@ -221,8 +241,14 @@ export function websiteNotFoundWithOlderSearch(evidence: Evidence | null): boole
 export function websiteNotFoundByAccountError(evidence: Evidence | null): boolean {
   const rescue = evidence?.[CLAUDE_RESCUE_METADATA_KEY] as { decision?: unknown } | undefined;
   if (rescue?.decision !== 'website_not_found') return false;
-  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { reason?: unknown; error_code?: unknown } | undefined;
-  return search?.reason === 'model_error' && ACCOUNT_ERROR_CODES.has(String(search?.error_code ?? ''));
+  const search = evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as
+    | { reason?: unknown; error_code?: unknown; request_rejected?: unknown }
+    | undefined;
+  return (
+    search?.reason === 'model_error' &&
+    ACCOUNT_ERROR_CODES.has(String(search?.error_code ?? '')) &&
+    search?.request_rejected !== true
+  );
 }
 
 export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'reason_code'>): boolean {
@@ -334,6 +360,69 @@ export function readFoundWebsite(evidence: Evidence | null): FoundWebsite | null
   if (typeof search.website !== 'string' || typeof search.domain !== 'string') return null;
   if (!(VERIFICATIONS as readonly unknown[]).includes(search.verification)) return null;
   return { website: search.website, domain: search.domain, verification: search.verification as FoundVerification };
+}
+
+/**
+ * 21-10 — una misma empresa (mismo número fiscal, o mismo nombre normalizado y país)
+ * vuelve en otros lotes como otra fila de Descartadas y se pagaba la búsqueda otra vez.
+ * Lo ya buscado con la versión VIGENTE en los últimos días se reutiliza: el sitio
+ * encontrado, o el «no encontrado» final (nunca un error del modelo).
+ */
+export const DOMAIN_SEARCH_REUSE_MAX_AGE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PAGE_VERIFICATIONS: ReadonlySet<unknown> = new Set<DomainVerification>([
+  'linkedin_cross_link',
+  'name_match',
+  'search_result_match',
+  'acronym_match',
+]);
+
+/** Otra fila de Descartadas de la misma empresa con su evidencia (sólo lectura). */
+export type PriorDomainSearchRow = { id: string; evidence: Evidence | null };
+
+export function reusablePriorDomainSearch(
+  rows: readonly PriorDomainSearchRow[],
+  nowMs: number,
+  /** La fila usa nombres oficiales: un «no encontrado» buscado sin ellos no sirve. */
+  options: { officialNamesNeeded?: boolean } = {},
+): { fromId: string; outcome: DomainFinderOutcome } | null {
+  let notFound: { fromId: string; outcome: DomainFinderOutcome } | null = null;
+  for (const row of rows) {
+    const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as Evidence | undefined;
+    if (!search || search.search_version !== DOMAIN_SEARCH_VERSION || search.skipped) continue;
+    const at = typeof search.searched_at === 'string' ? Date.parse(search.searched_at) : NaN;
+    if (!Number.isFinite(at) || nowMs - at > DOMAIN_SEARCH_REUSE_MAX_AGE_DAYS * DAY_MS) continue;
+    const found = readFoundWebsite(row.evidence);
+    if (found && PAGE_VERIFICATIONS.has(found.verification)) {
+      const outcome: DomainFinderOutcome = {
+        found: true,
+        website: found.website,
+        domain: found.domain,
+        verification: found.verification as DomainVerification,
+        inSearchResults: true,
+        usage: null,
+      };
+      return { fromId: row.id, outcome };
+    }
+    // Una PISTA o marca oficial se vuelve a derivar para ESTA fila desde la web propuesta.
+    if (found && !notFound) {
+      notFound = { fromId: row.id, outcome: { found: false, reason: 'page_unreachable', claimedUrl: found.website, usage: null } };
+      continue;
+    }
+    if (search.found !== false || notFound || typeof search.reason !== 'string' || search.reason === 'model_error') continue;
+    if (options.officialNamesNeeded && search.official_names_checked !== true) continue;
+    notFound = {
+      fromId: row.id,
+      outcome: {
+        found: false,
+        reason: search.reason as Extract<DomainFinderOutcome, { found: false }>['reason'],
+        claimedUrl: typeof search.claimed_url === 'string' ? search.claimed_url : null,
+        errorCode: typeof search.error_code === 'string' ? search.error_code : null,
+        usage: null,
+      },
+    };
+  }
+  return notFound;
 }
 
 /**
@@ -689,10 +778,11 @@ export function buildDomainSearchStaysEvidence(
     | { kind: 'recent_search'; previous: RecentDomainSearch },
   decidedAt: string,
   /** SOURCES-EC-CLOSE-2 — la búsqueda ya usó los nombres oficiales: no se repite por ellos. */
-  options: { officialNamesChecked?: boolean } = {},
+  options: { officialNamesChecked?: boolean; reusedFrom?: string } = {},
 ): Evidence {
   // Un error de la cuenta no es un intento de buscar ESTA empresa: no se cuenta.
   const accountError = params.kind === 'not_found' && isAccountLevelModelError(params.outcome);
+  const requestRejected = params.kind === 'not_found' && isRequestRejectedModelError(params.outcome);
   const attempts = previousAttempts(evidence) + (params.kind === 'not_found' && !accountError ? 1 : 0);
   const base = params.kind === 'duplicate' ? buildFoundEvidence(evidence, params.found, decidedAt) : { ...(evidence ?? {}) };
   const search =
@@ -728,7 +818,9 @@ export function buildDomainSearchStaysEvidence(
           reason: params.outcome.reason,
           claimed_url: params.outcome.claimedUrl ?? null,
           error_code: params.outcome.errorCode ?? null,
+          ...(requestRejected ? { request_rejected: true } : {}),
           ...(options.officialNamesChecked ? { official_names_checked: true } : {}),
+          ...(options.reusedFrom ? { reused_from: options.reusedFrom } : {}),
           institution_web_rule: INSTITUTION_WEB_RULE_VERSION,
         }
       : {
@@ -738,7 +830,10 @@ export function buildDomainSearchStaysEvidence(
         };
   const retryable =
     accountError ||
-    (params.kind === 'not_found' && TRANSIENT_REASONS.has(params.outcome.reason) && attempts < DOMAIN_SEARCH_MAX_ATTEMPTS);
+    (params.kind === 'not_found' &&
+      !requestRejected &&
+      TRANSIENT_REASONS.has(params.outcome.reason) &&
+      attempts < DOMAIN_SEARCH_MAX_ATTEMPTS);
   return {
     ...base,
     [CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY]: search,

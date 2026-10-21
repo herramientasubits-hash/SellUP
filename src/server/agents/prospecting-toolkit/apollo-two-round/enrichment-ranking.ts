@@ -53,6 +53,12 @@ export type FreeCandidateSignals = {
   ownershipConfident: boolean;
   /** Cuántas señales positivas del sector aparecieron en el texto libre. */
   sectorKeywordMatchCount: number;
+  /**
+   * AGENT1-CRITERIA-QUICK-WINS-2 § 1 — cuántos términos del criterio libre del
+   * vendedor aparecen en el texto gratuito. Ausente ⇒ 0 (corrida sin criterio o
+   * checkpoint anterior): el orden queda exactamente como antes.
+   */
+  additionalCriteriaMatchCount?: number;
   /** El candidato no se había visto en rondas anteriores ni en el historial. */
   novel: boolean;
   /** Apollo declaró número de empleados. */
@@ -177,6 +183,12 @@ export const ENRICHMENT_RANKING_WEIGHTS = {
   /** Por señal positiva encontrada, hasta `sectorKeywordMatchCap`. */
   sectorKeywordMatch: 4,
   sectorKeywordMatchCap: 12,
+  /**
+   * Por término del criterio del vendedor, con tope. Por debajo de país, dominio
+   * y propiedad: el criterio ordena entre candidatas viables, no rescata inviables.
+   */
+  additionalCriteriaMatch: 6,
+  additionalCriteriaMatchCap: 12,
   hasLinkedInUrl: 6,
   hasCompanySizeSignal: 4,
   hasLocationSignal: 3,
@@ -230,6 +242,12 @@ export function scoreCandidateForEnrichment(
     );
     score += keywordScore;
     contributing.push('sector_keyword_confidence');
+  }
+
+  const criteriaMatches = signals.additionalCriteriaMatchCount ?? 0;
+  if (criteriaMatches > 0) {
+    score += Math.min(criteriaMatches * w.additionalCriteriaMatch, w.additionalCriteriaMatchCap);
+    contributing.push('additional_criteria_match');
   }
 
   return { candidateKey: signals.candidateKey, score, contributingSignals: contributing };
