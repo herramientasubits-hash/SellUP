@@ -53,6 +53,15 @@ export interface ChatQuestionPanelProps {
   /** Ref al encabezado, para llevar el foco a la pregunta nueva. */
   titleRef?: React.Ref<HTMLHeadingElement>;
   filterPlaceholder?: string;
+  /** Cada cambio del filtro de arriba (p. ej. para buscar sugerencias fuera de las opciones). */
+  onFilterChange?: (text: string) => void;
+  /**
+   * Lo que se pinta bajo las opciones mientras hay texto en el filtro (p. ej. sugerencias
+   * que no son opciones). Con él, el aviso de vacío dice «Ninguna de tus cuentas coincide».
+   */
+  filterSuggestions?: React.ReactNode;
+  /** Texto cuando el filtro no deja ninguna opción. Por defecto «Ninguna opción coincide.». */
+  filterEmptyLabel?: string;
   /** Texto del botón que envía lo marcado o lo escrito. Por defecto «Enviar». */
   submitLabel?: string;
   /**
@@ -129,6 +138,9 @@ export function ChatQuestionPanel({
   onBack: onBackProp,
   backLabel = "Volver",
   filterPlaceholder = "Filtrar opciones",
+  onFilterChange,
+  filterSuggestions,
+  filterEmptyLabel = "Ninguna opción coincide.",
   className,
   ...props
 }: ChatQuestionPanelProps) {
@@ -251,7 +263,10 @@ export function ChatQuestionPanel({
               />
               <input
                 value={filter}
-                onChange={(event) => setFilter(event.target.value)}
+                onChange={(event) => {
+                  setFilter(event.target.value);
+                  onFilterChange?.(event.target.value);
+                }}
                 placeholder={filterPlaceholder}
                 aria-label={filterPlaceholder}
                 className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm text-foreground outline-none placeholder:text-text-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -331,9 +346,12 @@ export function ChatQuestionPanel({
           })}
           {visible.length === 0 && all.length > 0 && (
             <li className="px-3 py-2.5 text-sm text-muted-foreground">
-              Ninguna opción coincide.
+              {filterEmptyLabel}
             </li>
           )}
+          {showFilter && filter.trim() && filterSuggestions ? (
+            <li className="px-1 pb-1">{filterSuggestions}</li>
+          ) : null}
 
           {canOther && (
             <li className="flex flex-col gap-2 rounded-xl bg-surface-subtle px-3 py-2.5">
