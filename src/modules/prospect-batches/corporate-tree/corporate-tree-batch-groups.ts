@@ -300,8 +300,28 @@ export function corporateTreePendingSummary(pending: CorporateTreePending | null
       `${pending.possibleKnown} ${pending.possibleKnown === 1 ? 'parece' : 'parecen'} ya estar en HubSpot (en «Descartadas», sin rescate)`,
     );
   }
-  const reused = pending.reusedSavedTree ? ' Usé el árbol guardado de este grupo: la búsqueda no tuvo costo.' : '';
-  if (parts.length === 0) return `Las demás ya estaban en HubSpot o en SellUp.${reused}`;
+  const notes = [
+    pending.reusedSavedTree ? 'Usé el árbol guardado de este grupo: no se volvió a pagar la búsqueda del grupo.' : '',
+    rescueCostNote(pending.waitingWebsite),
+  ]
+    .filter(Boolean)
+    .map((note) => ` ${note}`)
+    .join('');
+  if (parts.length === 0) return `Las demás ya estaban en HubSpot o en SellUp.${notes}`;
   const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0];
-  return `${sentence}.`.replace(/^./, (c) => c.toUpperCase()) + reused;
+  return `${sentence}.`.replace(/^./, (c) => c.toUpperCase()) + notes;
+}
+
+/**
+ * Lo que cuesta, en promedio, que el rescate le busque la web a una empresa (Prod 14/15-10:
+ * 229 búsquedas, US$8,74 ⇒ ~US$0,04). El aviso sale ANTES del rescate, así que se dice el tope
+ * estimado, no el gasto real (ése queda en «Uso de IA» con el lote).
+ */
+export const CORPORATE_TREE_RESCUE_SEARCH_ESTIMATE_USD = 0.04;
+
+/** «Buscarles la web cuesta hasta ~US$0,16…»: el costo del rescate, que el aviso no puede saber todavía. */
+export function rescueCostNote(waitingWebsite: number): string {
+  if (waitingWebsite <= 0) return '';
+  const usd = (waitingWebsite * CORPORATE_TREE_RESCUE_SEARCH_ESTIMATE_USD).toFixed(2).replace('.', ',');
+  return `Buscar su web cuesta hasta ~US$${usd}; no se vuelve a pagar la de una empresa ya buscada sin éxito en los últimos 30 días.`;
 }
