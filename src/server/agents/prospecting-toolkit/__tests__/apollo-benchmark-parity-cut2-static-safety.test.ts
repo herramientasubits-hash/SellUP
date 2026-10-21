@@ -753,7 +753,7 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // AGENT3-FIRST-CALL-1 declara la 153 (`account_research_briefs` y `first_call_packs`: fichas y
     // paquetes de primera llamada del Agente 3). No es de este corte; la ventana sube a la 154, y el
     // barrido de AUTORÍA se ENSANCHA para incluir la 153.
-    assert.equal(migrations.filter((f) => f.startsWith('154')).length, 0);
+    assert.equal(migrations.filter((f) => f.startsWith('155')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -785,7 +785,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('150') ||
         f.startsWith('151') ||
         f.startsWith('152') ||
-        f.startsWith('153'),
+        f.startsWith('153') ||
+        f.startsWith('154'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

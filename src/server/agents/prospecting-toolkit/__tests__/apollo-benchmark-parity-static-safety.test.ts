@@ -475,7 +475,7 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
       // AGENT3-FIRST-CALL-1 declara la 153 (`account_research_briefs` y `first_call_packs`: fichas y
       // paquetes de primera llamada del Agente 3). No es de este corte; la ventana sube a la 154, y el
       // barrido de AUTORÍA se ENSANCHA para incluir la 153.
-      migrations.filter((f) => f.startsWith('154')).length,
+      migrations.filter((f) => f.startsWith('155')).length,
       0,
       'este corte no añade migración',
     );
@@ -510,7 +510,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('150') ||
         f.startsWith('151') ||
         f.startsWith('152') ||
-        f.startsWith('153'),
+        f.startsWith('153') ||
+        f.startsWith('154'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

@@ -96,7 +96,7 @@ describe('1. agencia, UEI y ventana (EE. UU.)', () => {
       { batchId: 'b1', referenceCompanyName: 'Department of Veterans Affairs', relationships: [{ taxId: 'DT2KS3HH5FP5', name: 'ORACLE', evidenceUrl: null, evidence: 'x' }] },
       {
         loadCandidates: async () => [{ id: 'c1', taxIdentifier: 'DT2KS3HH5FP5', metadata: {} }, { id: 'c2', taxIdentifier: 'J4KHM5JY79E3', metadata: {} }],
-        updateMetadata: async (id) => (updated.push(id), true),
+        updateRelationship: async (id) => (updated.push(id), true),
       },
     );
     assert.equal(tagged, 1);

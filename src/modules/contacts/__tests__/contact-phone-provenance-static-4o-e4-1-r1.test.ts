@@ -424,6 +424,9 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
+      // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
+      // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
       // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
       // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
@@ -513,7 +516,7 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT1-AUDIT-HARDENING-1 declara la 151 (`claim_enrichment_jobs` sólo service_role) y la
       // 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad). Quedan AUTORIZADAS y
       // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 153 y superiores.
-      // APOLLO-SAVED-CONTACT-PHONES-1 declara la 155 (la 154 la declara su propio PR, #774).
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 declara la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
       numbered.some((f) => /^15[6-9]/.test(f) || /^1[6-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)

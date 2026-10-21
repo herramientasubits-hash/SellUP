@@ -7,6 +7,12 @@
  */
 
 import type { ResearchFact, ResearchTopic } from './types';
+import {
+  publicSalesStatement,
+  supplierRelationshipStatement,
+  type PublicSalesSummary,
+  type SupplierRelationshipEvidence,
+} from './public-sales';
 
 export interface AccountSnapshot {
   id: string;
@@ -68,6 +74,10 @@ export interface InternalContext {
   relations: CorporateRelation[];
   hubspot: HubSpotRelation | null;
   decisionMaker: DecisionMaker | null;
+  /** AGENT3-PUBLIC-SALES-1 — lo que le vende al Estado (compras públicas por su número fiscal). */
+  publicSales?: PublicSalesSummary | null;
+  /** AGENT3-PUBLIC-SALES-1 — el «Proveedor de X» de la candidata de la que salió la cuenta. */
+  supplierRelationship?: SupplierRelationshipEvidence | null;
 }
 
 const TALENT_LIST = /(merco talento|great place|gptw|mejores empleadores|best places|best workplaces|empleador)/i;
@@ -205,6 +215,34 @@ export function buildInternalFacts(context: InternalContext): Draft[] {
 
   const relations = relationsStatement(context.relations);
   if (relations) facts.push(sellupFact('size_presence', relations, 'Árbol de empresas del Agente 1'));
+
+  // AGENT3-PUBLIC-SALES-1 — a quién le vende: un motivo concreto con el contrato como prueba.
+  // Con las compras públicas de su número fiscal basta; si no, la relación que dejó la
+  // búsqueda de proveedores del Agente 1 (que puede ser un caso de éxito, no un contrato).
+  if (context.publicSales) {
+    facts.push({
+      topic: 'business',
+      statement: publicSalesStatement(context.publicSales),
+      quote: null,
+      sourceKind: 'sellup',
+      sourceUrl: context.publicSales.evidenceUrl,
+      sourceLabel: `Compras públicas (${context.publicSales.sourceLabel})`,
+      publishedOn: context.publicSales.lastOrderOn,
+    });
+  } else if (context.supplierRelationship) {
+    facts.push({
+      topic: 'business',
+      statement: supplierRelationshipStatement(context.supplierRelationship),
+      quote: null,
+      sourceKind: 'sellup',
+      sourceUrl: context.supplierRelationship.evidenceUrl,
+      sourceLabel:
+        context.supplierRelationship.source === 'public_procurement'
+          ? 'Compras públicas (búsqueda de proveedores del Agente 1)'
+          : 'Búsqueda de proveedores del Agente 1',
+      publishedOn: null,
+    });
+  }
 
   for (const label of context.curatedLists.slice(0, 4)) {
     facts.push({

@@ -37,6 +37,8 @@ export const RUN_PROGRESS_STAGES = [
   'competitor_round_1',
   'competitor_round_2',
   'competitor_apollo',
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — «Proveedores»: compras públicas de la entidad.
+  'supplier_public',
   'reviewing',
 ] as const;
 
@@ -61,6 +63,7 @@ export const RUN_PROGRESS_LABELS: Readonly<Record<RunProgressStage, string>> = {
   competitor_round_1: 'Claude busca en la web empresas que compiten con la referencia',
   competitor_round_2: 'Las primeras ya estaban en HubSpot: Claude busca competidoras menos conocidas',
   competitor_apollo: 'Faltan competidoras: buscando en Apollo y Claude elige las que compiten',
+  supplier_public: 'Revisando las compras públicas: quién le vende a la entidad',
   reviewing: 'Revisando lo encontrado',
 };
 
@@ -90,6 +93,7 @@ export const RUN_PROGRESS_PERCENT: Readonly<Record<Exclude<RunProgressStage, 're
   competitor_round_1: 25,
   competitor_round_2: 65,
   competitor_apollo: 85,
+  supplier_public: 15,
 };
 
 /** El avance tras ver `stage`: nunca retrocede (una etapa saltada no resta). */
@@ -113,6 +117,8 @@ const STAGE_BY_DEP = {
   runClaudeCompanySearchLeg: 'claude_search',
   // AGENT1-SUPPLIER-SEARCH-1 — «Proveedores»: Claude es el único paso.
   runClaudeSupplierSearch: 'claude_search',
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — antes el chat decía «Preparando» mientras leía SECOP.
+  runPublicBuyerSuppliers: 'supplier_public',
 } as const satisfies Record<string, RunProgressStage>;
 
 type StageDepName = keyof typeof STAGE_BY_DEP;

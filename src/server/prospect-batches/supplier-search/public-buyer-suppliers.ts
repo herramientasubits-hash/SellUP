@@ -23,7 +23,12 @@ import {
   type CountrySourceCompany,
 } from '@/server/prospect-batches/country-source-discovery/country-source-types';
 import { normalizeEntityNit } from '@/server/source-catalog/connectors/co-public-entities/co-public-entity-rows';
+import {
+  isUbitsCompetitorDomain,
+  isUbitsCompetitorName,
+} from '@/server/agents/prospecting-toolkit/claude-classifier/ubits-competitors';
 import { PUBLIC_BUYER_COUNTRY_CODES } from './countries/codes';
+import { isProcurementDataStale } from './countries/reload-plan';
 
 /**
  * Países con compras públicas conectadas a «Proveedores»: Colombia (SECOP II en vivo)
@@ -56,6 +61,10 @@ export type PublicBuyerSupplier = {
   evidenceUrl: string | null;
   /** Trabajadores según el registro oficial del país (Chile: SII), si se conocen. */
   officialWorkers?: { workers: number; year: number | null; sourceLabel: string } | null;
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «frecuentes»: a cuántas entidades le vende. */
+  buyerCount?: number;
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «frecuentes»: sus entidades de más monto (hasta 3). */
+  topBuyerNames?: readonly string[];
 };
 
 export type PublicBuyerSuppliersResult =
@@ -67,6 +76,8 @@ export type PublicBuyerSuppliersResult =
       tableVersion: string;
       /** Año desde el que se miran las compras (frase de la prueba). Ausente = año en curso − 2. */
       sinceYear?: string;
+      /** AGENT1-SUPPLIER-RELOAD-1 — fin de la ventana cargada (AAAA-MM-DD); ausente en los «en vivo». */
+      windowEnd?: string;
     }
   | { ok: false; reason: 'industry_without_unspsc' | 'source_unavailable' };
 
@@ -92,6 +103,11 @@ export type PublicBuyerRelationship = {
   name: string;
   evidenceUrl: string | null;
   evidence: string;
+  /**
+   * AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — «Proveedor de …» propio de esta empresa (en
+   * «frecuentes», sus entidades: «IMSS, ISSSTE y 5 más»). Ausente = la referencia del lote.
+   */
+  referenceName?: string;
 };
 
 export type PublicBuyerStepSkipReason =
@@ -100,12 +116,16 @@ export type PublicBuyerStepSkipReason =
   | 'ambiguous_entity'
   | 'industry_without_unspsc'
   | 'source_unavailable'
+  // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — nadie le vende a varias entidades en esa industria.
+  | 'no_frequent_suppliers'
   | 'failed';
 
 export type PublicBuyerStepOutcome =
   | { executed: false; reason: PublicBuyerStepSkipReason | string }
   | {
       executed: true;
+      /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sin referencia: empresas que le venden a varias entidades. */
+      scope?: 'frequent_public';
       buyer: {
         taxId: string;
         name: string;
@@ -122,12 +142,21 @@ export type PublicBuyerStepOutcome =
       consortiaExcluded?: number;
       /** Con tamaño oficial menor que `PUBLIC_BUYER_MIN_OFFICIAL_WORKERS`: no se ofrecen. */
       knownSmallExcluded?: number;
+      /** AGENT1-SUPPLIER-AUDIT-NOW-1 — competidores de UBITS (por nombre o sitio): no se ofrecen. */
+      ubitsCompetitorsExcluded?: number;
+      /** AGENT1-SUPPLIER-WEB-BY-NAME-1 — ofrecidas cuya web salió por nombre (no por número fiscal). */
+      websitesByName?: number;
+      /** AGENT1-SUPPLIER-RELOAD-1 — hasta cuándo llegan los datos cargados, y si ya están viejos. */
+      dataWindowEnd?: string;
+      dataStale?: boolean;
       offered: number;
       /** Filas con web escritas en el lote (después del reclamo «un vendedor»). */
       written: number;
       writeFailed: boolean;
       /** Sin web, a Descartadas para que el rescate de Claude busque su sitio. */
       recordedWithoutWebsite: number;
+      /** AGENT1-SUPPLIER-AUDIT-NOW-1 — guardar las sin web en Descartadas falló. */
+      recordWithoutWebsiteFailed?: boolean;
       relationships: PublicBuyerRelationship[];
     };
 
@@ -161,6 +190,11 @@ export type PublicBuyerStepDeps = {
   /** NIT que son entidades públicas y NO empresas del registro mercantil. */
   listPublicOnlyTaxIds: (taxIds: readonly string[]) => Promise<ReadonlySet<string>>;
   findDomainsByTaxId: (taxIds: readonly string[]) => Promise<ReadonlyMap<string, string>>;
+  /**
+   * AGENT1-SUPPLIER-WEB-BY-NAME-1 — web por NOMBRE exacto en las fichas del país, para los
+   * que el número fiscal no la dio (ver `website-by-name.ts`). Ausente = sólo por número.
+   */
+  findDomainsByName?: (companies: ReadonlyArray<{ taxId: string; name: string }>) => Promise<ReadonlyMap<string, string>>;
   writeWithWebsite: (companies: readonly CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   recordWithoutWebsite: (companies: readonly CountrySourceCompany[]) => Promise<number>;
 };
@@ -316,14 +350,80 @@ export async function runPublicBuyerSupplierStep(
   });
   if (!listed.ok) return { executed: false, reason: listed.reason };
 
+  const buyerName = input.referenceCompanyName.trim();
+  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
+  const offered = await offerPublicSuppliers(listed, input, deps, (s) => ({
+    evidence: describePublicBuyerSupplier(s, buyerName, sinceYear),
+  }));
+  return {
+    executed: true,
+    buyer: {
+      taxId: buyer.taxId,
+      name: buyer.normalizedLegalName,
+      matchedBy: picked.matchedBy,
+      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
+    },
+    ...offered,
+  };
+}
+
+/** Lo que el paso ofrece, escribe y deja como prueba (común a una entidad y a «frecuentes»). */
+type OfferedPublicSuppliers = Omit<Extract<PublicBuyerStepOutcome, { executed: true }>, 'executed' | 'buyer' | 'scope'>;
+
+/**
+ * Común a los dos pasos de compras públicas: fuera consorcios, otras entidades públicas,
+ * las chicas por tamaño oficial y los competidores de UBITS; las grandes primero; como
+ * mucho 12; con web al lote y sin web a Descartadas (para el rescate). `describe` arma la
+ * prueba de cada una (y, en «frecuentes», a quién le vende).
+ */
+async function offerPublicSuppliers(
+  listed: Extract<PublicBuyerSuppliersResult, { ok: true }>,
+  input: { batchId: string; countryCode: string; nowIso: string },
+  deps: Pick<
+    PublicBuyerStepDeps,
+    | 'sourceKey'
+    | 'taxIdentifierType'
+    | 'listPublicOnlyTaxIds'
+    | 'findDomainsByTaxId'
+    | 'findDomainsByName'
+    | 'writeWithWebsite'
+    | 'recordWithoutWebsite'
+  >,
+  describe: (supplier: PublicBuyerSupplier) => { evidence: string; referenceName?: string },
+): Promise<OfferedPublicSuppliers> {
   // Común a todos los países: fuera consorcios y uniones temporales.
   const consortia = listed.suppliers.filter((s) => isConsortiumSupplierName(s.name));
   const companies = listed.suppliers.filter((s) => !isConsortiumSupplierName(s.name));
   const publicOnly = companies.length > 0 ? await deps.listPublicOnlyTaxIds(companies.map((s) => s.taxId)) : new Set<string>();
   const notPublic = companies.filter((s) => !publicOnly.has(s.taxId));
   const knownSmall = notPublic.filter(isKnownSmall);
-  const offered = prioritizeLargeSuppliers(notPublic.filter((s) => !isKnownSmall(s))).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
-  const domains = offered.length > 0 ? await deps.findDomainsByTaxId(offered.map((s) => s.taxId)) : new Map<string, string>();
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — los competidores de UBITS no son prospectos (como en la
+  // ruta de Claude): por nombre antes de elegir y por sitio cuando se conoce.
+  const competitorsByName = notPublic.filter((s) => !isKnownSmall(s) && isUbitsCompetitorName(s.name));
+  const shortlist = prioritizeLargeSuppliers(
+    notPublic.filter((s) => !isKnownSmall(s) && !isUbitsCompetitorName(s.name)),
+  ).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
+  const byTaxId = shortlist.length > 0 ? await deps.findDomainsByTaxId(shortlist.map((s) => s.taxId)) : new Map<string, string>();
+  // AGENT1-SUPPLIER-WEB-BY-NAME-1 — los que siguen sin web, por nombre exacto (gratis; si
+  // falla, siguen sin web y van al rescate como antes).
+  const missing = shortlist.filter((s) => !byTaxId.has(s.taxId));
+  const byName =
+    missing.length > 0 && deps.findDomainsByName
+      ? await deps.findDomainsByName(missing.map((s) => ({ taxId: s.taxId, name: s.name }))).catch((err: unknown) => {
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] web por nombre (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return new Map<string, string>();
+        })
+      : new Map<string, string>();
+  const domains = new Map<string, string>([...byName, ...byTaxId]);
+  const isCompetitorSite = (s: PublicBuyerSupplier): boolean => {
+    const domain = domains.get(s.taxId);
+    return !!domain && isUbitsCompetitorDomain(domain);
+  };
+  const offered = shortlist.filter((s) => !isCompetitorSite(s));
+  const ubitsCompetitorsExcluded = competitorsByName.length + (shortlist.length - offered.length);
   const companyInput = {
     countryCode: input.countryCode,
     sourceKey: deps.sourceKey,
@@ -334,18 +434,28 @@ export async function runPublicBuyerSupplierStep(
   const withoutWebsite = offered.filter((s) => !domains.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
 
   const write = withWebsite.length > 0 ? await deps.writeWithWebsite(withWebsite) : { written: 0, failed: false };
-  const recordedWithoutWebsite = withoutWebsite.length > 0 ? await deps.recordWithoutWebsite(withoutWebsite).catch(() => 0) : 0;
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — un fallo aquí queda registrado y marcado en el paso
+  // (antes valía 0 en silencio y la corrida decía «ya eran de alguien»).
+  let recordWithoutWebsiteFailed = false;
+  const recordedWithoutWebsite =
+    withoutWebsite.length > 0
+      ? await deps.recordWithoutWebsite(withoutWebsite).catch((err: unknown) => {
+          recordWithoutWebsiteFailed = true;
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] guardar sin web (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return 0;
+        })
+      : 0;
 
-  const buyerName = input.referenceCompanyName.trim();
-  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
+  // AGENT1-SUPPLIER-RELOAD-1 — datos viejos no tumban la corrida, pero quedan a la vista.
+  const dataStale = listed.windowEnd ? isProcurementDataStale(input.countryCode, listed.windowEnd, new Date(input.nowIso)) : false;
+  if (dataStale) {
+    console.warn(`[supplier-public-buyer:${input.countryCode}] datos hasta ${listed.windowEnd}: toca recargar (lote ${input.batchId}).`);
+  }
   return {
-    executed: true,
-    buyer: {
-      taxId: buyer.taxId,
-      name: buyer.normalizedLegalName,
-      matchedBy: picked.matchedBy,
-      ...(aliasOfficialName ? { viaAlias: input.referenceCompanyName.trim() } : {}),
-    },
+    ...(listed.windowEnd ? { dataWindowEnd: listed.windowEnd, dataStale } : {}),
     sourceKey: deps.sourceKey,
     tableVersion: listed.tableVersion,
     read: listed.read,
@@ -353,16 +463,23 @@ export async function runPublicBuyerSupplierStep(
     publicEntitiesExcluded: companies.filter((s) => publicOnly.has(s.taxId)).length,
     consortiaExcluded: consortia.length,
     knownSmallExcluded: knownSmall.length,
+    ubitsCompetitorsExcluded,
+    websitesByName: offered.filter((s) => byName.has(s.taxId) && !byTaxId.has(s.taxId)).length,
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
     recordedWithoutWebsite,
-    relationships: offered.map((s) => ({
-      taxId: s.taxId,
-      name: s.name,
-      evidenceUrl: s.evidenceUrl,
-      evidence: describePublicBuyerSupplier(s, buyerName, sinceYear),
-    })),
+    ...(recordWithoutWebsiteFailed ? { recordWithoutWebsiteFailed: true } : {}),
+    relationships: offered.map((s) => {
+      const described = describe(s);
+      return {
+        taxId: s.taxId,
+        name: s.name,
+        evidenceUrl: s.evidenceUrl,
+        evidence: described.evidence,
+        ...(described.referenceName ? { referenceName: described.referenceName } : {}),
+      };
+    }),
   };
 }
 
@@ -377,6 +494,13 @@ export function taxIdKey(raw: string | null | undefined): string | null {
   // UEI de EE. UU. («DT2KS3HH5FP5»): 12 caracteres alfanuméricos; sus letras son parte de él.
   const alnum = (raw ?? '').trim().toUpperCase();
   if (/^[A-Z0-9]{12}$/.test(alnum) && /[A-Z]/.test(alnum)) return alnum;
+  // AGENT1-SUPPLIER-AUDIT-NOW-1 — con letras que no son el dígito K del RUT (NIF de España
+  // «B12345678», RFC de México), las letras son parte del número: quitarlas hacía que
+  // «A12345678» y «B12345678» cruzaran como la misma empresa.
+  if (/[A-JL-Z]/.test(alnum)) {
+    const kept = alnum.replace(/[^A-Z0-9]/g, '');
+    return kept.length >= 7 ? kept : null;
+  }
   const generic = (raw ?? '').replace(/[^0-9kK]/g, '').toUpperCase();
   return generic.length >= 7 ? generic : null;
 }
@@ -393,7 +517,11 @@ export async function tagPublicBuyerSuppliers(
   input: { batchId: string; referenceCompanyName: string; relationships: readonly PublicBuyerRelationship[] },
   deps: {
     loadCandidates: (batchId: string) => Promise<TaggableCandidate[]>;
-    updateMetadata: (candidateId: string, metadata: Record<string, unknown>) => Promise<boolean>;
+    /**
+     * Agrega `relationship` a la metadata ACTUAL del candidato (relee antes de escribir) y
+     * no pisa una «Proveedor de» que ya tenga. `true` = la escribió.
+     */
+    updateRelationship: (candidateId: string, relationship: Record<string, unknown>) => Promise<boolean>;
   },
 ): Promise<number> {
   if (input.relationships.length === 0) return 0;
@@ -406,17 +534,96 @@ export async function tagPublicBuyerSuppliers(
     const metadata = candidate.metadata ?? {};
     const existing = metadata.relationship as { kind?: unknown } | undefined;
     if (existing && typeof existing === 'object' && existing.kind === 'supplier_of') continue;
-    const ok = await deps.updateMetadata(candidate.id, {
-      ...metadata,
-      relationship: {
-        kind: 'supplier_of',
-        reference_company_name: input.referenceCompanyName.trim(),
-        evidence_url: relationship.evidenceUrl,
-        evidence: relationship.evidence,
-        source: 'public_procurement',
-      },
+    const ok = await deps.updateRelationship(candidate.id, {
+      kind: 'supplier_of',
+      reference_company_name: relationship.referenceName ?? input.referenceCompanyName.trim(),
+      evidence_url: relationship.evidenceUrl,
+      evidence: relationship.evidence,
+      source: 'public_procurement',
     });
     if (ok) tagged += 1;
   }
   return tagged;
+}
+
+// ── «Proveedores frecuentes del Estado» (AGENT1-SUPPLIER-FREQUENT-PUBLIC-1) ──────────
+
+/** Entidades distintas a las que tiene que venderle una empresa para ser «frecuente». */
+export const FREQUENT_PUBLIC_MIN_BUYERS = 3;
+/** El nombre del lote y de su referencia: no hay una empresa, hay varias entidades. */
+export const FREQUENT_PUBLIC_REFERENCE_LABEL = 'el Estado';
+
+export type FrequentPublicStepInput = {
+  batchId: string;
+  countryCode: string;
+  /** Para la frase de la prueba («entidades públicas de México»). */
+  countryName: string;
+  macroIndustryKey: string;
+  nowIso: string;
+};
+
+export type FrequentPublicStepDeps = Pick<
+  PublicBuyerStepDeps,
+  | 'sourceKey'
+  | 'taxIdentifierType'
+  | 'listPublicOnlyTaxIds'
+  | 'findDomainsByTaxId'
+  | 'findDomainsByName'
+  | 'writeWithWebsite'
+  | 'recordWithoutWebsite'
+> & {
+  /** Empresas que le venden a `minBuyers` o más entidades, en la industria pedida (más entidades primero). */
+  listFrequentSuppliers: (input: { macroIndustryKey: string; minBuyers: number }) => Promise<PublicBuyerSuppliersResult>;
+};
+
+/** «IMSS, ISSSTE y 5 más» — a quién le vende (para «Proveedor de …»). */
+export function describeFrequentBuyers(supplier: PublicBuyerSupplier, countryName: string): string {
+  const names = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const count = supplier.buyerCount ?? names.length;
+  if (names.length === 0) return `${count} entidades públicas de ${countryName}`;
+  const more = count - names.length;
+  if (more <= 0) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+  return `${names.join(', ')} y ${more} más`;
+}
+
+/** La frase que el vendedor ve en «Por qué fue encontrado». */
+export function describeFrequentPublicSupplier(supplier: PublicBuyerSupplier, countryName: string, sinceYear: string): string {
+  const entities = `${supplier.buyerCount ?? 0} entidades públicas de ${countryName}`;
+  const contracts = supplier.contractCount === 1 ? '1 contrato' : `${supplier.contractCount} contratos`;
+  const amount =
+    supplier.totalAmount >= 1_000_000
+      ? `$${MILLIONS.format(Math.round(supplier.totalAmount / 1_000_000))} millones`
+      : `$${MILLIONS.format(Math.round(supplier.totalAmount))}`;
+  const rubro = supplier.rubro ? ` (${supplier.rubro.toLowerCase()})` : '';
+  const top = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const among = top.length > 0 ? `, entre ellas ${top.join(', ')}` : '';
+  return `Le vende a ${entities}${among}: ${contracts}${rubro} en compras públicas desde ${sinceYear} por ${amount}.`;
+}
+
+/**
+ * Sin empresa de referencia: empresas que le venden a VARIAS entidades públicas del país
+ * en la industria pedida. Son empresas medianas o grandes, con contratos como prueba, y
+ * gratis. Mismo camino que el paso de una entidad (filtros, 12 como mucho, web, rescate).
+ */
+export async function runFrequentPublicSupplierStep(
+  input: FrequentPublicStepInput,
+  deps: FrequentPublicStepDeps,
+): Promise<PublicBuyerStepOutcome> {
+  const listed = await deps.listFrequentSuppliers({
+    macroIndustryKey: input.macroIndustryKey,
+    minBuyers: FREQUENT_PUBLIC_MIN_BUYERS,
+  });
+  if (!listed.ok) return { executed: false, reason: listed.reason };
+  if (listed.suppliers.length === 0) return { executed: false, reason: 'no_frequent_suppliers' };
+  const sinceYear = listed.sinceYear ?? String(Number(input.nowIso.slice(0, 4)) - 2);
+  const offered = await offerPublicSuppliers(listed, input, deps, (s) => ({
+    evidence: describeFrequentPublicSupplier(s, input.countryName, sinceYear),
+    referenceName: describeFrequentBuyers(s, input.countryName),
+  }));
+  return {
+    executed: true,
+    scope: 'frequent_public',
+    buyer: { taxId: 'frequent_public', name: FREQUENT_PUBLIC_REFERENCE_LABEL, matchedBy: 'exact' },
+    ...offered,
+  };
 }

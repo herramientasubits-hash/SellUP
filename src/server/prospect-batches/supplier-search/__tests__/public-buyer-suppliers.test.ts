@@ -254,13 +254,13 @@ describe('4. «Proveedor de X» en los candidatos', () => {
           { id: 'c2', taxIdentifier: '901140525', metadata: { relationship: { kind: 'supplier_of', evidence_url: 'x' } } },
           { id: 'c3', taxIdentifier: null, metadata: null },
         ],
-        updateMetadata: async (id, metadata) => (updates.push([id, metadata]), true),
+        updateRelationship: async (id, relationship) => (updates.push([id, relationship]), true),
       },
     );
     assert.equal(tagged, 1);
     assert.equal(updates[0][0], 'c1');
-    assert.equal(updates[0][1].keep, 1);
-    assert.deepEqual(updates[0][1].relationship, {
+    // AGENT1-SUPPLIER-AUDIT-NOW-1 — sólo se manda la relación; el resto lo relee quien escribe.
+    assert.deepEqual(updates[0][1], {
       kind: 'supplier_of',
       reference_company_name: 'Alcaldía de Medellín',
       evidence_url: 'https://community.secop.gov.co/p1',

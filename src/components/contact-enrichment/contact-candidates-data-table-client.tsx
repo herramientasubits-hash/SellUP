@@ -51,6 +51,10 @@ import {
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
 import { isCandidateCreatedToday } from '@/modules/contact-enrichment/candidate-date-utils';
+import {
+  describeApolloDirectPhoneHint,
+  readApolloDirectPhoneHint,
+} from '@/modules/contact-enrichment/apollo-direct-phone-hint';
 
 // ── Label & style maps ─────────────────────────────────────────
 
@@ -235,7 +239,16 @@ function EmailCell({ candidate }: { candidate: PendingContactCandidate }) {
 }
 
 function PhoneCell({ candidate }: { candidate: PendingContactCandidate }) {
-  if (!candidate.phone) return <EmptyCell label="Sin teléfono" />;
+  if (!candidate.phone) {
+    // APOLLO-DIRECT-PHONE-HINT-1: pista gratis de la búsqueda; no es el número.
+    const hint = describeApolloDirectPhoneHint(readApolloDirectPhoneHint(candidate.enrichment_metadata));
+    if (!hint) return <EmptyCell label="Sin teléfono" />;
+    return (
+      <Badge variant="info" title={hint.description} className="max-w-full truncate">
+        {hint.label}
+      </Badge>
+    );
+  }
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground" title={candidate.phone}>
       <Phone aria-hidden className="size-3 shrink-0 text-muted-foreground" />

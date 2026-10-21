@@ -814,7 +814,7 @@ describe('la migración 128 — su contrato', () => {
     assert.equal(files[files.length - 1], '155_import_apollo_saved_contact_phones.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
     assert.equal(Math.max(...numbers), 155);
-    assert.equal(files.length, 155,  'techo y conteo coinciden: ni un hueco (la 154 llega con el PR #774)');
+    assert.equal(files.length, 155,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

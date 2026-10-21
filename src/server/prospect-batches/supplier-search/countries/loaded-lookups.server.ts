@@ -7,7 +7,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeWebsiteHost } from '@/server/source-catalog/connectors/co-public-entities/co-domain';
 import { buyersFromLinks, suppliersFromLinks, type StoredProcurementLink } from '../procurement-links';
-import { PUBLIC_BUYER_MAX_SUPPLIERS, type PublicBuyerStepDeps, type PublicEntityLookup } from '../public-buyer-suppliers';
+import { indexWebsitesByName, matchWebsitesByName, type NamedWebsite } from '../website-by-name';
+import {
+  PUBLIC_BUYER_MAX_SUPPLIERS,
+  type FrequentPublicStepDeps,
+  type PublicBuyerStepDeps,
+  type PublicBuyerSupplier,
+  type PublicEntityLookup,
+} from '../public-buyer-suppliers';
 import type { LoadedCountrySource } from './types';
 
 export const PROCUREMENT_LINKS_TABLE = 'public_procurement_supplier_links';
@@ -31,7 +38,42 @@ export const SUPPLIER_MAX_PAGES = 5;
  */
 export const SUPPLIER_TARGET_IN_INDUSTRY = PUBLIC_BUYER_MAX_SUPPLIERS * 5;
 
-export type CountryLookups = Omit<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'>;
+export type CountryLookups = Omit<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'> & {
+  /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — sólo países «loaded» (la tabla tiene a todas las entidades). */
+  listFrequentSuppliers?: FrequentPublicStepDeps['listFrequentSuppliers'];
+};
+
+/** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — filas que pide a la función 154 (más entidades primero). */
+export const FREQUENT_SUPPLIER_MAX_ROWS = 3000;
+/**
+ * AGENT1-SUPPLIER-WEB-BY-NAME-1 — fichas con web del país que se leen para cruzar por
+ * nombre (páginas de 1.000; medido 21-10: el país con más, Argentina, ~2.400).
+ */
+export const NAMED_WEBSITE_PAGE_SIZE = 1000;
+export const NAMED_WEBSITE_MAX_PAGES = 10;
+/** Números fiscales por consulta a las fichas (actividad, trabajadores): la URL tiene límite. */
+export const SNAPSHOT_LOOKUP_CHUNK = 150;
+
+/** Una fila de `list_frequent_public_procurement_suppliers` (migración 154). */
+type FrequentSupplierRow = {
+  supplier_tax_id: string;
+  supplier_name: string;
+  buyer_count: number | string;
+  total_amount: number | string;
+  order_count: number | string;
+  amount_by_family: Record<string, number | string> | null;
+  top_buyer_names: string[] | null;
+  top_order_url: string | null;
+  last_order_on: string | null;
+  window_start: string;
+  window_end?: string | null;
+};
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 /** Ganchos de servidor opcionales de un país «loaded». */
 export type LoadedCountryServerHooks = {
@@ -67,6 +109,32 @@ export function buildLoadedLinksLookups(
 ): CountryLookups {
   const links = () => serviceClient.from(PROCUREMENT_LINKS_TABLE);
   const formsOf = (taxId: string) => country.snapshotTaxIdForms?.(taxId) ?? [taxId];
+
+  // AGENT1-SUPPLIER-WEB-BY-NAME-1 — índice nombre → web del país, leído una vez por corrida.
+  let websiteIndex: Promise<Map<string, string>> | null = null;
+  const loadWebsiteIndex = async (): Promise<Map<string, string>> => {
+    const rows: NamedWebsite[] = [];
+    for (let page = 0; page < NAMED_WEBSITE_MAX_PAGES; page++) {
+      const from = page * NAMED_WEBSITE_PAGE_SIZE;
+      const { data, error } = await serviceClient
+        .from('source_company_snapshots')
+        .select('legal_name, website_domain:raw_data->>website_domain, website:raw_data->>website')
+        .eq('country_code', country.countryCode)
+        // Las fichas de entidades públicas no son proveedores.
+        .not('source_key', 'like', '%public_entities')
+        .or('raw_data->>website_domain.not.is.null,raw_data->>website.not.is.null')
+        .order('id', { ascending: true })
+        .range(from, from + NAMED_WEBSITE_PAGE_SIZE - 1);
+      if (error) throw new Error(`named_websites_failed:${error.message}`);
+      const pageRows = (data ?? []) as Array<{ legal_name: string | null; website_domain: string | null; website: string | null }>;
+      for (const row of pageRows) {
+        const host = normalizeWebsiteHost(text(row.website_domain) ?? text(row.website));
+        if (host) rows.push({ legalName: row.legal_name, host });
+      }
+      if (pageRows.length < NAMED_WEBSITE_PAGE_SIZE) break;
+    }
+    return indexWebsitesByName(rows);
+  };
 
   const workersByTaxId = async (taxIds: readonly string[]) => {
     const out = new Map<string, { workers: number; year: number | null; sourceLabel: string }>();
@@ -131,10 +199,14 @@ export function buildLoadedLinksLookups(
     findPublicEntities: async (normalizedName) => {
       // Primero el nombre exacto: si existe, decide (como en `pickPublicBuyer`) y las que sólo
       // empiezan igual no importan. Si no, las que empiezan por el nombre seguido de espacio.
+      // AGENT1-SUPPLIER-AUDIT-NOW-1 — un error de lectura NO es «no es entidad pública»:
+      // se lanza y el paso queda `failed:…` en el lote (antes, una caída pasaba por empresa privada).
       const exact = await distinctBuyers({ op: 'eq', value: normalizedName });
-      if (exact === null) return [];
+      if (exact === null) throw new Error(`public_entity_lookup_failed:${country.countryCode}`);
       if (exact.truncated || exact.rows.length > 0) return exact;
-      return (await distinctBuyers({ op: 'like', value: `${normalizedName.replace(/[%_]/g, '')} %` })) ?? [];
+      const prefix = await distinctBuyers({ op: 'like', value: `${normalizedName.replace(/[%_]/g, '')} %` });
+      if (prefix === null) throw new Error(`public_entity_lookup_failed:${country.countryCode}`);
+      return prefix;
     },
 
     listSuppliers: async ({ buyerTaxId, macroIndustryKey }) => {
@@ -145,7 +217,7 @@ export function buildLoadedLinksLookups(
       for (let page = 0; page < SUPPLIER_MAX_PAGES; page++) {
         const from = page * SUPPLIER_PAGE_SIZE;
         const { data, error } = await links()
-          .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start')
+          .select('buyer_code, buyer_name_normalized, supplier_tax_id, supplier_name, total_amount, order_count, amount_by_family, last_order_on, top_order_url, window_start, window_end')
           .eq('country_code', country.countryCode)
           .eq('source_key', country.sourceKey)
           .eq('buyer_code', buyerTaxId)
@@ -176,6 +248,77 @@ export function buildLoadedLinksLookups(
         ...listed,
         suppliers: listed.suppliers.map((s) => (workers.has(s.taxId) ? { ...s, officialWorkers: workers.get(s.taxId) } : s)),
       };
+    },
+
+    // AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — empresas que le venden a varias entidades del país.
+    // La función 154 agrupa y suma los montos por familia; la industria se decide aquí con la
+    // tabla aprobada del país (o la actividad oficial en EC/CR), como en `listSuppliers`.
+    listFrequentSuppliers: async ({ macroIndustryKey, minBuyers }) => {
+      const { data, error } = await serviceClient.rpc('list_frequent_public_procurement_suppliers', {
+        p_country_code: country.countryCode,
+        p_min_buyers: minBuyers,
+        p_limit: FREQUENT_SUPPLIER_MAX_ROWS,
+      });
+      if (error) {
+        logError(country.countryCode, 'frequent suppliers', error);
+        return { ok: false, reason: 'source_unavailable' };
+      }
+      const rows = (data ?? []) as FrequentSupplierRow[];
+      const byTaxId = new Map(rows.map((row) => [row.supplier_tax_id, row]));
+      const asLinks: StoredProcurementLink[] = rows.map((row) => ({
+        buyer_code: '*',
+        buyer_name_normalized: '',
+        supplier_tax_id: row.supplier_tax_id,
+        supplier_name: row.supplier_name,
+        total_amount: row.total_amount,
+        order_count: Number(row.order_count),
+        amount_by_family: row.amount_by_family,
+        last_order_on: row.last_order_on,
+        top_order_url: row.top_order_url,
+        window_start: row.window_start,
+        window_end: row.window_end ?? null,
+      }));
+      const useActivity = Boolean(country.industryByActivity && hooks.activityMacroByTaxId);
+      // Con actividad oficial, por tandas en orden (más entidades primero) hasta llenar la industria.
+      const inIndustry: PublicBuyerSupplier[] = [];
+      for (const part of useActivity ? chunks(asLinks, SNAPSHOT_LOOKUP_CHUNK) : [asLinks]) {
+        const macros = useActivity
+          ? await hooks.activityMacroByTaxId!(serviceClient, part.map((r) => r.supplier_tax_id)).catch(() => new Map<string, string>())
+          : undefined;
+        const listed = suppliersFromLinks(part, macroIndustryKey, country.classifier, macros);
+        if (listed.ok) inIndustry.push(...listed.suppliers);
+        if (inIndustry.length >= SUPPLIER_TARGET_IN_INDUSTRY) break;
+      }
+      const picked = inIndustry.slice(0, SUPPLIER_TARGET_IN_INDUSTRY).map((s) => {
+        const row = byTaxId.get(s.taxId);
+        return { ...s, buyerCount: Number(row?.buyer_count ?? 0), topBuyerNames: row?.top_buyer_names ?? [] };
+      });
+      const workers = new Map<string, { workers: number; year: number | null; sourceLabel: string }>();
+      for (const part of chunks(picked.map((s) => s.taxId), SNAPSHOT_LOOKUP_CHUNK)) {
+        for (const [taxId, value] of await workersByTaxId(part)) workers.set(taxId, value);
+      }
+      return {
+        ok: true,
+        suppliers: picked.map((s) => (workers.has(s.taxId) ? { ...s, officialWorkers: workers.get(s.taxId) } : s)),
+        read: rows.length,
+        outsideIndustry: rows.length - inIndustry.length,
+        tableVersion: country.classifier.tableVersion,
+        ...(rows[0]?.window_start ? { sinceYear: rows[0].window_start.slice(0, 4) } : {}),
+        ...(rows[0]?.window_end ? { windowEnd: rows[0].window_end } : {}),
+      };
+    },
+
+    // AGENT1-SUPPLIER-WEB-BY-NAME-1 — por nombre exacto en las fichas del país (un error se
+    // lanza: el paso lo registra y esas empresas siguen al rescate como antes).
+    findDomainsByName: async (companies) => {
+      if (companies.length === 0) return new Map<string, string>();
+      websiteIndex ??= loadWebsiteIndex();
+      try {
+        return matchWebsitesByName(companies, await websiteIndex);
+      } catch (error) {
+        websiteIndex = null;
+        throw error;
+      }
     },
 
     // Las entidades públicas ya quedaron fuera al cargar (el lector sólo entrega empresas).

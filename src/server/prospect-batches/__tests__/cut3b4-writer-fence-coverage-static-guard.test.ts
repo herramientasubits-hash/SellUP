@@ -568,7 +568,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-CORPORATE-TREE-2 añade la 149 y el conteo sube con ella.
     // AGENT1-SUPPLIER-SEARCH-CL-1 añade la 150 y el conteo sube con ella.
     // AGENT1-AUDIT-HARDENING-1 añade la 151 y la 152, y el conteo sube con las dos.
-    // APOLLO-SAVED-CONTACT-PHONES-1 añade la 155 (y la 154 llega con el PR #774).
+    // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 añade la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
     assert.equal(migrations.length, 155);
   });
 

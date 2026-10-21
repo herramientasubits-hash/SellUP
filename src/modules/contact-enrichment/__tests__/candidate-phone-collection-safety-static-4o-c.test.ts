@@ -364,6 +364,9 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT3-FIRST-CALL-1 mueve el techo a la 153: la ficha de investigación y el paquete de
       // primera llamada del Agente 3 (`account_research_briefs`, `first_call_packs`). Tablas nuevas,
       // sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 mueve el techo a la 154: la función de sólo lectura
+      // `suggest_public_procurement_buyers` (entidades públicas sugeridas en «Proveedores»). Sin
+      // tablas, sin teléfono, catálogo, BR, CUT3B4 ni reclamos de identidad. AUTORADA y NO APLICADA.
       // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas,
       // PR #774): dos funciones NUEVAS que escriben en la cadena de teléfono —colección de
       // staging y colección oficial— los números que Apollo ya tiene guardados. SÍ nombra la
@@ -439,7 +442,7 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT1-AUDIT-HARDENING-1 declara la 151 (`claim_enrichment_jobs` sólo service_role) y la
       // 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad). Quedan AUTORIZADAS y
       // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 153 y superiores.
-      // APOLLO-SAVED-CONTACT-PHONES-1 declara la 155 (la 154 la declara su propio PR, #774).
+      // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 declara la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
       files.some((file) => /^15[6-9]/.test(file) || /^1[6-9]\d/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que

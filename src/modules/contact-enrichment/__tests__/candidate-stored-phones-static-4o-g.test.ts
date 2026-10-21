@@ -641,7 +641,7 @@ describe('4O-G — alcance', () => {
     // 149 archivos para los números 001-149: la 149 tampoco deja hueco.
     // 150 archivos para los números 001-150: la 150 tampoco deja hueco.
     // 152 archivos para los números 001-152: la 151 y la 152 tampoco dejan hueco.
-    // 155 archivos para los números 001-155 cuando entre la 154 del PR #774: sin hueco.
+    // 155 archivos para los números 001-155: la 154 y la 155 tampoco dejan hueco.
     assert.equal(numbered.length, 155);
   });
 

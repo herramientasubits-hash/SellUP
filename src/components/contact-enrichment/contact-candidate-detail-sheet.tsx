@@ -187,6 +187,10 @@ import {
   PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY,
 } from './phone-reveal-drawer-sync-core';
 import { usePhoneRevealWindowRefresh } from './use-phone-reveal-window-refresh';
+import {
+  describeApolloDirectPhoneHint,
+  readApolloDirectPhoneHint,
+} from '@/modules/contact-enrichment/apollo-direct-phone-hint';
 
 // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el diálogo se carga al abrirlo por primera vez. Así su
 // grafo (búsqueda SellUp/HubSpot + acción de reasignación) no entra en el bundle inicial de la
@@ -1521,6 +1525,9 @@ export function ContactCandidateDetailSheet({
   const hasPhone = typeof phoneNumber === 'string' && phoneNumber.trim().length > 0;
   const phoneTypeLabel = resolvePhoneTypeLabel(phoneMeta?.type);
   const phoneSourceLabel = resolvePhoneSourceLabel(phoneMeta?.source);
+  const directPhoneHint = describeApolloDirectPhoneHint(
+    readApolloDirectPhoneHint(candidate?.enrichment_metadata),
+  );
 
   // ── El SERVIDOR manda (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2) ───────────────
   // En cuanto el candidato leído deja de estar en vuelo — `revealed`,
@@ -1995,6 +2002,16 @@ export function ContactCandidateDetailSheet({
                       {phoneSourceLabel && (
                         <Badge variant="neutral">{phoneSourceLabel}</Badge>
                       )}
+                    </span>
+                  ) : directPhoneHint ? (
+                    // APOLLO-DIRECT-PHONE-HINT-1: pista gratis de la búsqueda, no el
+                    // número. Revelarlo sigue siendo el botón de abajo, que cobra.
+                    <span className="flex flex-col gap-1">
+                      <span className="inline-flex flex-wrap items-center gap-2">
+                        <span className="text-text-muted">{UNAVAILABLE}</span>
+                        <Badge variant="info">{directPhoneHint.label}</Badge>
+                      </span>
+                      <span className="text-xs text-muted-foreground">{directPhoneHint.description}</span>
                     </span>
                   ) : (
                     <span className="text-text-muted">{UNAVAILABLE}</span>
