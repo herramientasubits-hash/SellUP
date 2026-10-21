@@ -1090,6 +1090,10 @@ export async function executeProspectWizardGenerationAction(
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
     sealFreeOnlyBatchStatus: async ({ batchId, status, metadata, name: requestedName }) => {
+      if (metadata == null) {
+        await supabase.from('prospect_batches').update({ status }).eq('id', batchId);
+        return;
+      }
       const { data: currentRow } = await supabase
         .from('prospect_batches')
         .select('metadata, name, country, industry, completed_at')
@@ -1111,9 +1115,7 @@ export async function executeProspectWizardGenerationAction(
         .from('prospect_batches')
         .update({
           status,
-          ...(metadata == null
-            ? {}
-            : { metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata) }),
+          metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
           ...(name !== null ? { name } : {}),
           ...(completionSeal.shouldWrite ? { completed_at: completionSeal.completedAt } : {}),
         })

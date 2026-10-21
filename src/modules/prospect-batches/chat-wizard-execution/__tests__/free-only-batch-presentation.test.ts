@@ -45,6 +45,9 @@ describe('sellado gratuito (estático)', () => {
     assert.match(block, /resolveFreeOnlyBatchName\(/);
     assert.match(block, /decideBatchCompletionSeal\(/);
     assert.match(block, /completed_at: completionSeal\.completedAt/);
-    assert.equal((block.match(/\.update\(/g) ?? []).length, 1, 'una sola escritura');
+    // Sin metadata sigue siendo el sellado acotado de siempre (sólo estado); con
+    // metadata, nombre y fecha viajan en esa MISMA escritura terminal.
+    assert.match(block, /\.update\(\{ status \}\)/);
+    assert.equal((block.match(/\.update\(/g) ?? []).length, 2, 'acotado + terminal, ninguna más');
   });
 });
