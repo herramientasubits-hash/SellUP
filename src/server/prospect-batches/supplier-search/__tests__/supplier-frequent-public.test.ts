@@ -27,6 +27,8 @@ import {
   type SupplierSearchRunInput,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-supplier-search';
 import type { CatalogResolutionOutput } from '@/modules/prospect-batches/chat-wizard-execution/wizard-catalog-resolver';
+import { buildPublicStepNoNewBreakdown, publicNothingNewLegOf } from '@/modules/prospect-batches/chat-wizard-execution/wizard-supplier-search';
+import { describeAlreadyKnownNames } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import {
   describeFrequentBuyers,
   FREQUENT_PUBLIC_REFERENCE_LABEL,
@@ -464,4 +466,98 @@ describe('AGENT1-SUPPLIER-FREQUENT-POLISH-1 — el texto no dice «gratis» a se
       assert.match(source, /unos centavos por empresa/);
     });
   }
+});
+
+describe('AGENT1-SUPPLIER-SKIP-KNOWN-1 — repetir trae las siguientes y el resumen dice cuáles ya estaban', () => {
+  const many = Array.from({ length: 15 }, (_, i) =>
+    supplier(`RFC${String(i).padStart(3, '0')}`, `EMPRESA ${i} SA DE CV`, 5, ['IMSS']),
+  );
+
+  it('las ya vistas en SellUp se saltan y entran las siguientes (con sus nombres para el resumen)', async () => {
+    const { deps, written } = stepDeps(many);
+    const asked: string[] = [];
+    const outcome = await runFrequentPublicSupplierStep(STEP_INPUT, {
+      ...deps,
+      listAlreadyInSellUp: async (taxIds) => {
+        asked.push(...taxIds);
+        return new Set(['RFC000', 'RFC001', 'RFC002']);
+      },
+    });
+    assert.equal(outcome.executed, true);
+    if (!outcome.executed) return;
+    assert.equal(asked.length, 15);
+    assert.equal(outcome.offered, 12);
+    assert.equal(outcome.alreadyInSellUpSkipped, 3);
+    assert.deepEqual(outcome.alreadyInSellUpNames, ['EMPRESA 0 SA DE CV', 'EMPRESA 1 SA DE CV', 'EMPRESA 2 SA DE CV']);
+    assert.equal(written.includes('EMPRESA 0 SA DE CV'), false);
+    assert.equal(written.includes('EMPRESA 14 SA DE CV'), true);
+  });
+
+  it('si la consulta falla, no se salta ninguna (como antes)', async () => {
+    const { deps } = stepDeps(many);
+    const outcome = await runFrequentPublicSupplierStep(STEP_INPUT, {
+      ...deps,
+      listAlreadyInSellUp: async () => {
+        throw new Error('db_down');
+      },
+    });
+    assert.equal(outcome.executed && outcome.offered, 12);
+    assert.equal(outcome.executed && outcome.alreadyInSellUpSkipped, undefined);
+  });
+
+  it('todas ya vistas ⇒ «sin novedades» que cuenta las encontradas y nombra cuáles', async () => {
+    const { deps } = stepDeps(many.slice(0, 7));
+    const outcome = await runFrequentPublicSupplierStep(STEP_INPUT, {
+      ...deps,
+      listAlreadyInSellUp: async (taxIds) => new Set(taxIds),
+    });
+    assert.equal(outcome.executed && outcome.offered, 0);
+    const leg = publicNothingNewLegOf(outcome);
+    assert.equal(leg?.executed, true);
+    assert.equal(leg?.proposed, 7);
+    if (!outcome.executed) return;
+    const breakdown = buildPublicStepNoNewBreakdown(outcome);
+    assert.equal(breakdown.sellupDuplicateCount, 7);
+    assert.equal(breakdown.uniqueResultsCount, 7);
+    assert.equal(
+      describeAlreadyKnownNames(breakdown),
+      'Ya estaban en SellUp: EMPRESA 0 SA DE CV, EMPRESA 1 SA DE CV, EMPRESA 2 SA DE CV, EMPRESA 3 SA DE CV, EMPRESA 4 SA DE CV y 2 más.',
+    );
+  });
+
+  it('la lectura en SellUp: candidatas del país y Descartadas recientes, por número fiscal', async () => {
+    const { listSuppliersAlreadyInSellUp } = await import('../public-buyer-suppliers.server');
+    const calls: Array<{ table: string; filters: unknown[] }> = [];
+    const data: Record<string, unknown[]> = {
+      prospect_candidates: [{ tax_identifier: 'RFC001' }],
+      prospect_discarded_dispositions: [{ provider_identifier: 'tax:RFC002' }, { provider_identifier: 'name:OTRA' }],
+    };
+    const client = {
+      from(table: string) {
+        const filters: unknown[] = [];
+        calls.push({ table, filters });
+        const builder = {
+          select: () => builder,
+          eq: (...args: unknown[]) => (filters.push(['eq', ...args]), builder),
+          in: (...args: unknown[]) => (filters.push(['in', ...args]), builder),
+          gte: (...args: unknown[]) => (filters.push(['gte', ...args]), builder),
+          then: (resolve: (value: unknown) => unknown) => resolve({ data: data[table], error: null }),
+        };
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+    const known = await listSuppliersAlreadyInSellUp(client, ['RFC001', 'RFC002', 'RFC003'], 'MX', new Date('2026-10-22T00:00:00Z'));
+    assert.deepEqual([...known].sort(), ['RFC001', 'RFC002']);
+    const discards = calls.find((c) => c.table === 'prospect_discarded_dispositions');
+    assert.deepEqual(discards?.filters, [
+      ['eq', 'country_code', 'MX'],
+      ['in', 'provider_identifier', ['tax:RFC001', 'tax:RFC002', 'tax:RFC003']],
+      ['gte', 'created_at', '2026-07-24T00:00:00.000Z'],
+    ]);
+  });
+
+  it('el panel de «sin novedades» pinta los nombres', () => {
+    const source = readFileSync(join(process.cwd(), 'src/components/prospect-batches/chat-wizard/wizard-execution-panels.tsx'), 'utf8');
+    assert.match(source, /describeAlreadyKnownNames\(noNewCandidatesBreakdown\)/);
+  });
 });

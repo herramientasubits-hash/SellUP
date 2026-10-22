@@ -9,6 +9,7 @@
  * (evidencia o paso a revisión) y el reclamo de identidad. Nunca aprueba nada.
  */
 
+import { withCorporateTreeGroupOpportunity } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
 import { buildLiveRescueOfficialIdentityResolver } from './rescue-official-identity.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
@@ -328,6 +329,27 @@ const KNOWN_COMPANY_BATCH_ROWS = 500;
 export const NOT_REASSIGNED_FILTER =
   'metadata->claude_rescue->>decision.is.null,metadata->claude_rescue->>decision.neq.reassign';
 
+/**
+ * Búsqueda en árbol (FASE D): la que entra por el rescate en un lote cuyo grupo ya es cliente
+ * de UBITS (o lo trabaja alguien) lleva la misma marca de oportunidad que las demás. Sólo
+ * lectura del lote y una escritura en la propia candidata; otro lote ⇒ nada.
+ */
+async function tagRescuedTreeCandidate(candidateId: string): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const { data: candidate } = await admin
+    .from('prospect_candidates')
+    .select('batch_id, metadata, status')
+    .eq('id', candidateId)
+    .maybeSingle();
+  const row = candidate as { batch_id: string | null; metadata: Record<string, unknown> | null; status: string } | null;
+  if (!row?.batch_id || row.status !== 'needs_review') return;
+  const { data: batch } = await admin.from('prospect_batches').select('metadata').eq('id', row.batch_id).maybeSingle();
+  const next = withCorporateTreeGroupOpportunity(row.metadata, (batch as { metadata?: unknown } | null)?.metadata);
+  if (!next) return;
+  const { error } = await admin.from('prospect_candidates').update({ metadata: next }).eq('id', candidateId);
+  if (error) throw new Error(error.message);
+}
+
 /** Filas de uso que se suman como mucho (un lote con más ya pasó el tope de sobra). */
 const RESCUE_SPENT_MAX_ROWS = 5_000;
 
@@ -488,7 +510,12 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         dispositionId,
         origin.columns ? { ...origin, columns: await withCatalogVersion(origin.columns) } : origin,
       );
-      if (outcome.outcome === 'sent' || outcome.outcome === 'idempotent') return outcome.candidateId;
+      if (outcome.outcome === 'sent' || outcome.outcome === 'idempotent') {
+        await tagRescuedTreeCandidate(outcome.candidateId).catch((err: unknown) =>
+          console.error('[claude-rescue] tree group tag failed:', err instanceof Error ? err.message : err),
+        );
+        return outcome.candidateId;
+      }
       console.error('[claude-rescue] admit failed:', outcome.outcome);
       return null;
     },

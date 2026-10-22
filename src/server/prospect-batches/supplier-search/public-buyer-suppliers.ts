@@ -39,6 +39,13 @@ export const PUBLIC_BUYER_SUPPLIER_COUNTRIES: readonly string[] = PUBLIC_BUYER_C
 /** Proveedores que se ofrecen como mucho (con y sin web). */
 export const PUBLIC_BUYER_MAX_SUPPLIERS = 12;
 /**
+ * AGENT1-SUPPLIER-SKIP-KNOWN-1 — cuántas de las primeras del orden se miran en SellUp para
+ * saltar las ya vistas (5 tandas de 12): repetir la búsqueda trae las siguientes.
+ */
+export const ALREADY_IN_SELLUP_LOOKAHEAD = PUBLIC_BUYER_MAX_SUPPLIERS * 5;
+/** Nombres de las ya vistas que se guardan para el resumen. */
+export const ALREADY_IN_SELLUP_NAMES_MAX = 5;
+/**
  * AGENT1-RESCUE-SIZE-UNFILTERED-1 — con el tamaño oficial a mano (Chile: trabajadores del
  * SII), las de menos de esto no se ofrecen (umbral aprobado de Chile) y las de más van
  * primero: el rescate de Claude busca su web en ese orden y su ventana es corta.
@@ -148,6 +155,12 @@ export type PublicBuyerStepOutcome =
       websitesByName?: number;
       /** AGENT1-SUPPLIER-FREQUENT-POLISH-1 — sin web y ya en el CRM: no se pagó su rescate. */
       knownInCrmSkipped?: number;
+      /**
+       * AGENT1-SUPPLIER-SKIP-KNOWN-1 — ya vistas en SellUp (candidata del país o revisada hace
+       * poco): se saltan para ofrecer las siguientes. Con sus primeros nombres, para el resumen.
+       */
+      alreadyInSellUpSkipped?: number;
+      alreadyInSellUpNames?: string[];
       /** AGENT1-SUPPLIER-RELOAD-1 — hasta cuándo llegan los datos cargados, y si ya están viejos. */
       dataWindowEnd?: string;
       dataStale?: boolean;
@@ -204,6 +217,13 @@ export type PublicBuyerStepDeps = {
    * error ⇒ todas van al rescate como antes.
    */
   findKnownInCrm?: (companies: ReadonlyArray<{ taxId: string; name: string }>) => Promise<ReadonlySet<string>>;
+  /**
+   * AGENT1-SUPPLIER-SKIP-KNOWN-1 — de estos números fiscales, cuáles ya vio SellUp: candidata
+   * del país en cualquier lote o revisada hace poco en Descartadas. Prod 22-10: repetir
+   * «frecuentes» México × Tecnología volvió con las mismas 12 y dejó 0 nuevas. Ausente o con
+   * error ⇒ no se salta ninguna (como antes).
+   */
+  listAlreadyInSellUp?: (taxIds: readonly string[]) => Promise<ReadonlySet<string>>;
   writeWithWebsite: (companies: readonly CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   recordWithoutWebsite: (companies: readonly CountrySourceCompany[]) => Promise<number>;
 };
@@ -396,6 +416,7 @@ async function offerPublicSuppliers(
     | 'findDomainsByTaxId'
     | 'findDomainsByName'
     | 'findKnownInCrm'
+    | 'listAlreadyInSellUp'
     | 'writeWithWebsite'
     | 'recordWithoutWebsite'
   >,
@@ -410,9 +431,21 @@ async function offerPublicSuppliers(
   // AGENT1-SUPPLIER-AUDIT-NOW-1 — los competidores de UBITS no son prospectos (como en la
   // ruta de Claude): por nombre antes de elegir y por sitio cuando se conoce.
   const competitorsByName = notPublic.filter((s) => !isKnownSmall(s) && isUbitsCompetitorName(s.name));
-  const shortlist = prioritizeLargeSuppliers(
-    notPublic.filter((s) => !isKnownSmall(s) && !isUbitsCompetitorName(s.name)),
-  ).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
+  const eligible = prioritizeLargeSuppliers(notPublic.filter((s) => !isKnownSmall(s) && !isUbitsCompetitorName(s.name)));
+  // AGENT1-SUPPLIER-SKIP-KNOWN-1 — las ya vistas en SellUp se saltan y entran las siguientes.
+  const lookahead = eligible.slice(0, ALREADY_IN_SELLUP_LOOKAHEAD);
+  const alreadyInSellUp =
+    lookahead.length > 0 && deps.listAlreadyInSellUp
+      ? await deps.listAlreadyInSellUp(lookahead.map((s) => s.taxId)).catch((err: unknown) => {
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] ya vistas en SellUp (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return new Set<string>();
+        })
+      : new Set<string>();
+  const skippedKnown = lookahead.filter((s) => alreadyInSellUp.has(s.taxId));
+  const shortlist = eligible.filter((s) => !alreadyInSellUp.has(s.taxId)).slice(0, PUBLIC_BUYER_MAX_SUPPLIERS);
   const byTaxId = shortlist.length > 0 ? await deps.findDomainsByTaxId(shortlist.map((s) => s.taxId)) : new Map<string, string>();
   // AGENT1-SUPPLIER-WEB-BY-NAME-1 — los que siguen sin web, por nombre exacto (gratis; si
   // falla, siguen sin web y van al rescate como antes).
@@ -488,6 +521,12 @@ async function offerPublicSuppliers(
     ubitsCompetitorsExcluded,
     websitesByName: offered.filter((s) => byName.has(s.taxId) && !byTaxId.has(s.taxId)).length,
     knownInCrmSkipped: missingWeb.filter((s) => knownInCrm.has(s.taxId)).length,
+    ...(skippedKnown.length > 0
+      ? {
+          alreadyInSellUpSkipped: skippedKnown.length,
+          alreadyInSellUpNames: skippedKnown.slice(0, ALREADY_IN_SELLUP_NAMES_MAX).map((s) => s.name),
+        }
+      : {}),
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
@@ -593,6 +632,7 @@ export type FrequentPublicStepDeps = Pick<
   | 'findDomainsByTaxId'
   | 'findDomainsByName'
   | 'findKnownInCrm'
+  | 'listAlreadyInSellUp'
   | 'writeWithWebsite'
   | 'recordWithoutWebsite'
 > & {
