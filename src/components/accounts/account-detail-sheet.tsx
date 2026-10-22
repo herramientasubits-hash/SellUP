@@ -47,6 +47,7 @@ import {
 } from '@/modules/accounts/types';
 import type { Contact, ContactsSummary } from '@/modules/contacts/types';
 import { AccountDetailActions } from './account-detail-actions';
+import { AccountOwnerHubSpotNotice } from './account-owner-hubspot-notice';
 import { AccountEnrichContactsButton } from './account-enrich-contacts-button';
 import type { ContactEnrichmentInitialCompany } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { ContactsTab } from '@/components/contacts/contacts-tab';
@@ -343,6 +344,7 @@ export function AccountDetailSheet({
               </DetailList>
             </SurfaceCard>
             </section>
+            <AccountOwnerHubSpotNotice ownerId={data.account.owner_id ?? null} metadata={data.account.metadata} />
 
           {/* Design Refresh v3: tabs alineados con el contenido (antes mx-7 mt-4
               sumaban al px-7 del cuerpo del drawer y quedaban indentados 28px más). */}
