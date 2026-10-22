@@ -71,7 +71,7 @@ function raw(overrides: Record<string, unknown> = {}) {
       { channel: 'call', text: 'Laura, le dejé un correo sobre la integración con Scotiabank.', fact_refs: ['F1'], variants: [] },
       {
         channel: 'email',
-        text: 'Asunto: Líderes tras la integración\nLaura, vi que integraron Scotiabank. En integraciones así cuesta que los jefes lideren igual. ¿Le sirve que le comparta cómo lo abordan otros bancos?',
+        text: 'Asunto: Líderes tras la integración\nLaura, vi que integraron Scotiabank. En integraciones así cuesta que los jefes lideren igual. ¿Le muestro cómo podría verse en su banco?',
         fact_refs: ['F1'],
         variants: [
           { approach: 'insight', text: 'Asunto: Habilidades y estrategia\nLaura, el 49 % de los líderes de talento dice que a su alta dirección le preocupa que la gente no tenga las habilidades para ejecutar la estrategia. ¿Le comparto lo que vemos en el sector?', fact_refs: [] },
