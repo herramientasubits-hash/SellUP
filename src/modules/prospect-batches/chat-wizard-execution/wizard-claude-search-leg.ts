@@ -77,6 +77,8 @@ export type ClaudeSearchLegOutcome =
       estimatedCostUsd: number;
       proposed: number;
       passedPreFilter: number;
+      /** «Competidores»: las que Claude propuso sin sitio web (sólo nombre y frase). */
+      withoutWebsite?: ReadonlyArray<{ name: string; evidence: string | null; sourceUrl: string | null }>;
     };
 
 /** La verdad del escritor del paso de Claude, en la forma que suma la aceptación final. */

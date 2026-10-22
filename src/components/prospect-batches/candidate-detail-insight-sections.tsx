@@ -10,6 +10,7 @@ import { DrawerSection } from '@/components/shared/drawer-section';
 import { InfoHint } from '@/components/shared/info-hint';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 import { sanitizeTextForChile, type HubSpotSyncAudit } from './candidate-detail-helpers';
+import { CompetitorCandidateActions } from './competitor-search/competitor-candidate-actions';
 
 interface CandidateFoundReasonSectionProps {
   searchTrace: Record<string, unknown> | undefined;
@@ -17,6 +18,8 @@ interface CandidateFoundReasonSectionProps {
   sourceSnippet: string | undefined;
   /** `metadata.relationship` de un candidato de «Proveedores» o «Competidores». */
   relationship?: Record<string, unknown> | undefined;
+  /** Con él, una competidora ofrece «Más como esta» y «Sus competidores». */
+  candidateId?: string;
 }
 
 /** Sólo enlaces http(s): la URL viene de la web y se pinta como `href`. */
@@ -36,6 +39,7 @@ export function CandidateFoundReasonSection({
   sourceTitle,
   sourceSnippet,
   relationship,
+  candidateId,
 }: CandidateFoundReasonSectionProps) {
   const referenceName =
     typeof relationship?.reference_company_name === 'string' ? relationship.reference_company_name : null;
@@ -99,6 +103,7 @@ export function CandidateFoundReasonSection({
             </DetailItem>
           )}
         </DetailList>
+        {competitorOf && candidateId && <CompetitorCandidateActions candidateId={candidateId} />}
         {!!searchTrace && (
           <DetailList columns={3} className="border-t border-border/50 pt-3">
             {searchTrace.round_number !== undefined && (

@@ -700,7 +700,9 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
       // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-      '155_import_apollo_saved_contact_phones.sql',
+      // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
+      '156_agent1_competitor_watches.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

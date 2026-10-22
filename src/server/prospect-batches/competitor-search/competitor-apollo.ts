@@ -44,6 +44,11 @@ import {
 export const COMPETITOR_APOLLO_PER_PAGE = 100;
 /** Página para hallar el ID de la referencia por su dominio: basta con pocas filas. */
 export const COMPETITOR_APOLLO_RESOLVE_PER_PAGE = 5;
+/**
+ * «Más como esta»: Apollo acepta hasta 5 semillas en `lookalike_organization_ids`
+ * (soporte 15-10): la referencia y las competidoras que el vendedor eligió.
+ */
+export const COMPETITOR_APOLLO_MAX_SEEDS = 5;
 /** Tope de la lista de exclusión de Apollo (`not_organization_websites_list`). */
 export const COMPETITOR_APOLLO_MAX_EXCLUDED_DOMAINS = 500;
 
@@ -52,6 +57,12 @@ export type CompetitorApolloStepInput = {
   countryCode: string;
   countryName: string;
   industryName: string;
+  /**
+   * «Más como esta»: dominios de competidoras ya elegidas que también sirven de
+   * semilla (además de la referencia; hasta `COMPETITOR_APOLLO_MAX_SEEDS` en total).
+   * Ausente ⇒ sólo la referencia (el último recurso de la corrida, como siempre).
+   */
+  seedDomains?: readonly string[];
 };
 
 export type CompetitorApolloPage = {
@@ -155,11 +166,21 @@ export function buildCompetitorApolloSearchBody(input: {
   };
 }
 
-/** Hallar el ID de Apollo de la referencia por su dominio (sin país ni exclusión). */
-export function buildCompetitorApolloResolveBody(domain: string | null | undefined): Record<string, unknown> | null {
-  const clean = cleanDomain(domain);
-  if (!clean) return null;
-  return { q_organization_domains_list: [clean], per_page: COMPETITOR_APOLLO_RESOLVE_PER_PAGE, page: 1 };
+/**
+ * Hallar el ID de Apollo de las semillas por su dominio (sin país ni exclusión), en
+ * UNA página: un solo crédito aunque sean varias (soporte 15-10).
+ */
+export function buildCompetitorApolloResolveBody(
+  domains: string | readonly (string | null | undefined)[] | null | undefined,
+): Record<string, unknown> | null {
+  const list = typeof domains === 'string' || domains == null ? [domains] : domains;
+  const clean = [...new Set(list.map(cleanDomain).filter((d): d is string => d !== null))].slice(0, COMPETITOR_APOLLO_MAX_SEEDS);
+  if (clean.length === 0) return null;
+  return {
+    q_organization_domains_list: clean,
+    per_page: Math.max(COMPETITOR_APOLLO_RESOLVE_PER_PAGE, clean.length * 2),
+    page: 1,
+  };
 }
 
 /**
@@ -167,13 +188,19 @@ export function buildCompetitorApolloResolveBody(domain: string | null | undefin
  * filtros como AND y no devuelve la semilla (soporte 15-10).
  */
 export function buildCompetitorApolloLookalikeBody(input: {
-  organizationId: string;
+  organizationId?: string;
+  /** «Más como esta»: varias semillas (hasta `COMPETITOR_APOLLO_MAX_SEEDS`). */
+  organizationIds?: readonly string[];
   location: string;
   excludeDomains: readonly string[];
 }): Record<string, unknown> {
   const excluded = cleanExclusion(input.excludeDomains);
+  const ids = [...new Set([...(input.organizationId ? [input.organizationId] : []), ...(input.organizationIds ?? [])])].slice(
+    0,
+    COMPETITOR_APOLLO_MAX_SEEDS,
+  );
   return {
-    lookalike_organization_ids: [input.organizationId],
+    lookalike_organization_ids: ids,
     organization_locations: [input.location],
     ...(excluded.length > 0 ? { not_organization_websites_list: excluded } : {}),
     per_page: COMPETITOR_APOLLO_PER_PAGE,
@@ -302,8 +329,13 @@ export async function runCompetitorApolloStep(
   try {
     if (!deps.isEnabled()) return done('skipped', 'apollo_disabled');
     const referenceDomain = cleanDomain(input.reference.domain);
+    // Semillas: la referencia y, en «Más como esta», las competidoras elegidas.
+    const seedDomains = [
+      ...new Set([referenceDomain, ...(input.seedDomains ?? []).map(cleanDomain)].filter((d): d is string => d !== null)),
+    ].slice(0, COMPETITOR_APOLLO_MAX_SEEDS);
     const hasKeywords = keywords.some((k) => k.trim());
-    if (!referenceDomain && !hasKeywords) return done('skipped', 'no_reference_domain_or_keywords');
+    if (seedDomains.length === 0 && !hasKeywords) return done('skipped', 'no_reference_domain_or_keywords');
+    if (input.seedDomains) telemetry.seed_domains = seedDomains;
     const location = deps.resolveLocation(input.countryCode, input.countryName);
     if (!location) return done('skipped', 'country_not_supported');
     if (!(await deps.checkQuota().catch(() => ({ allowed: false }))).allowed) return done('skipped', 'apollo_quota_unavailable');
@@ -334,7 +366,7 @@ export async function runCompetitorApolloStep(
     // El grupo va al final: si se pasa del tope de Apollo, lo recortado igual sale
     // en el filtro previo al juez.
     const exclusion = [
-      ...(referenceDomain ? [referenceDomain] : []),
+      ...seedDomains,
       ...excludeDomains,
       ...referenceExclusion.relatedDomains,
     ];
@@ -358,30 +390,30 @@ export async function runCompetitorApolloStep(
     // 1. Parecidas a la referencia (necesita su dominio para hallar el ID).
     let offered: ReturnType<typeof toCompetitorApolloJudgeItems> | null = null;
     let fallbackReason: string | null = null;
-    const resolveBody = buildCompetitorApolloResolveBody(referenceDomain);
+    const resolveBody = buildCompetitorApolloResolveBody(seedDomains);
     if (!resolveBody) {
       fallbackReason = 'no_reference_domain';
     } else {
       const resolved = await fetchPage('resolve', resolveBody);
       // Cobro desconocido ⇒ no se gasta más sin saber lo gastado (ni se repite la página).
       if (resolved.billingUnknown) return done('failed', 'apollo_billing_indeterminate');
-      const organizationId = resolved.ok
-        ? pickReferenceApolloOrganizationId(
-            // La referencia puede venir sólo en `accounts[]` (ya guardada en el workspace).
-            [...resolved.organizations, ...(resolved.accountOrganizations ?? [])],
-            referenceDomain!,
-          )
-        : null;
+      // La referencia puede venir sólo en `accounts[]` (ya guardada en el workspace).
+      const candidatesForId = [...resolved.organizations, ...(resolved.accountOrganizations ?? [])];
+      const organizationIds = resolved.ok
+        ? [...new Set(seedDomains.map((d) => pickReferenceApolloOrganizationId(candidatesForId, d)).filter((id): id is string => !!id))]
+        : [];
+      const organizationId = referenceDomain && resolved.ok ? pickReferenceApolloOrganizationId(candidatesForId, referenceDomain) : null;
       telemetry.reference_apollo_id = organizationId;
+      if (input.seedDomains) telemetry.seed_apollo_ids = organizationIds;
       if (organizationId && !resolved.organizations.some((org) => org.id === organizationId)) {
         telemetry.reference_apollo_id_source = 'accounts';
       }
-      if (!organizationId) {
+      if (organizationIds.length === 0) {
         fallbackReason = resolved.ok ? 'reference_not_found_in_apollo' : 'resolve_failed';
       } else {
         const lookalikes = await fetchPage(
           'lookalikes',
-          buildCompetitorApolloLookalikeBody({ organizationId, location, excludeDomains: exclusion }),
+          buildCompetitorApolloLookalikeBody({ organizationIds, location, excludeDomains: exclusion }),
         );
         if (lookalikes.billingUnknown) return done('failed', 'apollo_billing_indeterminate');
         const items = lookalikes.ok
