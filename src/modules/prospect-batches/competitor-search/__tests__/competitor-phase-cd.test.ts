@@ -496,6 +496,23 @@ describe('I — calidad por fuente y referencia', () => {
     assert.equal(competitorApprovalRate(quality.byReference[0]), 2 / 3);
     assert.equal(competitorApprovalRate({ found: 1, approved: 0, notCompetitor: 0, small: 0, inReview: 1 }), null);
   });
+
+  it('I2: las que trae Apollo cuentan como Apollo aunque se guarden como web_ai (QA Prod 22-10)', () => {
+    const apolloTrace = { search_trace: { query_text: 'competitor_apollo', query_type: 'standard' } };
+    const quality = buildCompetitorQuality(
+      [{ id: 'b1', reference_name: 'VECOL S.A.' }],
+      [
+        { batch_id: 'b1', status: 'needs_review', source_primary: 'web_ai', review_notes: null, metadata: apolloTrace },
+        { batch_id: 'b1', status: 'approved', source_primary: 'web_ai', review_notes: null, metadata: apolloTrace },
+        { batch_id: 'b1', status: 'approved', source_primary: 'web_ai', review_notes: null, metadata: { search_trace: { query_text: 'competidores de VECOL' } } },
+      ],
+    );
+    const bySource = Object.fromEntries(quality.bySource.map((r) => [r.source, r]));
+    assert.equal(bySource.apollo.found, 2);
+    assert.equal(bySource.apollo.approved, 1);
+    assert.equal(bySource.apollo.inReview, 1);
+    assert.equal(bySource.web.found, 1);
+  });
 });
 
 // ── J ─────────────────────────────────────────────────────────────────────────
