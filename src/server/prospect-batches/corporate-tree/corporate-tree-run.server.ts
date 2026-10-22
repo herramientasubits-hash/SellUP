@@ -72,6 +72,7 @@ import { APOLLO_COUNTRY_LOCATION_BY_CODE } from '@/server/agents/prospecting-too
 import { isAgent1CorporateTreeApolloEnabled } from '@/lib/feature-flags.server';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { readHubSpotCompanyAvailabilityById } from '@/server/integrations/hubspot-free-company-pool.server';
+import { searchHubSpotCompanyIdsByExactDomain } from '@/server/integrations/hubspot-company-search';
 import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
 import type { CorporateTreeGroupMemberStatus } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { APOLLO_PRICING_METADATA_KEY, toApolloPricingMetadata } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
@@ -487,6 +488,9 @@ export function buildLiveCorporateTreeDeps(params: {
 
     // FASE D — SÓLO lectura de HubSpot (la regla de «libre» de la bolsa: cliente, negocio
     // abierto, actividad reciente, dueño activo). Nunca escribe.
+    // FASE D — SÓLO lectura: la ficha de HubSpot por la web exacta de una empresa del grupo.
+    findHubSpotIdsByDomain: (domain) => searchHubSpotCompanyIdsByExactDomain(domain),
+
     readGroupHubSpotStatus: async (ids) => {
       const hubspotLimit = limiter(GROUP_HUBSPOT_CONCURRENCY);
       const entries = await Promise.all(

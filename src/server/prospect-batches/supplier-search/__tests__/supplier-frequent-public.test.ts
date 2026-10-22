@@ -99,8 +99,9 @@ describe('1. el paso: empresas que le venden a varias entidades', () => {
     assert.equal(outcome.buyer.name, FREQUENT_PUBLIC_REFERENCE_LABEL);
     assert.equal(outcome.offered, 2);
     assert.deepEqual(written, ['TELEFONIA NACIONAL SA', 'SOFTWARE DEL NORTE SA']);
-    assert.equal(outcome.relationships[0].referenceName, 'IMSS, ISSSTE, SICT y 4 más');
-    assert.equal(outcome.relationships[1].referenceName, 'IMSS, SAT y CFE');
+    // AGENT1-SUPPLIER-FREQUENT-POLISH-1 — corto: el número y las dos de más monto.
+    assert.equal(outcome.relationships[0].referenceName, '7 entidades públicas (IMSS, ISSSTE)');
+    assert.equal(outcome.relationships[1].referenceName, '3 entidades públicas (IMSS, SAT)');
     assert.match(outcome.relationships[0].evidence, /^Le vende a 7 entidades públicas de México, entre ellas IMSS, ISSSTE, SICT: 14 contratos/);
   });
 
@@ -370,4 +371,97 @@ describe('6. migración 154: la segunda función también es de sólo lectura', 
     assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.list_frequent_public_procurement_suppliers[^;]+TO service_role/);
     assert.equal((sql.match(/SECURITY INVOKER/g) ?? []).length, 2);
   });
+});
+
+describe('AGENT1-SUPPLIER-FREQUENT-POLISH-1 — «Proveedor de» corto y no pagar el rescate de las ya conocidas', () => {
+  it('cada entidad larga se corta en una palabra completa, sin cambiar sus mayúsculas', () => {
+    const text = describeFrequentBuyers(
+      supplier('X', 'X', 29, [
+        'BANCO NACIONAL DEL EJERCITO, FUERZA AEREA Y ARMADA, S.N.C.',
+        'CENTRO DE INVESTIGACION Y DE ESTUDIOS AVANZADOS DEL INSTITUTO POLITECNICO NACIONAL',
+        'SOCIEDAD HIPOTECARIA FEDERAL',
+      ]),
+      'México',
+    );
+    assert.equal(text, '29 entidades públicas (BANCO NACIONAL DEL EJERCITO…, CENTRO DE INVESTIGACION Y DE…)');
+  });
+
+  it('las que ya están en HubSpot no van al rescate (se cuentan aparte); las demás sí', async () => {
+    const { deps } = stepDeps([
+      supplier('MAI0101AA1', 'MAINBIT SA DE CV', 5, ['IMSS']),
+      supplier('CIC0101BB2', 'CICOVISA SA DE CV', 4, ['SAT']),
+    ]);
+    const rescued: string[] = [];
+    const asked: string[] = [];
+    const outcome = await runFrequentPublicSupplierStep(STEP_INPUT, {
+      ...deps,
+      findDomainsByTaxId: async () => new Map(),
+      recordWithoutWebsite: async (companies) => {
+        rescued.push(...companies.map((c) => c.legalName ?? ''));
+        return companies.length;
+      },
+      findKnownInCrm: async (companies) => {
+        asked.push(...companies.map((c) => c.taxId));
+        return new Set(['MAI0101AA1']);
+      },
+    });
+    assert.equal(outcome.executed, true);
+    if (!outcome.executed) return;
+    assert.deepEqual(asked, ['MAI0101AA1', 'CIC0101BB2']);
+    assert.deepEqual(rescued, ['CICOVISA SA DE CV']);
+    assert.equal(outcome.knownInCrmSkipped, 1);
+  });
+
+  it('si HubSpot falla, nada se salta: todas van al rescate', async () => {
+    const { deps } = stepDeps([supplier('CIC0101BB2', 'CICOVISA SA DE CV', 4, ['SAT'])]);
+    const rescued: string[] = [];
+    const outcome = await runFrequentPublicSupplierStep(STEP_INPUT, {
+      ...deps,
+      findDomainsByTaxId: async () => new Map(),
+      recordWithoutWebsite: async (companies) => {
+        rescued.push(...companies.map((c) => c.legalName ?? ''));
+        return companies.length;
+      },
+      findKnownInCrm: async () => {
+        throw new Error('hubspot_down');
+      },
+    });
+    assert.deepEqual(rescued, ['CICOVISA SA DE CV']);
+    assert.equal(outcome.executed && outcome.knownInCrmSkipped, 0);
+  });
+
+  it('en HubSpot sólo cuenta el mismo número fiscal o el mismo nombre; un parecido no', async () => {
+    const { findSuppliersKnownInHubSpot } = await import('../public-buyer-suppliers.server');
+    const matches: Record<string, { nit: string | null; name: string } | null> = {
+      'MAI0101AA1': { nit: 'MAI-0101-AA1', name: 'Otro nombre' },
+      'TEC0101CC3': { nit: null, name: 'Tec Pluss S.A. de C.V.' },
+      'SIN0101DD4': { nit: null, name: 'Sinteg Consultores Asociados' },
+      'NOP0101EE5': null,
+    };
+    const known = await findSuppliersKnownInHubSpot(
+      [
+        { taxId: 'MAI0101AA1', name: 'MAINBIT SA DE CV' },
+        { taxId: 'TEC0101CC3', name: 'TEC PLUSS SA DE CV' },
+        { taxId: 'SIN0101DD4', name: 'SINTEG SA DE CV' },
+        { taxId: 'NOP0101EE5', name: 'NADIE SA' },
+      ],
+      'MX',
+      (async ({ taxId }: { taxId?: string | null }) => {
+        const match = matches[taxId ?? ''];
+        return { match } as never;
+      }) as never,
+    );
+    assert.deepEqual([...known].sort(), ['MAI0101AA1', 'TEC0101CC3']);
+  });
+});
+
+describe('AGENT1-SUPPLIER-FREQUENT-POLISH-1 — el texto no dice «gratis» a secas', () => {
+  const root = join(process.cwd(), 'src/components/prospect-batches/chat-wizard');
+  for (const file of ['wizard-conversation-summary.tsx', 'wizard-active-step.tsx', 'supplier-reference-suggestions.tsx']) {
+    it(file, () => {
+      const source = readFileSync(join(root, file), 'utf8');
+      assert.doesNotMatch(source, /Es gratis; nada se aprueba|Gratis, en \$\{|salen gratis/);
+      assert.match(source, /unos centavos por empresa/);
+    });
+  }
 });

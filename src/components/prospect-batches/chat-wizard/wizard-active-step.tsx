@@ -26,7 +26,7 @@ const FREQUENT_PUBLIC_OPTION_VALUE = '__frequent_public__';
 const FREQUENT_PUBLIC_OPTION: ChatQuestionOptionDetail = {
   value: FREQUENT_PUBLIC_OPTION_VALUE,
   label: 'Sin empresa: proveedores frecuentes del Estado',
-  description: `Empresas que le venden a 3 o más entidades públicas, con el contrato como prueba. Gratis, en ${FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.length} países.`,
+  description: `Empresas que le venden a 3 o más entidades públicas, con el contrato como prueba, en ${FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.length} países. Leerlas es gratis; buscar la web de las que no la traen cuesta unos centavos por empresa.`,
 };
 import type {
   ProspectWizardState,
@@ -653,7 +653,13 @@ function AdditionalCriteriaStep({
       title="¿Hay alguna característica adicional que debamos tener en cuenta?"
       // AGENT1-CRITERIA-QUICK-WINS-1 — el tamaño NO es un criterio libre: está fijo en
       // más de 200 empleados. Ofrecerlo aquí prometía un filtro que nadie aplicaba.
-      description="Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados."
+      // Dueña 22-10: ese tope es de la búsqueda por criterios; en «Proveedores» y
+      // «Competidores» el tamaño se filtra distinto, así que allí no se promete.
+      description={
+        state.searchMode === 'exploratory' || state.searchMode === null
+          ? 'Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados.'
+          : 'Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento…'
+      }
       titleRef={titleRef}
       options={[CRITERIA_NO]}
       onAnswer={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}

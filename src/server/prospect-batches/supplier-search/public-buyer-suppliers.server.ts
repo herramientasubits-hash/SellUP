@@ -11,6 +11,42 @@ import { persistCountrySourceCandidates } from '@/server/prospect-batches/countr
 import { buildUnverifiedFreeDispositionRows } from '@/server/prospect-batches/country-source-discovery/free-source-unverified';
 import type { FrequentPublicStepDeps, PublicBuyerStepDeps, TaggableCandidate } from './public-buyer-suppliers';
 import { publicBuyerCountryLookups } from './countries/index.server';
+import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
+import { normalizeCompanyName } from '@/server/agents/prospecting-toolkit/normalization';
+
+/** Consultas a HubSpot a la vez antes del rescate (cada una son hasta 3 búsquedas). */
+const CRM_CHECK_CONCURRENCY = 3;
+
+function compactTaxId(raw: string | null | undefined): string {
+  return (raw ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+/**
+ * AGENT1-SUPPLIER-FREQUENT-POLISH-1 — ¿ya está en HubSpot? Sólo con certeza: el mismo número
+ * fiscal o el MISMO nombre normalizado (un parecido no basta para dejar de buscarla).
+ * Sólo lectura. HubSpot sin conectar o con error ⇒ «no se sabe» (va al rescate).
+ */
+export async function findSuppliersKnownInHubSpot(
+  companies: ReadonlyArray<{ taxId: string; name: string }>,
+  countryCode: string,
+  check: typeof checkHubSpotCompanyCommercialStatus = checkHubSpotCompanyCommercialStatus,
+): Promise<Set<string>> {
+  const known = new Set<string>();
+  const queue = [...companies];
+  const worker = async () => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      const result = await check({ name: next.name, taxId: next.taxId, countryCode }).catch(() => null);
+      const match = result?.match;
+      if (!match) continue;
+      const sameTaxId = compactTaxId(match.nit) !== '' && compactTaxId(match.nit) === compactTaxId(next.taxId);
+      const wanted = normalizeCompanyName(next.name);
+      const sameName = wanted !== '' && normalizeCompanyName(match.name ?? '') === wanted;
+      if (sameTaxId || sameName) known.add(next.taxId);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CRM_CHECK_CONCURRENCY, queue.length) }, worker));
+  return known;
+}
 
 function logError(step: string, error: unknown): void {
   console.error(`[supplier-public-buyer] ${step}:`, error instanceof Error ? error.message : (error as { message?: string })?.message ?? String(error));
@@ -27,7 +63,8 @@ export function buildLivePublicBuyerStepDeps(params: {
   macroIndustryKey: string;
   requestedByUserId: string;
 }): PublicBuyerStepDeps & { listFrequentSuppliers?: FrequentPublicStepDeps['listFrequentSuppliers'] } {
-  const writers: Pick<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite'> = {
+  const writers: Pick<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite' | 'findKnownInCrm'> = {
+    findKnownInCrm: (companies) => findSuppliersKnownInHubSpot(companies, params.countryCode),
     writeWithWebsite: async (companies) => {
       const result = await persistCountrySourceCandidates(params.sessionClient, {
         companies,
@@ -76,6 +113,7 @@ export function buildLiveFrequentPublicStepDeps(
     listPublicOnlyTaxIds: deps.listPublicOnlyTaxIds,
     findDomainsByTaxId: deps.findDomainsByTaxId,
     ...(deps.findDomainsByName ? { findDomainsByName: deps.findDomainsByName } : {}),
+    ...(deps.findKnownInCrm ? { findKnownInCrm: deps.findKnownInCrm } : {}),
     writeWithWebsite: deps.writeWithWebsite,
     recordWithoutWebsite: deps.recordWithoutWebsite,
     listFrequentSuppliers: deps.listFrequentSuppliers,

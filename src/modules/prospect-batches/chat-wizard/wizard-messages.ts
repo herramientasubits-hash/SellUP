@@ -376,7 +376,9 @@ export function deriveWizardMessages(
 
   // ── Summary ───────────────────────────────────────────────────────────────
   // Requested count is system-controlled, not user-selectable
-  if (hasReached(state.currentStep, 'summary')) {
+  // Dueña 22-10: el resumen sólo se ve mientras se revisa; al validar se oculta y
+  // «Esto es lo que entendí…» quedaba colgando sin nada debajo.
+  if (state.currentStep === 'summary') {
     messages.push({
       id: 'assistant-summary',
       role: 'assistant',
@@ -409,7 +411,8 @@ export function deriveWizardMessages(
       role: 'assistant',
       messageType: 'confirmation',
       content:
-        'La búsqueda fue validada correctamente. Puedes buscar empresas candidatas. Los resultados serán de solo lectura y todavía no se guardarán en SellUp.',
+        // Dueña 22-10: decía «de solo lectura… no se guardarán en SellUp», y sí se guardan.
+        'La búsqueda está lista. Lo que encontremos quedará en «Por revisar» para que lo apruebes: nada se aprueba solo.',
       step: 'validated',
     });
   }
