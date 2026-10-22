@@ -588,8 +588,10 @@ describe('4O-E4.1 estático — alcance', () => {
       // ni introducen procedencia del escalar móvil. AUTORADAS y NO APLICADAS.
       // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
       // una tabla nueva `agent1_competitor_watches` (sólo service_role); no ASIGNA `mobile_phone`.
-      156,
-      'la 156 (las referencias seguidas de Competidores, AGENT1-COMPETITOR-WATCH-1; nunca escribe `mobile_phone`) es la última',
+      // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice; no ASIGNA `mobile_phone`.
+      157,
+      'la 157 (las columnas de nivel del árbol de empresa, AGENT1-CORPORATE-TREE-PHASE-C; nunca escribe `mobile_phone`) es la última',
     );
   });
 

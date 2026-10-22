@@ -1461,7 +1461,9 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // Not BR-SOURCE, Receita/CNPJ or the catalog. AUTHORED and NOT APPLIED.
     // AGENT1-COMPETITOR-WATCH-1 moves the ceiling to 156 (table of followed Competitors references; no phones, contacts, budget or HubSpot).
     // Not BR-SOURCE, Receita/CNPJ or the catalog.
-    assert.equal(numbered[numbered.length - 1], '156_agent1_competitor_watches.sql');
+    // AGENT1-CORPORATE-TREE-PHASE-C moves the ceiling to 157 (level columns on agent1_company_relationships; no phones, contacts, budget or HubSpot).
+    // Not BR-SOURCE, Receita/CNPJ or the catalog.
+    assert.equal(numbered[numbered.length - 1], '157_agent1_company_relationships_levels.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

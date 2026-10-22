@@ -79,6 +79,7 @@ export function serializeSavedTree(params: {
       evidence_url: n.evidenceUrl,
       ...(n.websiteUnverified ? { website_unverified: true } : {}),
       ...(n.employeeCount ? { employee_count: n.employeeCount } : {}),
+      ...(n.parentName ? { parent_name: n.parentName } : {}),
     })),
     apollo_subsidiaries: params.apolloSubsidiaries
       ? params.apolloSubsidiaries.slice(0, SAVED_APOLLO_MAX).map((s) => ({
@@ -153,6 +154,7 @@ function readNode(raw: unknown): CorporateTreeNode | null {
     evidenceUrl: httpUrl(node['evidence_url']) ?? '',
     ...(web.website && node['website_unverified'] === true ? { websiteUnverified: true } : {}),
     ...(employees ? { employeeCount: employees } : {}),
+    ...(text(node['parent_name'], 200) ? { parentName: text(node['parent_name'], 200) } : {}),
   };
 }
 

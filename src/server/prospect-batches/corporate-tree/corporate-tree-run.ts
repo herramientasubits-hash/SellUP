@@ -81,6 +81,8 @@ export type CorporateTreeRequest = {
   countries: TreeCountry[];
   /** `true` = no reutilizar el árbol guardado: buscar (y pagar) de nuevo. */
   refresh?: boolean;
+  /** FASE C — la fila del árbol de arriba desde la que se buscó este árbol. */
+  parentRelationshipId?: string | null;
 };
 
 export type CorporateTreeRequestError = 'invalid_request' | 'root_name_required' | 'branches_required' | 'countries_required';
@@ -127,6 +129,7 @@ export function parseCorporateTreeRequest(raw: unknown): { ok: true; request: Co
       branches,
       countries: countries.map((c) => ({ code: c.code, name: c.name })),
       refresh: body.refresh === true,
+      parentRelationshipId: optionalUuid(body.parentRelationshipId),
     },
   };
 }
@@ -172,6 +175,11 @@ export type CorporateTreeRelationshipRow = {
   evidence_url: string | null;
   matched_hubspot_company_id: string | null;
   created_by: string;
+  /** FASE C (157) — de qué empresa del grupo depende directamente. */
+  parent_name: string | null;
+  /** FASE C (157) — la fila del árbol de arriba y el nivel (1 = búsqueda directa). */
+  parent_relationship_id: string | null;
+  depth: number;
 };
 
 export type CorporateTreeReservation = { status: 'reserved' | 'already_reserved'; batchId: string };
@@ -251,6 +259,11 @@ export type CorporateTreeRunDeps = {
    * `null` = HubSpot no respondió.
    */
   findHubSpotIdsByDomain?: (domain: string) => Promise<string[] | null>;
+  /**
+   * FASE C — el nivel de la fila del árbol de arriba (para poner el árbol nuevo debajo).
+   * `null` = no existe o no se pudo leer (el árbol queda en el nivel 1, sin padre).
+   */
+  loadParentRelationship?: (id: string) => Promise<{ id: string; depth: number } | null>;
   /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
   recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
@@ -789,8 +802,9 @@ async function runAfterReservation(
   const loaded = loadedOutcome.settled ? loadedOutcome.value : null;
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
+  const parentLink = await readParentLink(request, deps, sealStartAtMs);
   const relationshipRows = await withHubSpotIdsByDomain(
-    buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }),
+    buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId, parentLink }),
     deps,
     sealStartAtMs,
   );
@@ -809,6 +823,7 @@ async function runAfterReservation(
         group_website: row.groupWebsite,
         ...(row.websiteUnverified ? { website_unverified: true } : {}),
         ...(row.foundInApollo ? { found_in_apollo: true } : {}),
+        ...(row.parentName ? { parent_name: row.parentName } : {}),
         // Sólo las que el vendedor tiene que trabajar (las de «Por revisar»).
         ...(groupOpportunity && candidate.status === 'needs_review' ? { group_opportunity: groupOpportunity } : {}),
       };
@@ -1070,6 +1085,26 @@ async function findSavedTree(
   });
 }
 
+/** Como mucho, niveles del árbol (el de la búsqueda directa es el 1). Lo fija la 157. */
+export const CORPORATE_TREE_MAX_DEPTH = 4;
+
+/** El enlace con el árbol de arriba cuando se buscó desde una filial (FASE C). */
+export type CorporateTreeParentLink = { relationshipId: string; depth: number };
+
+async function readParentLink(
+  request: CorporateTreeRequest,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeParentLink | null> {
+  if (!request.parentRelationshipId || !deps.loadParentRelationship) return null;
+  const read = await settleBy(deps.loadParentRelationship(request.parentRelationshipId).catch(() => null), deadlineAtMs, deps.nowMs);
+  const parent = read.settled ? read.value : null;
+  if (!parent) return null;
+  // Más abajo del tope no se cuelga: queda como árbol suelto (nivel 1).
+  const depth = parent.depth + 1;
+  return depth <= CORPORATE_TREE_MAX_DEPTH ? { relationshipId: parent.id, depth } : null;
+}
+
 /** Una asociación por fila planeada (también las que ya estaban en HubSpot o quedaron sin web). */
 export function buildRelationshipRows(params: {
   rows: readonly CorporateTreePlannedRow[];
@@ -1078,6 +1113,7 @@ export function buildRelationshipRows(params: {
   runId: string;
   batchId: string;
   createdBy: string;
+  parentLink?: CorporateTreeParentLink | null;
 }): CorporateTreeRelationshipRow[] {
   const { rows, matched, root } = params;
   const rootRow = rows.find((r) => r.relation === 'root');
@@ -1102,6 +1138,9 @@ export function buildRelationshipRows(params: {
       matched_hubspot_company_id:
         candidate?.matched_hubspot_company_id ?? (row.route === 'already_known' ? row.knownHubspotCompanyId ?? null : null),
       created_by: params.createdBy,
+      parent_name: row.relation === 'root' ? null : (row.parentName ?? null),
+      parent_relationship_id: params.parentLink?.relationshipId ?? null,
+      depth: params.parentLink?.depth ?? 1,
     };
   });
 }

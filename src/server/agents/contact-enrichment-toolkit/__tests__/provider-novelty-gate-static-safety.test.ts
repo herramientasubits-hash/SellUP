@@ -222,7 +222,9 @@ describe('modelo de datos — sin migración nueva', () => {
     // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
     // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 156, 'el techo conocido es la 156');
+    // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 157, 'el techo conocido es la 157');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

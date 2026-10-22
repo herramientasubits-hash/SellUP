@@ -222,6 +222,7 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
       branches,
       countryCodes,
       ...(refresh ? { refresh: true } : {}),
+      ...(root.parentRelationshipId ? { parentRelationshipId: root.parentRelationshipId } : {}),
     };
     const store = getAgentRunsStore();
     try {

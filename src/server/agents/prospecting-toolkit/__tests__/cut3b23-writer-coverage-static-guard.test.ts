@@ -428,7 +428,12 @@ const SAVED_CONTACT_PHONES_MIGRATION = '155_import_apollo_saved_contact_phones.s
 // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
 // una tabla nueva `agent1_competitor_watches` (sólo service_role). No toca el registro de identidad
 // del lote ni la valla; se policía por CONTENIDO justo abajo del techo. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '156_agent1_competitor_watches.sql';
+const COMPETITOR_WATCHES_MIGRATION = '156_agent1_competitor_watches.sql';
+// AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+// tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. No toca el
+// registro de identidad del lote ni la valla; se policía por CONTENIDO justo abajo del techo,
+// igual que la 156. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '157_agent1_company_relationships_levels.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -814,12 +819,15 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // pruebas dedicadas.
     // AGENT1-COMPETITOR-WATCH-1 lo movió a la 156 (`agent1_competitor_watches`), policiada por
     // CONTENIDO aquí mismo: no nombra ninguna tabla de CUT-3B23.
-    assert.ok(last.startsWith('156'), `última migración inesperada: ${last}`);
+    // AGENT1-CORPORATE-TREE-PHASE-C lo movió a la 157 (columnas de nivel en
+    // `agent1_company_relationships`), policiada por CONTENIDO igual que la 156.
+    assert.ok(last.startsWith('157'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(SAVED_CONTACT_PHONES_MIGRATION));
-    {
-      const competitorWatches = readFileSync(
-        join(REPO_ROOT, 'supabase', 'migrations', REPOSITORY_CEILING),
+    assert.ok(migrations.includes(COMPETITOR_WATCHES_MIGRATION));
+    for (const policed of [COMPETITOR_WATCHES_MIGRATION, REPOSITORY_CEILING]) {
+      const policedSql = readFileSync(
+        join(REPO_ROOT, 'supabase', 'migrations', policed),
         'utf8',
       );
       for (const foreignTable of [
@@ -830,9 +838,9 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
         'wizard_monthly_budget_periods',
       ]) {
         assert.equal(
-          competitorWatches.includes(foreignTable),
+          policedSql.includes(foreignTable),
           false,
-          `${REPOSITORY_CEILING} toca ${foreignTable}: dejaría de ser ajena a CUT-3B23`,
+          `${policed} toca ${foreignTable}: dejaría de ser ajena a CUT-3B23`,
         );
       }
     }

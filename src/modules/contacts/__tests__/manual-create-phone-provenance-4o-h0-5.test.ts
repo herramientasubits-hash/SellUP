@@ -702,7 +702,9 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
       // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
       // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
-      '156_agent1_competitor_watches.sql',
+      // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
+      '157_agent1_company_relationships_levels.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

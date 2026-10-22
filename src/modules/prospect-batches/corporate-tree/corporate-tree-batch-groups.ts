@@ -19,6 +19,14 @@ import {
 
 /** Una asociación guardada del lote (`agent1_company_relationships`). */
 export type CorporateTreeBatchRelationship = {
+  /** Su id (con la 157 aplicada): para buscar el árbol de esa empresa un nivel abajo. */
+  id?: string | null;
+  /** FASE C (157): de qué empresa del grupo depende directamente. */
+  parent_name?: string | null;
+  /** FASE C (157): la fila del árbol de arriba, si este lote es una rama de otro. */
+  parent_relationship_id?: string | null;
+  /** FASE C (157): nivel del árbol (1 = búsqueda directa). */
+  depth?: number | null;
   related_candidate_id: string | null;
   related_name: string;
   related_country_code: string | null;
@@ -132,6 +140,11 @@ export type CorporateTreeBatchItem = {
   websiteUnverified?: boolean;
   /** Filial y web según Apollo (filiales de la empresa de partida). */
   foundInApollo?: boolean;
+  /** FASE C — de qué empresa del grupo depende directamente (`null` = de la empresa de partida). */
+  parentName?: string | null;
+  /** FASE C — la fila de la asociación (para «Buscar su árbol») y su nivel. */
+  relationshipId?: string | null;
+  depth?: number;
 };
 
 export type CorporateTreeBatchGroup = {
@@ -223,6 +236,9 @@ export function groupBatchCandidatesByTreeRelation(
         str(((candidate.metadata?.['parent_group_website'] ?? {}) as Record<string, unknown>).website),
       ...(tree.website_unverified === true ? { websiteUnverified: true } : {}),
       ...(tree.found_in_apollo === true ? { foundInApollo: true } : {}),
+      parentName: str(tree.parent_name) ?? str(rel?.parent_name) ?? null,
+      relationshipId: rel?.id ?? null,
+      depth: rel?.depth ?? 1,
     });
   }
 
@@ -259,6 +275,9 @@ export function groupBatchCandidatesByTreeRelation(
       relationDetail: rel.relation_detail,
       evidenceUrl: rel.evidence_url,
       groupWebsite: rel.related_domain && !rel.own_website ? `https://${rel.related_domain}` : null,
+      parentName: str(rel.parent_name) ?? null,
+      relationshipId: rel.id ?? null,
+      depth: rel.depth ?? 1,
     });
   }
 
@@ -331,4 +350,45 @@ export function rescueCostNote(waitingWebsite: number): string {
   if (waitingWebsite <= 0) return '';
   const usd = (waitingWebsite * CORPORATE_TREE_RESCUE_SEARCH_ESTIMATE_USD).toFixed(2).replace('.', ',');
   return `Buscar su web cuesta hasta ~US$${usd}; no se vuelve a pagar la de una empresa ya buscada sin éxito en los últimos 30 días.`;
+}
+
+/** Un nudo de la vista de árbol del lote (FASE C). */
+export type CorporateTreeNodeView = {
+  item: CorporateTreeBatchItem;
+  relation: CorporateTreeRelation;
+  relationLabel: string;
+  children: CorporateTreeNodeView[];
+};
+
+/**
+ * FASE C — el lote como ÁRBOL: la empresa de partida arriba; cada empresa debajo de la que
+ * depende directamente (`parentName`, si está en el lote) o, si no, debajo de la partida.
+ * Nunca hace ciclos: un padre que terminaría colgando de su propio hijo se ignora. Puro.
+ */
+export function buildCorporateTreeHierarchy(groups: readonly CorporateTreeBatchGroup[]): CorporateTreeNodeView[] {
+  const nodes: CorporateTreeNodeView[] = groups.flatMap((group) =>
+    group.items.map((item) => ({ item, relation: group.relation, relationLabel: group.label, children: [] })),
+  );
+  const byName = new Map<string, CorporateTreeNodeView>();
+  for (const node of nodes) {
+    const key = normalizeTreeName(node.item.name);
+    if (key && !byName.has(key)) byName.set(key, node);
+  }
+  const roots = nodes.filter((n) => n.relation === 'root');
+  const parentOf = new Map<CorporateTreeNodeView, CorporateTreeNodeView>();
+  const isAncestor = (candidate: CorporateTreeNodeView, of: CorporateTreeNodeView): boolean => {
+    for (let at: CorporateTreeNodeView | undefined = candidate; at; at = parentOf.get(at)) if (at === of) return true;
+    return false;
+  };
+  for (const node of nodes) {
+    if (node.relation === 'root') continue;
+    const named = node.item.parentName ? byName.get(normalizeTreeName(node.item.parentName)) : undefined;
+    const parent = named && named !== node && !isAncestor(named, node) ? named : roots[0];
+    if (parent && parent !== node) parentOf.set(node, parent);
+  }
+  const order = (a: CorporateTreeNodeView, b: CorporateTreeNodeView) =>
+    CORPORATE_TREE_RELATION_ORDER.indexOf(a.relation) - CORPORATE_TREE_RELATION_ORDER.indexOf(b.relation) ||
+    a.item.name.localeCompare(b.item.name, 'es');
+  for (const [child, parent] of [...parentOf].sort(([a], [b]) => order(a, b))) parent.children.push(child);
+  return nodes.filter((n) => !parentOf.has(n)).sort(order);
 }
