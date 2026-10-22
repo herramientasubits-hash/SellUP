@@ -348,8 +348,31 @@ export function numberSources(facts: readonly ResearchFact[]): string[] {
   ];
 }
 
+/**
+ * Terceros: «otros/otras…» (no «sus otros equipos») o «empresas, equipos, negocios… de su
+ * tamaño / de su rubro / como la suya / similares». Sobre texto sin tildes y en minúscula.
+ */
+const THIRD_PARTY =
+  '((?<!\\bsus |\\bnuestr[oa]s )\\botr[oa]s\\b|\\b(empresas|equipos|negocios|compa[nñ]ias|organizaciones|marcas|lideres|gerentes|colegas)\\b[^?!.\\n]{0,30}\\b(de su (tamano|rubro|sector|tipo|industria|perfil)|del (sector|rubro)|como la suya|como ustedes|como binga|similares|parecid[oa]s|en su (rubro|sector)))';
+
+/**
+ * La raíz de los clientes inventados (Binga!, 3 corridas en Prod 21/22-10): ofrecer contar lo
+ * que hacen otros, con cualquier verbo y cualquier forma de nombrarlos («¿le comparto cómo
+ * otros equipos de su tamaño aceleran…?», «cómo otros en su rubro lo están resolviendo»,
+ * «cómo empresas de consumo masivo de su tamaño lo resuelven»). UBITS no puede respaldarlo.
+ */
+const THIRD_PARTY_CLAIMS: readonly RegExp[] = [
+  // «le comparto / le muestro / le cuento cómo (lo hacen) [terceros]…»
+  new RegExp(`\\b(compart\\w*|muestr\\w*|mostrar\\w*|cuent[eo]|contarle|contar|ensen\\w*|traig\\w*|llevo)\\b[^?!\\n]{0,25}\\b(como|lo que|que (estan|hacen|hicieron|han hecho|usan))\\b[^?!\\n]{0,40}${THIRD_PARTY}`),
+  // «[terceros] … lo están resolviendo / aceleran / logran…», sin el verbo de ofrecer.
+  new RegExp(
+    `${THIRD_PARTY}[^?!.\\n]{0,40}\\b(lo estan (resolviendo|haciendo|manejando|logrando)|estan (haciendo|logrando|resolviendo|acelerando|formando)|lo resuelven|lo resolvieron|aceleran|logran|consiguen|lo hacen|lo manejan|usan|implementan|forman|han logrado)\\b`,
+  ),
+];
+
 /** Afirmaciones sobre UBITS que la biblioteca no respalda (experiencia, clientes, casos). */
 const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
+  ...THIRD_PARTY_CLAIMS,
   /\btrabajamos con (muchos |varios |otros )?(bancos|empresas|compa[nñ]ias|clientes|organizaciones|entidades)/,
   /\b(trabajamos|ayudamos|acompanamos|atendemos|apoyamos)\b[^.?!]{0,40}\b(bancos|empresas|compa[nñ]ias|organizaciones|entidades) como (usted|ustedes|la suya|la tuya|tu empresa|su empresa)\b/,
   /\b(bancos|empresas|compa[nñ]ias|organizaciones|entidades) como (usted|ustedes|la suya|la tuya|tu empresa|su empresa)\b[^.?!]{0,30}\b(lo resuelven|lo resolvieron|ya usan|nos eligen|confian en nosotros|trabajan con nosotros)/,
