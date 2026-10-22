@@ -244,6 +244,13 @@ export type CorporateTreeRunDeps = {
    * no vienen. Ausente = no se mira.
    */
   readGroupHubSpotStatus?: (hubspotCompanyIds: readonly string[]) => Promise<ReadonlyMap<string, CorporateTreeGroupMemberStatus>>;
+  /**
+   * La ficha de HubSpot de una empresa del grupo por su web EXACTA (sólo lectura). Para las
+   * que no quedaron ligadas a una ficha porque no entraron al lote (Prod 22-10, Cencosud
+   * ecd413bb: Paris S.A. y la propia Cencosud ya estaban tomadas y el aviso del grupo no salió).
+   * `null` = HubSpot no respondió.
+   */
+  findHubSpotIdsByDomain?: (domain: string) => Promise<string[] | null>;
   /** Posible duplicado en HubSpot ⇒ «Descartadas» como duplicado (el rescate no las toma). */
   recordPossibleDuplicates?: (batchId: string, countryCode: string, items: CorporateTreePossibleDuplicate[]) => Promise<number>;
   /** Sin web ⇒ «Descartadas» con `missing_domain_final`; el rescate les busca la web. */
@@ -782,7 +789,11 @@ async function runAfterReservation(
   const loaded = loadedOutcome.settled ? loadedOutcome.value : null;
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
-  const relationshipRows = buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId });
+  const relationshipRows = await withHubSpotIdsByDomain(
+    buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId }),
+    deps,
+    sealStartAtMs,
+  );
   const groupSignal = await readGroupSignal(relationshipRows, deps, sealStartAtMs, saved?.hubspotMembers ?? []);
   const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
   const tagging = Promise.all(
@@ -933,6 +944,57 @@ async function runAfterReservation(
  * del grupo que ya están allí y resume si el grupo ya es cliente o lo trabaja alguien. `null`
  * si no hay ninguna en HubSpot, si no se pudo leer o si no hubo tiempo.
  */
+/** Como mucho, webs del grupo que se buscan en HubSpot por corrida (una búsqueda cada una). */
+const CORPORATE_TREE_HUBSPOT_DOMAIN_LOOKUPS = 12;
+const HUBSPOT_DOMAIN_LOOKUP_CONCURRENCY = 3;
+
+/**
+ * Las del grupo con web PROPIA y sin ficha de HubSpot la buscan por su web exacta (sólo
+ * lectura): la empresa de partida primero. Una web compartida por varias filas (la del grupo)
+ * no se busca: sería la ficha de OTRA empresa. Con una sola ficha para esa web se liga; con
+ * varias o ninguna, no. Acotado al sellado; si HubSpot no responde, quedan como estaban.
+ */
+async function withHubSpotIdsByDomain(
+  rows: CorporateTreeRelationshipRow[],
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeRelationshipRow[]> {
+  if (!deps.findHubSpotIdsByDomain) return rows;
+  const domainCount = new Map<string, number>();
+  for (const row of rows) {
+    if (row.related_domain) domainCount.set(row.related_domain, (domainCount.get(row.related_domain) ?? 0) + 1);
+  }
+  const pending = rows
+    .map((row, index) => ({ row, index }))
+    // La web de la empresa de partida es suya aunque las filiales con la web del grupo la repitan.
+    .filter(
+      ({ row }) =>
+        !row.matched_hubspot_company_id &&
+        !!row.related_domain &&
+        (row.relation_type === 'root' || domainCount.get(row.related_domain) === 1),
+    )
+    .sort((a, b) => Number(b.row.relation_type === 'root') - Number(a.row.relation_type === 'root'))
+    .slice(0, CORPORATE_TREE_HUBSPOT_DOMAIN_LOOKUPS);
+  if (pending.length === 0) return rows;
+  const found = new Map<number, string>();
+  for (let i = 0; i < pending.length; i += HUBSPOT_DOMAIN_LOOKUP_CONCURRENCY) {
+    if (deps.nowMs() >= deadlineAtMs) break;
+    const slice = pending.slice(i, i + HUBSPOT_DOMAIN_LOOKUP_CONCURRENCY);
+    const answered = await settleBy(
+      Promise.all(slice.map(({ row }) => deps.findHubSpotIdsByDomain!(row.related_domain!).catch(() => null))),
+      deadlineAtMs,
+      deps.nowMs,
+    );
+    if (!answered.settled) break;
+    slice.forEach(({ index }, k) => {
+      const ids = answered.value[k];
+      if (ids && ids.length === 1) found.set(index, ids[0]);
+    });
+  }
+  if (found.size === 0) return rows;
+  return rows.map((row, index) => (found.has(index) ? { ...row, matched_hubspot_company_id: found.get(index)! } : row));
+}
+
 /** Las empresas del grupo con ficha de HubSpot en esta corrida (para guardarlas con el árbol). */
 function hubspotMembersOf(rows: readonly CorporateTreeRelationshipRow[]): CorporateTreeSavedHubSpotMember[] {
   const seen = new Set<string>();
