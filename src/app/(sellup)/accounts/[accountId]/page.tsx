@@ -1,3 +1,4 @@
+import { AccountOwnerHubSpotNotice } from '@/components/accounts/account-owner-hubspot-notice';
 import { formatInAppZone } from '@/lib/format-date';
 import { notFound } from 'next/navigation';
 import {
@@ -205,6 +206,8 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
           </>
         }
       />
+
+      <AccountOwnerHubSpotNotice ownerId={account.owner_id ?? null} metadata={safeMetadata} />
 
       {isRolledBack && (
         <RollbackBanner

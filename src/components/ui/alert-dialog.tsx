@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 import { cn } from "@/lib/utils";
+import { OVERLAY_COVERED_CLASS, useOverlayCovered } from "@/lib/overlay-stack";
 import { Button } from "@/components/ui/button";
 
 function AlertDialog({
@@ -62,17 +63,33 @@ function AlertDialogContent({
   // the working `dialog.tsx` structure and render the content in `Popup`.
   return (
     <AlertDialogPortal>
-      <AlertDialogOverlay />
+      <AlertDialogLayer className={className} size={size} {...props} />
+    </AlertDialogPortal>
+  );
+}
+
+/** Lo que se monta sólo con la confirmación abierta: velo + ventana, ocultos si otra capa va encima. */
+function AlertDialogLayer({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<typeof AlertDialogContent>) {
+  const covered = useOverlayCovered();
+  return (
+    <>
+      <AlertDialogOverlay forceRender className={cn(covered && OVERLAY_COVERED_CLASS)} />
       <AlertDialogPrimitive.Popup
         data-slot="alert-dialog-content"
         data-size={size}
+        data-overlay-covered={covered ? "" : undefined}
         className={cn(
           "group/alert-dialog-content fixed top-1/2 left-1/2 z-[60] grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl bg-popover p-5 text-popover-foreground shadow-drawer ring-1 ring-foreground/10 duration-200 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
+          className,
+          covered && OVERLAY_COVERED_CLASS,
         )}
         {...props}
       />
-    </AlertDialogPortal>
+    </>
   );
 }
 

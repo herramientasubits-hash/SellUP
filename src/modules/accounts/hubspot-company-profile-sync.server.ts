@@ -18,6 +18,7 @@ import {
   type AccountOwnerSource,
   type HubSpotCompanyProfileMapping,
 } from './hubspot-company-profile-mapping';
+import { buildHubSpotOwnerSnapshot } from './account-owner-hubspot';
 
 export type HubSpotAccountProfileLoad =
   | { status: 'found'; mapping: HubSpotCompanyProfileMapping; hubspotOwnerUserId: string | null }
@@ -163,10 +164,22 @@ export async function syncAccountFromHubSpotProfile(
   });
   const columns = Object.keys(patch);
 
-  if (columns.length === 0) {
+  // ACCOUNT-OWNER-HUBSPOT-NOTICE-1 — con la ficha de HubSpot leída se guarda quién es el dueño
+  // allí (aunque no haya nada que completar), para que la ficha avise si no coincide.
+  if (columns.length === 0 && !profile) {
     const status = load && load.status !== 'found' ? load.status : 'unchanged';
     return { status, columns, ownerSource };
   }
+  // Una empresa LIBRE en HubSpot (toma no escrita) sigue a nombre del vendedor anterior: ese
+  // dueño no cuenta y no se guarda para no avisar de más.
+  const hubspotOwner = profile && input.ignoreHubSpotOwner !== true
+    ? buildHubSpotOwnerSnapshot({
+        hubspotOwnerId: profile.mapping.hubspotOwnerId,
+        hubspotOwnerEmail: profile.mapping.hubspotOwnerEmail,
+        hubspotOwnerUserId: profile.hubspotOwnerUserId,
+        nowIso: input.nowIso,
+      })
+    : null;
 
   const { error: updateError } = await admin
     .from('accounts')
@@ -182,6 +195,9 @@ export async function syncAccountFromHubSpotProfile(
           filled_columns: columns,
           owner_source: ownerSource,
         },
+        ...(hubspotOwner ? { hubspot_owner: hubspotOwner } : {}),
+        // De dónde salió el responsable: sólo cuando esta sincronización lo eligió.
+        ...(ownerSource ? { owner_origin: { source: ownerSource, decided_at: input.nowIso } } : {}),
       },
     })
     .eq('id', input.accountId);
@@ -192,5 +208,5 @@ export async function syncAccountFromHubSpotProfile(
     });
     return { status: 'account_unavailable', columns: [], ownerSource: null };
   }
-  return { status: 'updated', columns, ownerSource };
+  return { status: columns.length > 0 ? 'updated' : 'unchanged', columns, ownerSource };
 }
