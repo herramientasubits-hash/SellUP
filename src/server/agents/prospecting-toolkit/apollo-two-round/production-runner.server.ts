@@ -184,6 +184,8 @@ import {
   type DiscoveryNegativeMemory,
 } from '../discovery-negative-memory';
 import { normalizeDomain } from '../normalization';
+import { parseAdditionalCriteriaTokens } from '@/modules/prospect-batches/chat-wizard-execution/wizard-context-normalizer';
+import { matchAdditionalCriteria, orderByAdditionalCriteriaMatch } from './additional-criteria-match';
 // NULL-DOMAIN-IDENTITY § 2/§ 3 — los ÚNICOS lectores de identidad autorizados
 // para un resultado de Apollo. Ninguno lee `result.url`.
 import {
@@ -1164,6 +1166,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     companyBank: depsOverride ? null : resolveApolloCompanyBankPort(),
     ...depsOverride,
   };
+
+  // AGENT1-CRITERIA-QUICK-WINS-2 § 1 — el criterio libre del vendedor, una vez por
+  // corrida. Prioriza (enriquecimiento y entrega); nunca descarta.
+  const additionalCriteriaTokens = parseAdditionalCriteriaTokens(input.additionalCriteria);
 
   /**
    * AGENT1-APOLLO-ROUND-EXECUTION-TIME-BUDGET § 3 — instante de arranque de la
@@ -2587,6 +2593,12 @@ export async function runApolloTwoRoundWizardDiscovery(
         domainConfident: identity.normalizedDomain !== null,
         ownershipConfident: eligibility.eligible && eligibility.domainSource === 'asserted',
         sectorKeywordMatchCount: sector.matchedTerms.length,
+        additionalCriteriaMatchCount: matchAdditionalCriteria(additionalCriteriaTokens, [
+          organization.name,
+          result.title,
+          result.snippet,
+          ...Object.values(readFreeSectorEvidence(result, organization)).flat(),
+        ] as (string | null | undefined)[]).length,
         // § 2 — fail-closed: si la comprobación de duplicados se degradó, la
         // novedad NO se puede AFIRMAR. No se rechaza al candidato —un fallo
         // transitorio no debe matarlo—, pero deja de contar como empresa nueva,
@@ -3462,9 +3474,16 @@ export async function runApolloTwoRoundWizardDiscovery(
     persistedCandidateIds = [...durableFloor.persisted_candidate_ids];
   }
 
+  // AGENT1-CRITERIA-QUICK-WINS-2 § 1 — las que mencionan el criterio van primero:
+  // el writer ordena COMPLETAS PRIMERO de forma estable, así que con tope de
+  // entrega se quedan dentro las que lo cumplen. Sin criterio, el orden de siempre.
   const persistableCandidates: ProspectingPipelineCandidate[] = candidatesPersisted
     ? []
-    : await resolvePersistableCandidates();
+    : orderByAdditionalCriteriaMatch(
+        await resolvePersistableCandidates(),
+        additionalCriteriaTokens,
+        (candidate) => [candidate.name, candidate.industry, candidate.sourceTitle, candidate.sourceSnippet],
+      );
 
   /**
    * SECTOR-EVIDENCE-BOOTSTRAP-1 § 17 — la traza que permite auditar este gasto sin

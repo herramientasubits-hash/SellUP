@@ -61,7 +61,7 @@ function reply(keys: string[], stopReason = 'tool_use'): AnthropicConversationRe
         type: 'tool_use',
         id: 't1',
         name: 'submit_competitor_selection',
-        input: { competitors: keys.map((key) => ({ key, shared_offering: 'lácteos', confidence: 'high' })) },
+        input: { competitors: keys.map((key) => ({ key, shared_offering: 'lácteos', same_customer: 'yes', confidence: 'high' })) },
       },
     ],
     usage: USAGE,

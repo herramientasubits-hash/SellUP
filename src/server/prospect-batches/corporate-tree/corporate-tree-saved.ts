@@ -45,13 +45,24 @@ export type CorporateTreeSavedTree = {
   nodes: CorporateTreeNode[];
   /** `null` = Apollo no se consultó en esa corrida (se consulta ahora). */
   apolloSubsidiaries: CorporateTreeApolloSubsidiary[] | null;
+  /**
+   * Las empresas del grupo que esa corrida encontró en HubSpot (sólo su ficha, no su estado,
+   * que cambia): al reutilizar se vuelven a leer. Sin esto, la repetición no veía al grupo
+   * (Prod 21-10, Cencosud 0e378343: Paris S.A. sólo aparecía en la primera corrida).
+   */
+  hubspotMembers: CorporateTreeSavedHubSpotMember[];
 };
+
+export type CorporateTreeSavedHubSpotMember = { hubspotCompanyId: string; name: string; countryCode: string | null };
+
+const SAVED_HUBSPOT_MAX = 20;
 
 /** Lo que se guarda en `metadata.corporate_tree.saved`. */
 export function serializeSavedTree(params: {
   root: CorporateTreeSavedRoot;
   nodes: readonly CorporateTreeNode[];
   apolloSubsidiaries: readonly CorporateTreeApolloSubsidiary[] | null;
+  hubspotMembers?: readonly CorporateTreeSavedHubSpotMember[];
 }): Record<string, unknown> {
   return {
     v: 1,
@@ -79,7 +90,21 @@ export function serializeSavedTree(params: {
           employee_count: s.employeeCount ?? null,
         }))
       : null,
+    hubspot_members: (params.hubspotMembers ?? []).slice(0, SAVED_HUBSPOT_MAX).map((m) => ({
+      hubspot_company_id: m.hubspotCompanyId,
+      name: m.name,
+      country_code: m.countryCode,
+    })),
   };
+}
+
+/** Una ficha de HubSpot guardada: sólo ids numéricos (es lo que usa la API de HubSpot). */
+function readHubSpotMember(raw: unknown): CorporateTreeSavedHubSpotMember | null {
+  const member = asRecord(raw);
+  const id = typeof member?.['hubspot_company_id'] === 'string' ? (member['hubspot_company_id'] as string).trim() : '';
+  const name = text(member?.['name'], 200);
+  if (!/^\d{1,20}$/.test(id) || !name) return null;
+  return { hubspotCompanyId: id, name, countryCode: countryCode(member?.['country_code']) };
 }
 
 const text = (value: unknown, max = 300): string | null =>
@@ -181,6 +206,10 @@ export function readSavedTree(row: { batchId: string; createdAt: string; metadat
     root: { ...rootWeb, countryCode: countryCode(rootRaw?.['country_code']) },
     nodes,
     apolloSubsidiaries: apollo,
+    hubspotMembers: (Array.isArray(saved['hubspot_members']) ? (saved['hubspot_members'] as unknown[]) : [])
+      .map(readHubSpotMember)
+      .filter((m): m is CorporateTreeSavedHubSpotMember => !!m)
+      .slice(0, SAVED_HUBSPOT_MAX),
   };
 }
 

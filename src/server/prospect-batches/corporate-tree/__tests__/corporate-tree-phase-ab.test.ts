@@ -798,3 +798,54 @@ describe('A6. «Buscar de nuevo» desde el aviso', () => {
     assert.match(source, /\.\.\.\(refresh \? \{ refresh: true \} : \{\}\)/);
   });
 });
+
+describe('D3. Cencosud (Prod 21-10): la repetición también ve al grupo y «Buscar de nuevo» queda dicho', () => {
+  const firstRunDeps = () =>
+    fakeDeps({
+      loadBatchCandidates: async () => [
+        { id: 'c-barcel', name: 'Barcel', country_code: 'MX', domain: 'barcel.com.mx', status: 'duplicate', matched_hubspot_company_id: '619479037', metadata: {} },
+        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'needs_review', matched_hubspot_company_id: null, metadata: {} },
+      ],
+      readGroupHubSpotStatus: async () => new Map([['619479037', 'active_owner' as const]]),
+    });
+
+  it('el árbol guardado lleva las fichas de HubSpot del grupo (sólo ids numéricos)', async () => {
+    const first = firstRunDeps();
+    await runCorporateTreeSearch(REQUEST, CONTEXT, first.deps);
+    const saved = readSavedTree({ batchId: 'b1', createdAt: new Date(NOW).toISOString(), metadata: { corporate_tree: treeOf(first.calls) } });
+    assert.deepEqual(saved?.hubspotMembers, [{ hubspotCompanyId: '619479037', name: 'Barcel', countryCode: 'MX' }]);
+    const hostile = readSavedTree({
+      batchId: 'b1',
+      createdAt: new Date(NOW).toISOString(),
+      metadata: { corporate_tree: { ...treeOf(first.calls), saved: { ...(treeOf(first.calls).saved as object), hubspot_members: [{ hubspot_company_id: '../x', name: 'X' }] } } },
+    });
+    assert.deepEqual(hostile?.hubspotMembers, []);
+  });
+
+  it('la repetición vuelve a leer en HubSpot las fichas guardadas aunque no queden ligadas en el lote', async () => {
+    const first = firstRunDeps();
+    await runCorporateTreeSearch({ ...REQUEST, branches: ['group', 'subsidiary', 'other_country'] }, CONTEXT, first.deps);
+    const stored = { batchId: 'batch-old', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: treeOf(first.calls) } };
+    const asked: string[][] = [];
+    const { deps, calls } = fakeDeps({
+      findSavedTrees: async () => [stored],
+      readGroupHubSpotStatus: async (ids) => {
+        asked.push([...ids]);
+        return new Map([['619479037', 'active_owner' as const]]);
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok && result.reusedSavedTree);
+    assert.deepEqual(asked, [['619479037']]);
+    assert.deepEqual((treeOf(calls).group_hubspot as { worked: unknown[] }).worked, [{ name: 'Barcel', countryCode: 'MX' }]);
+  });
+
+  it('«Buscar de nuevo» queda marcado en el lote (y una corrida normal no)', async () => {
+    const withRefresh = fakeDeps();
+    await runCorporateTreeSearch({ ...REQUEST, refresh: true }, CONTEXT, withRefresh.deps);
+    assert.equal(treeOf(withRefresh.calls).refresh_requested, true);
+    const normal = fakeDeps();
+    await runCorporateTreeSearch(REQUEST, CONTEXT, normal.deps);
+    assert.equal(treeOf(normal.calls).refresh_requested, undefined);
+  });
+});

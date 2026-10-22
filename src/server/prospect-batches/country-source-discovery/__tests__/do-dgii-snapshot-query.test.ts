@@ -78,7 +78,9 @@ describe('readSizedCompaniesByMacro', () => {
 
     assert.deepEqual(
       calls.map((c) => c.table),
-      ['source_company_snapshots', 'prospect_candidates', 'prospect_discarded_dispositions'],
+      // AUDIT-A1-WS7: la ventana fresca pregunta primero qué ya conoce SellUp (este
+      // doble no tiene `.not`: falla, fail-open, y la página cuenta entera).
+      ['source_company_snapshots', 'prospect_candidates', 'prospect_candidates', 'prospect_discarded_dispositions'],
       'una lectura de la fuente y, después, lo ya visto',
     );
     const [call] = calls;

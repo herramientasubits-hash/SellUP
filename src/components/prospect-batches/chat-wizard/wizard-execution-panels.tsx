@@ -50,6 +50,7 @@ import {
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-target-summary-copy';
 import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import type { AcceptedForTargetSummary } from '@/modules/prospect-batches/accepted-for-target';
+import type { WizardShortfallReason } from '@/modules/prospect-batches/chat-wizard-execution/wizard-shortfall-reasons';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
@@ -266,9 +267,28 @@ export type SuccessPanelProps = {
    * de rellenarse con ceros.
    */
   acceptedForTarget?: AcceptedForTargetSummary | null;
+  /**
+   * AGENT1-CRITERIA-QUICK-WINS-1 § 2 — por qué la corrida no llegó a la meta,
+   * tal como lo nombró el servidor. `null`/vacío ⇒ no se pinta nada.
+   */
+  shortfallReasons?: WizardShortfallReason[] | null;
 };
 
-export function SuccessPanel({ status, continuationPending = false, noveltyExhausted, candidateCount, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary, acceptedForTarget }: SuccessPanelProps) {
+/** AGENT1-CRITERIA-QUICK-WINS-1 § 2 — la lista corta de «por qué faltaron empresas». */
+function WizardShortfallReasonList({ reasons }: { reasons: readonly WizardShortfallReason[] }) {
+  if (reasons.length === 0) return null;
+  return (
+    <ul className="space-y-1 text-xs text-muted-foreground" data-testid="wizard-shortfall-reasons">
+      {reasons.map((reason) => (
+        <li key={reason.code} data-testid={`wizard-shortfall-reason-${reason.code}`}>
+          {reason.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function SuccessPanel({ status, continuationPending = false, noveltyExhausted, candidateCount, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary, acceptedForTarget, shortfallReasons = null }: SuccessPanelProps) {
   const router = useRouter();
 
   // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
@@ -357,8 +377,13 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           : 'Prospectos generados correctamente.',
       });
     } else {
+      // AGENT1-CRITERIA-QUICK-WINS-1 § 2 — con meta sin cumplir, el primer motivo
+      // dice por qué salieron pocas en vez de un «correctamente» a secas.
+      const firstShortfall = shortfallReasons?.[0]?.message;
       toast.success('Prospectos generados correctamente.', {
-        description: 'Ya puedes revisarlos en el listado de prospectos.',
+        description: firstShortfall
+          ? `Ya puedes revisarlos en el listado. Salieron menos de las pedidas: ${firstShortfall}`
+          : 'Ya puedes revisarlos en el listado de prospectos.',
       });
     }
     router.refresh();
@@ -430,6 +455,7 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
           </AlertTitle>
           <AlertDescription className="break-words text-xs">{noNewBody}</AlertDescription>
         </Alert>
+        <WizardShortfallReasonList reasons={shortfallReasons ?? []} />
 
         {breakdownRows.length > 0 && (
           <ChatCardView

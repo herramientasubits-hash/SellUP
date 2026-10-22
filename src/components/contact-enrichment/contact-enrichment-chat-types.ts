@@ -75,6 +75,13 @@ export interface AutomaticRoutingUiDiagnosis {
   freeStages: { hubspotFirst: string; contactBank: string; companySite: string };
   lushaRecentZeroAt: string | null;
   lushaRan: boolean;
+  hubspotFirst?: {
+    hubspotContacts: number;
+    otherSeller: number;
+    knownInSellUp: number;
+    notRelevant: number;
+    noName: number;
+  } | null;
 }
 
 // ── Lusha enrichment result (17B.4K) ─────────────────────────────────────────

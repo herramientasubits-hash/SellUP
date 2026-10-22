@@ -80,7 +80,6 @@ import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capa
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import {
-  TAVILY_FIRST_MAX_ROUNDS,
   canStartApolloAfterTavilyFirst,
   canStartLushaAfterTavilyFirst,
   combineWriterTruths,
@@ -226,7 +225,8 @@ import {
   type RunAcceptanceFacts,
 } from '@/modules/prospect-batches/accepted-for-target';
 // AGENT1-LOCAL-CUT8B — la publicación terminal de la rama sólo-gratuita.
-import { composeFreeOnlyTerminalBatchMetadata } from './free-only-terminal-publication';
+import { composeFreeOnlyTerminalBatchMetadata, resolveFreeOnlyBatchName } from './free-only-terminal-publication';
+import { decideBatchCompletionSeal } from '@/server/agents/prospecting-toolkit/batch-completion-seal';
 import type { ResolveExtraBatchMetadata } from '@/server/agents/prospecting-toolkit/writer-metadata-resolution';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
@@ -269,6 +269,8 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 // puerta no toca.
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { resolveApolloSeenDomainExclusion } from '@/modules/prospect-batches/provider-seen/apollo-seen-domain-exclusion';
+import { buildWizardShortfallReasons } from './wizard-shortfall-reasons';
+import { resolveTavilyFirstMaxRounds } from './wizard-run-time-plan';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -495,6 +497,12 @@ export type WizardExecutionDeps = {
      * byte por byte como antes del corte.
      */
     metadata?: Record<string, unknown> | null;
+    /**
+     * «Competidores de una empresa»: el nombre del lote otra vez al cerrar. Lo
+     * gratuito escribe con el escritor común, que lo deja «Agente 1 · Pipeline · …»
+     * (QA Prod 21-10, 5128e0d0). Ausente ⇒ el nombre no se toca (las demás rutas).
+     */
+    name?: string;
   }) => Promise<void>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   // Usado por Tavily y Lusha, SIN CAMBIOS. Apollo ya no pasa por aquí — ver
@@ -1083,7 +1091,7 @@ export async function executeProspectWizardGenerationAction(
     // Va por el cliente de SESIÓN, no por service_role, igual que
     // `markBatchFailed`: la RLS de `prospect_batches` es la que acota la fila a
     // su dueño, así que un id ajeno no puede tocar nada aunque llegue hasta aquí.
-    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata }) => {
+    sealFreeOnlyBatchStatus: async ({ batchId, status, metadata, name: requestedName }) => {
       // AGENT1-SUPPLIER-AUDIT-NOW-1 — quien llama ignora los errores del sellado: aquí al
       // menos quedan en los registros (antes la metadata terminal se perdía sin rastro).
       const logSealError = (step: string, error: { message?: string } | null) => {
@@ -1096,15 +1104,29 @@ export async function executeProspectWizardGenerationAction(
       }
       const { data: currentRow, error: readError } = await supabase
         .from('prospect_batches')
-        .select('metadata')
+        .select('metadata, name, country, industry, completed_at')
         .eq('id', batchId)
         .maybeSingle();
       logSealError('leer metadata', readError);
+      // AGENT1-CRITERIA-QUICK-WINS-1 § 6 — nombre humano y fecha de cierre en la
+      // MISMA escritura terminal (el writer de pago no corre en esta rama).
+      const now = new Date();
+      // El nombre que pide el modo (p. ej. competidores) manda; si no, el nombre
+      // humano calculado desde la fila.
+      const name =
+        requestedName ?? (currentRow ? resolveFreeOnlyBatchName(currentRow, now) : null);
+      const completionSeal = decideBatchCompletionSeal({
+        status,
+        currentCompletedAt: (currentRow?.completed_at as string | null | undefined) ?? null,
+        now,
+      });
       const { error } = await supabase
         .from('prospect_batches')
         .update({
           status,
           metadata: composeFreeOnlyTerminalBatchMetadata(currentRow?.metadata, metadata),
+          ...(name !== null ? { name } : {}),
+          ...(completionSeal.shouldWrite ? { completed_at: completionSeal.completedAt } : {}),
         })
         .eq('id', batchId);
       logSealError('estado y metadata', error);
@@ -1904,6 +1926,8 @@ export async function executeProspectWizardGeneration(
   const resolveCanonicalBatchId = async (): Promise<string> =>
     (await canonicalBatch.resolve()).batchId;
 
+  /** AGENT1-CRITERIA-QUICK-WINS-1 § 2 — «falló» y «no aportó» se distinguen en el motivo. */
+  let freeLayerFailed = false;
   const prePaidNovelty = deps.runPrePaidNoveltyDiscovery
     ? await deps
         .runPrePaidNoveltyDiscovery({
@@ -1931,8 +1955,13 @@ export async function executeProspectWizardGeneration(
           additionalCriteria: req.additionalCriteriaRaw,
         })
         // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
-        // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
-        .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
+        // inservible. Se degrada a «no aportó» y la ruta de pago sigue — pero se
+        // registra: antes el error se perdía y en Prod había que adivinarlo.
+        .catch((err: unknown): PrePaidNoveltyDiscoveryOutcome | null => {
+          freeLayerFailed = true;
+          console.error('[Agent1Wizard] la capa gratuita falló:', err);
+          return null;
+        })
     : null;
 
   // AGENT1-FREE-LAYER-FIRST-1 — el rescate de las sin web de la capa gratuita corre
@@ -2675,6 +2704,9 @@ export async function executeProspectWizardGeneration(
       preTavilyCandidateIds = deps.listBatchCandidateIds
         ? await deps.listBatchCandidateIds(reservedBatchId).catch(() => null)
         : undefined;
+      const tavilyFirstMaxRounds = resolveTavilyFirstMaxRounds(
+        deps.actionStartedAtMs === undefined ? null : elapsedSinceActionStartMs(),
+      );
       // AGENT1-TAVILY-PROVIDER-CONFIG-1 — sin reserva del piloto: Tavily se rige
       // por su configuración en Proveedores, como Apollo.
       try {
@@ -2683,9 +2715,12 @@ export async function executeProspectWizardGeneration(
           reservedBatchId,
           extraBatchMetadata: runProviderSelectionMetadata,
           resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
-          maxRounds: TAVILY_FIRST_MAX_ROUNDS,
+          // AGENT1-CRITERIA-QUICK-WINS-2 § 2 — las rondas que caben antes del
+          // arranque de Apollo (antes eran siempre 3 y podían dejarlo sin tiempo).
+          maxRounds: tavilyFirstMaxRounds,
         });
-      } catch {
+      } catch (err) {
+        console.error('[Agent1Wizard] Tavily primero falló:', err);
         tavilyFirstOutcome = { outcome: 'failed' };
       }
 
@@ -2981,7 +3016,8 @@ export async function executeProspectWizardGeneration(
         resolveExtraBatchMetadata: resolveAcceptedForTargetBatchMetadata,
       });
     }
-  } catch {
+  } catch (err) {
+    console.error('[Agent1Wizard] el pipeline del proveedor falló:', err);
     // Reconcile conservatively — the provider may have partially executed
     const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     // AGENT1-APOLLO-PROVIDER-CONSUMPTION-GATE-1 — Apollo nunca reservó nada
@@ -3327,7 +3363,8 @@ export async function executeProspectWizardGeneration(
   if (claudeLegDecision.run && deps.runClaudeCompanySearchLeg) {
     try {
       claudeLeg = await deps.runClaudeCompanySearchLeg({ batchId: reservedBatchId, phaseMs: claudeLegDecision.phaseMs });
-    } catch {
+    } catch (err) {
+      console.error('[Agent1Wizard] la búsqueda de Claude falló:', err);
       claudeLeg = { executed: false, reason: 'failed' };
     }
   }
@@ -3553,6 +3590,18 @@ export async function executeProspectWizardGeneration(
     },
   };
 
+  // AGENT1-CRITERIA-QUICK-WINS-1 § 2 — los motivos YA decididos arriba, en
+  // palabras del vendedor. No decide nada: sólo nombra por qué faltaron empresas.
+  const shortfallReasons = buildWizardShortfallReasons({
+    targetReached,
+    freeLayerFailed,
+    tavilyFirstOutcome: tavilyFirstOutcome?.outcome ?? null,
+    apolloNotStartedReason: apolloNotStarted?.reason ?? null,
+    lushaSkipReason: lushaWaterfall.executed ? null : lushaWaterfall.reason,
+    lushaFailureCode: lushaWaterfall.executed ? (lushaWaterfall.failure?.code ?? null) : null,
+    claudeSkipReason: claudeLeg.executed ? null : claudeLeg.reason,
+  });
+
   // ── 🔴 AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza sobrevive a la sesión ──
   //
   // El bloque llegaba al navegador y moría ahí: `prospect_batches.metadata` no
@@ -3609,6 +3658,7 @@ export async function executeProspectWizardGeneration(
           // Siempre: también cuando NO corrió, con el motivo (bandera apagada, meta cubierta,
           // sin tiempo…). Prod 05-10: CL×Salud quedó 3/5 y no se podía saber por qué no corrió.
           claude_search_leg: claudeLeg,
+          ...(shortfallReasons.length > 0 ? { shortfall_reasons: shortfallReasons.map((r) => r.code) } : {}),
           ...(lushaWaterfall.executed || claudeLeg.executed || tavilyFirstTruth !== null || tavilyFirstAcceptedIds !== null
             ? {
                 [ACCEPTED_FOR_TARGET_METADATA_KEY]:
@@ -3624,6 +3674,7 @@ export async function executeProspectWizardGeneration(
     ok: true,
     status: executionStatus,
     ...waterfallLegTrace,
+    ...(shortfallReasons.length > 0 ? { shortfallReasons } : {}),
     batchId: reservedBatchId,
     // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
     // que la base tiene, no una etiqueta optimista.

@@ -650,7 +650,9 @@ describe('§ 3 · publicación — la traza de la corrida transporta la causa', 
     );
     // Campo por campo salvo la traza observacional: si el código cambiara un solo
     // número, dejaría de ser observación.
-    const strip = (r: SuccessResult) => ({ ...r, lushaWaterfallLeg: undefined });
+    // AGENT1-CRITERIA-QUICK-WINS-1 § 2 — `shortfallReasons` también es observación:
+    // nombra el fallo (`lusha_failed`) sin mover ninguna cifra.
+    const strip = (r: SuccessResult) => ({ ...r, lushaWaterfallLeg: undefined, shortfallReasons: undefined });
     assert.deepEqual(strip(failed), strip(opaque));
     assert.equal(failed.targetReached, false);
     assert.equal(failed.candidateCount, 0);

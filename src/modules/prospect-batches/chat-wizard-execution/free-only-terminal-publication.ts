@@ -43,6 +43,8 @@
  * Puro: sin I/O, sin env, sin Supabase, sin reloj.
  */
 
+import { formatInAppZone } from '@/lib/format-date';
+
 /**
  * Compone la metadata terminal de la rama sólo-gratuita.
  *
@@ -72,4 +74,40 @@ export function composeFreeOnlyTerminalBatchMetadata(
       : {};
   if (published === null) return { ...base };
   return { ...base, ...published };
+}
+
+// ── AGENT1-CRITERIA-QUICK-WINS-1 § 6 — nombre y fecha de cierre ─────────────
+//
+// En el historial real, los 53 lotes cerrados sólo con la capa gratuita quedaron
+// con el rótulo técnico de la reserva (`Wizard: {industryId} / {countryCode}`) y
+// sin `completed_at`: el writer de pago —que recalcula el nombre y sella la
+// fecha— nunca corre en esta rama. El sellado terminal es la única escritura de
+// la rama, así que ambas cosas viajan en ella.
+
+/** Prefijo del rótulo PROVISIONAL de la reserva (`wizard-idempotency.ts`). */
+const PROVISIONAL_WIZARD_NAME_PREFIX = 'Wizard: ';
+
+/**
+ * El nombre humano de un lote de la rama gratuita: el mismo formato que el writer
+ * de pago (`candidate-writer.ts`) da a un lote del wizard.
+ */
+export function buildFreeOnlyBatchName(country: string, industry: string, now: Date): string {
+  const date = formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' });
+  return `Agente 1 · Pipeline · ${country} · ${industry} · ${date}`;
+}
+
+/**
+ * El nombre a escribir en el sellado, o `null` si no hay que tocarlo. Sólo se
+ * reemplaza el rótulo provisional: un nombre puesto por otro (proveedores,
+ * competidores, árbol) o por la persona se respeta siempre.
+ */
+export function resolveFreeOnlyBatchName(row: {
+  name: unknown;
+  country: unknown;
+  industry: unknown;
+}, now: Date): string | null {
+  if (typeof row.name !== 'string' || !row.name.startsWith(PROVISIONAL_WIZARD_NAME_PREFIX)) return null;
+  if (typeof row.country !== 'string' || !row.country.trim()) return null;
+  if (typeof row.industry !== 'string' || !row.industry.trim()) return null;
+  return buildFreeOnlyBatchName(row.country, row.industry, now);
 }

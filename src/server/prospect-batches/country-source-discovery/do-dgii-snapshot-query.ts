@@ -16,6 +16,10 @@
  * (candidatas de cualquier lote y descartes de la capa gratuita) para que el
  * adapter no repita lo de corridas anteriores.
  *
+ * AUDIT-A1-WS7: y lee por páginas (mismo orden) saltando en la LECTURA lo que
+ * SellUp ya conoce por RNC o web (`country-source-fresh-window.ts`): la ventana
+ * fija se agotaba tras pocas corridas.
+ *
  * Nunca inserta, actualiza ni borra. Cualquier error degrada a vacío: sin filas
  * no hay candidatos (fail-closed hacia el proveedor de pago).
  *
@@ -31,6 +35,7 @@ import {
   PRIOR_SIGHTING_DISPOSITION_COLUMNS,
   type PriorSightingDispositionRow,
 } from './country-source-prior-sightings';
+import { buildReadKnownSnapshotIdentities, readFreshSnapshotWindow } from './country-source-fresh-window';
 
 /** RNC por consulta al marcar lo ya visto (la URL de PostgREST tiene límite). */
 export const DO_SIGHTING_CHUNK = 150;
@@ -135,18 +140,31 @@ export function buildDoDgiiDiscoveryReads(client: SupabaseClient): DoDgiiDiscove
     async readSizedCompaniesByMacro({ macroIndustryKey, limit }) {
       const cap = Math.max(0, Math.trunc(limit));
       if (cap === 0) return [];
-      try {
-        const { data, error } = await client
+      // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+      const buildQuery = () =>
+        client
           .from('source_company_snapshots')
           .select(SELECTED_COLUMNS)
           .eq('source_key', DO_DGII_SIZE_REGISTRY_SOURCE_KEY)
           .eq('country_code', 'DO')
           .eq('raw_data->>macro_industry_key', macroIndustryKey)
           .order('priority_score', { ascending: false })
-          .order('normalized_tax_id', { ascending: true })
-          .limit(cap);
-        if (error || !Array.isArray(data)) return [];
-        const rows = (data as unknown as SnapshotSelectRow[]).map(toRow);
+          .order('normalized_tax_id', { ascending: true });
+      try {
+        const page = await readFreshSnapshotWindow<SnapshotSelectRow>({
+          size: cap,
+          countryCode: 'DO',
+          readKnown: buildReadKnownSnapshotIdentities(client),
+          taxIdOf: (row) => row.normalized_tax_id,
+          domainOf: (row) => (typeof row.website_domain === 'string' ? row.website_domain : null),
+          readRange: async (from, to) => {
+            const query = buildQuery();
+            const { data, error } = await (from === 0 ? query.limit(cap) : query.range(from, to));
+            if (error || !Array.isArray(data)) throw new Error('do_dgii_read_failed');
+            return data as unknown as SnapshotSelectRow[];
+          },
+        });
+        const rows = page.map(toRow);
         const rncs = [...new Set(rows.map((row) => row.rnc).filter((r): r is string => Boolean(r)))];
         const sightings = rncs.length > 0 ? await readPriorSightings(client, rncs) : new Map();
         return rows.map((row) => ({ ...row, prior_sighting: (row.rnc && sightings.get(row.rnc)) || null }));

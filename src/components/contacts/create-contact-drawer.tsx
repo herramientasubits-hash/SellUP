@@ -324,7 +324,8 @@ export function CreateContactDrawer({
               onChange={(e) => set('email', e.target.value)}
             />
           </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Uno debajo del otro: lado a lado el número se corta. */}
+          <div className="grid grid-cols-1 gap-4">
             <Field label="Teléfono">
               <PhoneInput
                 id="phone"

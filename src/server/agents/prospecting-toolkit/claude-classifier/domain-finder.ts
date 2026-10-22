@@ -28,14 +28,22 @@ import {
   type AnthropicConversationResult,
   type AnthropicRequestBody,
 } from './anthropic-messages-client';
-import { forceSubmission, isOffsiteRedirect, toUsage } from './classify-company';
+import { isOffsiteRedirect, sumUsage, toUsage } from './classify-company';
 import { extractVisibleText } from './page-text';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import { isRegistrableDomain, ownDomainLabel, searchConfirmsDomain } from './site-match';
 import type { ClassifierUsage } from './types';
 
 export const FIND_WEBSITE_TOOL_NAME = 'submit_official_website';
-export const FINDER_MAX_WEB_SEARCHES = 3;
+/**
+ * Búsquedas web por empresa. 2 (antes 3), 21-10: los resultados de cada búsqueda entran
+ * como tokens de ENTRADA en cada paso siguiente del modelo, así que el costo crece más
+ * que lineal con cada búsqueda (Prod oct-2026: ~18k tokens de entrada por llamada,
+ * US$77 en 2.191 llamadas). Dos alcanzan para el nombre completo y el nombre corto (d5).
+ */
+export const FINDER_MAX_WEB_SEARCHES = 2;
+/** Resultados de búsqueda (dominio + título) que se le recuerdan en el turno forzado. */
+export const FINDER_FORCED_TURN_MAX_RESULTS = 10;
 export const FINDER_MAX_OUTPUT_TOKENS = 600;
 /** Mismo umbral que `verifyWebsite` usa para «verified». */
 export const FINDER_MIN_NAME_SCORE = 60;
@@ -474,6 +482,66 @@ export async function verifyProposedWebsite(
   return { found: false, reason: finalInSearch ? 'identity_not_confirmed' : 'not_in_search_results' };
 }
 
+/**
+ * Turno forzado BARATO (21-10). Antes (`forceSubmission`) se reenviaba la conversación
+ * ENTERA, con los resultados de búsqueda completos, y esos miles de tokens se pagaban
+ * otra vez. Ahora va sólo la empresa y la lista dominio + título de lo que ya buscó, sin
+ * la herramienta de búsqueda: unos cientos de tokens. Tampoco reenvía bloques que la API
+ * rechaza con 400 (un turno vacío, o pausado a mitad de una búsqueda).
+ */
+export function buildForcedSubmissionBody(
+  input: DomainFinderInput,
+  model: string,
+  searchResults: readonly SearchResultEntry[],
+): AnthropicRequestBody {
+  const base = buildDomainFinderRequestBody(input, model);
+  const seen = new Set<string>();
+  const lines = searchResults
+    .filter((r) => !seen.has(r.domain) && (seen.add(r.domain), true))
+    .slice(0, FINDER_FORCED_TURN_MAX_RESULTS)
+    .map((r) => `- ${r.domain}${r.title ? ` — ${r.title}` : ''}`);
+  return {
+    ...base,
+    tools: [FIND_WEBSITE_TOOL],
+    tool_choice: { type: 'tool', name: FIND_WEBSITE_TOOL_NAME },
+    messages: [
+      {
+        role: 'user',
+        content: [
+          base.messages[0].content as string,
+          lines.length > 0 ? `Resultados de tu búsqueda (dominio — título):\n${lines.join('\n')}` : 'Tu búsqueda no trajo resultados.',
+          `Entrega ahora tu resultado con ${FIND_WEBSITE_TOOL_NAME}. Si no estás seguro, null.`,
+        ].join('\n\n'),
+      },
+    ],
+  };
+}
+
+async function forceCheapSubmission(
+  input: DomainFinderInput,
+  model: string,
+  first: AnthropicConversationResult,
+  deps: Pick<DomainFinderDeps, 'runConversation'>,
+): Promise<AnthropicConversationResult> {
+  let second: AnthropicConversationResult;
+  try {
+    second = await deps.runConversation(buildForcedSubmissionBody(input, model, extractSearchResultEntries(first.content)));
+  } catch (err) {
+    // El primer turno ya se cobró: el error lleva la suma para que el gasto no quede en ~US$0.
+    if (err instanceof AnthropicApiError) {
+      throw new AnthropicApiError(err.status, err.code, err.message, sumUsage(first.usage, err.partialUsage));
+    }
+    throw new AnthropicApiError(null, 'unexpected_error', err instanceof Error ? err.message : String(err), first.usage);
+  }
+  return {
+    // Los resultados del primer turno siguen sirviendo para comprobar la URL.
+    content: [...first.content, ...second.content],
+    stopReason: second.stopReason,
+    usage: sumUsage(first.usage, second.usage),
+    requests: first.requests + second.requests,
+  };
+}
+
 export async function findOfficialWebsite(
   input: DomainFinderInput,
   model: string,
@@ -484,13 +552,7 @@ export async function findOfficialWebsite(
     const body = buildDomainFinderRequestBody(input, model);
     conversation = await deps.runConversation(body);
     if (!hasSubmission(conversation.content)) {
-      conversation = await forceSubmission(
-        body,
-        conversation,
-        deps,
-        FIND_WEBSITE_TOOL_NAME,
-        `Entrega ahora tu resultado con ${FIND_WEBSITE_TOOL_NAME}. Si no estás seguro, null.`,
-      );
+      conversation = await forceCheapSubmission(input, model, conversation, deps);
     }
   } catch (err) {
     const apiError = err instanceof AnthropicApiError ? err : null;

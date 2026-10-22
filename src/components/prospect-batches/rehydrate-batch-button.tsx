@@ -34,7 +34,7 @@ export function RehydrateBatchButton({ batchId }: RehydrateBatchButtonProps) {
       }
 
       toast.success(
-        `Enrichment reprocesado: ${result.updatedCount} candidato${result.updatedCount !== 1 ? 's' : ''} actualizados.`,
+        `${result.updatedCount} candidato${result.updatedCount !== 1 ? 's' : ''} actualizado${result.updatedCount !== 1 ? 's' : ''}`,
         { duration: 5000 }
       );
 

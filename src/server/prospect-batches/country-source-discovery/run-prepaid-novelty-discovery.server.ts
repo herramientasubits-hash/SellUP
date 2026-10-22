@@ -472,7 +472,11 @@ async function runFreeLayerThenBank(
       resolveBatchId: async () => free.batchId ?? (await resolveCanonical()),
       ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
     })
-    .catch(() => null);
+    // AGENT1-CRITERIA-QUICK-WINS-1 § 2 — fail-open como siempre, pero registrado.
+    .catch((err: unknown) => {
+      console.error('[CompanyBank] el banco de empresas falló:', err);
+      return null;
+    });
   if (!bank || bank.persistedCount <= 0) {
     return {
       ...freeWithRescue,
