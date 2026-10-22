@@ -96,3 +96,21 @@ export async function SearchBreakdownSection({ filters }: { filters: UsageFilter
     <SearchBatchesTable rows={data.searches} personNames={data.personNames} moneyVisible={data.moneyVisible} />
   ));
 }
+
+/**
+ * Agente 1 · «Competidores» — calidad por fuente y por referencia (auditoría 21-10).
+ * Con la sesión (RLS) y el periodo de los filtros; sin datos no se pinta.
+ */
+export async function CompetitorQualitySection({ filters }: { filters: UsageFilters }) {
+  const [{ createClient }, { loadCompetitorQuality }, { resolvePeriodStart }] = await Promise.all([
+    import('@/lib/supabase/server'),
+    import('@/server/prospect-batches/competitor-search/competitor-quality.server'),
+    import('@/modules/ai-usage/usage-filter-semantics'),
+  ]);
+  const since = resolvePeriodStart(filters.period) ?? new Date(0).toISOString();
+  const supabase = await createClient();
+  const quality = await loadCompetitorQuality(supabase as unknown as Parameters<typeof loadCompetitorQuality>[0], since);
+  if (!quality || (quality.bySource.length === 0 && quality.byReference.length === 0)) return null;
+  const { CompetitorQualityTables } = await import('./competitor-quality-table');
+  return <CompetitorQualityTables bySource={quality.bySource} byReference={quality.byReference} />;
+}

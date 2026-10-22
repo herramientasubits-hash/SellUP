@@ -23,6 +23,7 @@ import {
   CountryBreakdownSection,
   RoleGroupBreakdownSection,
   SearchBreakdownSection,
+  CompetitorQualitySection,
 } from './breakdown-sections';
 import {
   Agent1EffectivenessPanel,
@@ -370,6 +371,9 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         <TabsContent value="por-busqueda" className="space-y-6">
           <Suspense fallback={<BreakdownSkeleton />}>
             <SearchBreakdownSection filters={filters} />
+          </Suspense>
+          <Suspense fallback={null}>
+            <CompetitorQualitySection filters={filters} />
           </Suspense>
         </TabsContent>
 

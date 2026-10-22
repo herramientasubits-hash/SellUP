@@ -80,15 +80,23 @@ async function loadAccount(accountId: string): Promise<AccountRow | null> {
  * lectura ⇒ `null`: se paga una ficha nueva, como antes. Lectura con el cliente de
  * servicio: Uso de IA no es visible para vendedores, y sólo sale la ficha.
  */
-async function loadCachedReferenceCard(referenceKey: string): Promise<ReferenceCompanyCard | null> {
+async function loadCachedReferenceCard(
+  lookup: { referenceKey: string } | { domain: string },
+): Promise<ReferenceCompanyCard | null> {
   try {
     const since = new Date(Date.now() - REFERENCE_CARD_CACHE_TTL_MS).toISOString();
+    // Por la clave (cuenta o texto) o, si no hubo, por el dominio de una ficha ya
+    // pagada: «vecol.com.co» encuentra la que se armó escribiendo «Vecol».
+    const [column, value] =
+      'referenceKey' in lookup
+        ? ['metadata->>reference_key', lookup.referenceKey]
+        : ['metadata->reference_card->>domain', lookup.domain];
     const { data, error } = await createSupabaseAdminClient()
       .from('provider_usage_logs')
       .select('metadata')
       .eq('provider_key', CLAUDE_CLASSIFIER_PROVIDER_KEY)
       .eq('metadata->>flow', 'competitor_reference')
-      .eq('metadata->>reference_key', referenceKey)
+      .eq(column, value)
       .eq('status', 'success')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -122,7 +130,12 @@ export async function resolveCompetitorReferenceAction(
   if (detectPromptInjection(query)) return { ok: false, message: 'Escribe sólo el nombre o la web de la empresa.' };
 
   const referenceKey = buildReferenceCardKey({ accountId: account?.id ?? null, query });
-  const cached = parsed.data.refresh === true ? null : await loadCachedReferenceCard(referenceKey);
+  const typedDomain = normalizeReferenceDomain(account?.domain ?? query);
+  const cached =
+    parsed.data.refresh === true
+      ? null
+      : ((await loadCachedReferenceCard({ referenceKey })) ??
+        (typedDomain ? await loadCachedReferenceCard({ domain: typedDomain }) : null));
   if (cached) {
     let cachedCatalog;
     try {

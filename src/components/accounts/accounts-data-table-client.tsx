@@ -17,7 +17,9 @@ import {
   Sparkles,
   SendHorizonal,
   UserPlus,
+  Users,
 } from "@/icons";
+import { requestOpenCompetitorsInChat } from '@/modules/prospect-batches/agent-runs/agent-chat-events';
 import { RumboIcon } from '@/components/chat/chat-mark';
 import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import type { ComponentProps } from 'react';
@@ -493,6 +495,17 @@ export function AccountsDataTableClient({
           accountId: row.id,
         });
         if (treeItem) items.push(treeItem);
+        // «Competidores de una empresa» con esta cuenta como referencia (abre el chat).
+        items.push({
+          id: 'competitors',
+          label: 'Buscar competidores',
+          icon: Users,
+          onClick: () => {
+            if (!requestOpenCompetitorsInChat(row.id)) {
+              toast.error('Abre «Generar con Rumbo IA» para buscar sus competidores.');
+            }
+          },
+        });
 
         items.push({
           id: 'archive',

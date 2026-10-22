@@ -44,6 +44,8 @@ import {
 import { runApolloRoundContinuationWorkerFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/continuation-worker.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { closeStuckAgentRuns } from '@/modules/prospect-batches/stuck-runs/stuck-runs.server';
+import { runCompetitorWatchDigest } from '@/server/prospect-batches/competitor-search/competitor-watch.server';
+import { isAgent1CompetitorWatchEnabled } from '@/lib/feature-flags.server';
 import {
   isAgent1ApolloCronContinuationEnabled,
   pickNextClaimableContinuationBatchId,
@@ -67,10 +69,17 @@ async function handleCronRequest(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
+    // AGENT1-COMPETITOR-WATCH-1 — los lunes, el resumen de referencias seguidas de
+    // «Competidores» (sin buscar ni gastar), con su propia bandera y antes de la
+    // continuación: los 2 crons del plan ya están ocupados (auditoría 21-10). Nunca lanza.
+    const competitorWatch = isAgent1CompetitorWatchEnabled()
+      ? await runCompetitorWatchDigest().catch(() => null)
+      : null;
+
     // AGENT1-AUDIT-WS1 — bandera fail-closed: abrir el proxy no enciende el gasto.
     // Apagada, se responde sin tocar la base.
     if (!isAgent1ApolloCronContinuationEnabled()) {
-      return NextResponse.json({ success: true, skipped: 'flag_off' });
+      return NextResponse.json({ success: true, skipped: 'flag_off', ...(competitorWatch ? { competitorWatch } : {}) });
     }
 
     const client = createSupabaseAdminClient();
@@ -99,7 +108,7 @@ async function handleCronRequest(request: NextRequest) {
         { status: 500 },
       );
     }
-    return NextResponse.json({ success: true, stats, stuck });
+    return NextResponse.json({ success: true, stats, stuck, ...(competitorWatch ? { competitorWatch } : {}) });
   } catch (err) {
     console.error('[CronApolloContinuation] Exception during worker execution:', err);
     return NextResponse.json(

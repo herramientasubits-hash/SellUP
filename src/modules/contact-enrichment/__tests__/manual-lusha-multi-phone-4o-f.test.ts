@@ -1226,7 +1226,9 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(numbered[numbered.length - 1], 155, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 156, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

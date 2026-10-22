@@ -101,6 +101,8 @@ export type CompetitorApolloRequest = {
   industryName: string;
   target: number;
   userId: string;
+  /** «Más como esta»: dominios de competidoras elegidas, también semillas de Apollo. */
+  seedDomains?: readonly string[];
 };
 
 /**
@@ -186,6 +188,11 @@ export type CompetitorRunDeps = {
    * el cliente de servicio (número fiscal). `false` o fallo ⇒ se corre sin la cuenta.
    */
   canReadReferenceAccount?: (accountId: string) => Promise<boolean>;
+  /**
+   * Lo que un vendedor ya descartó como «no es competidor» de esta referencia:
+   * viaja en memoria con la referencia hasta el juez (gratis y Apollo). Fallo ⇒ nada.
+   */
+  loadNotCompetitors?: (reference: CompetitorReference) => Promise<readonly string[]>;
   actionStartedAtMs?: number;
   nowMs?: () => number;
 };
@@ -235,6 +242,9 @@ export function combineCompetitorRounds(a: ExecutedLeg, b: ExecutedLeg): Execute
     estimatedCostUsd: Math.round((a.estimatedCostUsd + b.estimatedCostUsd) * 1_000_000) / 1_000_000,
     proposed: a.proposed + b.proposed,
     passedPreFilter: a.passedPreFilter + b.passedPreFilter,
+    ...(a.withoutWebsite || b.withoutWebsite
+      ? { withoutWebsite: [...(a.withoutWebsite ?? []), ...(b.withoutWebsite ?? [])] }
+      : {}),
   };
 }
 
@@ -356,9 +366,13 @@ export async function executeCompetitorSearchRun(
     );
   }
 
+  const verifiedReference = await verifyCompetitorReferenceAccount(rawInput.reference, deps.canReadReferenceAccount);
+  const notCompetitors = deps.loadNotCompetitors
+    ? await deps.loadNotCompetitors(verifiedReference).catch(() => [])
+    : [];
   const input: CompetitorRunInput = {
     ...rawInput,
-    reference: await verifyCompetitorReferenceAccount(rawInput.reference, deps.canReadReferenceAccount),
+    reference: notCompetitors.length > 0 ? { ...verifiedReference, notCompetitors } : verifiedReference,
   };
 
   // La base tiene que poder GUARDAR antes de pagar una sola llamada (mismo control
@@ -556,6 +570,10 @@ export async function executeCompetitorSearchRun(
           competitor_search_rounds: rounds,
           ...(freeSources ? { competitor_free_sources: freeSources.telemetry } : {}),
           ...(apollo ? { competitor_apollo: apollo.telemetry } : {}),
+          // Las que Claude propuso sin sitio web: se ven en el lote, no se escriben.
+          ...(claudeLeg?.withoutWebsite && claudeLeg.withoutWebsite.length > 0
+            ? { competitor_without_website: claudeLeg.withoutWebsite }
+            : {}),
           // La forma de búsqueda, otra vez al cerrar: es la última escritura del lote.
           search_mode: 'competitors',
           ...(batchOutcome ? { competitor_search_outcome: batchOutcome } : {}),

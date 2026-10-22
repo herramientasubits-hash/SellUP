@@ -371,6 +371,10 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
       '155_import_apollo_saved_contact_phones.sql',
+      // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // una tabla nueva `agent1_competitor_watches` (sólo service_role). No nombra
+      // `provider_seen_entities` ni ninguna tabla de wizard. AUTORADA y NO APLICADA.
+      '156_agent1_competitor_watches.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol, la forma de búsqueda del uso de IA desde la metadata del lote, quién le vende a cada entidad pública, el endurecimiento de claim_enrichment_jobs y el cruce NIT/dominio/LinkedIn de los reclamos de identidad',
   );

@@ -1167,9 +1167,20 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
       assert.equal(savedContactImport.includes(foreign), false, `la 155 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
     }
-    // Ninguna 156 o superior, se llame como se llame.
+    // AGENT1-COMPETITOR-WATCH-1 declara la 156: tabla de referencias seguidas de Competidores
+    // (sin teléfonos, contactos, presupuesto ni HubSpot).
+    assert.deepEqual(
+      migrations.filter((f) => /^156_/.test(f)),
+      ['156_agent1_competitor_watches.sql'],
+      'la 156 tiene que ser la de las referencias seguidas de Competidores, y sólo ella',
+    );
+    const competitorWatches = read('supabase/migrations/156_agent1_competitor_watches.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(competitorWatches.includes(foreign), false, `la 156 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
+    }
+    // Ninguna 157 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15[6-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[7-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });
