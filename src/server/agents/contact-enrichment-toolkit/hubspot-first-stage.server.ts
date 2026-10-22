@@ -29,32 +29,53 @@ export interface HubSpotFirstStageDeps {
   loadRunHubspotCandidates?: (attemptId: string) => Promise<Array<{ hubspotId: string; hasEmail: boolean }>>;
   insertRows?: (attemptId: string, rows: HubSpotFirstCandidateRow[]) => Promise<{ error?: string }>;
   /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — dueño de HubSpot del vendedor y directorio de dueños. */
-  resolveOwnership?: (triggeredBy: string | null) => Promise<HubSpotFirstOwnership>;
+  resolveOwnership?: (triggeredBy: string | null, accountId?: string | null) => Promise<HubSpotFirstOwnership>;
   now?: () => number;
 }
 
-async function defaultResolveOwnership(triggeredBy: string | null): Promise<HubSpotFirstOwnership> {
+async function defaultResolveOwnership(
+  triggeredBy: string | null,
+  accountId?: string | null,
+): Promise<HubSpotFirstOwnership> {
   const admin = createSupabaseAdminClient();
-  let email: string | null = null;
-  if (triggeredBy) {
-    const { data } = await admin.from('internal_users').select('email').eq('id', triggeredBy).maybeSingle();
-    email = typeof data?.email === 'string' ? data.email : null;
-  }
   const token = await getHubSpotToken();
-  const seller = await resolveSellerHubSpotOwner(email, {
-    findMappedOwnerId: async (clean) => {
-      const { data } = await admin
-        .from('hubspot_owner_mappings')
-        .select('hubspot_owner_id')
-        .eq('internal_user_email', clean)
-        .eq('is_active', true)
-        .maybeSingle();
-      return typeof data?.hubspot_owner_id === 'string' ? data.hubspot_owner_id : null;
-    },
-    findHubSpotOwnerIdByEmail: async (clean) => (token ? ((await findHubSpotOwnerByEmail(clean, token))?.id ?? null) : null),
-  });
+
+  const emailOfInternalUser = async (internalUserId: string | null): Promise<string | null> => {
+    if (!internalUserId) return null;
+    const { data } = await admin.from('internal_users').select('email').eq('id', internalUserId).maybeSingle();
+    return typeof data?.email === 'string' ? data.email : null;
+  };
+  const hubspotOwnerIdFor = async (email: string | null): Promise<string | null> => {
+    const resolved = await resolveSellerHubSpotOwner(email, {
+      findMappedOwnerId: async (clean) => {
+        const { data } = await admin
+          .from('hubspot_owner_mappings')
+          .select('hubspot_owner_id')
+          .eq('internal_user_email', clean)
+          .eq('is_active', true)
+          .maybeSingle();
+        return typeof data?.hubspot_owner_id === 'string' ? data.hubspot_owner_id : null;
+      },
+      findHubSpotOwnerIdByEmail: async (clean) => (token ? ((await findHubSpotOwnerByEmail(clean, token))?.id ?? null) : null),
+    });
+    return resolved.ownerId;
+  };
+
+  const sellerOwnerId = await hubspotOwnerIdFor(await emailOfInternalUser(triggeredBy));
+
+  // El dueño de la ficha en SellUp: sus contactos de HubSpot también se ofrecen.
+  let accountOwnerId: string | null = null;
+  if (accountId) {
+    const { data } = await admin.from('accounts').select('owner_id').eq('id', accountId).maybeSingle();
+    const ownerInternalId = typeof data?.owner_id === 'string' ? data.owner_id : null;
+    accountOwnerId =
+      ownerInternalId && ownerInternalId !== triggeredBy
+        ? await hubspotOwnerIdFor(await emailOfInternalUser(ownerInternalId))
+        : null;
+  }
+
   const directory = token ? await loadHubSpotOwnerDirectory(token).catch(() => null) : null;
-  return { sellerOwnerId: seller.ownerId, directory };
+  return { sellerOwnerId, accountOwnerId, directory };
 }
 
 /**
@@ -155,7 +176,7 @@ export async function runHubSpotFirstStage(
 
     const inRun = await loadRunHubspotCandidates(input.attemptId);
     // Sin poder saber de quién es cada contacto, sólo pasan los sin dueño (falla cerrado).
-    const ownership = await resolveOwnership(input.triggeredBy ?? null).catch(
+    const ownership = await resolveOwnership(input.triggeredBy ?? null, ref.accountId).catch(
       (): HubSpotFirstOwnership => ({ sellerOwnerId: null, directory: null }),
     );
     const selection = selectHubSpotFirstCandidates({

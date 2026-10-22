@@ -126,3 +126,25 @@ describe('Primero HubSpot — el desglose viaja en el resultado y la telemetría
     assert.deepEqual(evidence.at(-1)?.hubspot_first_breakdown, breakdown);
   });
 });
+
+describe('Primero HubSpot — la etapa pasa la ficha al resolver dueños', () => {
+  it('resolveOwnership recibe el account_id de la corrida', async () => {
+    let seen: unknown = 'no-call';
+    await runHubSpotFirstStage(
+      { attemptId: 'r', triggeredBy: 'leader' },
+      {
+        loadRunRef: async () => ({ accountId: 'acc-lala', hubspotCompanyId: 'hs' }),
+        readSnapshot: async () => snapshot([person('a', { ownerId: 'brcastro-hs' } as Partial<ExistingContactSnapshot>)]),
+        loadRunHubspotCandidates: async () => [],
+        insertRows: async () => ({}),
+        resolveOwnership: async (_by, accountId) => {
+          seen = accountId;
+          return { sellerOwnerId: 'leader-hs', accountOwnerId: 'brcastro-hs', directory: null };
+        },
+      },
+    ).then((result) => {
+      assert.equal(result.status === 'done' && result.inserted, 1);
+    });
+    assert.equal(seen, 'acc-lala');
+  });
+});

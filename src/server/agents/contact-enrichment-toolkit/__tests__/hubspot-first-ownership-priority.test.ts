@@ -39,6 +39,14 @@ describe('«HubSpot primero» — de quién es cada contacto', () => {
   it('NUNCA el de otro vendedor activo', () => {
     assert.equal(isOfferableHubSpotContact('seller-other', OWNERSHIP), false);
   });
+  it('el dueño de la FICHA también cuenta aunque busque otra persona (Grupo LALA, 22-10)', () => {
+    const asLeader: HubSpotFirstOwnership = { ...OWNERSHIP, sellerOwnerId: 'leader', accountOwnerId: 'seller-other' };
+    assert.equal(isOfferableHubSpotContact('seller-other', asLeader), true);
+    assert.equal(isOfferableHubSpotContact('seller-third', asLeader), false);
+    // Sin dueño de ficha conocido, la regla de siempre.
+    assert.equal(isOfferableHubSpotContact('seller-other', { ...OWNERSHIP, accountOwnerId: null }), false);
+  });
+
   it('sin directorio ni dueño del vendedor: sólo los sin dueño (falla cerrado)', () => {
     const unknown: HubSpotFirstOwnership = { sellerOwnerId: null, directory: null };
     assert.equal(isOfferableHubSpotContact(null, unknown), true);
