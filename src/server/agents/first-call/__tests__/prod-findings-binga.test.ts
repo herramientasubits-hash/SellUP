@@ -177,3 +177,75 @@ describe('Binga! — revisión de código (2)', () => {
     assert.ok(issues.some((i) => /otro sentido/.test(i)));
   });
 });
+
+describe('Binga! (3.ª corrida, 22-10) — la raíz: ofrecer contar lo que hacen otros', () => {
+  const base = 'Asunto: Equipo nuevo\n\nBuenos días, Julian:\n\nVi que Binga! está creciendo en la Región Metropolitana. ';
+  for (const phrase of [
+    '¿Le sirve que le comparta cómo otros equipos de su tamaño aceleran la inducción?',
+    '¿Le sirve que le comparta cómo otros en su rubro lo están resolviendo?',
+    '¿Le sirve que le comparta cómo empresas de consumo masivo de su tamaño lo están resolviendo?',
+    '¿Le muestro qué están haciendo empresas como la suya?',
+    '¿Le cuento lo que hacen negocios similares para retener a la gente nueva?',
+    'Empresas de su rubro aceleran la inducción con planes cortos.',
+  ]) {
+    it(`se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
+    });
+  }
+
+  for (const phrase of [
+    '¿Le muestro cómo podría verse en Binga!?',
+    '¿Cómo lo están resolviendo hoy en Binga!?',
+    '¿Le comparto cómo sus equipos podrían arrancar más rápido?',
+    'Le cuento que en empresas de su tamaño suele pasar que la gente nueva tarda en rendir. ¿Cómo lo viven ustedes?',
+    '¿Le muestro una demo de 20 minutos con casos de su sector?',
+    '¿Cómo coordinan hoy la inducción con sus otros equipos?',
+  ]) {
+    it(`no se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+    });
+  }
+
+  it('las frases textuales llegan a la vuelta extra del redactor', () => {
+    const claims = claimingSentences(pack('email', `${base}¿Le sirve que le comparta cómo otros en su rubro lo están resolviendo?`));
+    assert.deepEqual(claims, ['¿Le sirve que le comparta cómo otros en su rubro lo están resolviendo?']);
+  });
+
+  it('el redactor recibe la regla y la alternativa permitida', () => {
+    const system = buildWriterSystemPrompt();
+    assert.match(system, /NUNCA ofrezcas contar o mostrar lo que hacen otros/);
+    assert.match(system, /cómo podría verse EN ESA EMPRESA/);
+  });
+});
+
+describe('Binga! — revisión de la regla de terceros (22-10)', () => {
+  const base = 'Asunto: Equipo nuevo\n\nBuenos días, Julian:\n\nVi que Binga! está creciendo en la Región Metropolitana. ';
+  for (const phrase of [
+    '¿Le muestro cómo podrían verlo las otras sedes de Binga!?',
+    '¿Le sirve que le muestre cómo se ve en otras áreas de su empresa?',
+    '¿Le muestro cómo otras áreas de Binga! podrían usar la plataforma?',
+    '¿Le muestro cómo lo verían los otros líderes de su equipo?',
+    '¿Le muestro cómo se vería con las otras gerencias de Binga!?',
+    '¿Le cuento cómo funciona en la práctica?',
+    '¿Le parece si lo vemos en otro momento?',
+  ]) {
+    it(`de la propia empresa, no se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+    });
+  }
+  for (const phrase of [
+    '¿Le gustaría ver cómo lo logran otras empresas de consumo masivo?',
+    '¿Le comparto lo que están haciendo los demás bancos?',
+    'Muchas empresas similares a Binga! lo resuelven con planes cortos.',
+    '¿Le muestro ejemplos de cómo la competencia acelera la inducción?',
+    '¿Le comparto algunos casos de empresas parecidas a la suya?',
+  ]) {
+    it(`se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
+    });
+  }
+});
