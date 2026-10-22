@@ -219,3 +219,33 @@ describe('Binga! (3.ª corrida, 22-10) — la raíz: ofrecer contar lo que hacen
     assert.match(system, /cómo podría verse EN ESA EMPRESA/);
   });
 });
+
+describe('Binga! — revisión de la regla de terceros (22-10)', () => {
+  const base = 'Asunto: Equipo nuevo\n\nBuenos días, Julian:\n\nVi que Binga! está creciendo en la Región Metropolitana. ';
+  for (const phrase of [
+    '¿Le muestro cómo podrían verlo las otras sedes de Binga!?',
+    '¿Le sirve que le muestre cómo se ve en otras áreas de su empresa?',
+    '¿Le muestro cómo otras áreas de Binga! podrían usar la plataforma?',
+    '¿Le muestro cómo lo verían los otros líderes de su equipo?',
+    '¿Le muestro cómo se vería con las otras gerencias de Binga!?',
+    '¿Le cuento cómo funciona en la práctica?',
+    '¿Le parece si lo vemos en otro momento?',
+  ]) {
+    it(`de la propia empresa, no se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.equal(issues.some((i) => /experiencia, clientes o casos/.test(i)), false, issues.join(' | '));
+    });
+  }
+  for (const phrase of [
+    '¿Le gustaría ver cómo lo logran otras empresas de consumo masivo?',
+    '¿Le comparto lo que están haciendo los demás bancos?',
+    'Muchas empresas similares a Binga! lo resuelven con planes cortos.',
+    '¿Le muestro ejemplos de cómo la competencia acelera la inducción?',
+    '¿Le comparto algunos casos de empresas parecidas a la suya?',
+  ]) {
+    it(`se marca: «${phrase}»`, () => {
+      const issues = verifyPack(pack('email', `${base}${phrase}`), FACTS, 'email', opts);
+      assert.ok(issues.some((i) => /experiencia, clientes o casos/.test(i)), issues.join(' | '));
+    });
+  }
+});
