@@ -53,6 +53,7 @@ import {
 import {
   CORPORATE_TREE_SAVED_DAYS,
   corporateTreeRootKey,
+  corporateTreeRootKeyVariants,
   pickSavedTree,
   readSavedTree,
   serializeSavedTree,
@@ -425,6 +426,15 @@ describe('A3. El árbol guardado: lo que se lee de la base se valida', () => {
   it('la clave del grupo no depende de la forma societaria ni de mayúsculas', () => {
     assert.equal(corporateTreeRootKey('Bimbo S.A.'), corporateTreeRootKey('BIMBO'));
   });
+
+  it('«Grupo Bimbo» y «Bimbo» se buscan por las mismas claves (Prod 22-10)', () => {
+    const fromGroup = corporateTreeRootKeyVariants('Grupo Bimbo, S.A.B. de C.V.');
+    const fromName = corporateTreeRootKeyVariants('Bimbo');
+    assert.ok(fromGroup.includes('bimbo') && fromGroup.includes('grupo bimbo'));
+    assert.deepEqual([...fromGroup].sort(), [...fromName].sort());
+    assert.deepEqual(corporateTreeRootKeyVariants('Grupo'), ['grupo'], 'la palabra sola no se vacía');
+    assert.deepEqual(corporateTreeRootKeyVariants(''), []);
+  });
 });
 
 // ─── La corrida completa ────────────────────────────────────────────────────────────────
@@ -556,10 +566,10 @@ describe('A4. La corrida: el árbol guardado se reutiliza sin pagar', () => {
     await runCorporateTreeSearch({ ...REQUEST, branches: ['group', 'subsidiary', 'other_country'] }, CONTEXT, first.deps);
     const stored = { batchId: 'batch-old', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: treeOf(first.calls) } };
 
-    const asked: string[] = [];
+    const asked: { rootKeys: string[]; rootDomain: string | null }[] = [];
     const { deps, calls } = fakeDeps({
-      findSavedTrees: async (rootKey) => {
-        asked.push(rootKey);
+      findSavedTrees: async (lookup) => {
+        asked.push(lookup);
         return [stored];
       },
     });
@@ -567,7 +577,9 @@ describe('A4. La corrida: el árbol guardado se reutiliza sin pagar', () => {
     assert.ok(result.ok);
     assert.equal(result.reusedSavedTree, true);
     assert.equal(result.estimatedCostUsd, 0);
-    assert.deepEqual(asked, ['bimbo']);
+    assert.equal(asked.length, 1);
+    assert.ok(asked[0].rootKeys.includes('bimbo') && asked[0].rootKeys.includes('grupo bimbo'));
+    assert.equal(asked[0].rootDomain, 'grupobimbo.com');
     assert.deepEqual(calls.searched, [], 'Claude no se paga');
     assert.equal(calls.apollo, 0, 'Apollo tampoco: sus filiales venían guardadas');
     const tree = treeOf(calls);
@@ -590,6 +602,45 @@ describe('A4. La corrida: el árbol guardado se reutiliza sin pagar', () => {
     assert.ok(result.ok && result.reusedSavedTree, 'antes volvía a pagar: sin país ni web no había con qué comparar');
     assert.deepEqual(calls.searched, []);
     assert.equal(calls.apollo, 0);
+  });
+
+  it('Bimbo (Prod 22-10): guardado como «Bimbo» y buscado como «Grupo Bimbo» SÓLO por nombre, se reutiliza', async () => {
+    const noRootCountry = { findFreeHits: async () => ({ hits: [], rootCountryCode: null, queries: 1, errors: 0 }) };
+    const first = fakeDeps(noRootCountry);
+    await runCorporateTreeSearch({ ...REQUEST, rootWebsite: null, rootCountryCode: null }, CONTEXT, first.deps);
+    const tree = treeOf(first.calls);
+    assert.equal(tree.root_key, 'bimbo');
+    const stored = { batchId: 'batch-old', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: tree } };
+    const { deps, calls } = fakeDeps({
+      ...noRootCountry,
+      findSavedTrees: async ({ rootKeys }) => (rootKeys.includes(String(tree.root_key)) ? [stored] : []),
+    });
+    const result = await runCorporateTreeSearch(
+      { ...REQUEST, rootName: 'Grupo Bimbo', rootWebsite: null, rootCountryCode: null },
+      CONTEXT,
+      deps,
+    );
+    assert.ok(result.ok && result.reusedSavedTree, 'antes volvía a pagar (lote c3613a5d, US$0,45)');
+    assert.deepEqual(calls.searched, []);
+  });
+
+  it('dos árboles guardados con el mismo nombre de grupo y webs distintas: se busca de nuevo', async () => {
+    const noRootCountry = { findFreeHits: async () => ({ hits: [], rootCountryCode: null, queries: 1, errors: 0 }) };
+    const first = fakeDeps(noRootCountry);
+    await runCorporateTreeSearch({ ...REQUEST, rootWebsite: null, rootCountryCode: null }, CONTEXT, first.deps);
+    const tree = treeOf(first.calls);
+    const saved = tree.saved as Record<string, unknown>;
+    const other = { ...tree, root_key: 'grupo bimbo', saved: { ...saved, root: { ...(saved.root as object), website: 'https://otrobimbo.com' } } };
+    const { deps, calls } = fakeDeps({
+      ...noRootCountry,
+      findSavedTrees: async () => [
+        { batchId: 'a', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: tree } },
+        { batchId: 'b', createdAt: new Date(NOW - DAY).toISOString(), metadata: { corporate_tree: other } },
+      ],
+    });
+    const result = await runCorporateTreeSearch({ ...REQUEST, rootName: 'Grupo Bimbo', rootWebsite: null, rootCountryCode: null }, CONTEXT, deps);
+    assert.ok(result.ok && !result.reusedSavedTree);
+    assert.ok(calls.searched.length > 0);
   });
 
   it('`refresh` busca de nuevo aunque haya árbol guardado', async () => {

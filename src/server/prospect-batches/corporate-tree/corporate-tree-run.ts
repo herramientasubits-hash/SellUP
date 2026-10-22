@@ -42,6 +42,7 @@ import {
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import {
   corporateTreeRootKey,
+  corporateTreeRootKeyVariants,
   pickSavedTree,
   serializeSavedTree,
   type CorporateTreeSavedHubSpotMember,
@@ -237,10 +238,14 @@ export type CorporateTreeRunDeps = {
     ctx: { batchId: string },
   ) => Promise<CorporateTreeApolloSubsidiary[] | null | typeof APOLLO_QUOTA_EXHAUSTED>;
   /**
-   * Los lotes del árbol de este grupo (por `corporateTreeRootKey`) de los últimos 30 días, el
-   * más reciente primero. Ausente = no se reutiliza nada.
+   * Los lotes del árbol de este grupo de los últimos 30 días, el más reciente primero: por
+   * cualquiera de sus claves (`corporateTreeRootKeyVariants`) o por la web de partida, si se
+   * sabe. Ausente = no se reutiliza nada.
    */
-  findSavedTrees?: (rootKey: string) => Promise<{ batchId: string; createdAt: string; metadata: unknown }[]>;
+  findSavedTrees?: (lookup: {
+    rootKeys: string[];
+    rootDomain: string | null;
+  }) => Promise<{ batchId: string; createdAt: string; metadata: unknown }[]>;
   /**
    * El registro oficial de una empresa por su nombre exacto en su país (número fiscal y
    * tamaño). Gratis. Para las que quedaron sin web ni número fiscal.
@@ -1067,11 +1072,11 @@ async function findSavedTree(
   root: CorporateTreeRoot,
   deps: CorporateTreeRunDeps,
 ): Promise<CorporateTreeSavedTree | null> {
-  const rootKey = corporateTreeRootKey(root.name);
-  if (request.refresh || !deps.findSavedTrees || !rootKey) return null;
+  const rootKeys = corporateTreeRootKeyVariants(root.name);
+  if (request.refresh || !deps.findSavedTrees || rootKeys.length === 0) return null;
   // Una lectura colgada no frena la corrida: sin respuesta a tiempo, se busca como siempre.
   const read = await settleBy(
-    deps.findSavedTrees(rootKey).catch(() => []),
+    deps.findSavedTrees({ rootKeys, rootDomain: root.domain }).catch(() => []),
     deps.nowMs() + CORPORATE_TREE_SAVED_READ_TIMEOUT_MS,
     deps.nowMs,
   );

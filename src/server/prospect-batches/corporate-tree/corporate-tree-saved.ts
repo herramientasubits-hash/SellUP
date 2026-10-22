@@ -34,6 +34,23 @@ export function corporateTreeRootKey(rootName: string): string {
   return normalizeTreeName(stripCountryTag(rootName));
 }
 
+/** Palabras con las que se nombra al grupo delante de su nombre («Grupo Bimbo» = «Bimbo»). */
+const GROUP_PREFIXES = ['grupo', 'group', 'corporacion', 'holding'] as const;
+
+/**
+ * Las claves con las que pudo guardarse el árbol de este grupo: la propia, sin la palabra de
+ * grupo y con cada una (Prod 22-10: «Grupo Bimbo» no encontró el árbol guardado como «Bimbo»
+ * y volvió a pagar). La web de partida sigue decidiendo si es la misma empresa.
+ */
+export function corporateTreeRootKeyVariants(rootName: string): string[] {
+  const key = corporateTreeRootKey(rootName);
+  if (!key) return [];
+  const prefix = GROUP_PREFIXES.find((p) => key.startsWith(`${p} `));
+  const core = prefix ? key.slice(prefix.length + 1).trim() : key;
+  if (!core || (GROUP_PREFIXES as readonly string[]).includes(core)) return [key];
+  return [...new Set([key, core, ...GROUP_PREFIXES.map((p) => `${p} ${core}`)])];
+}
+
 export type CorporateTreeSavedRoot = { website: string | null; domain: string | null; countryCode: string | null };
 
 export type CorporateTreeSavedTree = {
