@@ -653,7 +653,13 @@ function AdditionalCriteriaStep({
       title="¿Hay alguna característica adicional que debamos tener en cuenta?"
       // AGENT1-CRITERIA-QUICK-WINS-1 — el tamaño NO es un criterio libre: está fijo en
       // más de 200 empleados. Ofrecerlo aquí prometía un filtro que nadie aplicaba.
-      description="Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados."
+      // Dueña 22-10: ese tope es de la búsqueda por criterios; en «Proveedores» y
+      // «Competidores» el tamaño se filtra distinto, así que allí no se promete.
+      description={
+        state.searchMode === 'exploratory' || state.searchMode === null
+          ? 'Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados.'
+          : 'Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento…'
+      }
       titleRef={titleRef}
       options={[CRITERIA_NO]}
       onAnswer={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}
