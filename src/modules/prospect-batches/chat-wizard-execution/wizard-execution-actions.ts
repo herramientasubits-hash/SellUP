@@ -631,6 +631,7 @@ export type WizardExecutionDeps = {
   reportProgress?: CompetitorRunDeps['reportProgress'];
   countCompetitorBatchOutcome?: CompetitorRunDeps['countCompetitorBatchOutcome'];
   canReadReferenceAccount?: CompetitorRunDeps['canReadReferenceAccount'];
+  loadNotCompetitors?: CompetitorRunDeps['loadNotCompetitors'];
   runCompetitorApollo?: CompetitorRunDeps['runCompetitorApollo'];
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`; ausente = apagada. */
   resolveSupplierSearchEnabled?: () => boolean;
@@ -727,6 +728,7 @@ const runClaudeCompanySearchLegLive: NonNullable<WizardExecutionDeps['runClaudeC
     estimatedCostUsd: summary.estimatedCostUsd,
     proposed: summary.proposed,
     passedPreFilter: summary.passedPreFilter,
+    ...(summary.withoutWebsite ? { withoutWebsite: summary.withoutWebsite } : {}),
   };
 };
 
@@ -1259,6 +1261,13 @@ export async function executeProspectWizardGenerationAction(
       return runCompetitorApolloLive(apolloInput);
     },
     reportProgress: progress.report,
+    // «No es competidor» de lotes anteriores de la referencia (contraejemplos del juez).
+    loadNotCompetitors: async (reference) => {
+      const { loadNotCompetitorNames } = await import(
+        '@/server/prospect-batches/competitor-search/competitor-not-competitors.server'
+      );
+      return loadNotCompetitorNames(reference);
+    },
     // La cuenta de la ficha, leída con la sesión (RLS): sólo si la persona la ve.
     canReadReferenceAccount: async (accountId) => {
       const { data, error } = await supabase.from('accounts').select('id').eq('id', accountId).maybeSingle();

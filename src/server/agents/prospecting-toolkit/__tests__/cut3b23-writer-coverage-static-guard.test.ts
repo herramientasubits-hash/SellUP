@@ -424,7 +424,11 @@ const POST_APPROVAL_REVEAL_MIGRATION =
 // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
 // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
 // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '155_import_apollo_saved_contact_phones.sql';
+const SAVED_CONTACT_PHONES_MIGRATION = '155_import_apollo_saved_contact_phones.sql';
+// AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+// una tabla nueva `agent1_competitor_watches` (sólo service_role). No toca el registro de identidad
+// del lote ni la valla; se policía por CONTENIDO justo abajo del techo. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '156_agent1_competitor_watches.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -808,8 +812,30 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // AGENT1-AUDIT-HARDENING-1 lo movió a la 152 (la 151 endurece `claim_enrichment_jobs` y la 152
     // cruza NIT/dominio/LinkedIn en los reclamos de identidad), policiadas igual por AUTORÍA en sus
     // pruebas dedicadas.
-    assert.ok(last.startsWith('155'), `última migración inesperada: ${last}`);
+    // AGENT1-COMPETITOR-WATCH-1 lo movió a la 156 (`agent1_competitor_watches`), policiada por
+    // CONTENIDO aquí mismo: no nombra ninguna tabla de CUT-3B23.
+    assert.ok(last.startsWith('156'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
+    assert.ok(migrations.includes(SAVED_CONTACT_PHONES_MIGRATION));
+    {
+      const competitorWatches = readFileSync(
+        join(REPO_ROOT, 'supabase', 'migrations', REPOSITORY_CEILING),
+        'utf8',
+      );
+      for (const foreignTable of [
+        'prospect_candidates',
+        'batch_identity_registry',
+        'provider_seen_entities',
+        'wizard_budget_reservations',
+        'wizard_monthly_budget_periods',
+      ]) {
+        assert.equal(
+          competitorWatches.includes(foreignTable),
+          false,
+          `${REPOSITORY_CEILING} toca ${foreignTable}: dejaría de ser ajena a CUT-3B23`,
+        );
+      }
+    }
     assert.ok(migrations.includes(GLOBAL_IDENTITY_CLAIMS_MIGRATION));
     assert.ok(migrations.includes(TAX_IDENTIFIER_EIN_NIF_MIGRATION));
     assert.ok(migrations.includes(COMPANY_BANK_MIGRATION));

@@ -1258,3 +1258,21 @@ export const AGENT3_FIRST_CALL_FLAG = 'ENABLE_AGENT3_FIRST_CALL';
 export function isAgent3FirstCallEnabled(): boolean {
   return isEnvFlagEnabled(process.env[AGENT3_FIRST_CALL_FLAG]);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT1-COMPETITOR-WATCH-1 — «Seguir esta referencia» (Competidores, migración 156)
+// ════════════════════════════════════════════════════════════════════════════
+
+export const AGENT1_COMPETITOR_WATCH_FLAG = 'ENABLE_AGENT1_COMPETITOR_WATCH';
+
+/**
+ * El resumen semanal (lunes, dentro del cron diario de Agente 1) que avisa en la
+ * campana cuántas competidoras nuevas trajo el equipo para cada referencia seguida.
+ * Nunca busca ni gasta: «Buscar de nuevo» es un clic del vendedor. Necesita la
+ * migración 156 aplicada.
+ *
+ * 🔴 Fail-closed y por defecto APAGADA: sólo el token exacto `true` la enciende.
+ */
+export function isAgent1CompetitorWatchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[AGENT1_COMPETITOR_WATCH_FLAG]);
+}

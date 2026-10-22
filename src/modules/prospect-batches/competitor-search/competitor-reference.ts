@@ -41,6 +41,12 @@ export type CompetitorReference = {
    */
   keywords?: readonly string[];
   /**
+   * Sólo en memoria durante la corrida (nunca viaja del navegador ni se guarda):
+   * nombres que un vendedor ya descartó como «no es competidor» de esta referencia.
+   * Van al juez y a la búsqueda web como contraejemplos (auditoría 21-10, Fase C).
+   */
+  notCompetitors?: readonly string[];
+  /**
    * País de la sede de la referencia (el que identificó Claude). Decide, p. ej., si
    * se busca su CIIU en el registro colombiano. Ausente en fichas anteriores.
    */

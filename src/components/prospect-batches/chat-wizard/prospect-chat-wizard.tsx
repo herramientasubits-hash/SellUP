@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { validateExploratorySearch } from '@/modules/industry-catalog/action';
 import { detectIncompatibleSubindustries } from '@/modules/industry-catalog/catalog-utils';
@@ -128,6 +129,12 @@ type ProspectChatWizardProps = {
    * empieza una conversación nueva.
    */
   onRunningChange?: (clientRequestId: string | null) => void;
+  /**
+   * «Buscar competidores» desde una cuenta: la conversación arranca en
+   * «Competidores de una empresa» con esta cuenta como referencia (una vez).
+   */
+  initialCompetitorAccountId?: string | null;
+  onCompetitorPrefillConsumed?: () => void;
   catalog: ActiveIndustryCatalog;
   onClose: () => void;
   executionEnabled?: boolean;
@@ -199,6 +206,8 @@ export function ProspectChatWizard({
   ref,
   onRestartAvailabilityChange,
   onRunningChange,
+  initialCompetitorAccountId = null,
+  onCompetitorPrefillConsumed,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -412,6 +421,21 @@ export function ProspectChatWizard({
     if (state.currentStep !== 'welcome') return;
     dispatch({ type: 'START' });
   }, [state.currentStep, dispatch]);
+
+  // «Buscar competidores» desde Cuentas: elige el modo y arma la ficha de la cuenta.
+  const competitorPrefillRef = React.useRef(initialCompetitorAccountId);
+  React.useEffect(() => {
+    const accountId = competitorPrefillRef.current;
+    if (!accountId || state.currentStep !== 'search_type') return;
+    competitorPrefillRef.current = null;
+    onCompetitorPrefillConsumed?.();
+    dispatch({ type: 'SELECT_SEARCH_MODE', mode: 'competitors' });
+    void resolveCompetitorReferenceAction({ accountId })
+      .then((result) => {
+        if (result.ok) dispatch({ type: 'REFERENCE_RESOLVED', reference: result.reference });
+      })
+      .catch(() => undefined);
+  }, [state.currentStep, dispatch, onCompetitorPrefillConsumed]);
 
   // ── Autoscroll on step change ─────────────────────────────────────────────
 

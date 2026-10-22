@@ -516,7 +516,10 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
     // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
     // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-    const CEILING = '155_import_apollo_saved_contact_phones.sql';
+    const SAVED_CONTACT_PHONES_155 = '155_import_apollo_saved_contact_phones.sql';
+    // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot).
+    // No es de CUT3B4: no menciona `AGENT1-CUT3B4` y el barrido de abajo se ENSANCHA con la 155.
+    const CEILING = '156_agent1_competitor_watches.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -543,6 +546,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       USAGE_SEARCH_MODE_149,
       PROCUREMENT_SUPPLIER_LINKS_150,
       ENRICHMENT_JOBS_HARDENING_151,
+      SAVED_CONTACT_PHONES_155,
       CEILING,
     ]) {
       assert.equal(
@@ -569,7 +573,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-SUPPLIER-SEARCH-CL-1 añade la 150 y el conteo sube con ella.
     // AGENT1-AUDIT-HARDENING-1 añade la 151 y la 152, y el conteo sube con las dos.
     // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 añade la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
-    assert.equal(migrations.length, 155);
+    // AGENT1-COMPETITOR-WATCH-1 añade la 156 y el conteo sube con ella.
+    assert.equal(migrations.length, 156);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {
