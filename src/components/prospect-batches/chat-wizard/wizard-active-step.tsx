@@ -26,7 +26,7 @@ const FREQUENT_PUBLIC_OPTION_VALUE = '__frequent_public__';
 const FREQUENT_PUBLIC_OPTION: ChatQuestionOptionDetail = {
   value: FREQUENT_PUBLIC_OPTION_VALUE,
   label: 'Sin empresa: proveedores frecuentes del Estado',
-  description: `Empresas que le venden a 3 o más entidades públicas, con el contrato como prueba. Gratis, en ${FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.length} países.`,
+  description: `Empresas que le venden a 3 o más entidades públicas, con el contrato como prueba, en ${FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES.length} países. Leerlas es gratis; buscar la web de las que no la traen cuesta unos centavos por empresa.`,
 };
 import type {
   ProspectWizardState,
