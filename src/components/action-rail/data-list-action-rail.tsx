@@ -26,7 +26,7 @@ import {
   type RailActionScope,
   type RailActionSpec,
 } from "./rail-actions";
-import { useRailPopoutSide } from "./rail-preferences";
+import { useRailIsVertical, useRailPopoutSide } from "./rail-preferences";
 import { useCompactViewport } from "./use-compact-viewport";
 
 export type { RailActionScope, RailActionSpec } from "./rail-actions";
@@ -290,13 +290,15 @@ export function DataListActionRail({
 }
 
 /**
- * El agente de IA en la barra: solo la chispa sobre el degradado de IA; el
- * nombre va en el tooltip, como en el resto de iconos de la barra. De pie es
- * el mismo botón cuadrado. Un agente sin `variant: "ai"` (p. ej. «Búsqueda no
+ * El agente de IA en la barra: la chispa y su nombre sobre el degradado de IA
+ * («Buscar contactos»), como la acción primaria de al lado (dueña 22-10: sólo
+ * el ícono no decía qué hacía). De pie no caben palabras: queda cuadrado y el
+ * nombre va en el tooltip. Un agente sin `variant: "ai"` (p. ej. «Búsqueda no
  * disponible») no promete IA: sale como un icono más, con el suyo.
  */
 function RailAgentButton({ agent }: { agent: RailActionSpec }) {
   const side = useRailPopoutSide();
+  const isVertical = useRailIsVertical();
   const isBlocked = agent.blockedReason != null;
 
   if (agent.variant !== "ai") {
@@ -312,27 +314,32 @@ function RailAgentButton({ agent }: { agent: RailActionSpec }) {
     );
   }
 
+  const button = (
+    <button
+      type="button"
+      aria-label={agent.label}
+      aria-disabled={isBlocked || undefined}
+      data-slot="rail-agent"
+      data-variant="ai"
+      onClick={isBlocked ? undefined : () => agent.onSelect?.()}
+      className={cn(
+        "bg-ai-gradient relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold text-primary-foreground transition-transform [&_svg]:size-4.5",
+        "hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/40 active:scale-95",
+        "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
+        isVertical ? "w-10 px-0" : "px-4",
+      )}
+    >
+      <Sparkles strokeWidth={2.5} aria-hidden="true" />
+      {!isVertical && agent.label}
+    </button>
+  );
+
+  // Con el nombre a la vista el tooltip sobra, salvo para explicar un bloqueo.
+  if (!isVertical && !isBlocked) return button;
+
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={agent.label}
-            aria-disabled={isBlocked || undefined}
-            data-slot="rail-agent"
-            data-variant="ai"
-            onClick={isBlocked ? undefined : () => agent.onSelect?.()}
-            className={cn(
-              "bg-ai-gradient relative flex size-10 shrink-0 items-center justify-center rounded-xl text-primary-foreground transition-transform [&_svg]:size-4.5",
-              "hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/40 active:scale-95",
-              "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
-            )}
-          >
-            <Sparkles strokeWidth={2.5} aria-hidden="true" />
-          </button>
-        }
-      />
+      <TooltipTrigger render={button} />
       <TooltipContent side={side} className="max-w-56">
         {agent.blockedReason ?? agent.label}
       </TooltipContent>

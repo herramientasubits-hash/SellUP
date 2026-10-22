@@ -303,7 +303,8 @@ describe('El agente de IA en la barra', () => {
     assert.equal(agent.getAttribute('data-slot'), 'rail-agent');
     assert.equal(agent.getAttribute('data-variant'), 'ai');
     assert.ok(agent.className.includes('bg-ai-gradient'));
-    assert.equal(agent.textContent, '', 'solo la chispa: el nombre va en el tooltip');
+    // Dueña 22-10: sólo la chispa no decía qué hacía Rumbo; ahora va la chispa con su nombre.
+    assert.equal(agent.textContent, 'Generar con IA', 'chispa y nombre, como la acción primaria');
   });
 
   it('está a UN clic', () => {
@@ -314,13 +315,14 @@ describe('El agente de IA en la barra', () => {
     assert.deepEqual(fired, ['agent']);
   });
 
-  it('de pie es el mismo botón', () => {
+  it('de pie no caben palabras: botón cuadrado, nombre en el tooltip', () => {
     window.localStorage.setItem('sellup:action-rail:orientation', 'vertical');
     render(<Screen agent={AI_AGENT} />);
 
     const agent = screen.getByRole('button', { name: 'Generar con IA' });
     assert.ok(agent.className.includes('bg-ai-gradient'));
-    assert.ok(agent.className.includes('size-10'));
+    assert.ok(agent.className.includes('w-10'));
+    assert.equal(agent.textContent, '', 'de pie sólo la chispa');
   });
 
   it('una pantalla que solo tiene agente también tiene barra', () => {
