@@ -86,7 +86,7 @@ export function SupplierReferenceSuggestions({
   return (
     <div className="flex flex-col gap-1.5" data-testid="supplier-reference-suggestions">
       <p className="text-xs text-muted-foreground">
-        Entidades públicas: sus proveedores salen gratis de las compras públicas, con el contrato como prueba.
+        Entidades públicas: sus proveedores salen de las compras públicas, con el contrato como prueba. Leerlas es gratis; si alguna no trae web, Claude la busca (unos centavos por empresa).
       </p>
       <ul aria-label="Entidades públicas sugeridas" className="flex flex-col gap-1">
         {state.items.map((item) => (

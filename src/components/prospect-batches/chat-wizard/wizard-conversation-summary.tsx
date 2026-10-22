@@ -742,7 +742,7 @@ function SupplierValidatedPanel({
         <AlertDescription className="text-xs">
           {executionEnabled
             ? frequent
-              ? 'Buscaremos en las compras públicas empresas que le venden a 3 o más entidades del Estado, con el contrato como prueba. Es gratis; nada se aprueba solo.'
+              ? 'Buscaremos en las compras públicas empresas que le venden a 3 o más entidades del Estado, con el contrato como prueba. Leer las compras es gratis; si alguna no trae web, Claude la busca (unos centavos por empresa). Nada se aprueba solo.'
               : `Claude buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
             : 'La generación real todavía no está habilitada.'}
         </AlertDescription>
