@@ -279,7 +279,14 @@ function PhoneRevealCell({
   onOpen: (candidate: PendingContactCandidate) => void;
 }) {
   const status = candidate.phone_reveal_status;
-  const label = status ? PHONE_REVEAL_STATUS_LABELS[status] : undefined;
+  // Un reveal viejo que terminó sin número no puede contradecir a un teléfono que llegó
+  // después por otra vía (p. ej. la importación de contactos guardados en Apollo).
+  const label =
+    status === 'no_phone_found' && candidate.phone
+      ? 'Ya tiene teléfono'
+      : status
+        ? PHONE_REVEAL_STATUS_LABELS[status]
+        : undefined;
   if (label) {
     return <span className="block truncate text-xs text-muted-foreground">{label}</span>;
   }

@@ -586,8 +586,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
       // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no ASIGNAN `mobile_phone`
       // ni introducen procedencia del escalar móvil. AUTORADAS y NO APLICADAS.
-      154,
-      'la 154 (las entidades públicas sugeridas de «Proveedores», AGENT1-SUPPLIER-REFERENCE-SUGGEST-1) es la última',
+      155,
+      'la 155 (la importación de teléfonos ya guardados en Apollo, APOLLO-SAVED-CONTACT-PHONES-1; nunca escribe `mobile_phone`) es la última',
     );
   });
 
