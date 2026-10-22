@@ -1228,7 +1228,9 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // de CUT3B4. AUTORADAS y NO APLICADAS.
     // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 156, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 157, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

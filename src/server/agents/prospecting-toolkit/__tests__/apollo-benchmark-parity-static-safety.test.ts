@@ -481,7 +481,10 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
       // AGENT1-COMPETITOR-WATCH-1 declara la 156 (tabla de referencias seguidas de Competidores; sin
       // teléfonos, contactos, presupuesto ni HubSpot). No es de este corte; la ventana sube a la 157, y
       // el barrido de AUTORÍA se ENSANCHA para incluir la 156.
-      migrations.filter((f) => f.startsWith('157')).length,
+      // AGENT1-CORPORATE-TREE-PHASE-C declara la 157 (columnas de nivel en agent1_company_relationships;
+      // sin teléfonos, contactos, presupuesto ni HubSpot). No es de este corte; la ventana sube a la 158, y
+      // el barrido de AUTORÍA se ENSANCHA para incluir la 157.
+      migrations.filter((f) => f.startsWith('158')).length,
       0,
       'este corte no añade migración',
     );
@@ -519,7 +522,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('153') ||
         f.startsWith('154') ||
         f.startsWith('155') ||
-        f.startsWith('156'),
+        f.startsWith('156') ||
+        f.startsWith('157'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

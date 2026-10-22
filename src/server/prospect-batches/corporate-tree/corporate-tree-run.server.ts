@@ -84,7 +84,7 @@ import {
 } from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { CORPORATE_TREE_SAVED_DAYS } from './corporate-tree-saved';
-import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
+import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeRelationshipRow, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
 
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
@@ -262,6 +262,22 @@ export function groupMemberStatusFromAvailability(availability: HubSpotAvailabil
   if (!availability) return null;
   if (availability.free) return 'free';
   return availability.reason === 'unknown_owner' ? null : availability.reason;
+}
+
+/** ¿El error es porque la base todavía no tiene las columnas de la 157 (parent_name, depth…)? */
+export function isMissingLevelColumnsError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = error.message ?? '';
+  return error.code === 'PGRST204' || error.code === '42703' || /parent_name|parent_relationship_id|\bdepth\b/.test(message);
+}
+
+/** La fila sin las columnas de la 157 (árbol plano, como antes de la FASE C). */
+export function withoutLevelColumns(row: CorporateTreeRelationshipRow): Omit<CorporateTreeRelationshipRow, 'parent_name' | 'parent_relationship_id' | 'depth'> {
+  const flat: Partial<CorporateTreeRelationshipRow> = { ...row };
+  delete flat.parent_name;
+  delete flat.parent_relationship_id;
+  delete flat.depth;
+  return flat as Omit<CorporateTreeRelationshipRow, 'parent_name' | 'parent_relationship_id' | 'depth'>;
 }
 
 /** Limita cuántas promesas corren a la vez. */
@@ -704,11 +720,22 @@ export function buildLiveCorporateTreeDeps(params: {
     insertRelationships: async (rows) => {
       if (rows.length === 0) return true;
       const { error } = await adminClient().from(RELATIONSHIPS_TABLE).insert(rows);
-      if (error) {
-        logError('insert relationships', error);
+      if (!error) return true;
+      // Sin la 157 aplicada no existen las columnas de nivel: se guarda el árbol plano, como antes.
+      if (isMissingLevelColumnsError(error)) {
+        const { error: flatError } = await adminClient().from(RELATIONSHIPS_TABLE).insert(rows.map(withoutLevelColumns));
+        if (!flatError) return true;
+        logError('insert relationships (flat)', flatError);
         return false;
       }
-      return true;
+      logError('insert relationships', error);
+      return false;
+    },
+    loadParentRelationship: async (id) => {
+      const { data, error } = await adminClient().from(RELATIONSHIPS_TABLE).select('id, depth').eq('id', id).maybeSingle();
+      if (error || !data) return null;
+      const depth = Number((data as { depth?: unknown }).depth);
+      return { id: String((data as { id: unknown }).id), depth: Number.isFinite(depth) && depth >= 1 ? depth : 1 };
     },
 
     sealBatch: async (batchId, { persisted, failed, metadata, country }) => {

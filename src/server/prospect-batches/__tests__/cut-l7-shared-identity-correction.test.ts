@@ -1178,9 +1178,20 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
       assert.equal(competitorWatches.includes(foreign), false, `la 156 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
     }
-    // Ninguna 157 o superior, se llame como se llame.
+    // AGENT1-CORPORATE-TREE-PHASE-C declara la 157: columnas de nivel en agent1_company_relationships
+    // (sin teléfonos, contactos, presupuesto ni HubSpot).
+    assert.deepEqual(
+      migrations.filter((f) => /^157_/.test(f)),
+      ['157_agent1_company_relationships_levels.sql'],
+      'la 157 tiene que ser la de las columnas de nivel del árbol de empresa, y sólo ella',
+    );
+    const companyRelationshipLevels = read('supabase/migrations/157_agent1_company_relationships_levels.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(companyRelationshipLevels.includes(foreign), false, `la 157 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
+    }
+    // Ninguna 158 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^15[7-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^15[8-9]_/.test(f) || /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

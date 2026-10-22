@@ -18,6 +18,7 @@ import type { CountrySourceCompany } from '@/server/prospect-batches/country-sou
 import type { AnthropicConversationResult } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import {
   CORPORATE_TREE_NO_SUBMISSION_ERROR,
+  buildCorporateTreeRequestBody,
   searchCorporateTreeBranch,
   type CorporateTreeNode,
   type CorporateTreeSearchOutcome,
@@ -56,7 +57,7 @@ import {
   readSavedTree,
   serializeSavedTree,
 } from '../corporate-tree-saved';
-import { corporateTreePendingSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import { buildCorporateTreeHierarchy, corporateTreePendingSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   corporateTreeGroupOpportunity,
   corporateTreeGroupSentence,
@@ -64,7 +65,7 @@ import {
   summarizeCorporateTreeGroup,
   withCorporateTreeGroupOpportunity,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
-import { groupMemberStatusFromAvailability } from '../corporate-tree-run.server';
+import { groupMemberStatusFromAvailability, isMissingLevelColumnsError, withoutLevelColumns } from '../corporate-tree-run.server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -910,5 +911,187 @@ describe('D5. Cencosud (Prod 22-10): la que entra después por el rescate tambi�
   it('el rescate en vivo la aplica al admitir', () => {
     const source = readFileSync(join(__dirname, '../../../agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts'), 'utf8');
     assert.match(source, /await tagRescuedTreeCandidate\(outcome\.candidateId\)/);
+  });
+});
+
+// ─── FASE C: árbol de varios niveles ───────────────────────────────────────────────────
+
+describe('C1. Claude dice de quién depende cada empresa', () => {
+  const conversationWith = (companies: Array<Record<string, unknown>>): AnthropicConversationResult => ({
+    content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://www.bnamericas.com/x', title: 't' }] },
+      { type: 'tool_use', name: 'submit_corporate_tree', input: { root: { website_url: null, country_code: null }, companies } },
+    ],
+    stopReason: 'tool_use',
+    usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 1, webFetchRequests: 0 },
+    requests: 1,
+  });
+
+  it("Entenmann's depende de Bimbo Bakeries USA; la empresa de partida o ella misma no cuentan como padre", async () => {
+    const outcome = await searchCorporateTreeBranch(
+      { branch: 'subsidiary', rootName: 'Grupo Bimbo', rootWebsite: null, rootCountry: MX, countries: [MX, { code: 'US', name: 'EE. UU.' }], maxCompanies: 8 },
+      MODEL,
+      {
+        runConversation: async () =>
+          conversationWith([
+            { name: "Entenmann's", country_code: 'US', relation_detail: 'Marca', parent_name: 'Bimbo Bakeries USA', source_url: 'https://www.bnamericas.com/x' },
+            { name: 'Barcel', country_code: 'MX', relation_detail: 'Filial', parent_name: 'Grupo Bimbo S.A.B. de C.V.', source_url: 'https://www.bnamericas.com/x' },
+            { name: 'Marinela', country_code: 'MX', relation_detail: 'Marca', parent_name: 'Marinela', source_url: 'https://www.bnamericas.com/x' },
+          ]),
+      },
+    );
+    const byName = new Map(outcome.nodes.map((n) => [n.name, n.parentName ?? null]));
+    assert.equal(byName.get("Entenmann's"), 'Bimbo Bakeries USA');
+    assert.equal(byName.get('Barcel'), null, 'la empresa de partida es el padre por omisión');
+    assert.equal(byName.get('Marinela'), null, 'no es su propio padre');
+  });
+
+  it('el pedido le explica a Claude el campo nuevo', () => {
+    const body = buildCorporateTreeRequestBody(
+      { branch: 'subsidiary', rootName: 'Bimbo', rootWebsite: null, rootCountry: MX, countries: [MX], maxCompanies: 8 },
+      MODEL,
+    );
+    assert.match(String(body.system), /parent_name/);
+  });
+});
+
+describe('C2. El padre viaja al árbol guardado, al lote y a las asociaciones', () => {
+  it('se guarda y se lee con el árbol (30 días)', () => {
+    const saved = serializeSavedTree({
+      root: { website: null, domain: null, countryCode: 'MX' },
+      nodes: [node("Entenmann's", 'US', { parentName: 'Bimbo Bakeries USA' })],
+      apolloSubsidiaries: null,
+    });
+    const read = readSavedTree({
+      batchId: 'b',
+      createdAt: new Date(NOW).toISOString(),
+      metadata: { corporate_tree: { branches: ['subsidiary'], country_codes: ['US'], searched_at: new Date(NOW).toISOString(), claude: { errors: [] }, saved } },
+    });
+    assert.equal(read?.nodes[0].parentName, 'Bimbo Bakeries USA');
+  });
+
+  it('la corrida lo pone en la etiqueta de la empresa y en la asociación, nivel 1 sin padre', async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const { deps, calls } = fakeDeps({
+      searchBranch: async (input) =>
+        outcomeFor(input.branch, input.branch === 'subsidiary' ? [node('Bimbo Ecuador', 'EC', { branch: 'subsidiary', parentName: 'Barcel' })] : []),
+      insertRelationships: async (r) => {
+        rows.push(...(r as unknown as Array<Record<string, unknown>>));
+        return true;
+      },
+    });
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    const ec = rows.find((r) => r.related_name === 'Bimbo Ecuador');
+    assert.equal(ec?.parent_name, 'Barcel');
+    assert.equal(ec?.depth, 1);
+    assert.equal(ec?.parent_relationship_id, null);
+    assert.equal((calls.tagged.get('c-ec')?.corporate_tree as Record<string, unknown>).parent_name, 'Barcel');
+  });
+
+  it('«Buscar su árbol» desde una filial: el árbol nuevo queda un nivel abajo y ligado a esa fila', async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const parentId = '66666666-6666-4666-8666-666666666666';
+    const { deps } = fakeDeps({
+      loadParentRelationship: async (id) => (id === parentId ? { id, depth: 1 } : null),
+      insertRelationships: async (r) => {
+        rows.push(...(r as unknown as Array<Record<string, unknown>>));
+        return true;
+      },
+    });
+    await runCorporateTreeSearch({ ...REQUEST, parentRelationshipId: parentId }, CONTEXT, deps);
+    assert.ok(rows.length > 0);
+    assert.ok(rows.every((r) => r.parent_relationship_id === parentId && r.depth === 2));
+  });
+
+  it('más allá de 4 niveles no se cuelga (queda suelto en el nivel 1)', async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const { deps } = fakeDeps({
+      loadParentRelationship: async (id) => ({ id, depth: 4 }),
+      insertRelationships: async (r) => {
+        rows.push(...(r as unknown as Array<Record<string, unknown>>));
+        return true;
+      },
+    });
+    await runCorporateTreeSearch({ ...REQUEST, parentRelationshipId: '77777777-7777-4777-8777-777777777777' }, CONTEXT, deps);
+    assert.ok(rows.every((r) => r.parent_relationship_id === null && r.depth === 1));
+  });
+
+  it('el navegador manda la fila de arriba; un id que no es UUID se ignora', () => {
+    const base = { clientRequestId: REQUEST.clientRequestId, rootName: 'Barcel', branches: ['subsidiary'], countryCodes: ['MX'] };
+    const ok = parseCorporateTreeRequest({ ...base, parentRelationshipId: '66666666-6666-4666-8666-666666666666' });
+    const bad = parseCorporateTreeRequest({ ...base, parentRelationshipId: "1; drop table" });
+    assert.ok(ok.ok && ok.request.parentRelationshipId === '66666666-6666-4666-8666-666666666666');
+    assert.ok(bad.ok && bad.request.parentRelationshipId === null);
+  });
+
+  it('sin la 157 aplicada: se reconoce el error y se guarda el árbol plano', () => {
+    assert.equal(isMissingLevelColumnsError({ code: 'PGRST204', message: "Could not find the 'parent_name' column" }), true);
+    assert.equal(isMissingLevelColumnsError({ code: '42703', message: 'column "depth" does not exist' }), true);
+    assert.equal(isMissingLevelColumnsError({ code: '23505', message: 'duplicate key' }), false);
+    const flat = withoutLevelColumns({ related_name: 'X', parent_name: 'Y', parent_relationship_id: null, depth: 2 } as never) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(flat), ['related_name']);
+  });
+});
+
+describe('C3. El lote como árbol', () => {
+  const item = (name: string, extra: Record<string, unknown> = {}) => ({
+    id: name,
+    name,
+    countryCode: 'MX',
+    statusLabel: 'Por revisar',
+    statusTone: 'brand' as const,
+    candidateId: name,
+    relationDetail: null,
+    evidenceUrl: null,
+    groupWebsite: null,
+    ...extra,
+  });
+
+  it("Grupo Bimbo → Bimbo Bakeries USA → Entenmann's; sin padre conocido, debajo de la partida", () => {
+    const tree = buildCorporateTreeHierarchy([
+      { relation: 'root', label: 'Empresa de partida', items: [item('Grupo Bimbo')] },
+      { relation: 'group', label: 'Grupo', items: [item('Bimbo Bakeries USA')] },
+      {
+        relation: 'subsidiary',
+        label: 'Filiales',
+        items: [item("Entenmann's", { parentName: 'Bimbo Bakeries USA' }), item('Barcel'), item('Nutrabien', { parentName: 'Empresa Inexistente' })],
+      },
+    ]);
+    assert.deepEqual(tree.map((n) => n.item.name), ['Grupo Bimbo']);
+    const root = tree[0];
+    assert.deepEqual(root.children.map((n) => n.item.name), ['Bimbo Bakeries USA', 'Barcel', 'Nutrabien']);
+    assert.deepEqual(root.children[0].children.map((n) => n.item.name), ["Entenmann's"]);
+  });
+
+  it('nunca hace ciclos y sin empresa de partida quedan arriba', () => {
+    const tree = buildCorporateTreeHierarchy([
+      { relation: 'subsidiary', label: 'Filiales', items: [item('A', { parentName: 'B' }), item('B', { parentName: 'A' })] },
+    ]);
+    const names = (nodes: typeof tree): string[] => nodes.flatMap((n) => [n.item.name, ...names(n.children)]);
+    assert.deepEqual(names(tree).sort(), ['A', 'B'], 'cada una aparece una sola vez');
+    assert.equal(tree.length, 1);
+  });
+
+  it('la sección del lote usa la vista de árbol y el botón «Buscar su árbol» lleva la fila de arriba', () => {
+    const sections = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-batch-sections.tsx'), 'utf8');
+    assert.match(sections, /<CorporateTreeHierarchyList nodes=\{buildCorporateTreeHierarchy\(groups\)\} \/>/);
+    const list = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-hierarchy-list.tsx'), 'utf8');
+    assert.match(list, /parentRelationshipId: item\.relationshipId \?\? null/);
+    const flow = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-flow.tsx'), 'utf8');
+    assert.match(flow, /parentRelationshipId: root\.parentRelationshipId/);
+  });
+});
+
+describe('C4. Migración 157', () => {
+  it('sólo agrega padre y nivel a las asociaciones (sin tocar filas, RLS, HubSpot ni presupuesto)', () => {
+    const sql = readFileSync(join(__dirname, '../../../../../supabase/migrations/157_agent1_company_relationships_levels.sql'), 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    assert.match(sql, /ALTER TABLE public\.agent1_company_relationships/);
+    for (const column of ['parent_name', 'parent_relationship_id', 'depth']) assert.match(sql, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}`));
+    for (const forbidden of ['UPDATE ', 'DELETE FROM', 'POLICY', 'hubspot', 'budget', 'DROP ']) {
+      assert.equal(sql.toLowerCase().includes(forbidden.toLowerCase()), false, `la 157 nombra «${forbidden}»`);
+    }
   });
 });

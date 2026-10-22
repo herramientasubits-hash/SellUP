@@ -1082,7 +1082,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
     // una tabla nueva `agent1_competitor_watches` (sólo service_role); no es del catálogo de
     // industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^156_/);
+    // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice; no es del
+    // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^157_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1281,6 +1284,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // una tabla nueva `agent1_competitor_watches` (sólo service_role). Sin catálogo de
       // industrias. AUTORADA y NO APLICADA.
       '156_agent1_competitor_watches.sql',
+      // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. Sin catálogo de
+      // industrias. AUTORADA y NO APLICADA.
+      '157_agent1_company_relationships_levels.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

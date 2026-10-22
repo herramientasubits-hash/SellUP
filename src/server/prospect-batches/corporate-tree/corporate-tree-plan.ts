@@ -73,6 +73,8 @@ export type CorporateTreePlannedRow = {
   knownAccountId?: string | null;
   /** `possible_known`: el nombre parecido en HubSpot (mismo país). Va a «Descartadas» sin rescate. */
   knownMatchedName?: string | null;
+  /** FASE C — de qué empresa del grupo depende directamente (según Claude). */
+  parentName?: string | null;
 };
 
 export type CorporateTreeWebItem = { key: string; node: CorporateTreeNode | null; bankCandidate: ProspectingPipelineCandidate | null };
@@ -325,6 +327,7 @@ export function planCorporateTreeWrites(params: {
       groupWebsite,
       route,
       ...(websiteUnverified ? { websiteUnverified } : {}),
+      ...(node?.parentName ? { parentName: node.parentName } : {}),
     };
     entries.push({
       row,
@@ -375,6 +378,7 @@ export function planCorporateTreeWrites(params: {
         groupWebsite: shared ? node.website : null,
         route: ownWebsite ? 'agent1_writer' : shared ? 'group_reference' : 'without_website',
         ...(ownWebsite && node.websiteUnverified ? { websiteUnverified: true } : {}),
+        ...(node.parentName ? { parentName: node.parentName } : {}),
       },
       freeCompany: null,
       webItem: ownWebsite ? { key, node: effective, bankCandidate: null } : null,

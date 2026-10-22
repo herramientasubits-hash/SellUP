@@ -12,17 +12,20 @@ import {
 } from './corporate-tree-batch-groups';
 
 const MAX_ROWS = 300;
+const BASE_COLUMNS =
+  'related_candidate_id, related_name, related_country_code, related_domain, root_domain, relation_type, relation_detail, evidence_url, matched_hubspot_company_id';
+/** FASE C (157): el nivel y de quién depende. Sin la 157 aplicada se lee como antes. */
+const LEVEL_COLUMNS = 'id, parent_name, parent_relationship_id, depth';
 
 export async function loadCorporateTreeBatchRelationships(batchId: string): Promise<CorporateTreeBatchRelationship[]> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from('agent1_company_relationships')
-      .select('related_candidate_id, related_name, related_country_code, related_domain, root_domain, relation_type, relation_detail, evidence_url, matched_hubspot_company_id')
-      .eq('batch_id', batchId)
-      .limit(MAX_ROWS);
+    const read = (columns: string) =>
+      supabase.from('agent1_company_relationships').select(columns).eq('batch_id', batchId).limit(MAX_ROWS);
+    let { data, error } = await read(`${BASE_COLUMNS}, ${LEVEL_COLUMNS}`);
+    if (error) ({ data, error } = await read(BASE_COLUMNS));
     if (error) return [];
-    const relationships = (data ?? []) as CorporateTreeBatchRelationship[];
+    const relationships = (data ?? []) as unknown as CorporateTreeBatchRelationship[];
     // Por qué está en «Descartadas» la que no entró (sin web o posible duplicado en HubSpot).
     const { data: discards } = await supabase
       .from('prospect_discarded_dispositions')
@@ -87,5 +90,30 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     });
   } catch {
     return [];
+  }
+}
+
+/** El árbol de arriba de un lote que se buscó desde una filial («Buscar su árbol»). */
+export type CorporateTreeParentTree = { batchId: string; rootName: string; branchName: string };
+
+/** FASE C — de qué árbol es rama este lote (`null` si es una búsqueda directa o sin la 157). Nunca lanza. */
+export async function loadCorporateTreeParent(
+  relationships: readonly CorporateTreeBatchRelationship[],
+): Promise<CorporateTreeParentTree | null> {
+  const parentId = relationships.find((r) => r.parent_relationship_id)?.parent_relationship_id;
+  if (!parentId) return null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from('agent1_company_relationships')
+      .select('batch_id, root_name, related_name')
+      .eq('id', parentId)
+      .maybeSingle();
+    const row = data as { batch_id?: string; root_name?: string; related_name?: string } | null;
+    return row?.batch_id && row.root_name && row.related_name
+      ? { batchId: row.batch_id, rootName: row.root_name, branchName: row.related_name }
+      : null;
+  } catch {
+    return null;
   }
 }

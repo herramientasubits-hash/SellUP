@@ -64,6 +64,8 @@ export type CorporateTreeRootRef = {
   countryCode?: string | null;
   candidateId?: string | null;
   accountId?: string | null;
+  /** FASE C — se busca desde una fila de otro árbol: el árbol nuevo queda un nivel abajo. */
+  parentRelationshipId?: string | null;
 };
 
 /** Lo que el navegador manda para lanzar una búsqueda en árbol. */
@@ -80,6 +82,8 @@ export type CorporateTreeRunPayload = {
   countryCodes: string[];
   /** `true` = no reutilizar el árbol guardado del grupo: buscar (y pagar) de nuevo. */
   refresh?: boolean;
+  /** FASE C — la fila del árbol de arriba cuando se busca el árbol de una filial desde un lote. */
+  parentRelationshipId?: string | null;
 };
 
 /** `metadata.corporate_tree` de cada candidato que entró por el árbol. */
@@ -97,6 +101,8 @@ export type CorporateTreeCandidateMetadata = {
   found_in_apollo?: boolean;
   /** FASE D: el grupo ya es cliente de UBITS o lo trabaja alguien (oportunidad tibia). */
   group_opportunity?: 'customer_group' | 'worked_group';
+  /** FASE C: de qué empresa del grupo depende directamente (NULL/ausente = de la partida). */
+  parent_name?: string | null;
 };
 
 export function isCorporateTreeBranch(value: unknown): value is CorporateTreeBranch {
@@ -131,6 +137,8 @@ const LEGAL_SUFFIX = new RegExp(
       's ?a ?s(?: bic)?',
       's ?a ?c(?: i)?',
       's ?a ?a',
+      // Mexicanas que cotizan en bolsa: «Grupo Bimbo, S.A.B. de C.V.» (Prod 22-10, FASE C).
+      's ?a ?b(?: de c ?v)?',
       's ?a ?i ?c',
       's ?a',
       's ?r ?l',

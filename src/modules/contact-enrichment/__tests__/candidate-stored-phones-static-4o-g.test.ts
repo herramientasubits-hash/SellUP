@@ -608,7 +608,9 @@ describe('4O-G — alcance', () => {
     // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
     // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 156);
+    // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 157);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -645,7 +647,8 @@ describe('4O-G — alcance', () => {
     // 152 archivos para los números 001-152: la 151 y la 152 tampoco dejan hueco.
     // 155 archivos para los números 001-155: la 154 y la 155 tampoco dejan hueco.
     // 156 archivos para los números 001-156: la 156 tampoco deja hueco.
-    assert.equal(numbered.length, 156);
+    // 157 archivos para los números 001-157: la 157 tampoco deja hueco.
+    assert.equal(numbered.length, 157);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

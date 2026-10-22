@@ -28,7 +28,10 @@ import { CompetitorMapSection } from '@/components/prospect-batches/competitor-s
 import { CompetitorFollowButton } from '@/components/prospect-batches/competitor-search/competitor-follow-button';
 import { isFollowingCompetitorReference } from '@/server/prospect-batches/competitor-search/competitor-watch.server';
 import { Suspense } from 'react';
-import { loadCorporateTreeBatchRelationships } from '@/modules/prospect-batches/corporate-tree/corporate-tree-relationships.server';
+import {
+  loadCorporateTreeBatchRelationships,
+  loadCorporateTreeParent,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-relationships.server';
 import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
 import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
 import { batchRunAttention } from '@/modules/prospect-batches/stuck-runs/stuck-runs-policy';
@@ -142,6 +145,8 @@ export default async function BatchDetailPage({ params }: Props) {
   const supplierReference =
     (batch.metadata?.supplier_search as { reference_company_name?: unknown } | undefined)?.reference_company_name ?? null;
   const corporateTreeRelationships = isCorporateTreeBatch ? await loadCorporateTreeBatchRelationships(batch.id) : [];
+  // FASE C — si este árbol se buscó desde una empresa de otro árbol, el enlace a ese árbol.
+  const corporateTreeParent = isCorporateTreeBatch ? await loadCorporateTreeParent(corporateTreeRelationships) : null;
 
   // «Competidores de una empresa»: el título dice de quién («Competidores de Alpina · Colombia»).
   const competitorReference = readCompetitorReference(batch.metadata);
@@ -551,7 +556,12 @@ export default async function BatchDetailPage({ params }: Props) {
       })()}
 
       {/* AGENT1-CORPORATE-TREE-1 — lote de una búsqueda en árbol: ramas sobre la tabla. */}
-      <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} relationships={corporateTreeRelationships} />
+      <CorporateTreeBatchSections
+        batchMetadata={batch.metadata}
+        candidates={candidates}
+        relationships={corporateTreeRelationships}
+        parentTree={corporateTreeParent}
+      />
 
       {/* «Competidores de una empresa» — las de menos de 200 empleados: se ven, no van a HubSpot. */}
       {competitorReference && <CompetitorJudgeNotice batchMetadata={batch.metadata} />}
