@@ -50,12 +50,19 @@ export interface HubSpotFirstOwnership {
   sellerOwnerId: string | null;
   /** Directorio de dueños; null si HubSpot no lo devolvió (entonces sólo pasan sin dueño o propios). */
   directory: HubSpotOwnerDirectory | null;
+  /**
+   * Dueño de HubSpot del vendedor dueño de la FICHA en SellUp (AGENT2-HUBSPOT-FIRST-ACCOUNT-OWNER-1).
+   * Decisión de la dueña 22-10: sus contactos se ofrecen aunque busque otra persona (un líder, la
+   * dueña). Grupo LALA: 99 de 100 contactos eran del dueño de la ficha y se descartaban.
+   */
+  accountOwnerId?: string | null;
 }
 
 export function isOfferableHubSpotContact(ownerId: string | null | undefined, ownership: HubSpotFirstOwnership): boolean {
   const owner = ownerId?.trim() || null;
   if (owner === null) return true;
   if (ownership.sellerOwnerId && owner === ownership.sellerOwnerId) return true;
+  if (ownership.accountOwnerId && owner === ownership.accountOwnerId) return true;
   const directory = ownership.directory;
   return !!directory && (directory.poolIds.has(owner) || directory.deactivatedIds.has(owner));
 }
