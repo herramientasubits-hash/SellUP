@@ -44,9 +44,19 @@ export type CompetitorQualitySourceRow = CompetitorQualityCounts & { source: Com
 
 const EMPTY: CompetitorQualityCounts = { found: 0, approved: 0, notCompetitor: 0, small: 0, inReview: 0 };
 
+/** Rastro que deja el escritor de Apollo («Más como esta» y último recurso). */
+export const COMPETITOR_APOLLO_QUERY_TEXT = 'competitor_apollo';
+
+function isCompetitorApolloCandidate(metadata: Record<string, unknown>): boolean {
+  const trace = metadata.search_trace as Record<string, unknown> | null | undefined;
+  return trace?.query_text === COMPETITOR_APOLLO_QUERY_TEXT;
+}
+
 function sourceOf(candidate: CompetitorQualityCandidate): CompetitorQualitySource {
   const metadata = (candidate.metadata ?? {}) as Record<string, unknown>;
   if (metadata.hubspot_free_pool) return 'hubspot_free_pool';
+  // QA Prod 22-10: las de Apollo se guardan con source_primary='web_ai'; el rastro dice la verdad.
+  if (isCompetitorApolloCandidate(metadata)) return 'apollo';
   switch (candidate.source_primary) {
     case 'web_ai':
       return 'web';

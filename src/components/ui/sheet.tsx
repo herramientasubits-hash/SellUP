@@ -4,6 +4,7 @@ import * as React from "react";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 
 import { cn } from "@/lib/utils";
+import { OVERLAY_COVERED_CLASS, useOverlayCovered } from "@/lib/overlay-stack";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "@/icons";
 
@@ -54,10 +55,44 @@ function SheetContent({
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay className={overlayClassName} style={overlayStyle} />
+      <SheetLayer
+        side={side}
+        className={className}
+        showCloseButton={showCloseButton}
+        overlayClassName={overlayClassName}
+        overlayStyle={overlayStyle}
+        {...props}
+      >
+        {children}
+      </SheetLayer>
+    </SheetPortal>
+  );
+}
+
+/** Lo que se monta sólo con el panel abierto: velo + panel, ocultos si otra capa va encima. */
+function SheetLayer({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  overlayClassName,
+  overlayStyle,
+  ...props
+}: React.ComponentProps<typeof SheetContent>) {
+  const covered = useOverlayCovered();
+  return (
+    <>
+      {/* Cada capa dibuja su velo (Base UI omite el de un diálogo anidado): así siempre hay
+          un solo velo visible, el de la capa de arriba. */}
+      <SheetOverlay
+        forceRender
+        className={cn(overlayClassName, covered && OVERLAY_COVERED_CLASS)}
+        style={overlayStyle}
+      />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
+        data-overlay-covered={covered ? "" : undefined}
         className={cn(
           // Thema: el panel no va pegado a la ventana. Flota a 12px de los
           // tres bordes que toca, con las cuatro esquinas redondeadas y borde
@@ -69,6 +104,7 @@ function SheetContent({
           "data-[side=top]:inset-x-3 data-[side=top]:top-3 data-[side=top]:h-auto data-[side=top]:max-h-[calc(100dvh-1.5rem)] data-[side=top]:data-ending-style:-translate-y-full data-[side=top]:data-starting-style:-translate-y-full",
           "data-[side=bottom]:inset-x-3 data-[side=bottom]:bottom-3 data-[side=bottom]:h-auto data-[side=bottom]:max-h-[calc(100dvh-1.5rem)] data-[side=bottom]:data-ending-style:translate-y-full data-[side=bottom]:data-starting-style:translate-y-full",
           className,
+          covered && OVERLAY_COVERED_CLASS,
         )}
         {...props}
       >
@@ -89,7 +125,7 @@ function SheetContent({
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>
-    </SheetPortal>
+    </>
   );
 }
 
