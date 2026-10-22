@@ -348,8 +348,49 @@ export function numberSources(facts: readonly ResearchFact[]): string[] {
   ];
 }
 
+/**
+ * Terceros: «otros/otras…» (no «sus otros equipos») o «empresas, equipos, negocios… de su
+ * tamaño / de su rubro / como la suya / similares». Sobre texto sin tildes y en minúscula.
+ */
+const THIRD_PARTY = [
+  // «otras empresas», «otros bancos», «otros clientes»… (no «otras sedes» ni «otras áreas» de la propia empresa)
+  '\\botr[oa]s (empresas|compa[nñ]ias|organizaciones|negocios|bancos|marcas|clientes|retailers|aseguradoras|cadenas|colegas|pares)\\b',
+  // «otros líderes de marketplaces», «otros equipos en su rubro» (no «otros líderes de su equipo»)
+  '\\botr[oa]s (lideres|gerentes|directores|equipos)\\b[^?!.\\n]{0,20}\\b(de su (tamano|rubro|sector|tipo|industria)|del (sector|rubro)|en (su rubro|su sector|la region)|de (marketplaces|retail|consumo|la region|empresas|otras))',
+  '\\botr[oa]s en su (rubro|sector|industria)\\b',
+  '\\blos demas (bancos|empresas|negocios|clientes|lideres|equipos|marcas)\\b',
+  '\\bla competencia\\b',
+  // «empresas de su tamaño», «negocios similares a Binga!», «empresas parecidas a la suya»
+  '\\b(empresas|equipos|negocios|compa[nñ]ias|organizaciones|marcas|lideres|gerentes|colegas)\\b[^?!.\\n]{0,30}\\b(de su (tamano|rubro|sector|tipo|industria|perfil)|del (sector|rubro)|como la suya|como ustedes|similares|parecid[oa]s|en su (rubro|sector))',
+]
+  .map((p) => `(${p})`)
+  .join('|');
+
+/**
+ * La raíz de los clientes inventados (Binga!, 3 corridas en Prod 21/22-10): ofrecer contar lo
+ * que hacen otros, con cualquier verbo y cualquier forma de nombrarlos («¿le comparto cómo
+ * otros equipos de su tamaño aceleran…?», «cómo otros en su rubro lo están resolviendo»,
+ * «cómo empresas de consumo masivo de su tamaño lo resuelven»). UBITS no puede respaldarlo.
+ * Sobre texto sin tildes y en minúscula. «Otras sedes / otras áreas / sus otros equipos»
+ * son de la propia empresa y no cuentan (revisión 21-10).
+ */
+const THIRD_PARTY_CLAIMS: readonly RegExp[] = [
+  // «le comparto / le muestro / le cuento / quiere ver cómo (lo hacen) [terceros]…»
+  new RegExp(`\\b(compart\\w*|muestr\\w*|mostrar\\w*|cuent[eo]|contarle|contar|ensen\\w*|traig\\w*|llevo|ver|vea|conocer|conozca)\\b[^?!\\n]{0,25}\\b(como|lo que|que (estan|hacen|hicieron|han hecho|usan))\\b[^?!\\n]{0,40}(${THIRD_PARTY})`),
+  // «[terceros] … lo están resolviendo / aceleran / logran…», sin el verbo de ofrecer.
+  new RegExp(
+    // El «!» no corta: puede ser del nombre de la empresa («similares a Binga! lo resuelven»).
+    `(${THIRD_PARTY})[^?.\\n]{0,40}\\b(lo estan (resolviendo|haciendo|manejando|logrando)|estan (haciendo|logrando|resolviendo|acelerando|formando)|lo resuelven|lo resolvieron|aceleran|acelera|logran|consiguen|lo hacen|lo manejan|usan|implementan|forman|han logrado)\\b`,
+  ),
+  // «cómo lo logran otras empresas…» (el verbo antes).
+  new RegExp(`\\b(lo |la )?(logran|resuelven|resolvieron|hacen|manejan|aceleran|aplican|usan|implementan)\\b[^?!.\\n]{0,10}(${THIRD_PARTY})`),
+  // «casos / ejemplos de empresas parecidas a la suya» («casos de su sector» sí vale).
+  new RegExp(`\\b(casos|ejemplos|historias)\\b[^?!.\\n]{0,15}\\b(de|con|en)\\b[^?!.\\n]{0,8}(${THIRD_PARTY})`),
+];
+
 /** Afirmaciones sobre UBITS que la biblioteca no respalda (experiencia, clientes, casos). */
 const UNSUPPORTED_UBITS_CLAIMS: readonly RegExp[] = [
+  ...THIRD_PARTY_CLAIMS,
   /\btrabajamos con (muchos |varios |otros )?(bancos|empresas|compa[nñ]ias|clientes|organizaciones|entidades)/,
   /\b(trabajamos|ayudamos|acompanamos|atendemos|apoyamos)\b[^.?!]{0,40}\b(bancos|empresas|compa[nñ]ias|organizaciones|entidades) como (usted|ustedes|la suya|la tuya|tu empresa|su empresa)\b/,
   /\b(bancos|empresas|compa[nñ]ias|organizaciones|entidades) como (usted|ustedes|la suya|la tuya|tu empresa|su empresa)\b[^.?!]{0,30}\b(lo resuelven|lo resolvieron|ya usan|nos eligen|confian en nosotros|trabajan con nosotros)/,
