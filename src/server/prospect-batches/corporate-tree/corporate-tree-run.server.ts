@@ -478,28 +478,35 @@ export function buildLiveCorporateTreeDeps(params: {
     // De TODOS los vendedores (cliente admin): el árbol de un grupo es el mismo para todos y
     // pagarlo dos veces no sirve. Sólo se reutiliza la lista; la escritura pasa por las
     // compuertas de siempre («una empresa, un vendedor» incluida).
-    findSavedTrees: async (rootKey) => {
+    findSavedTrees: async ({ rootKeys, rootDomain }) => {
       const since = new Date(Date.now() - CORPORATE_TREE_SAVED_DAYS * 86_400_000).toISOString();
-      const { data, error } = await adminClient()
-        .from('prospect_batches')
-        .select('id, created_at, metadata')
-        .eq('metadata->>search_mode', 'corporate_tree')
-        .eq('metadata->corporate_tree->>root_key', rootKey)
-        // Sólo los que guardaron su lista (no los que la reutilizaron): si no, cinco
-        // reutilizaciones seguidas dejaban fuera al original y se volvía a pagar.
-        .not('metadata->corporate_tree->saved', 'is', null)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      if (error) {
-        logError('find saved trees', error);
-        return [];
+      const savedTrees = () =>
+        adminClient()
+          .from('prospect_batches')
+          .select('id, created_at, metadata')
+          .eq('metadata->>search_mode', 'corporate_tree')
+          // Sólo los que guardaron su lista (no los que la reutilizaron): si no, cinco
+          // reutilizaciones seguidas dejaban fuera al original y se volvía a pagar.
+          .not('metadata->corporate_tree->saved', 'is', null)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(5);
+      // Por nombre («Bimbo», «Grupo Bimbo») y, si se sabe, por la web de partida.
+      const [byKey, byDomain] = await Promise.all([
+        savedTrees().in('metadata->corporate_tree->>root_key', rootKeys),
+        rootDomain ? savedTrees().eq('metadata->corporate_tree->>root_domain', rootDomain) : null,
+      ]);
+      if (byKey.error) logError('find saved trees', byKey.error);
+      if (byDomain?.error) logError('find saved trees by domain', byDomain.error);
+      const rows = new Map<string, { batchId: string; createdAt: string; metadata: unknown }>();
+      for (const row of [...(byKey.data ?? []), ...(byDomain?.data ?? [])]) {
+        rows.set(row.id as string, {
+          batchId: row.id as string,
+          createdAt: row.created_at as string,
+          metadata: row.metadata as unknown,
+        });
       }
-      return (data ?? []).map((row) => ({
-        batchId: row.id as string,
-        createdAt: row.created_at as string,
-        metadata: row.metadata as unknown,
-      }));
+      return [...rows.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     },
 
     // FASE D — SÓLO lectura de HubSpot (la regla de «libre» de la bolsa: cliente, negocio
