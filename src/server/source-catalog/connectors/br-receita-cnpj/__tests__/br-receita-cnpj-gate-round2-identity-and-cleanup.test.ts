@@ -698,7 +698,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // chain 109–117, not catalog, not BR, not CUT3B4. Neither is a BR migration; each gets its own
     // authorship check further down. AUTHORED and NOT APPLIED.
     // APOLLO-SAVED-CONTACT-PHONES-1 moves the ceiling to 155 (154 is public procurement, PR #774).
-    assert.equal(highest, 155, 'the repository ceiling is 155 — APOLLO-SAVED-CONTACT-PHONES-1, not CUT A');
+    // AGENT1-COMPETITOR-WATCH-1 moves the ceiling to 156 (table of followed Competitors references; no phones, contacts, budget or HubSpot).
+    assert.equal(highest, 156, 'the repository ceiling is 156 — AGENT1-COMPETITOR-WATCH-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],

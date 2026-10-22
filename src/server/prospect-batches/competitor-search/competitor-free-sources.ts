@@ -520,6 +520,10 @@ export type CompetitorJudgeTallyEntry = {
   selected: number;
   /** Llamadas sin respuesta (null o error). */
   unanswered: number;
+  /** Filas que el juez no alcanzó a mirar por su tope (auditoría 21-10). */
+  dropped?: number;
+  /** Lotes del juez que no respondieron mientras otros sí. */
+  failedChunks?: number;
 };
 
 export type CompetitorJudgeTally = Record<string, CompetitorJudgeTallyEntry>;
@@ -544,6 +548,11 @@ export function tallyCompetitorJudge(
       selected: prev.selected + (outcome?.competitors.length ?? 0),
       unanswered: prev.unanswered + (outcome ? 0 : 1),
     };
+    // Sólo cuando hubo algo que no se miró: la forma de siempre no cambia.
+    const dropped = (prev.dropped ?? 0) + (outcome?.dropped ?? 0);
+    const failedChunks = (prev.failedChunks ?? 0) + (outcome?.failedChunks ?? 0);
+    if (dropped > 0) tally[source] = { ...tally[source], dropped };
+    if (failedChunks > 0) tally[source] = { ...tally[source], failedChunks };
   };
   return async (input) => {
     try {

@@ -4,6 +4,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { SurfaceCard } from '@/components/shared/surface-card';
 // Server component: la bandera sale del helper SIN 'use client' (ver corporate-tree-batch-sections).
 import { getFlagEmoji } from '@/components/prospect-batches/candidate-detail-helpers';
+import { VerifyCompetitorSizeButton } from './competitor-candidate-actions';
 import { Building2, ChevronDown, ExternalLink } from '@/icons';
 import { readCompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import {
@@ -91,9 +92,20 @@ export function CompetitorSmallCompaniesSection({
                     {company.sizeDetail && <p className="text-xs text-muted-foreground">{company.sizeDetail}</p>}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Badge variant="neutral">
-                      {company.origin === 'size_review' ? 'Tamaño según Claude' : 'Tamaño confirmado'}
-                    </Badge>
+                    {company.verifiedEmployees !== undefined ? (
+                      <Badge variant="neutral">
+                        {company.verifiedEmployees === null
+                          ? 'Apollo sin dato de tamaño'
+                          : `Apollo: ${company.verifiedEmployees} empleados`}
+                      </Badge>
+                    ) : (
+                      <Badge variant="neutral">
+                        {company.origin === 'size_review' ? 'Tamaño según Claude' : 'Tamaño confirmado'}
+                      </Badge>
+                    )}
+                    {company.candidateId && company.verifiedEmployees === undefined && (
+                      <VerifyCompetitorSizeButton candidateId={company.candidateId} />
+                    )}
                     {href && (
                       <a
                         href={href}

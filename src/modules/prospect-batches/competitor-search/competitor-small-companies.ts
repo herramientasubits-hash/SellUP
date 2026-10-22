@@ -67,7 +67,15 @@ export type CompetitorSmallCompany = {
   /** Por qué compite (motivo del juez o de la web), si se guardó. */
   competitorReason: string | null;
   origin: 'size_review' | 'confirmed_size';
+  /** Fila del lote (sólo las de la revisión de tamaño): con ella se puede «Verificar tamaño». */
+  candidateId?: string;
+  /** Empleados según Apollo, si ya se verificó (no se vuelve a pagar). */
+  verifiedEmployees?: number | null;
 };
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
 
 function cleanDomain(value: string | null): string | null {
   if (!value) return null;
@@ -124,6 +132,10 @@ export function collectCompetitorSmallCompanies(input: {
       sizeDetail: text(asRecord(metadata?.claude_rescue)?.discard_detail),
       competitorReason: text(asRecord(metadata?.relationship)?.evidence),
       origin: 'size_review',
+      candidateId: candidate.id,
+      ...(asRecord(metadata?.competitor_size_verification)
+        ? { verifiedEmployees: numberOrNull(asRecord(metadata?.competitor_size_verification)?.employees) }
+        : {}),
     });
   }
 
