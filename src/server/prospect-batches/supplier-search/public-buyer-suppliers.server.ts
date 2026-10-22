@@ -14,6 +14,44 @@ import { publicBuyerCountryLookups } from './countries/index.server';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
 import { normalizeCompanyName } from '@/server/agents/prospecting-toolkit/normalization';
 
+/** AGENT1-SUPPLIER-SKIP-KNOWN-1 — revisadas en Descartadas en estos días ya no se vuelven a ofrecer. */
+const ALREADY_REVIEWED_DAYS = 90;
+
+/**
+ * AGENT1-SUPPLIER-SKIP-KNOWN-1 — números fiscales que SellUp ya vio en el país: candidata en
+ * cualquier lote, o en Descartadas hace menos de `ALREADY_REVIEWED_DAYS` (sin web, duplicada,
+ * chica). Sólo lectura (service_role: mira todos los lotes, no sólo los del vendedor). Un
+ * error se lanza: el paso lo registra y no salta ninguna.
+ */
+export async function listSuppliersAlreadyInSellUp(
+  client: SupabaseClient,
+  taxIds: readonly string[],
+  countryCode: string,
+  now: Date = new Date(),
+): Promise<Set<string>> {
+  if (taxIds.length === 0) return new Set();
+  const since = new Date(now.getTime() - ALREADY_REVIEWED_DAYS * 86_400_000).toISOString();
+  const [candidates, discards] = await Promise.all([
+    client.from('prospect_candidates').select('tax_identifier').eq('country_code', countryCode).in('tax_identifier', [...taxIds]),
+    client
+      .from('prospect_discarded_dispositions')
+      .select('provider_identifier')
+      .eq('country_code', countryCode)
+      .in('provider_identifier', taxIds.map((t) => `tax:${t}`))
+      .gte('created_at', since),
+  ]);
+  if (candidates.error) throw new Error(`already_in_sellup_candidates:${candidates.error.message}`);
+  if (discards.error) throw new Error(`already_in_sellup_discards:${discards.error.message}`);
+  const known = new Set<string>();
+  for (const row of (candidates.data ?? []) as Array<{ tax_identifier: string | null }>) {
+    if (row.tax_identifier) known.add(row.tax_identifier);
+  }
+  for (const row of (discards.data ?? []) as Array<{ provider_identifier: string | null }>) {
+    if (row.provider_identifier?.startsWith('tax:')) known.add(row.provider_identifier.slice(4));
+  }
+  return new Set(taxIds.filter((t) => known.has(t)));
+}
+
 /** Consultas a HubSpot a la vez antes del rescate (cada una son hasta 3 búsquedas). */
 const CRM_CHECK_CONCURRENCY = 3;
 
@@ -63,7 +101,11 @@ export function buildLivePublicBuyerStepDeps(params: {
   macroIndustryKey: string;
   requestedByUserId: string;
 }): PublicBuyerStepDeps & { listFrequentSuppliers?: FrequentPublicStepDeps['listFrequentSuppliers'] } {
-  const writers: Pick<PublicBuyerStepDeps, 'writeWithWebsite' | 'recordWithoutWebsite' | 'findKnownInCrm'> = {
+  const writers: Pick<
+    PublicBuyerStepDeps,
+    'writeWithWebsite' | 'recordWithoutWebsite' | 'findKnownInCrm' | 'listAlreadyInSellUp'
+  > = {
+    listAlreadyInSellUp: (taxIds) => listSuppliersAlreadyInSellUp(params.serviceClient, taxIds, params.countryCode),
     findKnownInCrm: (companies) => findSuppliersKnownInHubSpot(companies, params.countryCode),
     writeWithWebsite: async (companies) => {
       const result = await persistCountrySourceCandidates(params.sessionClient, {
@@ -114,6 +156,7 @@ export function buildLiveFrequentPublicStepDeps(
     findDomainsByTaxId: deps.findDomainsByTaxId,
     ...(deps.findDomainsByName ? { findDomainsByName: deps.findDomainsByName } : {}),
     ...(deps.findKnownInCrm ? { findKnownInCrm: deps.findKnownInCrm } : {}),
+    ...(deps.listAlreadyInSellUp ? { listAlreadyInSellUp: deps.listAlreadyInSellUp } : {}),
     writeWithWebsite: deps.writeWithWebsite,
     recordWithoutWebsite: deps.recordWithoutWebsite,
     listFrequentSuppliers: deps.listFrequentSuppliers,

@@ -87,3 +87,25 @@ export function corporateTreeGroupSentence(signal: CorporateTreeGroupSignal | nu
     ? `El grupo ya es cliente de UBITS (${namesOf(signal.customers)}): las nuevas son una oportunidad tibia; úsalo como referencia.`
     : `Alguien de UBITS ya trabaja el grupo (${namesOf(signal.worked)}): coordina con su dueño antes de contactar a las nuevas.`;
 }
+
+/**
+ * La metadata de una candidata que entró DESPUÉS por el rescate, con la marca de oportunidad
+ * del grupo que guardó el lote (Prod 22-10, Cencosud ef3222c1: 1 en revisión sin marca). `null`
+ * si el lote no es del árbol, el grupo no es de UBITS o ya la tiene. Puro: no muta.
+ */
+export function withCorporateTreeGroupOpportunity(
+  candidateMetadata: Record<string, unknown> | null,
+  batchMetadata: unknown,
+): Record<string, unknown> | null {
+  const tree =
+    batchMetadata && typeof batchMetadata === 'object'
+      ? (batchMetadata as Record<string, unknown>)['corporate_tree']
+      : null;
+  if (!tree || typeof tree !== 'object') return null;
+  const opportunity = corporateTreeGroupOpportunity(readCorporateTreeGroupSignal((tree as Record<string, unknown>)['group_hubspot']));
+  if (!opportunity) return null;
+  const current = candidateMetadata?.['corporate_tree'];
+  const own = current && typeof current === 'object' ? (current as Record<string, unknown>) : {};
+  if (own['group_opportunity'] === opportunity) return null;
+  return { ...(candidateMetadata ?? {}), corporate_tree: { ...own, group_opportunity: opportunity } };
+}

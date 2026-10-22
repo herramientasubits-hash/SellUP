@@ -110,6 +110,12 @@ export type NoNewCandidatesBreakdown = {
   noveltyExhausted: boolean;
   /** Motivo por el que la ronda 2 no corrió. Alimenta la nota de auditoría. */
   secondRoundSkippedReason?: string | null;
+  /**
+   * AGENT1-SUPPLIER-SKIP-KNOWN-1 — «Proveedores»: cuántas de las encontradas ya estaban en
+   * SellUp y los nombres de las primeras, para decir CUÁLES bajo el desglose.
+   */
+  alreadyKnownCount?: number;
+  alreadyKnownNames?: string[];
 };
 
 /** Causa REAL del resultado vacío, derivada de la distribución. */
@@ -673,4 +679,16 @@ export function toNoNewCandidatesBreakdownRows(
     row('candidatesCreatedCount'),
     ...reconciliationRows,
   ];
+}
+
+/**
+ * AGENT1-SUPPLIER-SKIP-KNOWN-1 — «Ya estaban en SellUp: A, B y 3 más.» bajo el desglose de
+ * «Proveedores»; `null` si la búsqueda no trae nombres.
+ */
+export function describeAlreadyKnownNames(breakdown: NoNewCandidatesBreakdown | null | undefined): string | null {
+  const names = (breakdown?.alreadyKnownNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (names.length === 0) return null;
+  const total = Math.max(names.length, nonNegativeInt(breakdown?.alreadyKnownCount ?? 0));
+  const more = total - names.length;
+  return `Ya estaban en SellUp: ${names.join(', ')}${more > 0 ? ` y ${more} más` : ''}.`;
 }

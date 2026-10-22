@@ -62,6 +62,7 @@ import {
   corporateTreeGroupSentence,
   readCorporateTreeGroupSignal,
   summarizeCorporateTreeGroup,
+  withCorporateTreeGroupOpportunity,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { groupMemberStatusFromAvailability } from '../corporate-tree-run.server';
 import { readFileSync } from 'node:fs';
@@ -888,5 +889,26 @@ describe('D4. Cencosud (Prod 22-10): las del grupo sin ficha la buscan en HubSpo
   it('«Buscar de nuevo» abre la búsqueda en el agente (con su cargador)', () => {
     const source = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-flow.tsx'), 'utf8');
     assert.match(source, /if \(refresh && store\) openAgentRun\(id, \(href\) => router\.push\(href\)\);/);
+  });
+});
+
+describe('D5. Cencosud (Prod 22-10): la que entra después por el rescate también queda marcada', () => {
+  const customerBatch = { corporate_tree: { root_name: 'Cencosud', group_hubspot: { checked: 2, customers: [{ name: 'CENCOSUD S A', countryCode: 'AR' }], worked: [] } } };
+
+  it('lote del árbol con grupo cliente ⇒ la rescatada lleva la marca, sin perder su metadata', () => {
+    const next = withCorporateTreeGroupOpportunity({ notes: 'x', corporate_tree: { relation: 'subsidiary' } }, customerBatch);
+    assert.deepEqual(next, { notes: 'x', corporate_tree: { relation: 'subsidiary', group_opportunity: 'customer_group' } });
+  });
+
+  it('sin marca previa del árbol también; nada si el grupo no es de UBITS, otro lote o ya la tiene', () => {
+    assert.deepEqual(withCorporateTreeGroupOpportunity(null, customerBatch), { corporate_tree: { group_opportunity: 'customer_group' } });
+    assert.equal(withCorporateTreeGroupOpportunity({}, { corporate_tree: { group_hubspot: { checked: 1, customers: [], worked: [] } } }), null);
+    assert.equal(withCorporateTreeGroupOpportunity({}, { search_mode: 'criteria' }), null);
+    assert.equal(withCorporateTreeGroupOpportunity({ corporate_tree: { group_opportunity: 'customer_group' } }, customerBatch), null);
+  });
+
+  it('el rescate en vivo la aplica al admitir', () => {
+    const source = readFileSync(join(__dirname, '../../../agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts'), 'utf8');
+    assert.match(source, /await tagRescuedTreeCandidate\(outcome\.candidateId\)/);
   });
 });
