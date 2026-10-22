@@ -603,7 +603,10 @@ describe('4O-G — alcance', () => {
     // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
     // Ninguna es tabla ni función de la cadena de teléfono 109–117, ni del catálogo, ni de BR, ni
     // de CUT3B4. AUTORADAS y NO APLICADAS.
-    assert.equal(numbered[numbered.length - 1], 154);
+    // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
+    // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
+    // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 155);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -638,7 +641,8 @@ describe('4O-G — alcance', () => {
     // 149 archivos para los números 001-149: la 149 tampoco deja hueco.
     // 150 archivos para los números 001-150: la 150 tampoco deja hueco.
     // 152 archivos para los números 001-152: la 151 y la 152 tampoco dejan hueco.
-    assert.equal(numbered.length, 154);
+    // 155 archivos para los números 001-155: la 154 y la 155 tampoco dejan hueco.
+    assert.equal(numbered.length, 155);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
