@@ -147,3 +147,39 @@ describe('Columna «Teléfono» — pista gratuita de Apollo', () => {
     assert.equal(within(row).queryByText('Apollo tiene teléfono'), null);
   });
 });
+
+describe('Columna «Revelar teléfono» — no contradice al número que ya está', () => {
+  it('reveal viejo `no_phone_found` pero el candidato ya tiene número ⇒ «Ya tiene teléfono», nunca «Sin teléfono»', () => {
+    render(
+      <ContactCandidatesDataTableClient
+        candidates={[
+          candidate({
+            id: 'k5',
+            phone: '+56 9 8765 4321',
+            phone_reveal_status: 'no_phone_found' as PendingContactCandidate['phone_reveal_status'],
+          }),
+        ]}
+      />,
+    );
+    const row = rowOf('Luz Valderrama M');
+    assert.ok(within(row).getByText('Ya tiene teléfono'));
+    assert.equal(within(row).queryByText('Sin teléfono'), null);
+  });
+
+  it('`no_phone_found` sin número ⇒ sigue «Sin teléfono»', () => {
+    render(
+      <ContactCandidatesDataTableClient
+        candidates={[
+          candidate({
+            id: 'k6',
+            phone_reveal_status: 'no_phone_found' as PendingContactCandidate['phone_reveal_status'],
+          }),
+        ]}
+      />,
+    );
+    const row = rowOf('Luz Valderrama M');
+    // Las dos columnas dicen «Sin teléfono»: la del número y la del reveal.
+    assert.equal(within(row).getAllByText('Sin teléfono').length >= 1, true);
+    assert.equal(within(row).queryByText('Ya tiene teléfono'), null);
+  });
+});
