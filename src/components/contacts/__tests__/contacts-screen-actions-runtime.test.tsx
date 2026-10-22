@@ -1,6 +1,6 @@
 /**
  * ContactsScreenActions — contrato RUNTIME. En «Contactos» y en «Por revisar»
- * la primaria es «Crear contacto» y «Buscar contactos con IA» es el agente de
+ * la primaria es «Crear contacto» y «Buscar contactos» es el agente de
  * la barra (degradado de IA, a un clic). Cada uno abre SU panel y solo ese.
  *
  * Los paneles se sustituyen por dobles: sin servidor, sin red, sin proveedores.
@@ -74,11 +74,11 @@ afterEach(() => {
 });
 
 describe('ContactsScreenActions — «Crear contacto» y el agente de IA', () => {
-  it('la primaria es «Crear contacto» y «Buscar contactos con IA» es el agente', () => {
+  it('la primaria es «Crear contacto» y «Buscar contactos» es el agente', () => {
     renderActions();
 
-    assert.deepEqual(toolbarLabels(), ['Crear contacto', 'Buscar contactos con IA']);
-    const agent = screen.getByRole('button', { name: 'Buscar contactos con IA' });
+    assert.deepEqual(toolbarLabels(), ['Crear contacto', 'Buscar contactos']);
+    const agent = screen.getByRole('button', { name: 'Buscar contactos' });
     assert.equal(agent.getAttribute('data-slot'), 'rail-agent');
     assert.ok(agent.className.includes('bg-ai-gradient'));
     assert.equal(screen.queryByText(/sin controlar/), null);
@@ -87,7 +87,7 @@ describe('ContactsScreenActions — «Crear contacto» y el agente de IA', () =>
   it('el agente abre la búsqueda con UN clic, y solo ese panel', () => {
     renderActions();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Buscar contactos con IA' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar contactos' }));
 
     assert.deepEqual(openDialogs(), ['búsqueda con IA']);
   });
@@ -107,9 +107,9 @@ describe('ContactsScreenActions — «Crear contacto» y el agente de IA', () =>
     assert.equal(screen.queryByRole('toolbar'), null);
     assert.deepEqual(
       screen.getAllByRole('button').map((button) => button.textContent),
-      ['Crear contacto', 'Buscar contactos con IA'],
+      ['Crear contacto', 'Buscar contactos'],
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Buscar contactos con IA' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar contactos' }));
     assert.deepEqual(openDialogs(), ['búsqueda con IA']);
   });
 });

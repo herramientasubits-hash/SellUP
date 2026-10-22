@@ -36,6 +36,7 @@ import {
   officialTradeNameWebsite,
   previousClaimedUrl,
   registryFirstWordWebsite,
+  reusablePriorDomainSearch,
   DOMAIN_SEARCH_REASON_CODE,
   PARENT_GROUP_WEBSITE_KEY,
   parentGroupWebsite,
@@ -43,6 +44,7 @@ import {
   type RecentDomainSearch,
   type FoundWebsite,
   type ParentGroupWebsite,
+  type PriorDomainSearchRow,
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
 import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
@@ -100,6 +102,13 @@ export const RESCUE_COMPANY_GRACE_MS = 60_000;
  * (el mismo US$3 que decidió la dueña para la cadena, ahora sin reiniciarse).
  */
 export const RESCUE_BATCH_MAX_COST_USD = 3;
+/**
+ * 21-10 — búsquedas PAGADAS del sitio oficial (`company_domain_search`) por lote,
+ * acumuladas entre corridas. Prod oct-2026: lotes con meta 5 pagaron decenas de
+ * búsquedas (US$77 de US$178 del Agente 1). Las filas van por tamaño oficial (mayor
+ * primero); las que pasan del tope se quedan en Descartadas sin gasto.
+ */
+export const RESCUE_BATCH_MAX_DOMAIN_SEARCHES = 15;
 
 export type RescueBatchDeps = {
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
@@ -126,6 +135,11 @@ export type RescueBatchDeps = {
    * US$3 se reiniciaba en cada cadena.
    */
   loadBatchRescueSpentUsd?: (batchId: string) => Promise<number | null>;
+  /**
+   * 21-10 — búsquedas del sitio oficial ya PAGADAS en este lote (todas las corridas).
+   * `null` = no se pudo leer: cuentan sólo las de esta corrida.
+   */
+  loadBatchDomainSearchCount?: (batchId: string) => Promise<number | null>;
   classify: (
     company: ClassifierCompanyInput,
     catalog: readonly ClassifierCatalogIndustry[],
@@ -198,6 +212,17 @@ export type RescueBatchDeps = {
       names: readonly string[];
     }) => Promise<DomainDuplicateCheck | null>;
     /**
+     * 21-10 — otras filas de Descartadas de la MISMA empresa (mismo número fiscal, o
+     * mismo nombre normalizado y país) con búsqueda ya hecha. Sólo lectura; ausente o
+     * fallo = se busca como antes.
+     */
+    findPriorSearches?: (input: {
+      dispositionId: string;
+      taxId: string | null;
+      name: string;
+      countryCode: string | null;
+    }) => Promise<PriorDomainSearchRow[]>;
+    /**
      * ¿La misma empresa ya tuvo una búsqueda de web pagada que no sirvió hace menos de 30
      * días? Sólo lectura; `null` = no (o no se pudo leer: se busca como siempre). Ausente = no
      * se mira.
@@ -239,6 +264,8 @@ export type RescueBatchSummary =
       dispositionsCapped?: number;
       /** AUDIT-A1-WS7 — el gasto acumulado del lote llegó al tope: no se empezaron más empresas. */
       batchBudgetReached?: boolean;
+      /** 21-10 — descartadas sin web que no se buscaron: el lote llegó al tope de búsquedas. */
+      dispositionsSearchCapped?: number;
     }
   | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
 
@@ -248,7 +275,18 @@ type WorkItem =
 
 type ItemOutcome =
   | {
-      tag: 'completed' | 'discarded' | 'unchanged' | 'admitted' | 'reassigned' | 'kept' | 'failed' | 'skipped' | 'capped';
+      tag:
+        | 'completed'
+        | 'discarded'
+        | 'unchanged'
+        | 'admitted'
+        | 'reassigned'
+        | 'kept'
+        | 'failed'
+        | 'skipped'
+        | 'capped'
+        /** 21-10 — sin web y el lote ya pagó RESCUE_BATCH_MAX_DOMAIN_SEARCHES búsquedas. */
+        | 'search_capped';
       cost: number;
     };
 
@@ -424,7 +462,22 @@ type RescueRunContext = {
    * lo admitido, para que el NIT también quede ocupado en todo SellUp.
    */
   fiscalIdentityCandidateIds?: string[];
+  /** 21-10 — búsquedas del sitio pagadas: antes de esta corrida y en ella. */
+  domainSearches?: { before: number; thisRun: number };
 };
+
+/** ¿Ya se pagaron todas las búsquedas del sitio permitidas para el lote? */
+function domainSearchCapReached(ctx: RescueRunContext): boolean {
+  const used = ctx.domainSearches ? ctx.domainSearches.before + ctx.domainSearches.thisRun : 0;
+  return used >= RESCUE_BATCH_MAX_DOMAIN_SEARCHES;
+}
+
+/** Aparta una búsqueda (síncrono: ningún hilo puede pasarse del tope). */
+function reserveDomainSearch(ctx: RescueRunContext): boolean {
+  if (domainSearchCapReached(ctx)) return false;
+  ctx.domainSearches = { before: ctx.domainSearches?.before ?? 0, thisRun: (ctx.domainSearches?.thisRun ?? 0) + 1 };
+  return true;
+}
 
 function candidateToCompany(row: ClassifiableCandidateRow, ctx: RescueRunContext): ClassifierCompanyInput {
   return {
@@ -523,7 +576,9 @@ type WebsiteStep =
       outcome: Extract<DomainFinderOutcome, { found: false }>;
       searchedAt: string;
       cost: number;
-    };
+    }
+  /** 21-10 — había que pagar la búsqueda y el lote ya llegó al tope. */
+  | { kind: 'search_capped' };
 
 /**
  * AGENT1-RESCUE-SUBSIDIARY-WITHOUT-WEB-1 — ¿la fuente OFICIAL dice que es grande?
@@ -603,6 +658,32 @@ async function recentSearchBeforePaying(
 }
 
 /**
+ * 21-10 — búsqueda ya hecha para la MISMA empresa en otra fila de Descartadas.
+ * Fail-open: si la lectura falla, se busca como antes.
+ */
+async function priorDomainSearch(
+  row: RescuableDispositionRow,
+  taxId: string | null,
+  officialNamesNeeded: boolean,
+  deps: RescueBatchDeps,
+  domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
+): Promise<ReturnType<typeof reusablePriorDomainSearch>> {
+  if (!domainSearch.findPriorSearches) return null;
+  try {
+    const rows = await domainSearch.findPriorSearches({
+      dispositionId: row.id,
+      taxId,
+      name: row.name,
+      countryCode: row.country_code,
+    });
+    return reusablePriorDomainSearch(rows, deps.nowMs(), { officialNamesNeeded });
+  } catch (err) {
+    console.error('[claude-rescue] prior domain search read failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
  * Descartada SIN dominio: Claude busca el sitio oficial y se revisan duplicados.
  * Sólo sigue al rescate si el sitio quedó comprobado y la empresa es NUEVA.
  */
@@ -648,25 +729,34 @@ async function resolveDispositionWebsite(
     }
   }
   if (!found) {
-    const startedMs = deps.nowMs();
+    // 21-10 — la misma empresa ya buscada en otra fila (otro lote): no se vuelve a pagar.
+    const prior = await priorDomainSearch(row, taxId, usesOfficialNames, deps, domainSearch);
     let outcome: DomainFinderOutcome;
-    try {
-      outcome = await domainSearch.findWebsite(buildDomainFinderInput(row, null, officialNames), ctx.active);
-    } catch (err) {
-      console.error('[claude-rescue] domain search failed:', err instanceof Error ? err.message : err);
-      outcome = { found: false, reason: 'model_error', errorCode: 'unexpected_error', usage: null };
+    let searchedAt: string;
+    if (prior) {
+      outcome = prior.outcome;
+      searchedAt = deps.nowIso();
+    } else {
+      if (!reserveDomainSearch(ctx)) return { kind: 'search_capped' };
+      const startedMs = deps.nowMs();
+      try {
+        outcome = await domainSearch.findWebsite(buildDomainFinderInput(row, null, officialNames), ctx.active);
+      } catch (err) {
+        console.error('[claude-rescue] domain search failed:', err instanceof Error ? err.message : err);
+        outcome = { found: false, reason: 'model_error', errorCode: 'unexpected_error', usage: null };
+      }
+      searchedAt = deps.nowIso();
+      const log = buildDomainSearchUsageLog(outcome, {
+        batchId: ctx.batchId,
+        dispositionId: row.id,
+        triggeredBy: ctx.triggeredBy,
+        searchedAt,
+        durationMs: deps.nowMs() - startedMs,
+      });
+      if (log) await deps.logUsage(log);
+      cost = outcome.usage?.estimatedCostUsd ?? 0;
+      if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     }
-    const searchedAt = deps.nowIso();
-    const log = buildDomainSearchUsageLog(outcome, {
-      batchId: ctx.batchId,
-      dispositionId: row.id,
-      triggeredBy: ctx.triggeredBy,
-      searchedAt,
-      durationMs: deps.nowMs() - startedMs,
-    });
-    if (log) await deps.logUsage(log);
-    cost = outcome.usage?.estimatedCostUsd ?? 0;
-    if (isAccountLevelModelError(outcome)) ctx.halt.accountError = true;
     // d6: la web propuesta no abrió, pero la empresa trae número fiscal oficial y el
     // dominio lleva su nombre ⇒ sigue como PISTA sin confirmar.
     const official = outcome.found ? null : officialFallback(outcome.claimedUrl);
@@ -680,6 +770,7 @@ async function resolveDispositionWebsite(
       const saved = await deps.patchDispositionEvidence(row.id, (evidence) =>
         buildDomainSearchStaysEvidence(evidence, { kind: 'not_found', outcome }, searchedAt, {
           officialNamesChecked: usesOfficialNames,
+          ...(prior ? { reusedFrom: prior.fromId } : {}),
         }),
       );
       return { kind: 'done', outcome: { tag: saved ? 'kept' : 'failed', cost } };
@@ -875,6 +966,10 @@ async function rescueDisposition(
 ): Promise<ItemOutcome> {
   // Cuenta de Anthropic caída: ni se marca «en proceso» (quedaría colgada 15 min).
   if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
+  // 21-10 — tope de búsquedas del lote ya alcanzado: sin web guardada ni marcar «en proceso».
+  if (!row.domain && domainSearchCapReached(ctx) && !readFoundWebsite(row.evidence)) {
+    return { tag: 'search_capped', cost: 0 };
+  }
   const claimed = await deps.patchDispositionEvidence(row.id, (evidence) =>
     needsDispositionRescue({ ...row, evidence }, deps.nowMs(), !!deps.domainSearch)
       ? buildDispositionInProgressEvidence(evidence, deps.nowIso())
@@ -887,6 +982,15 @@ async function rescueDisposition(
   if (!row.domain) {
     if (!deps.domainSearch) return { tag: 'skipped', cost: 0 };
     const step = await resolveDispositionWebsite(row, ctx, deps, deps.domainSearch);
+    if (step.kind === 'search_capped') {
+      // Otro hilo se llevó la última búsqueda: la fila vuelve a como estaba (no «en proceso»).
+      const original = row.evidence?.[CLAUDE_RESCUE_METADATA_KEY];
+      await deps.patchDispositionEvidence(row.id, (evidence) => {
+        const rest = withoutKeys(evidence ?? {}, [CLAUDE_RESCUE_METADATA_KEY]);
+        return original === undefined ? rest : { ...rest, [CLAUDE_RESCUE_METADATA_KEY]: original };
+      });
+      return { tag: 'search_capped', cost: 0 };
+    }
     if (step.kind === 'done') return step.outcome;
     if (step.kind === 'parent') return rescueParentGroupDisposition(row, ctx, deps, deps.domainSearch, admittedIds, step);
     found = step.found;
@@ -1236,7 +1340,14 @@ export async function rescueBatchWithClaude(
     ? await deps.loadBatchRescueSpentUsd(params.batchId).catch(() => null)
     : null;
   let spentThisRun = 0;
-  const batchBudgetReached = () => spentBefore !== null && spentBefore + spentThisRun >= RESCUE_BATCH_MAX_COST_USD;
+  // 21-10 — sin lectura del gasto anterior cuenta al menos el de ESTA corrida (antes, con
+  // `null`, la corrida no tenía tope alguno, contra lo que dice `loadBatchRescueSpentUsd`).
+  const batchBudgetReached = () => (spentBefore ?? 0) + spentThisRun >= RESCUE_BATCH_MAX_COST_USD;
+  // 21-10 — tope de búsquedas del sitio por lote (todas las corridas).
+  const searchesBefore = deps.loadBatchDomainSearchCount
+    ? await deps.loadBatchDomainSearchCount(params.batchId).catch(() => null)
+    : null;
+  ctx.domainSearches = { before: searchesBefore ?? 0, thisRun: 0 };
   const storedReassigned = onlyFreeSource
     ? 0
     : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
@@ -1274,5 +1385,6 @@ export async function rescueBatchWithClaude(
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
     dispositionsCapped: count('capped'),
     ...(batchBudgetReached() ? { batchBudgetReached: true } : {}),
+    ...(count('search_capped') > 0 ? { dispositionsSearchCapped: count('search_capped') } : {}),
   };
 }

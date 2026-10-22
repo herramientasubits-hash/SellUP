@@ -436,7 +436,7 @@ export function ImportCandidatesDrawer({
         parseResult = await readImportTextWithAi(parseResult.source_text, defaults);
       }
       if (parseResult.rows.length === 0) {
-        toast.error('No encontramos empresas. Pega una tabla, una lista (una empresa por línea) o un texto que las mencione.');
+        toast.error('No encontramos empresas', { description: 'Pega una tabla, una lista o un texto con nombres.' });
         return;
       }
 
@@ -623,10 +623,10 @@ export function ImportCandidatesDrawer({
       setResultCount(outcome.candidatesCreated);
       setImportStats(outcome.stats);
       handleClose();
-      toast.success(`Se importaron ${outcome.candidatesCreated} candidato${outcome.candidatesCreated !== 1 ? 's' : ''} exitosamente.`);
+      toast.success(`${outcome.candidatesCreated} candidato${outcome.candidatesCreated !== 1 ? 's' : ''} importado${outcome.candidatesCreated !== 1 ? 's' : ''}`);
       if (outcome.pendingRevalidationCount > 0) {
         toast.warning(
-          `${outcome.pendingRevalidationCount} fila${outcome.pendingRevalidationCount !== 1 ? 's' : ''} quedó pendiente de validar por tiempo. Revalida el lote para completarla${outcome.pendingRevalidationCount !== 1 ? 's' : ''}.`,
+          `${outcome.pendingRevalidationCount} fila${outcome.pendingRevalidationCount !== 1 ? 's' : ''} sin validar: revalida el lote`,
         );
       }
       router.refresh();

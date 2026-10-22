@@ -363,7 +363,13 @@ function ReferenceCompanyStep({
   // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 — lo escrito en «Otra empresa», para sugerir
   // entidades públicas que la búsqueda en compras públicas reconoce por nombre exacto.
   const [typed, setTyped] = React.useState('');
-  const suggestions = useSupplierReferenceSuggestions(typed);
+  // Prod 21-10 (dueña): con muchas cuentas se escribe en el filtro de ARRIBA («Seguro
+  // Social» → «Ninguna opción coincide») y las sugerencias no salían: también desde ahí.
+  const [filterText, setFilterText] = React.useState('');
+  const suggestFromFilter = typed.trim().length === 0;
+  const suggestions = useSupplierReferenceSuggestions(suggestFromFilter ? filterText : typed);
+  const pick = (item: { name: string; countryCode: string }) =>
+    dispatch({ type: 'SET_REFERENCE_COMPANY', value: item.name, suggestedCountryCode: item.countryCode });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -400,20 +406,16 @@ function ReferenceCompanyStep({
         const account = accounts.find((option) => option.value === accountId);
         if (account) dispatch({ type: 'SET_REFERENCE_COMPANY', value: account.label });
       }}
-      filterPlaceholder="Buscar en tus cuentas"
+      filterPlaceholder="Buscar en tus cuentas o entidades públicas"
       otherLabel={accounts.length > 0 ? 'Otra empresa' : 'Empresa'}
       otherPlaceholder="Nombre de la empresa o entidad pública"
       otherMaxLength={REFERENCE_COMPANY_LIMITS.maxChars}
       onOther={(value) => dispatch({ type: 'SET_REFERENCE_COMPANY', value })}
       onOtherChange={setTyped}
-      otherSuggestions={
-        <SupplierReferenceSuggestions
-          state={suggestions}
-          onPick={(item) =>
-            dispatch({ type: 'SET_REFERENCE_COMPANY', value: item.name, suggestedCountryCode: item.countryCode })
-          }
-        />
-      }
+      otherSuggestions={suggestFromFilter ? null : <SupplierReferenceSuggestions state={suggestions} onPick={pick} />}
+      onFilterChange={setFilterText}
+      filterEmptyLabel="Ninguna de tus cuentas coincide."
+      filterSuggestions={suggestFromFilter ? <SupplierReferenceSuggestions state={suggestions} onPick={pick} /> : null}
       footerNotice={
         hasIssues(state, 'reference_company') ? (
           <StepBlockingIssues state={state} step="reference_company" />
@@ -649,7 +651,9 @@ function AdditionalCriteriaStep({
     <ChatQuestionPanel
       aria-label="Criterio adicional de la búsqueda"
       title="¿Hay alguna característica adicional que debamos tener en cuenta?"
-      description="Por ejemplo: tamaño de empresa, tecnología usada, etapa de crecimiento…"
+      // AGENT1-CRITERIA-QUICK-WINS-1 — el tamaño NO es un criterio libre: está fijo en
+      // más de 200 empleados. Ofrecerlo aquí prometía un filtro que nadie aplicaba.
+      description="Por ejemplo: tecnología usada, tipo de cliente, etapa de crecimiento… El tamaño mínimo ya es de más de 200 empleados."
       titleRef={titleRef}
       options={[CRITERIA_NO]}
       onAnswer={() => dispatch({ type: 'SKIP_ADDITIONAL_CRITERIA' })}

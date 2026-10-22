@@ -67,27 +67,32 @@ function serviceClient() {
 /** `--check`: ventana y fecha de carga por país, y cuáles están viejos. Sólo lectura. */
 async function check(countries: string[], today: Date): Promise<void> {
   const client = serviceClient();
-  console.log('País · fin de la ventana · cargado · estado');
+  // AGENT1-SUPPLIER-RELOAD-1 — la frescura se mide por la ÚLTIMA ORDEN cargada, no por el fin
+  // de la ventana: Argentina (21-10) recargó con ventana hasta 2026-09-30, pero su fuente sólo
+  // tenía órdenes hasta el 2026-07-09 (publica por semestre).
+  console.log('País · última orden · fin de la ventana · cargado · estado');
   for (const country of countries) {
     const sourceKey = PROCUREMENT_LOADERS[country].country.sourceKey;
-    const { data, error } = await client
-      .from(PROCUREMENT_LINKS_TABLE)
-      .select('window_end, loaded_at')
-      .eq('country_code', country)
-      .eq('source_key', sourceKey)
-      .order('window_end', { ascending: false })
-      .limit(1);
+    const rows = (columns: string) =>
+      client.from(PROCUREMENT_LINKS_TABLE).select(columns).eq('country_code', country).eq('source_key', sourceKey);
+    const [lastOrder, window] = await Promise.all([
+      rows('last_order_on').not('last_order_on', 'is', null).order('last_order_on', { ascending: false }).limit(1),
+      rows('window_end, loaded_at').order('window_end', { ascending: false }).limit(1),
+    ]);
+    const error = lastOrder.error ?? window.error;
     if (error) {
       console.log(`${country} · error: ${error.message}`);
       continue;
     }
-    const row = (data ?? [])[0] as { window_end: string; loaded_at: string } | undefined;
+    const row = (window.data ?? [])[0] as unknown as { window_end: string; loaded_at: string } | undefined;
     if (!row) {
       console.log(`${country} · sin carga`);
       continue;
     }
-    const stale = isProcurementDataStale(country, row.window_end, today);
-    console.log(`${country} · ${row.window_end} · ${row.loaded_at.slice(0, 10)} · ${stale ? 'VIEJO: recargar' : 'al día'}`);
+    const last = ((lastOrder.data ?? [])[0] as unknown as { last_order_on: string } | undefined)?.last_order_on ?? null;
+    const stale = isProcurementDataStale(country, last ?? row.window_end, today);
+    const status = !stale ? 'al día' : last && last < row.window_end ? 'VIEJO: la fuente no publicó meses nuevos' : 'VIEJO: recargar';
+    console.log(`${country} · ${last ?? '—'} · ${row.window_end} · ${row.loaded_at.slice(0, 10)} · ${status}`);
   }
 }
 

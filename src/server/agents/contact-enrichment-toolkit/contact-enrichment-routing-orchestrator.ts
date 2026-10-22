@@ -52,7 +52,11 @@ import {
   isContactEnrichmentContactBankEnabled,
   isContactEnrichmentCompanySiteEnabled,
 } from '@/lib/feature-flags.server';
-import { runHubSpotFirstStage, type HubSpotFirstStageResult } from './hubspot-first-stage.server';
+import {
+  runHubSpotFirstStage,
+  type HubSpotFirstBreakdown,
+  type HubSpotFirstStageResult,
+} from './hubspot-first-stage.server';
 import { runContactBankStage, type ContactBankStageResult } from './contact-bank-stage.server';
 import { runCompanySiteStage, type CompanySiteStageResult } from './company-site-stage.server';
 import {
@@ -459,6 +463,8 @@ export interface AutomaticRoutingOrchestratorResult {
   freeStages: FreeStageStatusesV1;
   /** Presente sólo en 'fallback_skipped_recent_zero': cuándo dio cero Lusha la última vez. */
   recentFallbackZero?: { lastZeroAt: string; lookbackDays: number };
+  /** Por qué los contactos de HubSpot no entraron (sólo si «Primero HubSpot» corrió). */
+  hubspotFirstBreakdown?: HubSpotFirstBreakdown;
 }
 
 /** Estado de cada etapa gratuita. `not_reached` = la búsqueda terminó antes de llegar a ella. */
@@ -577,11 +583,13 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     companySite: null,
     statuses: { hubspot_first: 'not_reached', contact_bank: 'not_reached', company_site: 'not_reached' },
     relevantWithEmail: 0,
+    hubspotBreakdown: null,
   };
   const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
   return {
     ...result,
     freeStages: { ...freeStagesCtx.statuses },
+    ...(freeStagesCtx.hubspotBreakdown ? { hubspotFirstBreakdown: freeStagesCtx.hubspotBreakdown } : {}),
     ...(freeStagesCtx.hubspotFirst ? { hubspotFirst: freeStagesCtx.hubspotFirst } : {}),
     ...(freeStagesCtx.contactBank ? { contactBank: freeStagesCtx.contactBank } : {}),
     ...(freeStagesCtx.companySite ? { companySite: freeStagesCtx.companySite } : {}),
@@ -596,6 +604,7 @@ interface FreeStagesCtx {
   statuses: FreeStageStatusesV1;
   /** Candidatos relevantes CON correo que dejaron HubSpot y el banco en esta búsqueda. */
   relevantWithEmail: number;
+  hubspotBreakdown: HubSpotFirstBreakdown | null;
 }
 
 /** null = bandera apagada; un fallo inesperado de la etapa = 'error'. */
@@ -662,7 +671,11 @@ async function runAutomaticRoutingCore(
   const writeRoutingTelemetry: typeof writeRoutingTelemetryDep = (attemptId, columns, summaryPatch) =>
     writeRoutingTelemetryDep(attemptId, columns, {
       ...summaryPatch,
-      evidence: { ...summaryPatch.evidence, free_stages: { ...freeStagesCtx.statuses } },
+      evidence: {
+        ...summaryPatch.evidence,
+        free_stages: { ...freeStagesCtx.statuses },
+        ...(freeStagesCtx.hubspotBreakdown ? { hubspot_first_breakdown: { ...freeStagesCtx.hubspotBreakdown } } : {}),
+      },
     });
 
   const config = getConfig();
@@ -703,6 +716,7 @@ async function runAutomaticRoutingCore(
   freeStagesCtx.statuses.hubspot_first = hubspotRun.status;
   if (hubspotFirst?.status === 'done') {
     freeStagesCtx.relevantWithEmail += hubspotFirst.relevantWithEmail;
+    freeStagesCtx.hubspotBreakdown = hubspotFirst.breakdown ?? null;
     freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,
       inserted: hubspotFirst.inserted,

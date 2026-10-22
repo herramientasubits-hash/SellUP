@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { claimingSentences, contentForChannel, parseWriterSubmission, verifyPack, withoutNameSigns } from '../pack-verifier';
+import { claimingSentences, contentForChannel, parseWriterSubmission, verifyPack, withRecordNameSpelling, withoutNameSigns } from '../pack-verifier';
 import { buildWriterSystemPrompt } from '../writer-prompt';
 import { renderCountryStyle } from '../country-style';
 import type { ResearchFact } from '../types';
@@ -113,5 +113,67 @@ describe('Binga! — revisión de código', () => {
     const text = 'Buenos días, ¿hablo con Julián? Le habla Elkin, de UBITS. ¿Me permite 30 segundos para contarle por qué la llamo?';
     const issues = verifyPack(pack('call', text), FACTS, 'call', { ...opts, decisionMakerTitle: 'Director General' });
     assert.ok(issues.some((i) => /no coincide con el cargo/.test(i)), issues.join(' | '));
+  });
+});
+
+describe('Binga! (2.ª corrida, 21-10) — lo que todavía se escapaba', () => {
+  it('«qué están haciendo otros líderes de marketplaces…» es un cliente inventado', () => {
+    const email = pack(
+      'email',
+      'Asunto: Retención\n\nBuenos días, Julian:\n\nEl 88 % de las organizaciones está preocupado por retener talento. ¿Le sirve que le comparta qué están haciendo otros líderes de marketplaces y distribuidoras en Chile para que el equipo se quede?',
+    );
+    assert.ok(verifyPack(email, FACTS, 'email', opts).some((i) => /experiencia, clientes o casos/.test(i)));
+    assert.equal(claimingSentences(email).length, 1);
+    const alsoAfter = pack('email', 'Asunto: Equipo\n\nBuenos días, Julian:\n\nOtras empresas de su tamaño están logrando que la gente rinda desde el primer día. ¿Lo conversamos?');
+    assert.ok(verifyPack(alsoAfter, FACTS, 'email', opts).some((i) => /experiencia, clientes o casos/.test(i)));
+  });
+
+  it('una cifra de la biblioteca con otro sentido se marca; dicha como en la fuente, no', () => {
+    const bent = pack('linkedin', 'Hola, Julian. El 88 % dice que la formación rápida en los primeros meses es clave. ¿Le sirve que hablemos?');
+    assert.ok(verifyPack(bent, FACTS, 'linkedin', opts).some((i) => /cifra de la biblioteca con otro sentido/.test(i)));
+    const faithful = pack('linkedin', 'Hola, Julian. El 88 % de las organizaciones está preocupado por retener talento. ¿Le sirve que hablemos?');
+    assert.equal(verifyPack(faithful, FACTS, 'linkedin', opts).some((i) => /otro sentido/.test(i)), false);
+    const fromFact = verifyPack(bent, [...FACTS, { ...FACTS[0], id: 'F2', statement: 'El 88 % de sus ventas son por la app.' }], 'linkedin', opts);
+    assert.equal(fromFact.some((i) => /otro sentido/.test(i)), false, 'si la cifra sale de un hecho de la ficha, no es de la biblioteca');
+  });
+
+  it('el nombre queda como en la ficha en todos los textos; palabras comunes no se tocan', () => {
+    const content = pack('call', 'Buenos días, ¿hablo con Julián? Le habla Elkin, de UBITS.');
+    const fixed = withRecordNameSpelling(content, 'Julian Helman');
+    assert.match(fixed.callScript.text, /hablo con Julian\?/);
+    assert.doesNotMatch(JSON.stringify(fixed), /Julián/);
+    assert.equal(withRecordNameSpelling('Hola, Julián.', 'Julian'), 'Hola, Julian.');
+    assert.equal(withRecordNameSpelling('Hola, Julian.', 'Julián'), 'Hola, Julián.');
+    assert.equal(withRecordNameSpelling('Queremos paz en el equipo, Paz.', 'María Paz'), 'Queremos paz en el equipo, Paz.');
+    assert.equal(withRecordNameSpelling('Hola, Maria.', 'María Paz'), 'Hola, María.');
+    assert.equal(withRecordNameSpelling('Julianita', 'Julián'), 'Julianita');
+  });
+});
+
+describe('Binga! — la biblioteca no se contradice a sí misma', () => {
+  it('cada afirmación con cifra, dicha tal cual, nombra su tema', async () => {
+    const { UBITS_CLAIMS } = await import('../ubits-messaging-library');
+    const { distortedLibraryClaims } = await import('../pack-verifier');
+    for (const claim of UBITS_CLAIMS) {
+      assert.deepEqual(distortedLibraryClaims([claim.text], []), [], claim.key);
+    }
+  });
+});
+
+describe('Binga! — revisión de código (2)', () => {
+  it('preguntas sobre la propia empresa no se marcan', () => {
+    for (const text of [
+      '¿Qué están usando hoy en otros equipos de Binga! para la inducción?',
+      'Otros equipos de su área lograron ordenar la inducción. ¿Cómo lo vive usted?',
+      '¿Tiene 21 minutos el jueves para verlo?',
+    ]) {
+      const issues = verifyPack(pack('linkedin', `Hola, Julian. ${text}`), FACTS, 'linkedin', opts);
+      assert.equal(issues.some((i) => /experiencia, clientes o casos|otro sentido/.test(i)), false, `${text} → ${issues.join(' | ')}`);
+    }
+  });
+
+  it('«88 por ciento» con otro sentido también se marca', () => {
+    const issues = verifyPack(pack('linkedin', 'Hola, Julian. El 88 por ciento dice que la formación rápida es clave. ¿Hablamos?'), FACTS, 'linkedin', opts);
+    assert.ok(issues.some((i) => /otro sentido/.test(i)));
   });
 });

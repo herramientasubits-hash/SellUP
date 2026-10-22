@@ -14,6 +14,7 @@ let act: (typeof import('@testing-library/react'))['act'];
 let waitFor: (typeof import('@testing-library/react'))['waitFor'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 let ThemaToaster: (typeof import('../thema-toaster'))['ThemaToaster'];
+let syncTruncatedToastTooltips: (typeof import('../thema-toaster'))['syncTruncatedToastTooltips'];
 let TOASTER_TOP_OFFSET_PX: number;
 let toast: (typeof import('sonner'))['toast'];
 
@@ -31,7 +32,7 @@ before(async () => {
     globalThis as unknown as Record<string, unknown>
   ).matchMedia;
   ({ render, act, waitFor, cleanup } = await import('@testing-library/react'));
-  ({ ThemaToaster, TOASTER_TOP_OFFSET_PX } = await import('../thema-toaster'));
+  ({ ThemaToaster, TOASTER_TOP_OFFSET_PX, syncTruncatedToastTooltips } = await import('../thema-toaster'));
   // La MISMA instancia que usa el componente (tsx lo carga como CommonJS).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   ({ toast } = require('sonner') as typeof import('sonner'));
@@ -93,5 +94,42 @@ describe('ThemaToaster', () => {
       const toaster = document.querySelector('[data-sonner-toaster]') as HTMLElement;
       assert.equal(toaster.getAttribute('data-sonner-theme'), 'dark');
     });
+  });
+
+  it('corta título y descripción en dos líneas', async () => {
+    render(h(ThemaToaster));
+    act(() => {
+      toast.success('Lote guardado', { description: 'Con detalle' });
+    });
+    const node = await waitFor(() => {
+      const el = document.querySelector('[data-sonner-toast] [data-description]');
+      assert.ok(el, 'la descripción debe pintarse');
+      return el as HTMLElement;
+    });
+    assert.match(node.className, /line-clamp-2/);
+    const title = document.querySelector('[data-sonner-toast] [data-title]') as HTMLElement;
+    assert.match(title.className, /line-clamp-2/);
+  });
+});
+
+describe('syncTruncatedToastTooltips', () => {
+  function fakeToast(text: string, scrollHeight: number, clientHeight: number): HTMLElement {
+    const root = document.createElement('div');
+    root.innerHTML = `<li data-sonner-toast><div data-title>${text}</div></li>`;
+    const el = root.querySelector('[data-title]') as HTMLElement;
+    Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true });
+    syncTruncatedToastTooltips(root);
+    return el;
+  }
+
+  it('si el texto se corta, el tooltip lleva el mensaje completo', () => {
+    const el = fakeToast('Un mensaje muy largo que no cabe', 60, 40);
+    assert.equal(el.getAttribute('title'), 'Un mensaje muy largo que no cabe');
+  });
+
+  it('si el texto cabe, no hay tooltip', () => {
+    const el = fakeToast('Corto', 20, 20);
+    assert.equal(el.hasAttribute('title'), false);
   });
 });

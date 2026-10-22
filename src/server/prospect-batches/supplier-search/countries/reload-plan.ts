@@ -105,10 +105,14 @@ export const DATA_STALE_AFTER_DAYS: Readonly<Record<ReloadCadence['kind'], numbe
   annual: 550,
 };
 
-/** ¿Los datos cargados de este país están viejos? (`windowEnd` = AAAA-MM-DD). */
-export function isProcurementDataStale(countryCode: string, windowEnd: string | null, today: Date): boolean {
-  if (!windowEnd) return false;
-  const end = Date.parse(`${windowEnd.slice(0, 10)}T00:00:00Z`);
+/**
+ * ¿Los datos cargados de este país están viejos? `latestDate` (AAAA-MM-DD) es la última orden
+ * cargada cuando se conoce (lo que de verdad dice hasta cuándo llegan) o, si no, el fin de la
+ * ventana pedida.
+ */
+export function isProcurementDataStale(countryCode: string, latestDate: string | null, today: Date): boolean {
+  if (!latestDate) return false;
+  const end = Date.parse(`${latestDate.slice(0, 10)}T00:00:00Z`);
   if (!Number.isFinite(end)) return false;
   const kind = RELOAD_CADENCE[countryCode]?.kind ?? 'monthly';
   return today.getTime() - end > DATA_STALE_AFTER_DAYS[kind] * 86_400_000;

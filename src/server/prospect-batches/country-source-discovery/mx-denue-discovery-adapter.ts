@@ -17,6 +17,12 @@
  * HubSpot.
  *
  * Por lo demás se comporta igual que Colombia: puede cerrar el objetivo entero.
+ *
+ * AUDIT-A1-WS7 (México) — antes cada corrida pedía SIEMPRE los registros 1–100 de
+ * cada actividad × estrato: tras pocas corridas, 0 nuevas. Ahora cada consulta
+ * pagina con `reg_ini`/`reg_fin` y salta, EN LA LECTURA, las webs que SellUp ya
+ * conoce (`readFreshSnapshotWindow`, igual que los otros 20 países). Sin
+ * `readKnown` se comporta como siempre: una sola página.
  */
 
 import {
@@ -27,6 +33,7 @@ import {
   resolveScianMacro,
   type DenueActivityFilter,
 } from './mx-denue-macro-table';
+import { readFreshSnapshotWindow, type ReadKnownSnapshotIdentities } from './country-source-fresh-window';
 import { MEXICO_LEGAL_FORMS, normalizeCompanyNameCore } from '@/server/source-catalog/company-name-core';
 import type {
   CountrySourceAdapter,
@@ -43,6 +50,15 @@ export const MX_DENUE_DISCOVERY_MAX_ROWS = 200;
 
 /** Establecimientos pedidos por cada combinación filtro × estrato. */
 export const MX_DENUE_PAGE_SIZE = 100;
+
+/**
+ * Presupuesto de tiempo de la lectura entera = el peor caso de siempre (3 estratos
+ * × 8 s de tiempo máximo por consulta en el conector). Cada estrato tiene su
+ * franja de 8 s: la primera página se pide siempre (como antes) y las páginas
+ * EXTRA sólo usan lo que sobra de su franja, con la consulta acotada a ese resto.
+ * Así paginar nunca alarga la corrida más allá de lo que ya podía durar.
+ */
+export const MX_DENUE_ESTRATO_BUDGET_MS = 8000;
 
 /** Un establecimiento DENUE, acotado a lo que esta proyección usa. */
 export type DenueEstablishment = {
@@ -62,7 +78,16 @@ export type MxDenueDiscoveryReads = {
     filter: DenueActivityFilter;
     estrato: string;
     limit: number;
+    /** Registros a saltar (0 si se omite): `reg_ini = offset + 1`. */
+    offset?: number;
+    /** Tope de esta consulta, si es menor que el del conector. */
+    timeoutMs?: number;
   }) => Promise<readonly DenueEstablishment[]>;
+  /**
+   * READ-ONLY: qué webs ya conoce SellUp (DENUE no trae RFC: `taxIds` va vacío).
+   * Ausente ⇒ una sola página, como siempre.
+   */
+  readKnown?: ReadKnownSnapshotIdentities | null;
 };
 
 /**
@@ -194,7 +219,11 @@ function* interleave<T>(lists: readonly (readonly T[])[]): Generator<T> {
 }
 
 /** Construye el adapter de descubrimiento de México. Nunca lanza. */
-export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): CountrySourceAdapter {
+export function buildMxDenueDiscoveryAdapter(
+  reads: MxDenueDiscoveryReads,
+  options: { now?: () => number } = {},
+): CountrySourceAdapter {
+  const now = options.now ?? Date.now;
   return async (criteria: CountrySourceCriteria): Promise<CountrySourceDiscoveryResult> => {
     const empty = { sourceKey: MX_DENUE_DISCOVERY_SOURCE_KEY, companies: [], recordsRead: 0 };
     if (!macroHasMxCoverage(criteria.macroIndustryKey)) return empty;
@@ -206,15 +235,38 @@ export function buildMxDenueDiscoveryAdapter(reads: MxDenueDiscoveryReads): Coun
     let recordsRead = 0;
     const seen = new Set<string>();
     const companies: CountrySourceCompany[] = [];
+    const startedAt = now();
+
+    // Una consulta filtro × estrato: páginas sucesivas hasta reunir una página de
+    // webs que SellUp no conoce (o agotar DENUE, el techo de páginas o la franja).
+    const readFresh = (filter: DenueActivityFilter, estrato: string, deadline: number) =>
+      readFreshSnapshotWindow<DenueEstablishment>({
+        size: MX_DENUE_PAGE_SIZE,
+        countryCode: 'MX',
+        readRange: async (from, to) => {
+          // Página extra fuera de la franja ⇒ se corta con lo reunido.
+          const remaining = deadline - now();
+          if (from > 0 && remaining <= 0) throw new Error('mx_denue_time_budget_exhausted');
+          const rows = await reads.readEstablishments({
+            filter,
+            estrato,
+            limit: to - from + 1,
+            ...(from > 0 ? { offset: from, timeoutMs: remaining } : {}),
+          });
+          recordsRead += rows.length;
+          return [...rows];
+        },
+        taxIdOf: () => null,
+        domainOf: (row) => denueWebsiteToDomain(row.website),
+        readKnown: reads.readKnown ?? null,
+      });
 
     // Estrato a estrato, de mayor a menor: se piden en paralelo los filtros de un
     // estrato y sólo se baja al siguiente si todavía falta cubrir el límite.
-    for (const estrato of MX_DENUE_ESTRATOS) {
+    for (const [index, estrato] of MX_DENUE_ESTRATOS.entries()) {
       if (companies.length >= limit) break;
-      const pages = await Promise.all(
-        filters.map((filter) => reads.readEstablishments({ filter, estrato, limit: MX_DENUE_PAGE_SIZE })),
-      );
-      for (const page of pages) recordsRead += page.length;
+      const deadline = startedAt + (index + 1) * MX_DENUE_ESTRATO_BUDGET_MS;
+      const pages = await Promise.all(filters.map((filter) => readFresh(filter, estrato, deadline)));
       // SOURCES-MX-DENUE-MIX-WEB-DEDUPE-1 — se intercalan las páginas (una fila de
       // cada actividad por turno). Antes se recorrían en orden y la primera
       // actividad (517 telecomunicaciones en Tecnología) llenaba sola el objetivo:

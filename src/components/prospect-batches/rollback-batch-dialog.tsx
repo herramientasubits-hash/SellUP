@@ -32,8 +32,8 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
     try {
       const result = await rollbackStructuredAgentBatchAction(batchId, reason.trim() || undefined);
       if (result.ok) {
-        toast.success('Lote revertido', {
-          description: `El lote "${batchName}" quedó cancelado y sus ${result.candidatesUpdated} candidatos descartados.`,
+        toast.success(`Lote «${batchName}» revertido`, {
+          description: `${result.candidatesUpdated} candidatos descartados.`,
         });
         setOpen(false);
         setReason('');

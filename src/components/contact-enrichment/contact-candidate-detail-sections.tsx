@@ -18,13 +18,10 @@ import {
   Copy,
   Gauge,
   Globe,
-  Hash,
   Info,
-  PhoneCall,
   ShieldCheck,
   Tag,
   User,
-  UserSearch,
 } from '@/icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -39,7 +36,6 @@ import type {
 import {
   CANDIDATE_SOURCE_LABEL,
   DUPLICATE_LABELS,
-  PHONE_REVEAL_PROVIDER_LABEL,
   RELEVANCE_LABELS,
   RELEVANCE_VARIANT,
   SOURCE_LABELS,
@@ -272,27 +268,29 @@ export function CandidateCompanyConsistencyNotice({
   );
 }
 
-/** 4. Trazabilidad. */
-export function CandidateTraceabilitySection({
+/**
+ * 4. Empresa del candidato. Antes era «Trazabilidad» (IDs del candidato, de la
+ * ejecución y de la empresa, fuente, intento de Apollo): confundía al manager y
+ * se quitó de la vista. Queda sólo lo que sirve para decidir: el aviso de que no
+ * tiene empresa, «Reasignar empresa» y, si hubo, la reasignación.
+ */
+export function CandidateCompanySection({
   candidate,
-  phoneRevealProviderLabel,
   companyAction,
 }: {
   candidate: PendingContactCandidate;
-  /** Nombre visible de `phone_reveal_provider`; `null` si no hubo intento. */
-  phoneRevealProviderLabel: string | null;
   /**
    * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el botón «Reasignar empresa». Lo construye la ficha
    * (que es quien llama al servidor); esta sección sólo lo coloca.
    */
   companyAction?: React.ReactNode;
 }) {
-  const apolloAttempt = candidate.enrichment_metadata?.apollo_search_attempt ?? null;
   const reassignment = readCandidateCompanyReassignment(candidate.enrichment_metadata);
   const withoutCompany = !candidate.account_id && !candidate.hubspot_company_id;
+  if (!withoutCompany && !reassignment && !companyAction) return null;
 
   return (
-    <DrawerSection icon={Hash} tone="neutral" title="Trazabilidad" action={companyAction}>
+    <DrawerSection icon={Building2} tone="neutral" title="Empresa" action={companyAction}>
       {withoutCompany && (
         <Alert variant="warning" role="note" className="mb-3">
           <AlertTitle className="text-sm">Sin empresa asociada</AlertTitle>
@@ -302,47 +300,8 @@ export function CandidateTraceabilitySection({
           </AlertDescription>
         </Alert>
       )}
-      <DetailList>
-        <CandidateDetailItem icon={Hash} label="ID del candidato">
-          <span className="font-mono text-xs break-all">{candidate.id}</span>
-        </CandidateDetailItem>
-        {/* «Ejecución», no «búsqueda»: con el desglose del waterfall a la
-            vista, esa palabra se leería como un crédito de búsqueda. */}
-        <CandidateDetailItem icon={Hash} label="ID de la ejecución">
-          {candidate.enrichment_run_id ? (
-            <span className="font-mono text-xs break-all">{candidate.enrichment_run_id}</span>
-          ) : null}
-        </CandidateDetailItem>
-        <CandidateDetailItem icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
-          {SOURCE_LABELS[candidate.source] ?? candidate.source}
-        </CandidateDetailItem>
-        {/* § 8.2 en Trazabilidad: el eje del teléfono, junto al del candidato
-            pero nunca fundido con él. Solo si hubo intento real. */}
-        {phoneRevealProviderLabel && (
-          <CandidateDetailItem icon={PhoneCall} label={PHONE_REVEAL_PROVIDER_LABEL}>
-            {phoneRevealProviderLabel}
-          </CandidateDetailItem>
-        )}
-        {apolloAttempt && (
-          <CandidateDetailItem
-            icon={UserSearch}
-            label="Intento de búsqueda Apollo"
-            className="sm:col-span-2"
-          >
-            <span className="text-xs">{apolloAttempt}</span>
-          </CandidateDetailItem>
-        )}
-        {candidate.account_id && (
-          <CandidateDetailItem icon={Building2} label="ID de la empresa en SellUp">
-            <span className="font-mono text-xs break-all">{candidate.account_id}</span>
-          </CandidateDetailItem>
-        )}
-        {candidate.hubspot_company_id && (
-          <CandidateDetailItem icon={Globe} label="ID de la empresa en HubSpot">
-            <span className="font-mono text-xs break-all">{candidate.hubspot_company_id}</span>
-          </CandidateDetailItem>
-        )}
-        {reassignment && (
+      {reassignment && (
+        <DetailList>
           <CandidateDetailItem
             icon={Building2}
             label="Empresa reasignada"
@@ -358,8 +317,8 @@ export function CandidateTraceabilitySection({
               {reassignment.original.company_name ?? 'sin empresa'}
             </span>
           </CandidateDetailItem>
-        )}
-      </DetailList>
+        </DetailList>
+      )}
     </DrawerSection>
   );
 }

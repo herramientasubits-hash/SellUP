@@ -40,7 +40,13 @@ import {
   type CorporateTreeGroupMemberStatus,
   type CorporateTreeGroupSignal,
 } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
-import { corporateTreeRootKey, pickSavedTree, serializeSavedTree, type CorporateTreeSavedTree } from './corporate-tree-saved';
+import {
+  corporateTreeRootKey,
+  pickSavedTree,
+  serializeSavedTree,
+  type CorporateTreeSavedHubSpotMember,
+  type CorporateTreeSavedTree,
+} from './corporate-tree-saved';
 import type { CorporateTreeNotWritten } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   markKnownCompanies,
@@ -777,7 +783,7 @@ async function runAfterReservation(
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
   const relationshipRows = buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId });
-  const groupSignal = await readGroupSignal(relationshipRows, deps, sealStartAtMs);
+  const groupSignal = await readGroupSignal(relationshipRows, deps, sealStartAtMs, saved?.hubspotMembers ?? []);
   const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
   const tagging = Promise.all(
     plan.rows.map(async (row) => {
@@ -859,6 +865,8 @@ async function runAfterReservation(
       dropped_by_cap: plan.droppedByCap,
       dropped_by_branch: plan.droppedByBranch ?? 0,
       relationships_saved: relationshipsSaved,
+      // Se pidió desde «Buscar de nuevo» (no se miró el árbol guardado): queda dicho en el lote.
+      ...(request.refresh ? { refresh_requested: true } : {}),
       ...(groupSignal ? { group_hubspot: groupSignal } : {}),
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
@@ -873,6 +881,7 @@ async function runAfterReservation(
               root: { website: root.website, domain: root.domain, countryCode: root.countryCode },
               nodes,
               apolloSubsidiaries: apollo.answered,
+              hubspotMembers: hubspotMembersOf(relationshipRows),
             }),
           }
         : {}),
@@ -924,18 +933,40 @@ async function runAfterReservation(
  * del grupo que ya están allí y resume si el grupo ya es cliente o lo trabaja alguien. `null`
  * si no hay ninguna en HubSpot, si no se pudo leer o si no hubo tiempo.
  */
+/** Las empresas del grupo con ficha de HubSpot en esta corrida (para guardarlas con el árbol). */
+function hubspotMembersOf(rows: readonly CorporateTreeRelationshipRow[]): CorporateTreeSavedHubSpotMember[] {
+  const seen = new Set<string>();
+  const members: CorporateTreeSavedHubSpotMember[] = [];
+  for (const row of rows) {
+    const id = row.matched_hubspot_company_id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    members.push({ hubspotCompanyId: id, name: row.related_name, countryCode: row.related_country_code });
+  }
+  return members;
+}
+
 async function readGroupSignal(
   rows: readonly CorporateTreeRelationshipRow[],
   deps: CorporateTreeRunDeps,
   deadlineAtMs: number,
+  /** Las del árbol guardado: se vuelven a leer aunque en esta corrida no quedaran ligadas. */
+  savedMembers: readonly CorporateTreeSavedHubSpotMember[] = [],
 ): Promise<CorporateTreeGroupSignal | null> {
   if (!deps.readGroupHubSpotStatus) return null;
-  const byId = new Map<string, CorporateTreeRelationshipRow>();
+  const byId = new Map<string, { related_name: string; related_country_code: string | null; isRoot: boolean }>();
   for (const row of rows) {
     // La empresa de partida primero: si ella es cliente, eso es lo que más importa.
-    if (row.matched_hubspot_company_id && !byId.has(row.matched_hubspot_company_id)) byId.set(row.matched_hubspot_company_id, row);
+    if (row.matched_hubspot_company_id && !byId.has(row.matched_hubspot_company_id)) {
+      byId.set(row.matched_hubspot_company_id, { related_name: row.related_name, related_country_code: row.related_country_code, isRoot: row.relation_type === 'root' });
+    }
   }
-  const ordered = [...byId.entries()].sort(([, a], [, b]) => Number(b.relation_type === 'root') - Number(a.relation_type === 'root'));
+  for (const member of savedMembers) {
+    if (!byId.has(member.hubspotCompanyId)) {
+      byId.set(member.hubspotCompanyId, { related_name: member.name, related_country_code: member.countryCode, isRoot: false });
+    }
+  }
+  const ordered = [...byId.entries()].sort(([, a], [, b]) => Number(b.isRoot) - Number(a.isRoot));
   const ids = ordered.slice(0, CORPORATE_TREE_GROUP_HUBSPOT_MAX_READS).map(([id]) => id);
   if (ids.length === 0) return null;
   const read = await settleBy(deps.readGroupHubSpotStatus(ids).catch(() => new Map()), deadlineAtMs, deps.nowMs);

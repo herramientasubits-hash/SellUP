@@ -114,6 +114,30 @@ describe('ChatQuestionPanel — «Otro», filtro y plegado', () => {
     assert.equal(rtl.screen.queryByRole('button', { name: /Colombia/ }), null);
   });
 
+  it('el filtro avisa lo escrito y pinta sus sugerencias bajo las opciones (Prod 21-10: «Seguro Social»)', () => {
+    const typed: string[] = [];
+    const accounts = Array.from({ length: 12 }, (_, i) => `Cuenta ${i + 1}`);
+    rtl.render(
+      <ChatQuestionPanel
+        title="¿De qué empresa?"
+        options={accounts}
+        onAnswer={() => {}}
+        filterPlaceholder="Buscar en tus cuentas o entidades públicas"
+        onFilterChange={(text) => typed.push(text)}
+        filterEmptyLabel="Ninguna de tus cuentas coincide."
+        filterSuggestions={<p>Instituto Mexicano del Seguro Social</p>}
+      />,
+    );
+    // Sin texto en el filtro, las sugerencias no aparecen.
+    assert.equal(rtl.screen.queryByText('Instituto Mexicano del Seguro Social'), null);
+    rtl.fireEvent.change(rtl.screen.getByPlaceholderText('Buscar en tus cuentas o entidades públicas'), {
+      target: { value: 'Seguro Social' },
+    });
+    assert.deepEqual(typed, ['Seguro Social']);
+    assert.ok(rtl.screen.getByText('Ninguna de tus cuentas coincide.'));
+    assert.ok(rtl.screen.getByText('Instituto Mexicano del Seguro Social'));
+  });
+
   it('se pliega y se despliega', () => {
     rtl.render(<ChatQuestionPanel title="¿País?" options={['Colombia']} onAnswer={() => {}} />);
     rtl.fireEvent.click(rtl.screen.getByRole('button', { name: 'Plegar las opciones' }));

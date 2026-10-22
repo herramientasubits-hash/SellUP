@@ -19,11 +19,14 @@
  * (AGENT1-TAVILY-PROVIDER-CONFIG-1), como Apollo y Lusha.
  */
 
+// AGENT1-CRITERIA-QUICK-WINS-2 § 2 — los tiempos salen del plan único de la corrida.
+import { WIZARD_RUN_TIME_PLAN } from './wizard-run-time-plan';
+
 /**
  * Rondas del tramo de Tavily. Prod 01-10 (CL×Salud, 34eeac5a): con 2 rondas la
  * corrida entera tardó 47 s; hay tiempo para una tercera.
  */
-export const TAVILY_FIRST_MAX_ROUNDS = 3;
+export const TAVILY_FIRST_MAX_ROUNDS = WIZARD_RUN_TIME_PLAN.tavilyMaxRounds;
 
 // ── AGENT1-TAVILY-FIRST-2 — tiempos dentro de los 300 s de Vercel ─────────────
 //
@@ -32,16 +35,16 @@ export const TAVILY_FIRST_MAX_ROUNDS = 3;
 // dentro de la corrida y la decisión se toma con lo que sobrevive.
 
 /** Ventana máxima para que Claude EMPIECE empresas nuevas dentro de la corrida. */
-export const TAVILY_FIRST_RESCUE_WINDOW_MS = 60_000;
+export const TAVILY_FIRST_RESCUE_WINDOW_MS = WIZARD_RUN_TIME_PLAN.inlineReviewWindowMs;
 /** Por debajo de esto no vale la pena empezar a revisar. */
-export const TAVILY_FIRST_MIN_RESCUE_WINDOW_MS = 15_000;
+export const TAVILY_FIRST_MIN_RESCUE_WINDOW_MS = WIZARD_RUN_TIME_PLAN.inlineReviewMinWindowMs;
 /**
  * Apollo sólo empieza si no han pasado más de esto desde el inicio de la acción:
  * su presupuesto de evaluación es de 150 s y la función muere a los 300 s.
  */
-export const TAVILY_FIRST_APOLLO_START_LIMIT_MS = 140_000;
+export const TAVILY_FIRST_APOLLO_START_LIMIT_MS = WIZARD_RUN_TIME_PLAN.apolloStartLimitMs;
 /** Lusha, detrás de Apollo, sólo empieza si queda margen. */
-export const TAVILY_FIRST_LUSHA_START_LIMIT_MS = 200_000;
+export const TAVILY_FIRST_LUSHA_START_LIMIT_MS = WIZARD_RUN_TIME_PLAN.lushaStartLimitMs;
 
 /** Ventana para Claude, o `null` si ya no hay tiempo para empezar. */
 export function resolveInlineRescueWindowMs(elapsedMs: number): number | null {
@@ -54,8 +57,8 @@ export function resolveInlineRescueWindowMs(elapsedMs: number): number | null {
  * gratuito, ANTES de Tavily. Corta (45 s) y nunca se come el tiempo de lo que viene:
  * deja al menos 60 s antes del límite de arranque de Apollo para Tavily y su revisión.
  */
-export const FREE_LAYER_RESCUE_WINDOW_MS = 45_000;
-export const FREE_LAYER_RESCUE_RESERVE_MS = 60_000;
+export const FREE_LAYER_RESCUE_WINDOW_MS = WIZARD_RUN_TIME_PLAN.freeLayerRescueWindowMs;
+export const FREE_LAYER_RESCUE_RESERVE_MS = WIZARD_RUN_TIME_PLAN.freeLayerRescueReserveMs;
 
 export function resolveFreeLayerRescueWindowMs(elapsedMs: number): number | null {
   const window = Math.min(FREE_LAYER_RESCUE_WINDOW_MS, TAVILY_FIRST_APOLLO_START_LIMIT_MS - FREE_LAYER_RESCUE_RESERVE_MS - elapsedMs);

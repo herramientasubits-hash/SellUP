@@ -35,7 +35,7 @@ import {
 import { Field, FieldLabel } from '@/components/forms/field';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { PhoneInput } from '@/components/forms/phone-input';
-import { canEditAsE164, isSamePhoneNumber } from '@/components/forms/phone-countries';
+import { canEditAsE164, isSamePhoneNumber, parseE164 } from '@/components/forms/phone-countries';
 import { Checkbox } from '@/components/ui/checkbox';
 
 interface EditContactDrawerProps {
@@ -80,6 +80,10 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
   // Se decide con el valor GUARDADO, no con lo que se va escribiendo.
   const isPhoneEditable = canEditAsE164(contact.phone ?? '');
   const isMobileEditable = canEditAsE164(contact.mobile_phone ?? '');
+  // Un número vacío arranca con el país del otro (un celular uruguayo no debe
+  // abrir en +57 sólo porque Colombia es el país por defecto).
+  const phoneCountry = parseE164(contact.phone ?? '').country?.code;
+  const mobileCountry = parseE164(contact.mobile_phone ?? '').country?.code;
 
   // El campo con prefijo emite E.164. Si lo escrito vuelve a ser el mismo
   // número que ya estaba guardado, se conserva el texto guardado tal cual:
@@ -217,11 +221,14 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
               onChange={(e) => set('email', e.target.value)}
             />
           </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Uno debajo del otro: lado a lado el selector de país más el número
+              no caben y el número se corta. */}
+          <div className="grid grid-cols-1 gap-4">
             <Field label="Teléfono">
               {isPhoneEditable ? (
                 <PhoneInput
                   id="edit_phone"
+                  defaultCountry={phoneCountry ?? mobileCountry}
                   value={form.phone}
                   onValueChange={(next) => setPhone('phone', next)}
                 />
@@ -239,6 +246,7 @@ export function EditContactDrawer({ contact, open, onClose }: EditContactDrawerP
               {isMobileEditable ? (
                 <PhoneInput
                   id="edit_mobile_phone"
+                  defaultCountry={mobileCountry ?? phoneCountry}
                   value={form.mobile_phone}
                   onValueChange={(next) => setPhone('mobile_phone', next)}
                 />

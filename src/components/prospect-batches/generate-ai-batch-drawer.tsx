@@ -541,12 +541,12 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
       if (uCount > 0) {
         toast.success(
           `${uCount} empresa${uCount !== 1 ? 's' : ''} candidata${uCount !== 1 ? 's' : ''} lista${uCount !== 1 ? 's' : ''} para revisión`,
-          { description: 'Ninguna empresa se crea automáticamente — toda candidata requiere revisión humana.' }
+          { description: 'Revísalas antes de aprobarlas.' }
         );
       } else {
         toast.warning(
-          'No se encontraron empresas útiles para revisión',
-          { description: 'SellUp omitió registros por liquidación, inactividad, duplicidad o datos mínimos insuficientes.' }
+          'No hubo empresas útiles',
+          { description: 'Se omitieron liquidadas, inactivas, duplicadas o sin datos.' }
         );
       }
 

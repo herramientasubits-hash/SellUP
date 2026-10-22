@@ -109,11 +109,12 @@ describe('tope de gasto acumulado por lote', () => {
     );
   });
 
-  it('sin lectura del gasto (null) sigue como antes', async () => {
+  it('sin lectura del gasto (null) sigue, pero cuenta el gasto de ESTA corrida (21-10)', async () => {
     const f = fakeDeps(null);
     const summary = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: null }, f.deps);
+    // Las dos empiezan a la vez (concurrencia); US$4 de esta corrida pasan el tope de US$3.
     assert.equal(f.classified.length, 2);
-    assert.equal(summary.ok && summary.batchBudgetReached, undefined);
+    assert.equal(summary.ok && summary.batchBudgetReached, true);
   });
 
   it('readBatchRescueSpentUsd suma el uso del rescate del lote (sólo SELECT)', async () => {

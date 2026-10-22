@@ -13,6 +13,9 @@
  *   - Se devuelve la web cargada (`raw_data.website_domain`).
  *   - Gobierno se lee del directorio de entidades públicas (`co_public_entities`),
  *     ordenado por servidores públicos.
+ *   - AUDIT-A1-WS7: la lectura pagina (mismo orden) y salta en la LECTURA lo que
+ *     SellUp ya conoce por NIT o web (`country-source-fresh-window.ts`): la
+ *     ventana ×3 fija se agotaba tras pocas corridas.
  *
  * ── 🔴 Sólo lectura, y acotada ───────────────────────────────────────────────
  *
@@ -72,6 +75,11 @@ import {
   PRIOR_SIGHTING_DISPOSITION_COLUMNS,
   type PriorSightingDispositionRow,
 } from './country-source-prior-sightings';
+import {
+  buildReadKnownSnapshotIdentities,
+  readFreshSnapshotWindow,
+  snapshotWebsiteDomain,
+} from './country-source-fresh-window';
 
 /** `source_key` de la porción colombiana del snapshot. */
 export const CO_SIIS_SNAPSHOT_SOURCE_KEY = 'co_siis' as const;
@@ -230,6 +238,22 @@ async function readPriorSightings(
   return out;
 }
 
+/** Ventana fresca común a las dos lecturas: NIT recortado y web de `raw_data`. */
+function readFreshRows(
+  client: SupabaseClient,
+  limit: number,
+  readRange: (from: number, to: number) => Promise<SnapshotSelectRow[]>,
+): Promise<SnapshotSelectRow[]> {
+  return readFreshSnapshotWindow<SnapshotSelectRow>({
+    size: limit,
+    countryCode: 'CO',
+    readKnown: buildReadKnownSnapshotIdentities(client),
+    taxIdOf: (row) => row.tax_id?.trim() || null,
+    domainOf: (row) => snapshotWebsiteDomain(row.raw_data),
+    readRange,
+  });
+}
+
 async function readSiisRows(client: SupabaseClient, ciiuCodes: readonly string[], limit: number): Promise<CoSiisSnapshotRow[]> {
   const forms = expandCiiuCodeForms(ciiuCodes);
   if (forms.length === 0) return [];
@@ -242,31 +266,46 @@ async function readSiisRows(client: SupabaseClient, ciiuCodes: readonly string[]
       .in(`raw_data->>${CO_SIIS_RAW_CIIU_KEY}`, forms);
   // De la que más factura a la que menos; el NIT desempata para que dos corridas
   // idénticas lean las mismas filas.
-  let { data, error } = await base()
-    .order('financials->operatingRevenueCurrent', { ascending: false, nullsFirst: false })
-    .order('record_identity_key', { ascending: true })
-    .limit(limit);
-  if (error) {
-    // Si el orden por ingresos no se puede aplicar, el orden estable de siempre.
-    ({ data, error } = await base().order('record_identity_key', { ascending: true }).limit(limit));
-  }
-  if (error || !Array.isArray(data)) return [];
-  return (data as unknown as SnapshotSelectRow[]).map(toSiisRow);
+  const byRevenue = () =>
+    base()
+      .order('financials->operatingRevenueCurrent', { ascending: false, nullsFirst: false })
+      .order('record_identity_key', { ascending: true });
+  const stable = () => base().order('record_identity_key', { ascending: true });
+  // Si el orden por ingresos no se puede aplicar en la primera página, todas las
+  // páginas usan el orden estable de siempre (no se mezclan órdenes).
+  let useStable = false;
+  const rows = await readFreshRows(client, limit, async (from, to) => {
+    const page = (query: ReturnType<typeof stable>) => (from === 0 ? query.limit(limit) : query.range(from, to));
+    let { data, error } = await page(useStable ? stable() : byRevenue());
+    if (error && from === 0 && !useStable) {
+      useStable = true;
+      ({ data, error } = await page(stable()));
+    }
+    if (error || !Array.isArray(data)) throw new Error('co_siis_read_failed');
+    return data as unknown as SnapshotSelectRow[];
+  });
+  return rows.map(toSiisRow);
 }
 
 async function readPublicEntityRows(client: SupabaseClient, macroIndustryKey: string, limit: number): Promise<CoSiisSnapshotRow[]> {
-  const { data, error } = await client
-    .from('source_company_snapshots')
-    .select(SELECTED_COLUMNS)
-    .eq('source_key', CO_PUBLIC_ENTITIES_SOURCE_KEY)
-    .eq('country_code', 'CO')
-    .eq('raw_data->>macro_industry_key', macroIndustryKey)
-    .gte('priority_score', CO_PUBLIC_ENTITY_DISCOVERY_MIN_WORKERS)
-    .order('priority_score', { ascending: false })
-    .order('record_identity_key', { ascending: true })
-    .limit(limit);
-  if (error || !Array.isArray(data)) return [];
-  return (data as unknown as SnapshotSelectRow[]).map(toPublicEntityRow);
+  // Una consulta NUEVA por página: un builder de PostgREST no se reutiliza.
+  const buildQuery = () =>
+    client
+      .from('source_company_snapshots')
+      .select(SELECTED_COLUMNS)
+      .eq('source_key', CO_PUBLIC_ENTITIES_SOURCE_KEY)
+      .eq('country_code', 'CO')
+      .eq('raw_data->>macro_industry_key', macroIndustryKey)
+      .gte('priority_score', CO_PUBLIC_ENTITY_DISCOVERY_MIN_WORKERS)
+      .order('priority_score', { ascending: false })
+      .order('record_identity_key', { ascending: true });
+  const rows = await readFreshRows(client, limit, async (from, to) => {
+    const query = buildQuery();
+    const { data, error } = await (from === 0 ? query.limit(limit) : query.range(from, to));
+    if (error || !Array.isArray(data)) throw new Error('co_public_entities_read_failed');
+    return data as unknown as SnapshotSelectRow[];
+  });
+  return rows.map(toPublicEntityRow);
 }
 
 /**

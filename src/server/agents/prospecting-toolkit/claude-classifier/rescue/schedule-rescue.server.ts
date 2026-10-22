@@ -9,8 +9,7 @@
 import { after } from 'next/server';
 import { isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import { computeBackgroundRescueDeadlineMs } from './rescue-time-budget';
-
-type WizardRunResultLike = { ok: boolean; batchId?: unknown };
+import { resolveRescueTargetBatchId, type WizardRunResultLike } from './rescue-target-batch';
 
 export function scheduleClaudeRescueAfterWizardRun(
   result: WizardRunResultLike,
@@ -21,8 +20,9 @@ export function scheduleClaudeRescueAfterWizardRun(
   options: { includeUnassessed?: boolean } = {},
 ): void {
   if (!isAgent1ClaudeRescueEnabled()) return;
-  if (!result.ok || typeof result.batchId !== 'string' || !result.batchId) return;
-  const batchId = result.batchId;
+  // AGENT1-CRITERIA-QUICK-WINS-1 § 3 — también tras un fallo con aporte gratuito.
+  const batchId = resolveRescueTargetBatchId(result);
+  if (batchId === null) return;
   try {
     after(async () => {
       const triggeredBy = await resolveTriggeredBy().catch(() => null);

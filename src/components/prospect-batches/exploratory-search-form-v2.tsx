@@ -139,7 +139,7 @@ export function ExploratorySearchFormV2({
     const trimmedCriteria = form.additionalCriteria.trim();
     if (trimmedCriteria.length > EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars) {
       toast.error(
-        `El criterio específico puede tener máximo ${EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars} caracteres.`,
+        `Máximo ${EXPLORATORY_SEARCH_LIMITS.additionalCriteria.maxChars} caracteres en el criterio.`,
       );
       return;
     }
