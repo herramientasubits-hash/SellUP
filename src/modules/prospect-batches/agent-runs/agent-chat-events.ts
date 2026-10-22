@@ -29,3 +29,20 @@ export function requestOpenAgentRunsInChat(): boolean {
 export function agentRunsFallbackHref(): string {
   return `${AGENT_CHAT_HOME_PATH}?${AGENT_CHAT_VIEW_PARAM}=${AGENT_CHAT_RUNS_VIEW}`;
 }
+
+/**
+ * «Buscar competidores» desde una cuenta (auditoría 21-10, Fase C): abre el chat
+ * con una conversación nueva de «Competidores de una empresa» y esa cuenta como
+ * referencia. Arma la ficha como si la persona la hubiera elegido en la lista.
+ */
+export const AGENT_CHAT_OPEN_COMPETITORS_EVENT = 'sellup:agent-chat:open-competitors';
+
+export type AgentChatOpenCompetitorsDetail = { handled: boolean; accountId: string };
+
+/** Pide abrir el chat en Competidores con la cuenta. Devuelve si algún cajón lo atendió. */
+export function requestOpenCompetitorsInChat(accountId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  const detail: AgentChatOpenCompetitorsDetail = { handled: false, accountId };
+  window.dispatchEvent(new CustomEvent<AgentChatOpenCompetitorsDetail>(AGENT_CHAT_OPEN_COMPETITORS_EVENT, { detail }));
+  return detail.handled;
+}

@@ -215,6 +215,13 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       const { exclusion } = await loadCompetitorReferenceExclusion(reference, buildCompetitorReferenceExclusionReader());
       return [...exclusion.relatedDomains];
     },
+    // «Competidores»: los «no es competidor» de lotes anteriores de esta referencia.
+    loadCompetitorNotCompetitors: async (reference) => {
+      const { loadNotCompetitorNames } = await import(
+        '@/server/prospect-batches/competitor-search/competitor-not-competitors.server'
+      );
+      return loadNotCompetitorNames(reference);
+    },
     runSearch: async ({ source, queries, excludeDomains, active, deadlineAtMs, onCall }) => {
       const context: ClaudeSearchRunContext = {
         model: active.model,

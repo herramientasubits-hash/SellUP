@@ -811,10 +811,12 @@ describe('la migración 128 — su contrato', () => {
     // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
     // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
     // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '155_import_apollo_saved_contact_phones.sql');
+    // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
+    assert.equal(files[files.length - 1], '156_agent1_competitor_watches.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 155);
-    assert.equal(files.length, 155,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 156);
+    assert.equal(files.length, 156,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

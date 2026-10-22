@@ -7,6 +7,7 @@
  * árbol de empresas y el registro común de `provider_usage_logs`.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { getAccountById } from '@/modules/accounts/actions';
@@ -337,6 +338,26 @@ export interface FirstCallContextOptions {
   skipHubSpot?: boolean;
 }
 
+/**
+ * Los competidores de la cuenta según las búsquedas «Competidores» del Agente 1 (la
+ * cuenta como referencia, por dominio o nombre). Sin búsquedas ⇒ `null`.
+ */
+async function readKnownCompetitors(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  name: string,
+  domain: string | null,
+): Promise<{ names: string[]; ubitsCustomers: string[] } | null> {
+  const { loadCompetitorMap } = await import('@/server/prospect-batches/competitor-search/competitor-map.server');
+  const map = await loadCompetitorMap(admin as unknown as SupabaseClient, { name, domain });
+  if (!map) return null;
+  const useful = map.entries.filter((entry) => entry.state !== 'small' && entry.state !== 'not_competitor');
+  if (useful.length === 0) return null;
+  return {
+    names: useful.map((entry) => entry.name),
+    ubitsCustomers: useful.filter((entry) => entry.state === 'ubits_customer').map((entry) => entry.name),
+  };
+}
+
 /** Contexto de la empresa para quien la pide. `null` si no existe o está fuera de su cartera. */
 export async function loadFirstCallContext(
   request: FirstCallRequest,
@@ -351,7 +372,7 @@ export async function loadFirstCallContext(
       : {};
 
   const admin = createSupabaseAdminClient();
-  const [originMetadata, curatedLists, relations, hubspot, decisionMakers, seller, briefState, publicSales, approachResults] =
+  const [originMetadata, curatedLists, relations, hubspot, decisionMakers, seller, briefState, publicSales, approachResults, competitors] =
     await Promise.all([
     // AGENT3-PUBLIC-SALES-1 — la candidata de origen da la clasificación Y el «Proveedor de X».
     readOriginCandidateMetadata(account.id, metadata).catch((err: unknown) => {
@@ -373,6 +394,8 @@ export async function loadFirstCallContext(
           return [];
         })
       : Promise.resolve([]),
+    // Sus competidores conocidos (Agente 1, sólo lectura) y cuáles ya son clientes de UBITS.
+    readKnownCompetitors(admin, account.name, account.domain).catch(() => null),
   ]);
   const classification = originMetadata ? readPriorClassification(originMetadata) : null;
 
@@ -397,6 +420,7 @@ export async function loadFirstCallContext(
     hubspot,
     publicSales,
     supplierRelationship: originMetadata ? readSupplierRelationship(originMetadata) : null,
+    competitors,
     // Cada decisor se agrega al redactar (uno por llamada al redactor).
     decisionMaker: null,
   };

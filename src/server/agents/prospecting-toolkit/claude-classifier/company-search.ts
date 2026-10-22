@@ -37,6 +37,7 @@ import {
 } from './domain-finder';
 import { extractVisibleText } from './page-text';
 import { isUbitsCompetitorDomain } from './ubits-competitors';
+import { notCompetitorsLine } from '@/server/prospect-batches/competitor-search/competitor-not-competitors';
 import { anySearchConfirms } from './site-match';
 import { WEB_SEARCH_TOOL_TYPE } from './prompt';
 import type { ClassifierUsage } from './types';
@@ -58,7 +59,7 @@ export type CompanySearchInput = {
    * «Competidores de una empresa»: con referencia, Claude busca empresas que le
    * compiten (venden algo parecido a clientes parecidos), de cualquier tamaño.
    */
-  competitorOf?: Pick<CompetitorReference, 'name' | 'domain' | 'description'> | null;
+  competitorOf?: Pick<CompetitorReference, 'name' | 'domain' | 'description' | 'notCompetitors'> | null;
   /** Dominios ya vistos en SellUp para este país e industria (y en esta corrida). */
   excludeDomains: readonly string[];
   maxCompanies: number;
@@ -82,10 +83,22 @@ export type CompanySearchRejection =
   /** «Proveedores»: formación corporativa / e-learning — competidor de UBITS, no prospecto. */
   | 'ubits_competitor';
 
+/**
+ * «Competidores»: una empresa que Claude propuso sin sitio web. No se puede
+ * verificar ni escribir, pero antes se perdía sin rastro (auditoría 21-10): queda
+ * en el lote como referencia, con lo que Claude dijo de ella.
+ */
+export type ProposedWithoutWebsite = { name: string; evidence: string | null; sourceUrl: string | null };
+
+/** Cuántas sin sitio se guardan por llamada (sólo nombre y una frase). */
+export const MAX_PROPOSED_WITHOUT_WEBSITE = 10;
+
 export type CompanySearchOutcome = {
   results: WebSearchResult[];
   proposed: number;
   rejected: Partial<Record<CompanySearchRejection, number>>;
+  /** Sólo en «Competidores»: las propuestas sin sitio web. Ausente ⇒ ninguna. */
+  withoutWebsite?: ProposedWithoutWebsite[];
   usage: ClassifierUsage | null;
   errorCode: string | null;
 };
@@ -164,6 +177,7 @@ function competitorLines(input: CompanySearchInput): Array<string | null> {
   return [
     `Empresa de referencia: ${reference.name}${reference.domain ? ` (${reference.domain})` : ''}`,
     reference.description ? `Qué hace la referencia: ${reference.description}` : null,
+    notCompetitorsLine(reference.notCompetitors),
   ];
 }
 
@@ -412,7 +426,11 @@ export async function filterProposedCompanies(
     'excludeDomains' | 'maxCompanies' | 'countryName' | 'countryCode' | 'referenceCompanyName' | 'competitorOf'
   >,
   fetchPage?: DomainFinderDeps['fetchPage'],
-): Promise<{ results: WebSearchResult[]; rejected: Partial<Record<CompanySearchRejection, number>> }> {
+): Promise<{
+  results: WebSearchResult[];
+  rejected: Partial<Record<CompanySearchRejection, number>>;
+  withoutWebsite: ProposedWithoutWebsite[];
+}> {
   const searchResults = extractSearchResultEntries(conversation.content);
   const searchDomains = searchResults.map((r) => r.domain);
   const excluded = new Set(input.excludeDomains.map((d) => normalizeDomain(d)).filter((d): d is string => !!d));
@@ -430,12 +448,23 @@ export async function filterProposedCompanies(
   // ── Fase 1: filtros gratis (sin red) ──────────────────────────────────────
   const seen = new Set<string>();
   const proposals: Proposal[] = [];
+  const withoutWebsite: ProposedWithoutWebsite[] = [];
   for (const company of companies) {
     const name = str(company.name);
     const website = str(company.website_url);
     const domain = website ? normalizeDomain(website) : null;
     if (!name || !website || !domain) {
       reject('invalid_url');
+      // Competidores: el nombre sin sitio queda anotado (no la propia referencia).
+      if (
+        name &&
+        input.competitorOf &&
+        !input.referenceCompanyName &&
+        !(referenceKey && companyNameKey(name) === referenceKey) &&
+        withoutWebsite.length < MAX_PROPOSED_WITHOUT_WEBSITE
+      ) {
+        withoutWebsite.push({ name: name.slice(0, 120), evidence: str(company.evidence)?.slice(0, 240) ?? null, sourceUrl: str(company.source_url) });
+      }
       continue;
     }
     const inSearch = anySearchConfirms(domain, searchDomains);
@@ -548,7 +577,7 @@ export async function filterProposedCompanies(
       },
     });
   }
-  return { results, rejected };
+  return { results, rejected, withoutWebsite };
 }
 
 export async function searchCompaniesWithClaude(
@@ -580,6 +609,13 @@ export async function searchCompaniesWithClaude(
     };
   }
   const companies = readCompanies(conversation.content);
-  const { results, rejected } = await filterProposedCompanies(companies, conversation, input, deps.fetchPage);
-  return { results, proposed: companies.length, rejected, usage: toUsage(conversation.usage, model), errorCode: null };
+  const { results, rejected, withoutWebsite } = await filterProposedCompanies(companies, conversation, input, deps.fetchPage);
+  return {
+    results,
+    proposed: companies.length,
+    rejected,
+    ...(withoutWebsite.length > 0 ? { withoutWebsite } : {}),
+    usage: toUsage(conversation.usage, model),
+    errorCode: null,
+  };
 }

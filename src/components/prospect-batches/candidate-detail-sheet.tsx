@@ -513,6 +513,10 @@ export function CandidateDetailSheet({
                 sourceTitle={sourceTitle}
                 sourceSnippet={sourceSnippet}
                 relationship={relationship}
+                // «Más como esta» / «Sus competidores»: sólo competidoras vivas con sitio web.
+                {...(candidate.domain && ['needs_review', 'approved', 'converted'].includes(candidate.status)
+                  ? { candidateId: candidate.id }
+                  : {})}
               />
             )}
 

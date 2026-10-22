@@ -22,6 +22,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { CandidatesTableClient } from '@/components/prospect-batches/candidates-table-client';
 import { CorporateTreeBatchSections } from '@/components/prospect-batches/corporate-tree/corporate-tree-batch-sections';
 import { CompetitorSmallCompaniesSection } from '@/components/prospect-batches/competitor-search/competitor-small-companies-section';
+import { CompetitorJudgeNotice } from '@/components/prospect-batches/competitor-search/competitor-judge-notice';
+import { CompetitorWithoutWebsiteSection } from '@/components/prospect-batches/competitor-search/competitor-without-website-section';
+import { CompetitorMapSection } from '@/components/prospect-batches/competitor-search/competitor-map-section';
+import { CompetitorFollowButton } from '@/components/prospect-batches/competitor-search/competitor-follow-button';
+import { isFollowingCompetitorReference } from '@/server/prospect-batches/competitor-search/competitor-watch.server';
+import { Suspense } from 'react';
 import { loadCorporateTreeBatchRelationships } from '@/modules/prospect-batches/corporate-tree/corporate-tree-relationships.server';
 import { StalledRunBanner } from '@/components/prospect-batches/stalled-run-banner';
 import { readLatestContinuationJob } from '@/modules/prospect-batches/apollo-continuation-read.server';
@@ -548,7 +554,23 @@ export default async function BatchDetailPage({ params }: Props) {
       <CorporateTreeBatchSections batchMetadata={batch.metadata} candidates={candidates} relationships={corporateTreeRelationships} />
 
       {/* «Competidores de una empresa» — las de menos de 200 empleados: se ven, no van a HubSpot. */}
+      {competitorReference && <CompetitorJudgeNotice batchMetadata={batch.metadata} />}
+      {/* El mapa de la referencia (todos sus países) y quién ya es cliente de UBITS; no frena la página. */}
+      {competitorReference && (
+        <div className="flex justify-end">
+          <CompetitorFollowButton
+            batchId={batch.id}
+            initialFollowing={await isFollowingCompetitorReference(viewer.internalUserId, competitorReference)}
+          />
+        </div>
+      )}
+      {competitorReference && (
+        <Suspense fallback={null}>
+          <CompetitorMapSection reference={competitorReference} />
+        </Suspense>
+      )}
       <CompetitorSmallCompaniesSection batchMetadata={batch.metadata} candidates={candidates} />
+      <CompetitorWithoutWebsiteSection batchMetadata={batch.metadata} />
 
       {/* Candidates table */}
       <SurfaceCard noPadding>

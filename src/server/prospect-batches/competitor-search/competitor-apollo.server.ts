@@ -206,7 +206,7 @@ export function toCompetitorApolloPage(result: ApolloOrganizationsPageResponse):
   };
 }
 
-async function apolloCreditUnitCost(): Promise<number | null> {
+export async function apolloCreditUnitCost(): Promise<number | null> {
   const { data } = await createSupabaseAdminClient()
     .from('provider_pricing_config')
     .select('unit_cost_usd')
@@ -359,6 +359,8 @@ export async function runCompetitorApolloLive(input: CompetitorApolloRequest): P
         search_mode: 'competitors',
         metadata: {
           flow,
+          // El botón «Más como esta» (a demanda) frente al último recurso de la corrida.
+          trigger: input.seedDomains ? 'more_like_this' : 'last_resort',
           country_code: input.countryCode,
           ...(page.billingUnknown ? { billing_state: 'unknown' } : {}),
           non_empty_pages_charged: credits ?? null,
