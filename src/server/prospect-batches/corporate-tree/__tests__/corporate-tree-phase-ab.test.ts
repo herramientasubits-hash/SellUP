@@ -849,3 +849,44 @@ describe('D3. Cencosud (Prod 21-10): la repetición también ve al grupo y «Bus
     assert.equal(treeOf(normal.calls).refresh_requested, undefined);
   });
 });
+
+describe('D4. Cencosud (Prod 22-10): las del grupo sin ficha la buscan en HubSpot por su web', () => {
+  it('Barcel no quedó ligada (ya tomada) ⇒ se busca por barcel.com.mx, y el aviso del grupo sale', async () => {
+    const lookups: string[] = [];
+    const { deps, calls } = fakeDeps({
+      findHubSpotIdsByDomain: async (domain) => {
+        lookups.push(domain);
+        return domain === 'barcel.com.mx' ? ['4458259587'] : [];
+      },
+      readGroupHubSpotStatus: async (ids) => new Map(ids.map((id) => [id, 'active_owner' as const])),
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.ok(lookups.includes('barcel.com.mx'));
+    assert.deepEqual(result.groupSignal?.worked, [{ name: 'Barcel', countryCode: 'MX' }]);
+    const saved = readSavedTree({ batchId: 'b', createdAt: new Date(NOW).toISOString(), metadata: { corporate_tree: treeOf(calls) } });
+    assert.deepEqual(saved?.hubspotMembers.map((m) => m.hubspotCompanyId), ['4458259587']);
+  });
+
+  it('varias fichas para la misma web, o HubSpot caído ⇒ no se liga nada', async () => {
+    const many = fakeDeps({
+      findHubSpotIdsByDomain: async () => ['1', '2'],
+      readGroupHubSpotStatus: async () => new Map([['1', 'customer' as const]]),
+    });
+    const r1 = await runCorporateTreeSearch(REQUEST, CONTEXT, many.deps);
+    assert.ok(r1.ok);
+    assert.equal(r1.groupSignal ?? null, null);
+    const down = fakeDeps({
+      findHubSpotIdsByDomain: async () => {
+        throw new Error('hubspot down');
+      },
+    });
+    const r2 = await runCorporateTreeSearch(REQUEST, CONTEXT, down.deps);
+    assert.ok(r2.ok);
+  });
+
+  it('«Buscar de nuevo» abre la búsqueda en el agente (con su cargador)', () => {
+    const source = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-flow.tsx'), 'utf8');
+    assert.match(source, /if \(refresh && store\) openAgentRun\(id, \(href\) => router\.push\(href\)\);/);
+  });
+});

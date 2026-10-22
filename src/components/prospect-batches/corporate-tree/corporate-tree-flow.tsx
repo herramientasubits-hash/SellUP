@@ -25,6 +25,7 @@ import {
   getAgentRunsStore,
 } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { waitForTreeRunResult } from '@/modules/prospect-batches/corporate-tree/corporate-tree-run-recovery';
+import { openAgentRun } from '@/components/prospect-batches/agent-runs-tray/agent-run-opener';
 import {
   corporateTreePendingSummary,
   type CorporateTreePending,
@@ -199,7 +200,11 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     setStep('branches');
   }
 
-  /** `refresh`: no reutilizar el árbol guardado del grupo (el botón «Buscar de nuevo» del aviso). */
+  /**
+   * `refresh`: no reutilizar el árbol guardado del grupo (el botón «Buscar de nuevo» del aviso).
+   * Ese botón se pulsa con el panel ya cerrado: la búsqueda se abre en el agente con su cargador,
+   * como cualquier búsqueda (dueña 22-10: antes corría sin que se viera).
+   */
   async function launch(refresh = false) {
     if (!root) return;
     const id = newClientRequestId();
@@ -220,9 +225,11 @@ export function CorporateTreeFlow({ initialRoot = null, onBack, onOpenBatch, onC
     };
     const store = getAgentRunsStore();
     try {
-      const result = store
-        ? await store.startRun({ title: `Árbol · ${root.name}`, concurrencyKey: `tree:${root.name.toLowerCase()}`, payload })
-        : await executeAgentRunViaRoute(payload);
+      const started = store
+        ? store.startRun({ title: `Árbol · ${root.name}`, concurrencyKey: `tree:${root.name.toLowerCase()}`, payload })
+        : executeAgentRunViaRoute(payload);
+      if (refresh && store) openAgentRun(id, (href) => router.push(href));
+      const result = await started;
       if (result.ok) {
         finish({
           redirectPath: result.redirectPath,

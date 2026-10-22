@@ -146,6 +146,8 @@ export type PublicBuyerStepOutcome =
       ubitsCompetitorsExcluded?: number;
       /** AGENT1-SUPPLIER-WEB-BY-NAME-1 — ofrecidas cuya web salió por nombre (no por número fiscal). */
       websitesByName?: number;
+      /** AGENT1-SUPPLIER-FREQUENT-POLISH-1 — sin web y ya en el CRM: no se pagó su rescate. */
+      knownInCrmSkipped?: number;
       /** AGENT1-SUPPLIER-RELOAD-1 — hasta cuándo llegan los datos cargados, y si ya están viejos. */
       dataWindowEnd?: string;
       dataStale?: boolean;
@@ -195,6 +197,13 @@ export type PublicBuyerStepDeps = {
    * que el número fiscal no la dio (ver `website-by-name.ts`). Ausente = sólo por número.
    */
   findDomainsByName?: (companies: ReadonlyArray<{ taxId: string; name: string }>) => Promise<ReadonlyMap<string, string>>;
+  /**
+   * AGENT1-SUPPLIER-FREQUENT-POLISH-1 — de las que siguen SIN web, cuáles ya están en el CRM
+   * (HubSpot por número fiscal o por el mismo nombre). Esas no pasan al rescate: Prod 22-10,
+   * Mainbit y Microsoft se pagaron la búsqueda de web y salieron «duplicadas». Ausente o con
+   * error ⇒ todas van al rescate como antes.
+   */
+  findKnownInCrm?: (companies: ReadonlyArray<{ taxId: string; name: string }>) => Promise<ReadonlySet<string>>;
   writeWithWebsite: (companies: readonly CountrySourceCompany[]) => Promise<{ written: number; failed: boolean }>;
   recordWithoutWebsite: (companies: readonly CountrySourceCompany[]) => Promise<number>;
 };
@@ -386,6 +395,7 @@ async function offerPublicSuppliers(
     | 'listPublicOnlyTaxIds'
     | 'findDomainsByTaxId'
     | 'findDomainsByName'
+    | 'findKnownInCrm'
     | 'writeWithWebsite'
     | 'recordWithoutWebsite'
   >,
@@ -431,7 +441,19 @@ async function offerPublicSuppliers(
     taxIdentifierType: deps.taxIdentifierType ?? ('NIT' as const),
   };
   const withWebsite = offered.filter((s) => domains.has(s.taxId)).map((s) => toCompany(s, companyInput, domains.get(s.taxId) ?? null));
-  const withoutWebsite = offered.filter((s) => !domains.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
+  const missingWeb = offered.filter((s) => !domains.has(s.taxId));
+  // AGENT1-SUPPLIER-FREQUENT-POLISH-1 — las que ya son del CRM no se rescatan (el rescate cuesta).
+  const knownInCrm =
+    missingWeb.length > 0 && deps.findKnownInCrm
+      ? await deps.findKnownInCrm(missingWeb.map((s) => ({ taxId: s.taxId, name: s.name }))).catch((err: unknown) => {
+          console.error(
+            `[supplier-public-buyer:${input.countryCode}] CRM antes del rescate (lote ${input.batchId}):`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return new Set<string>();
+        })
+      : new Set<string>();
+  const withoutWebsite = missingWeb.filter((s) => !knownInCrm.has(s.taxId)).map((s) => toCompany(s, companyInput, null));
 
   const write = withWebsite.length > 0 ? await deps.writeWithWebsite(withWebsite) : { written: 0, failed: false };
   // AGENT1-SUPPLIER-AUDIT-NOW-1 — un fallo aquí queda registrado y marcado en el paso
@@ -465,6 +487,7 @@ async function offerPublicSuppliers(
     knownSmallExcluded: knownSmall.length,
     ubitsCompetitorsExcluded,
     websitesByName: offered.filter((s) => byName.has(s.taxId) && !byTaxId.has(s.taxId)).length,
+    knownInCrmSkipped: missingWeb.filter((s) => knownInCrm.has(s.taxId)).length,
     offered: offered.length,
     written: write.written,
     writeFailed: write.failed,
@@ -569,6 +592,7 @@ export type FrequentPublicStepDeps = Pick<
   | 'listPublicOnlyTaxIds'
   | 'findDomainsByTaxId'
   | 'findDomainsByName'
+  | 'findKnownInCrm'
   | 'writeWithWebsite'
   | 'recordWithoutWebsite'
 > & {
@@ -576,14 +600,29 @@ export type FrequentPublicStepDeps = Pick<
   listFrequentSuppliers: (input: { macroIndustryKey: string; minBuyers: number }) => Promise<PublicBuyerSuppliersResult>;
 };
 
-/** «IMSS, ISSSTE y 5 más» — a quién le vende (para «Proveedor de …»). */
+/** Largo máximo de cada entidad dentro de «Proveedor de …». */
+const BUYER_NAME_MAX_CHARS = 32;
+
+/** Corta en una palabra completa y agrega «…» si no cabe. */
+function shortEntityName(raw: string): string {
+  // Tal como viene de la fuente: pasar a tipo título rompía siglas («IMSS» → «Imss»).
+  const name = raw.replace(/\s+/g, ' ').trim();
+  if (name.length <= BUYER_NAME_MAX_CHARS) return name;
+  const cut = name.slice(0, BUYER_NAME_MAX_CHARS);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 12 ? cut.lastIndexOf(' ') : BUYER_NAME_MAX_CHARS).replace(/[\s,.;:]+$/, '')}…`;
+}
+
+/**
+ * A quién le vende, para «Proveedor de …»: el número y las DOS de más monto, cortas
+ * (Prod 22-10, dueña: tres nombres completos y «y 26 más» no se leían).
+ * «29 entidades públicas (Banco Nacional del Ejército…, Centro de Investigación y…)».
+ */
 export function describeFrequentBuyers(supplier: PublicBuyerSupplier, countryName: string): string {
-  const names = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  const count = supplier.buyerCount ?? names.length;
+  const names = (supplier.topBuyerNames ?? []).map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 2);
+  const count = Math.max(supplier.buyerCount ?? 0, names.length);
   if (names.length === 0) return `${count} entidades públicas de ${countryName}`;
-  const more = count - names.length;
-  if (more <= 0) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
-  return `${names.join(', ')} y ${more} más`;
+  if (count === 1) return shortEntityName(names[0]);
+  return `${count} entidades públicas (${names.map(shortEntityName).join(', ')})`;
 }
 
 /** La frase que el vendedor ve en «Por qué fue encontrado». */
