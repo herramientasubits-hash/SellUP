@@ -26,6 +26,7 @@
 import type { ClaudeSearchLegOutcome } from './wizard-claude-search-leg';
 import { claudeLegWriterTruth, CLAUDE_SEARCH_LEG_TAIL_MS, WIZARD_FUNCTION_LIMIT_MS } from './wizard-claude-search-leg';
 import type { WizardExecutionActionResult } from './wizard-execution-types';
+import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
 import {
   buildCompetitorNoNewBreakdown,
   combineCompetitorRounds,
@@ -276,7 +277,9 @@ export function publicLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | 
  * ronda que corrió sin novedades: `no_new_candidates` con su desglose.
  */
 export function publicNothingNewLegOf(step: PublicBuyerStepOutcome | null): ExecutedLeg | null {
-  if (!step?.executed || step.offered <= 0 || publicLegOf(step) !== null) return null;
+  // AGENT1-SUPPLIER-SKIP-KNOWN-1 — también si todas las que encontró ya las vio SellUp.
+  const seen = step?.executed ? step.offered + (step.alreadyInSellUpSkipped ?? 0) : 0;
+  if (!step?.executed || seen <= 0 || publicLegOf(step) !== null) return null;
   // AGENT1-SUPPLIER-AUDIT-NOW-1 — una escritura que falló no es «ya eran de alguien».
   if (step.writeFailed || step.recordWithoutWebsiteFailed) return null;
   return {
@@ -285,19 +288,42 @@ export function publicNothingNewLegOf(step: PublicBuyerStepOutcome | null): Exec
     completeValidCandidates: 0,
     acceptedIdentities: [],
     estimatedCostUsd: 0,
-    proposed: step.offered,
+    proposed: seen,
     passedPreFilter: 0,
   };
 }
 
 /** AGENT1-AUDIT-WS2 § A — el desglose de «sin novedades» de compras públicas. */
 export function buildPublicStepNoNewBreakdown(step: Extract<PublicBuyerStepOutcome, { executed: true }>) {
-  return buildCompetitorNoNewBreakdown({
-    reviewable: 0,
-    hubspotDuplicates: 0,
-    // Lo ofrecido que no se escribió ni quedó sin web: ya estaba reclamado en SellUp.
-    sellupDuplicates: Math.max(0, step.offered - step.written - step.recordedWithoutWebsite),
-  });
+  return withPublicAlreadyInSellUp(
+    buildCompetitorNoNewBreakdown({
+      reviewable: 0,
+      hubspotDuplicates: 0,
+      // Lo ofrecido que no se escribió ni quedó sin web: ya estaba reclamado en SellUp.
+      sellupDuplicates: Math.max(0, step.offered - step.written - step.recordedWithoutWebsite),
+    }),
+    step,
+  );
+}
+
+/**
+ * AGENT1-SUPPLIER-SKIP-KNOWN-1 — las que compras públicas encontró pero SellUp ya había
+ * visto (se saltaron antes de elegir) cuentan como «ya existían en SellUp», con sus nombres.
+ * Prod 22-10: el resumen decía «Empresas únicas encontradas 0» con 12 encontradas.
+ */
+export function withPublicAlreadyInSellUp(
+  breakdown: NoNewCandidatesBreakdown,
+  step: PublicBuyerStepOutcome | null,
+): NoNewCandidatesBreakdown {
+  const skipped = step?.executed ? (step.alreadyInSellUpSkipped ?? 0) : 0;
+  if (!step?.executed || skipped <= 0) return breakdown;
+  return {
+    ...breakdown,
+    sellupDuplicateCount: breakdown.sellupDuplicateCount + skipped,
+    uniqueResultsCount: (breakdown.uniqueResultsCount ?? 0) + skipped,
+    alreadyKnownNames: step.alreadyInSellUpNames ?? [],
+    alreadyKnownCount: skipped,
+  };
 }
 
 /** El bloque del lote: qué hizo el paso, sin las frases de prueba (van en cada candidato). */
@@ -668,7 +694,7 @@ export async function executeSupplierSearchRun(
     ok: true,
     status: nothingNew ? 'no_new_candidates' : acceptedForTarget.targetReached ? 'success_target_reached' : 'success_partial',
     ...(batchOutcome && reviewable === 0
-      ? { noNewCandidatesBreakdown: buildCompetitorNoNewBreakdown(batchOutcome) }
+      ? { noNewCandidatesBreakdown: withPublicAlreadyInSellUp(buildCompetitorNoNewBreakdown(batchOutcome), publicStep) }
       : nothingNew && publicNothingNewLeg !== null && publicStep?.executed
         ? { noNewCandidatesBreakdown: buildPublicStepNoNewBreakdown(publicStep) }
         : {}),

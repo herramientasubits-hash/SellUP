@@ -32,6 +32,7 @@ import {
 } from '@/modules/prospect-batches/chat-wizard-execution/run-progress';
 import {
   buildNoNewCandidatesCompactBreakdown,
+  describeAlreadyKnownNames,
   toNoNewCandidatesBreakdownRows,
   type NoNewCandidatesBreakdown,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
@@ -445,6 +446,8 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
               candidatesCreatedCount: candidateCount ?? 0,
             }),
           ).map((row) => ({ key: row.key, label: row.label, value: String(row.count), hint: row.hint }));
+    // AGENT1-SUPPLIER-SKIP-KNOWN-1 — «Proveedores»: CUÁLES ya estaban, no sólo cuántas.
+    const knownNamesLine = describeAlreadyKnownNames(noNewCandidatesBreakdown);
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
@@ -464,6 +467,11 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
             valueTestIdSuffix="count"
             card={{ kind: 'rows', title: 'Qué pasó con lo encontrado', rows: breakdownRows }}
           />
+        )}
+        {knownNamesLine && (
+          <p className="break-words text-xs text-muted-foreground" data-testid="wizard-no-new-candidates-known-names">
+            {knownNamesLine}
+          </p>
         )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={onEditSearch}>
