@@ -76,3 +76,24 @@ describe('CompetitorSmallCompaniesSection — «Competidoras pequeñas»', () =>
     assert.equal(renderToStaticMarkup(<CompetitorSmallCompaniesSection batchMetadata={{}} candidates={[small]} />), '');
   });
 });
+
+describe('Avisos del lote de competidores (Fase C/D)', () => {
+  it('«Sin sitio web» se ve con sus propuestas; sin ellas no pinta', async () => {
+    const { CompetitorWithoutWebsiteSection } = await import('../competitor-search/competitor-without-website-section');
+    const html = renderToStaticMarkup(
+      <CompetitorWithoutWebsiteSection batchMetadata={{ competitor_without_website: [{ name: 'LabVet Norte', evidence: 'Vacunas', sourceUrl: null }] }} />,
+    );
+    assert.match(html, /Sin sitio web/);
+    assert.match(html, /\(1\)/);
+    assert.equal(renderToStaticMarkup(<CompetitorWithoutWebsiteSection batchMetadata={{}} />), '');
+  });
+
+  it('el aviso del juez aparece sólo si no revisó todo', async () => {
+    const { CompetitorJudgeNotice } = await import('../competitor-search/competitor-judge-notice');
+    const html = renderToStaticMarkup(
+      <CompetitorJudgeNotice batchMetadata={{ competitor_free_sources: { competitor_judge_by_source: { free_layer: { unanswered: 1 } } } }} />,
+    );
+    assert.match(html, /Claude no pudo revisar parte de las fuentes gratuitas/);
+    assert.equal(renderToStaticMarkup(<CompetitorJudgeNotice batchMetadata={{}} />), '');
+  });
+});

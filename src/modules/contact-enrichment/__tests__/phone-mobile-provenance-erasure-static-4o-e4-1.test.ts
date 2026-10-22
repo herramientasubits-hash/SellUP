@@ -586,8 +586,10 @@ describe('4O-E4.1 estático — alcance', () => {
       // identidad (`agent1_company_identity_claims`) y libera los reclamos de un lote archivado.
       // Ninguna es de teléfono, ni del catálogo, ni de BR, ni de CUT3B4; no ASIGNAN `mobile_phone`
       // ni introducen procedencia del escalar móvil. AUTORADAS y NO APLICADAS.
-      155,
-      'la 155 (la importación de teléfonos ya guardados en Apollo, APOLLO-SAVED-CONTACT-PHONES-1; nunca escribe `mobile_phone`) es la última',
+      // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // una tabla nueva `agent1_competitor_watches` (sólo service_role); no ASIGNA `mobile_phone`.
+      156,
+      'la 156 (las referencias seguidas de Competidores, AGENT1-COMPETITOR-WATCH-1; nunca escribe `mobile_phone`) es la última',
     );
   });
 

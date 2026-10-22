@@ -14,7 +14,11 @@ import { buildSupplierBatchName } from '@/modules/prospect-batches/chat-wizard-e
 import { buildCompetitorBatchName } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 import type { ActiveAnthropicModel } from './classify-batch-candidates';
-import type { CompanySearchOutcome } from './company-search';
+import {
+  MAX_PROPOSED_WITHOUT_WEBSITE,
+  type CompanySearchOutcome,
+  type ProposedWithoutWebsite,
+} from './company-search';
 import { CLAUDE_CLASSIFIER_CONTRACT_VERSION, CLAUDE_CLASSIFIER_PROVIDER_KEY } from './types';
 
 export const CLAUDE_COMPANY_SEARCH_OPERATION_KEY = 'company_search';
@@ -83,6 +87,11 @@ export type ClaudeCompanySearchDeps = {
    * ya hacen lo gratuito y Apollo. Ausente o fallo ⇒ sólo la referencia misma.
    */
   loadCompetitorGroupDomains?: (reference: CompetitorReference) => Promise<readonly string[]>;
+  /**
+   * «Competidores»: lo que un vendedor ya descartó como «no es competidor» de esta
+   * referencia (contraejemplos para Claude). Ausente o fallo ⇒ sin contraejemplos.
+   */
+  loadCompetitorNotCompetitors?: (reference: CompetitorReference) => Promise<readonly string[]>;
   /** Corre la cadena de siempre con el proveedor `claude`; devuelve las llamadas hechas. */
   runSearch: (params: {
     source: SourceBatch;
@@ -129,6 +138,8 @@ export type ClaudeCompanySearchSummary =
       passedPreFilter: number;
       rejected: Record<string, number>;
       estimatedCostUsd: number;
+      /** «Competidores»: propuestas sin sitio web. Ausente ⇒ ninguna. */
+      withoutWebsite?: ProposedWithoutWebsite[];
     }
   | {
       ok: false;
@@ -321,8 +332,9 @@ export async function runClaudeCompanySearch(
   deps: ClaudeCompanySearchDeps,
 ): Promise<ClaudeCompanySearchSummary> {
   const intoBatchId = params.writeIntoSourceBatch ? params.sourceBatchId : null;
-  const source = await deps.loadSourceBatch(params.sourceBatchId);
-  if (!source) return { ok: false, error: 'source_batch_not_found' };
+  const loaded = await deps.loadSourceBatch(params.sourceBatchId);
+  if (!loaded) return { ok: false, error: 'source_batch_not_found' };
+  let source: SourceBatch = loaded;
   const active = await deps.resolveActiveModel();
   if ('error' in active) return { ok: false, error: 'model_not_configured', detail: active.error };
   if (!(await deps.checkQuota()).allowed) return { ok: false, error: 'quota_exhausted' };
@@ -337,6 +349,13 @@ export async function runClaudeCompanySearch(
   // La empresa de referencia nunca es su propia competidora.
   const referenceDomain = source.competitorReference?.domain ?? null;
   if (referenceDomain && !excludeDomains.includes(referenceDomain)) excludeDomains = [referenceDomain, ...excludeDomains];
+  // Los «no es competidor» de antes viajan con la referencia hasta el prompt.
+  if (source.competitorReference && deps.loadCompetitorNotCompetitors) {
+    const notCompetitors = await deps.loadCompetitorNotCompetitors(source.competitorReference).catch(() => []);
+    if (notCompetitors.length > 0) {
+      source = { ...source, competitorReference: { ...source.competitorReference, notCompetitors } };
+    }
+  }
   // Ni su grupo: la regla de lo gratuito y Apollo, también aquí (auditoría 21-10).
   let groupDomainsExcluded = 0;
   if (source.competitorReference && deps.loadCompetitorGroupDomains) {
@@ -390,6 +409,8 @@ export async function runClaudeCompanySearch(
   const proposed = search.calls.reduce((acc, c) => acc + c.proposed, 0);
   const passedPreFilter = search.calls.reduce((acc, c) => acc + c.results.length, 0);
   const rejected = search.calls.reduce<Record<string, number>>((acc, c) => addCounts(acc, c.rejected), {});
+  // «Competidores»: las propuestas sin sitio web de todas las llamadas, sin repetir.
+  const withoutWebsite = dedupeWithoutWebsite(search.calls.flatMap((c) => c.withoutWebsite ?? []));
   const estimatedCostUsd =
     Math.round(search.calls.reduce((acc, c) => acc + (c.usage?.estimatedCostUsd ?? 0), 0) * 1_000_000) / 1_000_000;
 
@@ -433,6 +454,7 @@ export async function runClaudeCompanySearch(
               proposed,
               passed_pre_filter: passedPreFilter,
               rejected,
+              ...(withoutWebsite.length > 0 ? { without_website: withoutWebsite } : {}),
               estimated_cost_usd: estimatedCostUsd,
               searched_at: at,
             },
@@ -453,5 +475,20 @@ export async function runClaudeCompanySearch(
     passedPreFilter,
     rejected,
     estimatedCostUsd,
+    ...(withoutWebsite.length > 0 ? { withoutWebsite } : {}),
   };
+}
+
+/** Sin repetir (por nombre normalizado), con el mismo tope que una llamada. */
+export function dedupeWithoutWebsite(items: readonly ProposedWithoutWebsite[]): ProposedWithoutWebsite[] {
+  const seen = new Set<string>();
+  const out: ProposedWithoutWebsite[] = [];
+  for (const item of items) {
+    const key = item.name.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= MAX_PROPOSED_WITHOUT_WEBSITE) break;
+  }
+  return out;
 }

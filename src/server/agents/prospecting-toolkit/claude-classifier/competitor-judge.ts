@@ -12,6 +12,7 @@
  */
 
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
+import { notCompetitorsLine } from '@/server/prospect-batches/competitor-search/competitor-not-competitors';
 import {
   AnthropicApiError,
   EMPTY_USAGE,
@@ -44,7 +45,7 @@ export type CompetitorJudgeItem = {
 export type CompetitorJudgeListSource = 'free_layer' | 'company_bank' | 'apollo' | 'hubspot_free_pool';
 
 export type CompetitorJudgeInput = {
-  reference: Pick<CompetitorReference, 'name' | 'domain' | 'description' | 'keywords'>;
+  reference: Pick<CompetitorReference, 'name' | 'domain' | 'description' | 'keywords' | 'notCompetitors'>;
   countryName: string;
   industryName: string;
   items: readonly CompetitorJudgeItem[];
@@ -62,6 +63,13 @@ export type CompetitorJudgeOutcome = {
    * lista puede venir recortada al tope de lotes).
    */
   judged: number;
+  /**
+   * Filas que NO se miraron por el tope de lotes (`MAX_ITEMS × MAX_CHUNKS`). Antes
+   * se perdían sin contarse (auditoría 21-10). Ausente en resultados viejos ⇒ 0.
+   */
+  dropped?: number;
+  /** Lotes que no respondieron (o vinieron cortados) aunque otros sí. */
+  failedChunks?: number;
   usage: ClassifierUsage | null;
   errorCode: string | null;
 };
@@ -217,6 +225,7 @@ export function buildCompetitorJudgeRequestBody(input: CompetitorJudgeInput, mod
             ? `Lo que vende la referencia (palabras clave): ${reference.keywords.map((k) => clip(k, 40)).filter(Boolean).join(', ')}`
             : null,
           commercialListNote(input.listSource),
+          notCompetitorsLine(reference.notCompetitors),
           `País: ${input.countryName}`,
           `Industria: ${input.industryName}`,
           '',
@@ -357,7 +366,8 @@ export async function judgeCompetitors(
 ): Promise<CompetitorJudgeOutcome> {
   const limit = COMPETITOR_JUDGE_MAX_ITEMS * COMPETITOR_JUDGE_MAX_CHUNKS;
   const items = input.items.slice(0, limit);
-  if (items.length === 0) return { competitors: [], judged: 0, usage: null, errorCode: null };
+  const dropped = input.items.length - items.length;
+  if (items.length === 0) return { competitors: [], judged: 0, dropped, failedChunks: 0, usage: null, errorCode: null };
   const chunks: CompetitorJudgeItem[][] = [];
   for (let i = 0; i < items.length; i += COMPETITOR_JUDGE_MAX_ITEMS) {
     chunks.push(items.slice(i, i + COMPETITOR_JUDGE_MAX_ITEMS));
@@ -370,6 +380,8 @@ export async function judgeCompetitors(
     return {
       competitors: [],
       judged: 0,
+      dropped,
+      failedChunks: outcomes.length,
       usage,
       errorCode: outcomes[0]?.errorCode ?? 'unexpected_error',
     };
@@ -381,6 +393,8 @@ export async function judgeCompetitors(
   return {
     competitors,
     judged: answered.reduce((sum, o) => sum + o.judged, 0),
+    dropped,
+    failedChunks: outcomes.length - answered.length,
     usage,
     errorCode: null,
   };

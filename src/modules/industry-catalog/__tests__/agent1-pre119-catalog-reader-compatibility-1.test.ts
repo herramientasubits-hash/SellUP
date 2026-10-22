@@ -1079,7 +1079,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
     // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
     // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-    assert.match(last, /^155_/);
+    // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+    // una tabla nueva `agent1_competitor_watches` (sólo service_role); no es del catálogo de
+    // industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^156_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1274,6 +1277,10 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
       '155_import_apollo_saved_contact_phones.sql',
+      // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // una tabla nueva `agent1_competitor_watches` (sólo service_role). Sin catálogo de
+      // industrias. AUTORADA y NO APLICADA.
+      '156_agent1_competitor_watches.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

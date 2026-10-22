@@ -78,6 +78,24 @@ export interface InternalContext {
   publicSales?: PublicSalesSummary | null;
   /** AGENT3-PUBLIC-SALES-1 — el «Proveedor de X» de la candidata de la que salió la cuenta. */
   supplierRelationship?: SupplierRelationshipEvidence | null;
+  /**
+   * Competidores conocidos de la cuenta (búsquedas «Competidores» del Agente 1) y
+   * cuáles ya son clientes de UBITS: un argumento de pares para el primer contacto
+   * (auditoría 21-10, Fase C; sólo lectura). Ausente o null ⇒ no se buscaron.
+   */
+  competitors?: { names: string[]; ubitsCustomers: string[] } | null;
+}
+
+/** Cuántos competidores se nombran en el hecho (los clientes de UBITS primero). */
+export const COMPETITORS_FACT_MAX_NAMES = 8;
+
+export function competitorsStatement(competitors: { names: string[]; ubitsCustomers: string[] }): string | null {
+  const names = competitors.names.slice(0, COMPETITORS_FACT_MAX_NAMES);
+  if (names.length === 0) return null;
+  const customers = competitors.ubitsCustomers.slice(0, COMPETITORS_FACT_MAX_NAMES);
+  const base = `Competidores conocidos: ${names.join(', ')}.`;
+  if (customers.length === 0) return base;
+  return `${base} Ya trabajan con UBITS: ${customers.join(', ')}.`;
 }
 
 const TALENT_LIST = /(merco talento|great place|gptw|mejores empleadores|best places|best workplaces|empleador)/i;
@@ -215,6 +233,9 @@ export function buildInternalFacts(context: InternalContext): Draft[] {
 
   const relations = relationsStatement(context.relations);
   if (relations) facts.push(sellupFact('size_presence', relations, 'Árbol de empresas del Agente 1'));
+
+  const competitors = context.competitors ? competitorsStatement(context.competitors) : null;
+  if (competitors) facts.push(sellupFact('business', competitors, 'Competidores del Agente 1'));
 
   // AGENT3-PUBLIC-SALES-1 — a quién le vende: un motivo concreto con el contrato como prueba.
   // Con las compras públicas de su número fiscal basta; si no, la relación que dejó la

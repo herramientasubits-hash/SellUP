@@ -430,7 +430,9 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // APOLLO-SAVED-CONTACT-PHONES-1 mueve el techo a la 155 (la 154 es de compras públicas, PR #774):
       // dos funciones NUEVAS que importan a la cadena de teléfono los números que Apollo ya tiene
       // guardados (sin tabla, columna ni vocabulario nuevos). AUTORADA y NO APLICADA.
-      '155_import_apollo_saved_contact_phones.sql',
+      // AGENT1-COMPETITOR-WATCH-1 mueve el techo a la 156 (tabla de referencias seguidas de Competidores; sin teléfonos, contactos, presupuesto ni HubSpot):
+      // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
+      '156_agent1_competitor_watches.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida, la 144 de varias ejecuciones activas por usuario en la reserva del piloto, la 145 de la asignación de prospectos a otra persona, la 146 de la ampliación de tipos fiscales con RIF, la 147 de las dimensiones de las consultas a proveedores, la 148 de las asociaciones entre empresas de la búsqueda en árbol, la 149 de la forma de búsqueda del uso de IA desde la metadata del lote, la 150 de quién le vende a cada entidad pública, la 151 del endurecimiento de claim_enrichment_jobs y la 152 del cruce NIT/dominio/LinkedIn de los reclamos de identidad, no este hito',
     );
     for (const agent2 of [
@@ -517,14 +519,16 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // 152 (cruce NIT/dominio/LinkedIn de los reclamos de identidad). Quedan AUTORIZADAS y
       // NOMBRADAS como las anteriores, así que la ventana prohibida sube a la 153 y superiores.
       // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 declara la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
-      numbered.some((f) => /^15[6-9]/.test(f) || /^1[6-9]\d/.test(f)),
+      // AGENT1-COMPETITOR-WATCH-1 declara la 156 (referencias seguidas de Competidores), así que la
+      // ventana prohibida sube a la 157 y superiores.
+      numbered.some((f) => /^15[7-9]/.test(f) || /^1[6-9]\d/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
       // AGENT3-FIRST-CALL-1 declara la 153 (fichas y paquetes de primera llamada del Agente 3).
-      'ninguna migración 156 o superior',
+      'ninguna migración 157 o superior',
     );
   });
 

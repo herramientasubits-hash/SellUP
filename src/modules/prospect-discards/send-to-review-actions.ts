@@ -12,8 +12,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { resolveCommercialScope } from '@/modules/access/commercial-scope';
-import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { isBatchInScope } from './batch-in-scope.server';
 import {
   requireActiveUser,
   logProspectCandidateAudit,
@@ -43,27 +42,6 @@ export type SendToReviewActionResult =
         | 'unexpected_error';
       message?: string;
     };
-
-/** Server-side scope guard shared by both branches. Never trusts the client. */
-async function isBatchInScope(batchId: string): Promise<boolean> {
-  if (!isCommercialScopeEnabled()) return true;
-  const scope = await resolveCommercialScope();
-  if (!scope) return false;
-  if (scope.canViewAll) return true;
-
-  const supabase = await createClient();
-  const { data: batch } = await supabase
-    .from('prospect_batches')
-    .select('owner_id, created_by')
-    .eq('id', batchId)
-    .maybeSingle();
-  if (!batch) return false;
-
-  const allowed = new Set(scope.allowedUserIds);
-  const ownerInScope = batch.owner_id != null && allowed.has(batch.owner_id as string);
-  const creatorInScope = batch.created_by != null && allowed.has(batch.created_by as string);
-  return ownerInScope || creatorInScope;
-}
 
 async function toActionResult(
   outcome: SendToReviewCoreOutcome,

@@ -9,9 +9,11 @@ import { registerAgentRunOpener, takeAgentRunFromUrl } from '@/components/prospe
 import { AgentRunDrawerView } from '@/components/prospect-batches/chat-wizard/agent-run-drawer-view';
 import { AgentRunsPanel } from '@/components/prospect-batches/agent-runs-tray/agent-runs-panel';
 import {
+  AGENT_CHAT_OPEN_COMPETITORS_EVENT,
   AGENT_CHAT_OPEN_RUNS_EVENT,
   AGENT_CHAT_RUNS_VIEW,
   AGENT_CHAT_VIEW_PARAM,
+  type AgentChatOpenCompetitorsDetail,
   type AgentChatOpenRunsDetail,
 } from '@/modules/prospect-batches/agent-runs/agent-chat-events';
 import { Tabs, TabsBadge, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -346,6 +348,8 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
   // tocar la corrida en vuelo (vive en el almacén del shell); `wizardRunId` es la
   // que ESTE chat tiene en vuelo; `viewRunId`, la que se abrió desde el centro.
   const [wizardKey, setWizardKey] = React.useState(0);
+  // «Buscar competidores» desde una cuenta: la conversación nueva arranca con ella.
+  const [competitorPrefillAccountId, setCompetitorPrefillAccountId] = React.useState<string | null>(null);
   const [wizardRunId, setWizardRunId] = React.useState<string | null>(null);
   const [viewRunId, setViewRunId] = React.useState<string | null>(null);
   // La búsqueda que quedó en segundo plano al pulsar «+»: se avisa arriba del chat nuevo.
@@ -405,6 +409,22 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
     };
     window.addEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
     return () => window.removeEventListener(AGENT_CHAT_OPEN_RUNS_EVENT, onOpenRuns);
+  }, [isChatWizard, requestOpen]);
+
+  // «Buscar competidores» desde Cuentas: conversación nueva con la cuenta como referencia.
+  React.useEffect(() => {
+    if (!isChatWizard) return undefined;
+    const onOpenCompetitors = (event: Event) => {
+      const detail = (event as CustomEvent<AgentChatOpenCompetitorsDetail>).detail;
+      if (!detail?.accountId) return;
+      detail.handled = true;
+      setChatView('chat');
+      setCompetitorPrefillAccountId(detail.accountId);
+      setWizardKey((key) => key + 1);
+      requestOpen();
+    };
+    window.addEventListener(AGENT_CHAT_OPEN_COMPETITORS_EVENT, onOpenCompetitors);
+    return () => window.removeEventListener(AGENT_CHAT_OPEN_COMPETITORS_EVENT, onOpenCompetitors);
   }, [isChatWizard, requestOpen]);
 
   // Llegada desde otra pantalla (`?agentView=runs`): se abre en «Búsquedas» y se
@@ -752,6 +772,8 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
             <ProspectChatWizard
               key={wizardKey}
               ref={wizardRef}
+              initialCompetitorAccountId={competitorPrefillAccountId}
+              onCompetitorPrefillConsumed={() => setCompetitorPrefillAccountId(null)}
               onRestartAvailabilityChange={setWizardCanRestart}
               onRunningChange={setWizardRunId}
               catalog={catalog}
