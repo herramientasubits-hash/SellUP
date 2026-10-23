@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import type {
   ActivityUser,
   ActivityViewerContext,
@@ -99,6 +101,31 @@ async function resolveCurrentUser(admin: ReturnType<typeof getAdminClient>) {
   return { id: data.id as string, roleKey };
 }
 
+/**
+ * Users whose activity the viewer may see, besides themselves. With the
+ * commercial scope ON this is the SAME set the rest of the platform uses
+ * (admin → all, líder → group + reports, vendedor → self), so Actividad no
+ * longer runs a second hierarchy rule. With it OFF, the historical
+ * `get_subordinate_ids` subtree.
+ *  - `null` → every user (admin / view-all).
+ */
+async function resolveActivityOtherIds(
+  admin: ReturnType<typeof getAdminClient>,
+  current: { id: string; roleKey: string | null },
+): Promise<string[] | null> {
+  if (isCommercialScopeEnabled()) {
+    const scope = await resolveCommercialScope();
+    if (!scope) return [];
+    if (scope.canViewAll) return null;
+    return scope.allowedUserIds.filter((id) => id !== current.id);
+  }
+  if (current.roleKey === 'admin') return null;
+  const { data: subsData } = await admin.rpc('get_subordinate_ids', {
+    p_manager_id: current.id,
+  });
+  return (subsData ?? []).map((r: { user_id: string }) => r.user_id);
+}
+
 // ─── Public: context for the activity feed viewer ────────────────
 
 export async function getActivityViewerContext(): Promise<ActivityViewerContext | null> {
@@ -106,15 +133,9 @@ export async function getActivityViewerContext(): Promise<ActivityViewerContext 
   const current = await resolveCurrentUser(admin);
   if (!current) return null;
 
-  const isAdmin = current.roleKey === 'admin';
-
-  // Fetch subordinates regardless (needed to determine isManager)
-  const { data: subsData } = await admin.rpc('get_subordinate_ids', {
-    p_manager_id: current.id,
-  });
-  const subordinateIds: string[] = (subsData ?? []).map(
-    (r: { user_id: string }) => r.user_id,
-  );
+  const otherIds = await resolveActivityOtherIds(admin, current);
+  const isAdmin = otherIds === null;
+  const subordinateIds: string[] = otherIds ?? [];
   const isManager = subordinateIds.length > 0;
 
   // Determine which users are selectable in the filter
@@ -165,19 +186,10 @@ export async function getPlatformActivity(
   const current = await resolveCurrentUser(admin);
   if (!current) return { events: [], hasMore: false };
 
-  const isAdmin = current.roleKey === 'admin';
-
-  // Build allowed ID set (null = no restriction for admin)
-  let allowedIds: string[] | null = null;
-  if (!isAdmin) {
-    const { data: subsData } = await admin.rpc('get_subordinate_ids', {
-      p_manager_id: current.id,
-    });
-    const subordinateIds = (subsData ?? []).map(
-      (r: { user_id: string }) => r.user_id,
-    );
-    allowedIds = [current.id, ...subordinateIds];
-  }
+  // Build allowed ID set (null = no restriction for admin) — same rule as the viewer context.
+  const otherIds = await resolveActivityOtherIds(admin, current);
+  const isAdmin = otherIds === null;
+  const allowedIds: string[] | null = otherIds === null ? null : [current.id, ...otherIds];
 
   // Validate targetUserId permission
   const targetId = filter.userId;

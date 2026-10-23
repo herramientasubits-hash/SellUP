@@ -10,6 +10,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { getAccountById } from '@/modules/accounts/actions';
 import { requireActiveUserForEnrichment } from './actions';
 import { loadContactEnrichmentRunsByAccountId } from './account-run-history-read-model-core';
 import type { AccountContactEnrichmentRun } from './account-run-history-types';
@@ -33,6 +34,9 @@ export async function getContactEnrichmentRunsByAccountId(
   accountId: string,
 ): Promise<AccountContactEnrichmentRun[]> {
   await requireActiveUserForEnrichment();
+  // Se llama desde el cliente con cualquier id: el historial sólo sale si la empresa es visible
+  // (alcance comercial de Empresas).
+  if (!(await getAccountById(accountId))) return [];
   const supabase = await createClient();
   // provider_usage_logs RLS restricts `authenticated` reads to admins, so
   // summaries use the service-role client for a read-only SELECT (same

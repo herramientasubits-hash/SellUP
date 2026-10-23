@@ -18,6 +18,7 @@ import {
   Copy,
   Gauge,
   Globe,
+  MapPin,
   Info,
   ShieldCheck,
   Tag,
@@ -48,6 +49,7 @@ import {
   resolveIdentityDisplay,
 } from './contact-candidate-identity-display';
 import { readCandidateCompanyReassignment } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
+import { resolveCandidateCountry } from '@/modules/contact-enrichment/candidate-scope';
 
 /**
  * Un par etiqueta/valor de la ficha: el `DetailItem` del sistema, con el vacío
@@ -106,6 +108,12 @@ export function CandidateSummarySection({
   );
 }
 
+function countryLabel(candidate: PendingContactCandidate): string | null {
+  const { country, fromCompany } = resolveCandidateCountry(candidate);
+  if (!country) return null;
+  return fromCompany ? `${country} (país de la empresa)` : country;
+}
+
 /** 1. Información principal. */
 export function CandidateMainInfoSection({
   candidate,
@@ -126,6 +134,9 @@ export function CandidateMainInfoSection({
         </CandidateDetailItem>
         <CandidateDetailItem icon={Globe} label="Dominio de la empresa">
           {candidate.company_domain || null}
+        </CandidateDetailItem>
+        <CandidateDetailItem icon={MapPin} label="País">
+          {countryLabel(candidate)}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
           <Badge variant="outline">

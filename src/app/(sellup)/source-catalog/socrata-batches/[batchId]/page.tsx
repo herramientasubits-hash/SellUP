@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { Building2, Globe } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
@@ -133,6 +134,8 @@ function SourceCell({
 
 export default async function SocrataBatchDetailPage({ params }: Props) {
   const { batchId } = await params;
+  // Sólo admin, igual que el listado: un lote ajeno se ve como inexistente.
+  if (!(await isCurrentUserAdmin())) notFound();
   const batch = await getSocrataPreviewBatchDetail(batchId);
   if (!batch) notFound();
 

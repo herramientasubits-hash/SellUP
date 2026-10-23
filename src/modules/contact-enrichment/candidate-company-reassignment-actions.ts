@@ -21,6 +21,7 @@ import {
   loadContactSearchTriggeredBy,
 } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { requireActiveUserForEnrichment } from './actions';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { isNextControlFlowSignal } from './next-control-flow-signal';
 import {
@@ -51,6 +52,8 @@ export async function reassignContactCandidateCompanyAction(
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
       loadCandidate: async (id) => {
+        // Alcance comercial: un candidato ajeno es inexistente para este usuario.
+        if (!(await canSeeContactCandidate(supabase, id))) return null;
         const { data, error } = await supabase
           .from('contact_enrichment_candidates')
           .select(

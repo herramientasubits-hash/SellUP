@@ -309,6 +309,8 @@ export async function getAccountById(id: string): Promise<AccountWithOwner | nul
 
 export async function getAccountAudit(accountId: string): Promise<AccountAuditEntry[]> {
   await requireActiveUser();
+  // Callable from the client with any id: the account's own scope check gates it.
+  if (!(await getAccountById(accountId))) return [];
   const supabase = await createClient();
 
   const { data, error } = await supabase

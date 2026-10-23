@@ -25,6 +25,7 @@
 // official contact nor approves the candidate.
 
 import { redirect } from 'next/navigation';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
@@ -367,6 +368,11 @@ export async function revealCandidatePhoneAction(
 
   const actor = await resolveActorForReveal();
   const supabase = await createClient();
+  // Alcance comercial ANTES de abrir corrida o reserva: un candidato ajeno no existe para este
+  // actor, y así ningún crédito se compromete por él.
+  if (!(await canSeeContactCandidate(supabase, input.candidateId ?? ''))) {
+    return { ok: false, status: 'candidate_not_found', requestAccepted: false, errorCode: null };
+  }
   const admin = getServiceRoleClient();
 
   // Waterfall Apollo → Lusha: la corrida se abre ANTES del START para que el

@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { XCircle, CheckCircle2, FlaskConical, Layers } from "@/icons";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
@@ -13,6 +15,9 @@ export const metadata = {
 };
 
 export default async function SocrataBatchesPage() {
+  // Herramienta de datos sólo para admin (igual que el menú y las acciones de estos lotes):
+  // la lectura muestra lotes de todos los usuarios.
+  if (!(await isCurrentUserAdmin())) redirect(SOURCE_CATALOG_ROUTE);
   const { batches, totalCount, readyForReview, cancelled, smokeTests } =
     await getSocrataPreviewBatches();
 

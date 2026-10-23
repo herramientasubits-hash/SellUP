@@ -730,6 +730,8 @@ export async function logContactAudit({
 
 export async function getContactAudit(contactId: string): Promise<ContactAuditEntry[]> {
   await requireActiveUser();
+  // Callable from the client with any id: the contact's own scope check gates it.
+  if (!(await getContactById(contactId))) return [];
   const supabase = await createClient();
 
   const { data, error } = await supabase

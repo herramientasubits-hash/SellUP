@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { runAutomaticContactEnrichmentForRequestCore } from '@/modules/contact-enrichment/automatic-routing-action-core';
 import { activeInternalUserIdForRoute } from '@/modules/contact-enrichment/route-auth.server';
+import { canSeeContactEnrichmentRequest } from '@/modules/contact-enrichment/candidate-scope.server';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * Agente 2 · buscar los contactos de una empresa con Rumbo (dueña 20-10).
@@ -21,6 +23,14 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   }
   const { id } = await params;
   try {
+    // Alcance comercial: sólo se lanza una solicitud propia (o del equipo, o admin). Una ajena
+    // responde como inexistente y no gasta créditos.
+    if (!(await canSeeContactEnrichmentRequest(await createClient(), id))) {
+      return NextResponse.json(
+        { ok: false, code: 'not_found', message: 'No encontramos esa búsqueda.' },
+        { status: 404, headers: NO_STORE },
+      );
+    }
     const result = await runAutomaticContactEnrichmentForRequestCore(id, internalUserId, new Date().toISOString());
     return NextResponse.json({ ok: true, result }, { headers: NO_STORE });
   } catch (err) {

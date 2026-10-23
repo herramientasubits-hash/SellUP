@@ -685,6 +685,9 @@ describe('4O-G — alcance', () => {
       // No importa nada: nombra el módulo para fijar que el barrido de P0-R4
       // sigue cubriéndolo. Es una guarda sobre 4O-G, no un consumidor suyo.
       'src/__tests__/use-server-export-contract-p0-r4.test.ts',
+      // ALCANCE COMERCIAL: la guarda de alcance LEE la acción con `readFileSync` —no la
+      // importa— para fijar que comprueba el alcance del candidato antes de devolver números.
+      'src/modules/contact-enrichment/__tests__/candidate-scope.test.ts',
       // SEARCH-MORE-PHONES-1: el copy de «Buscar más números». NO importa ningún módulo
       // de 4O-G — sólo lo NOMBRA en un comentario, para explicar que su regla del verbo
       // es el ESPEJO de la de 4O-G: allí ninguna cadena puede sugerir que se busca algo
