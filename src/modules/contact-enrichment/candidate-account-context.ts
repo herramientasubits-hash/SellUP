@@ -14,6 +14,7 @@ export interface CandidateAccountContextRow {
   website: string | null;
   domain: string | null;
   hubspot_company_id: string | null;
+  country?: string | null;
 }
 
 function clean(value: string | null | undefined): string | null {
@@ -41,6 +42,7 @@ export function mergeCandidateAccountContext(
       company_domain: clean(candidate.company_domain) ?? clean(account.domain),
       hubspot_company_id: clean(candidate.hubspot_company_id) ?? clean(account.hubspot_company_id),
       company_website: clean(candidate.company_website) ?? clean(account.website),
+      account_country: clean(candidate.account_country) ?? clean(account.country),
     };
   });
 }

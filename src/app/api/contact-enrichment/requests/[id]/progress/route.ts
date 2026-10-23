@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { contactSearchProgress, type ContactSearchAttemptRow } from '@/modules/contact-enrichment/contact-search-progress';
 import { activeInternalUserIdForRoute } from '@/modules/contact-enrichment/route-auth.server';
+import { canSeeContactEnrichmentRequest } from '@/modules/contact-enrichment/candidate-scope.server';
 
 /**
  * El avance real de una búsqueda de contactos (sólo lectura): sus intentos por proveedor
@@ -18,6 +19,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   if (!UUID.test(id)) return NextResponse.json({ error: 'invalid_request_id' }, { status: 400, headers: NO_STORE });
 
   const supabase = await createClient();
+  // Alcance comercial: el avance de una búsqueda ajena se ve como inexistente.
+  if (!(await canSeeContactEnrichmentRequest(supabase, id))) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  }
   const { data: runs, error } = await supabase
     .from('contact_enrichment_runs')
     .select('id, attempt_order, intended_provider, status')

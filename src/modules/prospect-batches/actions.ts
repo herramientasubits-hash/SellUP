@@ -120,6 +120,7 @@ import {
   resolveConversionOwnerUserId,
 } from '@/modules/assignment/assignment-core';
 import { hasCandidateAssignmentColumn } from '@/modules/assignment/assignment.server';
+import { isBatchInScope } from '@/modules/prospect-discards/batch-in-scope.server';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import {
   APPROVE_BLOCK_MESSAGES,
@@ -450,18 +451,28 @@ export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data: batches } = await supabase
+  // Alcance comercial: sólo los lotes al alcance del usuario (null = todos).
+  const allowedBatchIds = await resolveAllowedBatchIds();
+  if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
+    return { total: 0, ready_for_review: 0, in_review: 0, completed: 0, total_approved_candidates: 0 };
+  }
+
+  let batchesQuery = supabase
     .from('prospect_batches')
     .select('status, metadata')
     .is('archived_at', null);
+  if (allowedBatchIds !== null) batchesQuery = batchesQuery.in('id', allowedBatchIds);
+  const { data: batches } = await batchesQuery;
 
   // CUT4-A1: total persistido, con semántica de conteo exacta. Antes se traía la
   // tabla entera y se filtraba por calidad de UI, así que un aprobado CO sin NIT
   // desaparecía de un total que dice contar aprobados.
-  const { count: approvedCount } = await supabase
+  let approvedQuery = supabase
     .from('prospect_candidates')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'approved');
+  if (allowedBatchIds !== null) approvedQuery = approvedQuery.in('batch_id', allowedBatchIds);
+  const { count: approvedCount } = await approvedQuery;
 
   const list = batches ?? [];
 
@@ -483,15 +494,20 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data: batches, error } = await supabase
+  // Alcance comercial: sólo los lotes al alcance del usuario (null = todos).
+  const allowedBatchIds = await resolveAllowedBatchIds();
+  if (allowedBatchIds !== null && allowedBatchIds.length === 0) return [];
+
+  let batchesQuery = supabase
     .from('prospect_batches')
     .select(`
       *,
       owner:internal_users!prospect_batches_owner_id_fkey(id, full_name, email),
       created_by_user:internal_users!prospect_batches_created_by_fkey(id, full_name)
     `)
-    .is('archived_at', null)
-    .order('created_at', { ascending: false });
+    .is('archived_at', null);
+  if (allowedBatchIds !== null) batchesQuery = batchesQuery.in('id', allowedBatchIds);
+  const { data: batches, error } = await batchesQuery.order('created_at', { ascending: false });
 
   if (error) throw new Error(`Error al cargar lotes: ${error.message}`);
   if (!batches) return [];
@@ -574,6 +590,31 @@ async function resolveCandidateScopeUserIds(): Promise<string[] | null> {
   return scope.allowedUserIds;
 }
 
+/**
+ * Cláusula `.or()` del alcance por responsable (asignado o dueño del lote), compartida por el
+ * listado de Prospectos y sus KPIs para que los números cuadren con la lista.
+ *  - `null`  → sin restricción.
+ *  - `''`    → nada visible (el llamador corta sin consultar).
+ *  - `'...'` → la cláusula a aplicar.
+ */
+async function resolveCandidateOwnershipClause(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ownerUserIds?: string[] | null,
+): Promise<string | null> {
+  const userIds = intersectOptionalUserIds(
+    await resolveCandidateScopeUserIds(),
+    ownerUserIds && ownerUserIds.length > 0 ? ownerUserIds : null,
+  );
+  if (userIds === null) return null;
+  if (userIds.length === 0) return '';
+  const orClause = BATCH_OWNER_COLUMNS.map((col) => `${col}.in.(${userIds.join(',')})`).join(',');
+  const { data: ownedBatches } = await supabase.from('prospect_batches').select('id').or(orClause);
+  return buildCandidateOwnershipOrClause(
+    userIds,
+    (ownedBatches ?? []).map((b: { id: string }) => b.id),
+  );
+}
+
 // ── Detalle de lote ───────────────────────────────────────────
 
 export async function getProspectBatchById(id: string): Promise<ProspectBatchWithMeta | null> {
@@ -623,6 +664,10 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
 
 export async function getBatchDetailSummary(batchId: string): Promise<BatchDetailSummary> {
   await requireActiveUser();
+  // Alcance comercial: un lote ajeno se cuenta como vacío.
+  if (!(await isBatchInScope(batchId))) {
+    return { total_candidates: 0, needs_review: 0, approved: 0, discarded: 0, converted: 0, duplicates: 0 };
+  }
 
   const counts = computeBatchCandidateCounts(
     await fetchDurableCandidateCountRows({ batchId }),
@@ -784,6 +829,8 @@ export async function getCandidatesByBatch(
   batchId: string
 ): Promise<ProspectCandidateWithReviewer[]> {
   await requireActiveUser();
+  // Alcance comercial propio: no depende de que la página haya verificado antes el lote.
+  if (!(await isBatchInScope(batchId))) return [];
   const supabase = await createClient();
 
   const rows: ProspectCandidateWithReviewer[] = [];
@@ -3160,6 +3207,7 @@ export async function getActiveUsers(): Promise<InternalUserOption[]> {
 
 export async function getBatchAudit(batchId: string): Promise<ProspectCandidateAudit[]> {
   await requireActiveUser();
+  if (!(await isBatchInScope(batchId))) return [];
   const supabase = await createClient();
 
   const { data } = await supabase
@@ -4810,24 +4858,8 @@ export async function getGlobalCandidatesList(
   let allowedBatchSet: Set<string> | null = null;
 
   if (assignmentEnabled) {
-    const userIds = intersectOptionalUserIds(
-      await resolveCandidateScopeUserIds(),
-      filters.ownerUserIds && filters.ownerUserIds.length > 0 ? filters.ownerUserIds : null,
-    );
-    if (userIds !== null) {
-      if (userIds.length === 0) return { candidates: [], total: 0 };
-      const orClause = BATCH_OWNER_COLUMNS.map(
-        (col) => `${col}.in.(${userIds.join(',')})`,
-      ).join(',');
-      const { data: ownedBatches } = await supabase
-        .from('prospect_batches')
-        .select('id')
-        .or(orClause);
-      ownershipClause = buildCandidateOwnershipOrClause(
-        userIds,
-        (ownedBatches ?? []).map((b: { id: string }) => b.id),
-      );
-    }
+    ownershipClause = await resolveCandidateOwnershipClause(supabase, filters.ownerUserIds);
+    if (ownershipClause === '') return { candidates: [], total: 0 };
   } else {
     // Commercial scope: restrict candidates to batches inside the viewer's reach.
     // null = no constraint (admin / flag off); [] = nothing visible.
@@ -5024,18 +5056,28 @@ export async function getGlobalProspectsKPIs(): Promise<ProspectsKPIs> {
   await requireActiveUser();
   const supabase = await createClient();
 
-  // Commercial scope: KPIs count only candidates inside the viewer's reach.
-  const allowedBatchIds = await resolveAllowedBatchIds();
-  if (allowedBatchIds !== null && allowedBatchIds.length === 0) {
-    return { needsReview: 0, readyForApproval: 0, possibleDuplicates: 0, importedRecently: 0 };
+  const empty = { needsReview: 0, readyForApproval: 0, possibleDuplicates: 0, importedRecently: 0 };
+
+  // Commercial scope: the SAME rule as getGlobalCandidatesList, so the KPIs add up
+  // to what the list shows — by responsible (assignee or batch owner) when
+  // migration 145 is applied, by batch otherwise.
+  const assignmentEnabled = await hasCandidateAssignmentColumn(supabase);
+  const ownershipClause = assignmentEnabled ? await resolveCandidateOwnershipClause(supabase) : null;
+  const allowedBatchIds = assignmentEnabled ? null : await resolveAllowedBatchIds();
+  if (ownershipClause === '' || (allowedBatchIds !== null && allowedBatchIds.length === 0)) {
+    return empty;
   }
 
   // Calculate 7 days ago timestamp
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Apply the batch scope to each count query when active.
-  const scoped = <T extends { in: (col: string, vals: string[]) => T }>(q: T): T =>
-    allowedBatchIds !== null ? q.in('batch_id', allowedBatchIds) : q;
+  // Apply the scope to each count query when active.
+  const scoped = <
+    T extends { in: (col: string, vals: string[]) => T; or: (filters: string) => T },
+  >(q: T): T => {
+    if (ownershipClause) return q.or(ownershipClause);
+    return allowedBatchIds !== null ? q.in('batch_id', allowedBatchIds) : q;
+  };
 
   const [needsReviewRes, readyForApprovalRes, possibleDuplicatesRes, importedRecentlyRes] = await Promise.all([
     // 1. Pendientes de revisión (candidates with status needs_review, generated, normalized)

@@ -20,7 +20,9 @@
 // (contact-enrichment-routing-orchestrator.ts): no attempt is created, no
 // provider is called, no telemetry is written.
 
+import { createClient } from '@/lib/supabase/server';
 import { requireActiveUserForEnrichment } from './actions';
+import { canSeeContactEnrichmentRequest } from './candidate-scope.server';
 import {
   runAutomaticContactEnrichmentForRequestCore,
   type RunAutomaticContactEnrichmentForRequestResult,
@@ -30,5 +32,12 @@ export async function runAutomaticContactEnrichmentForRequestAction(
   requestId: unknown,
 ): Promise<RunAutomaticContactEnrichmentForRequestResult> {
   const { internalUserId } = await requireActiveUserForEnrichment();
-  return runAutomaticContactEnrichmentForRequestCore(requestId, internalUserId, new Date().toISOString());
+  // Alcance comercial: una solicitud ajena se trata como id inválido — el núcleo corta antes de
+  // crear intentos o llamar proveedores, así que no gasta créditos.
+  const allowed = await canSeeContactEnrichmentRequest(await createClient(), requestId);
+  return runAutomaticContactEnrichmentForRequestCore(
+    allowed ? requestId : null,
+    internalUserId,
+    new Date().toISOString(),
+  );
 }

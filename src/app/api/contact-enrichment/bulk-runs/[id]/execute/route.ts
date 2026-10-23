@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { executeBulkContactEnrichmentRun } from '@/modules/contact-enrichment/bulk-enrichment-runner';
+import { canSeeContactEnrichmentBulkRun } from '@/modules/contact-enrichment/candidate-scope.server';
 
 // Hasta 10 empresas en serie: el límite por defecto no alcanzaba (AGENT2-AUDIT-FIXES-1).
 export const maxDuration = 300;
@@ -54,6 +55,12 @@ export async function POST(
 
     if (!bulkRunId || typeof bulkRunId !== 'string' || !bulkRunId.trim()) {
       return NextResponse.json({ error: 'bulk run id inválido' }, { status: 400 });
+    }
+
+    // Alcance comercial: sólo se ejecuta una búsqueda masiva propia (o del equipo, o admin).
+    // Una ajena responde como inexistente y no gasta créditos.
+    if (!(await canSeeContactEnrichmentBulkRun(supabase, bulkRunId))) {
+      return NextResponse.json({ error: 'Búsqueda masiva no encontrada' }, { status: 404 });
     }
 
     const result = await executeBulkContactEnrichmentRun({

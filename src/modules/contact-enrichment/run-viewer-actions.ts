@@ -11,6 +11,10 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveUserForEnrichment } from './actions';
 import {
+  canSeeContactEnrichmentRun,
+  canSeeContactEnrichmentRunByAgentRunId,
+} from './candidate-scope.server';
+import {
   loadContactCandidatesByRunId,
   loadContactEnrichmentRunById,
   loadProviderUsageByAgentRunId,
@@ -37,6 +41,8 @@ export async function getContactEnrichmentRunById(
 ): Promise<ContactEnrichmentRunDetail | null> {
   await requireActiveUserForEnrichment();
   const supabase = await createClient();
+  // Alcance comercial: una corrida ajena se ve igual que una que no existe (not-found).
+  if (!(await canSeeContactEnrichmentRun(supabase, runId))) return null;
 
   return loadContactEnrichmentRunById(runId, {
     fetchRunRow: async (id) => {
@@ -59,6 +65,7 @@ export async function getContactCandidatesByRunId(
 ): Promise<ContactEnrichmentRunCandidate[]> {
   await requireActiveUserForEnrichment();
   const supabase = await createClient();
+  if (!(await canSeeContactEnrichmentRun(supabase, runId))) return [];
 
   return loadContactCandidatesByRunId(runId, {
     fetchCandidateRows: async (id) => {
@@ -88,6 +95,9 @@ export async function getContactEnrichmentRunProviderUsage(
   agentRunId: string | null,
 ): Promise<ContactEnrichmentRunProviderUsage[]> {
   await requireActiveUserForEnrichment();
+  if (agentRunId && !(await canSeeContactEnrichmentRunByAgentRunId(await createClient(), agentRunId))) {
+    return [];
+  }
   const admin = getAdminClient();
 
   return loadProviderUsageByAgentRunId(agentRunId, {

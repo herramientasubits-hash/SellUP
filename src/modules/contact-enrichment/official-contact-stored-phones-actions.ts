@@ -73,6 +73,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { canSeeOfficialContact } from './candidate-scope.server';
 import {
   countAdditionalStoredOfficialPhones,
   selectAdditionalStoredOfficialPhones,
@@ -141,6 +142,8 @@ export async function getOfficialContactStoredPhoneSummaryAction(input: {
   if (!contactId) return { additionalCount: 0 };
 
   if (!(await isActiveInternalUser())) return { additionalCount: 0 };
+  // Alcance comercial: los números de un contacto de empresa ajena no existen para este usuario.
+  if (!(await canSeeOfficialContact(await createClient(), contactId))) return { additionalCount: 0 };
 
   try {
     const read = await readOfficialContactStoredPhones(contactId);
@@ -170,6 +173,7 @@ export async function getOfficialContactStoredPhonesAction(input: {
   if (!contactId) return { status: 'ok', phones: [] };
 
   if (!(await isActiveInternalUser())) return { status: 'unavailable' };
+  if (!(await canSeeOfficialContact(await createClient(), contactId))) return { status: 'unavailable' };
 
   try {
     const read = await readOfficialContactStoredPhones(contactId);

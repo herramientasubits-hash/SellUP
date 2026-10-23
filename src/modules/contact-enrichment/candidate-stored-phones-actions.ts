@@ -58,6 +58,7 @@ import {
   type StoredCandidatePhoneView,
 } from './candidate-stored-phones-core';
 import { readCandidateStoredPhones } from './candidate-stored-phones-read';
+import { canSeeContactCandidate } from './candidate-scope.server';
 // Los roles autorizados son una CONSTANTE, y una constante no puede exportarse
 // desde un módulo `'use server'`: Next envuelve toda exportación como Server
 // Action y exige que sea una función. Vive, con su justificación completa, en
@@ -131,6 +132,8 @@ export async function getCandidateStoredPhoneSummaryAction(input: {
   if (!candidateId) return { additionalCount: 0 };
 
   if (!isAuthorized(await resolveActorRoleKey())) return { additionalCount: 0 };
+  // Alcance comercial: los números de un candidato ajeno no existen para este usuario.
+  if (!(await canSeeContactCandidate(await createClient(), candidateId))) return { additionalCount: 0 };
 
   try {
     const read = await readCandidateStoredPhones(candidateId);
@@ -160,6 +163,7 @@ export async function getCandidateStoredPhonesAction(input: {
   if (!candidateId) return { status: 'ok', phones: [] };
 
   if (!isAuthorized(await resolveActorRoleKey())) return { status: 'unavailable' };
+  if (!(await canSeeContactCandidate(await createClient(), candidateId))) return { status: 'unavailable' };
 
   try {
     const read = await readCandidateStoredPhones(candidateId);

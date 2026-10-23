@@ -400,4 +400,8 @@ export interface PendingContactCandidate {
    * OPCIONAL a propósito: aditivo, así que fixtures y proyecciones previas siguen valiendo.
    */
   company_website?: string | null;
+  /** País de la persona según el proveedor (Apollo, a veces Lusha). OPCIONAL: aditivo. */
+  contact_country?: string | null;
+  /** País de la empresa asociada (cuenta SellUp). Respaldo cuando el contacto no trae país. */
+  account_country?: string | null;
 }

@@ -3,7 +3,8 @@
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Check, ExternalLink, Link2, Building2, Globe, Mail, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch, UserX } from "@/icons";
+import { Check, ExternalLink, Link2, Building2, Globe, Mail, MapPin, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch, UserX } from "@/icons";
+import { resolveCandidateCountry } from '@/modules/contact-enrichment/candidate-scope';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -594,6 +595,29 @@ export function ContactCandidatesDataTableClient({
         minSize: 150,
         // Enumerable: el embudo ofrece las empresas que aparecen en la cola.
         meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+      },
+      {
+        id: 'country',
+        // El del contacto y, si el proveedor no lo trae (HubSpot nunca), el de su empresa.
+        accessorFn: (row) => resolveCandidateCountry(row).country ?? '',
+        header: ({ column }) => <DataTableColumnHeader column={column} title="País" />,
+        cell: ({ row }) => {
+          const { country, fromCompany } = resolveCandidateCountry(row.original);
+          if (!country) return <EmptyCell label="Sin país" />;
+          return (
+            <span
+              className="flex min-w-0 items-center gap-1.5 text-xs text-foreground"
+              title={fromCompany ? `${country} · país de la empresa` : country}
+            >
+              <MapPin aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{country}</span>
+            </span>
+          );
+        },
+        size: 120,
+        minSize: 100,
+        // Enumerable: el embudo ofrece los países que aparecen en la cola.
+        meta: { label: 'País', popoverTitle: 'País' },
       },
       {
         id: 'source',

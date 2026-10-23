@@ -46,6 +46,11 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import { applyCandidateCompanyReassignment } from './candidate-company-reassignment-core';
+import { candidateRunEmbed, isCandidateRunInScope } from './candidate-scope';
+import {
+  canSeeContactCandidate,
+  resolveCandidateScopeIds,
+} from './candidate-scope.server';
 import {
   collectCandidateAccountIds,
   mergeCandidateAccountContext,
@@ -315,13 +320,37 @@ function firstRun(run: unknown): CandidateRunContext | null {
 
 /** Columnas proyectadas para revisión humana — sin payloads crudos del
  *  proveedor. Compartido por el listado y el detalle del side panel. */
-const CANDIDATE_SELECT =
-  `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
-   phone, source, status,
+function candidateSelect(scoped: boolean): string {
+  return `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
+   phone, source, status, country,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
    phone_reveal_status, phone_reveal_last_checked_at, phone_reveal_requested_at,
    phone_reveal_request_id, phone_reveal_provider,
-   run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`;
+   ${candidateRunEmbed(scoped)}`;
+}
+
+/** Select + filtro de alcance para una lectura de candidatos. */
+function scopedCandidateRead(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopeIds: string[] | null,
+) {
+  const query = supabase.from('contact_enrichment_candidates').select(candidateSelect(scopeIds !== null));
+  return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
+}
+
+/** Conteo (head) con el mismo filtro de alcance. */
+function scopedCandidateCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopeIds: string[] | null,
+) {
+  const query = supabase
+    .from('contact_enrichment_candidates')
+    .select(scopeIds === null ? 'id' : 'id, run:contact_enrichment_runs!inner ( triggered_by )', {
+      count: 'exact',
+      head: true,
+    });
+  return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
+}
 
 /** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
 function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
@@ -349,6 +378,7 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     // del candidato y la fila se relee desde la base.
     apollo_person_id: (record.apollo_person_id as string | null) ?? null,
     phone: (record.phone as string | null) ?? null,
+    contact_country: (record.country as string | null) ?? null,
     source: (record.source as ContactSource) ?? 'apollo',
     status: (record.status as ContactCandidateStatus) ?? 'pending_review',
     duplicate_status: (record.duplicate_status as ContactDuplicateStatus) ?? 'unchecked',
@@ -393,7 +423,7 @@ async function withCandidateAccountContext(
   if (accountIds.length === 0) return candidates;
   const { data, error } = await supabase
     .from('accounts')
-    .select('id, website, domain, hubspot_company_id')
+    .select('id, website, domain, hubspot_company_id, country')
     .in('id', accountIds);
   if (error) {
     console.error('[withCandidateAccountContext] read_failed', { code: error.code });
@@ -410,11 +440,11 @@ export async function getPendingContactCandidates(
   limit: number = PENDING_CANDIDATES_LIMIT,
 ): Promise<PendingContactCandidate[]> {
   await requireActiveUserForEnrichment();
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
+  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
     .eq('status', 'pending_review')
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -460,9 +490,9 @@ export async function getReviewableContactCandidateById(
     const supabase = await createClient();
 
     stage = 'read';
-    const { data, error } = await supabase
-      .from('contact_enrichment_candidates')
-      .select(CANDIDATE_SELECT)
+    // Alcance comercial por id: autor de la búsqueda o dueño de la empresa (./candidate-scope).
+    if (!(await canSeeContactCandidate(supabase, trimmedId))) return null;
+    const { data, error } = await scopedCandidateRead(supabase, null)
       .eq('id', trimmedId)
       .in('status', REVIEWABLE_CONTACT_CANDIDATE_STATUSES)
       .maybeSingle();
@@ -479,7 +509,8 @@ export async function getReviewableContactCandidateById(
     if (!data) return null;
 
     stage = 'map';
-    return mapPendingContactCandidate(data);
+    const [withContext] = await withCandidateAccountContext(supabase, [mapPendingContactCandidate(data)]);
+    return withContext;
   } catch (caught) {
     // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Si lo tragáramos aquí, una
     // sesión caducada se vería como "no se pudo cargar el candidato" en vez de llevar al login,
@@ -506,12 +537,11 @@ export async function getReviewableContactCandidateById(
  */
 export async function getPendingContactCandidatesCount(): Promise<number> {
   await requireActiveUserForEnrichment();
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return 0;
   const supabase = await createClient();
 
-  const { count, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending_review');
+  const { count, error } = await scopedCandidateCount(supabase, scopeIds).eq('status', 'pending_review');
 
   if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
   return count ?? 0;
@@ -529,11 +559,11 @@ export async function getDuplicateContactCandidates(
   limit = 500,
 ): Promise<PendingContactCandidate[]> {
   await requireActiveUserForEnrichment();
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
+  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
     .eq('status', 'duplicate')
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -553,11 +583,11 @@ export async function getRejectedContactCandidates(
   limit = 500,
 ): Promise<PendingContactCandidate[]> {
   await requireActiveUserForEnrichment();
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
+  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
     .eq('status', 'discarded')
     .order('reviewed_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -571,12 +601,11 @@ export async function getRejectedContactCandidates(
 /** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */
 export async function getDuplicateContactCandidatesCount(): Promise<number> {
   await requireActiveUserForEnrichment();
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return 0;
   const supabase = await createClient();
 
-  const { count, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'duplicate');
+  const { count, error } = await scopedCandidateCount(supabase, scopeIds).eq('status', 'duplicate');
 
   if (error) throw new Error(`getDuplicateContactCandidatesCount: ${error.message}`);
   return count ?? 0;
@@ -606,6 +635,7 @@ export async function getDuplicateCandidateMergeOffer(
   if (!trimmedId) return null;
 
   const supabase = await createClient();
+  if (!(await canSeeContactCandidate(supabase, trimmedId))) return null;
 
   const { data, error } = await supabase
     .from('contact_enrichment_candidates')
@@ -783,6 +813,8 @@ export async function approveContactCandidate(
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
       loadCandidate: async (id) => {
+        // Alcance comercial: un candidato ajeno es, para quien no lo puede ver, inexistente.
+        if (!(await canSeeContactCandidate(supabase, id))) return null;
         const { data, error } = await supabase
           .from('contact_enrichment_candidates')
           .select(CANDIDATE_REVIEW_SELECT)
@@ -985,6 +1017,8 @@ export async function mergeContactCandidateIntoExistingContactAction(
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
       loadCandidate: async (id) => {
+        // Alcance comercial: un candidato ajeno es, para quien no lo puede ver, inexistente.
+        if (!(await canSeeContactCandidate(supabase, id))) return null;
         const { data, error } = await supabase
           .from('contact_enrichment_candidates')
           .select(CANDIDATE_REVIEW_SELECT)
@@ -1321,6 +1355,8 @@ export async function discardContactCandidate(
       actorId: internalUserId,
       nowIso: new Date().toISOString(),
       loadCandidate: async (id) => {
+        // Alcance comercial: un candidato ajeno es, para quien no lo puede ver, inexistente.
+        if (!(await canSeeContactCandidate(supabase, id))) return null;
         const { data, error } = await supabase
           .from('contact_enrichment_candidates')
           .select(CANDIDATE_REVIEW_SELECT)
@@ -1370,6 +1406,7 @@ export async function sendRejectedCandidatesToReview(
         actorId: internalUserId,
         nowIso,
         loadCandidate: async (candidateId) => {
+          if (!(await canSeeContactCandidate(supabase, candidateId))) return null;
           const { data, error } = await supabase
             .from('contact_enrichment_candidates')
             .select(CANDIDATE_REVIEW_SELECT)
@@ -1422,9 +1459,8 @@ export async function getRejectedContactCandidateById(
   const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
   if (!trimmedId) return null;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
+  if (!(await canSeeContactCandidate(supabase, trimmedId))) return null;
+  const { data, error } = await scopedCandidateRead(supabase, null)
     .eq('id', trimmedId)
     .eq('status', 'discarded')
     .maybeSingle();
@@ -1479,12 +1515,17 @@ export async function getBulkContactEnrichmentRunStatusAction(
     const { data, error } = await admin
       .from('contact_enrichment_bulk_runs')
       .select(
-        'id, status, total_selected, total_eligible, total_processed, total_succeeded, total_failed, total_skipped, total_candidates_created, summary, started_at, completed_at',
+        'id, status, total_selected, total_eligible, total_processed, total_succeeded, total_failed, total_skipped, total_candidates_created, summary, started_at, completed_at, triggered_by',
       )
       .eq('id', bulkRunId)
       .maybeSingle();
 
     if (error || !data) {
+      return { ok: false, error: 'not_found' };
+    }
+    // Alcance comercial: la búsqueda masiva de otro usuario se ve como inexistente.
+    const scopeIds = await resolveCandidateScopeIds();
+    if (!isCandidateRunInScope(data.triggered_by as string | null, scopeIds)) {
       return { ok: false, error: 'not_found' };
     }
 

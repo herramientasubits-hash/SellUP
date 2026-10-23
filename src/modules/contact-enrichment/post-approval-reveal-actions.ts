@@ -75,6 +75,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { canSeeOfficialContact } from './candidate-scope.server';
 import type {
   OfficialContactPhoneRevealOfferView,
   OfficialContactPhoneRevealStartResult,
@@ -160,7 +161,12 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
   const actor = await resolveActor();
   return {
     actor,
-    loadContact: readOfficialContactForReveal,
+    // Alcance comercial: un contacto de una empresa ajena es, para este actor, inexistente —
+    // ningún camino de rescate o reveal llega a mirar su candidato ni a gastar por él.
+    loadContact: async (contactId) =>
+      (await canSeeOfficialContact(await createClient(), contactId))
+        ? readOfficialContactForReveal(contactId)
+        : null,
     countLiveOfficialPhones,
     countLiveCandidatePhones,
     // DURABLE RESUME — la lectura que hace RESUMIBLE la espera. Un SELECT de UNA columna: sin
