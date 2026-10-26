@@ -14,8 +14,8 @@ export const maxDuration = 150;
 const MAX_REQUEST_CHARS = IMPORT_AI_EXTRACTION_MAX_INPUT_CHARS * 5;
 
 const ERROR_MESSAGES: Record<string, string> = {
-  claude_not_configured: 'La lectura con IA necesita Claude activo en Configuración → IA.',
-  claude_quota_exhausted: 'Claude no tiene cuota disponible este mes. Pega una tabla o una lista, una empresa por línea.',
+  claude_not_configured: 'La lectura con IA no está activa. Pide a un administrador que la active en Configuración → IA.',
+  claude_quota_exhausted: 'La IA no tiene cuota disponible este mes. Pega una tabla o una lista, una empresa por línea.',
   output_too_long: 'El texto trae demasiadas empresas para leerlas de una vez. Pégalo en partes más pequeñas.',
 };
 

@@ -46,6 +46,7 @@ import {
   isStructuredCandidate,
   type ProspectCandidate,
 } from '@/modules/prospect-batches/types';
+import { mensajeDeError } from '@/lib/friendly-error';
 
 interface CandidateRowActionsProps {
   candidate: ProspectCandidate;
@@ -134,7 +135,7 @@ export function CandidateRowActions({
       setDuplicateReviewConfirmOpen(false);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al marcar duplicidad revisada');
+      toast.error(mensajeDeError(err, 'No se pudo marcar la duplicidad como revisada'));
     } finally {
       setLoading(false);
     }
@@ -150,7 +151,7 @@ export function CandidateRowActions({
       }
       toast.success(`"${candidate.name}" marcado como listo para aprobación`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al marcar como listo');
+      toast.error(mensajeDeError(err, 'No se pudo marcar como lista'));
     } finally {
       setLoading(false);
     }
@@ -161,7 +162,7 @@ export function CandidateRowActions({
     try {
       const result = await rollbackCandidateAccountConversionAction(candidate.id, rollbackReason);
       if (!result.ok) {
-        toast.error(result.error ?? 'Error al aplicar rollback');
+        toast.error(result.error ?? 'No se pudo deshacer la conversión');
         return;
       }
       toast.success(`Conversión de "${candidate.name}" revertida. La cuenta queda marcada como no operativa.`);
@@ -169,7 +170,7 @@ export function CandidateRowActions({
       setRollbackReason('');
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al aplicar rollback');
+      toast.error(mensajeDeError(err, 'No se pudo deshacer la conversión'));
     } finally {
       setLoading(false);
     }

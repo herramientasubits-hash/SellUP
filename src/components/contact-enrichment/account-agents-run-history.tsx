@@ -191,7 +191,7 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
             <dd className="font-medium tabular-nums text-foreground">{content.rawResultsCount ?? 0}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-muted-foreground">Reveal de teléfono</dt>
+            <dt className="text-muted-foreground">Teléfono revelado</dt>
             <dd className="font-medium text-foreground">
               {content.phoneRevealEnabled ? 'ejecutado' : 'no ejecutado'}
             </dd>
@@ -324,7 +324,7 @@ export function AccountAgentsRunHistory({ runs }: { runs: AccountContactEnrichme
   return (
     <SurfaceCard className="space-y-4">
       <SurfaceCardHeader
-        title="Runs de enriquecimiento de contactos"
+        title="Búsquedas de contactos"
         description="Historial de búsquedas y enriquecimientos ejecutados para esta cuenta. Esta vista es de solo lectura."
       />
       {runs.length === 0 ? (

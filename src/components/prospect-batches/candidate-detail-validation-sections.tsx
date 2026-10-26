@@ -28,6 +28,7 @@ import {
   type SheetValidationMetadata,
 } from './candidate-detail-helpers';
 import { Field, FieldGrid } from './candidate-detail-parts';
+import { formatUSD } from '@/lib/format-money';
 
 const RISK_SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -530,7 +531,7 @@ export function CandidateTechnicalDetailSection({
           {candidate.estimated_cost_usd !== null && Number(candidate.estimated_cost_usd) > 0 && (
             <Field
               label="Costo estimado"
-              value={`$${Number(candidate.estimated_cost_usd).toFixed(4)} USD`}
+              value={formatUSD(Number(candidate.estimated_cost_usd))}
               mono
             />
           )}

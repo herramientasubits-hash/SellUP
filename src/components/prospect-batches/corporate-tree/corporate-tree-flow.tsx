@@ -99,7 +99,7 @@ const CONFIRM_OPTIONS: readonly ChatQuestionOptionDetail[] = [
   {
     value: 'launch',
     label: 'Buscar el árbol',
-    description: 'Claude busca cada rama en la web (unos US$0,2 por rama, estimado). Apollo da las filiales con 1 crédito. No usa Lusha.',
+    description: 'La IA busca cada rama en la web (unos US$0,20 por rama, estimado) y la base de datos comercial aporta las filiales (1 crédito).',
   },
   { value: 'restart', label: 'Cambiar la empresa' },
 ];

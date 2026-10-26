@@ -130,7 +130,7 @@ export function RunResultSnapshot({
             : runResult.candidatesCount,
       ),
     },
-    { key: 'run-id', label: 'Run ID', value: runResult.runId },
+    { key: 'run-id', label: 'Referencia', value: runResult.runId },
   ];
 
   const existingRows: ChatCardRow[] = [
@@ -298,7 +298,7 @@ function LushaEmptyState({ result }: { result: LushaEnrichmentUiResult }) {
           rows: [
             { key: 'raw', label: 'Resultados brutos', value: String(result.rawResultsCount) },
             { key: 'credits', label: 'Créditos usados', value: String(result.creditsUsed ?? 0) },
-            { key: 'phone-reveal', label: 'Reveal de teléfono', value: 'no ejecutado' },
+            { key: 'phone-reveal', label: 'Teléfono revelado', value: 'no ejecutado' },
           ],
         }}
       />
@@ -336,7 +336,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
                 { key: 'results', label: 'Máximo de resultados a evaluar', value: '15' },
                 { key: 'email', label: 'Email corporativo', value: 'habilitado si está disponible' },
                 { key: 'phone', label: 'Teléfono', value: 'deshabilitado en esta fase' },
-                { key: 'phone-reveal', label: 'Reveal automático de teléfono', value: 'no disponible' },
+                { key: 'phone-reveal', label: 'Teléfono revelado automáticamente', value: 'no disponible' },
               ],
             }}
           />
@@ -394,7 +394,7 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
                 },
                 {
                   key: 'phone-reveal',
-                  label: 'Reveal automático de teléfono',
+                  label: 'Teléfono revelado automáticamente',
                   value: `~${g.phoneRevealCredits} créditos — ${
                     g.automaticPhoneRevealEnabled ? 'activado' : 'requiere confirmación'
                   }`,
@@ -549,7 +549,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
         { key: 'email', label: 'Email/básico', value: String(cost.actual_credits_email) },
         cost.phone_completion_enabled
           ? { key: 'phone', label: 'Teléfono', value: String(cost.actual_credits_phone) }
-          : { key: 'phone-reveal', label: 'Reveal automático de teléfono', value: 'no ejecutado' },
+          : { key: 'phone-reveal', label: 'Teléfono revelado automáticamente', value: 'no ejecutado' },
         {
           key: 'total',
           label: 'Total',

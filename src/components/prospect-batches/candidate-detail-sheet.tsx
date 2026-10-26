@@ -80,6 +80,7 @@ import {
   CandidateValidationDataSection,
   CandidateWebsiteVerificationSection,
 } from './candidate-detail-validation-sections';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 
 // ── Componente principal ───────────────────────────────────────
 
@@ -131,6 +132,7 @@ export function CandidateDetailSheet({
 }: CandidateDetailSheetProps) {
   // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
   useExclusivePanel('detail', open, () => onOpenChange(false));
+  const { isAdmin } = useNavAccess();
 
   const taxIdLookupState = useCandidateTaxIdLookup(candidate, onCandidateUpdated);
   const [activeTab, setActiveTab] = React.useState<string>('empresa');
@@ -774,8 +776,9 @@ export function CandidateDetailSheet({
               />
             )}
 
-            {/* Detalle técnico: identificadores, fechas y la traza de la búsqueda */}
-            <CandidateTechnicalDetailSection candidate={candidate} searchTrace={searchTrace} />
+            {/* Detalle técnico: identificadores, fechas y la traza de la búsqueda.
+                Solo administración: a quien vende un JSON crudo no le dice nada. */}
+            {isAdmin && <CandidateTechnicalDetailSection candidate={candidate} searchTrace={searchTrace} />}
           </TabsContent>
           <TabsContent value="asociaciones" className="flex-1 overflow-y-auto px-7 py-6 min-h-0 space-y-4">
             {activeTab === 'asociaciones' && (

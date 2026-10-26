@@ -10,6 +10,7 @@ import {
   TabsList,
   TabsTrigger,
   resolveTabsVariant,
+  tabsIndicatorClassName,
   tabsListVariants,
   tabsTriggerClassName,
   type TabsBadgeTone,
@@ -68,6 +69,41 @@ function gridStyle(fitContent: boolean, count: number): React.CSSProperties | un
   return fitContent ? undefined : { gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` };
 }
 
+/**
+ * El indicador de una tira que NAVEGA. Una tira de botones no tiene el
+ * `Tabs.Indicator` de Base UI, así que aquí se mide la pestaña activa y se
+ * escriben las mismas variables `--active-tab-*`: el indicador se ve y se
+ * desliza igual que en una tira que cambia de panel.
+ */
+function useNavIndicator(activeId: string) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const [vars, setVars] = React.useState<React.CSSProperties | null>(null);
+
+  React.useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const medir = () => {
+      const active = list.querySelector<HTMLElement>("[data-active]");
+      if (!active) return setVars(null);
+      setVars({
+        "--active-tab-left": `${active.offsetLeft}px`,
+        "--active-tab-top": `${active.offsetTop}px`,
+        "--active-tab-width": `${active.offsetWidth}px`,
+        "--active-tab-height": `${active.offsetHeight}px`,
+      } as React.CSSProperties);
+    };
+    medir();
+    // El ancho de una pestaña cambia con su contador o con la fuente al cargar.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(medir);
+    observer.observe(list);
+    for (const tab of Array.from(list.children)) observer.observe(tab);
+    return () => observer.disconnect();
+  }, [activeId]);
+
+  return { listRef, vars };
+}
+
 function TabBody({ tab }: { tab: TabItem }) {
   const Icon = tab.icon;
   return (
@@ -115,6 +151,17 @@ export const ThemaTabs = React.forwardRef<HTMLDivElement, ThemaTabsProps>(
   ) => {
     const listLayout = cn(fitContent ? "w-fit" : "grid w-full", listClassName);
 
+    // Una tira que navega espera a la nueva ruta para recibir su `activeTabId`.
+    // La marca se mueve YA, al pulsar, y se reconcilia cuando llega la ruta.
+    const [optimisticId, setOptimisticId] = React.useState(activeTabId);
+    const [lastActiveTabId, setLastActiveTabId] = React.useState(activeTabId);
+    if (lastActiveTabId !== activeTabId) {
+      setLastActiveTabId(activeTabId);
+      setOptimisticId(activeTabId);
+    }
+    const navActiveId = navigation ? optimisticId : activeTabId;
+    const { listRef, vars } = useNavIndicator(navActiveId);
+
     if (navigation) {
       const style = resolveTabsVariant(variant);
       return (
@@ -127,14 +174,15 @@ export const ThemaTabs = React.forwardRef<HTMLDivElement, ThemaTabsProps>(
           {...props}
         >
           <div
+            ref={listRef}
             data-slot="tabs-list"
             data-variant={style}
             aria-label={listLabel}
             className={cn(tabsListVariants({ variant: style }), listLayout)}
-            style={gridStyle(fitContent, tabs.length)}
+            style={{ ...gridStyle(fitContent, tabs.length), ...vars }}
           >
             {tabs.map((tab) => {
-              const isActive = tab.id === activeTabId;
+              const isActive = tab.id === navActiveId;
               return (
                 <button
                   key={tab.id}
@@ -142,13 +190,22 @@ export const ThemaTabs = React.forwardRef<HTMLDivElement, ThemaTabsProps>(
                   data-slot="tabs-trigger"
                   data-active={isActive ? "" : undefined}
                   aria-current={isActive ? "page" : undefined}
-                  onClick={() => onTabChange(tab.id)}
+                  onClick={() => {
+                    setOptimisticId(tab.id);
+                    onTabChange(tab.id);
+                  }}
                   className={tabsTriggerClassName}
                 >
                   <TabBody tab={tab} />
                 </button>
               );
             })}
+            <span
+              aria-hidden
+              data-slot="tabs-indicator"
+              hidden={vars === null}
+              className={tabsIndicatorClassName}
+            />
           </div>
         </div>
       );

@@ -563,6 +563,14 @@ describe('DataTable — dónde van las acciones y cómo se actúa sobre una fila
     assert.deepEqual(calls, [['edit:2']]);
   });
 
+  it('de fábrica (casillas) cada fila TAMBIÉN lleva su «⋯»: las acciones de una fila no dependen del clic derecho', async () => {
+    renderTable({ enableRowSelection: true, bulkActions, contextMenu, getRowLabel: (row) => row.name });
+    assert.ok(screen.getAllByRole('checkbox').length > 0);
+    fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme SA' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Editar' }));
+    assert.deepEqual(calls, [['edit:2']]);
+  });
+
   it('el menú contextual se engancha a la propia fila: sin <div> dentro del <tbody>', () => {
     renderTable({ enableRowSelection: true, contextMenu });
     assert.equal(document.querySelector('tbody > div'), null, 'HTML válido: nada entre <tbody> y <tr>');

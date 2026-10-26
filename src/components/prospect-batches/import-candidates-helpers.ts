@@ -449,7 +449,7 @@ const FIELD_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 const COMPLETION_NOTE =
-  'Lo que falte (sitio web, identificación fiscal, sector y tamaño) se completa al importar con las mismas herramientas del Agente 1. Revisa las filas antes de confirmar.';
+  'Lo que falte (sitio web, identificación fiscal, sector y tamaño) se completa al importar con las mismas herramientas de Rumbo. Revisa las filas antes de confirmar.';
 
 /** Aviso para la vista previa cuando lo que entró no venía en el formato oficial. */
 export function describeImportDetection(

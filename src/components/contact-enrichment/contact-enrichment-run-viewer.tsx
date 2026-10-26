@@ -20,6 +20,7 @@ import type {
   ContactEnrichmentRunDetail,
   ContactEnrichmentRunProviderUsage,
 } from '@/modules/contact-enrichment/run-viewer-types';
+import { formatUSD } from '@/lib/format-money';
 
 type StatusVariant = 'neutral' | 'brand' | 'positive' | 'negative' | 'warning';
 
@@ -60,7 +61,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
   return (
     <SurfaceCard className="space-y-4">
       <SurfaceCardHeader
-        title="Contexto del run"
+        title="Contexto de la búsqueda"
         actions={
           <Badge variant={statusBadge.variant}>
             {statusBadge.label}
@@ -106,7 +107,7 @@ function RunHeaderCard({ run }: { run: ContactEnrichmentRunDetail }) {
         <div className="space-y-0.5">
           <dt className="text-muted-foreground">Costo real</dt>
           <dd className="font-medium tabular-nums text-foreground">
-            {run.realCostUsd != null ? `US$ ${run.realCostUsd.toFixed(4)}` : 'No disponible'}
+            {formatUSD(run.realCostUsd, 'No disponible')}
           </dd>
         </div>
       </dl>
@@ -198,7 +199,7 @@ function LushaOutcomeCard({
             <dd className="font-medium tabular-nums text-foreground">{latestUsage?.creditsUsed ?? 0}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-muted-foreground">Reveal de teléfono</dt>
+            <dt className="text-muted-foreground">Teléfono revelado</dt>
             <dd className="font-medium text-foreground">
               {latestUsage?.phoneRevealEnabled ? 'ejecutado' : 'no ejecutado'}
             </dd>
