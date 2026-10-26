@@ -255,3 +255,21 @@ Decisión del 2026-10-05: **máximo 5 contactos por fuente**, sin otro cambio de
 | Apollo People Search | 3 intentos × 10 resultados (30) | 0 — la búsqueda no cobra |
 | Apollo people/match (completion) | 5 candidatos (antes 3) | ≤ 5 créditos de email; `maxCompletionCreditsPerRun` = 10 |
 | Lusha enrich | 5 (`LUSHA_MAX_CANDIDATES_PER_RUN`, sin cambios) | Igual que antes; ahora va primero a los perfiles de mayor seniority |
+
+## 10. Búsqueda de un contacto por LinkedIn (AGENT2A-LINKEDIN-CONTACT-SEARCH, 2026-10-26)
+
+Detrás de `CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED` (apagada). Una búsqueda = una persona.
+
+| Caso | Apollo | Lusha | Total |
+|---|---|---|---|
+| URL inválida o ya está en SellUp por su LinkedIn | 0 | 0 | **0** |
+| Apollo trae correo | 1 (`person_match`) | 0 | **1 crédito** |
+| Apollo sin datos → Lusha encuentra | 1 | `lusha_contact_search` (costo no mapeado: desconocido) + `lusha_contact_enrich` (lo que reporte Lusha) | **1 + Lusha** |
+| Apollo sin datos → Lusha no encuentra | 1 | `lusha_contact_search` (desconocido); no hay enrich | **1 + búsqueda Lusha** |
+| Crear el candidato (después de elegir empresa) | 0 | 0 | **0** |
+
+* Mismo registro de siempre: una fila de `provider_usage_logs` por llamada, `agent2a` /
+  `identificar_contacto`, sin la URL. Un costo que el proveedor no reporta queda `NULL` (§ 5);
+  el costo en USD también queda `NULL` (esta ruta sólo registra créditos).
+* No hace preflight de presupuesto antes de llamar; no agrega reglas.
+* El teléfono no se revela aquí: sigue el reveal (§ 1–4).

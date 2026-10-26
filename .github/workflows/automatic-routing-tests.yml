@@ -45,6 +45,12 @@ jobs:
       - name: Run automatic routing safety tests
         run: npm run test:agent2a:automatic-routing
 
+      # AGENT2A-LINKEDIN-CONTACT-SEARCH (F2) — buscar contacto por LinkedIn: normalización y
+      # rechazo de URLs, duplicado sin gasto, Apollo→Lusha, candidato sólo con empresa, run con
+      # account_id, hs_linkedin_url al crear con su reintento y la URL fuera de logs.
+      - name: Run Agent 2A LinkedIn contact search tests
+        run: npm run test:agent2a:linkedin-contact-search
+
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
       # invariant that a Lusha run never touches Apollo/Tavily and that with
       # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.

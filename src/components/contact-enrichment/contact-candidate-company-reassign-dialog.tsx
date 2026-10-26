@@ -8,25 +8,25 @@
  * operador elige una empresa y la acción del servidor la vuelve a confirmar por su id antes de
  * asociarla al candidato. No aprueba nada: después de reasignar, «Aprobar» sigue siendo un clic
  * aparte.
+ *
+ * El buscador vive en `company-search-picker.tsx` (F2 lo reutiliza para el contacto encontrado
+ * por LinkedIn).
  */
 
 import * as React from 'react';
-import { Building2, Globe, Loader2, Search } from '@/icons';
+import { Loader2, Search } from '@/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/forms/field';
-import { OptionTile } from '@/components/selection/option-tile';
 import { ModalShell } from '@/components/shared/modal-shell';
-// Por ruta y con tiempo límite: como acción del servidor quedaba en la fila de la pestaña.
-import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-company-client';
 import { reassignContactCandidateCompanyAction } from '@/modules/contact-enrichment/candidate-company-reassignment-actions';
 import type { CompanyReassignmentSelection } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
 import type {
   CompanyCandidate,
   PendingContactCandidate,
 } from '@/modules/contact-enrichment/types';
-import { buildResolveInput } from './contact-enrichment-chat-reducer';
+import { companyOptionKey, CompanySearchResults, useCompanySearch } from './company-search-picker';
 
 const GENERIC_EMAIL_DOMAINS = new Set([
   'gmail.com',
@@ -48,15 +48,7 @@ export function suggestReassignmentQuery(
 }
 
 /** Clave estable de una empresa en la lista de resultados. */
-export function reassignmentOptionKey(company: CompanyCandidate): string | null {
-  if (company.source === 'sellup' && company.sellupAccountId) {
-    return `sellup:${company.sellupAccountId}`;
-  }
-  if (company.source === 'hubspot' && company.hubspotCompanyId) {
-    return `hubspot:${company.hubspotCompanyId}`;
-  }
-  return null;
-}
+export const reassignmentOptionKey = companyOptionKey;
 
 /** Sólo se pueden elegir empresas reales de SellUp o HubSpot, nunca una «manual». */
 export function toReassignmentSelection(
@@ -69,15 +61,6 @@ export function toReassignmentSelection(
     return { source: 'hubspot', hubspotCompanyId: company.hubspotCompanyId };
   }
   return null;
-}
-
-function optionDescription(company: CompanyCandidate): string | undefined {
-  const parts = [
-    company.domain,
-    company.country,
-    company.hubspotCompanyId ? `HS: ${company.hubspotCompanyId}` : undefined,
-  ].filter((p): p is string => Boolean(p));
-  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 interface ContactCandidateCompanyReassignDialogProps {
@@ -99,45 +82,20 @@ export function ContactCandidateCompanyReassignDialog({
   // Cada apertura monta el diálogo con una `key` nueva (la pone la ficha), así que el estado
   // arranca limpio y con la sugerencia del candidato sin un efecto que lo reinicie.
   const [query, setQuery] = React.useState(() => suggestReassignmentQuery(candidate));
-  const [searching, setSearching] = React.useState(false);
-  const [searched, setSearched] = React.useState(false);
-  const [results, setResults] = React.useState<CompanyCandidate[]>([]);
-  const [hubspotSkipped, setHubspotSkipped] = React.useState(false);
-  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const companySearch = useCompanySearch();
+  const { searching, selectedKey, error, setError } = companySearch;
   const [submitting, setSubmitting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
 
   const busy = searching || submitting;
 
   async function handleSearch(event?: React.FormEvent) {
     event?.preventDefault();
-    const q = query.trim();
-    if (!q || busy) return;
-    setSearching(true);
-    setError(null);
-    setSelectedKey(null);
-    try {
-      const res = await resolveCompanyViaRoute({ ...buildResolveInput(q) });
-      if (!res.success || !res.data) {
-        setResults([]);
-        setError(res.error ?? 'No fue posible buscar la empresa.');
-      } else {
-        const selectable = res.data.candidates.filter((c) => reassignmentOptionKey(c) !== null);
-        setResults(selectable);
-        setHubspotSkipped(res.data.skippedHubSpot);
-        if (selectable.length === 1) setSelectedKey(reassignmentOptionKey(selectable[0]));
-      }
-    } catch {
-      setResults([]);
-      setError('No fue posible buscar la empresa. Intenta de nuevo.');
-    } finally {
-      setSearched(true);
-      setSearching(false);
-    }
+    if (!query.trim() || busy) return;
+    await companySearch.search(query);
   }
 
   async function handleConfirm() {
-    const company = results.find((c) => reassignmentOptionKey(c) === selectedKey);
+    const company = companySearch.selected;
     const selection = company ? toReassignmentSelection(company) : null;
     if (!selection || busy) return;
     setSubmitting(true);
@@ -205,56 +163,12 @@ export function ContactCandidateCompanyReassignDialog({
           </Button>
         </form>
 
-        {searching && (
-          <p className="text-xs text-muted-foreground">Buscando en SellUp y HubSpot…</p>
-        )}
-
-        {!searching && results.length > 0 && (
-          <div
-            role="radiogroup"
-            aria-label="Empresas encontradas"
-            className="flex max-h-72 flex-col gap-1.5 overflow-y-auto"
-          >
-            {results.map((company) => {
-              const key = reassignmentOptionKey(company) as string;
-              return (
-                <OptionTile
-                  key={key}
-                  option={{
-                    value: key,
-                    label: company.name,
-                    description: optionDescription(company),
-                    badge: company.source === 'sellup' ? 'SellUp' : 'HubSpot',
-                    icon: company.source === 'sellup' ? Building2 : Globe,
-                  }}
-                  selected={selectedKey === key}
-                  disabled={submitting}
-                  onSelect={setSelectedKey}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {!searching && searched && results.length === 0 && !error && (
-          <p className="text-xs text-muted-foreground">
-            No encontramos empresas con «{query.trim()}» en SellUp ni en HubSpot. Prueba con el
-            dominio o el HubSpot ID.
-          </p>
-        )}
-
-        {!searching && searched && hubspotSkipped && (
-          <p className="text-xs text-muted-foreground">
-            HubSpot no respondió en esta búsqueda: solo se muestran resultados de SellUp.
-          </p>
-        )}
-
-        {selectedKey?.startsWith('hubspot:') && (
-          <p className="text-xs text-muted-foreground">
-            Esta empresa aún no tiene cuenta en SellUp: se vinculará a la cuenta existente con el
-            mismo dominio o se creará una cuenta nueva al reasignar.
-          </p>
-        )}
+        <CompanySearchResults
+          state={companySearch}
+          query={query}
+          disabled={submitting}
+          hubspotSelectionNote="Esta empresa aún no tiene cuenta en SellUp: se vinculará a la cuenta existente con el mismo dominio o se creará una cuenta nueva al reasignar."
+        />
 
         {error && (
           <Alert variant="destructive">
