@@ -45,10 +45,13 @@ import type { ManualContactContext } from './contact-enrichment-chat-types';
 
 // ── Composer copy by step ──────────────────────────────────────────────────────
 
-function composerPlaceholder(step: ContactEnrichmentChatStep): string {
+/** F1 — lo que dice la caja en el modo «Por empresa» mientras espera la empresa. */
+export const COMPANY_MODE_PLACEHOLDER = 'Nombre o dominio de la empresa';
+
+export function composerPlaceholder(step: ContactEnrichmentChatStep, awaitCompanyPlaceholder?: string): string {
   switch (step) {
     case 'await_company':
-      return 'Escribe el nombre, dominio o HubSpot ID…';
+      return awaitCompanyPlaceholder ?? COMPANY_MODE_PLACEHOLDER;
     case 'resolving':
       return 'Buscando empresa…';
     case 'selecting_company':
@@ -108,6 +111,12 @@ function candidateKey(candidate: CompanyCandidate, index: number): string {
 /** Lo que la cabecera del panel del agente puede pedirle al asistente: empezar con otra empresa. */
 export type ContactEnrichmentChatWizardHandle = {
   reset: () => void;
+  /**
+   * F1 — si hay algo en curso que se pueda cancelar (el lote por Company IDs), lo cancela y
+   * devuelve true: el panel deja a la vista el resultado y NO abre todavía la conversación nueva.
+   * Devuelve false (o no existe) cuando no había nada que cancelar.
+   */
+  cancelInProgress?: () => boolean;
 };
 
 interface ContactEnrichmentChatWizardProps {
@@ -123,6 +132,8 @@ interface ContactEnrichmentChatWizardProps {
   onBusyChange?: (busy: boolean) => void;
   /** La búsqueda terminó con contactos para revisar. */
   onFoundContacts?: () => void;
+  /** F1 — texto de la caja mientras espera la empresa (por defecto, el de «Por empresa»). */
+  placeholder?: string;
 }
 
 export function ContactEnrichmentChatWizard({
@@ -132,6 +143,7 @@ export function ContactEnrichmentChatWizard({
   ref,
   onBusyChange,
   onFoundContacts,
+  placeholder,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
     contactEnrichmentChatReducer,
@@ -489,7 +501,7 @@ export function ContactEnrichmentChatWizard({
           value={composerUnlocked ? composerText : ''}
           onChange={setComposerText}
           onSend={handleSubmitCompany}
-          placeholder={composerPlaceholder(state.step)}
+          placeholder={composerPlaceholder(state.step, placeholder)}
           disabled={!composerUnlocked}
           maxLength={120}
           inputRef={composerInputRef}

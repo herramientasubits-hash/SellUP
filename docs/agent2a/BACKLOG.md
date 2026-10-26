@@ -56,6 +56,7 @@ Cada PR con su rama y su worktree desde `origin/main`, integración de a uno
 | C2 | Contactos sin email no llegan a HubSpot | R2-#6 | Regla de negocio | Media | Abierto (`blocked_no_email`) | Decisión 1 → Spec |
 | D1 | El lote sólo funciona con checkbox (máx. 10) | R2-#8 | Mejora | Baja | **Resuelto (#616).** Pendiente: cargar archivo y evaluar subir el tope de 10 | Verificar |
 | E1 | Al vincular un contacto existente no viajaban los datos de SellUp | Código | Bug | Alta | **Resuelto (#612).** Pendiente: backfill de los ya vinculados y enviar LinkedIn al crear | Fix |
+| F1 | Botones de modo con logos de HubSpot y LinkedIn; «Nueva conversación» siempre en «Por empresa» y cancela el lote en curso | Ventas 2026-10-26 | UX | Media | **En PR** (`fix/agent2a-search-mode-icons-and-reset`). Pendiente: subir los SVG oficiales a `public/brand/` | Verificar |
 | E2 | `docs/agent2a/` no reflejaba #362, #587, #602, #608, #612 ni #616 | Código | Docs | Media | **Este PR** | PR `docs:` |
 
 ---

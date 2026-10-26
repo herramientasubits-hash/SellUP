@@ -177,5 +177,8 @@ operativa vigente tiene regla **activa** para Apollo (`global`, mensual) y para 
 | Empresa creada en HubSpot después de la búsqueda (Tostadas Charras) | #602 | Reasignar a la empresa ya creada y aprobar | Aprueba y sincroniza con la empresa correcta | Pendiente |
 | Contacto que ya existía en HubSpot | #612 | Aprobar un candidato cuyo email ya está en HubSpot | `linked_existing` y sólo se llenan las propiedades vacías | Pendiente |
 | Lote de Company IDs | #616 | Pegar 3 IDs (uno inexistente) en el panel del agente | Reporte con 2 empresas procesadas y 1 en «Empresas no encontradas en HubSpot» | Pendiente |
+| Botones de modo | F1 | Abrir el panel del agente con la bandera de LinkedIn apagada y luego encendida | Apagada: sólo el logo de HubSpot. Encendida: HubSpot y LinkedIn; el activo se ve pulsado y tocarlo de nuevo vuelve a «Por empresa» | Pendiente |
+| «Nueva conversación» desde otro modo | F1 | En modo lote (o LinkedIn) escribir algo y pulsar «Nueva conversación» | Abre en «Por empresa», caja vacía con «Nombre o dominio de la empresa» | Pendiente |
+| Cancelar un lote | F1 | Pegar 3 Company IDs y pulsar «Nueva conversación» durante la primera empresa | La primera termina; la 2 y la 3 aparecen en «Empresas sin iniciar» sin registros en `provider_usage_logs`; reporte con la etiqueta «Cancelado»; los candidatos de la primera siguen en «Por revisar» | Pendiente |
 | Contactos enviados a revisión que no aparecen (2026-10-01) | — | Revisar el run en Supabase | Explicado por #587 o #608; si no, abrir fix | Pendiente (BACKLOG A4) |
 

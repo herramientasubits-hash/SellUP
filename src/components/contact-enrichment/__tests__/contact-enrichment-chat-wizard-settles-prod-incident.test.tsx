@@ -168,7 +168,7 @@ const FAKE_QUERY = 'Empresa Ficticia';
  */
 async function submitCompany(query: string = FAKE_QUERY): Promise<void> {
   const composer = screen.getByPlaceholderText(
-    /Escribe el nombre, dominio o HubSpot ID/i,
+    /Nombre o dominio de la empresa/i,
   ) as HTMLTextAreaElement;
 
   await act(async () => {
