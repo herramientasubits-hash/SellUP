@@ -58,9 +58,9 @@ describe('discard wrapper — exported shape', () => {
 });
 
 describe('discard wrapper — admin gate + eligibility', () => {
-  it('gates on isCurrentUserAdmin before touching data', () => {
-    assert.ok(WRAPPER_SRC.includes('isCurrentUserAdmin'));
-    const gateIdx = WRAPPER_SRC.indexOf('isCurrentUserAdmin');
+  it('gates on the candidate reviewer (admin, Growth or owner) before touching data', () => {
+    assert.ok(WRAPPER_SRC.includes('await canReviewCandidateId('));
+    const gateIdx = WRAPPER_SRC.indexOf('await canReviewCandidateId(');
     const delegateIdx = WRAPPER_SRC.indexOf('discardCandidate(');
     assert.ok(gateIdx > -1 && delegateIdx > gateIdx, 'admin gate must precede delegation');
   });
@@ -197,7 +197,7 @@ describe('discard wrapper — mandatory traceable reason (Q3F-5BB.11K-FIX)', () 
   });
 
   it('validates the reason AFTER the admin gate and BEFORE the delegation', () => {
-    const gateIdx = WRAPPER_SRC.indexOf('isCurrentUserAdmin');
+    const gateIdx = WRAPPER_SRC.indexOf('await canReviewCandidateId(');
     const reasonIdx = WRAPPER_SRC.indexOf('validateDiscardReason(');
     const delegateIdx = WRAPPER_SRC.indexOf('discardCandidate(');
     assert.ok(gateIdx > -1 && reasonIdx > -1 && delegateIdx > -1);

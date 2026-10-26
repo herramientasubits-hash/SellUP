@@ -700,7 +700,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // APOLLO-SAVED-CONTACT-PHONES-1 moves the ceiling to 155 (154 is public procurement, PR #774).
     // AGENT1-COMPETITOR-WATCH-1 moves the ceiling to 156 (table of followed Competitors references; no phones, contacts, budget or HubSpot).
     // AGENT1-CORPORATE-TREE-PHASE-C moves the ceiling to 157 (level columns on agent1_company_relationships; no phones, contacts, budget or HubSpot).
-    assert.equal(highest, 157, 'the repository ceiling is 157 — AGENT1-CORPORATE-TREE-PHASE-C, not CUT A');
+    // ROLE-GROWTH-1 moves the ceiling to 158 (the `growth` row in the roles catalog; no phones, contacts, budget or HubSpot).
+    assert.equal(highest, 158, 'the repository ceiling is 158 — ROLE-GROWTH-1, not CUT A');
     assert.deepEqual(
       files.filter((f) => f.startsWith('135')),
       ['135_agent1_lusha_prospecting_request_fence.sql'],

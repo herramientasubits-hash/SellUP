@@ -9,6 +9,7 @@ export const ROLE_LABELS: Readonly<Record<string, string>> = {
   seller_bd: 'Vendedor / BD',
   commercial_manager: 'Manager comercial',
   commercial_lead: 'Líder comercial',
+  growth: 'Growth',
 };
 
 /** El nombre del rol en español; si es uno nuevo sin nombre, la clave legible. */
