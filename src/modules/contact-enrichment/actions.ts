@@ -76,6 +76,7 @@ import {
 } from './request-attempt-resolution-core';
 import { createContactEnrichmentRequest } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-request-creator';
 import type { IntendedProvider, CompanyResolutionSource } from './request-attempt-types';
+import { requireCapability } from '@/modules/access/capabilities.server';
 
 // ── Auth helper (patrón idéntico a prospect-batches/actions.ts) ───────────────
 
@@ -1249,6 +1250,9 @@ export async function createBulkContactEnrichmentRunAction(
 ): Promise<CreateBulkContactEnrichmentRunActionResult> {
   try {
     const { internalUserId } = await requireActiveUserForEnrichment();
+    // Buscar contactos de muchas empresas a la vez es de Growth (y admin) con
+    // ENABLE_ROLE_CAPABILITIES; el BD busca los de cada empresa desde su ficha.
+    await requireCapability('enriquecerMasivo');
 
     if (!Array.isArray(accountIds) || accountIds.length === 0) {
       throw new Error('Se requiere al menos una cuenta');

@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { canReviewCandidateId, requireCandidateReviewer, requireCapability } from '@/modules/access/capabilities.server';
 import { evaluateConvertApproveEligibility, type ConvertApproveRejectReason } from '@/modules/prospect-review/approve-and-convert-eligibility';
 import { evaluateApproveEligibility } from '@/modules/prospect-review/approve-eligibility';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
@@ -282,7 +283,11 @@ async function resolveIsAdminForLegacyGate(): Promise<boolean> {
 }
 
 /**
- * AGENT1-AUDIT-WS4 — puerta admin DENTRO de las acciones canónicas de revisión
+ * AGENT1-AUDIT-WS4 — puerta admin de `convertCandidateToAccount` (sin llamadores
+ * en la UI). Aprobar, descartar y marcar duplicado ya no la usan: deciden con
+ * `requireCandidateReviewer` (admin, Growth o el dueño de la candidata).
+ *
+ * Historia: era la puerta DENTRO de las acciones canónicas de revisión
  * (aprobar, descartar, marcar duplicado). Antes sólo pedían `requireActiveUser`
  * y, al ser server actions importadas desde un componente cliente, cualquier
  * usuario activo podía invocarlas saltándose los envoltorios seguros de
@@ -1135,7 +1140,7 @@ export async function approveCandidate(
   options: { confirmPossibleDuplicate?: boolean } = {},
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  await requireCandidateReviewer(id);
   const supabase = await createClient();
 
   // ── Guardia server-side: rechaza si duplicate_status bloquea la aprobación ──
@@ -1216,7 +1221,7 @@ export async function approveCandidate(
 
 export async function discardCandidate(id: string, reason?: string): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  await requireCandidateReviewer(id);
   const supabase = await createClient();
 
   const { data: currentForDiscard } = await supabase
@@ -1452,7 +1457,7 @@ export async function markCandidateDuplicate(
   matchData: MarkDuplicateInput
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  await requireCandidateReviewer(id);
   const supabase = await createClient();
 
   const { data: currentForDup } = await supabase
@@ -2203,11 +2208,12 @@ export async function approveAndConvertCandidateAction(
 ): Promise<CandidateApprovalResult> {
   const { internalUserId } = await requireActiveUser();
 
-  // AGENT1-AUDIT-WS4 — puerta admin AQUÍ, no sólo en el envoltorio: esta server
+  // AGENT1-AUDIT-WS4 — puerta AQUÍ, no sólo en el envoltorio: esta server
   // action se publicaba al cliente y cualquier usuario activo podía llamarla.
-  const isAdmin = await isCurrentUserAdmin().catch(() => false);
-  if (!isAdmin) {
-    return buildApprovalFailure('No tienes permiso para aprobar prospectos.', 'not_allowed');
+  // Decide quien puede revisar ESTA candidata (`canReviewCandidateId`): admin
+  // y Growth sobre cualquiera; con ENABLE_ROLE_CAPABILITIES, también su dueño.
+  if (!(await canReviewCandidateId(id).catch(() => false))) {
+    return buildApprovalFailure('No tienes permiso para aprobar esta candidata.', 'not_allowed');
   }
 
   const supabase = await createClient();
@@ -3313,6 +3319,7 @@ export async function generateAIProspectBatch(
   input: GenerateAIBatchInput
 ): Promise<GenerateAIBatchResult> {
   const { internalUserId } = await requireActiveUser();
+  await requireCapability('prospectarMasivo');
 
   if (!input.country || !input.countryCode) {
     throw new Error('País requerido para la generación asistida');
@@ -3464,6 +3471,7 @@ export async function generateTavilyProspectBatch(
   input: GenerateTavilyBatchInput
 ): Promise<GenerateTavilyBatchResult> {
   const { internalUserId } = await requireActiveUser();
+  await requireCapability('prospectarMasivo');
 
   // AGENT1-AUDIT-WS4 — server action sin bandera ni tope de gasto: cualquier
   // usuario activo podía disparar Tavily. Su único llamador

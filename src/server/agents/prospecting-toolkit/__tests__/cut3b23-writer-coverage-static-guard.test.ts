@@ -433,7 +433,10 @@ const COMPETITOR_WATCHES_MIGRATION = '156_agent1_competitor_watches.sql';
 // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. No toca el
 // registro de identidad del lote ni la valla; se policía por CONTENIDO justo abajo del techo,
 // igual que la 156. AUTORADA y NO APLICADA.
-const REPOSITORY_CEILING = '157_agent1_company_relationships_levels.sql';
+const COMPANY_RELATIONSHIP_LEVELS_MIGRATION = '157_agent1_company_relationships_levels.sql';
+// ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos,
+// contactos, presupuesto ni HubSpot). Se policía por CONTENIDO igual que la 156 y la 157. AUTORADA y NO APLICADA.
+const REPOSITORY_CEILING = '158_growth_role.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -821,11 +824,11 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // CONTENIDO aquí mismo: no nombra ninguna tabla de CUT-3B23.
     // AGENT1-CORPORATE-TREE-PHASE-C lo movió a la 157 (columnas de nivel en
     // `agent1_company_relationships`), policiada por CONTENIDO igual que la 156.
-    assert.ok(last.startsWith('157'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('158'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(SAVED_CONTACT_PHONES_MIGRATION));
     assert.ok(migrations.includes(COMPETITOR_WATCHES_MIGRATION));
-    for (const policed of [COMPETITOR_WATCHES_MIGRATION, REPOSITORY_CEILING]) {
+    for (const policed of [COMPETITOR_WATCHES_MIGRATION, COMPANY_RELATIONSHIP_LEVELS_MIGRATION, REPOSITORY_CEILING]) {
       const policedSql = readFileSync(
         join(REPO_ROOT, 'supabase', 'migrations', policed),
         'utf8',

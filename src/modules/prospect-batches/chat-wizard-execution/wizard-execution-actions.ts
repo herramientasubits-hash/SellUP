@@ -202,6 +202,7 @@ import type {
   BudgetPeriodLookupClient,
   WizardBudgetPeriodSnapshot,
 } from './wizard-budget-reservations';
+import { checkCapability } from '@/modules/access/capabilities.server';
 import {
   estimateWizardTavilyMaxCredits,
   getPilotBudgetPeriodStart,
@@ -736,6 +737,12 @@ export async function executeProspectWizardGenerationAction(
   request: unknown,
 ): Promise<WizardExecutionActionResult> {
   const actionStartedAtMs = Date.now();
+  // La prospección masiva es de Growth (y admin) cuando ENABLE_ROLE_CAPABILITIES
+  // está encendida. Se comprueba ANTES de abrir progreso, presupuesto o proveedores.
+  const roleGate = await checkCapability('prospectarMasivo');
+  if (!roleGate.ok) {
+    return { ok: false, code: 'NOT_ALLOWED_FOR_ROLE', message: roleGate.message, retryable: false };
+  }
   const supabase = await createClient();
   // Budget operations need service_role: the RPC functions grant EXECUTE only to postgres/service_role,
   // and wizard_budget_reservations has no authenticated RLS policy.
