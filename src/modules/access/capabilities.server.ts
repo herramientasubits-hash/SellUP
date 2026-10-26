@@ -35,8 +35,12 @@ export type CapabilityCheck = { ok: true } | { ok: false; message: string };
 
 /** Comprueba una capacidad sin lanzar: para acciones que devuelven un resultado tipado. */
 export async function checkCapability(capability: Capability): Promise<CapabilityCheck> {
+  const enforced = isRoleCapabilitiesEnabled();
+  // Apagada, lo masivo es de cualquier usuario activo —y quien llama ya lo
+  // comprobó—: no se lee nada, así nada cambia respecto a antes de las reglas.
+  if (!enforced && capability !== 'revisarTodasLasCandidatas') return { ok: true };
   const access = await getAccessSnapshot();
-  return hasCapability(access, capability, { enforced: isRoleCapabilitiesEnabled() })
+  return hasCapability(access, capability, { enforced })
     ? { ok: true }
     : { ok: false, message: CAPABILITY_DENIED_MESSAGE[capability] };
 }
