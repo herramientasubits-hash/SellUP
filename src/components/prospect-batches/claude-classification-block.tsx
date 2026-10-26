@@ -123,7 +123,7 @@ export function ClaudeClassificationBlock({
   // reconoce por su contenedor, igual en cualquier pantalla.
   return (
     <AIPanel
-      title="Sugerencia de Claude"
+      title="Sugerencia de la IA"
       description="Clasificación propuesta a partir del sitio de la empresa."
     >
       {body}

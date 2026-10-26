@@ -76,7 +76,7 @@ export function RollbackBatchDialog({ batchId, batchName }: RollbackBatchDialogP
           id="rollback-reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Ej. QA rollback para lote structured de Agente 1..."
+          placeholder="Ej. La búsqueda trajo empresas fuera del sector pedido."
           disabled={loading}
           rows={3}
           className="resize-none"

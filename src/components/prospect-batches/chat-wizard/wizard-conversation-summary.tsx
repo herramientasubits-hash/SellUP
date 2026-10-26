@@ -613,11 +613,11 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         !isPersistenceBlocked && (
           <Alert variant="info" role={undefined} data-testid="wizard-competitor-search-notice">
             <AlertDescription className="text-xs leading-relaxed">
-              Claude buscará en la web empresas que compiten con la referencia y SellUp revisará cada una
+              La IA buscará en la web empresas que compiten con la referencia y SellUp revisará cada una
               (sitio, duplicados y tamaño) antes de entregarla. Si las primeras ya están en HubSpot, hace una
-              segunda ronda con empresas menos conocidas. Claude cuesta entre US$0,25 y US$0,50 por país. Si
-              aun así faltan empresas, busca en Apollo empresas parecidas a la referencia: hasta 3 créditos de
-              Apollo por país.
+              segunda ronda con empresas menos conocidas. La IA cuesta entre US$0,25 y US$0,50 por país. Si
+              aun así faltan empresas, busca en la base de datos comercial empresas parecidas a la referencia: hasta 3
+              créditos por país.
               {getSearchCountryCodes(state).length > 1
                 ? ` Se lanzará una búsqueda por país (${getSearchCountryCodes(state).length}); las verás en el Centro de procesos.`
                 : ''}
@@ -742,8 +742,8 @@ function SupplierValidatedPanel({
         <AlertDescription className="text-xs">
           {executionEnabled
             ? frequent
-              ? 'Buscaremos en las compras públicas empresas que le venden a 3 o más entidades del Estado, con el contrato como prueba. Leer las compras es gratis; si alguna no trae web, Claude la busca (unos centavos por empresa). Nada se aprueba solo.'
-              : `Claude buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
+              ? 'Buscaremos en las compras públicas empresas que le venden a 3 o más entidades del Estado, con el contrato como prueba. Leer las compras es gratis; si alguna no trae web, la IA la busca (unos centavos por empresa). Nada se aprueba solo.'
+              : `La IA buscará en la web empresas con evidencia pública de que le venden a ${reference}. Puede tardar un par de minutos; nada se aprueba solo.`
             : 'La generación real todavía no está habilitada.'}
         </AlertDescription>
       </Alert>

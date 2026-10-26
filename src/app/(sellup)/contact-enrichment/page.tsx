@@ -10,7 +10,7 @@ export default function ContactEnrichmentPage() {
     <div className="flex flex-col">
       <PageHeader
         title="Enriquecer contactos"
-        description="Busca una empresa de SellUp o HubSpot y prepara un run de enriquecimiento de contactos."
+        description="Busca una empresa de SellUp o HubSpot y busca sus contactos."
       />
       <ContactEnrichmentWizard />
     </div>

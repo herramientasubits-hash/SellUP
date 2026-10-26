@@ -69,7 +69,7 @@ export function ResearchBriefView({ brief, launcher, enabled, expired }: Researc
             ? 'El agente está leyendo su sitio oficial y sus noticias. Recarga en un momento.'
             : enabled
               ? 'El agente investiga qué hace, su tamaño, lo que le está pasando y cómo maneja su talento, con la fuente de cada dato. Luego prepara el primer contacto.'
-              : 'Cuando el Agente 3 esté activado verás aquí qué hace la empresa, su momento y sus señales de talento, cada dato con su fuente.'
+              : 'Cuando Rumbo esté activado verás aquí qué hace la empresa, su momento y sus señales de talento, cada dato con su fuente.'
         }
         action={running ? undefined : launcher}
       />
