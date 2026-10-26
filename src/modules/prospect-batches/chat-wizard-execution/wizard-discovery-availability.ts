@@ -213,6 +213,7 @@ export const EXECUTION_FAILURE_REASON_KINDS: Readonly<
   Record<WizardExecutionFailureCode, WizardUnavailableReasonKind>
 > = {
   EXECUTION_DISABLED: 'feature_disabled',
+  NOT_ALLOWED_FOR_ROLE: 'not_permitted',
   UNAUTHENTICATED: 'not_permitted',
   INACTIVE_USER: 'not_permitted',
   IDEMPOTENCY_CONFLICT: 'invalid_criteria',

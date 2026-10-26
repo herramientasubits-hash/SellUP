@@ -522,7 +522,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     const COMPETITOR_WATCHES_156 = '156_agent1_competitor_watches.sql';
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot).
     // No es de CUT3B4: no menciona `AGENT1-CUT3B4` y el barrido de abajo se ENSANCHA con la 156.
-    const CEILING = '157_agent1_company_relationships_levels.sql';
+    const COMPANY_RELATIONSHIP_LEVELS_157 = '157_agent1_company_relationships_levels.sql';
+    // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles). No es de CUT3B4.
+    const CEILING = '158_growth_role.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -551,6 +553,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       ENRICHMENT_JOBS_HARDENING_151,
       SAVED_CONTACT_PHONES_155,
       COMPETITOR_WATCHES_156,
+      COMPANY_RELATIONSHIP_LEVELS_157,
       CEILING,
     ]) {
       assert.equal(
@@ -579,7 +582,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 añade la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
     // AGENT1-COMPETITOR-WATCH-1 añade la 156 y el conteo sube con ella.
     // AGENT1-CORPORATE-TREE-PHASE-C añade la 157 y el conteo sube con ella.
-    assert.equal(migrations.length, 157);
+    assert.equal(migrations.length, 158);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

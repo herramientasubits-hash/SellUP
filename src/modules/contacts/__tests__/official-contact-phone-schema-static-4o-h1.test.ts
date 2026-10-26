@@ -264,7 +264,7 @@ describe('114 — numeración', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 157);
+    assert.equal(Math.max(...numbers), 158);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

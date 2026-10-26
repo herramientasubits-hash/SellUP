@@ -22,7 +22,11 @@ import {
  * `roleKey`, so additional access levels (e.g. team-scoped Uso de IA for
  * líder/manager) can be added to `canAccessNavItem` without touching callers.
  */
-export type NavAccess = "public" | "adminOnly";
+/**
+ * `growth`: the bulk-prospecting team (role `growth`, migration 158) plus
+ * admins. Sellers prospect by hand and never see bulk-prospecting modules.
+ */
+export type NavAccess = "public" | "adminOnly" | "growth";
 
 export interface NavItem {
   title: string;
@@ -184,6 +188,8 @@ export function canAccessNavItem(
       return true;
     case "adminOnly":
       return ctx.isAdmin;
+    case "growth":
+      return ctx.isAdmin || ctx.roleKey?.trim().toLowerCase() === "growth";
     default:
       return false;
   }

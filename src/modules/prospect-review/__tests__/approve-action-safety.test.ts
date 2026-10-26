@@ -109,7 +109,7 @@ describe('approve action — delegates write + audit', () => {
   });
 
   it('gates on admin before data and validates via eligibility', () => {
-    assert.ok(APPROVE_SRC.includes('isCurrentUserAdmin'));
+    assert.ok(APPROVE_SRC.includes('await canReviewCandidateId('));
     assert.ok(APPROVE_SRC.includes('evaluateApproveEligibility'));
   });
 

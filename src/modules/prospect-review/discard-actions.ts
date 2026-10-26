@@ -10,7 +10,7 @@
 // gates on `requireActiveUser` (any active user) and has no Prospectos-specific
 // eligibility contract. This wrapper HARDENS that path for Prospectos:
 //
-//   - admin gate (isCurrentUserAdmin) BEFORE touching data — same as the
+//   - reviewer gate (canReviewCandidateId: admin, Growth or the candidate's owner) BEFORE touching data — same as the
 //     approve wrappers, stronger than the legacy requireActiveUser.
 //   - Prospectos eligibility contract (clean production, needs_review, with a
 //     controlled idempotent no-op for an already-discarded row).
@@ -25,7 +25,7 @@
 // candidate as duplicate.
 
 import { revalidatePath } from 'next/cache';
-import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { canReviewCandidateId } from '@/modules/access/capabilities.server';
 import { createClient } from '@/lib/supabase/server';
 import { discardCandidate } from '@/modules/prospect-batches/actions';
 import {
@@ -87,8 +87,10 @@ export async function discardPendingReviewCandidateAction(
 ): Promise<DiscardActionResult> {
   try {
     // 1. Admin gate BEFORE touching data — hardens the legacy requireActiveUser.
-    const isAdmin = await isCurrentUserAdmin();
-    if (!isAdmin) return { ok: false, reason: 'not_allowed' };
+    // Admin y Growth deciden sobre cualquier candidata; con
+    // ENABLE_ROLE_CAPABILITIES, también su dueño (el BD que la trajo).
+    const allowed = await canReviewCandidateId(candidateId);
+    if (!allowed) return { ok: false, reason: 'not_allowed' };
 
     // 2. Valid id required.
     if (typeof candidateId !== 'string' || candidateId.length === 0) {
