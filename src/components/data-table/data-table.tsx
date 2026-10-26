@@ -234,7 +234,10 @@ function DataTableInner<TData>(
         enableColumnFilter: false,
       });
     }
-    if (usesRowMenu && contextMenu && !hasOwnActionsColumn) {
+    // El «⋯» va en cada fila siempre que la tabla tenga acciones, también con
+    // casillas: antes, en el modo de fábrica, las acciones de UNA fila solo
+    // existían con clic derecho, y nadie las encontraba.
+    if (contextMenu && !hasOwnActionsColumn) {
       trailing.push({
         id: ROW_MENU_COLUMN_ID,
         header: () => <span className="sr-only">Acciones</span>,
@@ -259,7 +262,6 @@ function DataTableInner<TData>(
     hasOwnActionsColumn,
     isLazy,
     usesCheckbox,
-    usesRowMenu,
   ]);
 
   // ── Orden, visibilidad y fijado: salen de la configuración ──────────────
@@ -415,7 +417,7 @@ function DataTableInner<TData>(
   };
 
   const rowMenuFor = (row: Row<TData>) =>
-    usesRowMenu && contextMenu ? (
+    contextMenu ? (
       <DataTableRowActions
         items={contextMenu.items(row.original)}
         rowLabel={getRowLabel?.(row.original)}

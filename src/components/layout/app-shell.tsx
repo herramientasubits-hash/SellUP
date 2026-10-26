@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SidebarProvider, useSidebar } from "@/components/layout/sidebar-context";
 import { ShellAgentPanelSlotProvider } from "@/components/layout/shell-agent-panel-slot";
+import { NavAccessProvider } from "@/components/layout/nav-access-context";
 import { AgentRunsProcessCenter } from "@/components/prospect-batches/agent-runs-tray/agent-runs-tray";
 import type { NavAccessContext } from "@/config/navigation";
 
@@ -87,8 +88,10 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
 
 export function AppShell(props: AppShellProps) {
   return (
-    <SidebarProvider>
-      <ShellLayout {...props} />
-    </SidebarProvider>
+    <NavAccessProvider value={props.navAccess}>
+      <SidebarProvider>
+        <ShellLayout {...props} />
+      </SidebarProvider>
+    </NavAccessProvider>
   );
 }
