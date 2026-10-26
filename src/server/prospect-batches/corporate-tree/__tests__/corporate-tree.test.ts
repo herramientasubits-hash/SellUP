@@ -1370,10 +1370,11 @@ describe('Z. Varias búsquedas del árbol a la vez (Prod 15-10: el «+» quedaba
     assert.match(wizard, /<CorporateTreeFlow[\s\S]{0,200}onRunningChange=\{onRunningChange\}/);
   });
 
-  it('la confirmación dice que Apollo usa 1 crédito', () => {
+  it('la confirmación dice que las filiales cuestan 1 crédito (sin nombrar al proveedor)', () => {
     const flow = readFileSync('src/components/prospect-batches/corporate-tree/corporate-tree-flow.tsx', 'utf8');
     assert.doesNotMatch(flow, /No usa créditos de Apollo/);
-    assert.match(flow, /Apollo da las filiales con 1 crédito/);
+    assert.match(flow, /aporta las filiales \(1 crédito\)/);
+    assert.doesNotMatch(flow, /Apollo da las filiales/);
   });
 });
 

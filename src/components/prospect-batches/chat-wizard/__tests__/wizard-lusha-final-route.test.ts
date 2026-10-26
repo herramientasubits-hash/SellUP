@@ -52,7 +52,7 @@ describe('aviso de «Competidores» en la pantalla final', () => {
     assert.doesNotMatch(summary, /No usa créditos de Apollo/);
   });
 
-  it('nombra el tope real: hasta 3 créditos de Apollo por país', () => {
-    assert.match(summary, /hasta 3 créditos de\s+Apollo por país/);
+  it('nombra el tope real: hasta 3 créditos por país (sin nombrar al proveedor ante el vendedor)', () => {
+    assert.match(summary, /hasta 3\s+créditos por país/);
   });
 });
