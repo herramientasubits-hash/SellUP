@@ -126,7 +126,7 @@ function ProspeccionDetail({ journey }: { journey: AccountJourney }) {
           <DetailItem label="Confianza">
             {orEmpty(confidence ? <span className="tabular-nums">{confidence}</span> : null, "Sin confianza")}
           </DetailItem>
-          <DetailItem label="Clasificación de Claude">
+          <DetailItem label="Clasificación con IA">
             {classificationText ? (
               <span className="flex flex-col gap-0.5">
                 <span>{classificationText}</span>

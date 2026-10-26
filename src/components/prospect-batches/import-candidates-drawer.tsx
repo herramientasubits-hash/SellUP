@@ -72,6 +72,7 @@ import {
   ImportMappingFooter,
   ImportPreviewFooter,
 } from './import-candidates-footer';
+import { mensajeDeError } from '@/lib/friendly-error';
 
 // El drawer se queda con el estado y las llamadas; cada paso pinta su pantalla
 // (`import-candidates-*-step.tsx`), el pie va en `import-candidates-footer.tsx`
@@ -393,7 +394,7 @@ export function ImportCandidatesDrawer({
       }
     } catch (err) {
       setClassificationError(err instanceof Error ? err.message : 'Error al clasificar');
-      toast.error(err instanceof Error ? err.message : 'Error al clasificar');
+      toast.error(mensajeDeError(err, 'No se pudieron clasificar los datos'));
       setStep('input');
     } finally {
       setLoadingClassification(false);
@@ -411,7 +412,7 @@ export function ImportCandidatesDrawer({
       return;
     }
     if (!selectedCountryCode) {
-      toast.error('Selecciona el país del lote antes de previsualizar.');
+      toast.error('Selecciona el país antes de previsualizar.');
       return;
     }
 
@@ -475,7 +476,7 @@ export function ImportCandidatesDrawer({
         setStep('classification');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al procesar los datos');
+      toast.error(mensajeDeError(err, 'No se pudieron leer los datos'));
     } finally {
       setLoadingPreview(false);
     }
@@ -631,7 +632,7 @@ export function ImportCandidatesDrawer({
       }
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al importar prospectos');
+      toast.error(mensajeDeError(err, 'No se pudieron importar las empresas'));
     } finally {
       setConfirming(false);
     }

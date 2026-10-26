@@ -57,7 +57,7 @@ export function CandidateRollbackConversionDialog({
           </AlertDescription>
         </Alert>
 
-        <Field label="Motivo del rollback" required>
+        <Field label="Motivo para deshacer" required>
           <Textarea
             value={reason}
             onChange={(e) => onReasonChange(e.target.value)}

@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Database, ExternalLink } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
@@ -65,6 +65,8 @@ export async function generateStaticParams() {
 }
 
 export default async function SourceDetailPage({ params }: Props) {
+  // Es un módulo de administración: el menú ya lo oculta, y la URL tampoco lo abre.
+  if (!(await isCurrentUserAdmin())) redirect('/pipeline');
   const { sourceKey } = await params;
   const { sources } = getSourceCatalogViewModel();
   const source = sources.find((s) => s.key === sourceKey);

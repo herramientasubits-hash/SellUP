@@ -367,7 +367,7 @@ export function CreateAccountDrawer({
         <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
           {users.length > 0 && (
             <Field
-              label="Owner / Responsable"
+              label="Responsable"
               description="Si no eliges a nadie, el responsable eres tú."
             >
               <Select

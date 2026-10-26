@@ -33,7 +33,7 @@ export function CompetitorWithoutWebsiteSection({ batchMetadata }: { batchMetada
                 Sin sitio web <span className="font-normal text-muted-foreground">({companies.length})</span>
               </span>
               <span className="block text-xs font-normal text-muted-foreground">
-                Claude las propuso pero no encontró su web: no entran a revisión. Búscalas si te interesan.
+                La IA las propuso pero no encontró su web: no entran a revisión. Búscalas si te interesan.
               </span>
             </span>
           </span>
