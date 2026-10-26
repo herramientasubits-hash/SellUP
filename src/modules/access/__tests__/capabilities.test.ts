@@ -8,7 +8,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   canReviewCandidate,
+  decideCandidateApproval,
   hasCapability,
+  hasDuplicateRisk,
   isGrowthRole,
   type AccessSnapshot,
 } from '../capabilities';
@@ -88,5 +90,41 @@ describe('Growth en el alcance y el menú', () => {
     assert.equal(canAccessNavItem(item, { isAdmin: false, roleKey: 'growth' }), true);
     assert.equal(canAccessNavItem(item, { isAdmin: true, roleKey: 'admin' }), true);
     assert.equal(canAccessNavItem(item, { isAdmin: false, roleKey: 'seller_bd' }), false);
+  });
+});
+
+describe('aprobar: el posible duplicado de un BD pasa a Growth', () => {
+  const deBd = { batchCreatedBy: 'u-bd' };
+  const limpia = { duplicateStatus: 'no_match', matchedHubSpotCompanyId: null };
+  const posible = { duplicateStatus: 'possible_duplicate' };
+  const enHubSpot = { duplicateStatus: 'no_match', matchedHubSpotCompanyId: 'hs-123' };
+
+  it('el riesgo es todo lo que no sea no_match limpio, o una coincidencia en HubSpot', () => {
+    assert.equal(hasDuplicateRisk(limpia), false);
+    assert.equal(hasDuplicateRisk(posible), true);
+    assert.equal(hasDuplicateRisk(enHubSpot), true);
+    assert.equal(hasDuplicateRisk({ duplicateStatus: 'related_company' }), true);
+  });
+
+  it('el BD aprueba su candidata limpia', () => {
+    assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, ON), { ok: true });
+  });
+
+  it('el BD NO aprueba su posible duplicado ni lo que ya está en HubSpot: lo decide Growth', () => {
+    assert.deepEqual(decideCandidateApproval(bd, deBd, posible, ON), { ok: false, reason: 'needs_growth_review' });
+    assert.deepEqual(decideCandidateApproval(bd, deBd, enHubSpot, ON), { ok: false, reason: 'needs_growth_review' });
+  });
+
+  it('Growth y admin aprueban aunque haya riesgo (con su confirmación de siempre)', () => {
+    assert.deepEqual(decideCandidateApproval(growth, deBd, posible, ON), { ok: true });
+    assert.deepEqual(decideCandidateApproval(admin, deBd, enHubSpot, ON), { ok: true });
+  });
+
+  it('lo ajeno sigue sin permiso, y apagada solo aprueba admin', () => {
+    assert.deepEqual(decideCandidateApproval(bd, { batchCreatedBy: 'u-otro' }, limpia, ON), {
+      ok: false,
+      reason: 'not_allowed',
+    });
+    assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, OFF), { ok: false, reason: 'not_allowed' });
   });
 });

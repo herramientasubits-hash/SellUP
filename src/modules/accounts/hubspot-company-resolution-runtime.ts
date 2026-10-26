@@ -54,7 +54,11 @@ export interface HubSpotCompanyResolutionDeps {
   checkCompanyMatch: (account: AccountForHubSpotResolution) => Promise<HubSpotCompanyMatchCheck>;
   createCompany: (
     account: AccountForHubSpotResolution,
-  ) => Promise<{ ok: true; hubspotCompanyId: string } | { ok: false; error: string }>;
+  ) => Promise<
+    | { ok: true; hubspotCompanyId: string }
+    /** `liveMatch`: la búsqueda en vivo antes de crear encontró la empresa — la decide una persona. */
+    | { ok: false; error: string; liveMatch?: HubSpotCompanyMatchCheck['match'] }
+  >;
   updateAccount: (
     accountId: string,
     patch: { hubspot_company_id?: string; metadata: Record<string, unknown> },
@@ -107,6 +111,16 @@ export async function resolveAccountHubSpotCompany(
 
   // classification.action === 'create'
   const createResult = await deps.createCompany(account);
+  if (!createResult.ok && createResult.liveMatch) {
+    await deps.updateAccount(accountId, {
+      metadata: buildPendingMatchReviewMetadata({
+        existing: account.metadata,
+        match: createResult.liveMatch,
+        nowIso: deps.nowIso,
+      }),
+    });
+    return { status: 'pending_review' };
+  }
   if (!createResult.ok) return { status: 'failed', reason: createResult.error };
 
   await deps.updateAccount(accountId, {

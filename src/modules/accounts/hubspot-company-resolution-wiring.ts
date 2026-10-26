@@ -10,7 +10,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
-import { createHubSpotCompany } from '@/server/integrations/hubspot-company-create';
+import { createHubSpotCompany, searchHubSpotCompaniesBeforeCreate } from '@/server/integrations/hubspot-company-create';
+import { runHubSpotPreCreateGuard } from '@/modules/prospect-batches/hubspot-precreate-guard';
+import { decideAccountPreCreate, type AccountPreCreateDecision } from './hubspot-account-precreate';
+import { buildPendingMatchReviewMetadata, readPendingHubSpotMatch } from './hubspot-company-resolution-state';
 import {
   resolveAccountHubSpotCompany,
   type AccountForHubSpotResolution,
@@ -63,9 +66,56 @@ async function loadAccountForHubSpotResolution(
   };
 }
 
+type CreateCompanyResult =
+  | { ok: true; hubspotCompanyId: string }
+  | { ok: false; error: string; liveMatch?: HubSpotCompanyMatchCheck['match'] };
+
+/** La coincidencia de la búsqueda en vivo, con la forma que guarda la revisión pendiente. */
+function toPendingMatch(
+  liveMatch: Extract<AccountPreCreateDecision, { error: 'blocked_duplicate' }>['liveMatch'],
+): NonNullable<HubSpotCompanyMatchCheck['match']> {
+  return {
+    hubspotCompanyId: liveMatch.hubspotCompanyId,
+    name: null,
+    domain: null,
+    matchMethod: liveMatch.matchedBy.join('+') || 'live_search',
+    confidence: 0,
+    reason: 'hubspot_live_match',
+  };
+}
+
+/** Empresas de HubSpot que una persona ya dijo que NO son esta cuenta. */
+function readRejectedHubSpotCompanyIds(metadata: Record<string, unknown> | null): string[] {
+  const raw = metadata?.hubspot_rejected_company_ids;
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : [];
+}
+
 async function createCompanyForAccount(
   account: AccountForHubSpotResolution,
-): Promise<{ ok: true; hubspotCompanyId: string } | { ok: false; error: string }> {
+  { rejectedCompanyIds = [] }: { rejectedCompanyIds?: readonly string[] } = {},
+): Promise<CreateCompanyResult> {
+  // La misma guarda que la aprobación de prospectos, justo antes del POST: liquidación,
+  // búsqueda en vivo por dominio/NIT/nombre y falla cerrada. Lo único que crea es un
+  // «no_match» explícito (o que sólo aparezcan empresas ya descartadas por una persona).
+  const decision = decideAccountPreCreate(
+    await runHubSpotPreCreateGuard(
+      {
+        name: account.name,
+        legalName: account.legalName,
+        domain: account.domain,
+        taxIdentifier: account.taxIdentifier,
+        countryCode: account.countryCode,
+      },
+      { liveDuplicateCheck: (query) => searchHubSpotCompaniesBeforeCreate(query) },
+    ),
+    { rejectedCompanyIds },
+  );
+  if (!decision.ok) {
+    return 'liveMatch' in decision
+      ? { ok: false, error: decision.error, liveMatch: toPendingMatch(decision.liveMatch) }
+      : { ok: false, error: decision.error };
+  }
+
   const result = await createHubSpotCompany({
     name: account.name,
     country: account.country,
@@ -156,5 +206,34 @@ export async function createHubSpotCompanyForAccountWired(
   const admin = createSupabaseAdminClient();
   const account = await loadAccountForHubSpotResolution(admin, accountId);
   if (!account) return { ok: false, error: 'account_unavailable' };
-  return createCompanyForAccount(account);
+
+  // La búsqueda en vivo sí corre, pero sin volver a bloquear por la empresa que la persona
+  // acaba de descartar. Si aparece OTRA, queda como la nueva revisión pendiente.
+  const pending = readPendingHubSpotMatch(account.metadata);
+  const rejected = [
+    ...new Set([
+      ...readRejectedHubSpotCompanyIds(account.metadata),
+      ...(pending ? [pending.hubspotCompanyId] : []),
+    ]),
+  ];
+  const result = await createCompanyForAccount(account, { rejectedCompanyIds: rejected });
+  if (!result.ok && result.liveMatch) {
+    const { error } = await admin
+      .from('accounts')
+      .update({
+        metadata: {
+          ...buildPendingMatchReviewMetadata({
+            existing: account.metadata,
+            match: result.liveMatch,
+            nowIso: new Date().toISOString(),
+          }),
+          hubspot_rejected_company_ids: rejected,
+        },
+      })
+      .eq('id', accountId);
+    if (error) {
+      console.error('[hubspot-company-resolution-wiring] pending match update failed', { accountId, error });
+    }
+  }
+  return result.ok ? result : { ok: false, error: result.error };
 }

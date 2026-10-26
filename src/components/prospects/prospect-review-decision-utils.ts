@@ -75,7 +75,9 @@ export const BLOCK_COPY: Record<ApproveRejectReason, string> = {
 // Q3F-5AZ.2E-1 convert-wrapper reasons (HubSpot-match confirm, approved-only
 // remediation, conversion failure).
 export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
-  not_allowed: 'No tienes permisos para aprobar prospectos.',
+  not_allowed: 'Solo puedes aprobar las candidatas que son tuyas.',
+  needs_growth_review:
+    'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.',
   not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
   not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
   status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
