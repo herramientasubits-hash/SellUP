@@ -77,6 +77,42 @@ export function canReviewCandidate(
   );
 }
 
+/** Lo que la revisión de duplicados dijo de una candidata. */
+export interface CandidateDuplicateSignals {
+  duplicateStatus?: string | null;
+  matchedHubSpotCompanyId?: string | null;
+}
+
+/**
+ * ¿Hay riesgo de llevar a HubSpot una empresa repetida? Todo lo que no sea un
+ * «no_match» limpio, o una coincidencia con una empresa de HubSpot.
+ */
+export function hasDuplicateRisk(signals: CandidateDuplicateSignals): boolean {
+  const status = signals.duplicateStatus?.trim().toLowerCase() ?? null;
+  return (status !== null && status !== 'no_match') || Boolean(signals.matchedHubSpotCompanyId);
+}
+
+export type CandidateReviewDecision =
+  | { ok: true }
+  | { ok: false; reason: 'not_allowed' | 'needs_growth_review' };
+
+/**
+ * ¿Puede APROBAR esta candidata? Igual que `canReviewCandidate`, con una regla
+ * más: el dueño que no es Growth ni admin solo aprueba lo limpio. Un posible
+ * duplicado o una empresa que ya está en HubSpot la decide Growth — así el
+ * mismo BD no confirma «no es duplicado» sobre lo suyo.
+ */
+export function decideCandidateApproval(
+  access: AccessSnapshot,
+  owner: CandidateOwnership,
+  signals: CandidateDuplicateSignals,
+  { enforced }: { enforced: boolean },
+): CandidateReviewDecision {
+  if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return { ok: true };
+  if (!canReviewCandidate(access, owner, { enforced })) return { ok: false, reason: 'not_allowed' };
+  return hasDuplicateRisk(signals) ? { ok: false, reason: 'needs_growth_review' } : { ok: true };
+}
+
 /** Lo que se le dice a quien intenta algo que no le toca. */
 export const CAPABILITY_DENIED_MESSAGE: Readonly<Record<Capability, string>> = {
   prospectarMasivo:
@@ -85,3 +121,7 @@ export const CAPABILITY_DENIED_MESSAGE: Readonly<Record<Capability, string>> = {
     'Buscar contactos de muchas empresas a la vez es del equipo de Growth. Puedes buscar los contactos de cada empresa desde su ficha.',
   revisarTodasLasCandidatas: 'Solo puedes decidir sobre las candidatas que son tuyas.',
 };
+
+/** Cuando un BD intenta aprobar un posible duplicado propio. */
+export const NEEDS_GROWTH_REVIEW_MESSAGE =
+  'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.';

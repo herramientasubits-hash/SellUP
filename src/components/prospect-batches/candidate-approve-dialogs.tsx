@@ -118,7 +118,7 @@ interface DuplicateReviewConfirmDialogProps extends CandidateConfirmDialogProps 
   candidateName: string;
 }
 
-/** Confirmación de que ya se revisaron duplicados en SellUp y HubSpot. */
+/** Confirmación antes de volver a correr la revisión de duplicados (SellUp + HubSpot). */
 export function DuplicateReviewConfirmDialog({
   open,
   onOpenChange,
@@ -131,25 +131,17 @@ export function DuplicateReviewConfirmDialog({
       open={open}
       onOpenChange={onOpenChange}
       icon={ShieldCheck}
-      title="Confirmar revisión de duplicados"
+      title="Volver a revisar duplicados"
       description={
         <>
-          Antes de aprobar <strong>{candidateName}</strong>, confirmá que verificaste posibles duplicados en
-          SellUp y HubSpot y que no existe un registro previo de esta empresa.
+          Se vuelve a buscar <strong>{candidateName}</strong> en SellUp y en HubSpot por NIT, dominio y nombre.
+          Si aparece una empresa igual o parecida, queda marcada y no pasa como limpia.
         </>
       }
-      confirmLabel="Sí, sin duplicados"
+      confirmLabel="Revisar ahora"
       loading={loading}
       onConfirm={onConfirm}
       className="sm:max-w-md"
-    >
-      <div className="space-y-1 text-sm text-muted-foreground">
-        <p className="font-medium text-foreground">¿Ya verificaste?</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Buscar la empresa en SellUp (Cuentas / Candidatos)</li>
-          <li>Buscar la empresa en HubSpot por nombre y NIT</li>
-        </ul>
-      </div>
-    </ConfirmDialog>
+    />
   );
 }
