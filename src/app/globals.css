@@ -381,10 +381,12 @@
 }
 
 /* El contenido de una pestaña al entrar: corto y bajo, para que cambiar de
-   pestaña se sienta continuo sin hacer esperar a nadie. */
+   pestaña se sienta continuo sin hacer esperar a nadie. Termina en
+   `transform: none` y no en translateY(0): un transform que se queda puesto
+   vuelve al panel el contenedor de cualquier barra `fixed` de dentro. */
 @keyframes su-tab-in {
   from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes su-slide-in-left {

@@ -27,6 +27,7 @@ import {
 } from "@/config/navigation";
 import { getVisibleSettingsSections } from "@/components/settings/settings-sections";
 import { createClient } from "@/lib/supabase/client";
+import { roleLabelFor } from "@/modules/access/role-labels";
 
 interface AppHeaderProps {
   user: User;
@@ -102,8 +103,7 @@ async function loadSearchObjects(): Promise<SearchObjectItem[]> {
 /** Cómo se nombra el rol en el chip de la cuenta. */
 function roleLabel({ isAdmin, roleKey }: NavAccessContext): string {
   if (isAdmin) return "Administrador";
-  if (!roleKey) return "Miembro";
-  return roleKey.charAt(0).toUpperCase() + roleKey.slice(1).replace(/_/g, " ");
+  return roleLabelFor(roleKey);
 }
 
 /**

@@ -13,18 +13,12 @@
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveCommercialScope } from './commercial-scope';
 import { flattenOrgGroups } from './group-tree';
+import { ROLE_LABELS } from './role-labels';
 
 function getAdminClient() {
   return createSupabaseAdminClient();
 }
 
-// Human-readable role labels (mirrors what roles are seeded in migration 001).
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Administrador',
-  seller_bd: 'Vendedor / BD',
-  commercial_manager: 'Manager comercial',
-  commercial_lead: 'Líder comercial',
-};
 
 export interface ScopeUserOption {
   id: string;

@@ -114,7 +114,7 @@ export function legacySourceCatalogRedirect(
 
 export const mainNavItems: NavItem[] = [
   {
-    title: "Pipeline SellUp",
+    title: "Pipeline",
     href: "/pipeline",
     icon: LayoutDashboard,
   },

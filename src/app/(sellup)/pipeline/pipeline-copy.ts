@@ -31,7 +31,7 @@ export const PIPELINE_DESCRIPTION =
  * El primer tramo de las migas: el mismo rótulo que el módulo en el menú
  * lateral (`mainNavItems`), para que la cabecera no repita la sección.
  */
-export const PIPELINE_CRUMB_LABEL = "Pipeline SellUp";
+export const PIPELINE_CRUMB_LABEL = "Pipeline";
 
 /** Lo que dice la nota del resumen mientras las etapas de la derecha no tengan empresas. */
 export const FUTURE_STAGES_NOTE = "Las etapas de Primer contacto a Cierre se activarán cuando existan sus agentes.";

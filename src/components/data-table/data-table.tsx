@@ -234,7 +234,10 @@ function DataTableInner<TData>(
         enableColumnFilter: false,
       });
     }
-    if (usesRowMenu && contextMenu && !hasOwnActionsColumn) {
+    // El «⋯» va en cada fila siempre que la tabla tenga acciones, también con
+    // casillas: antes, en el modo de fábrica, las acciones de UNA fila solo
+    // existían con clic derecho, y nadie las encontraba.
+    if (contextMenu && !hasOwnActionsColumn) {
       trailing.push({
         id: ROW_MENU_COLUMN_ID,
         header: () => <span className="sr-only">Acciones</span>,
@@ -259,7 +262,6 @@ function DataTableInner<TData>(
     hasOwnActionsColumn,
     isLazy,
     usesCheckbox,
-    usesRowMenu,
   ]);
 
   // ── Orden, visibilidad y fijado: salen de la configuración ──────────────
@@ -414,6 +416,9 @@ function DataTableInner<TData>(
     onRowReorder(next);
   };
 
+  // Vista «Lista»: cada pantalla pinta sus propias acciones en la fila y solo
+  // cambia al menú cuando la persona elige «Menú en cada fila». (En la vista
+  // tabla el «⋯» va siempre: ver la columna de acciones arriba.)
   const rowMenuFor = (row: Row<TData>) =>
     usesRowMenu && contextMenu ? (
       <DataTableRowActions

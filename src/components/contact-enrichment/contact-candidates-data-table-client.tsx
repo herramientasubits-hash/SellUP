@@ -777,13 +777,13 @@ export function ContactCandidatesDataTableClient({
       {
         id: 'company_hubspot_id',
         accessorFn: (row) => row.hubspot_company_id ?? '',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="HubSpot ID empresa" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Empresa en HubSpot" />,
         cell: ({ row }) => <HubspotCompanyIdCell candidate={row.original} portalId={hubspotPortalId} />,
         size: 150,
         minSize: 120,
         meta: {
-          label: 'HubSpot ID empresa',
-          popoverTitle: 'HubSpot ID empresa',
+          label: 'Empresa en HubSpot',
+          popoverTitle: 'Empresa en HubSpot',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
           disableFilter: true,
