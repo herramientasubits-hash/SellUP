@@ -100,7 +100,7 @@ export function CompetitorSmallCompaniesSection({
                       </Badge>
                     ) : (
                       <Badge variant="neutral">
-                        {company.origin === 'size_review' ? 'Tamaño según Claude' : 'Tamaño confirmado'}
+                        {company.origin === 'size_review' ? 'Tamaño según la IA' : 'Tamaño confirmado'}
                       </Badge>
                     )}
                     {company.candidateId && company.verifiedEmployees === undefined && (

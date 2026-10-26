@@ -382,7 +382,7 @@ export function AccountEditDrawer({
           {/* Asignación */}
           <DrawerSection title="Asignación" icon={User} contentClassName="space-y-4">
             {users.length > 0 && (
-              <Field label="Owner / Responsable">
+              <Field label="Responsable">
                 <Select
                   value={form.owner_id}
                   onValueChange={(v) => set('owner_id', v ?? '')}

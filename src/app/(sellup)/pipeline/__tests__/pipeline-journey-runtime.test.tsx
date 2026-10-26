@@ -536,7 +536,7 @@ describe('Pipeline · recorrido de una empresa', () => {
     const view = within(drawer);
     assert.ok(view.getByText('2. Enriquecimiento de contactos · Globex'));
     // El mismo historial de búsquedas que la pestaña «Agentes» de la empresa.
-    assert.ok(view.getByText('Runs de enriquecimiento de contactos'));
+    assert.ok(view.getByText('Búsquedas de contactos'));
     assert.ok(view.getByText('Completado'));
     const decisionMakers = within(view.getByRole('list', { name: 'Decisores de la empresa' }));
     assert.ok(decisionMakers.getByText('Luisa Gómez'));

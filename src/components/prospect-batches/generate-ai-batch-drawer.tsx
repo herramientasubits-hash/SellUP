@@ -78,6 +78,7 @@ import { Field, Row, getFlagEmoji } from '@/components/accounts/account-form-hel
 import { type SourceDiscoveryPreflightResult } from '@/server/agents/prospecting-toolkit/source-discovery-preflight';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
+import { mensajeDeError } from '@/lib/friendly-error';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -585,7 +586,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
       }
     } catch (err) {
       await stepsDone;
-      toast.error(err instanceof Error ? err.message : 'Error al generar prospectos');
+      toast.error(mensajeDeError(err, 'No se pudo lanzar la búsqueda'));
       setProgressSteps([]);
     } finally {
       updateDrawer('generating', false);
