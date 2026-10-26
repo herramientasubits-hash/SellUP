@@ -26,6 +26,7 @@ import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
+import { checkCapability } from '@/modules/access/capabilities.server';
 
 interface PageProps {
   searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
@@ -72,13 +73,15 @@ export default async function AccountsPage({ searchParams }: PageProps) {
 async function AccountsPanel() {
   // El agente «Generar con IA» es el mismo asistente de «Por revisar», resuelto
   // por la misma carga de servidor y en paralelo con los datos de la pestaña.
-  const [accounts, users, scopeFilterOptions, generateAgent, currentUser] = await Promise.all([
+  const [accounts, users, scopeFilterOptions, generateAgent, currentUser, enrichBulkCheck] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
     loadGenerateProspectsAgent(),
     getCurrentUser(),
+    checkCapability('enriquecerMasivo'),
   ]);
+  const canEnrichBulk = enrichBulkCheck.ok;
   // El siguiente paso de cada empresa (contactos, Agente 2 y Agente 3), en lotes.
   const nextSteps = await loadAccountNextSteps(accounts);
   const accountsWithSteps = accounts.map((account) => ({ ...account, next_step: nextSteps[account.id] }));
@@ -100,6 +103,7 @@ async function AccountsPanel() {
           users={users}
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
+          canEnrichBulk={canEnrichBulk}
           emptyActions={
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Link

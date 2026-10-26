@@ -166,7 +166,7 @@ export function CreateAccountDrawer({
         isControlled ? undefined : (
           <Button onClick={() => setOpen(true)} size="sm">
             <Plus className="h-4 w-4" />
-            Crear empresa
+            Agregar empresa
           </Button>
         )
       }

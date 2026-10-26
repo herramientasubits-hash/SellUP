@@ -177,6 +177,12 @@ interface AccountsDataTableClientProps {
   emptyActions?: React.ReactNode;
   /** Agente 3 encendido: la fila ofrece «Preparar primer contacto». */
   firstCallEnabled?: boolean;
+  /**
+   * ¿Puede buscar contactos de varias empresas a la vez? Es de Growth con las
+   * reglas por rol encendidas (el servidor lo bloquea igual); sin la capacidad
+   * se le explica que los busque empresa por empresa.
+   */
+  canEnrichBulk?: boolean;
 }
 
 export function AccountsDataTableClient({
@@ -185,6 +191,7 @@ export function AccountsDataTableClient({
   scopeFilterOptions,
   emptyActions,
   firstCallEnabled = false,
+  canEnrichBulk = true,
 }: AccountsDataTableClientProps) {
   const router = useRouter();
 
@@ -768,6 +775,12 @@ export function AccountsDataTableClient({
           if (rows.length === 1) {
             const row = rows[0];
             setEnrichCompany({ name: row.name, domain: row.domain, country: row.country, countryCode: row.country_code, sellupAccountId: row.id });
+            return;
+          }
+          if (!canEnrichBulk) {
+            toast.info('Buscar contactos de varias empresas a la vez es del equipo de Growth.', {
+              description: 'Abre cada empresa y busca sus contactos desde su ficha.',
+            });
             return;
           }
           setBulkEnrichAccounts(rows);
