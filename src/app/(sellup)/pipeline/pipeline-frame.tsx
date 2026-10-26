@@ -20,7 +20,7 @@ interface PipelineFrameProps {
   children?: ReactNode;
 }
 
-/** Las migas: con una empresa elegida, «Pipeline SellUp» es un enlace de vuelta al resumen. */
+/** Las migas: con una empresa elegida, «Pipeline» es un enlace de vuelta al resumen. */
 export function pipelineCrumbs(accountId: string | null, accountName?: string | null): readonly (string | BreadcrumbItem)[] {
   if (!accountId) return [PIPELINE_CRUMB_LABEL];
   return [{ label: PIPELINE_CRUMB_LABEL, href: "/pipeline" }, accountName ?? "Empresa"];

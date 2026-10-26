@@ -128,7 +128,7 @@ describe('Account Agents run history — inline expand, not navigation (Hito 17B
 
 describe('Account Agents run history — UX contract strings present', () => {
   it('component declares the read-only section title', () => {
-    assert.match(sources.runHistoryComponent, /Runs de enriquecimiento de contactos/);
+    assert.match(sources.runHistoryComponent, /Búsquedas de contactos/);
   });
 
   it('component declares the read-only description', () => {

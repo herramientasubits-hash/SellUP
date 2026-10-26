@@ -54,8 +54,8 @@ const NARROW_COLUMN_WIDTH = 176;
 /** Qué dice una columna bajo su nombre. */
 function columnDescription(stageId: PipelineStageId, count: number): string {
   if (!BOARD_STAGE_STATUS[stageId]) return stageCountNote(stageId, 0);
-  if (stageId === "enriquecimiento") return "El Agente 2A busca sus contactos.";
-  if (stageId === "primer_contacto") return "El Agente 3 investiga y prepara el primer contacto.";
+  if (stageId === "enriquecimiento") return "Rumbo busca sus contactos.";
+  if (stageId === "primer_contacto") return "Rumbo investiga y prepara el primer contacto.";
   return count === 0 ? "Agente próximamente · puedes moverlas aquí." : "Agente próximamente.";
 }
 

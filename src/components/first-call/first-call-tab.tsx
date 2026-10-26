@@ -301,7 +301,7 @@ export function FirstCallTab({
             ? 'El agente está leyendo su sitio oficial y sus noticias. Recarga en un momento.'
             : enabled
               ? 'Elige a quién contactar y por qué canales: el agente investiga la empresa y escribe qué decirle a cada decisor, con la fuente de cada dato.'
-              : 'Cuando el Agente 3 esté activado podrás preparar aquí el primer contacto con esta empresa.'
+              : 'Cuando Rumbo esté activado podrás preparar aquí el primer contacto con esta empresa.'
         }
         action={running ? undefined : mainLauncher ?? undefined}
       />

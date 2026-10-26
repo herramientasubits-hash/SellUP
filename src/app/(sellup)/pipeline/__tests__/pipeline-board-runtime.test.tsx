@@ -110,8 +110,8 @@ describe('PipelineBoard — columnas = las 7 etapas del proceso', () => {
       assert.equal(byName[name].style.width, '288px', name);
     }
     // «Primer contacto» (investigar y preparar, una sola etapa): la hace el Agente 3.
-    assert.ok(within(byName['Primer contacto']).getByText('El Agente 3 investiga y prepara el primer contacto.'));
-    assert.ok(within(byName['Enriquecimiento']).getByText('El Agente 2A busca sus contactos.'));
+    assert.ok(within(byName['Primer contacto']).getByText('Rumbo investiga y prepara el primer contacto.'));
+    assert.ok(within(byName['Enriquecimiento']).getByText('Rumbo busca sus contactos.'));
     assert.deepEqual(BOARD_STAGE_STATUS, { enriquecimiento: 'new', primer_contacto: 'ready_for_research' });
   });
 

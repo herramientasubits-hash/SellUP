@@ -11,6 +11,7 @@ import {
   type ClaudeClassifierActionResult,
 } from '@/modules/prospect-batches/claude-classifier-actions';
 import { CLASSIFIER_MAX_COMPANIES_PER_RUN } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates';
+import { formatUSD } from '@/lib/format-money';
 
 interface ClaudeClassifyBatchButtonProps {
   batchId: string;
@@ -19,15 +20,15 @@ interface ClaudeClassifyBatchButtonProps {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  disabled: 'El clasificador con Claude no está habilitado.',
+  disabled: 'La clasificación con IA no está habilitada.',
   unauthorized: 'Sólo un admin puede usar el clasificador.',
   invalid_batch: 'Lote inválido.',
-  model_not_configured: 'Configura Claude (Anthropic) como proveedor activo en Configuración → IA.',
-  quota_exhausted: 'La cuota mensual configurada para Anthropic está agotada.',
+  model_not_configured: 'Activa el proveedor de IA en Configuración → IA.',
+  quota_exhausted: 'La cuota mensual de la IA está agotada.',
   catalog_unavailable: 'No se pudo leer el catálogo de industrias.',
   candidates_unavailable: 'No se pudieron leer los candidatos del lote.',
   // AUDIT-HARDENING-1 — candado por lote (WS2 § 11): un segundo clic no paga dos veces.
-  in_progress: 'Ya hay una clasificación con Claude en curso para este lote. Espera a que termine.',
+  in_progress: 'Ya hay una clasificación con IA en curso para esta búsqueda. Espera a que termine.',
   lock_unavailable: 'No se pudo comprobar si ya hay una clasificación en curso. Inténtalo en un momento.',
 };
 
@@ -37,7 +38,7 @@ function describeResult(result: ClaudeClassifierActionResult): string {
   const pending = result.remaining > 0 ? ` · faltan ${result.remaining}: pulsa otra vez para seguir` : '';
   return (
     `${done} con sugerencia · ${result.nothingVerifiable} sin datos verificables · ` +
-    `${result.skipped} sin sitio accesible · costo estimado US$${result.estimatedCostUsd.toFixed(2)}${pending}`
+    `${result.skipped} sin sitio accesible · costo estimado ${formatUSD(result.estimatedCostUsd)}${pending}`
   );
 }
 
@@ -68,7 +69,7 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
       setOpen(false);
       router.refresh();
     } catch {
-      toast.error('Error inesperado al clasificar con Claude');
+      toast.error('No se pudo clasificar. Inténtalo de nuevo en un momento.');
     } finally {
       setLoading(false);
     }
@@ -85,10 +86,10 @@ export function ClaudeClassifyBatchButton({ batchId, eligibleCount }: ClaudeClas
         </Button>
       }
       icon={Sparkles}
-      title="¿Sugerir sector y tamaño con Claude?"
+      title="¿Sugerir sector y tamaño con IA?"
       description={
         <>
-          Claude leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
+          La IA leerá el sitio de {eligibleCount} candidato(s) «para revisión» a los que les falta sector o tamaño,
           y dejará una sugerencia con su fuente. Máximo {CLASSIFIER_MAX_COMPANIES_PER_RUN} por vez.
           Costo aproximado: US$0,01 a US$0,05 por empresa.
         </>

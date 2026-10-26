@@ -163,7 +163,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
     { id: 'contactos', label: 'Contactos', count: contacts.length },
     { id: FIRST_CALL_TAB_ID, label: 'Primer contacto', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
-    { id: 'agentes', label: 'Agentes', count: contactEnrichmentRuns.length + agent3RunsCount },
+    { id: 'agentes', label: 'Rumbo', count: contactEnrichmentRuns.length + agent3RunsCount },
   ];
 
   return (
