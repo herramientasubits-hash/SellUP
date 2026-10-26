@@ -4,7 +4,6 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { Button } from '@/components/ui/button';
-import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import {
@@ -60,6 +59,7 @@ import {
 // de presupuesto vigente. No reserva y no puede autorizar nada: sólo permite que
 // la pantalla avise antes de ofrecer un botón cuyo rechazo ya se conoce.
 import { resolveWizardBudgetPreflightForSurface } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
+import { checkCapability } from '@/modules/access/capabilities.server';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -116,7 +116,12 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // El asistente «Generar con IA», con todo lo que el servidor resolvió para
   // él (flags, catálogo, proveedor, topes, presupuesto). Es la MISMA carga que
   // usan las otras dos pestañas del módulo para su agente de IA.
-  const { generateDrawer, isGenerateAvailable } = await resolveGenerateProspectsAgent();
+  // Traer en masa (IA, archivo) es de Growth con las reglas por rol
+  // encendidas; apagadas, de cualquiera, como siempre.
+  const canProspectBulk = (await checkCapability('prospectarMasivo')).ok;
+  const { generateDrawer, isGenerateAvailable } = canProspectBulk
+    ? await resolveGenerateProspectsAgent()
+    : { generateDrawer: null, isGenerateAvailable: false };
 
   const sourceId = params.sourceId ?? null;
 
@@ -203,8 +208,9 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         // el servidor; si no puede ejecutarse, el agente lo dice en vez de
         // ofrecer «Generar con IA».
         <ProspectsScreenActions
-          generateDrawer={generateDrawer}
+          generateDrawer={generateDrawer ?? undefined}
           isGenerateAvailable={isGenerateAvailable}
+          canProspectBulk={canProspectBulk}
         />
       }
     >
@@ -218,16 +224,17 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         currentGroupId={params.groupId ?? ''}
         hasUrlFilters={hasUrlFilters}
         emptyActions={
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {generateDrawer}
-            <ImportCandidatesDrawer>
-              <Button type="button" variant="outline" size="sm">
-                <Upload aria-hidden="true" />
-                Importar un archivo
-              </Button>
-            </ImportCandidatesDrawer>
-            <CreateCandidateDrawer triggerText="Crear prospecto" triggerVariant="outline" />
-          </div>
+          canProspectBulk ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {generateDrawer}
+              <ImportCandidatesDrawer>
+                <Button type="button" variant="outline" size="sm">
+                  <Upload aria-hidden="true" />
+                  Importar un archivo
+                </Button>
+              </ImportCandidatesDrawer>
+            </div>
+          ) : undefined
         }
       />
     </DataTablePage>
@@ -338,6 +345,9 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
  * siempre.
  */
 export async function loadGenerateProspectsAgent(): Promise<GenerateProspectsAgent | null> {
+  // Sin la capacidad de prospectar en masa, la pestaña sale sin agente: el
+  // selector de Rumbo deja de ofrecer «Prospectar empresas».
+  if (!(await checkCapability('prospectarMasivo')).ok) return null;
   try {
     return await resolveGenerateProspectsAgent();
   } catch (error) {

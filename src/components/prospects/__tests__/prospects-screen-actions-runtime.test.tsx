@@ -1,7 +1,8 @@
 /**
  * ProspectsScreenActions — contrato RUNTIME. Las acciones de pantalla de «Por
- * revisar»: la IA a UN clic (el agente de la barra) e «Importar archivo» y
- * «Crear a mano» como acciones de pantalla, sin repetir la IA.
+ * revisar»: la IA a UN clic (el agente de la barra) e «Importar archivo» como
+ * acción de pantalla, sin repetir la IA. Crear a mano vive en Empresas («Agregar
+ * empresa»), con su revisión de duplicados.
  *
  * Protege lo mismo que protegía con el popover «Agregar prospectos»:
  *   1. Cada entrada abre SU panel y solo ese (nunca dos a la vez).
@@ -62,9 +63,13 @@ function FakeGenerateDrawer(props: PanelProps) {
   return <FakeGenerateDrawerView {...usePanelControl(props)} />;
 }
 
-function renderActions(isGenerateAvailable = true) {
+function renderActions(isGenerateAvailable = true, canProspectBulk = true) {
   return render(
-    <ProspectsScreenActions generateDrawer={<FakeGenerateDrawer />} isGenerateAvailable={isGenerateAvailable} />,
+    <ProspectsScreenActions
+      generateDrawer={<FakeGenerateDrawer />}
+      isGenerateAvailable={isGenerateAvailable}
+      canProspectBulk={canProspectBulk}
+    />,
   );
 }
 
@@ -87,13 +92,13 @@ const toolbarLabels = () =>
   visibleActionLabels(Array.from(screen.getByRole('toolbar').querySelectorAll<HTMLElement>('button')));
 
 describe('ProspectsScreenActions — la IA a un clic y dos acciones de pantalla', () => {
-  it('la barra ofrece importar, crear a mano y el agente de IA; ningún panel está abierto', () => {
+  it('la barra ofrece importar y el agente de IA; ningún panel está abierto', () => {
     renderActions();
 
-    assert.deepEqual(toolbarLabels(), ['Importar archivo', 'Crear a mano', 'Generar con Rumbo IA']);
+    assert.deepEqual(toolbarLabels(), ['Importar archivo', 'Generar con Rumbo IA']);
     assert.equal(screen.getByRole('button', { name: 'Generar con Rumbo IA' }).getAttribute('data-slot'), 'rail-agent');
     assert.deepEqual(openDialogs(), []);
-    assert.equal(screen.queryByText(/sin controlar/), null, 'los tres paneles se montan controlados, sin su botón');
+    assert.equal(screen.queryByText(/sin controlar/), null, 'los paneles se montan controlados, sin su botón');
   });
 
   it('ya no hay «Agregar prospectos»: la IA no se esconde tras un popover ni se repite', () => {
@@ -106,7 +111,6 @@ describe('ProspectsScreenActions — la IA a un clic y dos acciones de pantalla'
   for (const [action, panel] of [
     ['Generar con Rumbo IA', 'asistente de IA'],
     ['Importar archivo', 'importar'],
-    ['Crear a mano', 'crear a mano'],
   ] as const) {
     it(`«${action}» abre su panel con UN clic y solo ese; al cerrarlo la barra vuelve`, () => {
       renderActions();
@@ -132,9 +136,9 @@ describe('ProspectsScreenActions — búsqueda con IA no disponible', () => {
     assert.equal(agent.className.includes('bg-ai-gradient'), false);
     assert.equal(screen.queryByRole('button', { name: /Generar con Rumbo IA/ }), null);
     assert.equal(screen.queryByText('Generar con Rumbo IA'), null);
-    // Importar y crear a mano no dependen de la búsqueda: siguen disponibles.
+    // Importar no depende de la búsqueda: sigue disponible.
     assert.ok(screen.getByRole('button', { name: 'Importar archivo' }));
-    assert.ok(screen.getByRole('button', { name: 'Crear a mano' }));
+    assert.equal(screen.queryByRole('button', { name: 'Crear a mano' }), null);
   });
 
   it('abre el mismo panel del asistente, que es quien explica por qué', () => {
@@ -155,7 +159,7 @@ describe('ProspectsScreenActions — con las acciones «En la pantalla»', () =>
     assert.equal(screen.queryByRole('toolbar'), null);
     assert.deepEqual(
       screen.getAllByRole('button').map((button) => button.textContent),
-      ['Importar archivo', 'Crear a mano', 'Generar con Rumbo IA'],
+      ['Importar archivo', 'Generar con Rumbo IA'],
     );
   });
 
@@ -176,5 +180,16 @@ describe('ProspectsScreenActions — con las acciones «En la pantalla»', () =>
     assert.equal(screen.queryByText('Generar con Rumbo IA'), null);
     fireEvent.click(screen.getByRole('button', { name: 'Búsqueda no disponible' }));
     assert.deepEqual(openDialogs(), ['asistente de IA']);
+  });
+});
+
+describe('ProspectsScreenActions — un BD (sin prospección masiva)', () => {
+  it('no ofrece ni la IA ni importar: el BD agrega empresas a mano desde Empresas', () => {
+    renderActions(true, false);
+
+    assert.equal(screen.queryByRole('button', { name: /Generar con Rumbo IA/ }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Importar archivo' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Crear a mano' }), null);
+    assert.deepEqual(openDialogs(), []);
   });
 });

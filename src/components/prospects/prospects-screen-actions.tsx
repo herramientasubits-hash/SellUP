@@ -1,17 +1,24 @@
 'use client';
 
 import * as React from 'react';
-import { PenLine, Upload } from '@/icons';
+import { Upload } from '@/icons';
 
 import { RailScreenActions, type RailActionSpec } from '@/components/action-rail';
-import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { useGenerateProspectsAgentAction, type GenerateProspectsAgent } from './generate-prospects-agent';
 import { ControlledPanelSlot } from './controlled-panel-slot';
 
-type ProspectsScreenActionsProps = GenerateProspectsAgent;
+type ProspectsScreenActionsProps = Partial<GenerateProspectsAgent> & {
+  /**
+   * ¿Puede traer empresas en masa (IA, archivo)? Lo decide el servidor
+   * (`checkCapability('prospectarMasivo')`). Sin la capacidad —un BD con las
+   * reglas por rol encendidas— la pantalla no ofrece ninguna de las dos: el
+   * BD agrega empresas a mano desde Empresas.
+   */
+  canProspectBulk?: boolean;
+};
 
-type OpenPanel = 'generate' | 'import' | 'manual' | null;
+type OpenPanel = 'generate' | 'import' | null;
 
 /**
  * Lo que se puede hacer en «Por revisar» sin nada marcado. La IA está a UN
@@ -23,29 +30,32 @@ type OpenPanel = 'generate' | 'import' | 'manual' | null;
  * pantalla (o a la cabecera, con las acciones «En la pantalla») y monta los
  * paneles que abren, controlados desde aquí. Nunca hay dos abiertos a la vez.
  */
-export function ProspectsScreenActions({ generateDrawer, isGenerateAvailable }: ProspectsScreenActionsProps) {
+export function ProspectsScreenActions({
+  generateDrawer,
+  isGenerateAvailable = false,
+  canProspectBulk = true,
+}: ProspectsScreenActionsProps) {
   const [openPanel, setOpenPanel] = React.useState<OpenPanel>(null);
 
-  const agent = useGenerateProspectsAgentAction(isGenerateAvailable, () => setOpenPanel('generate'));
+  const generateAction = useGenerateProspectsAgentAction(isGenerateAvailable, () => setOpenPanel('generate'));
+  const agent = canProspectBulk && generateDrawer ? generateAction : null;
 
+  // Una sola manera de crear a mano en toda la app: «Agregar empresa» en
+  // Empresas, con su revisión de duplicados. Aquí solo se trae en masa.
   const actions = React.useMemo<RailActionSpec[]>(
-    () => [
-      {
-        id: 'import',
-        label: 'Importar archivo',
-        icon: <Upload aria-hidden="true" />,
-        scope: ['screen'],
-        onSelect: () => setOpenPanel('import'),
-      },
-      {
-        id: 'manual',
-        label: 'Crear a mano',
-        icon: <PenLine aria-hidden="true" />,
-        scope: ['screen'],
-        onSelect: () => setOpenPanel('manual'),
-      },
-    ],
-    [],
+    () =>
+      canProspectBulk
+        ? [
+            {
+              id: 'import',
+              label: 'Importar archivo',
+              icon: <Upload aria-hidden="true" />,
+              scope: ['screen'],
+              onSelect: () => setOpenPanel('import'),
+            },
+          ]
+        : [],
+    [canProspectBulk],
   );
 
   const closeIf = (panel: OpenPanel) => (isOpen: boolean) => {
@@ -56,9 +66,10 @@ export function ProspectsScreenActions({ generateDrawer, isGenerateAvailable }: 
   return (
     <>
       <RailScreenActions actions={actions} agent={agent} isBlocked={openPanel !== null} />
-      <ControlledPanelSlot panel={generateDrawer} open={openPanel === 'generate'} onOpenChange={closeIf('generate')} />
-      <ImportCandidatesDrawer open={openPanel === 'import'} onOpenChange={closeIf('import')} />
-      <CreateCandidateDrawer open={openPanel === 'manual'} onOpenChange={closeIf('manual')} />
+      {agent && generateDrawer && (
+        <ControlledPanelSlot panel={generateDrawer} open={openPanel === 'generate'} onOpenChange={closeIf('generate')} />
+      )}
+      {canProspectBulk && <ImportCandidatesDrawer open={openPanel === 'import'} onOpenChange={closeIf('import')} />}
     </>
   );
 }
