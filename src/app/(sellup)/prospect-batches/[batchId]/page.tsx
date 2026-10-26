@@ -249,9 +249,9 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Header */}
       <PageHeader
         breadcrumbs={
-          <Breadcrumbs items={[{ label: 'Prospectos', href: '/prospects' }, pageTitle]} />
+          <Breadcrumbs items={[{ label: 'Empresas', href: '/accounts' }, { label: 'Por revisar', href: '/accounts?tab=prospectos' }, pageTitle]} />
         }
-        backHref="/prospects"
+        backHref="/accounts?tab=prospectos"
         title={pageTitle}
         description={pageSubtitle}
         actions={
@@ -272,7 +272,9 @@ export default async function BatchDetailPage({ params }: Props) {
             {isAdmin && !isAgent1ClaudeRescueEnabled() && claudeEligibleCount > 0 && (
               <ClaudeClassifyBatchButton batchId={batch.id} eligibleCount={claudeEligibleCount} />
             )}
-            {batch.metadata?.batch_type === 'structured' &&
+            {/* Deshacer una búsqueda entera es una operación de administración. */}
+            {isAdmin &&
+              batch.metadata?.batch_type === 'structured' &&
               batch.metadata?.initiated_by === 'agent_1' &&
               batch.metadata?.source_key === 'co_rues' &&
               ['ready_for_review', 'preview', 'draft', 'in_review'].includes(batch.status) &&

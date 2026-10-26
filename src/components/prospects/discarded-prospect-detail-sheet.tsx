@@ -19,6 +19,7 @@ import {
   COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
   COMPETITOR_SMALL_STATUS_LABEL,
 } from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface DiscardedProspectDetailSheetProps {
   item: DiscardedProspectItem | null;
@@ -46,6 +47,7 @@ export function DiscardedProspectDetailSheet({
   onSendToReview,
   pending,
 }: DiscardedProspectDetailSheetProps) {
+  const { isAdmin } = useNavAccess();
   if (!item) return null;
 
   const isAlreadySent = item.status === 'sent_to_review';
@@ -124,16 +126,17 @@ export function DiscardedProspectDetailSheet({
               value={country ? `${countryFlag(item.countryCode)} ${country}`.trim() : null}
             />
             <DetailField label="Industria" value={item.industry} />
-            <DetailField label="Proveedor" value={item.sourcePrimary} />
+            <DetailField label="Fuente" value={item.sourcePrimary} />
             <DetailField label="Ronda u origen" value={item.roundOrigin ?? item.batchName} />
             <DetailField label="Motivo" value={reasonLabel} />
+            {/* El id solo le sirve a quien depura; para los demás basta con saber que existe. */}
             {item.resultingCandidateId && (
-              <DetailField label="Prospecto resultante" value={item.resultingCandidateId} />
+              <DetailField label="Candidata resultante" value={isAdmin ? item.resultingCandidateId : 'Enviada a revisión'} />
             )}
           </dl>
         </DrawerSection>
 
-        {evidenceEntries.length > 0 && (
+        {isAdmin && evidenceEntries.length > 0 && (
           <CollapsibleDrawerSection
             title="Evidencia guardada"
             icon={FileSearch}
