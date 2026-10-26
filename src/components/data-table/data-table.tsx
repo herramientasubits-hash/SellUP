@@ -416,8 +416,11 @@ function DataTableInner<TData>(
     onRowReorder(next);
   };
 
+  // Vista «Lista»: cada pantalla pinta sus propias acciones en la fila y solo
+  // cambia al menú cuando la persona elige «Menú en cada fila». (En la vista
+  // tabla el «⋯» va siempre: ver la columna de acciones arriba.)
   const rowMenuFor = (row: Row<TData>) =>
-    contextMenu ? (
+    usesRowMenu && contextMenu ? (
       <DataTableRowActions
         items={contextMenu.items(row.original)}
         rowLabel={getRowLabel?.(row.original)}
