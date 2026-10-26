@@ -43,7 +43,12 @@ export function PipelineFrame({ view, accountId, accountName, onViewChange, acti
       actions={actions}
       tabs={<PipelineViewTabs view={view} accountId={accountId} onViewChange={onViewChange} />}
     >
-      {children}
+      {/* Cada vista entra con el mismo fundido que el panel de una pestaña. La
+          `key` lo repite al cambiar de vista; el esqueleto y la pantalla son
+          marcos distintos, así que el paso de uno a otro también se suaviza. */}
+      <div key={view} className="flex min-h-0 flex-1 flex-col animate-su-tab-in">
+        {children}
+      </div>
     </DataTablePage>
   );
 }
