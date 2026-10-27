@@ -61,9 +61,11 @@ function SelectContent({
   children,
   side = "bottom",
   sideOffset = 4,
-  align = "center",
+  align = "start",
   alignOffset = 0,
-  alignItemWithTrigger = true,
+  // Se abre debajo del campo y anima como los menús (decisión 27-10-2026):
+  // alineada a la opción elegida, estilo Mac, Base UI no la anima.
+  alignItemWithTrigger = false,
   ...props
 }: SelectPrimitive.Popup.Props &
   Pick<

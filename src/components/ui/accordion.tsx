@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronUp } from "@/icons";
+import { ChevronDown } from "@/icons";
 
 function Accordion({
   className,
@@ -47,8 +47,7 @@ function AccordionTrigger({
         {...props}
       >
         {children}
-        <ChevronDown data-slot="accordion-trigger-icon" className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden" />
-        <ChevronUp data-slot="accordion-trigger-icon" className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline" />
+        <ChevronDown data-slot="accordion-trigger-icon" className="pointer-events-none shrink-0 transition-transform duration-200 ease-out group-aria-expanded/accordion-trigger:rotate-180" />
       </AccordionPrimitive.Trigger>
     </AccordionPrimitive.Header>
   );
@@ -62,12 +61,12 @@ function AccordionContent({
   return (
     <AccordionPrimitive.Panel
       data-slot="accordion-content"
-      className="overflow-hidden text-sm data-[open]:animate-su-accordion-down data-[closed]:animate-su-accordion-up"
+      className="h-(--accordion-panel-height) overflow-hidden text-sm transition-[height] duration-200 ease-out data-starting-style:h-0 data-ending-style:h-0"
       {...props}
     >
       <div
         className={cn(
-          "h-(--radix-accordion-content-height) pt-0 pb-2.5 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+          "pt-0 pb-2.5 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
           className
         )}
       >
