@@ -51,18 +51,19 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Radius — escala Thema (tema Azul). Monótona y anclada en el shell:
-     md (10px) es el radio de todo lo que se pulsa (botones, inputs, filas) y
-     2xl (16px) el de paneles y cards. Los pasos intermedios garantizan que una
-     card anidada siempre redondee un poco menos que el panel que la contiene.
-     xs 6 · sm 8 · md 10 · lg 12 · xl 14 · 2xl 16 · 3xl 24 · 4xl 32.
+  /* Radius — los roles de flux-ui (radius base 14px). Monótona y por rol:
+     md (12px) es el radio de todo lo que se pulsa (botones, inputs, filas), lg
+     (14px) el de menús y filas del menú lateral, y 2xl (20px) el de cards y
+     paneles, como la Card de flux-ui (radius × 1.4). Una card anidada siempre
+     redondea un poco menos que el panel que la contiene.
+     xs 6 · sm 10 · md 12 · lg 14 · xl 16 · 2xl 20 · 3xl 24 · 4xl 32.
      rounded-full se mantiene para pills y avatares. */
   --radius-xs: 0.375rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 0.875rem;
-  --radius-2xl: 1rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
   --radius-3xl: 1.5rem;
   --radius-4xl: 2rem;
 
@@ -86,11 +87,12 @@
   --color-ai-bg: var(--ai-bg);
   --color-ai-border: var(--ai-border);
 
-  /* Sombras Thema — teñidas en navy, nunca negro neutro.
-     card: reposo de cualquier superficie · drawer: paneles y diálogos ·
-     rail: barra de acciones flotante (lo único que flota sobre contenido vivo). */
-  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.03), 0 2px 6px rgb(15 23 42 / 0.02);
-  --shadow-drawer: 0 4px 16px rgb(15 23 42 / 0.12), 0 1px 4px rgb(15 23 42 / 0.05);
+  /* Sombras de flux-ui — mínimas y neutras.
+     card: el shadow-xs de las superficies en reposo · drawer: el shadow-md de
+     menús, popovers y paneles · rail: barra de acciones flotante (lo único que
+     flota sobre contenido vivo). */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-drawer: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-rail: 0 8px 30px rgb(15 23 42 / 0.24), 0 2px 8px rgb(15 23 42 / 0.12);
 
   /* SellUp — tokens semánticos de marca */
@@ -134,105 +136,104 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Light mode — tema "Azul" de Thema (~/Documents/Thema Shadcn, preset `thema`).
-   Valores generados con `themeToCss(findPreset("thema"), "md")`: azul clásico
-   #0C5BEF sobre neutros fríos teñidos con el matiz 222.
-   Lo que NO cambia con el tema, a propósito: positivo, negativo, warning, info
-   y la navegación navy. Son significado, no decoración.
+   Light mode — tema del playground de UX (@ubits/flux-ui, estilo vega).
+   Valores de `playground-ux/src/index.css` (con los ajustes de contraste AA
+   del 16 sep): fondo blanco, grises neutros (croma 0) y el azul UBITS
+   oklch(0.52 0.233 261.971). Se adoptó el 27-10-2026; antes era el tema «Azul»
+   de Thema (neutros teñidos de azul, #f7faff de fondo).
+   Lo que se queda de SellUp, a propósito:
+   · success y warning: SellUp usa el mismo token como relleno y como texto, y
+     los de flux-ui (emerald-500, yellow-500) no pasan AA como texto.
+   · destructive-foreground: aquí es el texto de lo que va sobre rojo sólido
+     (en flux-ui es texto rojo sobre su tinte).
+   · los colores de gráficos (flux-ui usa 5 tonos de un solo azul, que no
+     distinguen series), el degradado de IA y la navegación navy.
 ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Fondo de app — blanco con un punto de azul (#f7faff) */
-  --background: hsl(222 100% 98.5%);
-  --foreground: hsl(222 19% 23%);               /* #303646 títulos */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
 
-  /* Cards / superficies — blanco puro */
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(222 19% 23%);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(222 19% 23%);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
 
   /* Primary — siempre refleja su-brand */
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  /* Secondary / muted — superficie teñida (#f0f4ff) */
-  --secondary: hsl(222 100% 97%);
-  --secondary-foreground: hsl(222 19% 23%);
-  --muted: hsl(222 100% 97%);
-  --muted-foreground: hsl(222 10% 40%);         /* #5c6270 cuerpo y subtítulos */
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.535 0 0);
 
-  /* Accent — hover teñido de azul, coherente con el fondo */
-  --accent: hsl(222 28% 90%);
-  --accent-foreground: hsl(222 19% 23%);
+  /* Acento neutro: el hover y la fila marcada de los menús */
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
 
-  /* Destructive — negativo Thema (#E9343C) */
-  --destructive: hsl(357 80% 56%);
-  --destructive-foreground: hsl(0 0% 100%);
+  --destructive: oklch(0.51 0.21 27.325);
+  --destructive-foreground: oklch(1 0 0);
 
-  /* Estados semánticos (Alert, indicadores). Mismo verde que emerald-600,
-     para que un chip de tabla y una métrica nunca se lean como dos verdes. */
-  --info: hsl(225 83% 61%);                     /* #4A74EE */
+  /* Estados semánticos. info = el azul de información del tema UBITS. */
+  --info: oklch(0.46 0.15 247);
   --warning: hsl(27 100% 52%);                  /* #FF7B0D */
   --success: hsl(161.4 93.5% 30.4%);            /* #059669 */
 
-  /* Bordes — #cfd0d3 */
-  --border: hsl(222 4% 82%);
-  --input: hsl(222 4% 82%);
-  --ring: hsl(219 90.4% 49.2%);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.52 0.233 261.971);
 
-  /* Charts — del primario hacia el espectro frío */
-  --chart-1: hsl(219 90.4% 49.2%);
+  /* Charts — del primario hacia el espectro frío (se mantienen) */
+  --chart-1: oklch(0.52 0.233 261.971);
   --chart-2: hsl(262 83% 58%);
   --chart-3: hsl(199 89% 48%);
   --chart-4: hsl(161.4 93.5% 30.4%);
   --chart-5: hsl(27 100% 52%);
 
-  /* Radius base — 10px: el radio de todo lo que se pulsa */
-  --radius: 0.625rem;
+  /* Radius base de flux-ui — 14px */
+  --radius: 0.875rem;
 
-  /* Sidebar — riel claro de Thema: superficie de card con borde, ítem activo
-     en primario sobre tinte. (El navy queda disponible como bg-nav.) */
-  --sidebar: hsl(0 0% 100%);
-  --sidebar-foreground: hsl(222 19% 23%);
-  --sidebar-primary: hsl(219 90.4% 49.2%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(222 100% 97%);
-  --sidebar-accent-foreground: hsl(219 90.4% 49.2%);
-  --sidebar-border: hsl(222 14% 90%);
-  --sidebar-ring: hsl(219 90.4% 49.2% / 40%);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.588 0.235 261.971);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.52 0.233 261.971);
   --nav: hsl(222 47% 11%);
   --nav-foreground: hsl(222 12% 98%);
 
-  /* Superficies y texto extra de Thema */
-  --surface-muted: hsl(222 100% 97%);           /* #f0f4ff sección apagada */
-  --surface-subtle: hsl(222 100% 99%);          /* #fafbff hundida, bajo una card */
-  --tab-track: #ebeffa;                         /* pista de pestañas */
-  --text-muted: #989ca4;                        /* hints y placeholders */
-  --brand-hover: #0a4cc8;
-  --brand-pressed: #083da1;
+  /* Alias de Thema, ahora en los neutros de flux-ui (los usan cientos de clases) */
+  --surface-muted: oklch(0.97 0 0);             /* sección apagada = muted */
+  --surface-subtle: oklch(0.985 0 0);           /* hundida, bajo una card */
+  --tab-track: oklch(0.97 0 0);                 /* pista de pestañas = bg-muted */
+  --text-muted: oklch(0.68 0 0);                /* hints y placeholders */
+  --brand-hover: oklch(0.47 0.215 261.971);
+  --brand-pressed: oklch(0.42 0.19 261.971);
   --ai-bg: #f1f0ff;
   --ai-border: #9699fd;
 
-  /* Atmósfera de página — halo radial del primario detrás del contenido */
-  --page-atmosphere: radial-gradient(1400px 1000px at 12% -12%, rgb(12 91 239 / 0.1), transparent 70%);
-  --brand-gradient: linear-gradient(135deg, #4381f6 0%, #0c5bef 52%, #0a49be 100%);
+  /* El marco va plano, como el playground (antes un halo azul) */
+  --page-atmosphere: none;
+  --brand-gradient: linear-gradient(135deg, oklch(0.64 0.19 261.971) 0%, oklch(0.52 0.233 261.971) 52%, oklch(0.44 0.2 261.971) 100%);
 
   /* SellUp semantic tokens */
-  --su-brand: hsl(219 90.4% 49.2%);              /* #0C5BEF */
-  --su-brand-soft: hsl(219 90.4% 49.2% / 8%);
-  --su-brand-foreground: hsl(0 0% 100%);
-  --su-surface: hsl(222 100% 99%);
-  --su-surface-elevated: hsl(0 0% 100%);
-  --su-border-subtle: hsl(222 20% 91%);
-  --su-border-strong: hsl(222 6% 62%);           /* #989ca4 */
+  --su-brand: oklch(0.52 0.233 261.971);
+  --su-brand-soft: oklch(0.52 0.233 261.971 / 8%);
+  --su-brand-foreground: oklch(0.97 0.014 254.604);
+  --su-surface: oklch(0.985 0 0);
+  --su-surface-elevated: oklch(1 0 0);
+  --su-border-subtle: oklch(0.94 0 0);
+  --su-border-strong: oklch(0.708 0 0);
 
   /* Accent spectrum — alineado con los estados */
-  --su-accent-warm: hsl(357 80% 56%);            /* negativo */
-  --su-accent-cool: hsl(225 83% 61%);            /* info */
+  --su-accent-warm: oklch(0.51 0.21 27.325);     /* negativo */
+  --su-accent-cool: oklch(0.46 0.15 247);        /* info */
   --su-success: hsl(161.4 93.5% 30.4%);          /* positivo #059669 */
   --su-warning: hsl(27 100% 52%);                /* warning #FF7B0D */
 
-  /* AI gradient — 5 paradas del tema Azul (azul → violeta → magenta → naranja) */
+  /* AI gradient — 5 paradas (azul → violeta → magenta → naranja) */
   --su-ai-stop-1: #2d5cf7;
   --su-ai-stop-2: #9b14f5;
   --su-ai-stop-3: #f2024e;
@@ -246,83 +247,81 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Dark mode — tema "Azul" de Thema en oscuro: base navy profunda (#0d1321),
-   cards elevadas (#171f31) y azul más luminoso (#3865F5). Los neutros llevan
-   el matiz 222 con saturación 45: es el navy del tema, no un gris.
+   Dark mode — el oscuro del playground: grises neutros (fondo 0.145, tarjetas
+   0.205, menús #262626 como el tema UBITS de flux-ui) y el azul subido a 0.69
+   para que el texto azul pase AA; lo que va sobre azul lleva texto marino.
 ───────────────────────────────────────────────────────────────────────────── */
 .dark {
-  --background: hsl(222 45% 9%);                /* #0d1321 */
-  --foreground: hsl(222 6% 93%);                /* #ecedee */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
 
-  --card: hsl(222 36% 14%);                     /* #171f31 */
-  --card-foreground: hsl(222 6% 93%);
-  --popover: hsl(222 37% 17%);
-  --popover-foreground: hsl(222 6% 93%);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.985 0 0);
 
   --primary: var(--su-brand);
   --primary-foreground: var(--su-brand-foreground);
 
-  --secondary: hsl(222 31% 19%);                /* #212a3f */
-  --secondary-foreground: hsl(222 6% 93%);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
 
-  /* muted es la superficie hundida; el texto secundario sube a 64% para que
-     se lea sobre navy. */
-  --muted: hsl(222 47% 11%);
-  --muted-foreground: hsl(222 6% 64%);          /* #9ea1a9 */
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
 
-  --accent: hsl(222 47% 20%);                   /* hover / activo */
-  --accent-foreground: hsl(222 6% 93%);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
 
-  --destructive: hsl(357 72% 55%);
-  --destructive-foreground: hsl(0 0% 100%);
+  --destructive: oklch(0.78 0.15 22.216);
+  --destructive-foreground: oklch(0.145 0 0);
 
-  --info: hsl(225 90% 70%);
+  --info: oklch(0.74 0.13 247);
   --warning: hsl(38 94% 58%);
   --success: hsl(158 64% 52%);
 
-  --border: hsl(222 16% 29%);                   /* #3e4556 */
-  --input: hsl(222 16% 29%);
-  --ring: hsl(226 90.4% 59%);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.69 0.16 266.043);
 
-  --chart-1: hsl(226 90.4% 59%);
+  --chart-1: oklch(0.69 0.16 266.043);
   --chart-2: hsl(262 83% 68%);
   --chart-3: hsl(199 89% 58%);
   --chart-4: hsl(158 64% 52%);
   --chart-5: hsl(38 94% 58%);
 
-  --sidebar: hsl(222 36% 14%);
-  --sidebar-foreground: hsl(222 6% 93%);
-  --sidebar-primary: hsl(226 90.4% 59%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(222 31% 19%);
-  --sidebar-accent-foreground: hsl(226 90.4% 70%);
-  --sidebar-border: hsl(222 20% 22%);
-  --sidebar-ring: hsl(226 90.4% 59% / 45%);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.763 0.236 266.043);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.69 0.16 266.043);
   --nav: hsl(222 47% 11%);
   --nav-foreground: hsl(222 12% 98%);
 
-  --surface-muted: hsl(222 31% 19%);
-  --surface-subtle: hsl(222 47% 11%);
-  --tab-track: #10141e;
-  --text-muted: #6e727c;
-  --brand-hover: #5f83f7;
-  --brand-pressed: #86a1f9;
+  --surface-muted: oklch(0.269 0 0);
+  --surface-subtle: oklch(0.18 0 0);
+  --tab-track: oklch(0.269 0 0);
+  --text-muted: oklch(0.556 0 0);
+  --brand-hover: oklch(0.74 0.14 266.043);
+  --brand-pressed: oklch(0.78 0.12 266.043);
   --ai-bg: #1c1a33;
   --ai-border: #4c4ca9;
 
-  --page-atmosphere: radial-gradient(1400px 1000px at 12% -12%, rgb(56 101 245 / 0.18), transparent 70%);
-  --brand-gradient: linear-gradient(135deg, #7292f8 0%, #3865f5 52%, #0c42ee 100%);
+  --page-atmosphere: none;
+  --brand-gradient: linear-gradient(135deg, oklch(0.78 0.12 266.043) 0%, oklch(0.69 0.16 266.043) 52%, oklch(0.58 0.2 266.043) 100%);
 
-  --su-brand: hsl(226 90.4% 59%);                /* #3865F5 */
-  --su-brand-soft: hsl(226 90.4% 59% / 14%);
-  --su-brand-foreground: hsl(0 0% 100%);
-  --su-surface: hsl(222 36% 14%);
-  --su-surface-elevated: hsl(222 31% 19%);
-  --su-border-subtle: hsl(222 20% 22%);
-  --su-border-strong: hsl(222 10% 35%);
+  --su-brand: oklch(0.69 0.16 266.043);
+  --su-brand-soft: oklch(0.69 0.16 266.043 / 14%);
+  --su-brand-foreground: oklch(0.17 0.04 266.043);
+  --su-surface: oklch(0.205 0 0);
+  --su-surface-elevated: oklch(0.269 0 0);
+  --su-border-subtle: oklch(1 0 0 / 8%);
+  --su-border-strong: oklch(0.45 0 0);
 
-  --su-accent-warm: hsl(357 72% 55%);
-  --su-accent-cool: hsl(225 90% 70%);
+  --su-accent-warm: oklch(0.78 0.15 22.216);
+  --su-accent-cool: oklch(0.74 0.13 247);
   --su-success: hsl(158 64% 52%);
   --su-warning: hsl(38 94% 58%);
 
