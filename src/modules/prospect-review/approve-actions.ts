@@ -18,7 +18,7 @@
 // never the service-role admin client the read-only queue uses.
 
 import { revalidatePath } from 'next/cache';
-import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { checkCandidateApproval } from '@/modules/access/capabilities.server';
 import { createClient } from '@/lib/supabase/server';
 import { approveCandidate } from '@/modules/prospect-batches/actions';
 import {
@@ -35,7 +35,7 @@ export type ApproveActionResult =
   | { ok: true; status: 'idempotent_success' }
   | {
       ok: false;
-      reason: 'not_found' | 'not_allowed' | 'unexpected_error' | ApproveRejectReason;
+      reason: 'not_found' | 'not_allowed' | 'needs_growth_review' | 'unexpected_error' | ApproveRejectReason;
     };
 
 /**
@@ -50,8 +50,11 @@ export async function approvePendingReviewCandidateAction(
 ): Promise<ApproveActionResult> {
   try {
     // 1. Admin gate BEFORE touching data (phase-1 policy).
-    const isAdmin = await isCurrentUserAdmin();
-    if (!isAdmin) return { ok: false, reason: 'not_allowed' };
+    // Admin y Growth aprueban cualquier candidata; con ENABLE_ROLE_CAPABILITIES,
+    // también su dueño (el BD que la trajo), pero solo si está limpia: un posible
+    // duplicado o una empresa que ya está en HubSpot la decide Growth.
+    const approval = await checkCandidateApproval(candidateId);
+    if (!approval.ok) return { ok: false, reason: approval.reason };
 
     // 2. Valid id required.
     if (typeof candidateId !== 'string' || candidateId.length === 0) {

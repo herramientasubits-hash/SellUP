@@ -1,6 +1,6 @@
 /**
  * AccountsScreenActions + GenerateProspectsAgentActions — contrato RUNTIME.
- *   - «Empresas»: primaria «Crear empresa» + «Rumbo», que pregunta primero qué
+ *   - «Empresas»: primaria «Agregar empresa» + «Rumbo», que pregunta primero qué
  *     hacer (prospectar, buscar contactos o preparar el primer contacto; dueña 18-10).
  *   - «Descartadas»: solo el agente.
  *   («Por revisar» tiene su propia prueba: prospects-screen-actions-runtime.)
@@ -128,11 +128,11 @@ afterEach(() => {
   resetRailPreferences();
 });
 
-describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', () => {
-  it('la primaria sigue siendo «Crear empresa» y el agente cierra la barra', () => {
+describe('Empresas — «Agregar empresa» y el agente, que pregunta qué hacer', () => {
+  it('la primaria sigue siendo «Agregar empresa» y el agente cierra la barra', () => {
     renderAccounts();
 
-    assert.deepEqual(toolbarLabels(), ['Crear empresa', 'Buscar con Rumbo IA']);
+    assert.deepEqual(toolbarLabels(), ['Agregar empresa', 'Buscar con Rumbo IA']);
     assert.equal(screen.getByRole('button', { name: 'Buscar con Rumbo IA' }).getAttribute('data-variant'), 'ai');
     assert.equal(screen.queryByText(/sin controlar/), null, 'los paneles se montan controlados, sin su botón');
   });
@@ -178,10 +178,10 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
     }
   });
 
-  it('«Crear empresa» abre su panel y solo ese', () => {
+  it('«Agregar empresa» abre su panel y solo ese', () => {
     renderAccounts();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Crear empresa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar empresa' }));
 
     assert.deepEqual(openDialogs(), ['crear empresa']);
   });
@@ -209,14 +209,14 @@ describe('Empresas — «Crear empresa» y el agente, que pregunta qué hacer', 
     assert.equal(screen.queryByRole('button', { name: 'Preparar el primer contacto' }), null);
   });
 
-  it('con las acciones «En la pantalla»: «Crear empresa» rellena y el botón de IA al final', () => {
+  it('con las acciones «En la pantalla»: «Agregar empresa» rellena y el botón de IA al final', () => {
     window.localStorage.setItem(ACTIONS_PLACEMENT_KEY, 'inline');
     renderAccounts();
 
     assert.equal(screen.queryByRole('toolbar'), null);
     assert.deepEqual(
       screen.getAllByRole('button').map((button) => button.textContent),
-      ['Crear empresa', 'Buscar con Rumbo IA'],
+      ['Agregar empresa', 'Buscar con Rumbo IA'],
     );
     fireEvent.click(screen.getByRole('button', { name: 'Buscar con Rumbo IA' }));
     assert.deepEqual(openDialogs(), ['qué hacer']);

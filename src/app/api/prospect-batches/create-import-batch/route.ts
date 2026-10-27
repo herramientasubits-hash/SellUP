@@ -57,6 +57,7 @@ import {
   insertImportCandidateRows,
   type ImportCandidateInsertRow,
 } from '@/server/prospect-batches/import-candidate-bulk-insert';
+import { checkCapability } from '@/modules/access/capabilities.server';
 
 // AGENT1-AUDIT-WS5-IMPORT-DEADLINE-1 — 500 filas (inserción + validación con
 // búsqueda de NIT y HubSpot + rescate en `after()`) no caben en el límite por
@@ -162,6 +163,12 @@ export async function POST(request: NextRequest) {
 
     if (!internalUser) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
+    }
+
+    // Importar en masa es de Growth (y admin) con ENABLE_ROLE_CAPABILITIES.
+    const roleGate = await checkCapability('prospectarMasivo');
+    if (!roleGate.ok) {
+      return NextResponse.json({ error: roleGate.message }, { status: 403 });
     }
 
     const internalUserId = internalUser.id;

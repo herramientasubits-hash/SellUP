@@ -337,6 +337,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
       // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
       '157_agent1_company_relationships_levels.sql',
+      // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '158_growth_role.sql',
     ]);
   });
 

@@ -51,7 +51,7 @@ export function AccountsScreenActions({
     () => [
       {
         id: 'create-account',
-        label: 'Crear empresa',
+        label: 'Agregar empresa',
         icon: <Plus aria-hidden="true" />,
         scope: ['screen'],
         primary: true,

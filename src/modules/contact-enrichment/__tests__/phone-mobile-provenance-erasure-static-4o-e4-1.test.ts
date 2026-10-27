@@ -590,8 +590,10 @@ describe('4O-E4.1 estático — alcance', () => {
       // una tabla nueva `agent1_competitor_watches` (sólo service_role); no ASIGNA `mobile_phone`.
       // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
       // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice; no ASIGNA `mobile_phone`.
-      157,
-      'la 157 (las columnas de nivel del árbol de empresa, AGENT1-CORPORATE-TREE-PHASE-C; nunca escribe `mobile_phone`) es la última',
+      // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos,
+      // contactos, presupuesto ni HubSpot); no ASIGNA `mobile_phone`.
+      158,
+      'la 158 (el rol Growth en el catálogo de roles, ROLE-GROWTH-1; nunca escribe `mobile_phone`) es la última',
     );
   });
 

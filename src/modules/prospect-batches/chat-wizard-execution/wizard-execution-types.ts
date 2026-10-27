@@ -67,6 +67,8 @@ export type WizardExecutionErrorCode =
  */
 export const WIZARD_EXECUTION_FAILURE_CODES = [
   'EXECUTION_DISABLED',
+  // Rol: la prospección masiva es de Growth (ENABLE_ROLE_CAPABILITIES, migración 158).
+  'NOT_ALLOWED_FOR_ROLE',
   'UNAUTHENTICATED',
   'INACTIVE_USER',
   'INVALID_REQUEST',

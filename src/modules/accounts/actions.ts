@@ -7,6 +7,14 @@ import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
 import { revalidatePath } from 'next/cache';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { findExistingAccountForCandidate } from '@/modules/prospect-batches/approval-idempotency';
+import { checkHubSpotCompanyCommercialStatus } from '@/server/agents/prospecting-toolkit/hubspot-commercial-checker';
+import {
+  decideManualAccountHubSpot,
+  manualAccountIdentityError,
+  MANUAL_ACCOUNT_MESSAGES,
+} from './manual-account-checks';
 import {
   partitionByCurrentOwner,
   validateAssignmentRequest,
@@ -383,6 +391,78 @@ export async function createAccount(
   });
 
   return { success: true, id: data.id };
+}
+
+// ============================================================
+// addAccountManually — «Agregar empresa» con revisión de duplicados
+// ============================================================
+
+/**
+ * Lo que usa el drawer «Agregar empresa». Antes de crear: exige sitio web o NIT, busca la
+ * empresa en SellUp (NIT + país o dominio, la misma búsqueda de la aprobación de
+ * prospectos, sobre TODAS las cuentas, no sólo las que el usuario ve) y en HubSpot. Lo que
+ * ya existe no se duplica: se ofrece abrirla o se vincula a la empresa de HubSpot.
+ */
+export async function addAccountManually(
+  input: CreateAccountInput,
+): Promise<
+  | { success: true; id: string; notice: string | null }
+  | { success: false; error: string; existingAccountId?: string }
+> {
+  await requireActiveUser();
+
+  const name = input.name.trim();
+  if (!name) return { success: false, error: 'El nombre es requerido' };
+  const domain = input.website ? extractDomain(input.website) : null;
+  const taxIdentifier = input.tax_identifier?.trim() || null;
+  const countryCode = input.country_code?.trim() || null;
+
+  const identityError = manualAccountIdentityError({ domain, taxIdentifier });
+  if (identityError) return { success: false, error: identityError };
+
+  const existing = await findExistingAccountForCandidate(createSupabaseAdminClient(), {
+    tax_identifier: taxIdentifier,
+    country_code: countryCode,
+    domain,
+  });
+  if (existing) {
+    // Sólo se ofrece abrirla si quien agrega puede verla.
+    const visible = await getAccountById(existing.accountId);
+    return visible
+      ? {
+          success: false,
+          error: MANUAL_ACCOUNT_MESSAGES.existsVisible(visible.name),
+          existingAccountId: visible.id,
+        }
+      : { success: false, error: MANUAL_ACCOUNT_MESSAGES.existsOtherSeller };
+  }
+
+  let hubspot: ReturnType<typeof decideManualAccountHubSpot>;
+  try {
+    hubspot = decideManualAccountHubSpot(
+      await checkHubSpotCompanyCommercialStatus({ name, domain, taxId: taxIdentifier, countryCode }),
+    );
+  } catch (err) {
+    console.error('[addAccountManually] HubSpot check failed:', err instanceof Error ? err.message : err);
+    hubspot = { kind: 'create', notice: MANUAL_ACCOUNT_MESSAGES.hubspotUnavailable };
+  }
+  if (hubspot.kind === 'block') return { success: false, error: hubspot.error };
+
+  const created = await createAccount(input);
+  if (!created.success) return created;
+
+  if (hubspot.kind === 'link') {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from('accounts')
+      .update({ hubspot_company_id: hubspot.hubspotCompanyId })
+      .eq('id', created.id);
+    if (error) {
+      console.error('[addAccountManually] link HubSpot failed:', error.message);
+      return { success: true, id: created.id, notice: MANUAL_ACCOUNT_MESSAGES.hubspotPossible };
+    }
+  }
+  return { success: true, id: created.id, notice: hubspot.notice };
 }
 
 // ============================================================

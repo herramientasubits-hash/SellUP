@@ -28,6 +28,7 @@ describe('roleLabelFor', () => {
   it('nombra los roles en español, nunca con la clave cruda', () => {
     assert.equal(roleLabelFor('seller_bd'), 'Vendedor / BD');
     assert.equal(roleLabelFor('commercial_manager'), 'Manager comercial');
+    assert.equal(roleLabelFor('growth'), 'Growth');
   });
 
   it('sin rol es «Miembro»', () => {

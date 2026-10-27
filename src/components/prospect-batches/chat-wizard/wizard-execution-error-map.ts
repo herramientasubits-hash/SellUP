@@ -81,6 +81,7 @@ export const EXECUTION_ERROR_MESSAGES: Readonly<
   Record<WizardExecutionFailureCode, ExecutionErrorPresentation>
 > = {
   EXECUTION_DISABLED:              { message: 'La generación con IA no está habilitada en este momento.',                           retryable: false },
+  NOT_ALLOWED_FOR_ROLE:            { message: 'La prospección masiva es del equipo de Growth. Desde tu vista puedes agregar empresas a mano y buscar sus contactos.', retryable: false },
   UNAUTHENTICATED:                 { message: 'Tu sesión expiró. Vuelve a iniciar sesión para continuar.',                          retryable: false },
   INACTIVE_USER:                   { message: 'Tu usuario no está activo para generar prospectos.',                                 retryable: false },
   IDEMPOTENCY_CONFLICT:            { message: 'Esta búsqueda ya se había enviado. Revisa los prospectos antes de generar otra.',   retryable: false },

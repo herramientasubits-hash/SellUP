@@ -7,6 +7,8 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { approvalDeniedMessage, checkCandidateApproval, checkCapability, requireCandidateReviewer, requireCapability } from '@/modules/access/capabilities.server';
+import { decideDuplicateRecheck, DUPLICATE_RECHECK_MESSAGES } from './duplicate-recheck';
 import { evaluateConvertApproveEligibility, type ConvertApproveRejectReason } from '@/modules/prospect-review/approve-and-convert-eligibility';
 import { evaluateApproveEligibility } from '@/modules/prospect-review/approve-eligibility';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
@@ -282,7 +284,11 @@ async function resolveIsAdminForLegacyGate(): Promise<boolean> {
 }
 
 /**
- * AGENT1-AUDIT-WS4 — puerta admin DENTRO de las acciones canónicas de revisión
+ * AGENT1-AUDIT-WS4 — puerta admin de `convertCandidateToAccount` (sin llamadores
+ * en la UI). Aprobar, descartar y marcar duplicado ya no la usan: deciden con
+ * `requireCandidateReviewer` (admin, Growth o el dueño de la candidata).
+ *
+ * Historia: era la puerta DENTRO de las acciones canónicas de revisión
  * (aprobar, descartar, marcar duplicado). Antes sólo pedían `requireActiveUser`
  * y, al ser server actions importadas desde un componente cliente, cualquier
  * usuario activo podía invocarlas saltándose los envoltorios seguros de
@@ -1135,7 +1141,10 @@ export async function approveCandidate(
   options: { confirmPossibleDuplicate?: boolean } = {},
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  // Aprobar pide más que decidir: el dueño solo aprueba lo limpio (un posible
+  // duplicado o una coincidencia con HubSpot la decide Growth).
+  const approval = await checkCandidateApproval(id);
+  if (!approval.ok) throw new Error(approvalDeniedMessage(approval) ?? 'No tienes permiso para aprobar esta candidata.');
   const supabase = await createClient();
 
   // ── Guardia server-side: rechaza si duplicate_status bloquea la aprobación ──
@@ -1216,7 +1225,7 @@ export async function approveCandidate(
 
 export async function discardCandidate(id: string, reason?: string): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  await requireCandidateReviewer(id);
   const supabase = await createClient();
 
   const { data: currentForDiscard } = await supabase
@@ -1276,6 +1285,9 @@ export async function markCandidateReadyForApprovalAction(
 ): Promise<{ ok: boolean; error?: string; candidateId?: string; reviewStatus?: string }> {
   try {
     const { internalUserId } = await requireActiveUser();
+    // Dejar una candidata lista para aprobar es revisarla: admin o Growth.
+    const allowed = await checkCapability('revisarTodasLasCandidatas');
+    if (!allowed.ok) return { ok: false, error: allowed.message };
     const supabase = await createClient();
 
     if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
@@ -1364,9 +1376,12 @@ export async function markCandidateReadyForApprovalAction(
 
 export async function markCandidateDuplicateReviewedAction(
   candidateId: string
-): Promise<{ ok: boolean; error?: string; candidateId?: string; duplicateStatus?: string }> {
+): Promise<{ ok: boolean; error?: string; message?: string; candidateId?: string; duplicateStatus?: string }> {
   try {
     const { internalUserId } = await requireActiveUser();
+    // Decir «no es duplicada» es de admin o Growth, no del dueño de la candidata.
+    const allowed = await checkCapability('revisarTodasLasCandidatas');
+    if (!allowed.ok) return { ok: false, error: allowed.message };
     const supabase = await createClient();
 
     if (!candidateId || !/^[0-9a-f-]{36}$/i.test(candidateId)) {
@@ -1375,7 +1390,7 @@ export async function markCandidateDuplicateReviewedAction(
 
     const { data: candidate } = await supabase
       .from('prospect_candidates')
-      .select('id, batch_id, name, duplicate_status, review_status, commercial_trace')
+      .select('id, batch_id, name, website, domain, country_code, tax_identifier, normalized_name, metadata, duplicate_status, review_status, commercial_trace')
       .eq('id', candidateId)
       .single();
 
@@ -1395,18 +1410,44 @@ export async function markCandidateDuplicateReviewedAction(
       return { ok: false, error: `La duplicidad ya fue verificada (estado actual: ${candidate.duplicate_status})` };
     }
 
+    // Se vuelve a correr la revisión de duplicados (SellUp + HubSpot) en vez de
+    // pasar a «no_match» a ciegas: lo que se guarda es lo que la revisión encuentra.
+    const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
+    const recheck = decideDuplicateRecheck(
+      await detectCandidateDuplicates({
+        supabase,
+        candidate: {
+          id: candidate.id,
+          name: candidate.name,
+          website: candidate.website,
+          domain: candidate.domain,
+          country_code: candidate.country_code,
+          tax_identifier: candidate.tax_identifier,
+          normalized_name: candidate.normalized_name,
+          linkedin_url: candidateMeta.linkedin_url || candidateMeta.import?.linkedin_url || null,
+        },
+        includeHubSpot: true,
+      }),
+    );
+    if (recheck.kind === 'unknown') {
+      return { ok: false, error: DUPLICATE_RECHECK_MESSAGES.unknown };
+    }
+
     const existingTrace = ((candidate as Record<string, unknown>).commercial_trace as Record<string, unknown> | null) ?? {};
     const updatedTrace = {
       ...existingTrace,
       duplicateReviewedBy: internalUserId,
       duplicateReviewedAt: new Date().toISOString(),
-      duplicateReviewMethod: 'manual',
+      duplicateReviewMethod: 'recheck',
     };
 
     const { data, error } = await supabase
       .from('prospect_candidates')
       .update({
-        duplicate_status: 'no_match',
+        duplicate_status: recheck.duplicateStatus,
+        matched_account_id: recheck.matchedAccountId,
+        matched_hubspot_company_id: recheck.matchedHubSpotCompanyId,
+        confidence_score: recheck.confidenceScore,
         updated_at: new Date().toISOString(),
         commercial_trace: updatedTrace,
       })
@@ -1427,9 +1468,11 @@ export async function markCandidateDuplicateReviewedAction(
         actionType: 'candidate_updated',
         details: {
           candidate_name: data.name,
-          action: 'duplicate_reviewed_manual',
+          action: 'duplicate_rechecked',
           previous_duplicate_status: 'unchecked',
-          new_duplicate_status: 'no_match',
+          new_duplicate_status: recheck.duplicateStatus,
+          matched_account_id: recheck.matchedAccountId,
+          matched_hubspot_company_id: recheck.matchedHubSpotCompanyId,
         },
       });
     } catch (auditErr) {
@@ -1437,7 +1480,13 @@ export async function markCandidateDuplicateReviewedAction(
     }
 
     revalidatePath(`/prospect-batches/${data.batch_id}`);
-    return { ok: true, candidateId: data.id, duplicateStatus: 'no_match' };
+    revalidatePath('/prospects');
+    return {
+      ok: true,
+      candidateId: data.id,
+      duplicateStatus: recheck.duplicateStatus,
+      message: DUPLICATE_RECHECK_MESSAGES[recheck.duplicateStatus],
+    };
   } catch (err) {
     console.error('[markCandidateDuplicateReviewedAction] Unexpected error:', err);
     return {
@@ -1452,7 +1501,7 @@ export async function markCandidateDuplicate(
   matchData: MarkDuplicateInput
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
-  await requireReviewAdmin();
+  await requireCandidateReviewer(id);
   const supabase = await createClient();
 
   const { data: currentForDup } = await supabase
@@ -2203,11 +2252,18 @@ export async function approveAndConvertCandidateAction(
 ): Promise<CandidateApprovalResult> {
   const { internalUserId } = await requireActiveUser();
 
-  // AGENT1-AUDIT-WS4 — puerta admin AQUÍ, no sólo en el envoltorio: esta server
+  // AGENT1-AUDIT-WS4 — puerta AQUÍ, no sólo en el envoltorio: esta server
   // action se publicaba al cliente y cualquier usuario activo podía llamarla.
-  const isAdmin = await isCurrentUserAdmin().catch(() => false);
-  if (!isAdmin) {
-    return buildApprovalFailure('No tienes permiso para aprobar prospectos.', 'not_allowed');
+  // Decide quien puede revisar ESTA candidata (`canReviewCandidateId`): admin
+  // y Growth sobre cualquiera; con ENABLE_ROLE_CAPABILITIES, también su dueño.
+  const approval = await checkCandidateApproval(id).catch(
+    () => ({ ok: false, reason: 'not_allowed' }) as const,
+  );
+  if (!approval.ok) {
+    return buildApprovalFailure(
+      approvalDeniedMessage(approval) ?? 'No tienes permiso para aprobar esta candidata.',
+      'not_allowed',
+    );
   }
 
   const supabase = await createClient();
@@ -3313,6 +3369,7 @@ export async function generateAIProspectBatch(
   input: GenerateAIBatchInput
 ): Promise<GenerateAIBatchResult> {
   const { internalUserId } = await requireActiveUser();
+  await requireCapability('prospectarMasivo');
 
   if (!input.country || !input.countryCode) {
     throw new Error('País requerido para la generación asistida');
@@ -3464,6 +3521,7 @@ export async function generateTavilyProspectBatch(
   input: GenerateTavilyBatchInput
 ): Promise<GenerateTavilyBatchResult> {
   const { internalUserId } = await requireActiveUser();
+  await requireCapability('prospectarMasivo');
 
   // AGENT1-AUDIT-WS4 — server action sin bandera ni tope de gasto: cualquier
   // usuario activo podía disparar Tavily. Su único llamador

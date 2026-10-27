@@ -6,6 +6,7 @@ import {
   Database,
   LayoutDashboard,
   Settings,
+  Target,
   Users,
 } from "@/icons";
 
@@ -22,7 +23,11 @@ import {
  * `roleKey`, so additional access levels (e.g. team-scoped Uso de IA for
  * líder/manager) can be added to `canAccessNavItem` without touching callers.
  */
-export type NavAccess = "public" | "adminOnly";
+/**
+ * `growth`: the bulk-prospecting team (role `growth`, migration 158) plus
+ * admins. Sellers prospect by hand and never see bulk-prospecting modules.
+ */
+export type NavAccess = "public" | "adminOnly" | "growth";
 
 export interface NavItem {
   title: string;
@@ -94,6 +99,9 @@ export const CONTACTS_REJECTED_ROUTE = "/contacts?tab=rejected";
 export const SOURCE_CATALOG_ROUTE = "/source-catalog";
 export const SOURCE_CATALOG_BATCHES_ROUTE = "/source-catalog/socrata-batches";
 
+/** Prospección masiva: la vista del equipo de Growth (rol `growth`, migración 158). */
+export const GROWTH_ROUTE = "/growth";
+
 /** Calculadora de ROI de UBITS, solo el ejercicio de proyección de venta. */
 export const ROI_CALCULATOR_ROUTE = "/roi-calculator";
 
@@ -127,6 +135,14 @@ export const mainNavItems: NavItem[] = [
     title: "Contactos",
     href: "/contacts",
     icon: Users,
+  },
+  {
+    title: "Prospección masiva",
+    href: GROWTH_ROUTE,
+    icon: Target,
+    // Del equipo de Growth (y admin): búsquedas con IA, importación y contactos
+    // en masa. El BD prospecta a mano desde Empresas y no ve este módulo.
+    access: "growth",
   },
   // Q3F-5AZ.2D-1 — "Revisión de prospectos" removed from the sidebar. Human
   // review now lives inside the official Prospectos surface
@@ -184,6 +200,8 @@ export function canAccessNavItem(
       return true;
     case "adminOnly":
       return ctx.isAdmin;
+    case "growth":
+      return ctx.isAdmin || ctx.roleKey?.trim().toLowerCase() === "growth";
     default:
       return false;
   }
