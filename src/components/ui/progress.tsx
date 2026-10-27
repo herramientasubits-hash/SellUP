@@ -33,7 +33,9 @@ function Progress({
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className={cn("size-full flex-1 rounded-full transition-all", colorMap[color])}
+        // Sin `flex-1`: estiraba el indicador a todo el ancho y pisaba el `width: N%` que
+        // pone Base UI, así que toda barra se veía llena (desde junio de 2026).
+        className={cn("h-full rounded-full transition-all", colorMap[color])}
       />
     </ProgressPrimitive.Root>
   );

@@ -8,6 +8,11 @@ import { checkCapability, getAccessSnapshot } from '@/modules/access/capabilitie
 import { isGrowthRole } from '@/modules/access/capabilities';
 import { getProspectBatchesList, getProspectBatchesSummary } from '@/modules/prospect-batches/actions';
 import { toGrowthSearchRow, toGrowthSummary } from '@/modules/growth/growth-rows';
+import { getActiveUsers } from '@/modules/accounts/actions';
+import {
+  listBulkSearchesForUser,
+  resolveBulkSearchAccess,
+} from '@/modules/prospect-batches/bulk-search/bulk-search-service.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +44,10 @@ export default async function GrowthPage({
     checkCapability('enriquecerMasivo'),
   ]);
   const searches = batches.map(toGrowthSearchRow);
+  // GROWTH-BULK-SEARCH-1 — sus búsquedas masivas y a quién repartir lo encontrado.
+  const bulkAccess = await resolveBulkSearchAccess();
+  const bulkSearches = bulkAccess.ok ? await listBulkSearchesForUser(bulkAccess.userId).catch(() => []) : [];
+  const assignableUsers = bulkSearches.length > 0 ? await getActiveUsers().catch(() => []) : [];
 
   return (
     <GrowthWorkspace
@@ -47,6 +56,8 @@ export default async function GrowthPage({
       searches={searches}
       newSearchAction={generateAgent?.generateDrawer ?? null}
       canEnrichBulk={bulkEnrich.ok}
+      bulkSearches={bulkSearches}
+      assignableUsers={assignableUsers}
       importAction={
         <ImportCandidatesDrawer>
           <Button type="button" variant="outline">
