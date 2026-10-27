@@ -11,6 +11,14 @@ import { NavAccessProvider } from "@/components/layout/nav-access-context";
 import { AgentRunsProcessCenter } from "@/components/prospect-batches/agent-runs-tray/agent-runs-tray";
 import type { NavAccessContext } from "@/config/navigation";
 
+/**
+ * Paso del menú al riel, como en el playground de UX: el hueco del menú y el
+ * panel viajan juntos (ancho y posición) en 300ms con la curva del cajón, así
+ * el contenido se corre sin brincos.
+ */
+const SIDEBAR_MOTION =
+  "transition-[width,left] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none";
+
 interface AppShellProps {
   children: React.ReactNode;
   className?: string;
@@ -27,22 +35,31 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
   return (
     <ShellAgentPanelSlotProvider value={agentPanelSlot}>
       <div className="flex h-dvh w-full overflow-hidden bg-background">
-        {/* Menú lateral — anatomía de Thema: panel de 240px con marca y nombres,
-            que se contrae a un riel de iconos de 64px. Superficie clara con borde. */}
-        <aside
-          className={cn(
-            "hidden shrink-0 overflow-hidden border-r border-border/60 bg-sidebar md:flex md:flex-col",
-            collapsed ? "w-16" : "w-60",
-          )}
+        {/* Menú lateral — anatomía del playground de UX: panel de 288px que se
+            pliega a un riel de iconos de 72px. Plegado, el hueco reserva los 72px
+            del riel y el panel queda escondido justo detrás de él (su borde
+            derecho en 72px); al abrir sale desde ahí y se estira hasta 288px. */}
+        <div
+          data-slot="sidebar-gap"
+          className={cn("relative hidden shrink-0 md:block", SIDEBAR_MOTION, collapsed ? "w-18" : "w-72")}
         >
-          <AppSidebar navAccess={navAccess} />
-        </aside>
+          <aside
+            data-slot="sidebar-container"
+            data-state={collapsed ? "collapsed" : "expanded"}
+            className={cn(
+              "absolute inset-y-0 flex w-72 flex-col border-r border-sidebar-border bg-sidebar",
+              SIDEBAR_MOTION,
+              collapsed ? "-left-54" : "left-0",
+            )}
+          >
+            <AppSidebar navAccess={navAccess} />
+          </aside>
+        </div>
 
-        {/* Columna derecha — la atmósfera cubre cabecera y contenido, para que el
-            halo del tema baje desde arriba sin un escalón donde acaba la cabecera.
-            Main es una columna flex que llena el alto: las páginas pueden optar por
-            <DataTablePage> (cabecera y métricas fijas, la tabla desplaza). */}
-        <div className="page-atmosphere flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Columna derecha. Main es una columna flex que llena el alto: las
+            páginas pueden optar por <DataTablePage> (cabecera y métricas fijas,
+            la tabla desplaza). */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <AppHeader
             user={user}
             initialUnreadCount={initialUnreadCount}
@@ -64,9 +81,10 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
                 se quedaba a media página. La última tarjeta tocaba el borde. Como
                 último hijo, el espaciador va siempre detrás del contenido. */}
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
-              <div className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8 animate-su-fade-in">
+              {/* 24px de aire alrededor del contenido, como el marco del playground. */}
+              <div className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col px-4 pt-6 sm:px-6 animate-su-fade-in">
                 {children}
-                <div aria-hidden className="h-6 shrink-0 lg:h-8" />
+                <div aria-hidden className="h-6 shrink-0" />
               </div>
             </div>
           </main>
