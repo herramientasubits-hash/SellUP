@@ -90,6 +90,20 @@ describe('resolveReviewDecisionView — duplicate policy', () => {
   });
 });
 
+describe('resolveReviewDecisionView — responsable', () => {
+  it('sin responsable no se aprueba y dice por qué', () => {
+    const view = resolveReviewDecisionView(candidate({ needsAssignee: true }));
+    assert.equal(view.canApprove, false);
+    assert.equal(view.blockReason, 'Asígnale un responsable primero.');
+  });
+
+  it('un bloqueo más fuerte (duplicado exacto) conserva su propio motivo', () => {
+    const view = resolveReviewDecisionView(candidate({ needsAssignee: true, duplicateStatus: 'exact_duplicate' }));
+    assert.equal(view.canApprove, false);
+    assert.notEqual(view.blockReason, 'Asígnale un responsable primero.');
+  });
+});
+
 describe('resolveReviewDecisionView — other statuses', () => {
   it('blocks an unrecognized status with a generic reason', () => {
     const view = resolveReviewDecisionView(candidate({ status: 'enrichment_pending' }));

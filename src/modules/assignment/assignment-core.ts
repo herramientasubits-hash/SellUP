@@ -82,11 +82,13 @@ export function resolveCandidateResponsibleId(input: {
 /**
  * A nombre de quién queda la empresa al aprobar un prospecto (antes de que
  * HubSpot, si ya tiene dueño, mande). Decisión de la dueña 08-10: si alguien
- * asignó el prospecto, el asignado; si no, quien lanzó la búsqueda (como hasta
- * ahora); sin creador del lote, quien aprueba.
+ * asignó el prospecto, el asignado; si no, el dueño de la búsqueda y, si falta,
+ * quien la lanzó —el mismo orden de la columna «Responsable»—; sin ninguno,
+ * quien aprueba.
  */
 export function resolveConversionOwnerUserId(input: {
   assignedTo: string | null | undefined;
+  batchOwnerId?: string | null | undefined;
   batchCreatedBy: string | null | undefined;
   approverUserId: string;
   /**
@@ -99,8 +101,51 @@ export function resolveConversionOwnerUserId(input: {
   const usable = (userId: string | null | undefined): userId is string =>
     typeof userId === 'string' && userId.length > 0 && (input.isActiveUser ? input.isActiveUser(userId) : true);
   if (usable(input.assignedTo)) return input.assignedTo;
+  if (usable(input.batchOwnerId)) return input.batchOwnerId;
   if (usable(input.batchCreatedBy)) return input.batchCreatedBy;
   return input.approverUserId;
+}
+
+/**
+ * Roles que prospectan para otros y no se quedan con las empresas: lo que sale
+ * de una búsqueda suya necesita un responsable antes de aprobarse.
+ */
+export const NON_SELLER_ROLE_KEYS = ['growth', 'admin'] as const;
+
+/** Lo que hace falta saber de una persona para decidir si puede quedarse con la empresa. */
+export interface ResponsibleUserFacts {
+  active: boolean;
+  roleKey: string | null;
+}
+
+export type ApprovalResponsibleDecision =
+  | { ok: true; responsibleId: string }
+  | { ok: false; reason: 'needs_assignee' };
+
+/**
+ * ¿Tiene esta candidata un responsable con el que pueda nacer la empresa?
+ *  - asignada a mano a alguien activo ⇒ sí (aunque sea Growth: lo eligió una persona);
+ *  - sin asignar, de una búsqueda cuyo dueño activo es un vendedor ⇒ sí (lo suyo);
+ *  - sin asignar, de una búsqueda de Growth o admin, o con dueño dado de baja ⇒ no:
+ *    hay que asignarla primero, para que no quede a nombre de quien prospecta en masa.
+ * Una persona que no se pudo leer cuenta como inactiva: falla cerrado.
+ */
+export function decideApprovalResponsible(input: {
+  assignedTo: string | null | undefined;
+  batchOwnerId: string | null | undefined;
+  batchCreatedBy: string | null | undefined;
+  lookup: (userId: string) => ResponsibleUserFacts | undefined;
+}): ApprovalResponsibleDecision {
+  if (input.assignedTo && input.lookup(input.assignedTo)?.active) {
+    return { ok: true, responsibleId: input.assignedTo };
+  }
+  const owner = input.batchOwnerId || input.batchCreatedBy;
+  const facts = owner ? input.lookup(owner) : undefined;
+  const role = facts?.roleKey?.trim().toLowerCase() ?? null;
+  if (owner && facts?.active && !(NON_SELLER_ROLE_KEYS as readonly string[]).includes(role ?? '')) {
+    return { ok: true, responsibleId: owner };
+  }
+  return { ok: false, reason: 'needs_assignee' };
 }
 
 /**
@@ -145,6 +190,23 @@ export function partitionByCurrentOwner<T extends { id: string; currentOwnerId: 
   const alreadyOwned: T[] = [];
   for (const row of rows) {
     (row.currentOwnerId === targetUserId ? alreadyOwned : toChange).push(row);
+  }
+  return { toChange, alreadyOwned };
+}
+
+/**
+ * Como `partitionByCurrentOwner`, pero mira sólo la asignación explícita: el
+ * dueño de la búsqueda que se asigna a sí mismo SÍ cambia algo (deja escrito el
+ * responsable que pide la aprobación).
+ */
+export function partitionByExplicitAssignee<T extends { id: string; assignedTo: string | null }>(
+  rows: readonly T[],
+  targetUserId: string,
+): { toChange: T[]; alreadyOwned: T[] } {
+  const toChange: T[] = [];
+  const alreadyOwned: T[] = [];
+  for (const row of rows) {
+    (row.assignedTo === targetUserId ? alreadyOwned : toChange).push(row);
   }
   return { toChange, alreadyOwned };
 }

@@ -35,7 +35,7 @@ export type ApproveActionResult =
   | { ok: true; status: 'idempotent_success' }
   | {
       ok: false;
-      reason: 'not_found' | 'not_allowed' | 'needs_growth_review' | 'unexpected_error' | ApproveRejectReason;
+      reason: 'not_found' | 'not_allowed' | 'needs_growth_review' | 'needs_assignee' | 'unexpected_error' | ApproveRejectReason;
     };
 
 /**
