@@ -1,6 +1,9 @@
 // AGENT2-AUDIT-FIXES-1 — la búsqueda masiva usa el mismo camino que la individual.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   executeBulkContactEnrichmentRun,
   summarizeAutomaticResult,
@@ -8,30 +11,28 @@ import {
 } from '../bulk-enrichment-runner';
 
 function deps(over: Partial<BulkRunnerDeps>) {
-  const calls = { legacyCreate: 0, legacyApollo: 0, final: null as unknown };
+  const calls = { automatic: 0, statuses: [] as Array<{ status: string; extra?: Record<string, unknown> }>, final: null as unknown };
   const d: BulkRunnerDeps = {
     loadBulkRun: async () => ({ id: 'b1', status: 'created', eligible_account_ids: ['a1', 'a2'], triggered_by: 'u1' }),
     loadAccount: async (id) => ({ id, name: `Empresa ${id}`, domain: `${id}.com`, country_code: 'CO', hubspot_company_id: null }),
-    updateBulkRunStatus: async () => {},
+    updateBulkRunStatus: async (_id, status, extra) => { calls.statuses.push({ status, extra }); },
     updateBulkRunCounters: async (_id, counters) => { calls.final = counters; },
-    createIndividualRun: async () => { calls.legacyCreate += 1; return { runId: 'legacy' }; },
-    executeApolloRun: async () => { calls.legacyApollo += 1; return { status: 'error', error: 'HTTP_429' }; },
+    isAutomaticRoutingEnabled: async () => true,
+    runAutomaticForAccount: async () => { calls.automatic += 1; return { runId: 'r', failed: false, candidatesCreated: 0 }; },
     ...over,
   };
   return { d, calls };
 }
 
 describe('búsqueda masiva — camino automático', () => {
-  it('con el camino automático encendido no usa el camino viejo y suma candidatos', async () => {
-    const { d, calls } = deps({
+  it('cada empresa pasa por el camino automático y suma candidatos', async () => {
+    const { d } = deps({
       runAutomaticForAccount: async ({ accountId }) =>
         accountId === 'a1'
           ? { runId: 'r1', failed: false, candidatesCreated: 3 }
           : { runId: 'r2', failed: false, candidatesCreated: 0 },
     });
     const result = await executeBulkContactEnrichmentRun({ bulkRunId: 'b1', triggeredByUserId: 'u1' }, d);
-    assert.equal(calls.legacyCreate, 0);
-    assert.equal(calls.legacyApollo, 0);
     assert.equal(result.totalCandidatesCreated, 3);
     assert.deepEqual(result.accountResults.map((r) => r.status), ['succeeded', 'no_candidates']);
     assert.equal(result.status, 'completed');
@@ -46,11 +47,33 @@ describe('búsqueda masiva — camino automático', () => {
     assert.equal(result.status, 'failed');
   });
 
-  it('apagado (null): camino viejo, y el error de Apollo trae su motivo', async () => {
-    const { d, calls } = deps({ runAutomaticForAccount: async () => null });
+  it('apagada la búsqueda automática: no busca nada, no pasa a running y queda failed con el motivo', async () => {
+    const { d, calls } = deps({ isAutomaticRoutingEnabled: async () => false });
     const result = await executeBulkContactEnrichmentRun({ bulkRunId: 'b1', triggeredByUserId: 'u1' }, d);
-    assert.equal(calls.legacyApollo, 2);
-    assert.equal(result.accountResults[0].error, 'Apollo retornó error: HTTP_429');
+    assert.equal(calls.automatic, 0);
+    assert.equal(result.status, 'failed');
+    assert.equal(result.summary.error, 'automatic_routing_disabled');
+    assert.deepEqual(calls.statuses.map((s) => s.status), ['failed']);
+    assert.equal(calls.final, null);
+  });
+});
+
+describe('búsqueda masiva — sin camino viejo', () => {
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  const runner = readFileSync(join(HERE, '..', 'bulk-enrichment-runner.ts'), 'utf8');
+  const actions = readFileSync(join(HERE, '..', 'actions.ts'), 'utf8');
+
+  it('el runner ya no llama a los runners de sólo Apollo', () => {
+    assert.ok(!runner.includes('apollo-enrichment-runner'));
+    assert.ok(!runner.includes('contact-enrichment-runner'));
+    assert.ok(!runner.includes('createIndividualRun'));
+  });
+
+  it('crear la corrida se rechaza antes de insertar si la búsqueda automática está apagada', () => {
+    const fn = actions.slice(actions.indexOf('export async function createBulkContactEnrichmentRunAction('));
+    const gate = fn.indexOf('getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled');
+    assert.ok(gate > 0);
+    assert.ok(gate < fn.indexOf(".from('contact_enrichment_bulk_runs')"));
   });
 });
 

@@ -2,7 +2,7 @@
 // Hito 17A.10C — Ejecución controlada por cuenta
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-import type { ContactEnrichmentBulkStatus } from './bulk-enrichment-types';
+import { BULK_AUTOMATIC_ROUTING_DISABLED_COPY, type ContactEnrichmentBulkStatus } from './bulk-enrichment-types';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -69,28 +69,18 @@ export interface BulkRunnerDeps {
     },
   ) => Promise<void>;
 
-  createIndividualRun: (input: {
-    accountId: string;
-    name: string;
-    domain: string | null;
-    countryCode: string;
-    hubspotCompanyId: string | null;
-    triggeredBy: string;
-    bulkRunId: string;
-  }) => Promise<{ runId: string }>;
-
-  executeApolloRun: (runId: string, triggeredByUserId: string) => Promise<{
-    status: 'ready_for_review' | 'completed' | 'skipped' | 'error';
-    candidatesCreated?: number;
-    error?: string;
-  }>;
+  /**
+   * ¿Está encendida la búsqueda automática? Apagada, la masiva no corre ni gasta nada,
+   * igual que la individual.
+   */
+  isAutomaticRoutingEnabled: () => Promise<boolean>;
 
   /**
    * AGENT2-AUDIT-FIXES-1 — la búsqueda masiva por el MISMO camino que la individual (HubSpot
-   * primero, banco, Apollo, sitio web, frenos a Lusha). `null` = la búsqueda automática está
-   * apagada en este entorno y se usa el camino de siempre (sólo Apollo).
+   * primero, banco, Apollo, sitio web, frenos a Lusha). Es el único camino: no hay reserva
+   * sólo con Apollo.
    */
-  runAutomaticForAccount?: (input: {
+  runAutomaticForAccount: (input: {
     accountId: string;
     name: string;
     domain: string | null;
@@ -98,7 +88,7 @@ export interface BulkRunnerDeps {
     hubspotCompanyId: string | null;
     triggeredBy: string;
     bulkRunId: string;
-  }) => Promise<{ runId: string | null; failed: boolean; candidatesCreated: number; error?: string } | null>;
+  }) => Promise<{ runId: string | null; failed: boolean; candidatesCreated: number; error?: string }>;
 }
 
 // ── Implementación real de dependencias ───────────────────────────────────────
@@ -143,42 +133,14 @@ export function buildDefaultBulkRunnerDeps(): BulkRunnerDeps {
       if (error) throw new Error(`updateBulkRunCounters: ${error.message}`);
     },
 
-    async createIndividualRun({ accountId, name, domain, countryCode, hubspotCompanyId, triggeredBy, bulkRunId }) {
-      const { startContactEnrichmentRun } = await import(
-        '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner'
-      );
-
-      const result = await startContactEnrichmentRun({
-        confirmedCompany: {
-          source: 'sellup',
-          name,
-          domain: domain ?? undefined,
-          countryCode,
-          hubspotCompanyId: hubspotCompanyId ?? undefined,
-          sellupAccountId: accountId,
-          matchConfidence: 1,
-        },
-        originalInput: { sellupAccountId: accountId },
-        triggeredBy,
-        bulkRunId,
-      });
-
-      return { runId: result.runId };
-    },
-
-    async executeApolloRun(runId, triggeredByUserId) {
-      const { executeContactEnrichmentApolloRun } = await import(
-        '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner'
-      );
-      return executeContactEnrichmentApolloRun(runId, triggeredByUserId);
-    },
-
-    async runAutomaticForAccount({ accountId, name, domain, countryCode, hubspotCompanyId, triggeredBy, bulkRunId }) {
+    async isAutomaticRoutingEnabled() {
       const { getContactEnrichmentRoutingConfigV1 } = await import(
         '@/modules/contact-enrichment-routing/routing-config.server'
       );
-      if (!getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled) return null;
+      return getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled;
+    },
 
+    async runAutomaticForAccount({ accountId, name, domain, countryCode, hubspotCompanyId, triggeredBy, bulkRunId }) {
       const { createContactEnrichmentRequest } = await import(
         '@/server/agents/contact-enrichment-toolkit/contact-enrichment-request-creator'
       );
@@ -202,7 +164,7 @@ export function buildDefaultBulkRunnerDeps(): BulkRunnerDeps {
         triggeredBy,
         new Date().toISOString(),
       );
-      // Las corridas de la solicitud quedan ligadas a la búsqueda masiva, como en el camino viejo.
+      // Las corridas de la solicitud quedan ligadas a la búsqueda masiva.
       await admin.from('contact_enrichment_runs').update({ bulk_run_id: bulkRunId }).eq('request_id', created.request.id);
       return summarizeAutomaticResult(result);
     },
@@ -285,12 +247,28 @@ export async function executeBulkContactEnrichmentRun(
     };
   }
 
-  // 2. Marcar como running
+  // 2. Apagada la búsqueda automática, no corre nada (como la individual): sin gasto.
+  if (!(await deps.isAutomaticRoutingEnabled())) {
+    const summary = { error: 'automatic_routing_disabled', message: BULK_AUTOMATIC_ROUTING_DISABLED_COPY };
+    await deps.updateBulkRunStatus(bulkRunId, 'failed', { summary, completed_at: new Date().toISOString() });
+    return {
+      bulkRunId,
+      status: 'failed',
+      totalProcessed: 0,
+      totalSucceeded: 0,
+      totalFailed: 0,
+      totalCandidatesCreated: 0,
+      accountResults: [],
+      summary,
+    };
+  }
+
+  // 3. Marcar como running
   await deps.updateBulkRunStatus(bulkRunId, 'running', {
     started_at: new Date().toISOString(),
   });
 
-  // 3. Procesar cada cuenta secuencialmente
+  // 4. Procesar cada cuenta secuencialmente
   const accountResults: BulkRunAccountResult[] = [];
   let totalCandidatesCreated = 0;
 
@@ -310,33 +288,8 @@ export async function executeBulkContactEnrichmentRun(
         continue;
       }
 
-      // 4a. Mismo camino que la búsqueda individual, si está encendida en este entorno.
-      const automatic = deps.runAutomaticForAccount
-        ? await deps.runAutomaticForAccount({
-            accountId,
-            name: account.name,
-            domain: account.domain,
-            countryCode: account.country_code,
-            hubspotCompanyId: account.hubspot_company_id,
-            triggeredBy: triggeredByUserId,
-            bulkRunId,
-          })
-        : null;
-      if (automatic) {
-        runId = automatic.runId;
-        totalCandidatesCreated += automatic.failed ? 0 : automatic.candidatesCreated;
-        accountResults.push({
-          accountId,
-          runId,
-          status: automatic.failed ? 'failed' : automatic.candidatesCreated > 0 ? 'succeeded' : 'no_candidates',
-          candidatesCreated: automatic.failed ? 0 : automatic.candidatesCreated,
-          ...(automatic.error ? { error: automatic.error } : {}),
-        });
-        continue;
-      }
-
-      // 4. Crear run individual con bulk_run_id
-      const created = await deps.createIndividualRun({
+      // Mismo camino que la búsqueda individual.
+      const automatic = await deps.runAutomaticForAccount({
         accountId,
         name: account.name,
         domain: account.domain,
@@ -345,37 +298,15 @@ export async function executeBulkContactEnrichmentRun(
         triggeredBy: triggeredByUserId,
         bulkRunId,
       });
-      runId = created.runId;
-
-      // 5. Ejecutar Apollo para ese run
-      const apolloResult = await deps.executeApolloRun(runId, triggeredByUserId);
-
-      const candidates = apolloResult.candidatesCreated ?? 0;
-      totalCandidatesCreated += candidates;
-
-      if (apolloResult.status === 'error') {
-        accountResults.push({
-          accountId,
-          runId,
-          status: 'failed',
-          candidatesCreated: 0,
-          error: apolloResult.error ? `Apollo retornó error: ${apolloResult.error}` : 'Apollo retornó error',
-        });
-      } else if (candidates === 0) {
-        accountResults.push({
-          accountId,
-          runId,
-          status: 'no_candidates',
-          candidatesCreated: 0,
-        });
-      } else {
-        accountResults.push({
-          accountId,
-          runId,
-          status: 'succeeded',
-          candidatesCreated: candidates,
-        });
-      }
+      runId = automatic.runId;
+      totalCandidatesCreated += automatic.failed ? 0 : automatic.candidatesCreated;
+      accountResults.push({
+        accountId,
+        runId,
+        status: automatic.failed ? 'failed' : automatic.candidatesCreated > 0 ? 'succeeded' : 'no_candidates',
+        candidatesCreated: automatic.failed ? 0 : automatic.candidatesCreated,
+        ...(automatic.error ? { error: automatic.error } : {}),
+      });
     } catch (err) {
       accountResults.push({
         accountId,
@@ -387,7 +318,7 @@ export async function executeBulkContactEnrichmentRun(
     }
   }
 
-  // 6. Calcular contadores finales
+  // 5. Calcular contadores finales
   const totalProcessed = accountResults.length;
   // succeeded + no_candidates cuentan como procesados sin error técnico
   const totalSucceeded = accountResults.filter(
@@ -398,7 +329,7 @@ export async function executeBulkContactEnrichmentRun(
     (r) => r.status === 'no_candidates',
   ).length;
 
-  // 7. Determinar estado final
+  // 6. Determinar estado final
   let finalStatus: ContactEnrichmentBulkStatus;
   if (totalFailed === 0) {
     finalStatus = 'completed';
@@ -424,7 +355,7 @@ export async function executeBulkContactEnrichmentRun(
     })),
   };
 
-  // 8. Persistir resultado final
+  // 7. Persistir resultado final
   await deps.updateBulkRunCounters(bulkRunId, {
     total_processed: totalProcessed,
     total_succeeded: totalSucceeded,
