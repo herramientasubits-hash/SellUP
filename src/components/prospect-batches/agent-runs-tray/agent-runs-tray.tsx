@@ -48,6 +48,7 @@ import { FirstContactGlobalPanelHost } from '@/components/first-call/first-conta
 import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/first-contact-runs-client';
 import { ContactSearchRunRows } from '@/components/contact-enrichment/contact-search-run-rows';
 import { getContactSearchRunsStore, useContactSearchRuns } from '@/modules/contact-enrichment/contact-search-runs-client';
+import { HEADER_ICON_BUTTON } from '@/components/layout/header-icon';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -318,8 +319,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
             }
             data-testid="shell-processes"
             className={cn(
-              'relative flex size-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card text-text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-              open && 'bg-surface-muted text-foreground',
+              HEADER_ICON_BUTTON,
               className,
             )}
           >
@@ -328,7 +328,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
               <span
                 aria-hidden
                 data-slot="process-running-dot"
-                className="absolute right-1.5 top-1 size-2 rounded-full border-2 border-card bg-primary animate-su-pulse"
+                className="absolute right-1.5 top-1.5 size-2 rounded-full border-2 border-background bg-primary animate-su-pulse"
               />
             )}
           </button>
