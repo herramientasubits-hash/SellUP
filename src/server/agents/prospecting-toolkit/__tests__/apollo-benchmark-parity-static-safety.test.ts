@@ -487,7 +487,7 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
       // ROLE-GROWTH-1 declara la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos,
       // contactos, presupuesto ni HubSpot). No es de este corte; la ventana sube a la 159, y el
       // barrido de AUTORÍA se ENSANCHA para incluir la 158.
-      migrations.filter((f) => f.startsWith('159')).length,
+      migrations.filter((f) => f.startsWith('160')).length,
       0,
       'este corte no añade migración',
     );
@@ -527,7 +527,8 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
         f.startsWith('155') ||
         f.startsWith('156') ||
         f.startsWith('157') ||
-        f.startsWith('158'),
+        f.startsWith('158') ||
+        f.startsWith('159'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

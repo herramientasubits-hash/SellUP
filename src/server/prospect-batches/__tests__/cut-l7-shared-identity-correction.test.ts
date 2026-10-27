@@ -1191,7 +1191,7 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     }
     // Ninguna 158 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^159_/.test(f) || /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^1[6-9]\d_/.test(f)).length,
       0,
     );
   });

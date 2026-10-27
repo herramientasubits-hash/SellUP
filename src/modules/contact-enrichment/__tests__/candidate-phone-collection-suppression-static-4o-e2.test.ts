@@ -339,6 +339,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '157_agent1_company_relationships_levels.sql',
       // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '158_growth_role.sql',
+      // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '159_growth_bulk_prospect_searches.sql',
     ]);
   });
 
