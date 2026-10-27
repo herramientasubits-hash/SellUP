@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck } from "@/icons";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -13,6 +12,7 @@ import {
 } from "@/modules/notifications/actions";
 import type { UserNotification, NotificationFilter } from "@/modules/notifications/types";
 import { NotificationList } from "./notification-list";
+import { HEADER_ICON_BUTTON } from "@/components/layout/header-icon";
 
 interface NotificationBellProps {
   initialUnreadCount: number;
@@ -99,17 +99,14 @@ export function NotificationBell({ initialUnreadCount }: NotificationBellProps) 
             type="button"
             title="Notificaciones"
             aria-label={triggerLabel}
-            className={cn(
-              "relative flex size-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card text-text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-              open && "bg-surface-muted text-foreground",
-            )}
+            className={HEADER_ICON_BUTTON}
           >
             <Bell className="size-4" />
             {hasUnread && (
               <span
                 aria-hidden
                 data-slot="notification-dot"
-                className="absolute right-1.5 top-1 size-2 rounded-full border-2 border-card bg-primary"
+                className="absolute right-1.5 top-1.5 size-2 rounded-full border-2 border-background bg-primary"
               />
             )}
           </button>
