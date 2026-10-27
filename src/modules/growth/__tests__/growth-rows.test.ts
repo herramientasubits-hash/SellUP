@@ -37,6 +37,7 @@ describe('filas de búsquedas de Growth', () => {
     assert.equal(row.statusTone, 'warning');
     assert.equal(row.needsReview, 7);
     assert.equal(row.approved, 5, 'aprobadas + convertidas');
+    assert.equal(row.converted, 2, 'sólo las que ya son empresa: de esas se buscan contactos');
     assert.equal(row.createdBy, 'Ana Growth');
   });
 

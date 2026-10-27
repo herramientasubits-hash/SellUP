@@ -28,6 +28,7 @@ import type {
   BulkEnrichmentSkipReason,
 } from '@/modules/contact-enrichment/bulk-enrichment-types';
 import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
+import type { BulkEnrichmentOrigin } from '@/modules/contact-enrichment/bulk-enrichment-sources-core';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export type BulkContactEnrichmentDrawerProps = {
   onOpenChange: (open: boolean) => void;
   selectedAccounts: SelectedAccount[];
   onCompleted?: () => void;
+  /** De dónde se lanzó (p. ej. una búsqueda de prospectos); queda guardado en la corrida. */
+  origin?: BulkEnrichmentOrigin;
 };
 
 // ── Skip reason labels ─────────────────────────────────────────
@@ -82,6 +85,7 @@ export function BulkContactEnrichmentDrawer({
   onOpenChange,
   selectedAccounts,
   onCompleted,
+  origin,
 }: BulkContactEnrichmentDrawerProps) {
   const router = useRouter();
   const [state, setState] = React.useState<DrawerState>('checking_eligibility');
@@ -165,7 +169,7 @@ export function BulkContactEnrichmentDrawer({
   const handleConfirm = React.useCallback(async () => {
     setState('creating_bulk_run');
 
-    const createRes = await createBulkContactEnrichmentRunAction(accountIds);
+    const createRes = await createBulkContactEnrichmentRunAction(accountIds, { origin });
 
     if (!createRes.success || !createRes.executeUrl || !createRes.bulkRunId) {
       setExecutionError(
@@ -213,7 +217,7 @@ export function BulkContactEnrichmentDrawer({
       const statusRes = await getBulkContactEnrichmentRunStatusAction(createRes.bulkRunId);
       applyRunStatus(statusRes);
     }
-  }, [accountIds, router, onCompleted, applyRunStatus]);
+  }, [accountIds, origin, router, onCompleted, applyRunStatus]);
 
   const isLoading =
     state === 'checking_eligibility' ||

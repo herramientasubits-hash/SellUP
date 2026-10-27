@@ -15,6 +15,7 @@ import { IconChip } from "@/components/shared/icon-chip";
 import { UrlTabs } from "@/components/navigation/url-tabs";
 import type { Tone } from "@/lib/tone";
 import { formatAppDate } from "@/lib/format-date";
+import { BatchBulkEnrichmentButton } from "@/components/contact-enrichment/batch-bulk-enrichment-button";
 
 /** Una búsqueda (lote) tal como la lee el equipo de Growth. */
 export interface GrowthSearchRow {
@@ -28,6 +29,8 @@ export interface GrowthSearchRow {
   found: number;
   needsReview: number;
   approved: number;
+  /** Ya son empresas en SellUp: de estas se pueden buscar contactos en masa. */
+  converted: number;
   createdAt: string;
   createdBy: string | null;
 }
@@ -51,6 +54,11 @@ export interface GrowthWorkspaceProps {
   searchHref?: (id: string) => string;
   reviewHref?: string;
   accountsHref?: string;
+  /**
+   * Puede buscar contactos en masa (capacidad de Growth, la decide el servidor). Sin ella,
+   * la pestaña sólo explica el camino desde Empresas.
+   */
+  canEnrichBulk?: boolean;
 }
 
 const TONE_BADGE: Record<Tone, "brand" | "positive" | "warning" | "negative" | "info" | "neutral"> = {
@@ -88,7 +96,50 @@ export function GrowthWorkspace({
   searchHref = (id) => `/prospect-batches/${id}`,
   reviewHref = "/accounts?tab=prospectos",
   accountsHref = "/accounts",
+  canEnrichBulk = false,
 }: GrowthWorkspaceProps) {
+  const withCompanies = React.useMemo(() => searches.filter((row) => row.converted > 0), [searches]);
+  const enrichColumns = React.useMemo<ColumnDef<GrowthSearchRow, unknown>[]>(
+    () => [
+      {
+        id: "name",
+        accessorKey: "name",
+        header: "Búsqueda",
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <Link
+              href={searchHref(row.original.id)}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {row.original.name}
+            </Link>
+            <p className="text-xs text-muted-foreground">
+              {row.original.originLabel}
+              {row.original.country ? ` · ${row.original.country}` : ""}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: "converted",
+        accessorKey: "converted",
+        header: "Empresas creadas",
+        cell: ({ row }) => <span className="tabular-nums">{row.original.converted}</span>,
+      },
+      {
+        id: "enrich",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <BatchBulkEnrichmentButton batchId={row.original.id} convertedCount={row.original.converted} />
+          </div>
+        ),
+      },
+    ],
+    [searchHref],
+  );
+
   const columns = React.useMemo<ColumnDef<GrowthSearchRow, unknown>[]>(
     () => [
       {
@@ -237,14 +288,27 @@ export function GrowthWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="contactos">
+        <TabsContent value="contactos" className="flex flex-col gap-4">
+          {canEnrichBulk && withCompanies.length > 0 && (
+            <DataTable
+              tableId="growth-enrich-searches"
+              title="Búsquedas con empresas creadas"
+              noun="búsquedas"
+              nounGender="f"
+              columns={enrichColumns}
+              data={withCompanies}
+              getRowId={(row) => row.id}
+              getRowLabel={(row) => row.name}
+              enableColumnReorder={false}
+            />
+          )}
           <GuideCard
             icon={Users}
             tone="violet"
             title="Busca los contactos de muchas empresas a la vez"
             steps={[
-              "En Empresas, marca las empresas cuyos contactos quieres buscar.",
-              "Elige «Buscar contactos» en la barra de acciones.",
+              "Desde una búsqueda: «Buscar contactos de las aprobadas» toma las empresas que ya creó.",
+              "O en Empresas, marca las que quieras y elige «Buscar contactos» en la barra de acciones.",
               "Los contactos que lleguen esperan revisión antes de ir a HubSpot.",
             ]}
             action={

@@ -46,6 +46,8 @@ import {
   requireActiveUser,
 } from '@/modules/prospect-batches/actions';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { checkCapability } from '@/modules/access/capabilities.server';
+import { BatchBulkEnrichmentButton } from '@/components/contact-enrichment/batch-bulk-enrichment-button';
 import {
   BATCH_STATUS_LABELS,
   BATCH_SOURCE_LABELS,
@@ -87,12 +89,13 @@ export const maxDuration = 300;
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates, isAdmin, latestContinuation, viewer] = await Promise.all([
+  const [batch, candidates, isAdmin, latestContinuation, viewer, bulkEnrich] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
     isCurrentUserAdmin(),
     readLatestContinuationJob(batchId),
     requireActiveUser(),
+    checkCapability('enriquecerMasivo'),
   ]);
 
   if (!batch) notFound();
@@ -256,6 +259,10 @@ export default async function BatchDetailPage({ params }: Props) {
         description={pageSubtitle}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {/* Las empresas que esta búsqueda ya creó, directo a la búsqueda masiva de contactos. */}
+            {bulkEnrich.ok && counts.converted > 0 && (
+              <BatchBulkEnrichmentButton batchId={batch.id} convertedCount={counts.converted} />
+            )}
             {isAdmin &&
               batch.metadata?.batch_type === 'structured' &&
               (batch.metadata?.source_key === 'co_rues' ||

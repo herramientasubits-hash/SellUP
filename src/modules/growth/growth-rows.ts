@@ -38,6 +38,7 @@ export function toGrowthSearchRow(batch: ProspectBatchWithMeta): GrowthSearchRow
     found: batch.total_candidates ?? 0,
     needsReview: batch.needs_review_count ?? 0,
     approved: (batch.approved_count ?? 0) + (batch.converted_count ?? 0),
+    converted: batch.converted_count ?? 0,
     createdAt: batch.created_at,
     createdBy: batch.created_by_user?.full_name ?? batch.owner?.full_name ?? null,
   };
