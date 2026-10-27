@@ -2,10 +2,11 @@
  * Tests — Bulk Enrichment Runner (Agente 2A, Hito 17A.10C)
  *
  * Verifica el runner puro con dependencias inyectadas (mocks).
- * Sin DB, sin Apollo, sin Supabase real.
+ * Sin DB, sin proveedores, sin Supabase real. Cada empresa pasa por el mismo
+ * camino que la búsqueda individual (`runAutomaticForAccount`).
  */
 
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -41,18 +42,13 @@ function makeAccount(id: string) {
 }
 
 function makeDeps(overrides: Partial<BulkRunnerDeps> = {}): BulkRunnerDeps {
-  const updates: Record<string, unknown>[] = [];
-
   return {
     loadBulkRun: async (id) => makeBulkRun({ id }),
     loadAccount: async (id) => makeAccount(id),
-    updateBulkRunStatus: async (_id, _status, _extra) => { updates.push({ type: 'status' }); },
-    updateBulkRunCounters: async (_id, _counters) => { updates.push({ type: 'counters' }); },
-    createIndividualRun: async ({ accountId }) => ({ runId: `run-${accountId}` }),
-    executeApolloRun: async (_runId, _userId) => ({
-      status: 'ready_for_review',
-      candidatesCreated: 3,
-    }),
+    updateBulkRunStatus: async () => {},
+    updateBulkRunCounters: async () => {},
+    isAutomaticRoutingEnabled: async () => true,
+    runAutomaticForAccount: async ({ accountId }) => ({ runId: `run-${accountId}`, failed: false, candidatesCreated: 3 }),
     ...overrides,
   };
 }
@@ -107,84 +103,52 @@ describe('executeBulkContactEnrichmentRun', () => {
     assert.ok(statusUpdates.includes('running'), 'debe marcar running al iniciar');
   });
 
-  it('crea un run individual por cuenta elegible', async () => {
-    const createdRuns: string[] = [];
+  it('busca una vez por cuenta elegible, con el bulk_run_id correcto', async () => {
+    const calls: Array<{ accountId: string; bulkRunId: string }> = [];
     const deps = makeDeps({
-      createIndividualRun: async ({ accountId }) => {
-        createdRuns.push(accountId);
-        return { runId: `run-${accountId}` };
-      },
-    });
-
-    await executeBulkContactEnrichmentRun({ bulkRunId: 'bulk-1', triggeredByUserId: 'u1' }, deps);
-
-    assert.deepEqual(createdRuns.sort(), ['acc-1', 'acc-2']);
-  });
-
-  it('cada run individual recibe el bulk_run_id correcto', async () => {
-    const receivedBulkIds: (string | null | undefined)[] = [];
-    const deps = makeDeps({
-      loadBulkRun: async (id) => makeBulkRun({ id: 'bulk-xyz', eligible_account_ids: ['acc-1'] }),
-      createIndividualRun: async ({ bulkRunId }) => {
-        receivedBulkIds.push(bulkRunId);
-        return { runId: 'run-acc-1' };
+      loadBulkRun: async () => makeBulkRun({ id: 'bulk-xyz' }),
+      runAutomaticForAccount: async ({ accountId, bulkRunId }) => {
+        calls.push({ accountId, bulkRunId });
+        return { runId: `run-${accountId}`, failed: false, candidatesCreated: 1 };
       },
     });
 
     await executeBulkContactEnrichmentRun({ bulkRunId: 'bulk-xyz', triggeredByUserId: 'u1' }, deps);
 
-    assert.equal(receivedBulkIds.length, 1);
-    assert.equal(receivedBulkIds[0], 'bulk-xyz');
-  });
-
-  it('llama Apollo runner por cada run individual', async () => {
-    const apolloCalls: string[] = [];
-    const deps = makeDeps({
-      executeApolloRun: async (runId) => {
-        apolloCalls.push(runId);
-        return { status: 'ready_for_review', candidatesCreated: 2 };
-      },
-    });
-
-    await executeBulkContactEnrichmentRun({ bulkRunId: 'bulk-1', triggeredByUserId: 'u1' }, deps);
-
-    assert.equal(apolloCalls.length, 2);
-    assert.ok(apolloCalls.includes('run-acc-1'));
-    assert.ok(apolloCalls.includes('run-acc-2'));
+    assert.deepEqual(calls, [
+      { accountId: 'acc-1', bulkRunId: 'bulk-xyz' },
+      { accountId: 'acc-2', bulkRunId: 'bulk-xyz' },
+    ]);
   });
 
   it('ejecución secuencial: no paraleliza (orden preservado)', async () => {
     const order: string[] = [];
+    let running = 0;
     const deps = makeDeps({
       loadBulkRun: async (id) => makeBulkRun({ id, eligible_account_ids: ['acc-1', 'acc-2', 'acc-3'] }),
-      createIndividualRun: async ({ accountId }) => {
-        order.push(`create-${accountId}`);
-        return { runId: `run-${accountId}` };
-      },
-      executeApolloRun: async (runId) => {
-        order.push(`apollo-${runId}`);
-        return { status: 'ready_for_review', candidatesCreated: 1 };
+      runAutomaticForAccount: async ({ accountId }) => {
+        running += 1;
+        assert.equal(running, 1, 'una empresa a la vez');
+        order.push(accountId);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        running -= 1;
+        return { runId: `run-${accountId}`, failed: false, candidatesCreated: 1 };
       },
     });
 
     await executeBulkContactEnrichmentRun({ bulkRunId: 'bulk-1', triggeredByUserId: 'u1' }, deps);
 
-    // Cada cuenta debe create→apollo antes de pasar a la siguiente
-    assert.deepEqual(order, [
-      'create-acc-1', 'apollo-run-acc-1',
-      'create-acc-2', 'apollo-run-acc-2',
-      'create-acc-3', 'apollo-run-acc-3',
-    ]);
+    assert.deepEqual(order, ['acc-1', 'acc-2', 'acc-3']);
   });
 
   it('fallo de una cuenta no detiene el resto', async () => {
     const processedAccounts: string[] = [];
     const deps = makeDeps({
       loadBulkRun: async (id) => makeBulkRun({ id, eligible_account_ids: ['acc-1', 'acc-2', 'acc-3'] }),
-      createIndividualRun: async ({ accountId }) => {
+      runAutomaticForAccount: async ({ accountId }) => {
         if (accountId === 'acc-2') throw new Error('Error simulado acc-2');
         processedAccounts.push(accountId);
-        return { runId: `run-${accountId}` };
+        return { runId: `run-${accountId}`, failed: false, candidatesCreated: 1 };
       },
     });
 
@@ -193,18 +157,17 @@ describe('executeBulkContactEnrichmentRun', () => {
       deps,
     );
 
-    assert.ok(processedAccounts.includes('acc-1'));
-    assert.ok(processedAccounts.includes('acc-3'));
+    assert.deepEqual(processedAccounts, ['acc-1', 'acc-3']);
     assert.equal(result.totalProcessed, 3);
     assert.equal(result.totalFailed, 1);
   });
 
   it('contadores finales son correctos', async () => {
     const deps = makeDeps({
-      loadBulkRun: async (id) => makeBulkRun({ id, eligible_account_ids: ['acc-1', 'acc-2'] }),
-      executeApolloRun: async (runId) => ({
-        status: 'ready_for_review',
-        candidatesCreated: runId === 'run-acc-1' ? 3 : 2,
+      runAutomaticForAccount: async ({ accountId }) => ({
+        runId: `run-${accountId}`,
+        failed: false,
+        candidatesCreated: accountId === 'acc-1' ? 3 : 2,
       }),
     });
 
@@ -219,22 +182,9 @@ describe('executeBulkContactEnrichmentRun', () => {
     assert.equal(result.totalCandidatesCreated, 5);
   });
 
-  it('finaliza completed si no hay fallos técnicos', async () => {
-    const deps = makeDeps();
-    const result = await executeBulkContactEnrichmentRun(
-      { bulkRunId: 'bulk-1', triggeredByUserId: 'u1' },
-      deps,
-    );
-
-    assert.equal(result.status, 'completed');
-  });
-
   it('finaliza completed si todas las cuentas retornan no_candidates', async () => {
     const deps = makeDeps({
-      executeApolloRun: async () => ({
-        status: 'completed',
-        candidatesCreated: 0,
-      }),
+      runAutomaticForAccount: async ({ accountId }) => ({ runId: `run-${accountId}`, failed: false, candidatesCreated: 0 }),
     });
 
     const result = await executeBulkContactEnrichmentRun(
@@ -244,15 +194,15 @@ describe('executeBulkContactEnrichmentRun', () => {
 
     assert.equal(result.status, 'completed');
     assert.equal(result.totalCandidatesCreated, 0);
+    assert.deepEqual(result.accountResults.map((r) => r.status), ['no_candidates', 'no_candidates']);
   });
 
   it('finaliza completed_with_errors si una cuenta falla', async () => {
     const deps = makeDeps({
-      loadBulkRun: async (id) => makeBulkRun({ id, eligible_account_ids: ['acc-1', 'acc-2'] }),
-      executeApolloRun: async (runId) => {
-        if (runId === 'run-acc-2') return { status: 'error', candidatesCreated: 0 };
-        return { status: 'ready_for_review', candidatesCreated: 3 };
-      },
+      runAutomaticForAccount: async ({ accountId }) =>
+        accountId === 'acc-2'
+          ? { runId: 'run-acc-2', failed: true, candidatesCreated: 0, error: 'Falló Apollo' }
+          : { runId: 'run-acc-1', failed: false, candidatesCreated: 3 },
     });
 
     const result = await executeBulkContactEnrichmentRun(
@@ -263,11 +213,12 @@ describe('executeBulkContactEnrichmentRun', () => {
     assert.equal(result.status, 'completed_with_errors');
     assert.equal(result.totalFailed, 1);
     assert.equal(result.totalSucceeded, 1);
+    assert.equal(result.accountResults[1].error, 'Falló Apollo');
   });
 
   it('finaliza failed si ninguna cuenta pudo procesarse', async () => {
     const deps = makeDeps({
-      createIndividualRun: async () => { throw new Error('Error sistémico'); },
+      runAutomaticForAccount: async () => { throw new Error('Error sistémico'); },
     });
 
     const result = await executeBulkContactEnrichmentRun(
@@ -280,45 +231,10 @@ describe('executeBulkContactEnrichmentRun', () => {
     assert.equal(result.totalFailed, 2);
   });
 
-  it('no crea contactos oficiales', async () => {
-    const contactInserts: unknown[] = [];
-    const deps = makeDeps();
-    // El runner no tiene acceso a insertContact — verificamos que no se llame
-    // indirectamente comprobando que no existan llamadas en el flujo del runner puro.
-    // Este test verifica que el runner nunca invoca insertContact directamente.
-    await executeBulkContactEnrichmentRun({ bulkRunId: 'bulk-1', triggeredByUserId: 'u1' }, deps);
-    assert.equal(contactInserts.length, 0, 'runner no debe crear contactos oficiales');
-  });
-
-  it('estimatedApolloCredits equivale al número de cuentas elegibles', async () => {
-    const countersUpdates: Array<Record<string, unknown>> = [];
-    const deps = makeDeps({
-      loadBulkRun: async (id) => makeBulkRun({
-        id,
-        eligible_account_ids: ['acc-1', 'acc-2', 'acc-3'],
-      }),
-      loadAccount: async (id) => makeAccount(id),
-      updateBulkRunCounters: async (_id, counters) => {
-        countersUpdates.push(counters);
-      },
-    });
-
-    const result = await executeBulkContactEnrichmentRun(
-      { bulkRunId: 'bulk-1', triggeredByUserId: 'u1' },
-      deps,
-    );
-
-    // 3 cuentas elegibles → 3 créditos estimados (verificado vía accountResults.length)
-    assert.equal(result.totalProcessed, 3);
-  });
-
-  it('rechaza más de 10 cuentas elegibles procesando solo las presentes', async () => {
-    // El runner no valida el límite — la validación es en la action/helper.
-    // Este test verifica que el runner procesa exactamente las que recibe del bulk.
+  it('procesa exactamente las cuentas que trae el bulk (el tope lo valida la acción)', async () => {
     const manyAccounts = Array.from({ length: 5 }, (_, i) => `acc-${i}`);
     const deps = makeDeps({
       loadBulkRun: async (id) => makeBulkRun({ id, eligible_account_ids: manyAccounts }),
-      loadAccount: async (id) => makeAccount(id),
     });
 
     const result = await executeBulkContactEnrichmentRun(
