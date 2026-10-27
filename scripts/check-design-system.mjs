@@ -32,6 +32,11 @@
  *                        zona de quien pinta, y servidor (UTC) y navegador escriben días distintos
  *                        (error de hidratación #418). Se formatea con `formatInAppZone`,
  *                        `formatAppDate`, `formatAppDateTime` o `formatAppTime` de `@/lib/format-date`.
+ *  16. desplegable-de-golpe / flecha-que-salta / details-a-mano — lo que se abre o se despliega
+ *                        aparece de golpe: `{abierto && …}` o `hidden={…}` junto a su `aria-expanded`,
+ *                        una flecha que cambia de dibujo o un `<details>`. Se pliega con `Collapsible`
+ *                        (anima la altura, como flux-ui) y la flecha gira. Ver
+ *                        `scripts/design-system-disclosure.mjs`.
  *
  * Una excepción se declara en ALLOW, con su motivo; nunca apagando la regla en el archivo.
  * Guía de traducción: docs/THEMA_AZUL_MIGRATION.md
@@ -39,6 +44,7 @@
 import { execSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { findDisclosureIssues } from "./design-system-disclosure.mjs";
 
 const ROOT = process.cwd();
 const args = new Set(process.argv.slice(2));
@@ -122,6 +128,10 @@ const ALLOW = {
   // `actions.ts` de `modules/` corren solo en servidor y escriben nombres de lote que se guardan,
   // no texto que se hidrata. `prospect-date-utils.ts` y `provider-contract-plan-card.tsx` ya pasan
   // un `timeZone` explícito (Bogotá; y UTC para un día de calendario sin hora).
+  // `components/ui` ES quien anima (Collapsible, Accordion). `ai-usage/filters-client`: los
+  // filtros extra se intercalan en la misma fila (display: contents), no hay un panel con alto que
+  // plegar; cada uno entra con un fade.
+  disclosure: [/^src\/components\/ui\//, /^src\/app\/\(sellup\)\/ai-usage\/filters-client\.tsx$/, TESTS],
   date: [
     /^src\/lib\/format-date\.ts$/,
     /^src\/components\/ui\/calendar\.tsx$/,
@@ -210,6 +220,11 @@ for (const full of targets) {
     if (!allowed(file, ALLOW.date) && RAW_DATE.test(line)) add(file, n, "fecha-sin-zona", `Fecha sin zona fija (${line.match(RAW_DATE)[0]}…). Usa formatInAppZone / formatAppDate / formatAppDateTime de @/lib/format-date.`);
     if (file.endsWith(".tsx") && !allowed(file, ALLOW.table) && RAW_TABLE.test(line)) add(file, n, "tabla-a-mano", `Tabla escrita a mano (${line.match(RAW_TABLE)[0]}>). Usa Table, TableHeader, TableBody, TableRow, TableHead y TableCell de @/components/ui/table.`);
   });
+
+  // Lo que se abre aparece de golpe (detección multilínea, sobre el archivo entero).
+  if (file.endsWith(".tsx") && !allowed(file, ALLOW.disclosure)) {
+    for (const issue of findDisclosureIssues(text)) add(file, issue.line, issue.rule, issue.message);
+  }
 
   // Controles del sistema con su apariencia sobrescrita por className.
   if (!isCss && !allowed(file, ALLOW.control)) {

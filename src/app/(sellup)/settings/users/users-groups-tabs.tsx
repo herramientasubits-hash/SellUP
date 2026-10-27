@@ -230,25 +230,27 @@ export function UsersTab({
       )}
 
       {showOrgChart && (
-        <div className="h-128 min-h-0 overflow-hidden">
+        <div className="h-128 min-h-0 overflow-hidden animate-su-tab-in">
           <OrgChart users={users} roles={roles} />
         </div>
       )}
 
       {showUserList && (
-        <SelectableUsersList
-          // Al cambiar de estado cambian las acciones en lote: la tabla empieza
-          // de cero para no arrastrar una selección de otra vista.
-          key={listMode}
-          users={filteredUsers}
-          roles={roles}
-          allUsers={allUsers}
-          activeUsers={activeUsers}
-          groups={groups}
-          mode={listMode}
-          isAdmin={isAdmin}
-          title={listTitle}
-        />
+        <div className="animate-su-tab-in">
+          <SelectableUsersList
+            // Al cambiar de estado cambian las acciones en lote: la tabla empieza
+            // de cero para no arrastrar una selección de otra vista.
+            key={listMode}
+            users={filteredUsers}
+            roles={roles}
+            allUsers={allUsers}
+            activeUsers={activeUsers}
+            groups={groups}
+            mode={listMode}
+            isAdmin={isAdmin}
+            title={listTitle}
+          />
+        </div>
       )}
     </div>
   );

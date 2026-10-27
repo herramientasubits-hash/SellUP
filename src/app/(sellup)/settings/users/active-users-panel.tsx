@@ -40,9 +40,12 @@ export function ActiveUsersPanel({ userCount, listContent, orgContent, groupsCon
         />
       </div>
 
-      {view === 'list'   && listContent}
-      {view === 'org'    && orgContent}
-      {view === 'groups' && groupsContent}
+      {/* Cambiar de vista entra con un fade corto (key = vista), no de golpe. */}
+      <div key={view} className="animate-su-tab-in">
+        {view === 'list'   && listContent}
+        {view === 'org'    && orgContent}
+        {view === 'groups' && groupsContent}
+      </div>
     </div>
   );
 }

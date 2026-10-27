@@ -786,85 +786,88 @@ export function ImportCandidatesDrawer({
         />
       )}
 
-      {step === 'input' && !confirming && (
-        <ImportCandidatesInputStep
-          countryCode={selectedCountryCode}
-          onCountryChange={handleCountryChange}
-          industryId={selectedIndustry}
-          onIndustryChange={handleIndustryChange}
-          industryOptions={industryOptions}
-          subindustriesEnabled={subindustriesEnabled}
-          subindustryId={selectedSubindustryId}
-          onSubindustryChange={(v) => {
-            setSelectedSubindustryId(v ?? '');
-            setSubindustryCountryWarning(false);
-          }}
-          subindustryOptions={subindustryOptions}
-          subindustryCountryWarning={subindustryCountryWarning}
-          catalogReady={!!catalogData}
-          catalogEmpty={!!catalogData && catalogData.industries.length === 0}
-          catalogLoading={catalogLoading}
-          catalogError={catalogError}
-          onRetryCatalog={loadCatalog}
-          fileMethod={fileMethod}
-          onFileMethodChange={setFileMethod}
-          pasteText={pasteText}
-          onPasteTextChange={setPasteText}
-          selectedFile={selectedFile}
-          fileError={fileError}
-          onFileSelected={handleFileSelected}
-          onFileRemoved={handleFileRemoved}
-          showGuide={showGuide}
-          onShowGuideChange={setShowGuide}
-        />
-      )}
+      {/* Cada paso entra con un fade corto (key = paso): antes se cambiaba de golpe. */}
+      <div key={step} className="flex min-h-0 flex-1 flex-col animate-su-tab-in">
+        {step === 'input' && !confirming && (
+          <ImportCandidatesInputStep
+            countryCode={selectedCountryCode}
+            onCountryChange={handleCountryChange}
+            industryId={selectedIndustry}
+            onIndustryChange={handleIndustryChange}
+            industryOptions={industryOptions}
+            subindustriesEnabled={subindustriesEnabled}
+            subindustryId={selectedSubindustryId}
+            onSubindustryChange={(v) => {
+              setSelectedSubindustryId(v ?? '');
+              setSubindustryCountryWarning(false);
+            }}
+            subindustryOptions={subindustryOptions}
+            subindustryCountryWarning={subindustryCountryWarning}
+            catalogReady={!!catalogData}
+            catalogEmpty={!!catalogData && catalogData.industries.length === 0}
+            catalogLoading={catalogLoading}
+            catalogError={catalogError}
+            onRetryCatalog={loadCatalog}
+            fileMethod={fileMethod}
+            onFileMethodChange={setFileMethod}
+            pasteText={pasteText}
+            onPasteTextChange={setPasteText}
+            selectedFile={selectedFile}
+            fileError={fileError}
+            onFileSelected={handleFileSelected}
+            onFileRemoved={handleFileRemoved}
+            showGuide={showGuide}
+            onShowGuideChange={setShowGuide}
+          />
+        )}
 
-      {step === 'classification' && loadingClassification && <ImportClassificationLoading />}
+        {step === 'classification' && loadingClassification && <ImportClassificationLoading />}
 
-      {step === 'classification' && needsMappingResolution && (
-        <ImportMappingResolution columnMappings={columnMappings} onMappingChange={handleMappingChange} />
-      )}
+        {step === 'classification' && needsMappingResolution && (
+          <ImportMappingResolution columnMappings={columnMappings} onMappingChange={handleMappingChange} />
+        )}
 
-      {step === 'classification' && !loadingClassification && !needsMappingResolution && classificationSummary && (
-        <ImportClassificationReview
-          rows={classificationRows}
-          summary={classificationSummary}
-          catalog={catalogData}
-          catalogVersion={catalogVersion}
-          catalogVersionChanged={catalogVersionChanged}
-          onRevalidate={() => {
-            setCatalogVersionChanged(false);
-            void handleBuildClassification();
-          }}
-          classificationError={classificationError}
-          detectionNotice={
-            preview ? describeImportDetection(preview.detection, preview.column_guesses, preview.total) : null
-          }
-          filterStatus={filterStatus}
-          onFilterStatusChange={setFilterStatus}
-          selectedIds={classificationSelectedIds}
-          onSelectionChange={setClassificationSelectedIds}
-          showSubindustry={subindustriesEnabled}
-          onSaveCorrection={handleSaveCorrection}
-          onBulkCorrection={handleBulkCorrection}
-        />
-      )}
+        {step === 'classification' && !loadingClassification && !needsMappingResolution && classificationSummary && (
+          <ImportClassificationReview
+            rows={classificationRows}
+            summary={classificationSummary}
+            catalog={catalogData}
+            catalogVersion={catalogVersion}
+            catalogVersionChanged={catalogVersionChanged}
+            onRevalidate={() => {
+              setCatalogVersionChanged(false);
+              void handleBuildClassification();
+            }}
+            classificationError={classificationError}
+            detectionNotice={
+              preview ? describeImportDetection(preview.detection, preview.column_guesses, preview.total) : null
+            }
+            filterStatus={filterStatus}
+            onFilterStatusChange={setFilterStatus}
+            selectedIds={classificationSelectedIds}
+            onSelectionChange={setClassificationSelectedIds}
+            showSubindustry={subindustriesEnabled}
+            onSaveCorrection={handleSaveCorrection}
+            onBulkCorrection={handleBulkCorrection}
+          />
+        )}
 
-      {step === 'preview' && preview && (
-        <ImportCandidatesPreviewStep
-          preview={preview}
-          duplicateMap={duplicateMap}
-          exactDuplicateCount={exactDuplicateCount}
-          possibleDuplicateCount={possibleDuplicateCount}
-          countryLabel={selectedCountryCode ? (selectedCountry?.name ?? selectedCountryCode) : undefined}
-          industryLabel={selectedIndustry ? (selectedIndustryName ?? selectedIndustry) : undefined}
-          subindustryLabel={
-            selectedSubindustryId && selectedSubindustryId !== '__none__' ? selectedSubindustryName : undefined
-          }
-          onBack={backToInput}
-          onSelectionChange={setSelectedRows}
-        />
-      )}
+        {step === 'preview' && preview && (
+          <ImportCandidatesPreviewStep
+            preview={preview}
+            duplicateMap={duplicateMap}
+            exactDuplicateCount={exactDuplicateCount}
+            possibleDuplicateCount={possibleDuplicateCount}
+            countryLabel={selectedCountryCode ? (selectedCountry?.name ?? selectedCountryCode) : undefined}
+            industryLabel={selectedIndustry ? (selectedIndustryName ?? selectedIndustry) : undefined}
+            subindustryLabel={
+              selectedSubindustryId && selectedSubindustryId !== '__none__' ? selectedSubindustryName : undefined
+            }
+            onBack={backToInput}
+            onSelectionChange={setSelectedRows}
+          />
+        )}
+      </div>
     </DrawerShell>
   );
 }

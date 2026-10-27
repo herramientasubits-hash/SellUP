@@ -768,8 +768,9 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           )}
           {/* La conversación NO se desmonta al ir a «Búsquedas» ni al abrir una
               corrida desde el Centro de procesos: se oculta, y lo que se estaba
-              respondiendo no se pierde. */}
-          <div className={cn('flex min-h-0 flex-1 flex-col', (chatView !== 'chat' || viewRunId) && 'hidden')}>
+              respondiendo no se pierde. Al volver entra con un fade corto: la
+              animación se repite cada vez que deja de estar oculta. */}
+          <div className={cn('flex min-h-0 flex-1 flex-col animate-su-tab-in', (chatView !== 'chat' || viewRunId) && 'hidden')}>
             <ProspectChatWizard
               key={wizardKey}
               ref={wizardRef}
@@ -789,7 +790,11 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               supplierSearchEnabled={supplierSearchEnabled}
             />
           </div>
-          {chatView === 'runs' && <AgentRunsPanel />}
+          {chatView === 'runs' && (
+            <div className="flex min-h-0 flex-1 flex-col animate-su-tab-in">
+              <AgentRunsPanel />
+            </div>
+          )}
         </ChatPanel>
       </>
     );
