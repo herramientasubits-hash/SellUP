@@ -1,5 +1,9 @@
 # Migración al tema Azul de Thema — guía de pantalla
 
+> **Histórico (27-10-2026):** el tema vigente ya no es el «Azul» de Thema sino el del playground de UX
+> (`@ubits/flux-ui`): fondo blanco y grises neutros. Ver [`DESIGN_SYSTEM_FOUNDATION.md`](./DESIGN_SYSTEM_FOUNDATION.md) §3.
+> Las reglas de traducción de clases de esta guía siguen valiendo; los valores de color, radio y sombra no.
+
 **Referencia visual:** `~/Documents/Thema Shadcn` (sistema de diseño Thema, preset `thema` = «Azul»).
 **Tokens:** `src/app/globals.css` (generados con `themeToCss(findPreset("thema"), "md")`).
 **Alcance:** toda la UI operativa de SellUp. El panel de marca del login sigue siendo la única excepción editorial.
