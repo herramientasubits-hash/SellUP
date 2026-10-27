@@ -2,8 +2,8 @@
  * AGENT2A D1 — «Búsqueda por lotes con ID de HubSpot» en el panel del agente.
  *
  * Contrato RUNTIME del flujo que pidió Ventas:
- *   - junto a «Nueva conversación» hay un botón «ID» con el nombre
- *     «Búsqueda por lotes con ID de HubSpot»;
+ *   - junto a «Nueva conversación» hay un botón con el logo de HubSpot y el nombre
+ *     «Buscar por lote de HubSpot IDs» (F1: antes era el rótulo «ID»);
  *   - al pulsarlo, el agente saluda con las instrucciones (1 a 10 IDs por coma);
  *   - la entrada se limpia de espacios y se busca empresa por empresa;
  *   - al terminar hay una tabla Nombre | País | Contactos encontrados |
@@ -161,12 +161,13 @@ async function send(text: string) {
 }
 
 describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
-  it('el botón «ID» está junto a «Nueva conversación» y se llama como pidió Ventas', async () => {
+  it('el botón de HubSpot está junto a «Nueva conversación» y se llama como pidió Ventas', async () => {
     rtl.render(<Shell />);
     const idButton = await rtl.screen.findByTestId('chat-panel-hubspot-id-batch');
     const newButton = rtl.screen.getByTestId('chat-panel-new');
-    assert.equal(idButton.getAttribute('aria-label'), 'Búsqueda por lotes con ID de HubSpot');
-    assert.equal(idButton.textContent, 'ID');
+    assert.equal(idButton.getAttribute('aria-label'), 'Buscar por lote de HubSpot IDs');
+    // F1 — el rótulo «ID» pasó a ser el logo oficial de HubSpot (archivo sin modificar).
+    assert.ok(idButton.querySelector('img[src="/brand/hubspot-sprocket.svg"]'));
     // Inmediatamente antes de «Nueva conversación» en la cabecera.
     assert.equal(idButton.nextElementSibling, newButton);
   });
@@ -254,7 +255,7 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     assert.equal(mockRunItem.mock.callCount(), 1);
   });
 
-  it('volver a pulsar «ID» regresa al asistente de una empresa', async () => {
+  it('volver a pulsar el botón de HubSpot regresa al asistente de una empresa', async () => {
     const button = await openBatchMode();
     rtl.fireEvent.click(button);
     assert.equal(button.getAttribute('aria-pressed'), 'false');

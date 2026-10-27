@@ -393,6 +393,18 @@ export function isContactEnrichmentHubSpotFirstEnabled(): boolean {
 }
 
 /**
+ * AGENT2A-LINKEDIN-CONTACT-SEARCH (F1/F2) — modo «Buscar contacto por LinkedIn» del panel del
+ * agente. Con esta variable en false/ausente (el DEFAULT del código; no afirma lo que Producción
+ * tenga puesto) el botón de LinkedIn no aparece y la acción del servidor se niega antes de
+ * llamar a cualquier proveedor.
+ */
+export const CONTACT_ENRICHMENT_LINKEDIN_SEARCH_FLAG = 'CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED';
+
+export function isContactEnrichmentLinkedInSearchEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_LINKEDIN_SEARCH_FLAG]);
+}
+
+/**
  * AGENT2-CONTACT-BANK-1 — banco de contactos por empresa: antes de Apollo/Lusha se ofrece lo que
  * SellUp ya conocía de otra ficha de la misma compañía (archivada o del mismo responsable). Con
  * esta variable en false/ausente (el DEFAULT del código; no afirma lo que Producción tenga

@@ -25,6 +25,7 @@ interface ContactEnrichmentWizardProps {
   onBusyChange?: (busy: boolean) => void;
   /** La búsqueda terminó con contactos para revisar (el panel lleva a «Por revisar»). */
   onFoundContacts?: () => void;
+  placeholder?: string;
 }
 
 export function ContactEnrichmentWizard({
@@ -34,6 +35,7 @@ export function ContactEnrichmentWizard({
   ref,
   onBusyChange,
   onFoundContacts,
+  placeholder,
 }: ContactEnrichmentWizardProps = {}) {
   return (
     <ContactEnrichmentChatWizard
@@ -43,6 +45,7 @@ export function ContactEnrichmentWizard({
       initialCompany={initialCompany}
       onCreateManualContact={onCreateManualContact}
       onFoundContacts={onFoundContacts}
+      placeholder={placeholder}
     />
   );
 }
