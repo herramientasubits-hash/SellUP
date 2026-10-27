@@ -27,7 +27,10 @@ import type {
   BulkEnrichmentEligibilityResult,
   BulkEnrichmentSkipReason,
 } from '@/modules/contact-enrichment/bulk-enrichment-types';
-import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from '@/modules/contact-enrichment/bulk-enrichment-types';
+import {
+  BULK_AUTOMATIC_ROUTING_DISABLED_COPY,
+  CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS,
+} from '@/modules/contact-enrichment/bulk-enrichment-types';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -226,10 +229,12 @@ export function BulkContactEnrichmentDrawer({
   const isUnknown = state === 'execution_unknown';
 
   const noEligible = !tooManyAccounts && eligibility && eligibility.eligible.length === 0;
+  const routingDisabled = eligibility?.routingDisabled === true;
   const canConfirm =
     !isLoading &&
     state !== 'error' &&
     !noEligible &&
+    !routingDisabled &&
     !tooManyAccounts &&
     !isDone;
 
@@ -413,6 +418,14 @@ export function BulkContactEnrichmentDrawer({
               <Alert variant="warning">
                 <AlertDescription className="text-warning">
                   No hay cuentas elegibles para enriquecer en este lote.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {routingDisabled && (
+              <Alert variant="warning" role="status">
+                <AlertDescription className="text-warning">
+                  {BULK_AUTOMATIC_ROUTING_DISABLED_COPY}
                 </AlertDescription>
               </Alert>
             )}

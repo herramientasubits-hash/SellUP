@@ -1196,7 +1196,8 @@ export async function mergeContactCandidateIntoExistingContactAction(
 // ── Bulk Enrichment Actions (Hito 17A.10C) ───────────────────────────────────
 
 import { checkBulkContactEnrichmentEligibility } from './bulk-enrichment-eligibility';
-import { CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from './bulk-enrichment-types';
+import { BULK_AUTOMATIC_ROUTING_DISABLED_COPY, CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from './bulk-enrichment-types';
+import { getContactEnrichmentRoutingConfigV1 } from '@/modules/contact-enrichment-routing/routing-config.server';
 import type { BulkEnrichmentEligibilityResult } from './bulk-enrichment-types';
 
 export interface CheckBulkEnrichmentEligibilityActionResult {
@@ -1225,7 +1226,9 @@ export async function checkBulkEnrichmentEligibilityAction(
 
     const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
     const result = await checkBulkContactEnrichmentEligibility(uniqueIds);
-    return { success: true, data: result };
+    // Apagada la búsqueda automática, la masiva no corre (igual que la individual).
+    const routingDisabled = !getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled;
+    return { success: true, data: { ...result, routingDisabled } };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error verificando elegibilidad';
     return { success: false, error: message };
@@ -1261,6 +1264,11 @@ export async function createBulkContactEnrichmentRunAction(
       throw new Error(
         `Máximo ${CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS} cuentas por bulk run`,
       );
+    }
+
+    // Sin búsqueda automática no hay masiva: ni corrida ni gasto (igual que la individual).
+    if (!getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled) {
+      throw new Error(BULK_AUTOMATIC_ROUTING_DISABLED_COPY);
     }
 
     const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];

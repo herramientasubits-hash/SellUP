@@ -36,4 +36,13 @@ export interface BulkEnrichmentEligibilityResult {
   eligible: BulkEnrichmentEligibleAccount[];
   skipped: BulkEnrichmentSkippedAccount[];
   estimatedApolloCredits: number;
+  /**
+   * La búsqueda automática está apagada en este entorno: como la individual, la masiva
+   * no corre (no hay camino de reserva sólo con Apollo).
+   */
+  routingDisabled?: boolean;
 }
+
+/** Lo mismo que dice la búsqueda individual cuando la búsqueda automática está apagada. */
+export const BULK_AUTOMATIC_ROUTING_DISABLED_COPY =
+  'La búsqueda automática de contactos no está activada en este entorno. No se ejecutó ninguna búsqueda ni se crearon candidatos.';
