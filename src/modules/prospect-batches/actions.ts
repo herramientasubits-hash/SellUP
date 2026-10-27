@@ -7,7 +7,14 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { approvalDeniedMessage, checkCandidateApproval, checkCapability, requireCandidateReviewer, requireCapability } from '@/modules/access/capabilities.server';
+import {
+  approvalDeniedMessage,
+  checkCandidateApproval,
+  checkCapability,
+  findCandidatesNeedingAssignee,
+  requireCandidateReviewer,
+  requireCapability,
+} from '@/modules/access/capabilities.server';
 import { decideDuplicateRecheck, DUPLICATE_RECHECK_MESSAGES } from './duplicate-recheck';
 import { evaluateConvertApproveEligibility, type ConvertApproveRejectReason } from '@/modules/prospect-review/approve-and-convert-eligibility';
 import { evaluateApproveEligibility } from '@/modules/prospect-review/approve-eligibility';
@@ -841,6 +848,29 @@ export async function getCandidatesByBatch(
 
   const rows: ProspectCandidateWithReviewer[] = [];
   let from = 0;
+  // Qué candidatas no se pueden aprobar todavía por falta de responsable (lote de Growth
+  // sin asignar). Si no se puede leer, no se marca nada: el servidor lo exige al aprobar.
+  const batchOwner = await (async () => {
+    try {
+      const { data } = await supabase.from('prospect_batches').select('owner_id, created_by').eq('id', batchId).maybeSingle();
+      return data as { owner_id?: string | null; created_by?: string | null } | null;
+    } catch {
+      return null;
+    }
+  })();
+  const withAssigneeFlag = async (candidates: ProspectCandidateWithReviewer[]) => {
+    if (!batchOwner) return candidates;
+    const needing = await findCandidatesNeedingAssignee(
+      candidates.map((candidate) => ({
+        id: candidate.id,
+        status: candidate.status,
+        assignedTo: candidate.assigned_to ?? null,
+        batchOwnerId: batchOwner.owner_id ?? null,
+        batchCreatedBy: batchOwner.created_by ?? null,
+      })),
+    );
+    return candidates.map((candidate) => ({ ...candidate, needs_assignee: needing.has(candidate.id) }));
+  };
 
   for (let page = 0; page < BATCH_CANDIDATE_MAX_PAGES; page++) {
     const { data, error } = await supabase
@@ -859,7 +889,7 @@ export async function getCandidatesByBatch(
 
     const pageRows = (data ?? []) as ProspectCandidateWithReviewer[];
     if (pageRows.length === 0) return rows;
-    rows.push(...pageRows);
+    rows.push(...(await withAssigneeFlag(pageRows)));
     from += pageRows.length;
   }
 
@@ -1908,7 +1938,7 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
 
   const { data: candidate } = await supabase
     .from('prospect_candidates')
-    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, created_by)')
+    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, owner_id, created_by)')
     .eq('id', id)
     .single();
 
@@ -1952,10 +1982,10 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
   });
 
   // ALWAYS-OWNER-ON-CREATE-1 — la empresa nace con responsable: el asignado del
-  // prospecto, si no quien lanzó la búsqueda (creador del lote), si no quien convierte.
+  // prospecto, si no el dueño de la búsqueda (o su creador), si no quien convierte.
   const convertBatchRaw = (candidate as Record<string, unknown>).batch;
   const convertBatchRow = (Array.isArray(convertBatchRaw) ? convertBatchRaw[0] : convertBatchRaw) as
-    | { created_by?: string | null }
+    | { owner_id?: string | null; created_by?: string | null }
     | null
     | undefined;
   const convertAssignedTo = (candidate as Record<string, unknown>).assigned_to as string | null | undefined;
@@ -1963,9 +1993,14 @@ export async function convertCandidateToAccount(id: string): Promise<{ accountId
     {
       chosenOwnerId: resolveConversionOwnerUserId({
         assignedTo: convertAssignedTo,
+        batchOwnerId: convertBatchRow?.owner_id,
         batchCreatedBy: convertBatchRow?.created_by,
         approverUserId: internalUserId,
-        isActiveUser: await loadActiveUserPredicate([convertAssignedTo, convertBatchRow?.created_by]),
+        isActiveUser: await loadActiveUserPredicate([
+          convertAssignedTo,
+          convertBatchRow?.owner_id,
+          convertBatchRow?.created_by,
+        ]),
       }),
       actorUserId: internalUserId,
     },
@@ -2271,7 +2306,7 @@ export async function approveAndConvertCandidateAction(
   // 1. Cargar candidato
   const { data: candidate, error: candidateErr } = await supabase
     .from('prospect_candidates')
-    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, created_by)')
+    .select('*, batch:prospect_batches!prospect_candidates_batch_id_fkey(source, owner_id, created_by)')
     .eq('id', id)
     .single();
 
@@ -2540,16 +2575,17 @@ async function convertClaimedCandidate(ctx: {
   // la empresa queda a nombre del asignado (la apruebe quien la apruebe).
   const batchRaw = (candidate as Record<string, unknown>).batch;
   const batchRow = (Array.isArray(batchRaw) ? batchRaw[0] : batchRaw) as
-    | { created_by?: string | null }
+    | { owner_id?: string | null; created_by?: string | null }
     | null
     | undefined;
   const candidateAssignedTo = (candidate as Record<string, unknown>).assigned_to as string | null | undefined;
   const searcherUserId: string = resolveConversionOwnerUserId({
     assignedTo: candidateAssignedTo,
+    batchOwnerId: batchRow?.owner_id,
     batchCreatedBy: batchRow?.created_by,
     approverUserId: internalUserId,
     // AGENT1-AUDIT-WS4 — una persona inactiva se salta (pasa a la siguiente opción).
-    isActiveUser: await loadActiveUserPredicate([candidateAssignedTo, batchRow?.created_by]),
+    isActiveUser: await loadActiveUserPredicate([candidateAssignedTo, batchRow?.owner_id, batchRow?.created_by]),
   });
 
   if (!accountId) {
@@ -4811,6 +4847,7 @@ export interface GlobalCandidatesResult {
       created_by?: string | null;
     } | null;
     responsible?: CandidateResponsible | null;
+    needs_assignee?: boolean;
   })[];
   total: number;
 }
@@ -5051,8 +5088,18 @@ export async function getGlobalCandidatesList(
   }
 
   const candidates = (data ?? []) as GlobalCandidatesResult['candidates'];
+  const needing = await findCandidatesNeedingAssignee(
+    candidates.map((candidate) => ({
+      id: candidate.id,
+      status: candidate.status,
+      assignedTo: candidate.assigned_to ?? null,
+      batchOwnerId: candidate.batch?.owner_id ?? null,
+      batchCreatedBy: candidate.batch?.created_by ?? null,
+    })),
+  );
+  const withResponsibles = await attachCandidateResponsibles(supabase, candidates);
   return {
-    candidates: await attachCandidateResponsibles(supabase, candidates),
+    candidates: withResponsibles.map((candidate) => ({ ...candidate, needs_assignee: needing.has(candidate.id) })),
     total: count ?? 0,
   };
 }

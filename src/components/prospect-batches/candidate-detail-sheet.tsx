@@ -116,6 +116,8 @@ interface CandidateDetailSheetProps {
   initialDuplicateIntent?: boolean;
   /** Called once the duplicate intent above has been applied. */
   onDuplicateIntentConsumed?: () => void;
+  /** Abre «Asignar a…» para esta candidata (cuando le falta responsable para aprobarse). */
+  onAssignRequest?: () => void;
 }
 
 export function CandidateDetailSheet({
@@ -129,6 +131,7 @@ export function CandidateDetailSheet({
   onDiscardIntentConsumed,
   initialDuplicateIntent = false,
   onDuplicateIntentConsumed,
+  onAssignRequest,
 }: CandidateDetailSheetProps) {
   // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
   useExclusivePanel('detail', open, () => onOpenChange(false));
@@ -468,6 +471,7 @@ export function CandidateDetailSheet({
               matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
               reviewedAt: candidate.reviewed_at,
               convertedAccountId: candidate.converted_account_id,
+              needsAssignee: candidate.needs_assignee,
             }}
             autoConfirm={initialApproveIntent}
             onApproveIntentConsumed={onApproveIntentConsumed}
@@ -475,6 +479,7 @@ export function CandidateDetailSheet({
             onDiscardIntentConsumed={onDiscardIntentConsumed}
             duplicateAutoConfirm={initialDuplicateIntent}
             onDuplicateIntentConsumed={onDuplicateIntentConsumed}
+            onAssignRequest={onAssignRequest}
           />
         }
       >
@@ -726,6 +731,7 @@ export function CandidateDetailSheet({
                 matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
                 reviewedAt: candidate.reviewed_at,
                 convertedAccountId: candidate.converted_account_id,
+                needsAssignee: candidate.needs_assignee,
               }}
             />
 

@@ -4,10 +4,12 @@ import {
   MAX_ASSIGNMENT_BATCH,
   buildAssignmentNotification,
   buildCandidateOwnershipOrClause,
+  decideApprovalResponsible,
   describeAssignmentResult,
   intersectOptionalUserIds,
   isAssignableCandidateStatus,
   partitionByCurrentOwner,
+  partitionByExplicitAssignee,
   resolveCandidateResponsibleId,
   resolveConversionOwnerUserId,
   validateAssignmentRequest,
@@ -106,11 +108,69 @@ describe('resolveConversionOwnerUserId', () => {
     );
   });
 
+  it('sin asignación manda el dueño de la búsqueda, como la columna «Responsable»', () => {
+    assert.equal(
+      resolveConversionOwnerUserId({ assignedTo: null, batchOwnerId: 'owner', batchCreatedBy: 'lead', approverUserId: 'admin' }),
+      'owner',
+    );
+    const isActiveUser = (id: string) => id !== 'owner';
+    assert.equal(
+      resolveConversionOwnerUserId({
+        assignedTo: null,
+        batchOwnerId: 'owner',
+        batchCreatedBy: 'lead',
+        approverUserId: 'admin',
+        isActiveUser,
+      }),
+      'lead',
+    );
+  });
+
   it('sin poder leer quién está activo, la regla de siempre', () => {
     assert.equal(
       resolveConversionOwnerUserId({ assignedTo: 'gone', batchCreatedBy: 'lead', approverUserId: 'admin' }),
       'gone',
     );
+  });
+});
+
+describe('decideApprovalResponsible', () => {
+  const users: Record<string, { active: boolean; roleKey: string | null }> = {
+    bd: { active: true, roleKey: 'bd' },
+    growth: { active: true, roleKey: 'growth' },
+    admin: { active: true, roleKey: 'ADMIN' },
+    gone: { active: false, roleKey: 'bd' },
+  };
+  const lookup = (id: string) => users[id];
+  const decide = (input: { assignedTo?: string | null; batchOwnerId?: string | null; batchCreatedBy?: string | null }) =>
+    decideApprovalResponsible({
+      assignedTo: input.assignedTo ?? null,
+      batchOwnerId: input.batchOwnerId ?? null,
+      batchCreatedBy: input.batchCreatedBy ?? null,
+      lookup,
+    });
+  const NEEDS = { ok: false, reason: 'needs_assignee' };
+
+  it('asignada a alguien activo: se aprueba, aunque la búsqueda sea de Growth', () => {
+    assert.deepEqual(decide({ assignedTo: 'bd', batchOwnerId: 'growth' }), { ok: true, responsibleId: 'bd' });
+    assert.deepEqual(decide({ assignedTo: 'growth', batchOwnerId: 'growth' }), { ok: true, responsibleId: 'growth' });
+  });
+
+  it('sin asignar, la búsqueda propia de un BD no pide nada más', () => {
+    assert.deepEqual(decide({ batchOwnerId: 'bd' }), { ok: true, responsibleId: 'bd' });
+    assert.deepEqual(decide({ batchCreatedBy: 'bd' }), { ok: true, responsibleId: 'bd' });
+  });
+
+  it('sin asignar, lo de Growth o admin necesita responsable', () => {
+    assert.deepEqual(decide({ batchOwnerId: 'growth' }), NEEDS);
+    assert.deepEqual(decide({ batchOwnerId: 'admin' }), NEEDS);
+  });
+
+  it('una persona dada de baja, o que no se pudo leer, no cuenta', () => {
+    assert.deepEqual(decide({ assignedTo: 'gone', batchOwnerId: 'growth' }), NEEDS);
+    assert.deepEqual(decide({ batchOwnerId: 'gone' }), NEEDS);
+    assert.deepEqual(decide({ batchOwnerId: 'nadie' }), NEEDS);
+    assert.deepEqual(decide({}), NEEDS);
   });
 });
 
@@ -155,6 +215,19 @@ describe('partitionByCurrentOwner', () => {
       { id: 'c', currentOwnerId: null },
     ];
     const { toChange, alreadyOwned } = partitionByCurrentOwner(rows, 'u1');
+    assert.deepEqual(toChange.map((r) => r.id), ['b', 'c']);
+    assert.deepEqual(alreadyOwned.map((r) => r.id), ['a']);
+  });
+});
+
+describe('partitionByExplicitAssignee', () => {
+  it('asignarse a sí mismo lo que salió de su búsqueda sí cuenta como cambio', () => {
+    const rows = [
+      { id: 'a', assignedTo: 'u1' },
+      { id: 'b', assignedTo: null },
+      { id: 'c', assignedTo: 'u2' },
+    ];
+    const { toChange, alreadyOwned } = partitionByExplicitAssignee(rows, 'u1');
     assert.deepEqual(toChange.map((r) => r.id), ['b', 'c']);
     assert.deepEqual(alreadyOwned.map((r) => r.id), ['a']);
   });

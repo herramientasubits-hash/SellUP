@@ -1076,7 +1076,9 @@ export function ProspectsDataTableClient({
         items={assignRows.map((r) => ({
           id: r.id,
           name: r.name,
-          currentOwnerId: r.responsible?.id ?? null,
+          // Sólo la asignación explícita: quien lanzó la búsqueda puede asignarse
+          // a sí mismo (deja escrito el responsable que pide la aprobación).
+          currentOwnerId: r.responsible?.isAssigned ? r.responsible.id : null,
         }))}
         users={assignableUsers}
         currentUserId={scopeFilterOptions?.currentUserId}
@@ -1108,6 +1110,11 @@ export function ProspectsDataTableClient({
         onDiscardIntentConsumed={() => setDiscardIntent(false)}
         initialDuplicateIntent={duplicateIntent}
         onDuplicateIntentConsumed={() => setDuplicateIntent(false)}
+        onAssignRequest={
+          canAssign && detailCandidate
+            ? () => setAssignRows([rows.find((c) => c.id === detailCandidate.id) ?? detailCandidate])
+            : undefined
+        }
       />
     </>
   );
