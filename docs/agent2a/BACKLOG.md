@@ -55,8 +55,10 @@ Cada PR con su rama y su worktree desde `origin/main`, integración de a uno
 | C1 | Duplicados y contactos existentes no asociados a la empresa | R2-#5 | Bug y mejora | Alta | **Abierto.** La deduplicación previa sólo lee los contactos de HubSpot de la empresa; #612 sólo mejora el caso «mismo email» | Spec |
 | C2 | Contactos sin email no llegan a HubSpot | R2-#6 | Regla de negocio | Media | Abierto (`blocked_no_email`) | Decisión 1 → Spec |
 | D1 | El lote sólo funciona con checkbox (máx. 10) | R2-#8 | Mejora | Baja | **Resuelto (#616).** Pendiente: cargar archivo y evaluar subir el tope de 10 | Verificar |
-| E1 | Al vincular un contacto existente no viajaban los datos de SellUp | Código | Bug | Alta | **Resuelto (#612).** Pendiente: backfill de los ya vinculados y enviar LinkedIn al crear | Fix |
+| E1 | Al vincular un contacto existente no viajaban los datos de SellUp | Código | Bug | Alta | **Resuelto (#612).** LinkedIn al crear: **resuelto (#651)**. Pendiente: backfill de los ya vinculados | Fix |
 | F1 | Botones de modo con logos de HubSpot y LinkedIn; «Nueva conversación» siempre en «Por empresa» y cancela el lote en curso | Ventas 2026-10-26 | UX | Media | **En PR** (`fix/agent2a-search-mode-icons-and-reset`). Pendiente: subir los SVG oficiales a `public/brand/` | Verificar |
+| F2 | Buscar un contacto por su perfil de LinkedIn | Ventas 2026-10-26 | Mejora | Media | **En PR** (`feat/agent2a-linkedin-contact-search`, apilado sobre F1). Bandera apagada | Verificar |
+| F2-b | Deduplicar en HubSpot por la URL (`hs_linkedin_url`) antes de gastar, con la URL normalizada en los dos lados | F2 | Mejora | Media | Abierto. Hoy F2 deduplica en SellUp por LinkedIn y en HubSpot por el correo encontrado (ya gastado) | Spec (§ 9 de la spec de F2) |
 | E2 | `docs/agent2a/` no reflejaba #362, #587, #602, #608, #612 ni #616 | Código | Docs | Media | **Este PR** | PR `docs:` |
 
 ---
