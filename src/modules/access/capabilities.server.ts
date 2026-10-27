@@ -3,10 +3,15 @@ import { createClient } from '@/lib/supabase/server';
 import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   CAPABILITY_DENIED_MESSAGE,
+  NEEDS_GROWTH_REVIEW_MESSAGE,
   canReviewCandidate,
+  decideCandidateApproval,
   hasCapability,
   type AccessSnapshot,
   type Capability,
+  type CandidateDuplicateSignals,
+  type CandidateOwnership,
+  type CandidateReviewDecision,
 } from './capabilities';
 
 /** Bandera de despliegue de las reglas por rol (BD a mano / Growth en masa). */
@@ -94,4 +99,67 @@ export async function requireCandidateReviewer(candidateId: string): Promise<voi
   if (!(await canReviewCandidateId(candidateId))) {
     throw new Error(CAPABILITY_DENIED_MESSAGE.revisarTodasLasCandidatas);
   }
+}
+
+/** Dueño y señales de duplicado de una candidata, con la sesión. Null si no se puede leer. */
+async function readCandidateReviewFacts(
+  candidateId: string,
+): Promise<{ owner: CandidateOwnership; signals: CandidateDuplicateSignals } | null> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from('prospect_candidates')
+      .select(
+        'assigned_to, duplicate_status, matched_hubspot_company_id, batch:prospect_batches!prospect_candidates_batch_id_fkey(owner_id, created_by)',
+      )
+      .eq('id', candidateId)
+      .maybeSingle();
+    if (!data) return null;
+    const row = data as {
+      assigned_to?: string | null;
+      duplicate_status?: string | null;
+      matched_hubspot_company_id?: string | null;
+      batch?: unknown;
+    };
+    const batch = (Array.isArray(row.batch) ? row.batch[0] : row.batch) as
+      | { owner_id?: string | null; created_by?: string | null }
+      | null
+      | undefined;
+    return {
+      owner: {
+        assignedTo: row.assigned_to ?? null,
+        batchOwnerId: batch?.owner_id ?? null,
+        batchCreatedBy: batch?.created_by ?? null,
+      },
+      signals: {
+        duplicateStatus: row.duplicate_status ?? null,
+        matchedHubSpotCompanyId: row.matched_hubspot_company_id ?? null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ¿Puede quien pide APROBAR esta candidata? Admin y Growth, siempre. Su dueño
+ * (con las reglas encendidas), solo si está limpia: un posible duplicado o una
+ * coincidencia con HubSpot pasa a Growth. Falla cerrado.
+ */
+export async function checkCandidateApproval(candidateId: string): Promise<CandidateReviewDecision> {
+  const access = await getAccessSnapshot();
+  const enforced = isRoleCapabilitiesEnabled();
+  if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return { ok: true };
+  if (!enforced || !access.userId || !candidateId) return { ok: false, reason: 'not_allowed' };
+  const facts = await readCandidateReviewFacts(candidateId);
+  if (!facts) return { ok: false, reason: 'not_allowed' };
+  return decideCandidateApproval(access, facts.owner, facts.signals, { enforced });
+}
+
+/** El texto para cada rechazo de aprobación. */
+export function approvalDeniedMessage(decision: CandidateReviewDecision): string | null {
+  if (decision.ok) return null;
+  return decision.reason === 'needs_growth_review'
+    ? NEEDS_GROWTH_REVIEW_MESSAGE
+    : CAPABILITY_DENIED_MESSAGE.revisarTodasLasCandidatas;
 }

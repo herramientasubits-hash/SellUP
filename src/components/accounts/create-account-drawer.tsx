@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { createAccount } from '@/modules/accounts/actions';
+import { addAccountManually } from '@/modules/accounts/actions';
 import {
   LATAM_COUNTRIES,
   COMPANY_SIZES,
@@ -85,6 +85,8 @@ export function CreateAccountDrawer({
   };
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // La revisión de duplicados encontró la empresa en SellUp: se ofrece abrirla.
+  const [existingAccountId, setExistingAccountId] = React.useState<string | null>(null);
   // El responsable por defecto es quien crea, si está entre los usuarios activos.
   const defaultOwnerId =
     currentUserId && users.some((u) => u.id === currentUserId) ? currentUserId : '';
@@ -96,26 +98,36 @@ export function CreateAccountDrawer({
 
   function set(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
+    setExistingAccountId(null);
   }
 
   function handleClose() {
     setOpen(false);
     setError(null);
+    setExistingAccountId(null);
     setForm(initialForm);
   }
+
+  // Sin sitio web ni NIT no hay con qué buscar si la empresa ya existe.
+  const hasIdentity = Boolean(form.website.trim() || form.tax_identifier.trim());
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === form.country_code);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setExistingAccountId(null);
     if (!form.name.trim()) {
       setError('El nombre de la empresa es requerido');
       return;
     }
+    if (!hasIdentity) {
+      setError('Agrega el sitio web o el NIT para revisar si la empresa ya existe.');
+      return;
+    }
     setPending(true);
     try {
-      const result = await createAccount({
+      const result = await addAccountManually({
         name: form.name,
         legal_name: form.legal_name || undefined,
         website: form.website || undefined,
@@ -132,13 +144,14 @@ export function CreateAccountDrawer({
       });
       if (!result.success) {
         setError(result.error);
+        setExistingAccountId(result.existingAccountId ?? null);
         return;
       }
       const accountName = form.name.trim();
       handleClose();
       router.refresh();
-      toast.success(`Empresa "${accountName}" creada`, {
-        description: 'Puedes enriquecerla con IA desde el detalle.',
+      toast.success(`Empresa "${accountName}" agregada`, {
+        description: result.notice ?? 'Puedes buscar sus contactos desde el detalle.',
       });
     } finally {
       setPending(false);
@@ -153,12 +166,12 @@ export function CreateAccountDrawer({
         isControlled ? undefined : (
           <Button onClick={() => setOpen(true)} size="sm">
             <Plus className="h-4 w-4" />
-            Crear empresa
+            Agregar empresa
           </Button>
         )
       }
       title="Nueva empresa"
-      description="Registra una empresa o prospecto. Podrás enriquecerla con IA más adelante."
+      description="Antes de guardarla revisamos que no exista ya en SellUp ni en HubSpot."
       icon={<Building2 className="h-4 w-4" />}
       size="xl"
       actions={
@@ -177,16 +190,29 @@ export function CreateAccountDrawer({
               {error}
             </p>
           )}
+          {existingAccountId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                handleClose();
+                router.push(`/accounts/${existingAccountId}`);
+              }}
+            >
+              Abrir empresa
+            </Button>
+          )}
           <Button
             type="submit"
             form="create-account-form"
             size="sm"
-            disabled={pending || !form.name.trim()}
+            disabled={pending || !form.name.trim() || !hasIdentity}
           >
             {pending ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Guardando…
+                Revisando duplicados…
               </>
             ) : (
               'Guardar empresa'
@@ -220,7 +246,7 @@ export function CreateAccountDrawer({
                 onChange={(e) => set('legal_name', e.target.value)}
               />
             </Field>
-            <Field label="Sitio web">
+            <Field label="Sitio web" description="Sitio web o NIT: al menos uno.">
               <Input
                 id="website"
                 type="url"
@@ -344,7 +370,7 @@ export function CreateAccountDrawer({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Número">
+            <Field label="Número" description="Sitio web o NIT: al menos uno.">
               <Input
                 id="tax_id_number"
                 placeholder={

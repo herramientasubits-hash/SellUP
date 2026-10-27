@@ -131,7 +131,12 @@ export function CandidateRowActions({
         toast.error(result.error ?? 'Error al marcar duplicidad revisada');
         return;
       }
-      toast.success(`Duplicidad de "${candidate.name}" marcada como revisada`);
+      // La revisión se vuelve a correr: lo que se avisa es lo que encontró.
+      if (result.duplicateStatus === 'no_match') {
+        toast.success(result.message ?? `Duplicidad de "${candidate.name}" revisada`);
+      } else {
+        toast.warning(result.message ?? `Revisa la duplicidad de "${candidate.name}"`);
+      }
       setDuplicateReviewConfirmOpen(false);
       router.refresh();
     } catch (err) {
@@ -205,11 +210,11 @@ export function CandidateRowActions({
                 <TooltipTrigger>
                   <DropdownMenuItem onClick={() => setDuplicateReviewConfirmOpen(true)}>
                     <ShieldCheck className="mr-2 h-3.5 w-3.5 text-primary" />
-                    Marcar duplicidad revisada
+                    Revisar duplicados
                   </DropdownMenuItem>
                 </TooltipTrigger>
                 <TooltipContent side="left" className="max-w-60 text-center">
-                  Confirma que revisaste posibles duplicados antes de aprobar.
+                  Vuelve a buscar la empresa en SellUp y HubSpot antes de aprobar.
                 </TooltipContent>
               </Tooltip>
             )}

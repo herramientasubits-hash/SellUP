@@ -18,6 +18,7 @@ import {
   canAccessNavItem,
   getVisibleNavItems,
   PROSPECTOS_TAB_ROUTE,
+  GROWTH_ROUTE,
   ROI_CALCULATOR_ROUTE,
   SOURCE_CATALOG_ROUTE,
   type NavAccessContext,
@@ -68,6 +69,12 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.ok(visible.includes('/accounts'), 'Empresas must stay visible');
     assert.ok(visible.includes('/contacts'), 'Contactos must stay visible');
     assert.ok(visible.includes('/pipeline'), 'Pipeline must stay visible');
+  });
+
+  it('Prospección masiva is for Growth and admins, never for seller_bd', () => {
+    assert.ok(!hrefs(getVisibleNavItems(mainNavItems, sellerCtx)).includes(GROWTH_ROUTE));
+    assert.ok(hrefs(getVisibleNavItems(mainNavItems, { isAdmin: false, roleKey: 'growth' })).includes(GROWTH_ROUTE));
+    assert.ok(hrefs(getVisibleNavItems(mainNavItems, adminCtx)).includes(GROWTH_ROUTE));
   });
 
   it('the ROI calculator is public and sits right after the source catalog', () => {

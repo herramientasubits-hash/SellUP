@@ -57,8 +57,8 @@ describe('approve+convert wrapper — exported shape', () => {
 
 describe('approve+convert wrapper — admin gate + eligibility', () => {
   it('gates on the candidate reviewer (admin, Growth or owner) before touching data', () => {
-    assert.ok(WRAPPER_SRC.includes('await canReviewCandidateId('));
-    const gateIdx = WRAPPER_SRC.indexOf('await canReviewCandidateId(');
+    assert.ok(WRAPPER_SRC.includes('await checkCandidateApproval('));
+    const gateIdx = WRAPPER_SRC.indexOf('await checkCandidateApproval(');
     const delegateIdx = WRAPPER_SRC.indexOf('approveAndConvertCandidateAction(');
     assert.ok(gateIdx > -1 && delegateIdx > gateIdx, 'admin gate must precede delegation');
   });
