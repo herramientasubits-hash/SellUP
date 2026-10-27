@@ -818,13 +818,15 @@
        hover:bg-muted/20, /30, /50, hover:bg-accent/30 → hover:bg-muted/40
        tracking-widest vs tracking-wide → tracking-wider
      Variantes por densidad:
-       .su-table      → comfortable (default, py-3, h-10 header)
-       .su-table-compact → compact (py-1.5, h-8 header)
+       .su-table      → default (p-2, cabecera h-10, como flux-ui)
+       .su-table-compact → compact (py-1, cabecera h-8)
   */
+  /* Como la Table de flux-ui (estilo vega): texto de 14px, cabecera de 40px en
+     medium y color de texto, celdas con 8px de aire y sin fondo en la cabecera. */
   .su-table {
     width: 100%;
     caption-bottom: 0;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--card-foreground);
     border-collapse: separate;
     border-spacing: 0;
@@ -836,44 +838,41 @@
     min-width: 0;
   }
   .su-table thead {
-    background: var(--surface-subtle);
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-bottom: 1px solid var(--border);
   }
   .su-table thead th {
     /* Design Refresh v1: header 11px→12px, tracking 0.06→0.04em, altura 40→44px.
        El microtexto uppercase comprimido hacía ver las tablas "de juguete". */
-    height: 2.75rem;
-    padding: 0 0.75rem;
+    height: 2.5rem;
+    padding: 0 0.5rem;
     text-align: left;
     vertical-align: middle;
-    /* Thema: cabecera en caja normal, sin mayúsculas ni tracking forzado. */
-    font-weight: 600;
-    color: var(--muted-foreground);
+    /* En caja normal, sin mayúsculas ni tracking forzado. */
+    font-weight: 500;
+    color: var(--foreground);
     white-space: nowrap;
-    font-size: 0.75rem;
     letter-spacing: 0;
   }
   .su-table tbody tr {
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+    border-bottom: 1px solid var(--border);
     transition: background-color 0.15s ease;
   }
   .su-table tbody tr:last-child {
     border-bottom: 0;
   }
   .su-table tbody tr:hover {
-    background: color-mix(in oklab, var(--surface-muted) 70%, transparent);
+    background: color-mix(in oklab, var(--muted) 50%, transparent);
   }
   .su-table tbody tr[data-state="selected"] {
     background: color-mix(in oklab, var(--su-brand) 7%, transparent);
   }
   .su-table tbody td {
-    /* Más aire vertical (12px → 14px) para que las filas respiren */
-    padding: 0.875rem 0.75rem;
+    padding: 0.5rem;
     vertical-align: middle;
     overflow: hidden;
   }
   .su-table-compact tbody td {
-    padding: 0.375rem 0.75rem;
+    padding: 0.25rem 0.5rem;
   }
   .su-table-compact thead th {
     height: 2rem;

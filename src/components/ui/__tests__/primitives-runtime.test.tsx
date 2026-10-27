@@ -68,7 +68,8 @@ describe('Button', () => {
     assert.equal(button.getAttribute('data-slot'), 'button');
     assert.equal(button.getAttribute('data-variant'), 'default');
     assert.equal(button.getAttribute('data-size'), 'default');
-    assert.deepEqual(hasAll(button, ['bg-primary', 'h-10']), []);
+    // Alto de botón de flux-ui: 36px.
+    assert.deepEqual(hasAll(button, ['bg-primary', 'h-9']), []);
   });
 
   const VARIANTS = [
@@ -95,8 +96,8 @@ describe('Button', () => {
   });
 
   const SIZES = [
-    ['xs', ['h-7', 'px-2', 'text-xs']],
-    ['icon-xs', ['h-7', 'w-7']],
+    ['xs', ['h-6', 'px-2', 'text-xs']],
+    ['icon-xs', ['size-6']],
   ] as const;
   for (const [size, classes] of SIZES) {
     it(`size="${size}" se refleja en data-size y en su alto`, () => {
@@ -105,7 +106,7 @@ describe('Button', () => {
       const button = screen.getByRole('button');
       assert.equal(button.getAttribute('data-size'), size);
       assert.deepEqual(hasAll(button, classes), []);
-      assert.equal(button.classList.contains('h-10'), false);
+      assert.equal(button.classList.contains('h-9'), false);
     });
   }
 
