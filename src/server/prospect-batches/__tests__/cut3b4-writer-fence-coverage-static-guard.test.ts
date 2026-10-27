@@ -524,7 +524,9 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // No es de CUT3B4: no menciona `AGENT1-CUT3B4` y el barrido de abajo se ENSANCHA con la 156.
     const COMPANY_RELATIONSHIP_LEVELS_157 = '157_agent1_company_relationships_levels.sql';
     // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles). No es de CUT3B4.
-    const CEILING = '158_growth_role.sql';
+    const GROWTH_ROLE_158 = '158_growth_role.sql';
+    // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA. No es de CUT3B4.
+    const CEILING = '159_growth_bulk_prospect_searches.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -554,6 +556,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       SAVED_CONTACT_PHONES_155,
       COMPETITOR_WATCHES_156,
       COMPANY_RELATIONSHIP_LEVELS_157,
+      GROWTH_ROLE_158,
       CEILING,
     ]) {
       assert.equal(
@@ -582,7 +585,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-SUPPLIER-REFERENCE-SUGGEST-1 añade la 154 y APOLLO-SAVED-CONTACT-PHONES-1 la 155.
     // AGENT1-COMPETITOR-WATCH-1 añade la 156 y el conteo sube con ella.
     // AGENT1-CORPORATE-TREE-PHASE-C añade la 157 y el conteo sube con ella.
-    assert.equal(migrations.length, 158);
+    // ROLE-GROWTH-1 añade la 158 y GROWTH-BULK-SEARCH-1 la 159; el conteo sube con las dos.
+    assert.equal(migrations.length, 159);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

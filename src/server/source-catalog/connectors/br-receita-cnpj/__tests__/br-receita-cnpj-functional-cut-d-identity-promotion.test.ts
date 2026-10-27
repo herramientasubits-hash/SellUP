@@ -1464,7 +1464,8 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C moves the ceiling to 157 (level columns on agent1_company_relationships; no phones, contacts, budget or HubSpot).
     // Not BR-SOURCE, Receita/CNPJ or the catalog.
     // ROLE-GROWTH-1 moves the ceiling to 158 (the `growth` row in the roles catalog; no phones, contacts, budget or HubSpot).
-    assert.equal(numbered[numbered.length - 1], '158_growth_role.sql');
+    // GROWTH-BULK-SEARCH-1 moves the ceiling to 159 (Growth bulk searches; no phones, contacts, budget or HubSpot).
+    assert.equal(numbered[numbered.length - 1], '159_growth_bulk_prospect_searches.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

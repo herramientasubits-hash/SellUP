@@ -9,8 +9,9 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // Como flux-ui (estilo vega): sólido en medium, que se aclara al 80% al pasar.
         default:
-          "bg-primary text-primary-foreground font-semibold shadow-card hover:bg-brand-hover",
+          "bg-primary text-primary-foreground hover:bg-primary/80",
         // Thema: el destructivo es un tinte, no un bloque rojo. El rojo sólido
         // queda para la confirmación final (variant="destructive-solid").
         destructive:
@@ -24,11 +25,11 @@ const buttonVariants = cva(
         warning:
           "bg-warning text-primary-foreground font-semibold shadow-card hover:bg-warning/90 focus-visible:ring-warning/30",
         outline:
-          "border-border bg-card text-foreground hover:bg-surface-muted aria-expanded:bg-surface-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "border-border bg-background text-foreground shadow-xs hover:bg-muted aria-expanded:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-accent aria-expanded:bg-accent",
+          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary",
         ghost:
-          "text-foreground hover:bg-surface-muted aria-expanded:bg-surface-muted dark:hover:bg-muted/60",
+          "text-foreground hover:bg-foreground/4 aria-expanded:bg-foreground/4",
         link: "text-primary underline-offset-4 hover:underline font-semibold",
         // Acciones de IA (Rumbo): se distinguen de las demás en toda la plataforma.
         // Primario = relleno degradado; secundario = borde degradado; terciario = sin borde.
@@ -37,15 +38,17 @@ const buttonVariants = cva(
         "ai-outline": "su-ai-border su-ai-icons font-semibold text-foreground hover:opacity-85",
         "ai-ghost": "su-ai-ghost su-ai-icons text-foreground",
       },
+      // Alturas de flux-ui: xs 24 · sm 32 · default 36 · lg 40 (xl queda para el login).
       size: {
-        default: "h-10 px-4",
-        xs: "h-7 gap-1 rounded-sm px-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-8 gap-1.5 px-3 text-[0.8rem] [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-11 px-6 text-sm font-semibold",
+        default: "h-9 gap-1.5 px-2.5",
+        xs: "h-6 gap-1 rounded-sm px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1 rounded-sm px-2.5",
+        lg: "h-10 gap-1.5 px-2.5",
         xl: "h-12 w-full rounded-lg px-8 text-base font-semibold",
-        icon: "h-10 w-10",
-        "icon-sm": "h-8 w-8",
-        "icon-xs": "h-7 w-7 rounded-sm [&_svg:not([class*='size-'])]:size-3.5",
+        icon: "size-9",
+        "icon-lg": "size-10",
+        "icon-sm": "size-8 rounded-sm",
+        "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
       },
     },
     defaultVariants: {

@@ -592,8 +592,10 @@ describe('4O-E4.1 estático — alcance', () => {
       // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice; no ASIGNA `mobile_phone`.
       // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos,
       // contactos, presupuesto ni HubSpot); no ASIGNA `mobile_phone`.
-      158,
-      'la 158 (el rol Growth en el catálogo de roles, ROLE-GROWTH-1; nunca escribe `mobile_phone`) es la última',
+      // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth; sin teléfonos ni
+      // contactos); no ASIGNA `mobile_phone`.
+      159,
+      'la 159 (las búsquedas masivas de Growth, GROWTH-BULK-SEARCH-1; nunca escribe `mobile_phone`) es la última',
     );
   });
 
