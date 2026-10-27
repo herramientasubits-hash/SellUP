@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { GrowthWorkspace } from '@/components/growth/growth-workspace';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { loadGenerateProspectsAgent } from '@/components/prospects/prospects-module-panel';
-import { getAccessSnapshot } from '@/modules/access/capabilities.server';
+import { checkCapability, getAccessSnapshot } from '@/modules/access/capabilities.server';
 import { isGrowthRole } from '@/modules/access/capabilities';
 import { getProspectBatchesList, getProspectBatchesSummary } from '@/modules/prospect-batches/actions';
 import { toGrowthSearchRow, toGrowthSummary } from '@/modules/growth/growth-rows';
@@ -32,10 +32,11 @@ export default async function GrowthPage({
   if (!access.isAdmin && !isGrowthRole(access.roleKey)) redirect('/pipeline');
 
   const { tab } = await searchParams;
-  const [summary, batches, generateAgent] = await Promise.all([
+  const [summary, batches, generateAgent, bulkEnrich] = await Promise.all([
     getProspectBatchesSummary(),
     getProspectBatchesList(),
     loadGenerateProspectsAgent(),
+    checkCapability('enriquecerMasivo'),
   ]);
   const searches = batches.map(toGrowthSearchRow);
 
@@ -45,6 +46,7 @@ export default async function GrowthPage({
       summary={toGrowthSummary(summary, searches)}
       searches={searches}
       newSearchAction={generateAgent?.generateDrawer ?? null}
+      canEnrichBulk={bulkEnrich.ok}
       importAction={
         <ImportCandidatesDrawer>
           <Button type="button" variant="outline">

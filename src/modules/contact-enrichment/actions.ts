@@ -1199,6 +1199,7 @@ import { checkBulkContactEnrichmentEligibility } from './bulk-enrichment-eligibi
 import { BULK_AUTOMATIC_ROUTING_DISABLED_COPY, CONTACT_ENRICHMENT_BULK_MAX_ACCOUNTS } from './bulk-enrichment-types';
 import { getContactEnrichmentRoutingConfigV1 } from '@/modules/contact-enrichment-routing/routing-config.server';
 import type { BulkEnrichmentEligibilityResult } from './bulk-enrichment-types';
+import { parseBulkEnrichmentOrigin } from './bulk-enrichment-sources-core';
 
 export interface CheckBulkEnrichmentEligibilityActionResult {
   success: boolean;
@@ -1250,6 +1251,8 @@ export interface CreateBulkContactEnrichmentRunActionResult {
  */
 export async function createBulkContactEnrichmentRunAction(
   accountIds: string[],
+  /** De dónde se lanzó (p. ej. desde una búsqueda de prospectos); queda en `metadata.origin`. */
+  options: { origin?: unknown } = {},
 ): Promise<CreateBulkContactEnrichmentRunActionResult> {
   try {
     const { internalUserId } = await requireActiveUserForEnrichment();
@@ -1273,6 +1276,8 @@ export async function createBulkContactEnrichmentRunAction(
 
     const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
     const eligibility = await checkBulkContactEnrichmentEligibility(uniqueIds);
+    const origin = parseBulkEnrichmentOrigin(options.origin);
+    const metadata = { hito: '17A.10C', source: 'bulk_enrichment_action', ...(origin ? { origin } : {}) };
 
     const admin = getServiceRoleClient();
 
@@ -1291,7 +1296,7 @@ export async function createBulkContactEnrichmentRunAction(
           total_skipped: eligibility.skipped.length,
           estimated_apollo_credits: 0,
           summary: { error: 'Sin cuentas elegibles para enriquecimiento bulk' },
-          metadata: { hito: '17A.10C', source: 'bulk_enrichment_action' },
+          metadata,
         })
         .select('id')
         .single();
@@ -1327,7 +1332,7 @@ export async function createBulkContactEnrichmentRunAction(
           created_by_action: 'createBulkContactEnrichmentRunAction',
           eligible_account_names: eligibility.eligible.map((e) => e.name),
         },
-        metadata: { hito: '17A.10C', source: 'bulk_enrichment_action' },
+        metadata,
       })
       .select('id')
       .single();
