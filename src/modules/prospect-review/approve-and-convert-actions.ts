@@ -73,6 +73,7 @@ export type ApproveAndConvertActionResult =
         | 'not_found'
         | 'not_allowed'
         | 'needs_growth_review'
+        | 'needs_assignee'
         | ConvertApproveRejectReason
         | 'conversion_failed'
         | 'unexpected_error';

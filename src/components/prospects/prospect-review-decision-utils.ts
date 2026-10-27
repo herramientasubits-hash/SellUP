@@ -11,6 +11,7 @@ import {
 } from '@/modules/prospect-review/approve-eligibility';
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
 import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
+import { NEEDS_ASSIGNEE_MESSAGE } from '@/modules/access/capabilities';
 
 /**
  * Minimal candidate shape this view needs. Kept structural (not the full
@@ -27,6 +28,11 @@ export interface ReviewDecisionCandidate {
   reviewedAt?: string | null;
   /** Populated once the prospect has been converted — enables the "Ver empresa" CTA. */
   convertedAccountId?: string | null;
+  /**
+   * Sale de una búsqueda de Growth (o admin) y nadie la asignó: no se aprueba
+   * hasta tener responsable. Lo calcula el servidor; el servidor vuelve a exigirlo.
+   */
+  needsAssignee?: boolean;
 }
 
 export interface TerminalStatusCopy {
@@ -78,6 +84,7 @@ export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
   not_allowed: 'Solo puedes aprobar las candidatas que son tuyas.',
   needs_growth_review:
     'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.',
+  needs_assignee: NEEDS_ASSIGNEE_MESSAGE,
   not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
   not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
   status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
@@ -186,7 +193,9 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
       },
       { confirmPossibleDuplicate: true },
     );
-    if (decision.decision === 'approve') {
+    if (decision.decision === 'approve' && candidate.needsAssignee) {
+      blockReason = NEEDS_ASSIGNEE_MESSAGE;
+    } else if (decision.decision === 'approve') {
       canApprove = true;
     } else if (decision.decision === 'reject') {
       blockReason = BLOCK_COPY[decision.reason];

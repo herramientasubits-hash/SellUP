@@ -49,6 +49,7 @@ import { formatSourceLabel, formatClassificationLabel } from '@/modules/prospect
 // Server action lives in its own 'use server' module; importing it directly
 // keeps the heavy server dependency graph out of this client bundle.
 import { approvePendingReviewCandidateAction } from '@/modules/prospect-review/approve-actions';
+import { NEEDS_ASSIGNEE_MESSAGE, NEEDS_GROWTH_REVIEW_MESSAGE } from '@/modules/access/capabilities';
 import type {
   ConfidenceBand,
   PendingReviewCandidate,
@@ -59,6 +60,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 // Friendly messages for each typed rejection reason from the approve action.
 const APPROVE_ERROR_MESSAGES: Record<string, string> = {
   not_allowed: 'No tienes permisos para aprobar candidatos.',
+  needs_growth_review: NEEDS_GROWTH_REVIEW_MESSAGE,
+  needs_assignee: `${NEEDS_ASSIGNEE_MESSAGE} Hazlo desde Empresas › Por revisar.`,
   not_found: 'El candidato ya no está disponible. Actualiza la cola.',
   not_clean_production: 'Este candidato no pertenece a la cola de producción limpia.',
   status_conflict: 'El estado del candidato cambió. Actualiza la cola e inténtalo de nuevo.',
