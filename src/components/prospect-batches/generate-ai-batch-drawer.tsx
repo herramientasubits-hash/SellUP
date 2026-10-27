@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { BulkSearchSurface } from '@/components/prospect-batches/bulk-search/bulk-search-launch';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAgentRuns } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
@@ -315,6 +316,12 @@ type GenerateAIBatchDrawerProps = {
   /** AGENT1-SUPPLIER-SEARCH-1 — `ENABLE_AGENT1_SUPPLIER_SEARCH`, resuelto en el servidor. */
   supplierSearchEnabled?: boolean;
   /**
+   * GROWTH-BULK-SEARCH-1 — la búsqueda masiva de Growth, resuelta en el servidor
+   * (bandera, rol y tope por cantidad). Sólo la pasa Prospección masiva;
+   * ausente/`null` ⇒ el resumen ofrece la búsqueda de siempre.
+   */
+  bulkSearch?: BulkSearchSurface | null;
+  /**
    * Modo controlado: quien lo monta decide cuándo está abierto (la barra de
    * acciones de la pantalla) y el drawer no pinta su propio botón. Sólo cambia
    * QUIÉN lo abre: la experiencia que se muestra dentro es la misma.
@@ -325,7 +332,7 @@ type GenerateAIBatchDrawerProps = {
   onBack?: () => void;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, ...ownControl }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, autoProviderCascade = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null, supplierSearchEnabled = false, bulkSearch = null, ...ownControl }: GenerateAIBatchDrawerProps = {}) {
   // GENERATE-DRAWER-WITHOUT-CLONE-1: la pantalla lo controla por contexto (no clonándolo).
   const { open: controlledOpen, onOpenChange, onBack } = usePanelControl(ownControl);
   const router = useRouter();
@@ -787,6 +794,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
               apolloRunModeLimits={apolloRunModeLimits}
               budgetPreflight={budgetPreflight}
               supplierSearchEnabled={supplierSearchEnabled}
+              bulkSearch={bulkSearch}
             />
           </div>
           {chatView === 'runs' && <AgentRunsPanel />}
