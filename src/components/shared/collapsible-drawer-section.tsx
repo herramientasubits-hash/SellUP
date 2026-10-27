@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, type LucideIcon } from "@/icons";
 
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DRAWER_SECTION_TONE_CHIP,
   type DrawerSectionTone,
@@ -41,7 +42,9 @@ interface CollapsibleDrawerSectionProps {
  * sección plegada no es una fila muda: su `summary` (o su contador) adelanta
  * lo que contiene.
  *
- * El contenido solo se monta cuando está abierta.
+ * Se pliega con `Collapsible`: la altura viaja al abrir y al cerrar, así lo
+ * de abajo se desliza en vez de saltar. El contenido solo se monta cuando está
+ * abierta.
  *
  * @example
  * <CollapsibleDrawerSection
@@ -66,23 +69,21 @@ export function CollapsibleDrawerSection({
   children,
 }: CollapsibleDrawerSectionProps) {
   const [open, setOpen] = React.useState(defaultOpen);
-  const contentId = React.useId();
   // Plegada manda el resumen; abierta, la explicación. Si solo hay uno de los
   // dos, se usa ese en los dos estados.
   const line = open ? (hint ?? null) : (summary ?? hint ?? null);
 
   return (
-    <section
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      render={<section />}
       data-slot="collapsible-drawer-section"
       data-state={open ? "open" : "closed"}
       className={cn("rounded-2xl border border-border/60 bg-card shadow-card", className)}
     >
       <h3 className="m-0">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={open ? contentId : undefined}
-          onClick={() => setOpen((current) => !current)}
+        <CollapsibleTrigger
           className="flex w-full items-start gap-2.5 rounded-2xl p-4 text-left outline-none transition-colors hover:bg-surface-subtle focus-visible:ring-3 focus-visible:ring-ring/40"
         >
           {Icon && (
@@ -122,17 +123,17 @@ export function CollapsibleDrawerSection({
           <ChevronDown
             aria-hidden
             className={cn(
-              "mt-1 size-4 shrink-0 text-text-muted transition-transform",
+              "mt-1 size-4 shrink-0 text-text-muted transition-transform duration-200 ease-out",
               open && "rotate-180",
             )}
           />
-        </button>
+        </CollapsibleTrigger>
       </h3>
-      {open && (
-        <div id={contentId} className={cn("border-t border-border/50 px-4 pb-4 pt-3.5", contentClassName)}>
+      <CollapsibleContent>
+        <div className={cn("border-t border-border/50 px-4 pb-4 pt-3.5", contentClassName)}>
           {children}
         </div>
-      )}
-    </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

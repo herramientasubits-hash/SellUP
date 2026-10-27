@@ -229,7 +229,9 @@ export function ExpandedDetailRow({
     row.requiresHumanReview;
 
   return (
-    <TableRow className="hover:bg-transparent">
+    // Una fila de tabla no puede animar su alto: el detalle entra con un fade
+    // que baja un poco desde la fila que lo abre.
+    <TableRow className="hover:bg-transparent animate-in fade-in-0 slide-in-from-top-1 duration-200">
       <TableCell colSpan={colSpan} className="p-0 whitespace-normal">
         <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/50 bg-surface-subtle">
 

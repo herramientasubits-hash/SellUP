@@ -24,6 +24,7 @@ import { formatAppDate, formatAppDateTime } from "@/lib/format-date";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AIButton } from "@/components/ai/ai-button";
 import { Heading, Text } from "@/components/typography";
@@ -73,7 +74,8 @@ interface StageCardFrameProps {
  * Una etapa es un acordeón: la cabecera (nombre, agente, estado, qué pasa en la
  * etapa y la fecha del hito) es el botón que abre y cierra el detalle, y los
  * avisos se quedan a la vista aunque esté plegada. El título es el `h3` que
- * envuelve al botón (patrón de acordeón de WAI-ARIA).
+ * envuelve al botón (patrón de acordeón de WAI-ARIA). El detalle se pliega con
+ * `Collapsible`: la altura viaja y las etapas de abajo se deslizan.
  */
 function StageCardFrame({ entry, index, open, onToggle, children }: StageCardFrameProps) {
   const { stage, state, signals, milestoneAt } = entry;
@@ -92,60 +94,58 @@ function StageCardFrame({ entry, index, open, onToggle, children }: StageCardFra
         data-state={state}
         data-open={open}
       >
-        <h3 id={`${anchor}-titulo`} className="m-0">
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={open ? contentId : undefined}
-            onClick={onToggle}
-            className="flex w-full items-start gap-3 rounded-2xl p-5 text-left outline-none transition-colors hover:bg-surface-muted/50 focus-visible:ring-3 focus-visible:ring-ring/40"
-          >
-            <span className="flex min-w-0 flex-1 flex-col gap-2">
-              <span className="flex flex-wrap items-center gap-2">
-                <span
-                  className={cn(
-                    "text-base font-semibold tracking-tight",
-                    isPlanned ? "text-muted-foreground" : "text-foreground",
-                  )}
-                >
-                  {index + 1}. {stage.name}
+        <Collapsible open={open} onOpenChange={onToggle}>
+          <h3 id={`${anchor}-titulo`} className="m-0">
+            <CollapsibleTrigger
+              className="flex w-full items-start gap-3 rounded-2xl p-5 text-left outline-none transition-colors hover:bg-surface-muted/50 focus-visible:ring-3 focus-visible:ring-ring/40"
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-2">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "text-base font-semibold tracking-tight",
+                      isPlanned ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {index + 1}. {stage.name}
+                  </span>
+                  <Badge variant={isPlanned ? "neutral" : "brand"}>
+                    {isPlanned ? STAGE_PHASE_LABELS[stage.phase] : stage.agent}
+                  </Badge>
+                  <StatusBadge status={stateBadge.status} label={stateBadge.label} />
                 </span>
-                <Badge variant={isPlanned ? "neutral" : "brand"}>
-                  {isPlanned ? STAGE_PHASE_LABELS[stage.phase] : stage.agent}
-                </Badge>
-                <StatusBadge status={stateBadge.status} label={stateBadge.label} />
+                <span className="block max-w-3xl text-xs font-normal leading-relaxed text-muted-foreground">
+                  {stage.summary}
+                </span>
               </span>
-              <span className="block max-w-3xl text-xs font-normal leading-relaxed text-muted-foreground">
-                {stage.summary}
-              </span>
-            </span>
-            {milestoneAt && (
-              <span className="shrink-0 pt-0.5 text-xs font-normal tabular-nums text-text-muted">
-                {formatAppDate(milestoneAt)}
-              </span>
-            )}
-            <ChevronDown
-              aria-hidden
-              className={cn("mt-1 size-4 shrink-0 text-text-muted transition-transform", open && "rotate-180")}
-            />
-          </button>
-        </h3>
+              {milestoneAt && (
+                <span className="shrink-0 pt-0.5 text-xs font-normal tabular-nums text-text-muted">
+                  {formatAppDate(milestoneAt)}
+                </span>
+              )}
+              <ChevronDown
+                aria-hidden
+                className={cn("mt-1 size-4 shrink-0 text-text-muted transition-transform duration-200 ease-out", open && "rotate-180")}
+              />
+            </CollapsibleTrigger>
+          </h3>
 
-        {signals.length > 0 && (
-          <ul aria-label={`Avisos de ${stage.name}`} className="flex flex-wrap gap-1.5 px-5 pb-4">
-            {signals.map((signal) => (
-              <li key={signal.id}>
-                <Badge variant={SIGNAL_BADGE_VARIANT[signal.severity]}>{signal.label}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
+          {signals.length > 0 && (
+            <ul aria-label={`Avisos de ${stage.name}`} className="flex flex-wrap gap-1.5 px-5 pb-4">
+              {signals.map((signal) => (
+                <li key={signal.id}>
+                  <Badge variant={SIGNAL_BADGE_VARIANT[signal.severity]}>{signal.label}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {open && (
-          <div id={contentId} className="flex flex-col gap-3 border-t border-border/50 px-5 pb-5 pt-4">
-            {children}
-          </div>
-        )}
+          <CollapsibleContent id={contentId}>
+            <div className="flex flex-col gap-3 border-t border-border/50 px-5 pb-5 pt-4">
+              {children}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </section>
     </SurfaceCard>
   );

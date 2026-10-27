@@ -11,7 +11,7 @@
 
 import { useState, type ReactNode } from 'react';
 
-import { ChevronDown, ChevronUp, ShieldCheck, type LucideIcon } from '@/icons';
+import { ChevronDown, ShieldCheck, type LucideIcon } from '@/icons';
 import { cn } from '@/lib/utils';
 import { withAppTimeZone } from '@/lib/format-date';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -191,11 +191,11 @@ export function PanelSamples({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger render={<Button type="button" variant="ghost" size="xs" className="-ml-2" />}>
-        {open ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        <ChevronDown aria-hidden="true" className={cn('transition-transform duration-200 ease-out', open && 'rotate-180')} />
         {open ? hideLabel : showLabel}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-3 space-y-4">{children}</div>
+        <div className="space-y-4 pt-3">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );

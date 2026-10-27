@@ -10,6 +10,7 @@ import { formatInAppZone } from '@/lib/format-date';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, type StatusType } from '@/components/data-display';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -432,13 +433,15 @@ export function FirstCallPackCard({
               <ul className="divide-y divide-border/60 rounded-xl border border-border/60">
                 {content.objections.map((o) => (
                   <li key={o.objection}>
-                    <details className="group/objection">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
+                    <Collapsible>
+                      <CollapsibleTrigger className="group/objection flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                         «{o.objection}»
-                        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open/objection:rotate-180" aria-hidden="true" />
-                      </summary>
-                      <p className="px-3 pb-3 text-sm leading-relaxed text-muted-foreground">{o.response}</p>
-                    </details>
+                        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[panel-open]/objection:rotate-180" aria-hidden="true" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <p className="px-3 pb-3 text-sm leading-relaxed text-muted-foreground">{o.response}</p>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </li>
                 ))}
               </ul>
