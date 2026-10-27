@@ -119,7 +119,13 @@
      utilities (border-ai-soft/30, bg-ai-soft/10) work consistently. */
   --color-ai-soft: var(--su-ai-stop-1);
 
-  /* Animation tokens */
+  /* Animation tokens
+     Movimiento = estándar de @ubits/flux-ui (Storybook, estilo vega):
+     · 100ms  menús, listas, popovers y ventanas modales (fade + zoom .95)
+     · 150ms  tooltips y cambios de color
+     · 200ms  paneles laterales (ease-in-out), desplegables y acordeón (ease-out)
+     · --ease-spring (la curva expresiva de flux-ui) solo para lo que viaja lejos.
+     ease-out / ease-in-out son los de Tailwind, idénticos a los de flux-ui. */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
@@ -377,7 +383,9 @@
 ───────────────────────────────────────────────────────────────────────────── */
 @keyframes su-fade-in {
   from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* none (no translateY(0)): con fill both, un transform que queda vivo
+     rompe a los hijos position: fixed. */
+  to { opacity: 1; transform: none; }
 }
 
 /* El contenido de una pestaña al entrar: corto y bajo, para que cambiar de
@@ -448,21 +456,6 @@
   100% { background-position: 0% 50%; }
 }
 
-/* ── Accordion height transitions ───────────────────────────────────────────
-   Base UI's Panel sets `--accordion-panel-height` (px) on the panel.
-   We animate height from 0 → var(--accordion-panel-height) (open) and
-   reverse on close. tw-animate-css ships --animate-accordion-down/up but
-   their keyframes read --radix-accordion-content-height (Radix-only), so
-   we define our own variants. */
-@keyframes su-accordion-down {
-  from { height: 0; }
-  to   { height: var(--accordion-panel-height); }
-}
-@keyframes su-accordion-up {
-  from { height: var(--accordion-panel-height); }
-  to   { height: 0; }
-}
-
 @layer utilities {
   .animate-su-fade-in {
     animation: su-fade-in 0.4s var(--ease-spring) both;
@@ -491,12 +484,6 @@
   }
   .animate-su-glow {
     animation: su-glow 3s ease-in-out infinite;
-  }
-  .animate-su-accordion-down {
-    animation: su-accordion-down 0.2s var(--ease-out-expo);
-  }
-  .animate-su-accordion-up {
-    animation: su-accordion-up 0.2s var(--ease-out-expo);
   }
 
   /* ── Barra de acciones flotante (Thema · action-rail) ─────────────────────
@@ -1285,9 +1272,21 @@
   .animate-su-tab-in,
   .animate-su-shimmer,
   .animate-su-pulse,
-  .animate-su-glow,
-  .animate-su-accordion-down,
-  .animate-su-accordion-up {
+  .animate-su-glow {
     animation: none;
+  }
+
+  /* «Reducir movimiento» del sistema, para todo lo demás: menús, ventanas,
+     paneles, desplegables y esqueletos terminan al instante en su estado
+     final (sin animation: none, para que Base UI siga recibiendo el fin de
+     la animación y desmonte lo que cierra). Los spinners siguen girando:
+     son la señal de que algo carga. */
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
