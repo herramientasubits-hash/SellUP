@@ -94,7 +94,7 @@ export function hasDuplicateRisk(signals: CandidateDuplicateSignals): boolean {
 
 export type CandidateReviewDecision =
   | { ok: true }
-  | { ok: false; reason: 'not_allowed' | 'needs_growth_review' };
+  | { ok: false; reason: 'not_allowed' | 'needs_growth_review' | 'needs_assignee' };
 
 /**
  * ¿Puede APROBAR esta candidata? Igual que `canReviewCandidate`, con una regla
@@ -125,3 +125,9 @@ export const CAPABILITY_DENIED_MESSAGE: Readonly<Record<Capability, string>> = {
 /** Cuando un BD intenta aprobar un posible duplicado propio. */
 export const NEEDS_GROWTH_REVIEW_MESSAGE =
   'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.';
+
+/**
+ * Cuando una candidata de una búsqueda de Growth (o admin) no tiene responsable:
+ * sin él, la empresa nacería a nombre de quien prospecta en masa y el BD no la vería.
+ */
+export const NEEDS_ASSIGNEE_MESSAGE = 'Asígnale un responsable primero.';

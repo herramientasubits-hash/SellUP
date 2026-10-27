@@ -23,7 +23,7 @@ import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import {
   NON_ASSIGNABLE_CANDIDATE_STATUSES,
   isAssignableCandidateStatus,
-  partitionByCurrentOwner,
+  partitionByExplicitAssignee,
   resolveCandidateResponsibleId,
   validateAssignmentRequest,
   type AssignmentActionResult,
@@ -132,7 +132,7 @@ export async function assignCandidatesToUser(
       })
       .filter((row) => visibleUserIds === null || isVisibleToScope(row, visibleUserIds));
 
-    const { toChange, alreadyOwned } = partitionByCurrentOwner(candidates, target.id);
+    const { toChange, alreadyOwned } = partitionByExplicitAssignee(candidates, target.id);
 
     let changed: typeof toChange = [];
     if (toChange.length > 0) {

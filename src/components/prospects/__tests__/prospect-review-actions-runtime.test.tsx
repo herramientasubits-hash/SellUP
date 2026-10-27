@@ -174,6 +174,21 @@ describe('ProspectReviewActions — gating', () => {
     }
   });
 
+  it('sin responsable: Aprobar desactivado con el motivo y el atajo «Asignar a…»', () => {
+    let asked = 0;
+    render(
+      <ProspectReviewActions candidate={candidate({ needsAssignee: true })} onAssignRequest={() => asked++} />,
+    );
+    const btn = approveButton()!;
+    assert.equal(btn.disabled, true);
+    assert.equal(btn.getAttribute('title'), 'Asígnale un responsable primero.');
+    const assign = screen.queryAllByRole('button').find((b) => b.textContent?.trim() === 'Asignar a…');
+    assert.ok(assign, '«Asignar a…» junto a Aprobar');
+    fireEvent.click(assign!);
+    assert.equal(asked, 1);
+    assert.ok(screen.getByText(/Asígnale un responsable primero\. Así la empresa queda/));
+  });
+
 });
 
 // Q3F-5AZ.2D-1-UX2 — visual action hierarchy (reorder only, no new behavior).

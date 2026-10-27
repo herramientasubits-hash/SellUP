@@ -54,7 +54,8 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { openAccountHref } from '@/components/accounts/open-account-link';
-import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from "@/icons";
+import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2, UserPlus } from "@/icons";
+import { NEEDS_ASSIGNEE_MESSAGE } from '@/modules/access/capabilities';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -139,6 +140,8 @@ interface ProspectReviewActionsProps {
   duplicateAutoConfirm?: boolean;
   /** Called once the duplicate auto-confirm intent has been applied (or found ineligible). */
   onDuplicateIntentConsumed?: () => void;
+  /** Abre «Asignar a…»: se ofrece cuando a la candidata le falta responsable para aprobarse. */
+  onAssignRequest?: () => void;
 }
 
 // Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
@@ -175,6 +178,7 @@ export function ProspectReviewActions({
   onDiscardIntentConsumed,
   duplicateAutoConfirm = false,
   onDuplicateIntentConsumed,
+  onAssignRequest,
 }: ProspectReviewActionsProps) {
   const router = useRouter();
   const [confirming, setConfirming] = React.useState(false);
@@ -607,15 +611,23 @@ export function ProspectReviewActions({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Sin responsable no se aprueba: el atajo para asignarlo queda junto a Aprobar. */}
+            {candidate.needsAssignee && onAssignRequest && (
+              <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onAssignRequest}>
+                <UserPlus aria-hidden="true" />
+                Asignar a…
+              </Button>
+            )}
+
             {/* Primary — enabled only when eligible. `ml-auto` la mantiene a la
                 derecha también cuando la fila se parte en pantalla estrecha. */}
             <Button
               type="button"
               size="sm"
-              className="ml-auto"
+              className={candidate.needsAssignee && onAssignRequest ? undefined : 'ml-auto'}
               onClick={() => setConfirming(true)}
               disabled={!view.canApprove}
-              title={view.canApprove ? undefined : 'No disponible para este candidato'}
+              title={view.canApprove ? undefined : (view.blockReason ?? 'No disponible para este candidato')}
             >
               <CheckCircle2 aria-hidden="true" />
               Aprobar
@@ -623,7 +635,9 @@ export function ProspectReviewActions({
           </div>
 
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Puedes aprobar, descartar o marcar como duplicado este prospecto.
+            {candidate.needsAssignee
+              ? `${NEEDS_ASSIGNEE_MESSAGE} Así la empresa queda a nombre de quien la va a trabajar.`
+              : 'Puedes aprobar, descartar o marcar como duplicado este prospecto.'}
           </p>
         </div>
       )}
