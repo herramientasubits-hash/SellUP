@@ -5,6 +5,11 @@ import * as React from 'react';
 import { Building2, Globe, ShieldCheck, ExternalLink, Link2, AlertTriangle } from "@/icons";
 import { getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import { Badge } from '@/components/ui/badge';
+import {
+  OTHER_INDUSTRY_LABEL,
+  isIndustryReassigned,
+  otherIndustryHint,
+} from '@/modules/prospect-batches/industry-reassigned';
 import { EmptyState as SharedEmptyState } from '@/components/ui/empty-state';
 import {
   hasOwnershipUnverifiedFlag,
@@ -581,6 +586,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                       <p className="truncate font-medium text-foreground" title={sectorDescription ?? undefined}>
                         {sectorDescription ?? 'Sin sector'}
                       </p>
+                      {isIndustryReassigned(c.metadata) && (
+                        <Badge variant="warning" title={otherIndustryHint(sectorDescription)}>
+                          {OTHER_INDUSTRY_LABEL}
+                        </Badge>
+                      )}
                       {c.company_size && (
                         <p className="truncate">
                           {c.company_size}

@@ -94,7 +94,7 @@ export const SUBINDUSTRY_REVIEW_REASON_LABELS: Record<SubindustryReviewReasonKey
   linkedin_missing: 'LinkedIn ausente',
   employee_count_missing: 'Número de empleados ausente',
   size_outside_icp: 'Tamaño fuera de ICP',
-  industry_reassigned: 'Es de otra industria (corregida por Claude): no cuenta para la meta',
+  industry_reassigned: 'Es de otra industria (corregida por Rumbo): no cuenta para la meta',
   other: 'Otro',
 };
 

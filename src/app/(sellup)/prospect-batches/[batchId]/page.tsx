@@ -56,6 +56,11 @@ import {
 } from '@/modules/prospect-batches/types';
 import { resolveBatchCandidatesPanelState } from '@/components/prospect-batches/batch-candidates-panel-state';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
+import {
+  OTHER_INDUSTRY_LABEL,
+  describeIndustrySplit,
+  isIndustryReassigned,
+} from '@/modules/prospect-batches/industry-reassigned';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { competitorSearchTitle, readCompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
@@ -183,6 +188,13 @@ export default async function BatchDetailPage({ params }: Props) {
   // lo único que le corresponde: ANOTAR por qué una fila está señalada por
   // calidad. Anotar no es ocultar, y la tabla no lo consulta.
   const qualityFlaggedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
+  // La IA les corrigió la industria: siguen para revisar, pero no cuentan para la meta.
+  const otherIndustryCandidates = candidates.filter((c) => isIndustryReassigned(c.metadata));
+  const industrySplit = describeIndustrySplit({
+    total: candidates.length,
+    reassigned: otherIndustryCandidates.length,
+    requestedIndustry: batch.industry,
+  });
 
   const counts = {
     total: batch.total_candidates ?? 0,
@@ -628,6 +640,48 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         )}
       </SurfaceCard>
+
+      {otherIndustryCandidates.length > 0 && (
+        <SurfaceCard className="p-4">
+          <Collapsible>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="group/other-industry h-auto w-full justify-between whitespace-normal px-2 py-1.5 text-left text-muted-foreground"
+                />
+              }
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <span>De otra industria ({otherIndustryCandidates.length})</span>
+                {industrySplit && <Badge variant="warning">{industrySplit}</Badge>}
+              </span>
+              <ChevronDown
+                aria-hidden
+                className="transition-transform group-aria-expanded/other-industry:rotate-180 motion-reduce:transition-none"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <p className="mt-2 px-2 text-xs text-muted-foreground">
+                Rumbo vio que estas empresas no son de la industria que se buscó y les corrigió la
+                industria. Aparecen en la tabla de arriba para que decidas, pero no cuentan para la meta.
+              </p>
+              <ul className="mt-3 divide-y divide-border/60 px-2 text-xs">
+                {otherIndustryCandidates.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-3 py-2">
+                    <span className="truncate font-medium text-foreground">{c.name}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                      {c.industry ?? 'Sin industria'}
+                      <Badge variant="warning">{OTHER_INDUSTRY_LABEL}</Badge>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CollapsibleContent>
+          </Collapsible>
+        </SurfaceCard>
+      )}
 
       {/*
         CUT4-C — estas filas YA NO están omitidas: se listan en la tabla de
