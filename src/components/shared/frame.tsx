@@ -34,7 +34,7 @@ export function Frame({
     <div
       data-slot="frame"
       className={cn(
-        "flex min-w-0 flex-col gap-1 rounded-2xl border border-border/60 bg-surface-muted/60 p-1",
+        "flex min-w-0 flex-col gap-0.75 rounded-2xl border border-border bg-frame p-0.75",
         className,
       )}
     >
@@ -64,7 +64,7 @@ export function FrameHeader({
       className={cn("flex flex-wrap items-center justify-between gap-3 px-3 pt-2 pb-1.5", className)}
     >
       <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="text-sm font-medium text-foreground">{title}</div>
         {description && <div className="text-xs text-muted-foreground">{description}</div>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
@@ -88,8 +88,8 @@ export function FramePanel({
     <div
       data-slot="frame-panel"
       className={cn(
-        "relative min-w-0 grow overflow-hidden rounded-xl border border-border/60 bg-card shadow-card",
-        !noPadding && "p-5",
+        "relative min-w-0 grow overflow-hidden rounded-xl border border-border bg-card bg-clip-padding shadow-card",
+        !noPadding && "p-4",
         className,
       )}
     >

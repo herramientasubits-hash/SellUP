@@ -5,7 +5,6 @@ import { Search, X } from "@/icons";
 import type { Table } from "@tanstack/react-table";
 
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
@@ -78,7 +77,7 @@ export function DataTableToolbar<TData>({
         data-slot="data-table-toolbar"
         data-takeover=""
         className={cn(
-          "flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/60 bg-primary/10 px-4 py-3 sm:px-5",
+          "flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-primary/10 px-3 py-2",
           className,
         )}
       >
@@ -104,27 +103,28 @@ export function DataTableToolbar<TData>({
       className={cn(
         // En móvil el título ocupa su propia fila y los controles bajan a la
         // siguiente: así no se recorta con puntos suspensivos.
-        "flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/60 px-4 py-3 sm:px-5",
+        "flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2",
         className,
       )}
     >
       <div className="min-w-full flex-1 sm:min-w-0">
         {meta?.title != null && (
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-foreground">
-              {meta.title as React.ReactNode}
-            </h3>
-            {typeof total === "number" && (
-              <Badge variant="neutral" aria-hidden className="tabular-nums">
-                {total.toLocaleString("es-CO")}
-              </Badge>
-            )}
-          </div>
+          // Como la cabecera de TablaDatos de UBITS: el título y, debajo, el conteo.
+          <h3 className="truncate text-sm font-medium leading-tight text-foreground">
+            {meta.title as React.ReactNode}
+          </h3>
         )}
-        {meta?.description != null && (
+        {meta?.description != null ? (
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {meta.description as React.ReactNode}
           </p>
+        ) : (
+          meta?.title != null &&
+          typeof total === "number" && (
+            <p aria-hidden className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums">
+              {total.toLocaleString("es-CO")} {noun}
+            </p>
+          )
         )}
       </div>
 

@@ -1,4 +1,5 @@
 import { formatInAppZone } from '@/lib/format-date';
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -11,7 +12,6 @@ import {
 import { SettingsPage, TechnicalDetails } from '@/components/settings/settings-page';
 import { TechnicalRow } from '@/components/settings/integration-overview';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { DistributionBar } from '@/components/charts/DistributionBar';
@@ -148,31 +148,25 @@ export default async function SystemStatusPage() {
       description="Qué funciona, qué pide atención y dónde arreglarlo."
     >
       {/* ── Resumen ───────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="Funcionando"
-          description="Conexiones y ajustes en orden"
-          value={summary.configured_components}
-          tone="positive"
-        />
-        <MetricCard
-          title="Con problemas"
-          description="Piden atención"
-          value={summary.components_with_issues}
-          tone={summary.components_with_issues > 0 ? 'negative' : 'neutral'}
-        />
-        <MetricCard
-          title="Automatizaciones"
-          description="Funcionan sin intervención"
-          value={summary.automatic_automations}
-        />
-        <MetricCard
-          title="Solicitudes de acceso"
-          description="Esperan tu respuesta"
-          value={summary.pending_access_requests}
-          tone={summary.pending_access_requests > 0 ? 'warning' : 'neutral'}
-        />
-      </div>
+      <MetricStrip
+        aria-label="Resumen del sistema"
+        items={[
+          { label: 'Funcionando', value: summary.configured_components, description: 'Conexiones y ajustes en orden' },
+          {
+            label: 'Con problemas',
+            value: summary.components_with_issues,
+            description: 'Piden atención',
+            aside: summary.components_with_issues > 0 ? <Badge variant="negative">Requiere atención</Badge> : undefined,
+          },
+          { label: 'Automatizaciones', value: summary.automatic_automations, description: 'Funcionan sin intervención' },
+          {
+            label: 'Solicitudes de acceso',
+            value: summary.pending_access_requests,
+            description: 'Esperan tu respuesta',
+            aside: summary.pending_access_requests > 0 ? <Badge variant="warning">Por responder</Badge> : undefined,
+          },
+        ]}
+      />
 
       {/* ── Qué pide atención: lo primero que hay que leer ───── */}
       <section className="space-y-3" aria-labelledby="status-risks">

@@ -100,18 +100,18 @@ afterEach(() => {
 });
 
 describe('UsageFilterBar — qué se ve', () => {
-  it('de entrada solo enseña el periodo y «Más filtros»', () => {
+  it('de entrada solo enseña el periodo y «Filtros»', () => {
     renderBar();
 
     assert.ok(screen.getByRole('combobox', { name: 'Periodo' }));
-    assert.ok(screen.getByRole('button', { name: /Más filtros/ }));
+    assert.ok(screen.getByRole('button', { name: /^Filtros/ }));
     assert.equal(screen.queryByRole('combobox', { name: 'Proveedor' }), null);
     assert.equal(screen.queryByRole('combobox', { name: 'Persona' }), null);
   });
 
-  it('«Más filtros» despliega los otros seis y lo anuncia', () => {
+  it('«Filtros» abre el panel con los demás y lo anuncia', () => {
     renderBar();
-    const toggle = screen.getByRole('button', { name: /Más filtros/ });
+    const toggle = screen.getByRole('button', { name: /^Filtros/ });
     assert.equal(toggle.getAttribute('aria-expanded'), 'false');
 
     fireEvent.click(toggle);

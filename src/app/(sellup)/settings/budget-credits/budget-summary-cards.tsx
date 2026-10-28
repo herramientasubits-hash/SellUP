@@ -1,7 +1,7 @@
 'use client';
 
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { Cpu, Activity, TrendingUp, PackageOpen } from "@/icons";
-import { MetricCard } from '@/components/shared/metric-card';
 import type { AdminProviderBudgetRow } from '@/modules/budgets';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 
@@ -102,19 +102,15 @@ export function BudgetSummaryCards({ providers }: Props) {
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card) => (
-        <MetricCard
-          key={card.label}
-          title={card.label}
-          value={card.value}
-          subtitle={card.unit}
-          description={card.detail}
-          hint={card.titleAttr}
-          valueClassName="whitespace-nowrap"
-          icon={<card.icon className={card.color} aria-hidden="true" />}
-        />
-      ))}
-    </div>
+    <MetricStrip
+      aria-label="Resumen de créditos"
+      items={cards.map((card) => ({
+        label: card.label,
+        value: card.value,
+        aside: card.unit ? <span className="text-sm text-muted-foreground">{card.unit}</span> : undefined,
+        description: card.detail,
+        hint: card.titleAttr,
+      }))}
+    />
   );
 }

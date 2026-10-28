@@ -31,11 +31,13 @@ const buttonVariants = cva(
         ghost:
           "text-foreground hover:bg-foreground/4 aria-expanded:bg-foreground/4",
         link: "text-primary underline-offset-4 hover:underline font-semibold",
-        // Acciones de IA (Rumbo): se distinguen de las demás en toda la plataforma.
-        // Primario = relleno degradado; secundario = borde degradado; terciario = sin borde.
-        // En los dos últimos el ícono va en el color de IA.
-        ai: "su-ai-gradient border-0 font-semibold text-primary-foreground shadow-card hover:opacity-90",
-        "ai-outline": "su-ai-border su-ai-icons font-semibold text-foreground hover:opacity-85",
+        // Acciones de IA, como «Piezas de IA» de UBITS: las tres en pastilla.
+        // Primario = relleno degradado, sin borde ni ícono, que se invierte al pasar
+        // el cursor; secundario = el contorno normal con el orbe al inicio (sin borde
+        // en degradado); terciario = sin borde, ícono en el color de IA.
+        ai: "su-ai-gradient rounded-full border-0",
+        "ai-outline":
+          "su-ai-icons rounded-full border-border bg-background text-foreground shadow-xs hover:bg-muted aria-expanded:bg-muted dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         "ai-ghost": "su-ai-ghost su-ai-icons text-foreground",
       },
       // Alturas de flux-ui: xs 24 · sm 32 · default 36 · lg 40 (xl queda para el login).
@@ -51,6 +53,12 @@ const buttonVariants = cva(
         "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
       },
     },
+    // El primario de IA lleva más aire a los lados que un botón normal (UBITS: 20px y 16px en sm).
+    compoundVariants: [
+      { variant: "ai", size: ["default", "lg"], className: "rounded-full px-5" },
+      { variant: "ai", size: "sm", className: "rounded-full px-4" },
+      { variant: "ai-outline", size: ["sm", "xs"], className: "rounded-full" },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",

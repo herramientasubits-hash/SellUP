@@ -302,9 +302,10 @@ describe('El agente de IA en la barra', () => {
     const agent = screen.getByRole('button', { name: 'Generar con IA' });
     assert.equal(agent.getAttribute('data-slot'), 'rail-agent');
     assert.equal(agent.getAttribute('data-variant'), 'ai');
-    assert.ok(agent.className.includes('bg-ai-gradient'));
-    // Dueña 22-10: sólo la chispa no decía qué hacía Rumbo; ahora va la chispa con su nombre.
-    assert.equal(agent.textContent, 'Generar con IA', 'chispa y nombre, como la acción primaria');
+    assert.ok(agent.className.includes('su-ai-gradient'));
+    // Dueña 22-10: sólo la chispa no decía qué hacía Rumbo; ahora va su nombre (el primario
+    // de IA de UBITS no lleva ícono: el degradado ya es la marca).
+    assert.equal(agent.textContent, 'Generar con IA', 'el nombre, como la acción primaria');
   });
 
   it('está a UN clic', () => {
@@ -320,9 +321,10 @@ describe('El agente de IA en la barra', () => {
     render(<Screen agent={AI_AGENT} />);
 
     const agent = screen.getByRole('button', { name: 'Generar con IA' });
-    assert.ok(agent.className.includes('bg-ai-gradient'));
+    assert.ok(agent.className.includes('su-ai-gradient'));
     assert.ok(agent.className.includes('w-10'));
-    assert.equal(agent.textContent, '', 'de pie sólo la chispa');
+    assert.equal(agent.textContent, '', 'de pie sólo el orbe');
+    assert.ok(agent.querySelector('img[src="/ai/orb-64.png"]'), 'el orbe de IA de UBITS');
   });
 
   it('una pantalla que solo tiene agente también tiene barra', () => {
@@ -349,7 +351,7 @@ describe('El agente de IA en la barra', () => {
     render(<Screen agent={PLAIN_AGENT} />);
 
     const agent = screen.getByRole('button', { name: 'Búsqueda no disponible' });
-    assert.equal(agent.className.includes('bg-ai-gradient'), false);
+    assert.equal(agent.className.includes('su-ai-gradient'), false);
     assert.equal(screen.queryByRole('button', { name: 'Generar con IA' }), null);
 
     fireEvent.click(agent);

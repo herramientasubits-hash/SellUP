@@ -24,14 +24,14 @@ export function PanelHeading({ title, count, description, actions, className }: 
     <div className={cn("flex items-start justify-between gap-2", className)}>
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-sm font-semibold text-foreground">{title}</h3>
+          <h3 className="truncate text-sm font-medium text-foreground">{title}</h3>
           {count !== undefined && (
             <Badge variant="neutral" className="shrink-0 tabular-nums">
               {count}
             </Badge>
           )}
         </div>
-        {description && <p className="text-xs font-medium text-muted-foreground">{description}</p>}
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>

@@ -83,14 +83,15 @@ afterEach(() => {
 
 describe('StatusBadge', () => {
   const DEFAULTS: ReadonlyArray<[StatusType, string, string]> = [
-    ['active', 'Activo', 'text-success'],
-    ['inactive', 'Inactivo', 'text-muted-foreground'],
-    ['pending', 'Pendiente', 'text-warning'],
-    ['completed', 'Completado', 'text-success'],
-    ['warning', 'Advertencia', 'text-warning'],
+    // Las insignias «-light» de UBITS: texto oscuro del mismo color sobre el tinte.
+    ['active', 'Activo', 'text-success-foreground'],
+    ['inactive', 'Inactivo', 'text-secondary-foreground'],
+    ['pending', 'Pendiente', 'text-warning-foreground'],
+    ['completed', 'Completado', 'text-success-foreground'],
+    ['warning', 'Advertencia', 'text-warning-foreground'],
     ['error', 'Error', 'text-destructive'],
-    ['info', 'Información', 'text-info'],
-    ['neutral', 'Neutral', 'text-muted-foreground'],
+    ['info', 'Información', 'text-info-foreground'],
+    ['neutral', 'Neutral', 'text-secondary-foreground'],
   ];
   for (const [status, label, toneClass] of DEFAULTS) {
     it(`status="${status}" muestra «${label}» con el tinte ${toneClass}`, () => {

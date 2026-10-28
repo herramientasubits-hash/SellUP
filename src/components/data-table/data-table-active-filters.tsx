@@ -88,7 +88,7 @@ export function DataTableActiveFilters<TData>({
         table.resetColumnFilters(true);
         onGlobalFilterChange("");
       }}
-      className={cn("border-b border-border/60 bg-surface-subtle px-4 py-2 sm:px-5", className)}
+      className={cn("px-3 pb-2", className)}
     />
   );
 }

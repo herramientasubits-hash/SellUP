@@ -40,6 +40,7 @@ let Badge: (typeof import('../badge'))['Badge'];
 let EmptyState: (typeof import('../empty-state'))['EmptyState'];
 let Input: (typeof import('../input'))['Input'];
 let Inbox: (typeof import('@/icons'))['Inbox'];
+let Search: (typeof import('@/icons'))['Search'];
 
 const h = React.createElement;
 
@@ -52,6 +53,7 @@ before(async () => {
   ({ Button } = await import('../button'));
   ({ Badge } = await import('../badge'));
   ({ EmptyState } = await import('../empty-state'));
+  ({ Search } = await import('@/icons'));
   ({ Input } = await import('../input'));
   ({ Inbox } = await import('@/icons'));
 });
@@ -142,11 +144,12 @@ describe('Button', () => {
 
 describe('Badge', () => {
   const VARIANTS = [
-    ['positive', ['bg-success/10', 'text-success']],
-    ['warning', ['bg-warning/15', 'text-warning']],
+    // Los «-light» de la Badge de flux-ui: tinte al 10 % y texto oscuro del mismo color.
+    ['positive', ['bg-success/10', 'text-success-foreground']],
+    ['warning', ['bg-warning/10', 'text-warning-foreground']],
     ['negative', ['bg-destructive/10', 'text-destructive']],
-    ['info', ['bg-info/10', 'text-info']],
-    ['neutral', ['bg-muted/60', 'text-muted-foreground']],
+    ['info', ['bg-info/10', 'text-info-foreground']],
+    ['neutral', ['bg-secondary', 'text-secondary-foreground']],
     ['brand', ['bg-primary/10', 'text-primary']],
   ] as const;
   for (const [variant, classes] of VARIANTS) {
@@ -168,7 +171,7 @@ describe('Badge', () => {
   it('conserva el className de quien lo usa', () => {
     render(h(Badge, { variant: 'info', className: 'tabular-nums' }, '12'));
 
-    assert.deepEqual(hasAll(screen.getByText('12'), ['tabular-nums', 'text-info']), []);
+    assert.deepEqual(hasAll(screen.getByText('12'), ['tabular-nums', 'text-info-foreground']), []);
   });
 });
 
@@ -180,18 +183,26 @@ describe('EmptyState', () => {
     assert.ok(screen.getByText('Genera un lote para empezar.'));
   });
 
-  it('por defecto es una tarjeta con borde punteado', () => {
+  it('como el Empty de UBITS: sin marco, con 48px de aire', () => {
     const { container } = render(h(EmptyState, { title: 'Vacío' }));
 
-    assert.ok((container.firstElementChild as HTMLElement).classList.contains('border-dashed'));
+    const root = container.firstElementChild as HTMLElement;
+    assert.equal(root.dataset.slot, 'empty');
+    assert.equal(root.classList.contains('border-dashed'), false);
+    assert.ok(root.classList.contains('p-12'));
   });
 
-  it('variant="plain" no lleva borde punteado ni fondo', () => {
+  it('variant="plain" va más compacto, dentro de su superficie', () => {
     const { container } = render(h(EmptyState, { title: 'Vacío', variant: 'plain' }));
 
     const root = container.firstElementChild as HTMLElement;
-    assert.equal(root.classList.contains('border-dashed'), false);
-    assert.deepEqual(hasAll(root, ['border-0', 'bg-transparent']), []);
+    assert.deepEqual(hasAll(root, ['px-6', 'py-8']), []);
+  });
+
+  it('el ícono de la pantalla se vuelve su ilustración de vidrio', () => {
+    const { container } = render(h(EmptyState, { title: 'Vacío', icon: Search }));
+
+    assert.ok(container.querySelector('img[src="/iconos-glass/glass-search@1x.png"]'));
   });
 
   it('pinta la acción que recibe', () => {
@@ -210,11 +221,12 @@ describe('EmptyState', () => {
 
   it('pinta el icono solo cuando lo recibe', () => {
     const { container, rerender } = render(h(EmptyState, { title: 'Vacío' }));
-    assert.equal(container.querySelector('svg'), null);
+    assert.equal(container.querySelector('svg, img'), null);
 
+    // Inbox tiene su ilustración de vidrio: sale la imagen, no el trazo.
     rerender(h(EmptyState, { title: 'Vacío', icon: Inbox }));
 
-    assert.ok(container.querySelector('svg'));
+    assert.ok(container.querySelector('img[src="/iconos-glass/glass-folder@1x.png"]'));
   });
 });
 

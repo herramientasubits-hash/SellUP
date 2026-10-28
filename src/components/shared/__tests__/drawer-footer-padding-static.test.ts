@@ -21,7 +21,8 @@ describe('DrawerShell — el footer va en la barra del pie', () => {
 
   it('footer y actions comparten la misma barra (borde, fondo y margen)', () => {
     assert.ok(shell.includes('{footer ?? actions}'));
-    assert.match(shell, /<SheetFooter className="[^"]*border-t[^"]*px-6 py-4">\s*\{footer \?\? actions\}/);
+    // El pie de UBITS (28-10): borde arriba, gris al 40 % y 20px · 12px de margen.
+    assert.match(shell, /<SheetFooter className="[^"]*border-t[^"]*px-5 py-3">\s*\{footer \?\? actions\}/);
   });
 
   it('sólo se pinta suelto con footerBare', () => {
@@ -36,7 +37,7 @@ describe('DrawerShell — el footer va en la barra del pie', () => {
       read('components/prospect-batches/import-candidates-footer.tsx'),
     ];
     for (const source of ownBars) {
-      assert.match(source, /className="shrink-0 border-t [^"]*px-\d+ py-4"/);
+      assert.match(source, /className="shrink-0 border-t [^"]*px-\d+ py-3"/);
     }
     assert.ok(read('components/prospect-batches/candidate-detail-sheet.tsx').includes('footerBare'));
     assert.ok(read('components/prospect-batches/import-candidates-drawer.tsx').includes('footerBare'));

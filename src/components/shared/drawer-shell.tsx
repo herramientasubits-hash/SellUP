@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { XIcon } from "@/icons";
 import { cn } from '@/lib/utils';
+import { CLOSE_BUTTON_CLASS } from "@/components/ui/close-button-class";
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -185,7 +186,7 @@ export function DrawerShell({
       {trigger && <SheetTrigger render={trigger as React.ReactElement} />}
       <SheetContent
         side={side}
-        className={cn('flex flex-col gap-0 overflow-hidden !bg-background', sizeClass, className)}
+        className={cn('flex flex-col gap-0 overflow-hidden', sizeClass, className)}
         // Con header propio renderizamos el botón de cierre inline (misma fila
         // que las acciones). Sin header, dejamos el cierre por defecto del Sheet.
         showCloseButton={hasHeader ? false : showCloseButton}
@@ -196,10 +197,10 @@ export function DrawerShell({
         {/* Header — icon + título (+ badge inline) a la izquierda; acciones y
             botón de cierre a la derecha, todo en la misma fila y centrado. */}
         {hasHeader && (
-          <SheetHeader className="shrink-0 border-b border-border/60 bg-card px-6 py-4">
+          <SheetHeader className="shrink-0 border-b px-5 py-4">
             <div className="flex items-center gap-3">
               {icon && (
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   {icon}
                 </div>
               )}
@@ -213,7 +214,7 @@ export function DrawerShell({
                   {titleBadge && <span className="shrink-0">{titleBadge}</span>}
                 </div>
                 {description && (
-                  <SheetDescription className="text-xs leading-relaxed text-muted-foreground">
+                  <SheetDescription className="text-sm text-muted-foreground">
                     {description}
                   </SheetDescription>
                 )}
@@ -227,7 +228,7 @@ export function DrawerShell({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="text-muted-foreground hover:text-foreground"
+                          className={CLOSE_BUTTON_CLASS}
                           aria-label="Cerrar"
                         />
                       }
@@ -244,7 +245,7 @@ export function DrawerShell({
         {/* Scrollable body content */}
         <div className={cn(
           'relative flex-1 min-h-0 flex flex-col',
-          scrollable ? 'overflow-y-auto overflow-x-hidden px-6 py-5 bg-background [scrollbar-gutter:stable]' : 'overflow-hidden'
+          scrollable ? 'overflow-y-auto overflow-x-hidden px-5 py-5 [scrollbar-gutter:stable]' : 'overflow-hidden'
         )}>
           {loading ? (
             <div className="flex flex-col gap-4 animate-su-fade-in">
@@ -276,7 +277,7 @@ export function DrawerShell({
         {footer && footerBare ? (
           footer
         ) : footer || actions ? (
-          <SheetFooter className="shrink-0 flex-row flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card px-6 py-4">
+          <SheetFooter className="shrink-0 flex-row flex-wrap items-center justify-between gap-2 border-t bg-muted/40 px-5 py-3">
             {footer ?? actions}
           </SheetFooter>
         ) : null}

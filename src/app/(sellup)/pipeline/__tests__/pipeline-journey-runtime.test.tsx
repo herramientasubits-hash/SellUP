@@ -370,7 +370,7 @@ describe('Pipeline · recorrido de una empresa', () => {
     assert.ok(screen.getByRole('heading', { level: 2, name: 'Globex' }));
     assert.ok(screen.getByText('Responsable: Ana Pérez'));
     assert.ok(screen.getByText('Primer contacto · Lista para investigar'));
-    const header = screen.getByRole('heading', { level: 2, name: 'Globex' }).closest('.rounded-2xl') as HTMLElement;
+    const header = screen.getByRole('heading', { level: 2, name: 'Globex' }).closest('[data-slot="surface-card"]') as HTMLElement;
     assert.equal(header.querySelectorAll('button, a').length, 0);
     assert.ok(screen.queryByRole('link', { name: /Ver empresa/ }) === null);
     assert.ok(screen.queryByRole('button', { name: /Cambiar etapa/ }) === null);
@@ -505,8 +505,10 @@ describe('Pipeline · recorrido de una empresa', () => {
 
     const buttons = within(body).getAllByRole('button');
     assert.deepEqual(buttons.map((button) => button.textContent), ['Buscar más contactos con IA', 'Ver más']);
-    // El accionador de IA secundario: el primario es el agente de la barra.
-    assert.match(buttons[0].className, /su-ai-border/);
+    // El accionador de IA secundario (el primario es el agente de la barra): como en
+    // UBITS, contorno en pastilla con el orbe al inicio.
+    assert.match(buttons[0].className, /rounded-full/);
+    assert.ok(buttons[0].querySelector('img[src="/ai/orb-64.png"]'));
     fireEvent.click(buttons[0]);
     assert.equal(opened, 1);
   });
@@ -629,7 +631,7 @@ describe('Pipeline · etapa disponible sin empezar: invitación a activarla', ()
     assert.ok(within(within(invitation).getByRole('list', { name: /Avisos de/ })).getByText('Sin contactos'));
     // Nada de métricas ni listas vacías.
     assert.ok(within(invitation).queryByText('Búsquedas del Agente 2A') === null);
-    assert.match(invitation.closest('.rounded-2xl')?.className ?? '', /border-dashed/);
+    assert.match(invitation.closest('[data-slot="surface-card"]')?.className ?? '', /border-dashed/);
   });
 
   it('su botón es el accionador de IA secundario y abre el buscador una vez', () => {
@@ -643,7 +645,8 @@ describe('Pipeline · etapa disponible sin empezar: invitación a activarla', ()
     const buttons = within(stage('enriquecimiento')).getAllByRole('button');
     assert.equal(buttons.length, 1);
     assert.equal(buttons[0].textContent, 'Buscar contactos con IA');
-    assert.match(buttons[0].className, /su-ai-border/);
+    assert.match(buttons[0].className, /rounded-full/);
+    assert.ok(buttons[0].querySelector('img[src="/ai/orb-64.png"]'));
     fireEvent.click(buttons[0]);
     assert.equal(opened, 1);
   });

@@ -57,7 +57,7 @@ describe('Pipeline · cabecera como Empresas y Contactos', () => {
 
     const band = document.querySelector('[data-slot="page-header-compact"]') as HTMLElement;
     assert.ok(band, 'debe usar la cabecera compacta de DataTablePage');
-    assert.equal(within(band).getByRole('heading', { level: 1 }).textContent, 'Pipeline');
+    assert.equal(within(band).getByRole('heading', { level: 1 }).textContent, 'Flujo de prospección');
     assert.match(band.textContent ?? '', /En qué etapa del proceso de venta está cada empresa/);
     assert.ok(within(band).getByRole('button', { name: 'Recorrido' }));
     assert.ok(within(band).getByRole('button', { name: 'Tablero' }));
@@ -125,7 +125,7 @@ describe('Pipeline · esqueleto de carga', () => {
     render(inRouter(h(PipelineSkeleton, { view: 'recorrido', accountId: null })));
 
     const band = document.querySelector('[data-slot="page-header-compact"]') as HTMLElement;
-    assert.equal(within(band).getByRole('heading', { level: 1 }).textContent, 'Pipeline');
+    assert.equal(within(band).getByRole('heading', { level: 1 }).textContent, 'Flujo de prospección');
     assert.ok(within(band).getByRole('button', { name: 'Recorrido' }));
     assert.ok(within(band).getByRole('button', { name: 'Tablero' }));
     // Misma rejilla que la pantalla: lista a 340px y recorrido a la derecha, y la página es la que se desplaza.

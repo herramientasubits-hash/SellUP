@@ -24,10 +24,10 @@ function Kbd({ className, variant = "default", ...props }: KbdProps) {
     <kbd
       data-slot="kbd"
       className={cn(
-        "pointer-events-none inline-flex h-5 min-w-5 select-none items-center justify-center rounded-sm border px-1.5 font-mono text-[10px] font-medium",
+        "pointer-events-none inline-flex h-5 w-fit min-w-5 select-none items-center justify-center gap-1 rounded-sm px-1 font-sans text-xs font-medium",
         variant === "solid"
-          ? "border-foreground/20 bg-foreground text-background"
-          : "border-border bg-muted text-muted-foreground",
+          ? "bg-background/20 text-background"
+          : "bg-muted text-muted-foreground",
         className,
       )}
       {...props}

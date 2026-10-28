@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Frame, FramePanel } from "@/components/shared/frame";
 import { ChartShell } from "./ChartShell";
 import { cn } from "@/lib/utils";
 import type { EChartsOption, EChartsInstance } from "./types";
@@ -79,31 +79,23 @@ export function ChartCard({
   onChartReady,
 }: ChartCardProps) {
   return (
-    <Card className={cn("flex flex-col", className)}>
-      {/* Header — custom layout to keep tight spacing without CardHeader default gap */}
-      <div className="px-6 pt-6 pb-4 flex flex-col gap-1">
+    // El marco de UBITS: el título en la franja gris y el gráfico en su panel.
+    <Frame className={cn("flex flex-col", className)}>
+      <div className="flex flex-col gap-1 px-3 pt-2 pb-1.5">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-0.5 min-w-0">
-            {meta && (
-              <span className="text-xs font-medium text-muted-foreground">
-                {meta}
-              </span>
-            )}
-            <h3 className="truncate text-base font-semibold leading-tight tracking-tight text-foreground" title={title}>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            {meta && <span className="text-xs font-medium text-muted-foreground">{meta}</span>}
+            <h3 className="truncate text-sm font-medium text-foreground" title={title}>
               {title}
             </h3>
-            {description && (
-              <p className="line-clamp-2 text-sm text-muted-foreground">{description}</p>
-            )}
+            {description && <p className="line-clamp-2 text-sm text-muted-foreground">{description}</p>}
           </div>
-          {actions && (
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
-          )}
+          {actions && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>}
         </div>
         {filters && <div className="mt-2 flex flex-wrap items-center gap-2">{filters}</div>}
       </div>
 
-      <CardContent className="px-6 pb-6 pt-0 flex-1">
+      <FramePanel className="flex-1">
         <ChartShell
           option={option}
           height={height}
@@ -117,7 +109,7 @@ export function ChartCard({
         >
           {children}
         </ChartShell>
-      </CardContent>
-    </Card>
+      </FramePanel>
+    </Frame>
   );
 }

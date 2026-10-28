@@ -32,7 +32,7 @@ export const TONE_CHIP: Readonly<Record<Tone, string>> = {
   warning: "bg-warning/15 text-warning",
   negative: "bg-destructive/10 text-destructive",
   info: "bg-info/10 text-info",
-  violet: "bg-chart-2/10 text-chart-2",
+  violet: "bg-premium/10 text-premium-foreground",
   neutral: "bg-surface-muted text-muted-foreground",
 };
 
@@ -43,7 +43,7 @@ export const TONE_TEXT: Readonly<Record<Tone, string>> = {
   warning: "text-warning",
   negative: "text-destructive",
   info: "text-info",
-  violet: "text-chart-2",
+  violet: "text-premium-foreground",
   neutral: "text-muted-foreground",
 };
 
@@ -54,7 +54,7 @@ export const TONE_FILL: Readonly<Record<Tone, string>> = {
   warning: "bg-warning",
   negative: "bg-destructive",
   info: "bg-info",
-  violet: "bg-chart-2",
+  violet: "bg-premium",
   neutral: "bg-border-strong",
 };
 
@@ -65,7 +65,7 @@ export const TONE_SOFT: Readonly<Record<Tone, string>> = {
   warning: "bg-warning/5 border-warning/25",
   negative: "bg-destructive/5 border-destructive/20",
   info: "bg-info/5 border-info/20",
-  violet: "bg-chart-2/5 border-chart-2/20",
+  violet: "bg-premium/5 border-premium/20",
   neutral: "bg-surface-subtle border-border/60",
 };
 

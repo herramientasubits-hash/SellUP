@@ -1,4 +1,5 @@
 import { formatInAppZone } from '@/lib/format-date';
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -14,7 +15,6 @@ import {
 import { PageHeader } from '@/components/shared/page-header';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { SurfaceCard } from '@/components/shared/surface-card';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -501,21 +501,10 @@ export default async function BatchDetailPage({ params }: Props) {
       </div>
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {summaryCards.map((card) => (
-          <MetricCard
-            key={card.label}
-            title={card.label}
-            value={card.value}
-            compact
-            icon={
-              <div className={`rounded-xl p-2 ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} aria-hidden="true" />
-              </div>
-            }
-          />
-        ))}
-      </div>
+      <MetricStrip
+        aria-label="Resumen de la búsqueda"
+        items={summaryCards.map((card) => ({ label: card.label, value: card.value }))}
+      />
 
       {/* ICP Size Gate summary */}
       {(() => {

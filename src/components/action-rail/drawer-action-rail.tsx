@@ -158,7 +158,7 @@ export function DrawerActionRail({
               inert={!isExpanded}
               data-state={isExpanded ? "expanded" : "collapsed"}
               data-orientation="horizontal"
-              className="su-rail-bar flex h-14 w-max max-w-full items-center gap-2 rounded-3xl border border-primary/15 bg-nav px-3 text-nav-foreground shadow-rail"
+              className="su-rail-bar flex h-14 w-max max-w-full items-center gap-2 rounded-3xl border border-nav-foreground/10 bg-nav px-3 text-nav-foreground shadow-rail"
             >
               {!minimal && (
                 <>

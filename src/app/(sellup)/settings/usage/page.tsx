@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation';
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { Bot, Plug, FlaskConical, DollarSign, Zap, CheckCircle2 } from "@/icons";
 import { PageHeader } from '@/components/shared/page-header';
 import { settingsBreadcrumbs } from '@/components/settings/settings-page';
 import { LegacyCompatBanner } from '../legacy-compat-banner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
-import { MetricCard } from '@/components/shared/metric-card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -315,17 +315,10 @@ export default async function UsagePage() {
       </Alert>
 
       {/* ── Summary cards ────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {summaryCards.map((card) => (
-          <MetricCard
-            key={card.label}
-            title={card.label}
-            description={card.sub}
-            value={card.value}
-            icon={<card.icon className={card.accent} aria-hidden="true" />}
-          />
-        ))}
-      </div>
+      <MetricStrip
+        aria-label="Resumen de uso"
+        items={summaryCards.map((card) => ({ label: card.label, value: card.value, description: card.sub }))}
+      />
 
       {/* ── Tablas demo (cuando BD vacía) ───────────────────── */}
       {isEmpty && (

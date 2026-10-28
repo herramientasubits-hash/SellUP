@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export interface FormSectionProps extends React.HTMLAttributes<HTMLDivElement> {
   title?: string;
@@ -35,17 +35,27 @@ export function FormSection({
   const hasHeader = Boolean(title || description || actions);
 
   return (
-    <Card data-slot="form-section" className={className} {...props}>
+    // El marco de UBITS: el título de la sección en la franja gris y los campos en el panel.
+    <div
+      data-slot="form-section"
+      className={cn(
+        "flex min-w-0 flex-col gap-0.75 rounded-2xl border border-border bg-frame p-0.75 text-card-foreground",
+        className,
+      )}
+      {...props}
+    >
       {hasHeader && (
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0 space-y-1">
-            {title && <CardTitle className="text-base font-semibold text-foreground">{title}</CardTitle>}
-            {description && <CardDescription>{description}</CardDescription>}
+        <div className="flex flex-row flex-wrap items-center justify-between gap-2 px-3 pt-2 pb-1.5">
+          <div className="min-w-0 space-y-0.5">
+            {title && <h3 className="text-sm font-medium text-foreground">{title}</h3>}
+            {description && <p className="text-sm text-muted-foreground">{description}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
-        </CardHeader>
+        </div>
       )}
-      <CardContent className="space-y-6">{children}</CardContent>
-    </Card>
+      <div className="min-w-0 space-y-6 rounded-xl border border-border bg-card bg-clip-padding p-5 shadow-card">
+        {children}
+      </div>
+    </div>
   );
 }

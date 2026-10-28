@@ -151,7 +151,7 @@ export function DataTableLoadMore({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground sm:px-5",
+        "flex shrink-0 items-center px-3 pt-2 pb-1 text-xs text-muted-foreground",
         className,
       )}
     >

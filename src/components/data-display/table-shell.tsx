@@ -2,7 +2,6 @@ import * as React from "react";
 import { Database } from "@/icons";
 
 import { cn } from "@/lib/utils";
-import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Heading } from "@/components/typography";
 
@@ -78,16 +77,14 @@ export function TableShell({
   const isHeaderOnly = surface === "header";
 
   return (
-    <Card
+    // El marco de tabla de UBITS (TablaDatos): una franja gris con la cabecera y
+    // el pie, y la tabla en un panel blanco con su propio borde adentro.
+    <div
       data-slot="table-shell"
       data-surface={surface}
       className={cn(
-        // La `Card` de SellUp trae su propio padding y separación: aquí se
-        // anulan porque la tabla va a sangre. El radio se queda aunque el
-        // marco se descargue: `overflow-hidden` lo recorta sobre la cabecera,
-        // que es la que sigue teniendo superficie.
-        "gap-0 overflow-hidden p-0",
-        isHeaderOnly && "border-transparent bg-transparent shadow-none",
+        "flex min-w-0 flex-col gap-0.75 rounded-2xl border border-border bg-frame p-0.75 text-sm text-card-foreground",
+        isHeaderOnly && "border-transparent bg-transparent p-0",
         className,
       )}
       {...props}
@@ -96,8 +93,7 @@ export function TableShell({
         <div
           data-slot="table-shell-header"
           className={cn(
-            "flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border/60 px-6 py-4",
-            isHeaderOnly && "bg-card",
+            "flex flex-row flex-wrap items-center justify-between gap-2 px-3 py-2",
           )}
         >
           <div className="flex min-w-0 flex-col gap-1">
@@ -108,17 +104,20 @@ export function TableShell({
               h1 de la pantalla es su `PageHeader`.
             */}
             {title && (
-              <Heading level={6} as="h2" className="flex items-center gap-2">
+              <Heading level={6} as="h2" className="flex items-center gap-2 text-sm font-medium">
                 {title}
               </Heading>
             )}
-            {description && <p className="text-sm text-muted-foreground">{description}</p>}
+            {description && <p className="text-xs text-muted-foreground">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </div>
       )}
 
-      <div data-slot="table-shell-body">
+      <div
+        data-slot="table-shell-body"
+        className="relative min-w-0 overflow-hidden rounded-xl border border-border bg-card bg-clip-padding shadow-card"
+      >
         {empty ? (
           emptyState ?? (
             <EmptyState
@@ -134,7 +133,7 @@ export function TableShell({
               "relative w-full overflow-x-auto",
               // El texto de los bordes se alinea con el título; la línea de
               // cada fila sigue cruzando la tarjeta completa.
-              "[&_td:first-child]:pl-6 [&_td:last-child]:pr-6 [&_th:first-child]:pl-6 [&_th:last-child]:pr-6",
+              "[&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4",
               stickyHeader && "[&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead]:bg-card",
             )}
           >
@@ -146,11 +145,11 @@ export function TableShell({
       {footer && (
         <div
           data-slot="table-shell-footer"
-          className="flex flex-wrap items-center gap-2 border-t border-border/60 px-6 py-3"
+          className="flex flex-wrap items-center gap-2 px-3 pt-1.5 pb-1 text-xs text-muted-foreground"
         >
           {footer}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
