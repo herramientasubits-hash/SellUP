@@ -15,8 +15,9 @@ const read = (path: string) => readFileSync(join(SRC, path), 'utf8');
 
 const TRAY = read('components/prospect-batches/agent-runs-tray/agent-runs-tray.tsx');
 const ROWS = read('components/prospect-batches/bulk-search/bulk-search-rows.tsx');
-const WORKSPACE = read('components/growth/growth-workspace.tsx');
-const GROWTH = read('app/(sellup)/growth/page.tsx');
+// Lo masivo vive en Empresas › Búsquedas (dueña 28-10).
+const WORKSPACE = read('components/searches/searches-table-client.tsx');
+const GROWTH = read('components/searches/searches-panel.tsx');
 const DRAWER = read('components/prospect-batches/bulk-search/bulk-search-assign-drawer.tsx');
 const PENDING = read('modules/prospect-batches/bulk-search/bulk-search-assign-actions.ts');
 
@@ -45,15 +46,15 @@ describe('el Centro de procesos conduce', () => {
   });
 });
 
-describe('Prospección masiva', () => {
+describe('Empresas › Búsquedas', () => {
   it('lista las búsquedas masivas solo con acceso', () => {
-    assert.ok(GROWTH.includes('const bulkAccess = await resolveBulkSearchAccess();'));
+    assert.ok(GROWTH.includes('resolveBulkSearchAccess()'));
     assert.ok(GROWTH.includes('bulkAccess.ok ? await listBulkSearchesForUser(bulkAccess.userId)'));
   });
 
   it('las rondas se ven en su búsqueda, no como búsquedas sueltas', () => {
-    assert.ok(WORKSPACE.includes('searches.filter((row) => !roundBatchIds.has(row.id))'));
-    assert.ok(WORKSPACE.includes('data={tableSearches}'));
+    assert.ok(WORKSPACE.includes('searches.filter((row) => !roundIds.has(row.id))'));
+    assert.ok(WORKSPACE.includes('data={rows}'));
   });
 });
 

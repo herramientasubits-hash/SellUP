@@ -14,6 +14,7 @@ import {
   getPreviousWizardStep,
   REFERENCE_COMPANY_LIMITS,
   resolveSearchModeDefinitions,
+  BULK_SEARCH_OPTION,
 } from '@/modules/prospect-batches/chat-wizard';
 import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
@@ -199,7 +200,7 @@ function hasIssues(state: ProspectWizardState, step: string): boolean {
  * encendido; si no, se ve «Próximamente» como las demás que aún no están.
  */
 function buildSearchTypeOptions(state: ProspectWizardState, corporateTreeEnabled: boolean): ChatQuestionOptionDetail[] {
-  return resolveSearchModeDefinitions(state).map((def) => {
+  const options: ChatQuestionOptionDetail[] = resolveSearchModeDefinitions(state).map((def) => {
     const comingSoon = def.availability === 'coming_soon' || (def.mode === 'corporate_tree' && !corporateTreeEnabled);
     return {
       value: def.mode,
@@ -208,6 +209,16 @@ function buildSearchTypeOptions(state: ProspectWizardState, corporateTreeEnabled
       ...(comingSoon ? { hint: 'Próximamente', unavailable: true } : {}),
     };
   });
+  // GROWTH-BULK-SEARCH-1 — la quinta forma, justo después de «Empresas por criterios»,
+  // sólo para Growth y admin (lo resuelve el servidor).
+  if (state.bulkSearchEnabled === true) {
+    options.splice(1, 0, {
+      value: BULK_SEARCH_OPTION.value,
+      label: BULK_SEARCH_OPTION.label,
+      description: BULK_SEARCH_OPTION.description,
+    });
+  }
+  return options;
 }
 
 function SearchTypeStep({
@@ -232,8 +243,13 @@ function SearchTypeStep({
       title="¿Qué tipo de prospectos quieres encontrar?"
       titleRef={titleRef}
       options={buildSearchTypeOptions(state, corporateTreeEnabled)}
-      selected={state.searchMode ? [state.searchMode] : []}
+      selected={state.bulkIntent === true ? [BULK_SEARCH_OPTION.value] : state.searchMode ? [state.searchMode] : []}
       onAnswer={(mode) => {
+        if (mode === BULK_SEARCH_OPTION.value) {
+          setTreeUnavailable(false);
+          dispatch({ type: 'SELECT_BULK_SEARCH' });
+          return;
+        }
         const definition = definitions.find((def) => def.mode === mode);
         if (!definition) return;
         if (definition.mode === 'corporate_tree' && !corporateTreeEnabled) {

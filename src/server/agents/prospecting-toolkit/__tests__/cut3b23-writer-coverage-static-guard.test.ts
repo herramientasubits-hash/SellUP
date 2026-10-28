@@ -438,7 +438,10 @@ const COMPANY_RELATIONSHIP_LEVELS_MIGRATION = '157_agent1_company_relationships_
 // contactos, presupuesto ni HubSpot). Se policía por CONTENIDO igual que la 156 y la 157. AUTORADA y NO APLICADA.
 const GROWTH_ROLE_MIGRATION = '158_growth_role.sql';
 // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA. Se policía por CONTENIDO igual que la 156, la 157 y la 158.
-const REPOSITORY_CEILING = '159_growth_bulk_prospect_searches.sql';
+// Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
+// La 160 redefine try_reserve_wizard_credits (como la 144): nombra wizard_budget_reservations por
+// diseño, así que no se policía por contenido aquí; su prueba propia es configured-limit-gate.
+const REPOSITORY_CEILING = '160_wizard_reservation_without_pilot_limits.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -826,11 +829,11 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // CONTENIDO aquí mismo: no nombra ninguna tabla de CUT-3B23.
     // AGENT1-CORPORATE-TREE-PHASE-C lo movió a la 157 (columnas de nivel en
     // `agent1_company_relationships`), policiada por CONTENIDO igual que la 156.
-    assert.ok(last.startsWith('159'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('160'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(SAVED_CONTACT_PHONES_MIGRATION));
     assert.ok(migrations.includes(COMPETITOR_WATCHES_MIGRATION));
-    for (const policed of [COMPETITOR_WATCHES_MIGRATION, COMPANY_RELATIONSHIP_LEVELS_MIGRATION, GROWTH_ROLE_MIGRATION, REPOSITORY_CEILING]) {
+    for (const policed of [COMPETITOR_WATCHES_MIGRATION, COMPANY_RELATIONSHIP_LEVELS_MIGRATION, GROWTH_ROLE_MIGRATION, '159_growth_bulk_prospect_searches.sql']) {
       const policedSql = readFileSync(
         join(REPO_ROOT, 'supabase', 'migrations', policed),
         'utf8',

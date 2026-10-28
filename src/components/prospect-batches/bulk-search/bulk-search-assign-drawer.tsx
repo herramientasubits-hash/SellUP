@@ -37,13 +37,19 @@ export function BulkSearchAssignDrawer({
   open,
   onOpenChange,
   bulkSearchId,
+  loadCandidates,
   label,
   users,
   onAssigned,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  bulkSearchId: string;
+  /** Una búsqueda masiva. */
+  bulkSearchId?: string;
+  /** Cualquier otra búsqueda (Empresas › Búsquedas): de dónde salen las empresas por repartir. */
+  loadCandidates?: () => Promise<
+    { ok: true; candidates: BulkSearchPendingCandidate[] } | { ok: false; message: string }
+  >;
   label: string;
   users: AssignableUser[];
   onAssigned?: () => void;
@@ -58,7 +64,8 @@ export function BulkSearchAssignDrawer({
     // Se monta una vez por búsqueda (quien lo abre lo desmonta al cerrar), así
     // que el estado ya arranca vacío: sólo hay que leer.
     let alive = true;
-    void getBulkSearchPendingCandidatesAction(bulkSearchId).then((result) => {
+    const load = loadCandidates ?? (() => getBulkSearchPendingCandidatesAction(bulkSearchId ?? ''));
+    void load().then((result) => {
       if (!alive) return;
       if (result.ok) setCandidates(result.candidates);
       else setLoadError(result.message);
@@ -66,6 +73,8 @@ export function BulkSearchAssignDrawer({
     return () => {
       alive = false;
     };
+    // `loadCandidates` se lee al abrir; no se vuelve a pedir si cambia entre aperturas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, bulkSearchId]);
 
   const close = () => {

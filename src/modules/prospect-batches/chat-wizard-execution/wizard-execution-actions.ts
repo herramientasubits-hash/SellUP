@@ -100,6 +100,7 @@ import {
 import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { markWizardBatchGenerating, type MarkBatchGeneratingClient } from './wizard-batch-generating';
 import { decideApolloProviderQuotaGate } from './wizard-provider-quota-gate';
+import { lushaConfiguredLimitBlock } from '@/modules/prospect-batches/lusha-configured-limit.server';
 import {
   ACTIVE_RUN_WINDOW_MS,
   ACTIVE_RUNS_CONFLICT_MESSAGES,
@@ -202,7 +203,6 @@ import type {
   BudgetPeriodLookupClient,
   WizardBudgetPeriodSnapshot,
 } from './wizard-budget-reservations';
-import { checkCapability } from '@/modules/access/capabilities.server';
 import {
   estimateWizardTavilyMaxCredits,
   getPilotBudgetPeriodStart,
@@ -268,7 +268,7 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 // catálogo. Nunca crea ni lee un `budget_rule`: eso es `checkBudget`, un
 // concepto distinto (límite de gasto configurado por un admin) que esta
 // puerta no toca.
-import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
+import { checkConfiguredProviderLimit, checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { resolveApolloSeenDomainExclusion } from '@/modules/prospect-batches/provider-seen/apollo-seen-domain-exclusion';
 import { buildWizardShortfallReasons } from './wizard-shortfall-reasons';
 import { resolveTavilyFirstMaxRounds } from './wizard-run-time-plan';
@@ -737,16 +737,16 @@ export async function executeProspectWizardGenerationAction(
   request: unknown,
 ): Promise<WizardExecutionActionResult> {
   const actionStartedAtMs = Date.now();
-  // La prospección masiva es de Growth (y admin) cuando ENABLE_ROLE_CAPABILITIES
-  // está encendida. Se comprueba ANTES de abrir progreso, presupuesto o proveedores.
-  const roleGate = await checkCapability('prospectarMasivo');
-  if (!roleGate.ok) {
-    return { ok: false, code: 'NOT_ALLOWED_FOR_ROLE', message: roleGate.message, retryable: false };
-  }
+  // Las cuatro formas de Rumbo son de cualquier usuario activo (dueña 28-10): aquí no
+  // hay puerta por rol. Lo masivo (la búsqueda masiva y su ruta, importar archivos)
+  // tiene la suya.
   const supabase = await createClient();
   // Budget operations need service_role: the RPC functions grant EXECUTE only to postgres/service_role,
   // and wizard_budget_reservations has no authenticated RLS policy.
   const budgetClient = createWizardBudgetClient();
+  // Dueña 28-10: los límites de Configuración son por persona; se lee una vez.
+  let viewerIdPromise: Promise<string> | null = null;
+  const viewerId = () => (viewerIdPromise ??= requireActiveUser().then((auth) => auth.internalUserId));
   // AGENT1-RUN-LIVE-PROGRESS-1 — el chat cuenta en vivo en qué etapa va la
   // corrida. Envuelve las dependencias que abren una etapa; no cambia el flujo.
   const progress = await openRunProgress(request);
@@ -863,15 +863,12 @@ export async function executeProspectWizardGenerationAction(
       return error || count === null ? null : count;
     },
     // AGENT1-TAVILY-PROVIDER-CONFIG-1 — la MISMA cuota de Proveedores que Apollo.
-    checkTavilyProviderQuota: async () => {
-      const quota = await checkProviderQuotaAvailable('tavily');
-      if (!quota.allowed) {
-        return {
-          status: 'blocked',
-          providerCreditsAvailable: quota.providerCreditsAvailable ?? 0,
-        };
-      }
-      return { status: 'available', providerCreditsAvailable: quota.providerCreditsAvailable };
+    // Dueña 28-10: además, el límite que un administrador haya puesto en Configuración.
+    checkTavilyProviderQuota: async ({ estimatedCredits }) => {
+      const decision = await checkConfiguredProviderLimit('tavily', await viewerId(), estimatedCredits);
+      return decision.status === 'blocked'
+        ? { status: 'blocked', providerCreditsAvailable: decision.availableCredits }
+        : { status: 'available', providerCreditsAvailable: decision.availableCredits };
     },
 
     // A1-APOLLO-WIZARD-1 — preflight real. Ninguna comprobación llama a Apollo
@@ -998,6 +995,9 @@ export async function executeProspectWizardGenerationAction(
       }),
 
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
+      // Dueña 28-10: mandan los créditos de Lusha y los límites de Configuración.
+      const limitBlock = await lushaConfiguredLimitBlock(userId, requestedCredits);
+      if (limitBlock) return limitBlock;
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
       const rpcResult = await reserveWizardPilotCredits(
         { userId, clientRequestId, requestedCredits, periodStart },
@@ -1043,8 +1043,17 @@ export async function executeProspectWizardGenerationAction(
     // y el gasto se comía la cuota de otro. Ahora bloquea cuando lo disponible no
     // alcanza para el PEOR caso de esta corrida (`insufficient_for_run`, el mismo
     // resultado y el mismo copy de siempre). Ver `decideApolloProviderQuotaGate`.
-    checkApolloProviderQuota: async ({ estimatedCredits }) =>
-      decideApolloProviderQuotaGate(await checkProviderQuotaAvailable('apollo'), estimatedCredits),
+    //
+    // Dueña 28-10: y el límite que un administrador haya puesto en Configuración
+    // (por persona, rol, grupo o para todos). Sin límite, sólo el cupo.
+    checkApolloProviderQuota: async ({ estimatedCredits }) => {
+      const quota = decideApolloProviderQuotaGate(await checkProviderQuotaAvailable('apollo'), estimatedCredits);
+      if (quota.status === 'blocked') return quota;
+      const decision = await checkConfiguredProviderLimit('apollo', await viewerId(), estimatedCredits);
+      return decision.status === 'blocked'
+        ? { status: 'blocked', providerCreditsAvailable: decision.availableCredits }
+        : quota;
+    },
 
     confirmBudget: (input) =>
       confirmWizardPilotCredits(input, budgetClient as unknown as BudgetReservationsRpcClient),

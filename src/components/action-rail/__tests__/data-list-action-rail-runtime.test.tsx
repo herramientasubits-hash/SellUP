@@ -114,6 +114,27 @@ describe('DataListActionRail — qué acciones enseña', () => {
     assert.equal(cleared, 1);
   });
 
+  it('con filas marcadas, la acción de Rumbo es la principal: cierra la barra con su nombre (dueña 28-10)', () => {
+    let calls = 0;
+    const rumbo: RailActionSpec = {
+      id: 'rumbo',
+      label: 'Buscar con Rumbo',
+      icon: ICON,
+      scope: ['single', 'bulk'],
+      tone: 'ai',
+      onSelect: () => calls++,
+    };
+    rail({ actions: [...ACTIONS, rumbo], selectedCount: 3 });
+
+    const agent = document.querySelector('[data-slot="rail-agent"]') as HTMLElement;
+    assert.ok(agent, 'Rumbo sale como el agente, no como un ícono más');
+    assert.equal(agent.textContent, 'Buscar con Rumbo');
+    assert.ok(agent.className.includes('su-ai-gradient'));
+    assert.deepEqual(visibleActions().slice(-1), ['Buscar con Rumbo']);
+    fireEvent.click(agent);
+    assert.equal(calls, 1);
+  });
+
   it('el género concuerda', () => {
     rail({ selectedCount: 2, gender: 'f' });
 

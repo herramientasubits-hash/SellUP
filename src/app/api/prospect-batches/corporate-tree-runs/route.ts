@@ -6,7 +6,6 @@ import type { WizardExecutionActionResult } from '@/modules/prospect-batches/cha
 import { corporateTreeRowKey } from '@/server/prospect-batches/corporate-tree/corporate-tree-plan';
 import { parseCorporateTreeRequest, runCorporateTreeSearch } from '@/server/prospect-batches/corporate-tree/corporate-tree-run';
 import { buildLiveCorporateTreeDeps } from '@/server/prospect-batches/corporate-tree/corporate-tree-run.server';
-import { checkCapability } from '@/modules/access/capabilities.server';
 
 /**
  * Agente 1 · Búsqueda en árbol de una empresa (AGENT1-CORPORATE-TREE-1).
@@ -71,11 +70,8 @@ export async function POST(request: NextRequest) {
     .single();
   if (!internalUser) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
   // El árbol de una empresa es prospección masiva: Growth (y admin) con ENABLE_ROLE_CAPABILITIES.
-  const roleGate = await checkCapability('prospectarMasivo');
-  if (!roleGate.ok) {
-    const denied: WizardExecutionActionResult = { ok: false, code: 'NOT_ALLOWED_FOR_ROLE', message: roleGate.message, retryable: false };
-    return NextResponse.json(denied, { headers: NO_STORE });
-  }
+  // «Árbol de una empresa» es una de las cuatro formas de Rumbo: de cualquier usuario
+  // activo (dueña 28-10), sin puerta por rol.
 
   const progress = await openRunProgress({ clientRequestId: parsed.request.clientRequestId });
   try {

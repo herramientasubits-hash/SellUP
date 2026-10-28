@@ -138,6 +138,18 @@ export type ProspectWizardState = {
    * la bandera al ejecutar.
    */
   supplierSearchEnabled?: boolean;
+  /**
+   * GROWTH-BULK-SEARCH-1 — resuelto en el servidor (bandera + rol Growth o admin) y
+   * fijo durante la conversación: con `true` se ofrece la quinta forma, «Muchas
+   * empresas por criterios». No autoriza nada: el servidor vuelve a mirar al lanzar.
+   */
+  bulkSearchEnabled?: boolean;
+  /**
+   * La persona eligió «Muchas empresas por criterios»: las mismas preguntas que
+   * «Empresas por criterios» (`searchMode: 'exploratory'`) y, al final, la cantidad
+   * y el tope de créditos en vez de «Generar prospectos».
+   */
+  bulkIntent?: boolean;
   countryCode: string | null;
   /**
    * «Competidores de una empresa»: los países elegidos, en orden (el primero es
@@ -235,6 +247,7 @@ export type ProspectWizardState = {
 export type ProspectWizardAction =
   | { type: 'START' }
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
+  | { type: 'SELECT_BULK_SEARCH' }
   | { type: 'SET_SUPPLIER_FREQUENT_PUBLIC' }
   | {
       type: 'SET_REFERENCE_COMPANY';

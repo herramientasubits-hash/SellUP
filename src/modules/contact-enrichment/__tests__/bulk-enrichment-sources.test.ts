@@ -55,14 +55,16 @@ describe('cableado', () => {
     assert.ok(action.includes(".is('archived_at', null)"));
   });
 
-  it('el lote y Prospección masiva sólo ofrecen el botón con la capacidad', () => {
+  it('la búsqueda y Empresas › Búsquedas sólo ofrecen el botón con la capacidad', () => {
     const batchPage = read('app/(sellup)/prospect-batches/[batchId]/page.tsx');
     assert.ok(batchPage.includes("checkCapability('enriquecerMasivo')"));
     assert.ok(batchPage.includes('bulkEnrich.ok && counts.converted > 0 && ('));
-    const growthPage = read('app/(sellup)/growth/page.tsx');
-    assert.ok(growthPage.includes('canEnrichBulk={bulkEnrich.ok}'));
-    const workspace = read('components/growth/growth-workspace.tsx');
-    assert.ok(workspace.includes('canEnrichBulk && withCompanies.length > 0 && ('));
+    const searchesPanel = read('components/searches/searches-panel.tsx');
+    assert.ok(searchesPanel.includes("checkCapability('enriquecerMasivo')"));
+    assert.ok(searchesPanel.includes('canEnrichBulk={enrichBulk}'));
+    const table = read('components/searches/searches-table-client.tsx');
+    assert.ok(table.includes('...(canEnrichBulk'));
+    assert.ok(table.includes('row.original.converted > 0 ? ('));
   });
 
   it('la corrida guarda de qué búsqueda salió', () => {

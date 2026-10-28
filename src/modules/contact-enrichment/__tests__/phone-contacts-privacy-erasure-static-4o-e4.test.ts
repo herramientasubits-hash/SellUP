@@ -587,6 +587,8 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '158_growth_role.sql',
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '159_growth_bulk_prospect_searches.sql',
+      // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
+      '160_wizard_reservation_without_pilot_limits.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -712,7 +714,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 159);
+    assert.equal(numbered[numbered.length - 1], 160);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

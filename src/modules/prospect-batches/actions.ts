@@ -14,7 +14,6 @@ import {
   checkCapability,
   findCandidatesNeedingAssignee,
   requireCandidateReviewer,
-  requireCapability,
 } from '@/modules/access/capabilities.server';
 import { decideDuplicateRecheck, DUPLICATE_RECHECK_MESSAGES } from './duplicate-recheck';
 import { evaluateConvertApproveEligibility, type ConvertApproveRejectReason } from '@/modules/prospect-review/approve-and-convert-eligibility';
@@ -424,8 +423,11 @@ type CandidateCountRow = BatchCandidateCountRow & { batch_id?: string | null };
 
 async function fetchDurableCandidateCountRows(
   filter: { batchId: string } | { batchIds: string[] },
+  /** Sólo las candidatas asignadas a estas personas (la parte de una búsqueda que le tocó a alguien). */
+  assignedTo?: readonly string[],
 ): Promise<CandidateCountRow[]> {
   if ('batchIds' in filter && filter.batchIds.length === 0) return [];
+  if (assignedTo && assignedTo.length === 0) return [];
 
   const supabase = await createClient();
   const rows: CandidateCountRow[] = [];
@@ -441,6 +443,7 @@ async function fetchDurableCandidateCountRows(
       'batchId' in filter
         ? query.eq('batch_id', filter.batchId)
         : query.in('batch_id', filter.batchIds);
+    if (assignedTo) query = query.in('assigned_to', [...assignedTo]);
 
     const { data, error } = await query
       .order('id', { ascending: true })
@@ -546,6 +549,116 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
       duplicate_count: counts.duplicates,
     } as ProspectBatchWithMeta;
   });
+}
+
+// ── Búsquedas de quien mira (Empresas › Búsquedas) ──────────────
+
+/** Una búsqueda en «Búsquedas»: entera, o sólo la parte que le asignaron a quien mira. */
+export type SearchForViewer = ProspectBatchWithMeta & {
+  /** `full`: la lanzó o es responsable (él o su equipo). `assigned`: sólo le asignaron empresas de ella. */
+  visibility: 'full' | 'assigned';
+};
+
+/**
+ * Las búsquedas que ve cada persona (dueña 28-10), respetando los roles del alcance
+ * comercial (cada uno lo suyo, el líder su equipo, Growth y admin todo):
+ *  - las que lanzó o de las que es responsable → enteras;
+ *  - las que no, pero de las que le asignaron empresas → sólo esa parte (las cifras
+ *    cuentan únicamente las empresas asignadas).
+ */
+export async function getSearchesForViewer(): Promise<SearchForViewer[]> {
+  await requireActiveUser();
+  const supabase = await createClient();
+  const scopeUserIds = await resolveCandidateScopeUserIds();
+
+  const SELECT = `
+      *,
+      owner:internal_users!prospect_batches_owner_id_fkey(id, full_name, email),
+      created_by_user:internal_users!prospect_batches_created_by_fkey(id, full_name)
+    `;
+  const withCounts = (
+    batches: Array<Record<string, unknown> & { id: string }>,
+    counts: Map<string, typeof EMPTY_BATCH_CANDIDATE_COUNTS>,
+    visibility: SearchForViewer['visibility'],
+  ): SearchForViewer[] =>
+    batches.map((b) => {
+      const c = counts.get(b.id) ?? EMPTY_BATCH_CANDIDATE_COUNTS;
+      return {
+        ...b,
+        total_candidates: c.total,
+        approved_count: c.approved,
+        discarded_count: c.discarded,
+        converted_count: c.converted,
+        needs_review_count: c.needsReview,
+        duplicate_count: c.duplicates,
+        visibility,
+      } as SearchForViewer;
+    });
+
+  // Sin restricción (admin, Growth, alcance apagado): todas, enteras.
+  if (scopeUserIds === null) {
+    const { data, error } = await supabase
+      .from('prospect_batches')
+      .select(SELECT)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(`Error al cargar las búsquedas: ${error.message}`);
+    const batches = (data ?? []) as Array<Record<string, unknown> & { id: string }>;
+    const counts = computeCountsByBatch(await fetchDurableCandidateCountRows({ batchIds: batches.map((b) => b.id) }));
+    return withCounts(batches, counts, 'full');
+  }
+  if (scopeUserIds.length === 0) return [];
+
+  // 1. Las que lanzó o de las que es responsable (él o su equipo): enteras.
+  const ownerClause = BATCH_OWNER_COLUMNS.map((col) => `${col}.in.(${scopeUserIds.join(',')})`).join(',');
+  const { data: ownedData, error: ownedError } = await supabase
+    .from('prospect_batches')
+    .select(SELECT)
+    .is('archived_at', null)
+    .or(ownerClause)
+    .order('created_at', { ascending: false });
+  if (ownedError) throw new Error(`Error al cargar las búsquedas: ${ownedError.message}`);
+  const owned = (ownedData ?? []) as Array<Record<string, unknown> & { id: string }>;
+  const ownedIds = new Set(owned.map((b) => b.id));
+
+  // 2. Las de otros de las que le asignaron empresas: sólo esa parte.
+  const assignedBatchIds = new Set<string>();
+  for (let from = 0; ; from += CANDIDATE_COUNT_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('prospect_candidates')
+      .select('batch_id')
+      .in('assigned_to', scopeUserIds)
+      .not('batch_id', 'is', null)
+      .order('id', { ascending: true })
+      .range(from, from + CANDIDATE_COUNT_PAGE_SIZE - 1);
+    if (error) throw new Error(`Error al cargar las búsquedas asignadas: ${error.message}`);
+    const rows = (data ?? []) as Array<{ batch_id: string | null }>;
+    for (const row of rows) if (row.batch_id && !ownedIds.has(row.batch_id)) assignedBatchIds.add(row.batch_id);
+    if (rows.length === 0 || from / CANDIDATE_COUNT_PAGE_SIZE >= CANDIDATE_COUNT_MAX_PAGES) break;
+  }
+
+  let assigned: Array<Record<string, unknown> & { id: string }> = [];
+  if (assignedBatchIds.size > 0) {
+    const ids = [...assignedBatchIds];
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await supabase
+        .from('prospect_batches')
+        .select(SELECT)
+        .is('archived_at', null)
+        .in('id', ids.slice(i, i + 100));
+      if (error) throw new Error(`Error al cargar las búsquedas asignadas: ${error.message}`);
+      assigned = assigned.concat((data ?? []) as Array<Record<string, unknown> & { id: string }>);
+    }
+  }
+
+  const [ownedCounts, assignedCounts] = await Promise.all([
+    fetchDurableCandidateCountRows({ batchIds: [...ownedIds] }).then(computeCountsByBatch),
+    fetchDurableCandidateCountRows({ batchIds: assigned.map((b) => b.id) }, scopeUserIds).then(computeCountsByBatch),
+  ]);
+
+  return [...withCounts(owned, ownedCounts, 'full'), ...withCounts(assigned, assignedCounts, 'assigned')].sort(
+    (a, b) => String(b.created_at).localeCompare(String(a.created_at)),
+  );
 }
 
 // ── Commercial scope ──────────────────────────────────────────
@@ -3407,7 +3520,6 @@ export async function generateAIProspectBatch(
   input: GenerateAIBatchInput
 ): Promise<GenerateAIBatchResult> {
   const { internalUserId } = await requireActiveUser();
-  await requireCapability('prospectarMasivo');
 
   if (!input.country || !input.countryCode) {
     throw new Error('País requerido para la generación asistida');
@@ -3559,7 +3671,6 @@ export async function generateTavilyProspectBatch(
   input: GenerateTavilyBatchInput
 ): Promise<GenerateTavilyBatchResult> {
   const { internalUserId } = await requireActiveUser();
-  await requireCapability('prospectarMasivo');
 
   // AGENT1-AUDIT-WS4 — server action sin bandera ni tope de gasto: cualquier
   // usuario activo podía disparar Tavily. Su único llamador

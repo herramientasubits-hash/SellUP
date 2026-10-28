@@ -20,9 +20,8 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
-import { readWizardBudgetPeriodSnapshot } from './wizard-budget-reservations';
-import type { BudgetPeriodLookupClient } from './wizard-budget-reservations';
-import { getPilotBudgetPeriodStart } from './wizard-budget-reconciliation';
+import { checkConfiguredProviderLimit } from '@/modules/budgets/budget-resolution';
+import { getAccessSnapshot } from '@/modules/access/capabilities.server';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
 // AGENT1-LUSHA-BUDGET-GATE-1 § 5/§ 6 — el techo de Lusha sale de la MISMA función
 // cuyo resultado reserva la acción de Lusha. Se resuelve aparte de
@@ -37,12 +36,8 @@ import { WIZARD_RUN_SELECTABLE_PROVIDERS } from './wizard-run-provider-capabilit
 import type { WizardRunSelectableProvider } from './wizard-run-provider-capability';
 import type { WizardBudgetPreflight } from './wizard-budget-preflight';
 
-/**
- * Zona horaria del período de presupuesto del piloto. Compartida con la
- * ejecución: dos husos distintos resolverían dos períodos distintos y la UI
- * avisaría sobre una fila que la reserva no mira.
- */
-export const WIZARD_BUDGET_TIMEZONE = 'America/Bogota';
+// La zona horaria vive en un archivo sin dependencias (lo usa código del navegador).
+export { WIZARD_BUDGET_TIMEZONE } from './wizard-budget-timezone';
 
 /**
  * Cliente service_role para las operaciones de presupuesto.
@@ -76,12 +71,10 @@ export function createWizardBudgetServiceClient() {
  */
 export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBudgetPreflight | null> {
   try {
-    const db = createWizardBudgetServiceClient();
-    const snapshot = await readWizardBudgetPeriodSnapshot(
-      getPilotBudgetPeriodStart(WIZARD_BUDGET_TIMEZONE),
-      db as unknown as BudgetPeriodLookupClient,
-    );
-    if (!snapshot) return null;
+    // Dueña 28-10: el saldo ya no sale de la bolsa del piloto sino de lo que
+    // permiten a quien mira los créditos de Lusha y los límites de Configuración.
+    const access = await getAccessSnapshot();
+    if (!access.userId) return null;
 
     // AGENT1-WIZARD-BUDGET-UI-APOLLO-DECOUPLE-1 — sólo los proveedores que este
     // pool realmente financia. Apollo es seleccionable
@@ -136,8 +129,12 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
       lushaRequiredCreditsByMacroIndustry = null;
     }
 
+    const limit = await checkConfiguredProviderLimit('lusha', access.userId, lushaRequiredCredits ?? 1);
+    // Sin cupo ni límite configurado no hay nada que avisar: no se inventa un saldo.
+    if (limit.availableCredits === null) return null;
+
     return {
-      availableCredits: snapshot.availableCredits,
+      availableCredits: limit.availableCredits,
       requiredCreditsByProvider,
       lushaRequiredCredits,
       lushaRequiredCreditsByMacroIndustry,

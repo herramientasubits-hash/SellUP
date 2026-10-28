@@ -706,7 +706,8 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
       // ROLE-GROWTH-1 mueve el techo a la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
-      '159_growth_bulk_prospect_searches.sql',
+      // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
+      '160_wizard_reservation_without_pilot_limits.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

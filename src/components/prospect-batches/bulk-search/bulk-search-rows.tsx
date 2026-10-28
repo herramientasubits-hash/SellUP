@@ -189,7 +189,7 @@ export function BulkSearchRow({
   state,
   onControl,
   onNavigate,
-  viewHref = '/growth?tab=busquedas',
+  viewHref = '/accounts?tab=busquedas',
   extraAction,
 }: {
   search: BulkSearchView;

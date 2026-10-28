@@ -11,11 +11,9 @@
 
 /**
  * Visibility class derived from a user's role:
- *  - 'admin' → sees everything, can filter by anyone. Also Growth: the team
- *    that prospects in bulk works across the whole base (VISIBILITY only —
- *    admin-only actions keep checking `isAdmin`).
+ *  - 'admin' → sees everything, can filter by anyone.
  *  - 'team'  → líder/manager: sees their group subtree + direct reports.
- *  - 'self'  → vendedor/BD and any unknown role: sees only their own data.
+ *  - 'self'  → vendedor/BD, Growth and any unknown role: sees only their own data.
  */
 export type CommercialRoleClass = 'admin' | 'team' | 'self';
 
@@ -23,10 +21,11 @@ export type CommercialRoleClass = 'admin' | 'team' | 'self';
 export const ADMIN_ROLE_KEYS: readonly string[] = ['admin'];
 
 /**
- * Non-admin roles that still see the whole commercial base (migration 158).
- * Growth prospects for every seller, so it reviews candidates from everyone.
+ * Non-admin roles that still see the whole commercial base. None today: Growth
+ * (migration 158) is a seller that can also prospect in bulk, so it sees only
+ * its own data like any seller (owner decision 28-10).
  */
-export const GLOBAL_VIEW_ROLE_KEYS: readonly string[] = ['growth'];
+export const GLOBAL_VIEW_ROLE_KEYS: readonly string[] = [];
 
 /**
  * Role keys seeded in migration 001 that grant team (group + reports) scope.

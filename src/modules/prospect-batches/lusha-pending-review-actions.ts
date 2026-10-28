@@ -39,6 +39,7 @@
  *   - Never returns raw provider payloads or secrets.
  */
 
+import { lushaConfiguredLimitBlock } from '@/modules/prospect-batches/lusha-configured-limit.server';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
@@ -987,6 +988,9 @@ async function reserveLushaRunCredits(input: {
   clientRequestId: string;
   requiredCredits: number;
 }): Promise<LushaBudgetReserveOutcome> {
+  // Dueña 28-10: mandan los créditos de Lusha y los límites de Configuración.
+  const limitBlock = await lushaConfiguredLimitBlock(input.userId, input.requiredCredits);
+  if (limitBlock) return limitBlock;
   const budgetClient = createWizardBudgetServiceClient();
   const periodStart = getPilotBudgetPeriodStart(WIZARD_BUDGET_TIMEZONE);
 

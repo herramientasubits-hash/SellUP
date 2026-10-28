@@ -107,7 +107,7 @@ export function presentCandidateResponsible(input: {
  * HubSpot, si ya tiene dueño, mande). Decisión de la dueña 08-10: si alguien
  * asignó el prospecto, el asignado; si no, el dueño de la búsqueda y, si falta,
  * quien la lanzó —el orden de `resolveCandidateResponsibleId`—; sin ninguno,
- * quien aprueba. (Desde #804, Growth y admin no aprueban sin asignar antes.)
+ * quien aprueba. (Desde #804, admin no aprueba sin asignar antes; Growth es un vendedor más.)
  */
 export function resolveConversionOwnerUserId(input: {
   assignedTo: string | null | undefined;
@@ -131,9 +131,10 @@ export function resolveConversionOwnerUserId(input: {
 
 /**
  * Roles que prospectan para otros y no se quedan con las empresas: lo que sale
- * de una búsqueda suya necesita un responsable antes de aprobarse.
+ * de una búsqueda suya necesita un responsable antes de aprobarse. Growth no está:
+ * es un vendedor más y lo que busca es suyo hasta que lo reparta (dueña 28-10).
  */
-export const NON_SELLER_ROLE_KEYS = ['growth', 'admin'] as const;
+export const NON_SELLER_ROLE_KEYS = ['admin'] as const;
 
 /** Lo que hace falta saber de una persona para decidir si puede quedarse con la empresa. */
 export interface ResponsibleUserFacts {
@@ -148,9 +149,9 @@ export type ApprovalResponsibleDecision =
 /**
  * ¿Tiene esta candidata un responsable con el que pueda nacer la empresa?
  *  - asignada a mano a alguien activo ⇒ sí (aunque sea Growth: lo eligió una persona);
- *  - sin asignar, de una búsqueda cuyo dueño activo es un vendedor ⇒ sí (lo suyo);
- *  - sin asignar, de una búsqueda de Growth o admin, o con dueño dado de baja ⇒ no:
- *    hay que asignarla primero, para que no quede a nombre de quien prospecta en masa.
+ *  - sin asignar, de una búsqueda cuyo dueño activo es un vendedor (Growth incluido) ⇒ sí;
+ *  - sin asignar, de una búsqueda de admin, o con dueño dado de baja ⇒ no:
+ *    hay que asignarla primero, para que no quede a nombre del administrador.
  * Una persona que no se pudo leer cuenta como inactiva: falla cerrado.
  */
 export function decideApprovalResponsible(input: {

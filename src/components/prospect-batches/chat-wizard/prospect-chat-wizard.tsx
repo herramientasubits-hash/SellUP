@@ -230,6 +230,8 @@ export function ProspectChatWizard({
         catalogVersion: catalog.version,
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
         supplierSearchEnabled,
+        // La quinta forma sólo existe si el servidor ofreció la búsqueda masiva.
+        bulkSearchEnabled: bulkSearch !== null,
       }),
   );
 

@@ -32,7 +32,7 @@ import {
   type BudgetPeriodLookupClient,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reservations';
 import { getPilotBudgetPeriodStart } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reconciliation';
-import { WIZARD_BUDGET_TIMEZONE } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
+import { WIZARD_BUDGET_TIMEZONE } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-timezone';
 import { estimateCreditsForProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-estimate';
 import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
 

@@ -6,7 +6,7 @@ import { ACCOUNTS_ROUTE } from '@/config/navigation';
  * revisar / Descartadas); las rutas son las de siempre, query params sobre
  * `/accounts`. La página ya no lleva pestañas propias.
  */
-export type ModuleTabId = 'empresas' | 'prospectos' | 'descartadas';
+export type ModuleTabId = 'empresas' | 'busquedas' | 'prospectos' | 'descartadas';
 
 /** El nombre del módulo: el del menú y el primer tramo de las migas. */
 export const EMPRESAS_MODULE_TITLE = 'Empresas';
@@ -17,12 +17,14 @@ export const EMPRESAS_MODULE_TITLE = 'Empresas';
  */
 export const EMPRESAS_VIEW_TITLES: Record<ModuleTabId, string> = {
   empresas: 'Empresas',
+  busquedas: 'Búsquedas',
   prospectos: 'Por revisar',
   descartadas: 'Descartadas',
 };
 
 export const EMPRESAS_TAB_DESCRIPTIONS: Record<ModuleTabId, string> = {
   empresas: 'Las empresas ya aprobadas: tus cuentas de trabajo, con su estado y su responsable.',
+  busquedas: 'Lo que buscaste con Rumbo o importaste, y lo que te asignaron: qué encontró cada búsqueda y qué falta por revisar.',
   prospectos: 'Empresas candidatas, generadas con IA o importadas, que esperan tu decisión antes de ser cuentas.',
   descartadas: 'Empresas que el pipeline o una persona dejó fuera. Devuélvelas a revisión sin volver a buscar.',
 };

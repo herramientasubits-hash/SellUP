@@ -3,16 +3,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isAgent1LushaFallbackEffective } from '@/lib/feature-flags.server';
 import { getAccessSnapshot } from '@/modules/access/capabilities.server';
-import { isGrowthRole } from '@/modules/access/capabilities';
+import { isBulkRole } from '@/modules/access/capabilities';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { executeProspectWizardGenerationAction } from '@/modules/prospect-batches/chat-wizard-execution';
 import { estimateCreditsForProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-estimate';
-import { WIZARD_BUDGET_TIMEZONE } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
-import { getPilotBudgetPeriodStart } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reconciliation';
-import {
-  readWizardBudgetPeriodSnapshot,
-  type BudgetPeriodLookupClient,
-} from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reservations';
 import {
   estimateLushaRunCredits,
   resolveLushaRequiredCreditsByMacroIndustry,
@@ -66,7 +60,7 @@ export async function resolveBulkSearchAccess(): Promise<BulkSearchAccess> {
   if (!isGrowthBulkSearchEnabled()) return { ok: false, status: 404, message: 'La búsqueda masiva no está activa.' };
   const access = await getAccessSnapshot();
   if (!access.userId) return { ok: false, status: 403, message: 'Tu sesión no está activa. Vuelve a entrar.' };
-  if (!access.isAdmin && !isGrowthRole(access.roleKey)) {
+  if (!access.isAdmin && !isBulkRole(access.roleKey)) {
     return { ok: false, status: 403, message: 'La búsqueda masiva es del equipo de Growth.' };
   }
   return { ok: true, userId: access.userId };
@@ -98,17 +92,12 @@ export async function resolvePerRoundWorstCase(): Promise<BulkRoundWorstCase> {
   };
 }
 
-async function readBudgetAvailability(admin: SupabaseClient): Promise<BulkBudgetAvailability> {
+async function readBudgetAvailability(): Promise<BulkBudgetAvailability> {
   const quota = async (provider: string) =>
     (await checkProviderQuotaAvailable(provider).catch(() => null))?.providerCreditsAvailable ?? null;
-  const pilot = async () => {
-    const snapshot = await readWizardBudgetPeriodSnapshot(
-      getPilotBudgetPeriodStart(WIZARD_BUDGET_TIMEZONE),
-      admin as unknown as BudgetPeriodLookupClient,
-    ).catch(() => null);
-    return snapshot ? snapshot.availableCredits : null;
-  };
-  const [apollo, tavily, lusha] = await Promise.all([quota('apollo'), quota('tavily'), pilot()]);
+  // Dueña 28-10: los créditos de cada proveedor en Configuración, también Lusha
+  // (ya no hay bolsa del piloto). El límite por persona lo aplica cada ronda.
+  const [apollo, tavily, lusha] = await Promise.all([quota('apollo'), quota('tavily'), quota('lusha')]);
   return { apollo, tavily, lusha };
 }
 
@@ -119,7 +108,7 @@ function createDeps(admin: SupabaseClient): BulkSearchEngineDeps {
     now: () => Date.now(),
     newUuid: () => crypto.randomUUID(),
     resolvePerRoundWorstCase,
-    readBudgetAvailability: () => readBudgetAvailability(admin),
+    readBudgetAvailability: () => readBudgetAvailability(),
 
     findLiveSearch: async (userId) => {
       const { data } = await admin
@@ -320,8 +309,7 @@ export async function resolveBulkSearchSurfaceForCurrentUser(): Promise<{ option
   const access = await resolveBulkSearchAccess();
   if (!access.ok) return null;
   try {
-    const admin = createSupabaseAdminClient();
-    return { options: await resolveBulkSearchOptions({ resolvePerRoundWorstCase, readBudgetAvailability: () => readBudgetAvailability(admin) }) };
+    return { options: await resolveBulkSearchOptions({ resolvePerRoundWorstCase, readBudgetAvailability }) };
   } catch {
     return null;
   }

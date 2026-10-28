@@ -163,13 +163,16 @@ describe('decideApprovalResponsible', () => {
     assert.deepEqual(decide({ batchCreatedBy: 'bd' }), { ok: true, responsibleId: 'bd' });
   });
 
-  it('sin asignar, lo de Growth o admin necesita responsable', () => {
-    assert.deepEqual(decide({ batchOwnerId: 'growth' }), NEEDS);
+  it('sin asignar, lo de Growth es suyo como lo de un BD (dueña 28-10)', () => {
+    assert.deepEqual(decide({ batchOwnerId: 'growth' }), { ok: true, responsibleId: 'growth' });
+  });
+
+  it('sin asignar, lo de admin necesita responsable', () => {
     assert.deepEqual(decide({ batchOwnerId: 'admin' }), NEEDS);
   });
 
   it('una persona dada de baja, o que no se pudo leer, no cuenta', () => {
-    assert.deepEqual(decide({ assignedTo: 'gone', batchOwnerId: 'growth' }), NEEDS);
+    assert.deepEqual(decide({ assignedTo: 'gone', batchOwnerId: 'admin' }), NEEDS);
     assert.deepEqual(decide({ batchOwnerId: 'gone' }), NEEDS);
     assert.deepEqual(decide({ batchOwnerId: 'nadie' }), NEEDS);
     assert.deepEqual(decide({}), NEEDS);

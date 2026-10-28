@@ -1189,9 +1189,14 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
       assert.equal(companyRelationshipLevels.includes(foreign), false, `la 157 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
     }
-    // Ninguna 158 o superior, se llame como se llame.
+    // La 160 (dueña 28-10: reserva del asistente sin topes del piloto) es ajena a CUT-L7.
+    const pilotLimits = read('supabase/migrations/160_wizard_reservation_without_pilot_limits.sql');
+    for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
+      assert.equal(pilotLimits.includes(foreign), false, `la 160 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
+    }
+    // Ninguna 161 o superior, se llame como se llame.
     assert.equal(
-      migrations.filter((f) => /^1[6-9]\d_/.test(f)).length,
+      migrations.filter((f) => /^(16[1-9]|1[7-9]\d)_/.test(f)).length,
       0,
     );
   });

@@ -439,9 +439,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
 
   const isBudgetBlocked = isBudgetReactivelyBlocked || preExecutionBudgetBlock !== null;
 
-  // GROWTH-BULK-SEARCH-1 — la búsqueda masiva se ofrece con las MISMAS condiciones
-  // que «Generar prospectos», y sólo para «Empresas por criterios».
+  // GROWTH-BULK-SEARCH-1 — «Muchas empresas por criterios» es su propia forma: con
+  // ella elegida, el resumen ofrece la cantidad y el tope (con las MISMAS condiciones
+  // que «Generar prospectos») en lugar de la búsqueda normal.
+  const isBulkIntent = state.bulkIntent === true;
   const showBulkSearch =
+    isBulkIntent &&
     bulkSearch !== null &&
     onBulkLaunch !== undefined &&
     !isCompetitorSearch &&
@@ -694,10 +697,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       )}
 
       {showBulkSearch && bulkSearch && onBulkLaunch && (
-        <>
-          <BulkSearchLaunch surface={bulkSearch} onLaunch={onBulkLaunch} />
-          <p className="text-center text-xs text-muted-foreground">o una búsqueda normal, de 5 a 10 empresas:</p>
-        </>
+        <BulkSearchLaunch surface={bulkSearch} onLaunch={onBulkLaunch} />
       )}
 
       {/* La conjunción `!useLushaFinalSearch && discoveryAvailability.available &&
@@ -706,7 +706,9 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           prospect-wizard-route-static.test.ts. `!useLushaFinalSearch` conserva el
           guardrail de Lusha: una corrida que va a Lusha no ofrece «Generar
           prospectos». */}
-      {!useLushaFinalSearch &&
+      {/* En «Muchas empresas por criterios» la búsqueda se lanza con su cantidad. */}
+      {!isBulkIntent &&
+        !useLushaFinalSearch &&
         discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
@@ -714,8 +716,6 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <Button
             type="button"
             size="sm"
-            // Con la búsqueda masiva a la vista, la normal pasa a segundo plano.
-            variant={showBulkSearch ? 'outline' : 'default'}
             className="w-full"
             onClick={onExecute}
           >
@@ -1066,7 +1066,10 @@ function DecisionRows({
           />
         </>
       ) : (
-        <SummaryRow label="Tipo de búsqueda" value="Empresas por criterios" />
+        <SummaryRow
+          label="Tipo de búsqueda"
+          value={state.bulkIntent === true ? 'Muchas empresas por criterios' : 'Empresas por criterios'}
+        />
       )}
       <SummaryRow label="País" value={countryLabel} onEdit={change('country')} actionLabel={actionLabel} />
       <SummaryRow
@@ -1146,7 +1149,7 @@ function SummaryPanel({ state, catalog, dispatch, bulkSearchAvailable = false }:
       <div className="rounded-xl bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium text-foreground">Cantidad:</span>{' '}
-          {bulkSearchAvailable
+          {bulkSearchAvailable && state.bulkIntent === true
             ? 'la eliges al final: hasta 25, 50, 100 o 200 empresas, con su tope de créditos.'
             : 'SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.'}
         </p>

@@ -23,6 +23,7 @@ describe('Empresas — el título dice la vista', () => {
   it('los títulos son los rótulos del menú lateral', () => {
     assert.deepEqual(EMPRESAS_VIEW_TITLES, {
       empresas: 'Empresas',
+      busquedas: 'Búsquedas',
       prospectos: 'Por revisar',
       descartadas: 'Descartadas',
     });
