@@ -232,13 +232,13 @@ export function describeSupplierSearchFailure(reason: string): { message: string
   }
   if (reason === 'quota_exhausted') {
     return {
-      message: 'Se agotó la cuota mensual de Claude en Proveedores. Pide que la amplíen para seguir buscando proveedores.',
+      message: 'Se agotó la cuota mensual de Rumbo en Proveedores. Pide que la amplíen para seguir buscando proveedores.',
       retryable: false,
     };
   }
   if (reason.startsWith('model_not_configured')) {
     return {
-      message: 'Falta configurar el modelo de Claude en Configuración → IA para buscar proveedores.',
+      message: 'Falta configurar el modelo de IA en Configuración → IA para buscar proveedores.',
       retryable: false,
     };
   }

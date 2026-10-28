@@ -209,8 +209,8 @@ describe('§ 1 — modo automático: sin elección de proveedor', () => {
     assert.ok(generateButton(), '«Generar prospectos» debe estar');
     const notice = q('wizard-auto-provider-notice');
     assert.ok(notice, 'el aviso de búsqueda automática debe estar');
-    assert.match(notice!.textContent ?? '', /primero con Apollo/);
-    assert.match(notice!.textContent ?? '', /Lusha/);
+    assert.match(notice!.textContent ?? '', /primero en la fuente principal/);
+    assert.match(notice!.textContent ?? '', /fuente de respaldo/);
   });
 
   it('el clic ejecuta la corrida única; no llama a la acción aparte de Lusha', () => {

@@ -34,7 +34,7 @@ export function CompetitorCandidateActions({ candidateId }: { candidateId: strin
         toast.error(result.message);
       }
     } catch {
-      toast.error('No se pudo buscar en Apollo. Intenta de nuevo.');
+      toast.error('No se pudo buscar. Intenta de nuevo.');
     } finally {
       setPending(null);
     }
@@ -70,7 +70,7 @@ export function CompetitorCandidateActions({ candidateId }: { candidateId: strin
         variant="outline"
         disabled={pending !== null}
         aria-busy={pending === 'more' || undefined}
-        title="Apollo busca empresas parecidas a esta (unos 2 créditos)"
+        title="Busca empresas parecidas a esta (unos 2 créditos)"
         onClick={() => void findMore()}
       >
         {pending === 'more' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
@@ -119,7 +119,7 @@ export function VerifyCompetitorSizeButton({ candidateId }: { candidateId: strin
       variant="ghost"
       disabled={pending}
       aria-busy={pending || undefined}
-      title="Apollo confirma el número de empleados (1 crédito)"
+      title="Confirma el número de empleados (1 crédito)"
       onClick={() => void verify()}
     >
       {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Search aria-hidden="true" />}

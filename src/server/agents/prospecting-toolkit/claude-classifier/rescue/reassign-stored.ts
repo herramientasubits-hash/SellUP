@@ -79,7 +79,7 @@ export function decideStoredReassignment(input: StoredReassignInput): ReassignDe
     kind: 'reassign',
     industryId,
     industryName,
-    detail: `${from}según Claude es ${industryName}: «${quote.slice(0, 160)}»`,
+    detail: `${from}según Rumbo es ${industryName}: «${quote.slice(0, 160)}»`,
     sourceUrl: str(sector.source_url) ?? '',
     sizeConfirmed,
     linkedinConfirmed: false,

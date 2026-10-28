@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { formatInAppZone } from '@/lib/format-date';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
@@ -280,7 +281,7 @@ export async function POST(request: NextRequest) {
 
     // ── Existing batch metadata logic ──────────────────────────────────────
     const now = new Date();
-    const dateLabel = now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+    const dateLabel = formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' });
 
     const countryCodes = [...new Set(input.candidates.map((c) => c.country_code).filter(Boolean))];
     const industries = [...new Set(effectiveIndustries.filter(Boolean))];

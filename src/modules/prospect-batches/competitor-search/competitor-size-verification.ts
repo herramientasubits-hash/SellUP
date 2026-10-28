@@ -82,7 +82,7 @@ export function buildSizeVerificationMetadata(
 }
 
 export function describeSizeVerification(decision: SizeVerificationDecision, employees: number | null): string {
-  if (decision === 'above') return `Apollo confirma ${employees} empleados: volvió a revisión.`;
-  if (decision === 'below') return `Apollo confirma ${employees} empleados: sigue como competidora pequeña.`;
-  return 'Apollo no tiene el número de empleados de esta empresa.';
+  if (decision === 'above') return `Se confirmaron ${employees} empleados: volvió a revisión.`;
+  if (decision === 'below') return `Se confirmaron ${employees} empleados: sigue como competidora pequeña.`;
+  return 'No hay dato del número de empleados de esta empresa.';
 }

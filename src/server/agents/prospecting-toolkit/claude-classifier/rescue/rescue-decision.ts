@@ -316,7 +316,7 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
         kind: 'reassign',
         industryId: bySector.industryId,
         industryName: bySector.industryName,
-        detail: `${from}según Claude es ${bySector.industryName}: «${bySector.quote.slice(0, 160)}»`,
+        detail: `${from}según Rumbo es ${bySector.industryName}: «${bySector.quote.slice(0, 160)}»`,
         sourceUrl: bySector.sourceUrl,
         sizeConfirmed: size === 'pass',
         linkedinConfirmed: !!result.linkedin,

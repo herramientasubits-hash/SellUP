@@ -105,7 +105,7 @@ export function resolveLinkedInFieldDisplay(
     return {
       kind: 'not_returned',
       url: null,
-      message: 'Apollo no devolvió LinkedIn empresarial',
+      message: 'La fuente no devolvió LinkedIn empresarial',
       sourceLabel: null,
     };
   }
@@ -114,7 +114,7 @@ export function resolveLinkedInFieldDisplay(
     return {
       kind: 'invalid',
       url: null,
-      message: 'Apollo devolvió un LinkedIn que no es de empresa',
+      message: 'La fuente devolvió un LinkedIn que no es de empresa',
       sourceLabel,
     };
   }
@@ -185,7 +185,7 @@ export function resolveEmployeeCountFieldDisplay(
     return {
       kind: 'not_returned',
       value: null,
-      message: 'Apollo no devolvió el número de empleados',
+      message: 'La fuente no devolvió el número de empleados',
       sourceLabel: null,
     };
   }
@@ -194,7 +194,7 @@ export function resolveEmployeeCountFieldDisplay(
     return {
       kind: 'invalid',
       value: null,
-      message: 'Apollo devolvió un número de empleados no válido',
+      message: 'La fuente devolvió un número de empleados no válido',
       sourceLabel,
     };
   }
