@@ -48,7 +48,7 @@ export function PageHeader({
     <header
       data-width={width}
       className={cn(
-        "flex flex-col gap-3 pb-6",
+        "flex flex-col gap-4 pb-6",
         width && "mx-auto w-full",
         width && PAGE_WIDTH_CLASSES[width],
         className,
@@ -57,7 +57,9 @@ export function PageHeader({
       {/* Las migas se publican en la cabecera del shell; fuera de él, quedan aquí. */}
       {breadcrumbs && <ShellBreadcrumbs>{breadcrumbs}</ShellBreadcrumbs>}
 
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+      {/* Como el PageHeader del playground: título y acciones en una fila que se
+          parte; las acciones, al ras de la base del título. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0 space-y-1.5">
           <div className="flex items-center gap-2">
             {backHref && (
@@ -69,12 +71,12 @@ export function PageHeader({
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             )}
-            <Heading level={3} as="h1" weight="bold">
+            <Heading level={2} as="h1">
               {title}
             </Heading>
           </div>
           {description && (
-            <Text as="p" tone="secondary" className="max-w-3xl leading-relaxed">
+            <Text as="p" tone="secondary" className="max-w-2xl leading-relaxed">
               {description}
             </Text>
           )}

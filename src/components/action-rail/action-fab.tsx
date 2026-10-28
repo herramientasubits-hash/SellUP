@@ -13,6 +13,27 @@ import {
   type RailActionSpec,
 } from "./rail-actions";
 
+/** Lo que dura la salida del velo y del abanico (el ritmo de los menús de flux-ui). */
+const EXIT_MS = 150;
+
+/**
+ * Lo que se cierra sigue montado lo que dura su salida, para poder animarla;
+ * antes el velo y las acciones desaparecían de golpe. Al cambiar `resetKey` (otro
+ * contexto) se va sin salida: lo de dentro ya no es lo que se abrió.
+ */
+function useExitPresence(open: boolean, resetKey: string): { present: boolean; leaving: boolean } {
+  const [state, setState] = React.useState({ resetKey, present: open });
+  if (state.resetKey !== resetKey) setState({ resetKey, present: open });
+  else if (open && !state.present) setState({ resetKey, present: true });
+  const present = state.resetKey === resetKey ? state.present : open;
+  React.useEffect(() => {
+    if (open || !present) return;
+    const id = window.setTimeout(() => setState((current) => ({ ...current, present: false })), EXIT_MS);
+    return () => window.clearTimeout(id);
+  }, [open, present]);
+  return { present: open || present, leaving: !open && present };
+}
+
 export interface ActionFabProps {
   actions: readonly RailActionSpec[];
   selectedCount: number;
@@ -70,6 +91,7 @@ export function ActionFab({
     setState({ mode, isOpen: false });
   }
   const isOpen = state.mode === mode && state.isOpen;
+  const { present, leaving } = useExitPresence(isOpen, mode);
   const setIsOpen = React.useCallback(
     (next: boolean) => setState((current) => ({ ...current, isOpen: next })),
     [],
@@ -116,56 +138,69 @@ export function ActionFab({
     <>
       {/* El velo cierra al tocar fuera y aísla lo de debajo mientras está
           abierto; no lleva foco porque la ✕ y Escape ya son la salida. */}
-      {isOpen && (
+      {present && (
         <div
           aria-hidden
           onClick={() => setIsOpen(false)}
-          className="fixed inset-0 z-40 bg-black/40 animate-in fade-in-0 motion-reduce:animate-none"
+          className={cn(
+            "fixed inset-0 z-40 bg-black/40 motion-reduce:animate-none",
+            leaving
+              ? "pointer-events-none animate-out fade-out-0 fill-mode-forwards duration-150"
+              : "animate-in fade-in-0",
+          )}
         />
       )}
 
       <div className={cn("pointer-events-none fixed bottom-6 right-4 z-40 flex justify-end", className)}>
         <div className="pointer-events-auto flex flex-col items-end gap-3">
-          {isOpen && (
-            <>
-              {selectedCount > 0 && (
-                <FabRow
-                  onClick={onClearSelection}
-                  label={`Soltar ${selectionLabel(selectedCount, gender)}`}
-                  index={0}
-                >
-                  <X />
-                </FabRow>
+          {present && (
+            // Al cerrar, el abanico entero baja y se desvanece; mientras sale ya
+            // no se puede pulsar (inert).
+            <div
+              inert={leaving}
+              className={cn(
+                "flex flex-col items-end gap-3",
+                leaving && "animate-out fade-out-0 slide-out-to-bottom-2 fill-mode-forwards duration-150 motion-reduce:animate-none",
               )}
-              {[...rest, ...[...primaryOptions].reverse()].reverse().map((action, index) => (
-                <FabRow
-                  key={action.id}
-                  label={action.label}
-                  tone={action.tone}
-                  variant={action.variant}
-                  blockedReason={action.blockedReason}
-                  onClick={() => run(action)}
-                  index={index + (selectedCount > 0 ? 1 : 0)}
-                >
-                  {action.icon}
-                </FabRow>
-              ))}
-              {filledPrimary && (
-                <button
-                  type="button"
-                  onClick={() => run(filledPrimary)}
-                  disabled={filledPrimary.blockedReason != null}
-                  title={filledPrimary.blockedReason ?? undefined}
-                  className={cn(
-                    "flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold shadow-rail transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none motion-reduce:hover:scale-100 [&_svg]:size-5",
-                    filledPrimary.variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground",
-                  )}
-                >
-                  {filledPrimary.icon}
-                  {filledPrimary.label}
-                </button>
-              )}
-            </>
+            >
+                {selectedCount > 0 && (
+                  <FabRow
+                    onClick={onClearSelection}
+                    label={`Soltar ${selectionLabel(selectedCount, gender)}`}
+                    index={0}
+                  >
+                    <X />
+                  </FabRow>
+                )}
+                {[...rest, ...[...primaryOptions].reverse()].reverse().map((action, index) => (
+                  <FabRow
+                    key={action.id}
+                    label={action.label}
+                    tone={action.tone}
+                    variant={action.variant}
+                    blockedReason={action.blockedReason}
+                    onClick={() => run(action)}
+                    index={index + (selectedCount > 0 ? 1 : 0)}
+                  >
+                    {action.icon}
+                  </FabRow>
+                ))}
+                {filledPrimary && (
+                  <button
+                    type="button"
+                    onClick={() => run(filledPrimary)}
+                    disabled={filledPrimary.blockedReason != null}
+                    title={filledPrimary.blockedReason ?? undefined}
+                    className={cn(
+                      "flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold shadow-rail transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none motion-reduce:hover:scale-100 [&_svg]:size-5",
+                      filledPrimary.variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground",
+                    )}
+                  >
+                    {filledPrimary.icon}
+                    {filledPrimary.label}
+                  </button>
+                )}
+            </div>
           )}
 
           <button

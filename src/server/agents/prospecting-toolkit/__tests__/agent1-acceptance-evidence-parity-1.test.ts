@@ -410,3 +410,24 @@ describe('§ 5 — la selección bajo cupo, con el selector real', () => {
     assert.equal(result.remainingEnrichmentBudget, 3);
   });
 });
+
+// ═══ Validación en producción 27-10: Lahaus en una búsqueda de Tecnología ══════
+
+describe('Tecnología no admite inmobiliarias aunque digan «internet»', () => {
+  it('🔴 una inmobiliaria declarada `real estate` con keywords de internet se rechaza', () => {
+    const assessment = assessMacroIndustryEvidence({
+      result: providerResult({ industry: 'real estate', keywords: ['internet', 'marketplace', 'vivienda'] }),
+      macroIndustryDisplayName: 'Tecnología',
+    });
+    assert.equal(assessment.verdict, 'rejected');
+    assert.equal(assessment.reason, 'excluding_industry_declared');
+  });
+
+  it('la proptech que vende software (declara software) sigue entrando', () => {
+    const assessment = assessMacroIndustryEvidence({
+      result: providerResult({ industry: 'computer software', keywords: ['real estate', 'saas'] }),
+      macroIndustryDisplayName: 'Tecnología',
+    });
+    assert.equal(assessment.verdict, 'confirmed');
+  });
+});

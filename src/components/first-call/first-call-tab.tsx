@@ -7,6 +7,7 @@ import { Archive, ChevronDown, PhoneCall, Table2, Users, Rumbo } from '@/icons';
 import { formatInAppZone } from '@/lib/format-date';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge, type StatusType } from '@/components/data-display';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import type { FirstCallState } from '@/modules/speech/actions';
@@ -97,8 +98,9 @@ function Section({
   testId?: string;
 }) {
   return (
-    <details open={defaultOpen} className="group/section rounded-2xl border border-border/60 bg-card shadow-card" data-testid={testId}>
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
+    // Collapsible y no <details>: la altura se anima al abrir y al cerrar.
+    <Collapsible defaultOpen={defaultOpen} className="rounded-2xl border border-border/60 bg-card shadow-card" data-testid={testId}>
+      <CollapsibleTrigger className="group/section flex w-full cursor-pointer items-center gap-3 rounded-2xl px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Icon className="size-4" aria-hidden="true" />
         </span>
@@ -106,10 +108,12 @@ function Section({
           <span className="block text-sm font-semibold text-foreground">{title}</span>
           {meta && <span className="block text-xs text-muted-foreground">{meta}</span>}
         </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open/section:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className="border-t border-border/60 px-4 py-4">{children}</div>
-    </details>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[panel-open]/section:rotate-180" aria-hidden="true" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-border/60 px-4 py-4">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

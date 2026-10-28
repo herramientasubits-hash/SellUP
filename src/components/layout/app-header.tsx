@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Building2, ChevronRight, PanelLeft, User as UserIcon } from "@/icons";
+import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
 import {
   GlobalSearch,
@@ -16,6 +17,9 @@ import { NotificationBell } from "@/components/notifications/notification-bell";
 import { DrawerShell } from "@/components/shared/drawer-shell";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AccountMenu } from "@/components/layout/account-menu";
+import { HEADER_ICON_BUTTON } from "@/components/layout/header-icon";
+import { useSidebar } from "@/components/layout/sidebar-context";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setShellHeaderHost, usePublishedCrumbs } from "@/components/layout/shell-header-slot";
 import {
   mainNavItems,
@@ -107,7 +111,8 @@ function roleLabel({ isAdmin, roleKey }: NavAccessContext): string {
 }
 
 /**
- * La ruta de la cabecera. Sin migas publicadas pinta «SellUp › sección». Cuando
+ * La ruta de la cabecera. Sin migas publicadas pinta la sección, como el título
+ * del playground de UX (la marca ya está en el menú lateral). Cuando
  * la pantalla publica las suyas (`PageHeader breadcrumbs`, vía
  * `ShellBreadcrumbs`), la sección pasa a ser un enlace y las migas de la
  * pantalla se pintan a continuación, en el hueco.
@@ -120,31 +125,24 @@ function HeaderRoute({ current }: { current: NavItem | undefined }) {
 
   return (
     <div data-slot="shell-route" className="flex min-w-0 items-center gap-1.5 overflow-hidden text-sm">
-      <nav aria-label="Ruta" className="flex shrink-0 items-center gap-1.5">
-        <Link
-          href="/pipeline"
-          className="shrink-0 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-        >
-          SellUp
-        </Link>
+      <nav aria-label="Ruta" className="flex min-w-0 shrink-0 items-center gap-1.5">
         {showSection && current && (
           <>
-            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />
             {hasPublished ? (
               <Link
                 href={current.href}
-                className="shrink-0 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="shrink-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 {current.title}
               </Link>
             ) : (
-              <span aria-current="page" className="truncate font-semibold text-foreground">
+              <span aria-current="page" className="truncate text-foreground">
                 {current.title}
               </span>
             )}
+            {hasPublished && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />}
           </>
         )}
-        {hasPublished && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-text-muted" />}
       </nav>
       {/* El hueco donde la pantalla montada pinta sus migas. `overflow-hidden`:
           en pantalla estrecha cede el sitio en vez de montarse sobre los
@@ -152,14 +150,16 @@ function HeaderRoute({ current }: { current: NavItem | undefined }) {
       <div
         ref={setShellHeaderHost}
         data-slot="shell-header-slot"
-        className="flex min-w-0 items-center gap-2 overflow-hidden [&_[data-slot=breadcrumbs]]:flex-nowrap [&_[data-slot=breadcrumbs]]:gap-1.5 [&_[data-slot=breadcrumbs]]:whitespace-nowrap [&_[data-slot=breadcrumbs]]:text-sm [&_[data-slot=breadcrumbs]_[aria-current=page]]:font-semibold"
+        className="flex min-w-0 items-center gap-2 overflow-hidden [&_[data-slot=breadcrumbs]]:flex-nowrap [&_[data-slot=breadcrumbs]]:gap-1.5 [&_[data-slot=breadcrumbs]]:whitespace-nowrap [&_[data-slot=breadcrumbs]]:text-sm [&_[data-slot=breadcrumbs]_[aria-current=page]]:font-normal [&_[data-slot=breadcrumbs]_[aria-current=page]]:text-foreground"
       />
     </div>
   );
 }
 
 /**
- * Cabecera del shell — port de Thema (`app-shell/AppHeader`).
+ * Cabecera del shell — anatomía del playground de UX (`AppHeader.tsx`): 60px,
+ * plegar + ruta a la izquierda, buscador al centro y a la derecha avisos,
+ * procesos y la cuenta (avatar redondo).
  *
  * Esta franja es para lo transversal: dónde estás (la ruta, con las migas que
  * publica cada pantalla), la búsqueda, los avisos y la cuenta. El tema y la
@@ -170,6 +170,15 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { collapsed, toggle } = useSidebar();
+  // Un solo botón: en escritorio pliega el menú lateral; en el móvil, donde el
+  // lateral es un cajón, lo abre.
+  const menuLabel = collapsed ? "Abrir menú" : "Cerrar menú";
+  const onMenuClick = () => {
+    const desktop = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 768px)").matches;
+    if (desktop) toggle();
+    else setMobileMenuOpen(true);
+  };
 
   const { isAdmin, roleKey } = navAccess;
   const current = mainNavItems.find(
@@ -211,17 +220,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-4 sm:gap-3 sm:px-6">
-      {/* Menú en móvil: ahí el lateral es un cajón. */}
-      <button
-        type="button"
-        onClick={() => setMobileMenuOpen(true)}
-        aria-label="Abrir menú"
-        aria-haspopup="dialog"
-        className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
-      >
-        <PanelLeft className="size-4" />
-      </button>
+    <header className="flex h-15 shrink-0 items-center gap-3.5 border-b border-border px-5 max-sm:gap-2 max-sm:px-3">
       <DrawerShell
         open={mobileMenuOpen}
         onOpenChange={setMobileMenuOpen}
@@ -238,7 +237,22 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         />
       </DrawerShell>
 
-      <div className="flex min-w-0 flex-1 basis-0 items-center">
+      <div className="flex min-w-0 flex-1 basis-0 items-center gap-2.5">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={onMenuClick}
+                aria-label={menuLabel}
+                className={cn(HEADER_ICON_BUTTON, "size-7.5")}
+              >
+                <PanelLeft className="size-4" />
+              </button>
+            }
+          />
+          <TooltipContent side="bottom">{menuLabel} · ⌘B</TooltipContent>
+        </Tooltip>
         <HeaderRoute current={current} />
       </div>
 
@@ -249,14 +263,14 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         navigate={searchDestinations}
         loadObjects={loadSearchObjects}
         objectsHint={SEARCH_OBJECTS_HINT}
-        placeholder="Buscar…"
+        placeholder="Buscar en todo…"
         // Cede ancho antes que las acciones: con el panel del Agente IA abierto en
         // una ventana estrecha, un ancho fijo las empujaba debajo del panel.
-        className="min-w-8 shrink overflow-hidden md:w-72 lg:w-80"
+        className="min-w-8 shrink overflow-hidden md:w-72 lg:w-85"
       />
 
       {/* Acciones transversales */}
-      <div className="flex flex-1 basis-0 items-center justify-end gap-1.5 sm:gap-3 [&>*]:shrink-0">
+      <div className="flex flex-1 basis-0 items-center justify-end gap-1.5 sm:gap-2.5 [&>*]:shrink-0">
         <NotificationBell initialUnreadCount={initialUnreadCount} />
         {processCenter}
         <AccountMenu

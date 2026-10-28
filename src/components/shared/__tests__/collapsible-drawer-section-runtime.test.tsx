@@ -85,7 +85,11 @@ describe('CollapsibleDrawerSection', () => {
     fireEvent.click(toggle);
     assert.equal(toggle.getAttribute('aria-expanded'), 'true');
     assert.ok(screen.getByText('contenido'));
-    assert.equal(toggle.getAttribute('aria-controls'), screen.getByText('contenido').parentElement?.id);
+    // El disparador apunta al panel que pliega (el que anima su altura).
+    assert.equal(
+      toggle.getAttribute('aria-controls'),
+      screen.getByText('contenido').closest('[data-slot="collapsible-content"]')?.id,
+    );
 
     fireEvent.click(toggle);
     assert.equal(toggle.getAttribute('aria-expanded'), 'false');

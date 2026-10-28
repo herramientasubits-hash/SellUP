@@ -361,7 +361,7 @@ export async function executeCompetitorSearchRun(
   if (deps.resolveClaudeSearchLeg?.() !== true || !deps.runClaudeCompanySearchLeg) {
     return failure(
       'PROVIDER_UNAVAILABLE',
-      'La búsqueda de competidores usa a Claude, que no está activo en este momento.',
+      'La búsqueda de competidores necesita a Rumbo, que no está activo en este momento.',
       false,
     );
   }

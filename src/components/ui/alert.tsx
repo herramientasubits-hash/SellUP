@@ -5,8 +5,10 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from "@/icons";
 
+// Un aviso que aparece por algo que acaba de pasar entra con un fade corto en
+// vez de saltar (reducir movimiento lo apaga desde globals.css).
 const alertVariants = cva(
-  "relative w-full rounded-xl border p-4 text-sm grid has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-3 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
+  "relative w-full rounded-xl border p-4 text-sm grid animate-in fade-in-0 duration-200 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-3 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

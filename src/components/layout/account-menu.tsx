@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, LogOut } from "@/icons";
+import { LogOut } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -72,36 +72,17 @@ export function AccountMenu({ user, roleLabel, onLogout }: AccountMenuProps) {
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
+      {/* Como el perfil del playground de UX: solo el avatar redondo; el nombre
+          y el rol se leen en la tarjeta del menú (y en la etiqueta accesible). */}
       <DropdownMenuTrigger
         aria-label={srLabel}
         className={cn(
-          // El borde es lo que dice «esto se pulsa».
-          "flex h-10 max-w-56 shrink-0 items-center gap-2 rounded-full border border-border/70 bg-card py-1 pl-1 pr-2.5 text-left transition-colors",
-          "hover:border-border hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-          "max-md:max-w-[40vw] max-md:pr-2",
-          open && "border-border bg-surface-muted",
+          "flex size-8.5 shrink-0 items-center justify-center rounded-full transition-shadow",
+          "hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          open && "ring-2 ring-primary hover:ring-primary",
         )}
       >
-        <UserAvatar user={user} size="sm" />
-        <span className="hidden min-w-0 flex-1 flex-col gap-0.5 sm:flex">
-          <span className="truncate text-xs font-semibold leading-tight text-foreground">
-            {user.name}
-          </span>
-          {roleLabel && (
-            <span className="flex min-w-0">
-              <span className="inline-flex h-4 min-w-0 items-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold leading-none text-primary">
-                <span className="truncate">{roleLabel}</span>
-              </span>
-            </span>
-          )}
-        </span>
-        <ChevronDown
-          aria-hidden
-          className={cn(
-            "size-3.5 shrink-0 text-text-muted transition-transform duration-200",
-            open && "rotate-180",
-          )}
-        />
+        <UserAvatar user={user} size="default" />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" sideOffset={10} className="w-72">
@@ -116,6 +97,13 @@ export function AccountMenu({ user, roleLabel, onLogout }: AccountMenuProps) {
             {user.email && (
               <span className="block truncate text-xs leading-tight text-text-muted">
                 {user.email}
+              </span>
+            )}
+            {roleLabel && (
+              <span className="mt-1.5 flex min-w-0">
+                <span className="inline-flex h-4 min-w-0 items-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold leading-none text-primary">
+                  <span className="truncate">{roleLabel}</span>
+                </span>
               </span>
             )}
           </span>

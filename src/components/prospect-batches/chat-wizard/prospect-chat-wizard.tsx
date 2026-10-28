@@ -28,6 +28,12 @@ import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { executeWizardRunViaRoute, getAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
+import { toast } from 'sonner';
+import {
+  BULK_SEARCH_STARTED_EVENT,
+  createBulkSearchViaRoute,
+} from '@/modules/prospect-batches/bulk-search/bulk-search-client';
+import type { BulkLaunchOutcome, BulkSearchSurface } from '@/components/prospect-batches/bulk-search/bulk-search-launch';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { ChatComposer } from '@/components/chat';
 import { Stepper, type StepperStep } from '@/components/navigation/stepper';
@@ -190,6 +196,12 @@ type ProspectChatWizardProps = {
    * servidor vuelve a mirar la bandera al ejecutar. Ausente ⇒ `false`.
    */
   supplierSearchEnabled?: boolean;
+  /**
+   * GROWTH-BULK-SEARCH-1 — la búsqueda masiva de Growth: «hasta N» empresas por
+   * rondas. Sólo llega desde Prospección masiva; ausente ⇒ el resumen es el de
+   * siempre.
+   */
+  bulkSearch?: BulkSearchSurface | null;
 };
 
 export function ProspectChatWizard({
@@ -203,6 +215,7 @@ export function ProspectChatWizard({
   apolloRunModeLimits = null,
   budgetPreflight = null,
   supplierSearchEnabled = false,
+  bulkSearch = null,
   ref,
   onRestartAvailabilityChange,
   onRunningChange,
@@ -683,6 +696,44 @@ export function ProspectChatWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.currentStep, isTyping]);
 
+  // ── Búsqueda masiva de Growth ─────────────────────────────────────────────
+  //
+  // Con los MISMOS criterios ya validados, pero no corre aquí: el servidor crea la
+  // búsqueda masiva y el Centro de procesos conduce sus rondas. Esta pantalla
+  // sólo la lanza y se cierra.
+
+  async function handleBulkLaunch(targetCount: number, confirmedCreditCap: number): Promise<BulkLaunchOutcome> {
+    if (state.currentStep !== 'validated' || !state.countryCode || !state.industryId) {
+      return { ok: false, message: 'Completa la búsqueda antes de lanzarla.' };
+    }
+    const countryName =
+      LATAM_COUNTRIES.find((country) => country.code === state.countryCode)?.name ?? state.countryCode;
+    const industryName = catalog.industries.find((industry) => industry.id === state.industryId)?.name ?? '';
+    const result = await createBulkSearchViaRoute({
+      criteria: {
+        countryCode: state.countryCode,
+        industryId: state.industryId,
+        subindustryIds: state.subindustryIds,
+        additionalCriteriaRaw: state.additionalCriteriaRaw,
+        catalogVersion: state.catalogVersion,
+      },
+      targetCount,
+      confirmedCreditCap,
+      clientRequestId: crypto.randomUUID(),
+      label: [countryName, industryName].filter(Boolean).join(' · ') || 'Búsqueda masiva',
+    });
+    if (result.ok) {
+      window.dispatchEvent(new CustomEvent(BULK_SEARCH_STARTED_EVENT, { detail: { id: result.search.id } }));
+      toast.success(`Búsqueda masiva en marcha: hasta ${targetCount} empresas`, {
+        description: 'Sigue su avance en el Centro de procesos.',
+      });
+      onClose();
+      return { ok: true };
+    }
+    if (result.code === 'ESTIMATE_CHANGED') return { ok: false, message: result.message, estimate: result.estimate };
+    return { ok: false, message: result.message };
+  }
+
   // ── Execution ─────────────────────────────────────────────────────────────
 
   async function handleExecute() {
@@ -1072,6 +1123,8 @@ export function ProspectChatWizard({
                   noNewCandidatesBreakdown={noNewCandidatesBreakdown}
                   shortfallReasons={shortfallReasons}
                   persistenceOutcome={persistenceOutcome}
+                  bulkSearch={bulkSearch}
+                  onBulkLaunch={handleBulkLaunch}
                 />
               ) : WIZARD_QUESTION_STEPS.has(state.currentStep) ? null : (
                 activeStepView

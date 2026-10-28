@@ -21,8 +21,9 @@ function Input({ className, type, inputSize = "default", ...props }: InputProps)
       className={cn(
         // El tamaño va como clases normales (no como variante data-*) para que
         // un `pl-8` de quien lo usa —el hueco de un icono— gane sin trucos.
-        inputSize === "sm" ? "h-8 px-2.5 py-1 text-xs" : "h-10 px-3.5 py-2 text-sm",
-        "w-full min-w-0 rounded-md border border-input bg-card text-foreground transition-all outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:bg-muted dark:focus-visible:border-primary dark:focus-visible:ring-primary/40",
+        // flux-ui: los campos miden --alto-campo (40px) en el tema UBITS.
+        inputSize === "sm" ? "h-8 px-2.5 py-1 text-xs" : "h-10 px-2.5 py-1 text-sm",
+        "w-full min-w-0 rounded-md border border-input bg-background text-foreground shadow-xs transition-all outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:bg-muted dark:focus-visible:border-primary dark:focus-visible:ring-primary/40",
         className,
       )}
       {...props}

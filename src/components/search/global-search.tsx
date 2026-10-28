@@ -312,13 +312,14 @@ export function GlobalSearch({
         onClick={resetAndOpen}
         aria-label="Abrir la búsqueda general"
         className={cn(
-          "flex h-8 items-center gap-2 rounded-md border border-border/70 bg-card px-2.5 text-sm text-text-muted transition-colors",
-          "hover:bg-surface-muted hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+          // Como el buscador del playground de UX: botón outline de 36px.
+          "flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm text-muted-foreground shadow-xs transition-colors",
+          "hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
           className,
         )}
       >
-        <Search className="size-3.5" aria-hidden="true" />
-        <span className="hidden sm:inline">{placeholder}</span>
+        <Search className="size-4 shrink-0" aria-hidden="true" />
+        <span className="hidden min-w-0 flex-1 truncate text-left sm:inline">{placeholder}</span>
         <Kbd className="ml-auto hidden sm:inline-flex">⌘K</Kbd>
       </button>
 

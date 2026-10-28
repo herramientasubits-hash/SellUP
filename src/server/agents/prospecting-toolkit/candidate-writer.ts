@@ -15,6 +15,7 @@
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatInAppZone } from "@/lib/format-date";
 import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
 import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
@@ -1101,7 +1102,7 @@ export async function writeProspectingCandidates(
 
   const finalBatchName =
     batchName ??
-    `Agente 1 · Pipeline · ${country} · ${industry} · ${now.toLocaleDateString("es-CO", {
+    `Agente 1 · Pipeline · ${country} · ${industry} · ${formatInAppZone(now, {
       day: "2-digit",
       month: "short",
       year: "numeric",

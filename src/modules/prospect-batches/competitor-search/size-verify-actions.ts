@@ -56,7 +56,7 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
   if (candidate.status !== 'discarded' || !isCompetitorSmallCompany(candidate.metadata)) {
     return { ok: false, message: 'Sólo se verifica el tamaño de una competidora pequeña.' };
   }
-  if (!candidate.domain) return { ok: false, message: 'Esta empresa no tiene sitio web: Apollo no puede buscarla.' };
+  if (!candidate.domain) return { ok: false, message: 'Esta empresa no tiene sitio web: no se puede verificar su tamaño.' };
 
   const { lookupApolloEmployeeCount } = await import(
     '@/server/prospect-batches/competitor-search/competitor-size-verify.server'
@@ -77,7 +77,7 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
           ? 'Apollo no está activo en este momento.'
           : lookup.reason === 'apollo_quota_unavailable'
             ? 'Se agotó la cuota de Apollo de este mes.'
-            : 'Apollo no respondió. Intenta de nuevo.',
+            : 'La fuente principal no respondió. Intenta de nuevo.',
     };
   }
 
@@ -112,7 +112,7 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
       }).catch(() => undefined);
     }
     if (outcome.outcome === 'claimed_by_other_seller') {
-      return { ok: true, message: 'Apollo confirma que es grande, pero otro vendedor ya la tiene.', sentToReview: false };
+      return { ok: true, message: 'Se confirmó que es grande, pero otro vendedor ya la tiene.', sentToReview: false };
     }
   }
   revalidatePath(`/prospect-batches/${candidate.batch_id}`);

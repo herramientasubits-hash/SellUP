@@ -9,6 +9,7 @@ import { useState, useTransition } from 'react';
 import { Loader2 } from '@/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { Field } from '@/components/forms/field';
 import { NumberField } from '@/components/forms/number-field';
 import type { AiModelWithPricing } from '@/modules/ai-config/provider-ai-detail-queries';
@@ -182,7 +183,7 @@ export function AiModelRow({ model, providerId, onRefresh }: AiModelRowProps) {
           {isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
           {model.status === 'active' ? 'Desactivar modelo' : 'Activar modelo'}
         </Button>
-        <Button size="xs" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} type="button">
+        <Button size="xs" variant="outline" disabled={isPending} onClick={() => setShowPricingForm((v) => !v)} aria-expanded={showPricingForm} type="button">
           {model.latestPricing ? 'Actualizar tarifa' : 'Agregar tarifa'}
         </Button>
         {!model.isActiveGlobalModel && (
@@ -192,17 +193,20 @@ export function AiModelRow({ model, providerId, onRefresh }: AiModelRowProps) {
         )}
       </div>
 
-      {showPricingForm && (
-        <PricingForm
-          isPending={isPending}
-          inputCost={inputCost}
-          outputCost={outputCost}
-          onInputCostChange={setInputCost}
-          onOutputCostChange={setOutputCost}
-          onSave={handleSavePricing}
-          onCancel={closePricingForm}
-        />
-      )}
+      {/* El formulario de tarifa se despliega con la altura animada. */}
+      <Collapsible open={showPricingForm} onOpenChange={setShowPricingForm}>
+        <CollapsibleContent>
+          <PricingForm
+            isPending={isPending}
+            inputCost={inputCost}
+            outputCost={outputCost}
+            onInputCostChange={setInputCost}
+            onOutputCostChange={setOutputCost}
+            onSave={handleSavePricing}
+            onCancel={closePricingForm}
+          />
+        </CollapsibleContent>
+      </Collapsible>
 
       <InlineFeedback feedback={feedback} />
     </li>

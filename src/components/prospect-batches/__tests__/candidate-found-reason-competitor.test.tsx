@@ -93,7 +93,7 @@ describe('Avisos del lote de competidores (Fase C/D)', () => {
     const html = renderToStaticMarkup(
       <CompetitorJudgeNotice batchMetadata={{ competitor_free_sources: { competitor_judge_by_source: { free_layer: { unanswered: 1 } } } }} />,
     );
-    assert.match(html, /Claude no pudo revisar parte de las fuentes gratuitas/);
+    assert.match(html, /Rumbo no pudo revisar parte de las fuentes gratuitas/);
     assert.equal(renderToStaticMarkup(<CompetitorJudgeNotice batchMetadata={{}} />), '');
   });
 });

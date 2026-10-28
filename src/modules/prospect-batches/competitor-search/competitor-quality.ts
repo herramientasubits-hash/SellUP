@@ -14,7 +14,7 @@ import { isNotCompetitorDiscard } from '@/server/prospect-batches/competitor-sea
 export type CompetitorQualitySource = 'web' | 'official_registry' | 'hubspot_free_pool' | 'apollo' | 'other';
 
 export const COMPETITOR_QUALITY_SOURCE_LABELS: Record<CompetitorQualitySource, string> = {
-  web: 'Claude en la web',
+  web: 'Rumbo en la web',
   official_registry: 'Registro oficial',
   hubspot_free_pool: 'HubSpot libre',
   apollo: 'Apollo',

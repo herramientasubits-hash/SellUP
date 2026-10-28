@@ -1,5 +1,5 @@
 /**
- * Cabecera y menú lateral del shell (Thema `app-shell`) — contrato RUNTIME:
+ * Cabecera y menú lateral del shell (anatomía del playground de UX) — contrato RUNTIME:
  * las migas de la pantalla llegan a la cabecera, las notificaciones se abren
  * en un popover, el menú lateral despliega las vistas de cada módulo respetando
  * permisos (es la única navegación entre vistas: las páginas no llevan
@@ -168,9 +168,9 @@ afterEach(() => {
 });
 
 describe('Cabecera — la ruta y las migas publicadas', () => {
-  it('sin migas publicadas pinta «SellUp › sección»', () => {
+  it('sin migas publicadas pinta la sección (la marca ya está en el menú lateral)', () => {
     render(shell());
-    assert.equal(route().textContent, 'SellUpEmpresas');
+    assert.equal(route().textContent, 'Empresas');
     assert.equal(within(route()).getByText('Empresas').getAttribute('aria-current'), 'page');
   });
 
@@ -191,7 +191,7 @@ describe('Cabecera — la ruta y las migas publicadas', () => {
     assert.equal(within(crumbs).getByRole('link', { name: 'Empresas' }).getAttribute('href'), '/accounts');
     assert.equal(within(crumbs).getByText('Acme S.A.').getAttribute('aria-current'), 'page');
     // La sección no se repite: la pantalla ya empieza sus migas por ella.
-    assert.equal(route().textContent, 'SellUpEmpresasAcme S.A.');
+    assert.equal(route().textContent, 'EmpresasAcme S.A.');
     // Y bajo la cabecera, en la página, no queda otro renglón de migas.
     assert.equal(screen.getByRole('main').querySelector('[data-slot="breadcrumbs"]'), null);
   });
@@ -209,7 +209,7 @@ describe('Cabecera — la ruta y las migas publicadas', () => {
       ),
     );
 
-    assert.equal(route().textContent, 'SellUpConfiguraciónIntegraciones comercialesHubSpot');
+    assert.equal(route().textContent, 'ConfiguraciónIntegraciones comercialesHubSpot');
     const section = within(route()).getByRole('link', { name: 'Configuración' });
     assert.equal(section.getAttribute('href'), '/settings');
     assert.equal(section.getAttribute('aria-current'), null);
@@ -219,9 +219,9 @@ describe('Cabecera — la ruta y las migas publicadas', () => {
     const view = render(
       shell(h(PageHeader, { title: 'Acme', breadcrumbs: h(Breadcrumbs, { items: ['Empresas', 'Acme'] }) })),
     );
-    assert.equal(route().textContent, 'SellUpEmpresasAcme');
+    assert.equal(route().textContent, 'EmpresasAcme');
     view.rerender(shell());
-    assert.equal(route().textContent, 'SellUpEmpresas');
+    assert.equal(route().textContent, 'Empresas');
   });
 
   it('fuera del shell, PageHeader conserva sus migas sobre el título', () => {
@@ -346,13 +346,14 @@ describe('Cabecera — notificaciones en popover', () => {
 });
 
 describe('Cabecera — cuenta', () => {
-  it('el chip dice quién eres y como quién miras; el menú solo ofrece salir', async () => {
+  it('el avatar dice quién eres y como quién miras; el menú solo ofrece salir', async () => {
     render(shell());
     const chip = screen.getByRole('button', { name: /Cuenta de Laura Fernández/ });
-    assert.match(chip.textContent ?? '', /Administrador/);
+    assert.match(chip.getAttribute('aria-label') ?? '', /Rol: Administrador/);
     fireEvent.click(chip);
     const menu = await screen.findByRole('menu');
     assert.ok(within(menu).getByText('laura@ubits.co'));
+    assert.ok(within(menu).getByText('Administrador'), 'el rol se lee en la tarjeta del menú');
     assert.deepEqual(
       within(menu).getAllByRole('menuitem').map((item) => item.textContent),
       ['Cerrar sesión'],
@@ -397,7 +398,7 @@ describe('Menú lateral — secciones plegables', () => {
     assert.equal(within(group).getByRole('link', { name: 'Empresas' }).getAttribute('aria-current'), 'page');
   });
 
-  it('una sección se despliega y se pliega desde su cabecera', () => {
+  it('una sección se despliega y se pliega desde su cabecera', async () => {
     render(sidebar());
     const head = screen.getByRole('button', { name: 'Contactos' });
     assert.equal(head.getAttribute('aria-expanded'), 'false');
@@ -413,7 +414,9 @@ describe('Menú lateral — secciones plegables', () => {
     );
 
     fireEvent.click(head);
-    assert.equal(screen.queryByRole('group', { name: 'Contactos' }), null);
+    assert.equal(head.getAttribute('aria-expanded'), 'false');
+    // El panel anima su altura al cerrar: se desmonta al terminar.
+    await waitFor(() => assert.equal(screen.queryByRole('group', { name: 'Contactos' }), null));
   });
 
   it('Configuración no es un módulo del menú lateral, ni estando dentro de ella', () => {

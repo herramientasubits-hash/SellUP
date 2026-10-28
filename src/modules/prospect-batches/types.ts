@@ -214,6 +214,11 @@ export interface ProspectCandidateWithReviewer extends ProspectCandidate {
   reviewer: { id: string; full_name: string | null; email: string } | null;
   /** Lo rellena la lista global de «Por revisar»; ausente en otras lecturas. */
   responsible?: CandidateResponsible | null;
+  /**
+   * Quien lanzó la búsqueda cuando NO cuenta como responsable (Growth o admin sin
+   * asignar). La columna dice «Sin asignar» y lo nombra sólo como «Lanzada por».
+   */
+  launchedBy?: { id: string; name: string } | null;
   /** Viene de una búsqueda de Growth o admin y nadie la asignó: no se aprueba todavía. */
   needs_assignee?: boolean;
 }

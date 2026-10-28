@@ -258,7 +258,7 @@ export function PipelineStageDrawer({ journey, stageId, onClose, onSearchContact
       titleBadge={stateBadge ? <StatusBadge status={stateBadge.status} label={stateBadge.label} /> : undefined}
       footer={
         entry?.stage.id === "enriquecimiento" ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex w-full flex-wrap items-center justify-between gap-2">
             <Button asChild variant="outline" size="sm">
               <Link href={`/accounts/${account.id}?tab=contactos`}>
                 Ver todos los contactos
@@ -280,7 +280,7 @@ export function PipelineStageDrawer({ journey, stageId, onClose, onSearchContact
             )}
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
             {origin?.batchId && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/prospect-batches/${origin.batchId}`}>Ver lote</Link>

@@ -335,7 +335,8 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C moves the ceiling to 157: three NEW columns (parent_name,
     // parent_relationship_id, depth) on `agent1_company_relationships`. No source-catalog object.
     // ROLE-GROWTH-1 moves the ceiling to 158: the `growth` row in the roles catalog. No source-catalog object.
-    assert.equal(highest, 158);
+    // GROWTH-BULK-SEARCH-1 moves the ceiling to 159: Growth bulk searches (two service_role-only tables and their claim RPC). No source-catalog object.
+    assert.equal(highest, 159);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -459,7 +460,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(files.filter((f) => f.startsWith('157')), ['157_agent1_company_relationships_levels.sql']);
     // ROLE-GROWTH-1 declares the 158 (the `growth` row in the roles catalog).
     assert.deepEqual(files.filter((f) => f.startsWith('158')), ['158_growth_role.sql']);
-    assert.equal(files.some((f) => f.startsWith('159')), false);
+    // GROWTH-BULK-SEARCH-1 declares the 159 (Growth bulk searches).
+    assert.deepEqual(files.filter((f) => f.startsWith('159')), ['159_growth_bulk_prospect_searches.sql']);
+    assert.equal(files.some((f) => f.startsWith('160')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [
