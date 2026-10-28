@@ -1,7 +1,19 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { currentSessionCookieJar } from './session-override';
 
 export async function createClient() {
+  // Una ronda masiva que corre sola en el servidor trae su propia sesión
+  // (ver `session-override.ts`); fuera de ella, las cookies de la petición.
+  const borrowed = currentSessionCookieJar();
+  if (borrowed) {
+    return createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      { cookies: { getAll: () => borrowed.getAll(), setAll: (next) => borrowed.setAll(next) } }
+    );
+  }
+
   const cookieStore = await cookies();
 
   return createServerClient(

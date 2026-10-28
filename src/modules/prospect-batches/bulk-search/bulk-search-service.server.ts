@@ -11,7 +11,7 @@ import {
   estimateLushaRunCredits,
   resolveLushaRequiredCreditsByMacroIndustry,
 } from '@/server/prospect-batches/lusha-run-liability';
-import { isGrowthBulkSearchEnabled } from './bulk-search-flag.server';
+import { isBulkSearchServerRunnerEnabled, isGrowthBulkSearchEnabled } from './bulk-search-flag.server';
 import {
   controlBulkSearch,
   createBulkSearch,
@@ -305,11 +305,15 @@ export async function listBulkSearchesForUser(userId: string) {
  * cabe en el presupuesto del mes. `null` = la búsqueda masiva no aplica a
  * quien mira (bandera apagada o no es Growth/admin).
  */
-export async function resolveBulkSearchSurfaceForCurrentUser(): Promise<{ options: BulkSearchOption[] } | null> {
+export async function resolveBulkSearchSurfaceForCurrentUser(): Promise<{ options: BulkSearchOption[]; runsOnServer: boolean } | null> {
   const access = await resolveBulkSearchAccess();
   if (!access.ok) return null;
   try {
-    return { options: await resolveBulkSearchOptions({ resolvePerRoundWorstCase, readBudgetAvailability }) };
+    return {
+      options: await resolveBulkSearchOptions({ resolvePerRoundWorstCase, readBudgetAvailability }),
+      // Con el conductor del servidor, sigue aunque se cierre SellUp (dueña 28-10).
+      runsOnServer: isBulkSearchServerRunnerEnabled(),
+    };
   } catch {
     return null;
   }

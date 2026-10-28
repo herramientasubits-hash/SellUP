@@ -15,7 +15,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // SOURCES-EC-CLOSE-2 — la vuelta del rescate con Claude usa la misma autorización.
-const ROUTES = ['enrich', 'post-approval-nit-enrich', 'apollo-round-continuation', 'claude-rescue-continuation'] as const;
+// GROWTH-BULK-SEARCH-SERVER-1 — las rondas de la búsqueda masiva también.
+const ROUTES = ['enrich', 'post-approval-nit-enrich', 'apollo-round-continuation', 'claude-rescue-continuation', 'bulk-search-rounds'] as const;
 const LEGACY_PUBLIC_SECRET = 'local_cron_secret';
 
 function routeFile(name: string): string {

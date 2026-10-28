@@ -49,6 +49,8 @@ export async function proxy(request: NextRequest) {
 //   api/cron/apollo-round-continuation               → continuación de rondas de Apollo (CRON_SECRET;
 //                                                      además la bandera ENABLE_AGENT1_APOLLO_CRON_CONTINUATION)
 //   api/cron/post-approval-nit-enrich                → enriquecimiento oficial post-aprobación (CRON_SECRET)
+//   api/cron/bulk-search-rounds                      → rondas de la búsqueda masiva que pide el propio
+//                                                      servidor (CRON_SECRET; además ENABLE_GROWTH_BULK_SEARCH_SERVER_RUNNER)
 //
 // AGENT1-AUDIT-WS1 — los dos últimos faltaban: `apollo-round-continuation` está en
 // `vercel.json` y cada disparo diario recibía 307 → /login sin llegar al handler.
@@ -61,6 +63,6 @@ export async function proxy(request: NextRequest) {
 // expone un cron nuevo de nombre parecido.
 export const config = {
   matcher: [
-    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|api/cron/apollo-round-continuation(?:$|/)|api/cron/post-approval-nit-enrich(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|api/cron/apollo-round-continuation(?:$|/)|api/cron/post-approval-nit-enrich(?:$|/)|api/cron/bulk-search-rounds(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

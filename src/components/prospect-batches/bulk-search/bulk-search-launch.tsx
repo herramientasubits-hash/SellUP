@@ -12,6 +12,8 @@ import type { BulkSearchEstimate } from '@/modules/prospect-batches/bulk-search/
 /** Lo que la pantalla ofrece de la búsqueda masiva (resuelto en el servidor). */
 export interface BulkSearchSurface {
   options: BulkSearchOption[];
+  /** Corre sola en el servidor: sigue aunque se cierre SellUp (dueña 28-10). */
+  runsOnServer?: boolean;
 }
 
 export type BulkLaunchOutcome =
@@ -154,7 +156,10 @@ export function BulkSearchLaunch({
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Tiempo</dt>
-              <dd className="text-foreground">{formatBulkDuration(choice.estimate.minutes)} con SellUp abierto</dd>
+              <dd className="text-foreground">
+                {formatBulkDuration(choice.estimate.minutes)}
+                {surface.runsOnServer ? '' : ' con SellUp abierto'}
+              </dd>
             </div>
           </dl>
 
@@ -164,7 +169,9 @@ export function BulkSearchLaunch({
               Nunca gasta más de lo que confirmas.
             </p>
             <p>
-              Si cierras SellUp se pausa y sigue cuando vuelvas. Las empresas llegan a «Por revisar» mientras avanza.
+              {surface.runsOnServer
+                ? 'Sigue sola aunque cierres SellUp. Las empresas llegan a «Por revisar» mientras avanza.'
+                : 'Si cierras SellUp se pausa y sigue cuando vuelvas. Las empresas llegan a «Por revisar» mientras avanza.'}
             </p>
           </div>
 
