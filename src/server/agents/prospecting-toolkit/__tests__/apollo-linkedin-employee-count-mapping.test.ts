@@ -788,7 +788,7 @@ describe('A1-APOLLO-LINKEDIN-EMPLOYEES-1 — presentación por estado', () => {
       null,
     );
     assert.equal(notReturned.kind, 'not_returned');
-    assert.equal(notReturned.message, 'Apollo no devolvió LinkedIn empresarial');
+    assert.equal(notReturned.message, 'La fuente no devolvió LinkedIn empresarial');
 
     const internalLoss = resolveLinkedInFieldDisplay(
       {
@@ -847,14 +847,14 @@ describe('A1-APOLLO-LINKEDIN-EMPLOYEES-1 — presentación por estado', () => {
       null,
     );
     assert.equal(notReturned.kind, 'not_returned');
-    assert.equal(notReturned.message, 'Apollo no devolvió el número de empleados');
+    assert.equal(notReturned.message, 'La fuente no devolvió el número de empleados');
 
     const invalid = resolveEmployeeCountFieldDisplay(
       { company_employee_count: { employee_count_status: 'invalid' } },
       null,
     );
     assert.equal(invalid.kind, 'invalid');
-    assert.equal(invalid.message, 'Apollo devolvió un número de empleados no válido');
+    assert.equal(invalid.message, 'La fuente devolvió un número de empleados no válido');
 
     const internalLoss = resolveEmployeeCountFieldDisplay(
       {

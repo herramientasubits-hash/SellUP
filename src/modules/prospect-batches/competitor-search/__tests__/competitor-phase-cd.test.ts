@@ -322,7 +322,7 @@ describe('E — «Más como esta» y «Sus competidores»', () => {
   it('E4: el mensaje final dice qué pasó', () => {
     assert.match(describeMoreLikeThisOutcome({ status: 'written', persistedCount: 3, reason: null }), /3 competidoras nuevas/);
     assert.match(describeMoreLikeThisOutcome({ status: 'skipped', persistedCount: 0, reason: 'apollo_quota_unavailable' }), /cuota/);
-    assert.match(describeMoreLikeThisOutcome({ status: 'nothing_selected', persistedCount: 0, reason: 'judge_selected_none' }), /no encontró/);
+    assert.match(describeMoreLikeThisOutcome({ status: 'nothing_selected', persistedCount: 0, reason: 'judge_selected_none' }), /No aparecieron competidoras/);
   });
 });
 

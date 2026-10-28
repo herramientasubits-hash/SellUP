@@ -49,6 +49,11 @@ import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 // etapas/cierre de la modalidad de dos rondas (§ 11).
 import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 import { WizardAutoProviderNotice } from './wizard-auto-provider-notice';
+import {
+  BulkSearchLaunch,
+  type BulkLaunchOutcome,
+  type BulkSearchSurface,
+} from '@/components/prospect-batches/bulk-search/bulk-search-launch';
 // Paneles de la fase de ejecución (overlay, envío y éxito), extraídos a su propio
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SuccessPanel } from './wizard-execution-panels';
@@ -107,6 +112,12 @@ type WizardRunProviderSurfaceProps = {
    * comportamiento previo.
    */
   autoProviderCascade?: boolean;
+  /**
+   * GROWTH-BULK-SEARCH-1 — «hasta N» empresas por rondas, sólo desde Prospección
+   * masiva. Ausente ⇒ el resumen es exactamente el de siempre.
+   */
+  bulkSearch?: BulkSearchSurface | null;
+  onBulkLaunch?: (targetCount: number, confirmedCreditCap: number) => Promise<BulkLaunchOutcome>;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -146,6 +157,8 @@ export function WizardConversationSummary({
   budgetPreflight = null,
   defaultDiscoveryProvider = null,
   autoProviderCascade = false,
+  bulkSearch = null,
+  onBulkLaunch,
 }: WizardConversationSummaryProps) {
   // «Editar búsqueda» (dueña 06-10): elegir QUÉ decisión cambiar.
   if (state.decisionsEditorOpen === true) {
@@ -193,6 +206,8 @@ export function WizardConversationSummary({
         budgetPreflight={budgetPreflight}
         defaultDiscoveryProvider={defaultDiscoveryProvider}
         autoProviderCascade={autoProviderCascade}
+        bulkSearch={bulkSearch}
+        onBulkLaunch={onBulkLaunch}
       />
     );
   }
@@ -250,6 +265,7 @@ export function WizardConversationSummary({
       state={state}
       catalog={catalog}
       dispatch={dispatch}
+      bulkSearchAvailable={Boolean(bulkSearch && onBulkLaunch)}
     />
   );
 }
@@ -290,9 +306,11 @@ type ValidatedPanelProps = {
   budgetPreflight: WizardBudgetPreflight | null;
   defaultDiscoveryProvider: WizardRunSelectableProvider | null;
   autoProviderCascade: boolean;
+  bulkSearch: BulkSearchSurface | null;
+  onBulkLaunch?: (targetCount: number, confirmedCreditCap: number) => Promise<BulkLaunchOutcome>;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider, autoProviderCascade }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, freeContribution, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider, autoProviderCascade, bulkSearch, onBulkLaunch }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
@@ -420,6 +438,18 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       : null;
 
   const isBudgetBlocked = isBudgetReactivelyBlocked || preExecutionBudgetBlock !== null;
+
+  // GROWTH-BULK-SEARCH-1 — la búsqueda masiva se ofrece con las MISMAS condiciones
+  // que «Generar prospectos», y sólo para «Empresas por criterios».
+  const showBulkSearch =
+    bulkSearch !== null &&
+    onBulkLaunch !== undefined &&
+    !isCompetitorSearch &&
+    !useLushaFinalSearch &&
+    discoveryAvailability.available &&
+    executionEnabled &&
+    !isPersistenceBlocked &&
+    !isBudgetBlocked;
 
   // El aviso previo usa el MISMO redactor que el reactivo, así que «no alcanza»
   // vs. «se agotó» y las dos cifras son idénticas antes y después de intentar.
@@ -663,6 +693,13 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         />
       )}
 
+      {showBulkSearch && bulkSearch && onBulkLaunch && (
+        <>
+          <BulkSearchLaunch surface={bulkSearch} onLaunch={onBulkLaunch} />
+          <p className="text-center text-xs text-muted-foreground">o una búsqueda normal, de 5 a 10 empresas:</p>
+        </>
+      )}
+
       {/* La conjunción `!useLushaFinalSearch && discoveryAvailability.available &&
           executionEnabled && !isPersistenceBlocked` es la que fija el gate de
           generación, y está pinada literalmente por
@@ -677,6 +714,8 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           <Button
             type="button"
             size="sm"
+            // Con la búsqueda masiva a la vista, la normal pasa a segundo plano.
+            variant={showBulkSearch ? 'outline' : 'default'}
             className="w-full"
             onClick={onExecute}
           >
@@ -941,6 +980,8 @@ function SubindustrySelectionRecap({
 // ── Summary panel ─────────────────────────────────────────────────────────────
 
 type SummaryPanelProps = {
+  /** GROWTH-BULK-SEARCH-1 — la cantidad se elige al final, en el paso de lanzar. */
+  bulkSearchAvailable?: boolean;
   state: ProspectWizardState;
   catalog: ActiveIndustryCatalog;
   dispatch: React.Dispatch<ProspectWizardAction>;
@@ -1084,7 +1125,7 @@ function DecisionsEditor({ state, catalog, dispatch }: SummaryPanelProps) {
   );
 }
 
-function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
+function SummaryPanel({ state, catalog, dispatch, bulkSearchAvailable = false }: SummaryPanelProps) {
   const { subindustrySelectionEnabled } = useDecisionLabels(state, catalog);
   const serverWarnings = state.warnings.filter((w) => w.step === 'summary');
 
@@ -1104,7 +1145,10 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
 
       <div className="rounded-xl bg-surface-subtle px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">Cantidad:</span> SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.
+          <span className="font-medium text-foreground">Cantidad:</span>{' '}
+          {bulkSearchAvailable
+            ? 'la eliges al final: hasta 25, 50, 100 o 200 empresas, con su tope de créditos.'
+            : 'SellUp determinará cuántas empresas entregar según calidad, disponibilidad y criterios de búsqueda.'}
         </p>
       </div>
 

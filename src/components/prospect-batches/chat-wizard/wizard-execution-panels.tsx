@@ -130,7 +130,7 @@ function useRunProgress(clientRequestId: string | null): { label: string; percen
  * La espera de la generación: el bloque grande de «la IA está trabajando»
  * (`AiAnalyzingState`), ocupando el cuerpo del panel, con lo que el agente hace
  * AHORA como titular — «Revisando el banco de empresas…», «Buscando
- * empresas con Apollo…», «Completando la búsqueda con Lusha»—, tal como el
+ * empresas en la fuente principal…», «Completando la búsqueda con la fuente de respaldo»—, tal como el
  * servidor lo anota al empezar cada etapa.
  *
  * La barra avanza por ETAPAS reales (`RUN_PROGRESS_PERCENT`): sube cuando el

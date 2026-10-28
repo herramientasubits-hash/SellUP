@@ -95,8 +95,8 @@ export function CompetitorSmallCompaniesSection({
                     {company.verifiedEmployees !== undefined ? (
                       <Badge variant="neutral">
                         {company.verifiedEmployees === null
-                          ? 'Apollo sin dato de tamaño'
-                          : `Apollo: ${company.verifiedEmployees} empleados`}
+                          ? 'Sin dato de tamaño'
+                          : `Confirmado: ${company.verifiedEmployees} empleados`}
                       </Badge>
                     ) : (
                       <Badge variant="neutral">

@@ -2,9 +2,10 @@
 
 import * as React from "react";
 
-import { ArrowLeft, Check, ChevronDown, ChevronUp, Search } from "@/icons";
+import { ArrowLeft, Check, ChevronDown, Search } from "@/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Kbd } from "@/components/ui/kbd";
 
 import type { ChatQuestionOption, ChatQuestionOptionDetail } from "./types";
@@ -148,7 +149,6 @@ export function ChatQuestionPanel({
   const [filter, setFilter] = React.useState("");
   const [other, setOther] = React.useState("");
   const otherRef = React.useRef<HTMLInputElement>(null);
-  const panelId = React.useId();
 
   const all = React.useMemo(() => options.map(toDetail), [options]);
   const showFilter = all.length > FILTER_THRESHOLD;
@@ -215,7 +215,10 @@ export function ChatQuestionPanel({
   };
 
   return (
-    <section
+    <Collapsible
+      open={!collapsed}
+      onOpenChange={(open) => setCollapsed(!open)}
+      render={<section />}
       aria-label={props["aria-label"]}
       className={cn(
         "chat-rise overflow-hidden rounded-2xl border border-border/70 bg-card shadow-card",
@@ -238,22 +241,28 @@ export function ChatQuestionPanel({
             </p>
           )}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-expanded={!collapsed}
-          aria-controls={panelId}
-          aria-label={
-            collapsed ? "Mostrar las opciones" : "Plegar las opciones"
+        <CollapsibleTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={
+                collapsed ? "Mostrar las opciones" : "Plegar las opciones"
+              }
+            />
           }
-          onClick={() => setCollapsed((value) => !value)}
         >
-          {collapsed ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}
-        </Button>
+          <ChevronDown
+            aria-hidden
+            className={cn("transition-transform duration-200 ease-out", collapsed && "rotate-180")}
+          />
+        </CollapsibleTrigger>
       </header>
 
-      <div id={panelId} hidden={collapsed}>
+      {/* Plegada, la pregunta conserva lo que se estaba eligiendo: el panel
+          anima su altura y queda montado (keepMounted). */}
+      <CollapsibleContent keepMounted>
         {showFilter && (
           <div className="px-3 pb-2">
             <div className="relative">
@@ -429,7 +438,7 @@ export function ChatQuestionPanel({
           </footer>
         )}
         {!(onSkip || canOther || isMultiple || onBack) && <div className="h-3" />}
-      </div>
-    </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

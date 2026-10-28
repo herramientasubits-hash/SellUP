@@ -12,6 +12,7 @@ import { useState } from "react";
 import { ChevronDown, TrendingUp } from "@/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SectionHeader } from "@/components/shared/section-header";
 import { SurfaceCard } from "@/components/shared/surface-card";
 import { cn } from "@/lib/utils";
@@ -222,11 +223,8 @@ function FilaPalanca({ palanca: p, maximo }: { palanca: PalancaResultado; maximo
   const ancho = Math.max(2, (p.instalado / maximo) * 100);
 
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => setAbierta((v) => !v)}
-        aria-expanded={abierta}
+    <Collapsible open={abierta} onOpenChange={setAbierta} render={<li />}>
+      <CollapsibleTrigger
         className="w-full px-6 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/40"
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -240,7 +238,7 @@ function FilaPalanca({ palanca: p, maximo }: { palanca: PalancaResultado; maximo
             <ChevronDown
               aria-hidden
               className={cn(
-                "size-4 text-muted-foreground transition-transform",
+                "size-4 text-muted-foreground transition-transform duration-200 ease-out",
                 abierta && "rotate-180",
               )}
             />
@@ -256,9 +254,9 @@ function FilaPalanca({ palanca: p, maximo }: { palanca: PalancaResultado; maximo
             style={{ width: `${ancho}%` }}
           />
         </div>
-      </button>
+      </CollapsibleTrigger>
 
-      {abierta && (
+      <CollapsibleContent>
         <div className="border-t border-border/60 bg-surface-subtle px-6 py-4">
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             Capacidad instalada
@@ -279,8 +277,8 @@ function FilaPalanca({ palanca: p, maximo }: { palanca: PalancaResultado; maximo
             </ul>
           )}
         </div>
-      )}
-    </li>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -325,25 +323,26 @@ function Detalles({
 
   return (
     <SurfaceCard noPadding className="overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setAbierto((v) => !v)}
-        aria-expanded={abierto}
-        className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/40"
-      >
-        <span className="min-w-0">
-          <span className="block text-base font-semibold text-foreground">{resumen}</span>
-          <span className="mt-0.5 block text-sm text-muted-foreground">{pista}</span>
-        </span>
-        <ChevronDown
-          aria-hidden
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            abierto && "rotate-180",
-          )}
-        />
-      </button>
-      {abierto && <div className="border-t border-border/60 p-6">{children}</div>}
+      <Collapsible open={abierto} onOpenChange={setAbierto}>
+        <CollapsibleTrigger
+          className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/40"
+        >
+          <span className="min-w-0">
+            <span className="block text-base font-semibold text-foreground">{resumen}</span>
+            <span className="mt-0.5 block text-sm text-muted-foreground">{pista}</span>
+          </span>
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
+              abierto && "rotate-180",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="border-t border-border/60 p-6">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
     </SurfaceCard>
   );
 }

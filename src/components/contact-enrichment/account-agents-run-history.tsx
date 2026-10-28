@@ -16,9 +16,10 @@
 
 import { withAppTimeZone } from '@/lib/format-date';
 import * as React from 'react';
-import { Calendar, ChevronDown, ChevronUp, Info, XCircle, Rumbo } from "@/icons";
+import { Calendar, ChevronDown, Info, XCircle, Rumbo } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/feedback/spinner';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
@@ -202,6 +203,16 @@ function AccountRunInlineDetail({ run }: { run: AccountContactEnrichmentRun }) {
   );
 }
 
+/** Una sola flecha que gira al desplegar (no cambia de dibujo). */
+function RotatingChevron({ open }: { open: boolean }) {
+  return (
+    <ChevronDown
+      aria-hidden
+      className={`h-3.5 w-3.5 transition-transform duration-200 ease-out${open ? ' rotate-180' : ''}`}
+    />
+  );
+}
+
 /**
  * Una ejecución como FILA de la lista (no una tarjeta dentro de la tarjeta del
  * historial): las filas se separan con una divisoria, igual que el resto de
@@ -212,7 +223,7 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
   const statusBadge = resolveAccountRunStatusBadge(run.status);
 
   return (
-    <li className="py-3 first:pt-0 last:pb-0">
+    <Collapsible open={expanded} onOpenChange={setExpanded} render={<li />} className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -253,24 +264,17 @@ function RunCard({ run }: { run: AccountContactEnrichmentRun }) {
             )}
           </dl>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => setExpanded((current) => !current)}
-          aria-expanded={expanded}
-          className="shrink-0"
-        >
-          {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+        <CollapsibleTrigger render={<Button type="button" variant="ghost" size="xs" className="shrink-0" />}>
+          <RotatingChevron open={expanded} />
           {expanded ? 'Ocultar detalle' : 'Ver detalle'}
-        </Button>
+        </CollapsibleTrigger>
       </div>
-      {expanded && (
-        <div className="mt-3">
+      <CollapsibleContent>
+        <div className="pt-3">
           <AccountRunInlineDetail run={run} />
         </div>
-      )}
-    </li>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -281,7 +285,7 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
   const [expanded, setExpanded] = React.useState(false);
 
   return (
-    <div className="border-t border-border/60 pt-4">
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="border-t border-border/60 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">Runs antiguos o reemplazados</p>
@@ -293,27 +297,20 @@ function LegacyRunGroup({ runs }: { runs: AccountContactEnrichmentRun[] }) {
           <Badge variant="neutral">
             {runs.length} {runs.length === 1 ? 'run' : 'runs'}
           </Badge>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => setExpanded((current) => !current)}
-            aria-expanded={expanded}
-            className="shrink-0"
-          >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+          <CollapsibleTrigger render={<Button type="button" variant="ghost" size="xs" className="shrink-0" />}>
+            <RotatingChevron open={expanded} />
             {expanded ? 'Ocultar' : 'Ver'}
-          </Button>
+          </CollapsibleTrigger>
         </div>
       </div>
-      {expanded && (
-        <ul className="mt-3 divide-y divide-border/60">
+      <CollapsibleContent>
+        <ul className="divide-y divide-border/60 pt-3">
           {runs.map((run) => (
             <RunCard key={run.id} run={run} />
           ))}
         </ul>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

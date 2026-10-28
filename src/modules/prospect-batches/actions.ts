@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
+import { formatInAppZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
@@ -125,6 +126,7 @@ import { completeConvertedAccount } from '@/modules/accounts/complete-converted-
 import {
   buildCandidateOwnershipOrClause,
   intersectOptionalUserIds,
+  presentCandidateResponsible,
   resolveCandidateResponsibleId,
   resolveConversionOwnerUserId,
 } from '@/modules/assignment/assignment-core';
@@ -3448,7 +3450,7 @@ export async function generateAIProspectBatch(
     console.log('[generateAIProspectBatch] execution_path=writer_pipeline_cta provider=tavily');
 
     const now = new Date();
-    const batchName = `IA CTA · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    const batchName = `IA CTA · ${input.country} · ${input.industry} · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
     const writerInput = buildIncrementalSearchInputFromCTAInput(input, internalUserId, batchName, 'tavily');
     const writerResult = await runIncrementalProspectingSearch(writerInput);
@@ -3583,7 +3585,7 @@ export async function generateTavilyProspectBatch(
   }
 
   const now = new Date();
-  const batchName = `IA web · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const batchName = `IA web · ${input.country} · ${input.industry} · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   const result = await runIncrementalProspectingSearch({
     country: input.country,
@@ -5097,7 +5099,7 @@ export async function getGlobalCandidatesList(
       batchCreatedBy: candidate.batch?.created_by ?? null,
     })),
   );
-  const withResponsibles = await attachCandidateResponsibles(supabase, candidates);
+  const withResponsibles = await attachCandidateResponsibles(supabase, candidates, needing);
   return {
     candidates: withResponsibles.map((candidate) => ({ ...candidate, needs_assignee: needing.has(candidate.id) })),
     total: count ?? 0,
@@ -5108,10 +5110,15 @@ export async function getGlobalCandidatesList(
  * BULK-COMPANY-ASSIGNMENT-1 — responsable efectivo de cada prospecto (el
  * asignado o el del lote) con su nombre, para la columna «Responsable». Una
  * sola lectura de nombres; si falla, la lista sale igual sin la columna.
+ *
+ * Dice lo mismo que la regla de aprobación (#804): si la candidata necesita
+ * responsable (`needing`), quien lanzó la búsqueda (Growth o admin) NO es su
+ * responsable; va como `launchedBy` y la columna dice «Sin asignar».
  */
 async function attachCandidateResponsibles(
   supabase: Awaited<ReturnType<typeof createClient>>,
   candidates: GlobalCandidatesResult['candidates'],
+  needing: ReadonlySet<string> = new Set(),
 ): Promise<GlobalCandidatesResult['candidates']> {
   const withIds = candidates.map((candidate) => ({
     candidate,
@@ -5122,7 +5129,7 @@ async function attachCandidateResponsibles(
     }),
   }));
   const userIds = [...new Set(withIds.map((row) => row.responsibleId).filter((id): id is string => !!id))];
-  if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null }));
+  if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null, launchedBy: null }));
 
   const { data: users, error } = await supabase
     .from('internal_users')
@@ -5140,13 +5147,12 @@ async function attachCandidateResponsibles(
   );
   return withIds.map(({ candidate, responsibleId }) => ({
     ...candidate,
-    responsible: responsibleId
-      ? {
-          id: responsibleId,
-          name: names.get(responsibleId) ?? 'Sin nombre',
-          isAssigned: !!candidate.assigned_to,
-        }
-      : null,
+    ...presentCandidateResponsible({
+      responsibleId,
+      name: responsibleId ? (names.get(responsibleId) ?? 'Sin nombre') : null,
+      assignedTo: candidate.assigned_to,
+      needsAssignee: needing.has(candidate.id),
+    }),
   }));
 }
 

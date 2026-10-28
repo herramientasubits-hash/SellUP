@@ -159,8 +159,16 @@ export function UsageFilterBar({ options, values, onChange }: UsageFilterBarProp
             )}
           </Button>
 
+          {/* Los filtros extra se intercalan en la misma fila (display: contents):
+              no hay un panel con alto que plegar, así que cada uno entra con un
+              fade. Excepción declarada en check-design-system (ALLOW.disclosure). */}
           {isExpanded && (
-            <div id={panelId} role="group" aria-label="Más filtros" className="contents">
+            <div
+              id={panelId}
+              role="group"
+              aria-label="Más filtros"
+              className="contents [&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-left-1 [&>*]:duration-200"
+            >
               {options.providers.length > 0 && (
                 <UsageSelect
                   filterKey="provider"

@@ -14,6 +14,7 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { formatInAppZone } from '@/lib/format-date';
 import { requireOwnerForCreate } from '@/lib/ownership/resolve-owner-for-create';
 import { searchApolloOrganizations, type ApolloOrganization } from '@/server/integrations/apollo-client';
 import { checkHubSpotCompanyDuplicate } from '@/server/integrations/hubspot-company-search';
@@ -821,7 +822,7 @@ export async function runProspectGenerationAgent(
 
   const admin = getAdminClient();
   const now = new Date();
-  const batchName = `Agente 1 · ${country} · ${industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const batchName = `Agente 1 · ${country} · ${industry} · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   // ── Hito 16AK.10: Colombia official-first path ─────────────────────────────
   // Modo vendedor CO: RUES ejecuta primero. Si encuentra suficientes empresas
@@ -859,7 +860,7 @@ export async function runProspectGenerationAgent(
           searchDepth,
           structuredLimit,
           structuredPageMax: maxSearchLoops,
-          batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
+          batchNameSuffix: formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' }),
           targetCount: safeCount,
         });
       } else {
@@ -898,7 +899,7 @@ export async function runProspectGenerationAgent(
             sourceKey: 'co_rues',
             sourceProvider: 'socrata_colombia',
             dataset: 'co_rues',
-            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`,
             industry,
             targetCount: safeCount,
             searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
@@ -1161,7 +1162,7 @@ export async function runProspectGenerationAgent(
           sourceKey: 'cl_res',
           sourceProvider: 'datos_gob_cl',
           dataset: 'cl_res',
-          batchName: `Empresas candidatas · Chile · RES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+          batchName: `Empresas candidatas · Chile · RES · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`,
           industry,
           targetCount: structuredLimit,
           searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',
@@ -1367,7 +1368,7 @@ export async function runProspectGenerationAgent(
         searchDepth,
         structuredLimit,
         structuredPageMax: maxSearchLoops,
-        batchNameSuffix: now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }),
+        batchNameSuffix: formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' }),
         targetCount: safeCount,
       });
       ruesPhaseRanEarly = true;
@@ -1991,7 +1992,7 @@ export async function runProspectGenerationAgent(
             sourceKey: 'co_rues',
             sourceProvider: 'socrata_colombia',
             dataset: 'co_rues',
-            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+            batchName: `Agente 1 · ${country} · ${industry} · RUES · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`,
             industry,
             targetCount: structuredLimit,
             searchDepth: searchDepth === 'standard' ? 'standard' : 'basic',

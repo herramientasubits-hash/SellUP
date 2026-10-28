@@ -1,4 +1,4 @@
-# SellUp Design System Foundation v0.2 — tema Azul de Thema
+# SellUp Design System Foundation v0.3 — tema del playground UX (flux-ui)
 
 > Fuente visual vigente para SellUp. Este documento define los principios, tokens, tipografía, componentes base y reglas que gobiernan toda la interfaz de la plataforma.
 
@@ -32,19 +32,22 @@ El sistema no es un documento de aspiraciones: cada token está implementado en 
 
 Todos los tokens están definidos en `src/app/globals.css` como CSS custom properties bajo `:root` (light) y `.dark` (dark).
 
-> **Tema vigente: «Azul» de Thema** (v0.2, 2026-09-30). Los valores salen del preset `thema` del sistema de
-> diseño Thema (`~/Documents/Thema Shadcn`), generados con `themeToCss(findPreset("thema"), "md")`: azul clásico
-> `#0C5BEF` sobre neutros fríos teñidos con el matiz 222. La guía de traducción pantalla por pantalla está en
-> [`THEMA_AZUL_MIGRATION.md`](./THEMA_AZUL_MIGRATION.md) y las reglas se verifican con
+> **Tema vigente: el del playground de UX** (v0.3, 2026-10-27). La referencia es `@ubits/flux-ui` (ReUI + shadcn
+> sobre Base UI, estilo vega): los valores salen de `playground-ux/src/index.css` y de su Storybook
+> (`libraries-ui.dev.sandteck.com/flux-ui`). Fondo blanco, grises neutros (croma 0) y el azul UBITS
+> `oklch(0.52 0.233 261.971)`. Se mantienen de SellUp, a propósito: success y warning (aquí el mismo token es relleno
+> y texto), `destructive-foreground` (texto sobre rojo sólido), los colores de gráficos, el degradado de IA y el navy.
+> El tema anterior («Azul» de Thema, neutros teñidos de azul) queda documentado en
+> [`THEMA_AZUL_MIGRATION.md`](./THEMA_AZUL_MIGRATION.md); las reglas se siguen verificando con
 > `node scripts/check-design-system.mjs` (debe dar 0 hallazgos).
 
 ### 3.1 Backgrounds y superficies
 
 | Token CSS | Tailwind | Uso |
 |---|---|---|
-| `--background` | `bg-background` | Fondo base de la app: blanco con un punto de azul (`#f7faff`) |
+| `--background` | `bg-background` | Fondo base de la app: blanco |
 | `--card` | `bg-card`, `bg-surface` | Superficie de cards y paneles de contenido |
-| `--surface-muted` | `bg-surface-muted` | Sección apagada / hover de fila (`#f0f4ff`) |
+| `--surface-muted` | `bg-surface-muted` | Sección apagada / hover de fila (= `--muted`, gris 0.97) |
 | `--surface-subtle` | `bg-surface-subtle` | Superficie hundida bajo una card: cabecera de tabla, pie de métrica |
 | `--tab-track` | `bg-tab-track` | Pista de pestañas |
 | `--popover` | `bg-popover` | Menús, popovers, drawers y diálogos |
@@ -53,7 +56,7 @@ Todos los tokens están definidos en `src/app/globals.css` como CSS custom prope
 | `--muted` | `bg-muted` | Compatibilidad shadcn; preferir `surface-muted` / `surface-subtle` |
 | `--su-surface` / `--su-surface-elevated` | `bg-su-surface…` | Alias heredados |
 
-El contenedor de página lleva además `page-atmosphere`: un halo radial del primario detrás del contenido.
+El marco de página va plano, como el playground: `--page-atmosphere` es `none` (antes, un halo azul).
 
 **Regla de capas (dark, de más oscuro a más claro):**
 ```
@@ -179,17 +182,17 @@ El panel de marca del login es la única excepción editorial (escalas grandes, 
 
 ### Radios
 
-Escala **Thema**, monótona y anclada en el shell: `xs 6 · sm 8 · md 10 (base) · lg 12 · xl 14 · 2xl 16 · 3xl 24`.
+Los **roles de flux-ui** (radius base 14px), monótonos: `xs 6 · sm 10 · md 12 · lg 14 (base) · xl 16 · 2xl 20 · 3xl 24`.
 Una card anidada siempre redondea un poco menos que el panel que la contiene.
 
 | Clase | Valor | Uso |
 |---|---|---|
 | `rounded-xs` | 6px | Checkboxes, marcas de 20px |
-| `rounded-sm` | 8px | Chips, avatares cuadrados, botones `xs` |
-| `rounded-md` | 10px | **Todo lo que se pulsa**: botones, inputs, filas de menú, badges |
-| `rounded-lg` | 12px | Tiles, filas de lista, celdas |
-| `rounded-xl` | 14px | Cards dentro de un panel, chips de icono |
-| `rounded-2xl` | 16px | Cards de página, paneles, drawers, diálogos |
+| `rounded-sm` | 10px | Chips, avatares cuadrados, botones `xs`/`sm` e iconos de la cabecera |
+| `rounded-md` | 12px | **Todo lo que se pulsa**: botones, inputs, filas de menú, badges |
+| `rounded-lg` | 14px | Menús, popovers, filas del menú lateral, tiles |
+| `rounded-xl` | 16px | Cards dentro de un panel, chips de icono |
+| `rounded-2xl` | 20px | Cards de página, paneles, drawers, diálogos (la Card de flux-ui) |
 | `rounded-3xl` | 24px | Barra de acciones flotante |
 | `rounded-full` | — | Avatares, puntos de estado, contadores |
 
@@ -197,12 +200,12 @@ Prohibidos los radios arbitrarios (`rounded-[…px]`).
 
 ### Sombras
 
-Tres sombras, teñidas en navy (nunca negro neutro):
+Tres sombras, mínimas y neutras como en flux-ui:
 
 | Clase | Uso |
 |---|---|
-| `shadow-card` | Reposo de cualquier superficie: card, métrica, tabla, pestaña activa |
-| `shadow-drawer` | Lo que flota sobre la página: drawers, diálogos, popovers, menús |
+| `shadow-card` | El `shadow-xs` de flux-ui: reposo de card, métrica, tabla, pestaña activa |
+| `shadow-drawer` | El `shadow-md` de flux-ui: drawers, diálogos, popovers, menús |
 | `shadow-rail` | La barra de acciones flotante (lo único que flota sobre contenido vivo) |
 
 Una card estática no reacciona al puntero: solo se eleva (`hover:shadow-drawer`) si es pulsable.
@@ -334,11 +337,21 @@ Un marco tenue (`rounded-2xl border border-border/60 bg-surface-muted/60 p-1`) q
 - La sombra va solo en el panel. El marco no tiene sombra.
 - `className` en `Frame` y `FramePanel` es solo layout (`flex-1 min-h-0`…), nunca color ni borde.
 
-### Movimiento — entradas y pestañas
+### Movimiento — entradas, pestañas y desplegables
 
-- Solo utilidades `animate-su-*` de `globals.css`; sin framer-motion.
-- El contenido de una pestaña entra con `animate-su-tab-in` (fundido + 4 px, 220 ms, `--ease-spring`).
-- Con `prefers-reduced-motion: reduce` todas las `animate-su-*` se apagan: el contenido aparece en su sitio.
+- Ritmo de flux-ui: 100 ms menús, listas y modales · 150 ms tooltips · 200 ms paneles y desplegables.
+- Sin framer-motion: utilidades `animate-su-*` de `globals.css` y las de tw-animate-css.
+- El contenido de una pestaña, de un paso de asistente o de otra vista entra con `animate-su-tab-in`
+  (fundido + 4 px, 220 ms, `--ease-spring`).
+- **Todo lo que se abre o se despliega** va con `Collapsible` (`@/components/ui/collapsible`): la altura viaja
+  al abrir y al cerrar y lo de abajo se desliza. Con `keepMounted` si el contenido debe seguir montado plegado
+  (Process Center, la pregunta del chat). El padding va en un hijo, nunca en `CollapsibleContent`.
+- Las listas largas usan `ShowMore` (`@/components/shared/show-more`).
+- Una sola flecha que gira (`transition-transform duration-200 ease-out` + `rotate-180`), nunca dos que se turnan.
+- Una fila de tabla no anima su alto: la que se suma entra con `animate-in fade-in-0`.
+- `check-design-system` lo vigila (regla 16): marca `{abierto && …}` o `hidden={…}` junto a su
+  `aria-expanded`, las flechas que cambian de dibujo y los `<details>`.
+- Con `prefers-reduced-motion: reduce` todo termina al instante en su estado final (los spinners siguen girando).
 
 ### MetricCard
 

@@ -60,6 +60,7 @@ import {
 // la pantalla avise antes de ofrecer un botón cuyo rechazo ya se conoce.
 import { resolveWizardBudgetPreflightForSurface } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
 import { checkCapability } from '@/modules/access/capabilities.server';
+import { resolveBulkSearchSurfaceForCurrentUser } from '@/modules/prospect-batches/bulk-search/bulk-search-service.server';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -252,8 +253,14 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
  * `isGenerateAvailable` es falso cuando la búsqueda no puede ejecutarse: quien
  * pinta el agente lo llama entonces «Búsqueda no disponible» (capa 4 del cerco
  * del camino heredado).
+ *
+ * `bulkSearch` (GROWTH-BULK-SEARCH-1) sólo lo pide Prospección masiva: suma al
+ * resumen la búsqueda masiva de Growth («hasta N» empresas) si la bandera está
+ * encendida y quien mira es Growth o admin. Las pestañas de Empresas no lo piden.
  */
-export async function resolveGenerateProspectsAgent(): Promise<GenerateProspectsAgent> {
+export async function resolveGenerateProspectsAgent(
+  options: { bulkSearch?: boolean } = {},
+): Promise<GenerateProspectsAgent> {
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   // A1-LEGACY-PATH-FENCE-1 (P0-1): both flags are parsed through the canonical
   // server-only helpers (trim + toLowerCase). A strict `=== 'true'` here made
@@ -331,8 +338,9 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
   // flotante (que lo abre sin pintar su botón) y, con su propio botón, en el
   // vacío inicial («no hay prospectos por revisar»), para que la acción esté
   // también donde se la echa en falta.
+  const bulkSearch = options.bulkSearch ? await resolveBulkSearchSurfaceForCurrentUser() : null;
   const generateDrawer = (
-    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} supplierSearchEnabled={supplierSearchEnabled} />
+    <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} supplierSearchEnabled={supplierSearchEnabled} bulkSearch={bulkSearch} />
   );
 
   return { generateDrawer, isGenerateAvailable: experience !== 'unavailable' };
@@ -344,12 +352,14 @@ export async function resolveGenerateProspectsAgent(): Promise<GenerateProspects
  * caerse. «Por revisar» usa `resolveGenerateProspectsAgent` tal cual, como
  * siempre.
  */
-export async function loadGenerateProspectsAgent(): Promise<GenerateProspectsAgent | null> {
+export async function loadGenerateProspectsAgent(
+  options: { bulkSearch?: boolean } = {},
+): Promise<GenerateProspectsAgent | null> {
   // Sin la capacidad de prospectar en masa, la pestaña sale sin agente: el
   // selector de Rumbo deja de ofrecer «Prospectar empresas».
   if (!(await checkCapability('prospectarMasivo')).ok) return null;
   try {
-    return await resolveGenerateProspectsAgent();
+    return await resolveGenerateProspectsAgent(options);
   } catch (error) {
     console.error('[empresas] No se pudo resolver el agente «Generar con IA»', error);
     return null;

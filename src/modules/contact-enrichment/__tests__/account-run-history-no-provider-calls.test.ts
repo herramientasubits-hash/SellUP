@@ -102,11 +102,14 @@ describe('Account Agents run history — inline expand, not navigation (Hito 17B
   });
 
   it('the expand toggle only flips local expand state, never a provider/mutation identifier', () => {
-    assert.match(sources.runHistoryComponent, /onClick=\{\(\) => setExpanded/);
+    // Collapsible: el disparador solo cambia el estado local de despliegue.
+    assert.match(sources.runHistoryComponent, /onOpenChange=\{setExpanded\}/);
   });
 
   it('the expand toggle exposes aria-expanded and both label states', () => {
-    assert.match(sources.runHistoryComponent, /aria-expanded=\{expanded\}/);
+    // El CollapsibleTrigger de Base UI pone aria-expanded según `open`.
+    assert.match(sources.runHistoryComponent, /<Collapsible open=\{expanded\}/);
+    assert.match(sources.runHistoryComponent, /<CollapsibleTrigger/);
     assert.match(sources.runHistoryComponent, /Ver detalle/);
     assert.match(sources.runHistoryComponent, /Ocultar detalle/);
   });

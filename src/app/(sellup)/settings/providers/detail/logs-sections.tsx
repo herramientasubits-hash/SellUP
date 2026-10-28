@@ -98,7 +98,7 @@ function UsageLogsTable({ logs }: { logs: ProviderUsageLogRow[] }) {
         {logs.map((log) => {
           const errorDetail = formatUsageLogErrorDetailText(log.errorDetail ?? null);
           return (
-            <TableRow key={log.id}>
+            <TableRow key={log.id} className="animate-in fade-in-0 duration-200">
               <TableCell className="text-muted-foreground tabular-nums">{formatDateShort(log.createdAt)}</TableCell>
               <TableCell className="max-w-[140px] truncate text-foreground" title={log.operationKey ?? undefined}>
                 {log.operationKey ?? '—'}
@@ -197,7 +197,7 @@ function SyncLogsTable({ syncLogs }: { syncLogs: ProviderSyncLogRow[] }) {
       </TableHeader>
       <TableBody>
         {syncLogs.map((log) => (
-          <TableRow key={log.id}>
+          <TableRow key={log.id} className="animate-in fade-in-0 duration-200">
             <TableCell className="text-muted-foreground tabular-nums">{formatDate(log.syncedAt)}</TableCell>
             <TableCell>
               <Badge variant={log.syncStatus === 'success' ? 'positive' : 'negative'}>{log.syncStatus ?? '—'}</Badge>

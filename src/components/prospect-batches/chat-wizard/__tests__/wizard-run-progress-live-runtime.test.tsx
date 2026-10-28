@@ -78,7 +78,7 @@ describe('La espera dice la etapa en vivo', () => {
       return new Response(JSON.stringify({ progress: { stage: 'apollo', label } }), { status: 200 });
     });
 
-    label = 'Buscando empresas con Apollo y completando sus datos';
+    label = 'Buscando empresas en la fuente principal y completando sus datos';
     rtl.render(<SubmittingPanel clientRequestId={REQ} />);
 
     await rtl.waitFor(() => assert.ok(rtl.screen.getByText(label)));
