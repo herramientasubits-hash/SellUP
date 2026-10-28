@@ -1085,7 +1085,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice; no es del
     // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
-    assert.match(last, /^160_/);
+    assert.match(last, /^161_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1294,6 +1294,8 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '159_growth_bulk_prospect_searches.sql',
       // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
       '160_wizard_reservation_without_pilot_limits.sql',
+      // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '161_growth_role_description.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

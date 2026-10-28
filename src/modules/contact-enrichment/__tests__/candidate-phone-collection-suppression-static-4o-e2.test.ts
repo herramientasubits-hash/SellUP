@@ -343,6 +343,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '159_growth_bulk_prospect_searches.sql',
       // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
       '160_wizard_reservation_without_pilot_limits.sql',
+      // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '161_growth_role_description.sql',
     ]);
   });
 

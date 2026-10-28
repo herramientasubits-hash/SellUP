@@ -527,7 +527,8 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     const GROWTH_ROLE_158 = '158_growth_role.sql';
     // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA. No es de CUT3B4.
     // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
-    const CEILING = '160_wizard_reservation_without_pilot_limits.sql';
+    // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth). No es de CUT3B4.
+    const CEILING = '161_growth_role_description.sql';
     assert.equal(migrations[migrations.length - 1], CEILING);
     for (const foreign of [
       '127_br_receita_monthly_snapshot_identity.sql',
@@ -588,7 +589,7 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C añade la 157 y el conteo sube con ella.
     // ROLE-GROWTH-1 añade la 158 y GROWTH-BULK-SEARCH-1 la 159; el conteo sube con las dos.
     // Dueña 28-10 añade la 160 (reserva del asistente sin topes del piloto).
-    assert.equal(migrations.length, 160);
+    assert.equal(migrations.length, 161);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

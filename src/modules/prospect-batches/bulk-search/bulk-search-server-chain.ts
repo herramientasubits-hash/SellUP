@@ -1,5 +1,5 @@
 import { isBulkRole } from '@/modules/access/capabilities';
-import type { BulkRoundResponse } from './bulk-search-engine';
+import type { ContinueApolloRoundResult } from '@/modules/prospect-batches/apollo-continuation-actions';
 
 /**
  * La búsqueda masiva corre sola en el servidor (dueña 28-10). Puro: después de
@@ -27,7 +27,33 @@ function clampDelay(ms: number): number {
   return Math.min(SERVER_CHAIN_MAX_DELAY_MS, Math.max(SERVER_CHAIN_MIN_DELAY_MS, Math.round(ms)));
 }
 
-export function decideServerChain(response: BulkRoundResponse, consecutiveWaits: number): ServerChainDecision {
+/**
+ * Lo que la cadena necesita saber de un paso: una ronda (`BulkRoundResponse`) o un
+ * tramo de la continuación de Apollo (`continuationStep`).
+ */
+export type ServerChainStep =
+  | { ok: false }
+  | { ok: true; next: 'continue' | 'wait' | 'done'; retryAfterMs: number };
+
+/** Tras un fallo de la continuación, como hace el navegador. */
+const CONTINUATION_RETRY_AFTER_FAILURE_MS = 30_000;
+
+/**
+ * Un tramo de la continuación de Apollo, como paso de la cadena (dueña 28-10). Si
+ * avanzó o la corrida cerró, la cadena sigue ya (no cuenta como espera); si la tiene
+ * otro (el navegador, el cron) o falló, espera lo que pide.
+ */
+export function continuationStep(result: ContinueApolloRoundResult): ServerChainStep {
+  if (result.status === 'finished' || result.status === 'failed') {
+    return { ok: true, next: 'continue', retryAfterMs: 0 };
+  }
+  if (result.status === 'forbidden') return { ok: false };
+  const retryAfterMs = result.retryAfterMs ?? CONTINUATION_RETRY_AFTER_FAILURE_MS;
+  const progressed = result.pendingOrganizationCount > 0 && retryAfterMs < CONTINUATION_RETRY_AFTER_FAILURE_MS;
+  return progressed ? { ok: true, next: 'continue', retryAfterMs: 0 } : { ok: true, next: 'wait', retryAfterMs };
+}
+
+export function decideServerChain(response: ServerChainStep, consecutiveWaits: number): ServerChainDecision {
   if (!response.ok) return { kind: 'stop', reason: 'not_found' };
   if (response.next === 'done') return { kind: 'stop', reason: 'done' };
   // Sin espera: la ronda siguiente arranca ya (el paso nuevo es otra función).

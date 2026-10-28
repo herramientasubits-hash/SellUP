@@ -14,6 +14,7 @@ import {
   SERVER_CHAIN_MAX_DELAY_MS,
   SERVER_CHAIN_MIN_DELAY_MS,
   canRunOnBehalfOf,
+  continuationStep,
   decideServerChain,
   parseServerChainRequest,
   resolveOwnOrigin,
@@ -37,7 +38,7 @@ describe('decideServerChain', () => {
 
   it('terminada o inexistente, se detiene', () => {
     assert.deepEqual(decideServerChain(round('done'), 0), { kind: 'stop', reason: 'done' });
-    assert.deepEqual(decideServerChain({ ok: false, code: 'NOT_FOUND' }, 0), { kind: 'stop', reason: 'not_found' });
+    assert.deepEqual(decideServerChain({ ok: false }, 0), { kind: 'stop', reason: 'not_found' });
   });
 
   it('una espera se respeta, entre 1 y 30 segundos', () => {
@@ -53,6 +54,40 @@ describe('decideServerChain', () => {
       kind: 'stop',
       reason: 'too_many_waits',
     });
+  });
+});
+
+describe('continuationStep — la continuación de Apollo que deja una ronda en pausa', () => {
+  const base = { pendingOrganizationCount: 0, retryAfterMs: null };
+
+  it('cerrada (o agotada y cerrada en revisión): la cadena sigue con la ronda siguiente', () => {
+    assert.deepEqual(continuationStep({ ...base, status: 'finished' }), { ok: true, next: 'continue', retryAfterMs: 0 });
+    assert.deepEqual(continuationStep({ ...base, status: 'failed' }), { ok: true, next: 'continue', retryAfterMs: 0 });
+  });
+
+  it('avanzó un tramo y queda trabajo: sigue ya, sin contar como espera', () => {
+    assert.deepEqual(continuationStep({ status: 'pending_continuation', pendingOrganizationCount: 1, retryAfterMs: 2_000 }), {
+      ok: true,
+      next: 'continue',
+      retryAfterMs: 0,
+    });
+  });
+
+  it('la tiene otro (navegador o cron) o falló el tramo: espera lo que pide', () => {
+    assert.deepEqual(continuationStep({ status: 'pending_continuation', pendingOrganizationCount: 0, retryAfterMs: 2_000 }), {
+      ok: true,
+      next: 'wait',
+      retryAfterMs: 2_000,
+    });
+    assert.deepEqual(continuationStep({ status: 'processing', pendingOrganizationCount: 1, retryAfterMs: 30_000 }), {
+      ok: true,
+      next: 'wait',
+      retryAfterMs: 30_000,
+    });
+  });
+
+  it('un lote que no es de la persona detiene la cadena', () => {
+    assert.deepEqual(continuationStep({ ...base, status: 'forbidden' }), { ok: false });
   });
 });
 
@@ -147,6 +182,19 @@ describe('cableado', () => {
     assert.match(src, /resolveBulkSearchAccess\(\)/);
     assert.match(src, /access\.userId !== owner\.internalUserId/);
     assert.match(src, /signOut\(\{ scope: 'local' \}\)/);
+  });
+
+  it('antes de otra ronda sigue la continuación pendiente de la búsqueda, con la acción del navegador', () => {
+    const src = strip(read('src/modules/prospect-batches/bulk-search/bulk-search-server-runner.server.ts'));
+    assert.ok(src.indexOf('findPendingContinuationBatch(bulkSearchId)') < src.indexOf('runBulkSearchRoundForUser('));
+    assert.match(src, /continueApolloRound\(pendingBatchId\)/);
+    assert.match(src, /\.eq\('bulk_search_id', bulkSearchId\)/);
+  });
+
+  it('el rescate con Claude usa la persona que la corrida ya leyó (no una sesión cerrada)', () => {
+    const src = strip(read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts'));
+    assert.match(src, /getActiveUserId: \(\) => viewerId\(\)/);
+    assert.match(src, /scheduleClaudeRescueAfterWizardRun\(result, deps\.getActiveUserId, actionStartedAtMs\)/);
   });
 
   it('el secreto nunca viaja a una dirección sacada del pedido, ni sigue redirecciones', () => {
