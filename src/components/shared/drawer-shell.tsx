@@ -35,8 +35,17 @@ export interface DrawerShellProps {
   headerActions?: React.ReactNode;
   /** Drawer body content */
   children?: React.ReactNode;
-  /** Custom footer content (replaces actions) */
+  /**
+   * Custom footer content (replaces actions). Va dentro de la misma barra que
+   * `actions` (borde, fondo y margen): pintado tal cual, los botones quedaban
+   * pegados al borde y la esquina redondeada los cortaba (Pipeline, 27-10).
+   */
   footer?: React.ReactNode;
+  /**
+   * El `footer` ya trae su propia barra (borde, fondo y margen): se pinta tal
+   * cual para no duplicar el margen. Sólo para quien la necesita distinta.
+   */
+  footerBare?: boolean;
   /** Action buttons (usually Primary and Cancel) */
   actions?: React.ReactNode;
   /** Side from which the drawer appears */
@@ -153,6 +162,7 @@ export function DrawerShell({
   headerActions,
   children,
   footer,
+  footerBare = false,
   actions,
   side = 'right',
   size = 'md',
@@ -263,11 +273,11 @@ export function DrawerShell({
         </div>
 
         {/* Footer actions */}
-        {footer ? (
+        {footer && footerBare ? (
           footer
-        ) : actions ? (
+        ) : footer || actions ? (
           <SheetFooter className="shrink-0 flex-row flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card px-6 py-4">
-            {actions}
+            {footer ?? actions}
           </SheetFooter>
         ) : null}
       </SheetContent>
