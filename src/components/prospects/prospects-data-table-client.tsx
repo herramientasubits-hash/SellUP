@@ -515,6 +515,19 @@ export function ProspectsDataTableClient({
         ),
         cell: ({ row }) => {
           const responsible = row.original.responsible;
+          // Búsqueda de Growth o admin sin asignar: quien la lanzó no es su responsable
+          // (la regla de aprobación lo exige), así que se dice tal cual.
+          const launchedBy = row.original.launchedBy;
+          if (!responsible && launchedBy) {
+            return (
+              <span
+                className="block truncate text-xs text-text-muted"
+                title={`Lanzada por ${launchedBy.name}. Asígnale un responsable para aprobarla.`}
+              >
+                Sin asignar
+              </span>
+            );
+          }
           if (!responsible) return <EmptyCell label="Sin responsable" />;
           return (
             <span
